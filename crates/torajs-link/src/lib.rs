@@ -46,6 +46,7 @@
 
 #![deny(unsafe_code)]
 
+pub mod archive;
 pub mod exec;
 pub mod lc;
 pub mod patch;

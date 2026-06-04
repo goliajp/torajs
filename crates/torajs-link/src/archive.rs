@@ -1,0 +1,430 @@
+//! Apple `.a` static archive parser (BSD variant with `#1/N`
+//! extended name encoding).
+//!
+//! A `.a` file is the format `ar(1)` produces — a magic header
+//! followed by a sequence of fixed-size headers, each describing
+//! one packed member (typically a `.o` Mach-O object file). The
+//! linker reads `.a`s to pull in the staticlib `.o`s that satisfy
+//! the user code's undefined symbols. Apple's `ld64` and the GNU
+//! `ld` both consume the same format on macOS, so torajs-link
+//! parses it once and walks the embedded Mach-O members directly.
+//!
+//! Wire format (Apple `cctools` `man 5 ar`):
+//!
+//! ```text
+//!   [0..8]    "!<arch>\n"                       — global magic
+//!   [8..]     sequence of 60-byte headers:
+//!               name  [16 B] — usually space-padded ASCII; if
+//!                             the name starts with "#1/N " the
+//!                             real name is the first N bytes of
+//!                             the member data (BSD long-name
+//!                             extension; N is decimal ASCII).
+//!               date  [12 B ASCII decimal]
+//!               uid   [ 6 B ASCII decimal]
+//!               gid   [ 6 B ASCII decimal]
+//!               mode  [ 8 B ASCII octal]
+//!               size  [10 B ASCII decimal] — member data length
+//!                                            in bytes (includes
+//!                                            the embedded name
+//!                                            when "#1/N" is used)
+//!               fmag  [ 2 B] = "`\n" (0x60 0x0A)
+//!             member data [size bytes]
+//!             two-byte alignment pad if size is odd
+//! ```
+//!
+//! S7-A (this commit) parses the structure: returns a flat list
+//! of `ArMember { name, data }` slices into the input buffer.
+//! S7-B will walk each Mach-O member and aggregate the defined
+//! external symbols into a `SymTable`-shaped map for the link
+//! driver. S7-C wires that map into `link_to_exec` so the
+//! production swap (#9) can satisfy unresolved externs from
+//! `libtorajs_*.a`.
+
+/// Apple `.a` archive global magic — 8 bytes at the head of every
+/// file.
+pub const AR_MAGIC: &[u8; 8] = b"!<arch>\n";
+
+/// Per-member header size — 16 (name) + 12 + 6 + 6 + 8 + 10 + 2
+/// (fmag) = 60 bytes.
+pub const AR_HEADER_SIZE: usize = 60;
+
+/// `ar_fmag` literal — the 2 bytes that terminate every header.
+const AR_FMAG: &[u8; 2] = b"`\n";
+
+/// BSD long-name prefix — when `ar_name` starts with `#1/N`, the
+/// real name is the first `N` bytes of the member data and the
+/// member data effectively starts at `offset + N`.
+const BSD_LONG_NAME_PREFIX: &[u8; 3] = b"#1/";
+
+/// One parsed archive member. Both `name` and `data` borrow from
+/// the input buffer — the parser does not allocate per-member
+/// strings or copy bytes.
+#[derive(Debug, Clone, Copy)]
+pub struct ArMember<'a> {
+    /// Member name without the BSD long-name prefix bytes. For
+    /// names short enough to fit in the 16-byte `ar_name` slot,
+    /// this trims trailing spaces.
+    pub name: &'a str,
+    /// Member payload (the `.o` Mach-O bytes for code archives).
+    pub data: &'a [u8],
+}
+
+/// Parse `.a` archive bytes into a flat list of members.
+///
+/// Apple `ld64` injects a `__.SYMDEF` (or `__.SYMDEF SORTED`)
+/// pseudo-member as the first entry — a precomputed symbol →
+/// member-offset index. We skip it; the link driver re-derives the
+/// symbol table by walking each Mach-O member directly, which
+/// avoids drift between the index and the real defined-symbol set.
+///
+/// Errors as `Err(ArParseError::*)` rather than panicking so the
+/// caller can attribute the failure to a specific archive when
+/// linking against many staticlibs.
+pub fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember<'_>>, ArParseError> {
+    if bytes.len() < AR_MAGIC.len() || &bytes[..AR_MAGIC.len()] != AR_MAGIC {
+        return Err(ArParseError::BadMagic);
+    }
+
+    let mut members: Vec<ArMember<'_>> = Vec::new();
+    let mut cursor = AR_MAGIC.len();
+
+    while cursor < bytes.len() {
+        // Header lives at [cursor..cursor + 60].
+        if bytes.len() < cursor + AR_HEADER_SIZE {
+            return Err(ArParseError::TruncatedHeader { offset: cursor });
+        }
+        let header = &bytes[cursor..cursor + AR_HEADER_SIZE];
+        if &header[58..60] != AR_FMAG {
+            return Err(ArParseError::BadFmag { offset: cursor });
+        }
+
+        let raw_name = &header[0..16];
+        let size_str = trim_ascii(&header[48..58]);
+        let raw_size = parse_decimal(size_str).ok_or(ArParseError::BadSize {
+            offset: cursor,
+            field: ascii_to_owned(&header[48..58]),
+        })?;
+
+        let data_start = cursor + AR_HEADER_SIZE;
+        let data_end = data_start + raw_size;
+        if bytes.len() < data_end {
+            return Err(ArParseError::TruncatedMember {
+                offset: cursor,
+                size: raw_size,
+            });
+        }
+
+        // BSD long-name encoding: ar_name starts with "#1/N", real
+        // name is the first N bytes of member data.
+        let (member_name_bytes, member_data) =
+            if raw_name.len() >= 3 && &raw_name[..3] == BSD_LONG_NAME_PREFIX {
+                let n_str = trim_ascii(&raw_name[3..]);
+                let n = parse_decimal(n_str).ok_or(ArParseError::BadLongNameLen {
+                    offset: cursor,
+                    field: ascii_to_owned(raw_name),
+                })?;
+                if raw_size < n {
+                    return Err(ArParseError::TruncatedLongName {
+                        offset: cursor,
+                        declared: n,
+                        member_size: raw_size,
+                    });
+                }
+                // Apple `ld64` pads the long-name field with NULs
+                // up to a 4- or 8-byte boundary so the .o body
+                // that follows aligns. Trim trailing NULs so the
+                // returned name is the bare filename.
+                let raw = &bytes[data_start..data_start + n];
+                let trimmed = trim_ascii(raw);
+                let data = &bytes[data_start + n..data_end];
+                (trimmed, data)
+            } else {
+                (trim_ascii(raw_name), &bytes[data_start..data_end])
+            };
+
+        let name =
+            std::str::from_utf8(member_name_bytes).map_err(|_| ArParseError::NameNotUtf8 {
+                offset: cursor,
+                bytes: member_name_bytes.to_vec(),
+            })?;
+
+        // Skip the BSD __.SYMDEF index — we re-derive the symbol
+        // table by walking each Mach-O member directly.
+        let is_symdef =
+            name == "__.SYMDEF" || name == "__.SYMDEF SORTED" || name.starts_with("__.SYMDEF");
+        if !is_symdef {
+            members.push(ArMember {
+                name,
+                data: member_data,
+            });
+        }
+
+        // Advance past member + optional 2-byte alignment pad.
+        let mut next = data_end;
+        if raw_size % 2 != 0 && next < bytes.len() {
+            next += 1;
+        }
+        cursor = next;
+    }
+
+    Ok(members)
+}
+
+/// Errors `parse_archive` can return. Each variant carries the
+/// byte offset where the malformed structure was detected so the
+/// link driver can surface a clear "your `libfoo.a` is broken at
+/// byte X" message.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ArParseError {
+    /// File doesn't start with `"!<arch>\n"`.
+    BadMagic,
+    /// Header would extend past the end of the buffer.
+    TruncatedHeader { offset: usize },
+    /// `ar_fmag` (final 2 bytes of the header) is not `` `\n ``.
+    BadFmag { offset: usize },
+    /// `ar_size` is not ASCII decimal.
+    BadSize { offset: usize, field: String },
+    /// Member payload would extend past the end of the buffer.
+    TruncatedMember { offset: usize, size: usize },
+    /// BSD `#1/N` long-name length is not decimal.
+    BadLongNameLen { offset: usize, field: String },
+    /// `#1/N` declares a name longer than the member payload.
+    TruncatedLongName {
+        offset: usize,
+        declared: usize,
+        member_size: usize,
+    },
+    /// Member name bytes aren't valid UTF-8.
+    NameNotUtf8 { offset: usize, bytes: Vec<u8> },
+}
+
+fn trim_ascii(bytes: &[u8]) -> &[u8] {
+    let mut end = bytes.len();
+    while end > 0 && (bytes[end - 1] == b' ' || bytes[end - 1] == 0) {
+        end -= 1;
+    }
+    &bytes[..end]
+}
+
+fn parse_decimal(bytes: &[u8]) -> Option<usize> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let mut n: usize = 0;
+    for &b in bytes {
+        if !(b'0'..=b'9').contains(&b) {
+            return None;
+        }
+        n = n.checked_mul(10)?.checked_add(usize::from(b - b'0'))?;
+    }
+    Some(n)
+}
+
+fn ascii_to_owned(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a minimal valid `.a` containing a single member with
+    /// a short name (no BSD long-name encoding).
+    fn build_short_name_archive(name: &str, data: &[u8]) -> Vec<u8> {
+        assert!(name.len() <= 16);
+        let mut archive: Vec<u8> = Vec::new();
+        archive.extend_from_slice(AR_MAGIC);
+        // Header
+        let mut header = [b' '; AR_HEADER_SIZE];
+        header[..name.len()].copy_from_slice(name.as_bytes());
+        // ar_date = "0"
+        header[16] = b'0';
+        // ar_size = data.len() formatted decimal, ASCII right-padded
+        let size_str = format!("{}", data.len());
+        header[48..48 + size_str.len()].copy_from_slice(size_str.as_bytes());
+        header[58] = b'`';
+        header[59] = b'\n';
+        archive.extend_from_slice(&header);
+        archive.extend_from_slice(data);
+        if data.len() % 2 != 0 {
+            archive.push(0);
+        }
+        archive
+    }
+
+    /// Build a `.a` with a BSD long-name encoded member.
+    fn build_long_name_archive(name: &str, data: &[u8]) -> Vec<u8> {
+        let mut archive: Vec<u8> = Vec::new();
+        archive.extend_from_slice(AR_MAGIC);
+        // ar_name = "#1/N    " where N is the real name length.
+        let n = name.len();
+        let mut header = [b' '; AR_HEADER_SIZE];
+        let prefix = format!("#1/{n}");
+        header[..prefix.len()].copy_from_slice(prefix.as_bytes());
+        header[16] = b'0';
+        let total_payload = n + data.len();
+        let size_str = format!("{total_payload}");
+        header[48..48 + size_str.len()].copy_from_slice(size_str.as_bytes());
+        header[58] = b'`';
+        header[59] = b'\n';
+        archive.extend_from_slice(&header);
+        archive.extend_from_slice(name.as_bytes());
+        archive.extend_from_slice(data);
+        if total_payload % 2 != 0 {
+            archive.push(0);
+        }
+        archive
+    }
+
+    #[test]
+    fn empty_archive_parses_to_zero_members() {
+        let archive = AR_MAGIC.to_vec();
+        let members = parse_archive(&archive).unwrap();
+        assert!(members.is_empty());
+    }
+
+    #[test]
+    fn missing_magic_returns_bad_magic() {
+        assert_eq!(parse_archive(b"").err(), Some(ArParseError::BadMagic));
+        assert_eq!(parse_archive(b"hello").err(), Some(ArParseError::BadMagic));
+    }
+
+    #[test]
+    fn single_short_name_member_round_trips() {
+        let archive = build_short_name_archive("foo.o", b"hello world");
+        let members = parse_archive(&archive).unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].name, "foo.o");
+        assert_eq!(members[0].data, b"hello world");
+    }
+
+    #[test]
+    fn long_name_member_round_trips() {
+        let long_name =
+            "torajs_syscall-336520ab773edd21.torajs_syscall.f021899c1cf506ba-cgu.0.rcgu.o";
+        let archive = build_long_name_archive(long_name, b"DATA");
+        let members = parse_archive(&archive).unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].name, long_name);
+        assert_eq!(members[0].data, b"DATA");
+    }
+
+    #[test]
+    fn two_members_round_trip() {
+        // Concatenate two single-member archives' bodies under the
+        // same magic.
+        let mut archive: Vec<u8> = AR_MAGIC.to_vec();
+        let m1 = build_short_name_archive("a.o", b"AAA");
+        let m2 = build_short_name_archive("b.o", b"BBBB");
+        archive.extend_from_slice(&m1[AR_MAGIC.len()..]);
+        archive.extend_from_slice(&m2[AR_MAGIC.len()..]);
+
+        let members = parse_archive(&archive).unwrap();
+        assert_eq!(members.len(), 2);
+        assert_eq!(members[0].name, "a.o");
+        assert_eq!(members[0].data, b"AAA");
+        assert_eq!(members[1].name, "b.o");
+        assert_eq!(members[1].data, b"BBBB");
+    }
+
+    #[test]
+    fn odd_size_member_consumes_alignment_pad() {
+        // "AAA" = 3 bytes (odd) → 1 pad byte; next member follows
+        // cleanly.
+        let mut archive: Vec<u8> = AR_MAGIC.to_vec();
+        let m1 = build_short_name_archive("a.o", b"AAA");
+        let m2 = build_short_name_archive("b.o", b"BBBB");
+        archive.extend_from_slice(&m1[AR_MAGIC.len()..]);
+        archive.extend_from_slice(&m2[AR_MAGIC.len()..]);
+
+        let members = parse_archive(&archive).unwrap();
+        assert_eq!(members[0].data, b"AAA");
+        assert_eq!(members[1].data, b"BBBB");
+    }
+
+    #[test]
+    fn symdef_member_is_skipped() {
+        let mut archive: Vec<u8> = AR_MAGIC.to_vec();
+        let symdef = build_short_name_archive("__.SYMDEF", b"index-data");
+        let real = build_short_name_archive("foo.o", b"DATA");
+        archive.extend_from_slice(&symdef[AR_MAGIC.len()..]);
+        archive.extend_from_slice(&real[AR_MAGIC.len()..]);
+
+        let members = parse_archive(&archive).unwrap();
+        assert_eq!(members.len(), 1, "__.SYMDEF must be filtered out");
+        assert_eq!(members[0].name, "foo.o");
+    }
+
+    /// Walking a real Apple-emitted `.a` from the torajs build —
+    /// `libtorajs_syscall.a` has BSD long-name members + a leading
+    /// `__.SYMDEF` index. The parser must accept all of it and
+    /// return the actual `.o` members.
+    ///
+    /// Gated on the file existing (release-build script may not
+    /// have run yet on a fresh checkout). Skip if missing.
+    #[test]
+    fn real_libtorajs_syscall_archive_walks_clean() {
+        let candidates = [
+            "target/aarch64-apple-darwin/release/libtorajs_syscall.a",
+            "../../target/aarch64-apple-darwin/release/libtorajs_syscall.a",
+        ];
+        let bytes = match candidates.iter().find_map(|p| std::fs::read(p).ok()) {
+            Some(b) => b,
+            None => {
+                eprintln!("skip: libtorajs_syscall.a not built yet");
+                return;
+            }
+        };
+
+        let members = parse_archive(&bytes).expect("real .a must parse");
+        // Apple `ld64`-emitted archives have many members (each
+        // .rcgu.o chunk is one).
+        assert!(
+            !members.is_empty(),
+            "real archive should have at least one member"
+        );
+        // Every member name should be a BSD long name (matches the
+        // `target-name-hash.crate.hash-cgu.N.rcgu.o` pattern).
+        for m in &members {
+            assert!(
+                m.name.ends_with(".o"),
+                "unexpected member name {:?}",
+                m.name
+            );
+            assert!(!m.data.is_empty(), "member {:?} has empty data", m.name);
+        }
+        // The first .o member should start with the Mach-O 64
+        // magic 0xFEEDFACF (LE: CF FA ED FE).
+        assert_eq!(
+            &members[0].data[..4],
+            &[0xCF, 0xFA, 0xED, 0xFE],
+            "first .o member should start with MH_MAGIC_64",
+        );
+    }
+
+    /// Truncated header → loud error with the byte offset, not a
+    /// silent shorter `Vec`.
+    #[test]
+    fn truncated_header_errors_at_offset() {
+        let mut archive: Vec<u8> = AR_MAGIC.to_vec();
+        archive.extend_from_slice(&[0u8; 20]); // half a header
+        let err = parse_archive(&archive).unwrap_err();
+        assert!(matches!(err, ArParseError::TruncatedHeader { offset } if offset == 8));
+    }
+
+    /// Bad fmag → caller knows the file is corrupt, not a wildly
+    /// reinterpreted size field.
+    #[test]
+    fn bad_fmag_errors() {
+        let mut archive: Vec<u8> = AR_MAGIC.to_vec();
+        let mut header = [b' '; AR_HEADER_SIZE];
+        header[..3].copy_from_slice(b"a.o");
+        header[16] = b'0';
+        header[48] = b'0'; // size = 0
+        header[58] = b'X'; // wrong fmag
+        header[59] = b'X';
+        archive.extend_from_slice(&header);
+        let err = parse_archive(&archive).unwrap_err();
+        assert!(matches!(err, ArParseError::BadFmag { offset } if offset == 8));
+    }
+}
