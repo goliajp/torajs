@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-04T07:06:15.052Z",
+  "generatedAt": "2026-06-04T07:45:46.152Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "c6e6b93",
-    "commitSubject": "test(obj): otool sanity check on emitted multi-fn .o — #7 S5-c",
+    "commit": "c44e714",
+    "commitSubject": "feat(link): MH_EXECUTE emit + end-to-end exit 42 — #8 S3 + S6",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,22 @@
   },
   "commits": [
     {
+      "hash": "c44e714",
+      "subject": "feat(link): MH_EXECUTE emit + end-to-end exit 42 — #8 S3 + S6"
+    },
+    {
+      "hash": "8307cea",
+      "subject": "feat(link): apply_relocs — sym resolver + in-place reloc patching — #8 S1-B+S2"
+    },
+    {
+      "hash": "a6d080d",
+      "subject": "feat(link): torajs-link scaffold + ARM64 reloc patcher primitives — #8 S1-A"
+    },
+    {
+      "hash": "669941c",
+      "subject": "docs(hardev): dashboard snapshot @ c6e6b93 — #7 phase close"
+    },
+    {
       "hash": "c6e6b93",
       "subject": "test(obj): otool sanity check on emitted multi-fn .o — #7 S5-c"
     },
@@ -641,25 +657,9 @@
     {
       "hash": "9654f18",
       "subject": "feat(obj): torajs-obj scaffold + Mach-O 64 header — #7 S1"
-    },
-    {
-      "hash": "41e2307",
-      "subject": "feat(codegen): FP-call arg passing + ret routing — V0..V7 lane + D-form FMOV/STR — #6 S4-D"
-    },
-    {
-      "hash": "a3f4fab",
-      "subject": "feat(codegen): FP-typed Load/Store path — Type::F64 routes to LDR/STR D-form — #6 S5-gap-3"
-    },
-    {
-      "hash": "6375e2a",
-      "subject": "chore(codegen): corpus_check classifier — pre-codegen panics to upstream bucket — #6 S5-gap-4"
-    },
-    {
-      "hash": "f5f63d3",
-      "subject": "feat(codegen): compile_function cut over from trivial to Linear Scan — #6 S5 LS sub-step 4"
     }
   ],
-  "headSha": "c6e6b93",
+  "headSha": "c44e714",
   "autorun": {
     "total": 56,
     "baselineTarget": 10,
