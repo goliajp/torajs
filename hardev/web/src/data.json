@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-04T07:58:45.589Z",
+  "generatedAt": "2026-06-04T08:09:06.049Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "d9bf9fc",
-    "commitSubject": "feat(link): self-research ad-hoc codesign + exit 42 zero-external-tool — #8 S5-B+S5-C",
+    "commit": "b0023d8",
+    "commitSubject": "feat(link): archive index — defined-extern symbols per .o member — #8 S7-B",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,18 @@
   },
   "commits": [
     {
+      "hash": "b0023d8",
+      "subject": "feat(link): archive index — defined-extern symbols per .o member — #8 S7-B"
+    },
+    {
+      "hash": "c2bb8de",
+      "subject": "feat(link): apple .a archive parser — #8 S7-A"
+    },
+    {
+      "hash": "e3a85da",
+      "subject": "docs(hardev): dashboard snapshot @ d9bf9fc — #8 zero-external-tool capstone"
+    },
+    {
       "hash": "d9bf9fc",
       "subject": "feat(link): self-research ad-hoc codesign + exit 42 zero-external-tool — #8 S5-B+S5-C"
     },
@@ -645,21 +657,9 @@
     {
       "hash": "d17e5d1",
       "subject": "feat(obj): multi-fn + RelocKind→RelocationInfo translation — #7 S5-b"
-    },
-    {
-      "hash": "f7d65f9",
-      "subject": "feat(obj): write_object scaffold + acceptance for single-fn no-reloc .o — #7 S5-a"
-    },
-    {
-      "hash": "b3cbaa3",
-      "subject": "docs(hardev): dashboard snapshot @ f504b64 — #7 S4 ship"
-    },
-    {
-      "hash": "f504b64",
-      "subject": "feat(obj): relocation_info + ARM64_RELOC_{BRANCH26,PAGE21,PAGEOFF12,UNSIGNED} — #7 S4"
     }
   ],
-  "headSha": "d9bf9fc",
+  "headSha": "b0023d8",
   "autorun": {
     "total": 56,
     "baselineTarget": 10,
