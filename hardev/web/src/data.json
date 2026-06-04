@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-03T22:50:48.819Z",
+  "generatedAt": "2026-06-04T02:07:34.739Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "42690ab",
-    "commitSubject": "docs(roadmap): fix P13-close framing — spec axis only, not v1.0",
+    "commit": "3eb82c5",
+    "commitSubject": "refactor(codegen): split enc.rs into enc/{int,fp,mem,ctrl}.rs — file-size hard rule",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,55 +611,55 @@
   },
   "commits": [
     {
-      "hash": "42690ab",
-      "subject": "docs(roadmap): fix P13-close framing — spec axis only, not v1.0"
+      "hash": "3eb82c5",
+      "subject": "refactor(codegen): split enc.rs into enc/{int,fp,mem,ctrl}.rs — file-size hard rule"
     },
     {
-      "hash": "bec5c32",
-      "subject": "data(test262): full run @ 2707b50 (P13 phase close ship chain audit)"
+      "hash": "9e3bca7",
+      "subject": "feat(codegen): Br + CondBr + Unreachable + multi-block layout — #6 S5"
     },
     {
-      "hash": "2707b50",
-      "subject": "data(bench): 3-run typed-tier @ 79865f4 (P13 phase close)"
+      "hash": "ddfcaeb",
+      "subject": "feat(codegen): CallIndirect via BLR Xn — #6 S4-C"
     },
     {
-      "hash": "79865f4",
-      "subject": "data(hardev): dashboard snapshot @ 6d3c557 (P13 phase close → v1.0 substrate complete)"
+      "hash": "48d2a6b",
+      "subject": "feat(codegen): GlobalRef + StringRef + StaticStrRef + FnAddr — #6 S4-B"
     },
     {
-      "hash": "6d3c557",
-      "subject": "docs(roadmap): mark P13 phase close — module system v1.0 gate"
+      "hash": "fbf5eed",
+      "subject": "feat(codegen): Call lowering — BL + CallSite reloc + uses_calls frame — #6 S4-A"
     },
     {
-      "hash": "b1fa90b",
-      "subject": "feat(parser): dynamic `import(\"./y\")` expression for await (P13-S5)"
+      "hash": "72afb67",
+      "subject": "feat(codegen): 7 cast InstKind arms (int↔fp, ZExt, Trunc, Ptr↔Int) — #6 S3-A4"
     },
     {
-      "hash": "55292f6",
-      "subject": "feat(modules): `export { a, b } from \"./y\"` re-export (P13-S4)"
+      "hash": "f4b1f76",
+      "subject": "feat(codegen): LoadDyn + StoreDyn via register-indexed LDR/STR — #6 S3-A3"
     },
     {
-      "hash": "d6eeb05",
-      "subject": "feat(modules): namespace import `import * as M from \"./y\"` (P13-S2)"
+      "hash": "5acbff2",
+      "subject": "feat(codegen): Alloca + Load + Store end-to-end + AAPCS64 frame — #6 S3-A2"
     },
     {
-      "hash": "9b3c1aa",
-      "subject": "feat(modules): side-effect import `import \"./y\"` support (P13-S3)"
+      "hash": "f4d1129",
+      "subject": "feat(codegen): LDR/STR + STP/LDP encoders + reserve X9-X11 — #6 S3-A1"
     },
     {
-      "hash": "075b296",
-      "subject": "feat(modules): default import + export default support (P13-S1)"
+      "hash": "1796fe5",
+      "subject": "feat(codegen): ICmp + FCmp via CMP/FCMP + CSET, split compile dir — #6 S2-C"
     },
     {
-      "hash": "9dd5ee9",
-      "subject": "data(hardev): dashboard snapshot @ 8710504 (P12 phase close)"
+      "hash": "7261674",
+      "subject": "feat(codegen): wire f64 BinOp + BitCast end-to-end — #6 S2-B2"
     },
     {
-      "hash": "8710504",
-      "subject": "docs(roadmap): mark P12.4 + P12 phase close"
+      "hash": "387ec7b",
+      "subject": "feat(codegen): f64 FADD/FSUB/FMUL/FDIV + FMOV GPR↔FPR — #6 S2-B1"
     }
   ],
-  "headSha": "42690ab",
+  "headSha": "3eb82c5",
   "autorun": {
     "total": 54,
     "baselineTarget": 10,
