@@ -33,6 +33,7 @@
 mod binop;
 mod cast;
 mod cmp;
+mod mem;
 mod operand;
 
 #[cfg(test)]
@@ -49,6 +50,7 @@ use crate::reloc::Reloc;
 pub use binop::emit_binop;
 pub use cast::{emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64};
 pub use cmp::{emit_fcmp, emit_icmp};
+pub use mem::{emit_alloca, emit_load, emit_store};
 pub use operand::{materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr};
 
 /// Operand scratch GPRs — sub-modules use these to materialize int
@@ -74,19 +76,17 @@ pub struct CompiledFunction {
 /// Compile one SSA Function to aarch64 bytes.
 pub fn compile_function(func: &Function) -> CompiledFunction {
     let alloc = allocate_trivial(func);
-    let frame = FrameLayout::leaf_no_spill();
+    let frame = FrameLayout::from_alloca_bytes(alloc.raw_alloca_bytes, /*uses_calls=*/ false);
     let mut bytes: Vec<u8> = Vec::new();
     let relocs: Vec<Reloc> = Vec::new();
 
-    if !frame.is_trivial() {
-        todo!("S3+: emit AAPCS64 prologue");
-    }
+    frame.emit_prologue(&mut bytes);
 
     for block in &func.blocks {
         for inst in &block.insts {
             emit_inst(&mut bytes, inst, &alloc);
         }
-        emit_terminator(&mut bytes, &block.term);
+        emit_terminator(&mut bytes, &block.term, &frame);
     }
 
     CompiledFunction {
@@ -104,13 +104,19 @@ fn emit_inst(bytes: &mut Vec<u8>, inst: &torajs_core::ssa::Inst, alloc: &Assignm
         InstKind::FCmp(pred, lhs, rhs) => emit_fcmp(bytes, inst, *pred, lhs, rhs, alloc),
         InstKind::BitCastF64ToI64(src) => emit_bitcast_f64_to_i64(bytes, inst, src, alloc),
         InstKind::BitCastI64ToF64(src) => emit_bitcast_i64_to_f64(bytes, inst, src, alloc),
+        InstKind::Alloca(_) | InstKind::AllocaBytes(_) => emit_alloca(bytes, inst, alloc),
+        InstKind::Load(ty, ptr, offset) => emit_load(bytes, inst, ty, ptr, *offset, alloc),
+        InstKind::Store(val, ptr, offset) => emit_store(bytes, val, ptr, *offset, alloc),
         other => todo!("S2+: InstKind::{:?}", other),
     }
 }
 
-fn emit_terminator(bytes: &mut Vec<u8>, term: &Terminator) {
+fn emit_terminator(bytes: &mut Vec<u8>, term: &Terminator, frame: &FrameLayout) {
     match term {
-        Terminator::Ret(_) => write_u32(bytes, ret(Gpr::X30)),
+        Terminator::Ret(_) => {
+            frame.emit_epilogue(bytes);
+            write_u32(bytes, ret(Gpr::X30));
+        }
         other => todo!("S5: Terminator::{:?}", other),
     }
 }

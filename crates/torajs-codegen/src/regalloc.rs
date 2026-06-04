@@ -17,7 +17,7 @@
 //! replaced by real LS in S3 once Load/Store/Alloca need spill support.
 
 use std::collections::HashMap;
-use torajs_core::ssa::{Function, Terminator, Type, ValueId};
+use torajs_core::ssa::{Function, InstKind, Terminator, Type, ValueId};
 
 use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 
@@ -27,6 +27,13 @@ pub struct Assignment {
     /// Map from SSA `ValueId` (debug-stable u32) to the register class
     /// + slot it lives in for its entire lifetime under trivial alloc.
     by_value: HashMap<u32, Reg>,
+    /// Map from each `Alloca`/`AllocaBytes` result `ValueId` to its
+    /// byte offset within the frame's alloca region. Slot 0 lives at
+    /// `sp+0`, slot 1 at `sp+slot0_size`, etc.
+    alloca_offsets: HashMap<u32, u32>,
+    /// Total raw alloca bytes (sum of per-slot sizes). The frame
+    /// layout aligns this up to 16 in `FrameLayout::from_alloca_bytes`.
+    pub raw_alloca_bytes: u32,
 }
 
 impl Assignment {
@@ -42,12 +49,28 @@ impl Assignment {
     pub fn contains(&self, vid: ValueId) -> bool {
         self.by_value.contains_key(&vid.0)
     }
+
+    /// Byte offset of `vid`'s alloca slot from sp (after prologue
+    /// SUB). Panics if `vid` is not an Alloca result.
+    pub fn alloca_offset_of(&self, vid: ValueId) -> u32 {
+        *self
+            .alloca_offsets
+            .get(&vid.0)
+            .unwrap_or_else(|| panic!("ValueId({}) is not an Alloca result", vid.0))
+    }
 }
 
 /// Trivial allocator: F64 values go to FPR slots, everything else to
 /// GPR slots. The function's return value (if any) is placed in the
 /// AAPCS64 return slot (x0 for int/ptr, v0/d0 for f64); the rest get
 /// caller-saved scratch in definition order.
+///
+/// Single pass:
+///   - Detect Alloca-shaped insts, assign each its byte offset within
+///     the alloca region (slot 0 at offset 0, slot 1 at offset of
+///     slot 0's rounded-to-8 size, etc).
+///   - Assign every result `ValueId` a register from the appropriate
+///     class pool.
 ///
 /// Will panic if more than `CALLER_SAVED_SCRATCH.len()` GPR ValueIds
 /// or `FP_CALLER_SAVED_SCRATCH.len()` FPR ValueIds need scratch — S3
@@ -56,11 +79,23 @@ impl Assignment {
 pub fn allocate_trivial(func: &Function) -> Assignment {
     let ret_vid = detect_ret_value(func);
     let mut by_value: HashMap<u32, Reg> = HashMap::new();
+    let mut alloca_offsets: HashMap<u32, u32> = HashMap::new();
     let mut gpr_idx = 0usize;
     let mut fpr_idx = 0usize;
+    let mut next_alloca_offset: u32 = 0;
 
     for block in &func.blocks {
         for inst in &block.insts {
+            // Record alloca slot offset before register assignment
+            // (the alloca's *result* register holds the slot address,
+            // computed by `compile::mem::emit_alloca` as ADD reg,
+            // sp, #slot_offset).
+            if let Some(slot_size) = alloca_slot_size(&inst.kind) {
+                let result = inst.result.expect("Alloca must have result");
+                alloca_offsets.insert(result.0, next_alloca_offset);
+                next_alloca_offset += slot_size;
+            }
+
             let Some(result) = inst.result else {
                 continue; // void inst (e.g. Store)
             };
@@ -92,7 +127,38 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
         }
     }
 
-    Assignment { by_value }
+    Assignment {
+        by_value,
+        alloca_offsets,
+        raw_alloca_bytes: next_alloca_offset,
+    }
+}
+
+/// Slot byte size for an Alloca-shaped inst. Returns `None` for any
+/// other InstKind. Sizes round up to 8 to keep all slots 8-aligned.
+fn alloca_slot_size(kind: &InstKind) -> Option<u32> {
+    match kind {
+        InstKind::Alloca(ty) => Some(align_up_8(type_size_bytes(ty))),
+        InstKind::AllocaBytes(n) => Some(align_up_8(*n as u32)),
+        _ => None,
+    }
+}
+
+fn align_up_8(n: u32) -> u32 {
+    (n + 7) & !7
+}
+
+/// Byte size of an SSA `Type` for stack allocation purposes. All
+/// reference/heap types and machine-word primitives are 8 bytes;
+/// I32/Bool round up to 8 via the caller. `Void` is not allocable.
+fn type_size_bytes(ty: &Type) -> u32 {
+    match ty {
+        Type::Void => panic!("Alloca(Void) is not allocable"),
+        Type::I32 => 4,
+        Type::Bool => 1,
+        // All 64-bit primitives + every heap-shaped reference type.
+        _ => 8,
+    }
 }
 
 /// Find the ValueId returned by the function, if any. Assumes a

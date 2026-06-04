@@ -92,6 +92,58 @@ pub(crate) fn build_icmp_const(name: &str, pred: IPred, lhs: i64, rhs: i64) -> F
     }
 }
 
+/// Build the canonical S3-A2 fixture exercising Alloca + Store +
+/// Load + Ret in sequence:
+///
+/// ```text
+/// fn alloca_store_load_42() -> i64 {
+///     let p = alloca 8;
+///     *p = 42;
+///     ret *p
+/// }
+/// ```
+pub(crate) fn build_alloca_store_load_42() -> Function {
+    let v0 = ValueId(0); // Alloca result (Ptr)
+    let v1 = ValueId(1); // Load result (I64), ret
+    Function {
+        name: "alloca_store_load_42".into(),
+        params: Vec::new(),
+        ret: Type::I64,
+        values: vec![
+            ValueInfo {
+                ty: Type::Ptr,
+                name: Some("v0".into()),
+            },
+            ValueInfo {
+                ty: Type::I64,
+                name: Some("v1".into()),
+            },
+        ],
+        blocks: vec![Block {
+            id: BlockId(0),
+            insts: vec![
+                Inst {
+                    result: Some(v0),
+                    kind: InstKind::AllocaBytes(8),
+                    origin: None,
+                },
+                Inst {
+                    result: None,
+                    kind: InstKind::Store(Operand::ConstI64(42), Operand::Value(v0), 0),
+                    origin: None,
+                },
+                Inst {
+                    result: Some(v1),
+                    kind: InstKind::Load(Type::I64, Operand::Value(v0), 0),
+                    origin: None,
+                },
+            ],
+            term: Terminator::Ret(Some(Operand::Value(v1))),
+        }],
+        current_origin: None,
+    }
+}
+
 /// Build a single-block FCmp fixture with `ret: Bool`.
 pub(crate) fn build_fcmp_const(name: &str, pred: FPred, lhs: f64, rhs: f64) -> Function {
     let v0 = ValueId(0);
