@@ -51,7 +51,7 @@ torajs-mutex = { path = "../torajs-mutex" }
 torajs-syscall = { path = "../torajs-syscall" }
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "str"

@@ -16,7 +16,7 @@
 use std::hint::black_box;
 use std::ptr;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use torajs_bench::{Bench, bench_group, bench_main};
 use torajs_pool::FixedPool;
 
 #[repr(C)]
@@ -28,7 +28,7 @@ struct Node {
 
 const NEXT_OFFSET: usize = 8;
 
-fn bench_acquire_release_hot(c: &mut Criterion) {
+fn bench_acquire_release_hot(c: &mut Bench) {
     let pool: FixedPool<Node, 32> = unsafe { FixedPool::new_with_next_offset(NEXT_OFFSET) };
     // Warm the pool to capacity so every iter hits the hot pop / push path.
     let mut warm = [ptr::null_mut::<Node>(); 32];
@@ -49,7 +49,7 @@ fn bench_acquire_release_hot(c: &mut Criterion) {
     });
 }
 
-fn bench_acquire_cold(c: &mut Criterion) {
+fn bench_acquire_cold(c: &mut Bench) {
     // Drop the pool each iter to keep it empty — measures plain malloc/free.
     c.bench_function("acquire_cold_malloc_baseline", |b| {
         b.iter(|| {
@@ -62,7 +62,7 @@ fn bench_acquire_cold(c: &mut Criterion) {
     });
 }
 
-fn bench_overflow_bound(c: &mut Criterion) {
+fn bench_overflow_bound(c: &mut Bench) {
     let pool: FixedPool<Node, 8> = unsafe { FixedPool::new_with_next_offset(NEXT_OFFSET) };
     // Fill to capacity.
     let mut slots = [ptr::null_mut::<Node>(); 8];
@@ -85,10 +85,10 @@ fn bench_overflow_bound(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
+bench_group!(
     benches,
     bench_acquire_release_hot,
     bench_acquire_cold,
     bench_overflow_bound,
 );
-criterion_main!(benches);
+bench_main!(benches);

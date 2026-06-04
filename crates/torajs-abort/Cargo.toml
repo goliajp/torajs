@@ -23,7 +23,7 @@ crate-type = ["rlib", "staticlib"]
 # `unsafe extern "C"`. Vision #4 (0 Cargo deps) preserved.
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "abort"

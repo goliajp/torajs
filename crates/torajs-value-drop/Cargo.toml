@@ -24,7 +24,7 @@ torajs-rc = { path = "../torajs-rc" }
 torajs-mmalloc = { path = "../torajs-mmalloc" }
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "value_drop"

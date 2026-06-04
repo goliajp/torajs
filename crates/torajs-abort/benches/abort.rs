@@ -20,7 +20,7 @@
 //! happy-path inlined tight.
 
 use core::hint::black_box;
-use criterion::{Criterion, criterion_group, criterion_main};
+use torajs_bench::{Bench, bench_group, bench_main};
 
 /// Mimics the happy-path call-site shape: caller has a `&[u8]`,
 /// would `abort_with(msg)` on a guard miss but the guard succeeds.
@@ -36,7 +36,7 @@ fn maybe_abort(msg: &[u8], cond: bool) -> usize {
     msg.len()
 }
 
-fn bench_happy_path(c: &mut Criterion) {
+fn bench_happy_path(c: &mut Bench) {
     let msg = b"never-fires";
     c.bench_function("abort_with-happy-path-100k", |b| {
         b.iter(|| {
@@ -49,5 +49,5 @@ fn bench_happy_path(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_happy_path);
-criterion_main!(benches);
+bench_group!(benches, bench_happy_path);
+bench_main!(benches);

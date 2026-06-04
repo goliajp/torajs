@@ -42,7 +42,7 @@ torajs-syscall = { path = "../torajs-syscall" }
 # sibling staticlibs + runtime_str.c.
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "process"

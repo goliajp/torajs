@@ -12,40 +12,40 @@
 
 use std::hint::black_box;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use torajs_bench::{Bench, bench_group, bench_main};
 use torajs_ucd::{is_letter_cp, is_number_cp};
 
-fn bench_is_letter_cp_hit_cjk(c: &mut Criterion) {
+fn bench_is_letter_cp_hit_cjk(c: &mut Bench) {
     c.bench_function("is_letter_cp_hit_cjk", |b| {
         b.iter(|| is_letter_cp(black_box(0x4E2D)));
     });
 }
 
-fn bench_is_letter_cp_hit_greek(c: &mut Criterion) {
+fn bench_is_letter_cp_hit_greek(c: &mut Bench) {
     c.bench_function("is_letter_cp_hit_greek", |b| {
         b.iter(|| is_letter_cp(black_box(0x03B1)));
     });
 }
 
-fn bench_is_letter_cp_miss(c: &mut Criterion) {
+fn bench_is_letter_cp_miss(c: &mut Bench) {
     c.bench_function("is_letter_cp_miss", |b| {
         b.iter(|| is_letter_cp(black_box(0x2022)));
     });
 }
 
-fn bench_is_number_cp_hit_arabic_indic(c: &mut Criterion) {
+fn bench_is_number_cp_hit_arabic_indic(c: &mut Bench) {
     c.bench_function("is_number_cp_hit_arabic_indic", |b| {
         b.iter(|| is_number_cp(black_box(0x0665)));
     });
 }
 
-fn bench_is_number_cp_miss(c: &mut Criterion) {
+fn bench_is_number_cp_miss(c: &mut Bench) {
     c.bench_function("is_number_cp_miss", |b| {
         b.iter(|| is_number_cp(black_box(0x4E2D)));
     });
 }
 
-criterion_group!(
+bench_group!(
     benches,
     bench_is_letter_cp_hit_cjk,
     bench_is_letter_cp_hit_greek,
@@ -53,4 +53,4 @@ criterion_group!(
     bench_is_number_cp_hit_arabic_indic,
     bench_is_number_cp_miss,
 );
-criterion_main!(benches);
+bench_main!(benches);

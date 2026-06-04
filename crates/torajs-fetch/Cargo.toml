@@ -32,7 +32,7 @@ crate-type = ["rlib", "staticlib"]
 # as the other Layer-3 sub-crates.
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "fetch"

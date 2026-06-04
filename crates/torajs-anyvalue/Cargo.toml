@@ -16,7 +16,7 @@ authors.workspace = true
 workspace = true
 
 # Dual emit: `rlib` for cargo workspace builds + unit tests +
-# criterion bench harness; `staticlib` for ssa_inkwell to link
+# torajs-bench harness; `staticlib` for ssa_inkwell to link
 # into every `tr build` AOT user binary alongside libtorajs_rc.a.
 [lib]
 crate-type = ["rlib", "staticlib"]
@@ -34,7 +34,7 @@ torajs-mmalloc = { path = "../torajs-mmalloc" }
 torajs-io = { path = "../torajs-io" }
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "anyvalue"

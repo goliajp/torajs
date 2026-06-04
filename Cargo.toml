@@ -58,14 +58,6 @@ repository = "https://github.com/goliajp/torajs"
 homepage = "https://github.com/goliajp/torajs"
 authors = ["GOLIA K.K."]
 
-# Pinned shared dev/runtime deps. Sub-crates reference with
-# `<dep> = { workspace = true }`; root bump rolls through the workspace
-# in one commit.
-[workspace.dependencies]
-criterion = { version = "0.8", default-features = false, features = [
-    "cargo_bench_support",
-] }
-
 # Sub-crates opt in via `[lints] workspace = true`. Existing crates
 # without the opt-in are unaffected (kept their pre-existing lint
 # state) so this addition is non-breaking. New sub-crates land

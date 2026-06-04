@@ -33,7 +33,7 @@ torajs-mutex = { path = "../torajs-mutex" }
 # runtime_str.c (no other Cargo dep needed).
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "meta"

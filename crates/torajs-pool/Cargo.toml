@@ -18,7 +18,7 @@ workspace = true
 [dependencies]
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "pool"

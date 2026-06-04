@@ -18,7 +18,7 @@
 use std::ffi::c_void;
 use std::hint::black_box;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use torajs_bench::{Bench, bench_group, bench_main};
 use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, FLAG_STATIC_LITERAL, HeapHeader, Tag};
 
 // bench binary needs the WeakRef hook; runtime_weakref.c would
@@ -27,7 +27,7 @@ use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, FLAG_STATIC_LITERAL, HeapHeade
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
 
-fn bench_inc_dec_pair_ffi(c: &mut Criterion) {
+fn bench_inc_dec_pair_ffi(c: &mut Bench) {
     let mut h = HeapHeader::new(Tag::Obj);
     let p = &mut h as *mut HeapHeader as *mut c_void;
 
@@ -39,7 +39,7 @@ fn bench_inc_dec_pair_ffi(c: &mut Criterion) {
     });
 }
 
-fn bench_inc_dec_pair_method(c: &mut Criterion) {
+fn bench_inc_dec_pair_method(c: &mut Bench) {
     let mut h = HeapHeader::new(Tag::Obj);
 
     c.bench_function("inc_dec_pair_method", |b| {
@@ -50,7 +50,7 @@ fn bench_inc_dec_pair_method(c: &mut Criterion) {
     });
 }
 
-fn bench_inc_null(c: &mut Criterion) {
+fn bench_inc_null(c: &mut Bench) {
     c.bench_function("inc_null_passthrough", |b| {
         b.iter(|| {
             unsafe { __torajs_rc_inc(black_box(std::ptr::null_mut())) };
@@ -58,7 +58,7 @@ fn bench_inc_null(c: &mut Criterion) {
     });
 }
 
-fn bench_inc_static_literal(c: &mut Criterion) {
+fn bench_inc_static_literal(c: &mut Bench) {
     let mut h = HeapHeader::new(Tag::Str);
     h.flags |= FLAG_STATIC_LITERAL;
     let p = &mut h as *mut HeapHeader as *mut c_void;
@@ -70,11 +70,11 @@ fn bench_inc_static_literal(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
+bench_group!(
     benches,
     bench_inc_dec_pair_ffi,
     bench_inc_dec_pair_method,
     bench_inc_null,
     bench_inc_static_literal
 );
-criterion_main!(benches);
+bench_main!(benches);

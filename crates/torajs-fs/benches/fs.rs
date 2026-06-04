@@ -3,13 +3,13 @@
 //! microbench inside cargo. End-to-end coverage via the conformance
 //! gate's `fs` fixtures.
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use torajs_bench::{Bench, bench_group, bench_main};
 
-fn bench_placeholder(c: &mut Criterion) {
+fn bench_placeholder(c: &mut Bench) {
     c.bench_function("fs_placeholder", |b| {
         b.iter(|| 42i64);
     });
 }
 
-criterion_group!(benches, bench_placeholder);
-criterion_main!(benches);
+bench_group!(benches, bench_placeholder);
+bench_main!(benches);

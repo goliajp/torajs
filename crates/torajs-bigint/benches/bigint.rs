@@ -7,8 +7,8 @@
 //! mul chains.
 
 use core::hint::black_box;
-use criterion::{Criterion, criterion_group, criterion_main};
 use std::ffi::c_void;
+use torajs_bench::{Bench, bench_group, bench_main};
 
 use torajs_bigint::{
     __torajs_bigint_add, __torajs_bigint_drop, __torajs_bigint_from_i64, __torajs_bigint_mul,
@@ -36,7 +36,7 @@ fn build_large() -> *mut u8 {
     x3
 }
 
-fn bench_add_small(c: &mut Criterion) {
+fn bench_add_small(c: &mut Bench) {
     let a = from_i64(12345);
     let b = from_i64(67890);
     c.bench_function("bigint_add-i64-10k", |b_| {
@@ -58,7 +58,7 @@ fn bench_add_small(c: &mut Criterion) {
     }
 }
 
-fn bench_mul_multi_limb(c: &mut Criterion) {
+fn bench_mul_multi_limb(c: &mut Bench) {
     let a = build_large();
     let b = build_large();
     c.bench_function("bigint_mul-multi-limb-1k", |b_| {
@@ -80,5 +80,5 @@ fn bench_mul_multi_limb(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, bench_add_small, bench_mul_multi_limb);
-criterion_main!(benches);
+bench_group!(benches, bench_add_small, bench_mul_multi_limb);
+bench_main!(benches);

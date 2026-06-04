@@ -7,11 +7,11 @@
 //! input happens to be NULL (e.g. an empty Array<Any> slot).
 
 use core::hint::black_box;
-use criterion::{Criterion, criterion_group, criterion_main};
+use torajs_bench::{Bench, bench_group, bench_main};
 
 use torajs_value_drop::__torajs_value_drop_heap;
 
-fn bench_null_input(c: &mut Criterion) {
+fn bench_null_input(c: &mut Bench) {
     c.bench_function("value_drop_heap-null-100k", |b| {
         b.iter(|| {
             for _ in 0..100_000 {
@@ -21,5 +21,5 @@ fn bench_null_input(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_null_input);
-criterion_main!(benches);
+bench_group!(benches, bench_null_input);
+bench_main!(benches);

@@ -38,7 +38,7 @@ torajs-io = { path = "../torajs-io" }
 torajs-fmt = { path = "../torajs-fmt" }
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "arr"

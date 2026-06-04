@@ -15,7 +15,7 @@ authors.workspace = true
 [lints]
 workspace = true
 
-# Dual emit: `rlib` for cargo workspace builds + unit tests + criterion
+# Dual emit: `rlib` for cargo workspace builds + unit tests + torajs-bench
 # bench harness; `staticlib` emits libtorajs_num.a so ssa_inkwell can
 # link it into every `tr build` AOT user binary alongside libtorajs_str.a
 # and the other Layer-1+ staticlibs.
@@ -43,7 +43,7 @@ torajs-math = { path = "../torajs-math" }
 # invalid numeric conversion edge cases).
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "num"

@@ -8,13 +8,13 @@
 //! to millions of times per run.
 
 use core::hint::black_box;
-use criterion::{Criterion, criterion_group, criterion_main};
+use torajs_bench::{Bench, bench_group, bench_main};
 
 use torajs_capture_box::{
     __torajs_capture_box_alloc, __torajs_capture_box_drop, __torajs_capture_box_inc,
 };
 
-fn bench_alloc_inc_drop_cycle(c: &mut Criterion) {
+fn bench_alloc_inc_drop_cycle(c: &mut Bench) {
     c.bench_function("alloc-inc-drop-cycle-100k", |b| {
         b.iter(|| {
             for i in 0..100_000i64 {
@@ -36,7 +36,7 @@ fn bench_alloc_inc_drop_cycle(c: &mut Criterion) {
     });
 }
 
-fn bench_alloc_drop_no_inc(c: &mut Criterion) {
+fn bench_alloc_drop_no_inc(c: &mut Bench) {
     // The "promoted-but-never-captured" edge case — drop on a
     // never-inc'd box. Each iter alloc + drop; the at-zero-obs
     // arm fires and frees. Measures the rc=0 fast-free path.
@@ -50,5 +50,5 @@ fn bench_alloc_drop_no_inc(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_alloc_inc_drop_cycle, bench_alloc_drop_no_inc);
-criterion_main!(benches);
+bench_group!(benches, bench_alloc_inc_drop_cycle, bench_alloc_drop_no_inc);
+bench_main!(benches);

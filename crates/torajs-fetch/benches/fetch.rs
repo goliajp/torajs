@@ -4,9 +4,9 @@
 //! resolve the [[bench]] entry. Real fetch latency is measured by
 //! the integrated bench corpus's `fetch` case (when added).
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use torajs_bench::{Bench, bench_group, bench_main};
 
-fn bench_placeholder(c: &mut Criterion) {
+fn bench_placeholder(c: &mut Bench) {
     c.bench_function("fetch_placeholder", |b| {
         b.iter(|| {
             // Intentionally empty — real fetch is not unit-testable
@@ -16,5 +16,5 @@ fn bench_placeholder(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_placeholder);
-criterion_main!(benches);
+bench_group!(benches, bench_placeholder);
+bench_main!(benches);

@@ -4,7 +4,7 @@
 //! - slice 64-byte input (CSV / JSON parsing fast path)
 
 use core::hint::black_box;
-use criterion::{Criterion, criterion_group, criterion_main};
+use torajs_bench::{Bench, bench_group, bench_main};
 
 use torajs_str::{__torajs_str_eq, __torajs_str_free, __torajs_str_slice, StrBlock};
 
@@ -15,7 +15,7 @@ fn make_str(payload: &[u8]) -> *mut u8 {
     b.into_raw()
 }
 
-fn bench_alloc_free_cycle(c: &mut Criterion) {
+fn bench_alloc_free_cycle(c: &mut Bench) {
     c.bench_function("str_alloc_free_8byte-100k", |b| {
         b.iter(|| {
             for _ in 0..100_000 {
@@ -26,7 +26,7 @@ fn bench_alloc_free_cycle(c: &mut Criterion) {
     });
 }
 
-fn bench_eq_short(c: &mut Criterion) {
+fn bench_eq_short(c: &mut Bench) {
     let a = make_str(b"hello-world-from-torajs-str-bench-corpus-aaaaaaa");
     let b = make_str(b"hello-world-from-torajs-str-bench-corpus-aaaaaaa");
     c.bench_function("str_eq_48byte-100k", |bench| {
@@ -44,7 +44,7 @@ fn bench_eq_short(c: &mut Criterion) {
     }
 }
 
-fn bench_slice_64byte(c: &mut Criterion) {
+fn bench_slice_64byte(c: &mut Bench) {
     let s = make_str(b"the-quick-brown-fox-jumps-over-the-lazy-dog-aaaaaaaaaaaaaaaaa");
     c.bench_function("str_slice_64byte-100k", |b| {
         b.iter(|| {
@@ -57,10 +57,10 @@ fn bench_slice_64byte(c: &mut Criterion) {
     unsafe { __torajs_str_free(s) };
 }
 
-criterion_group!(
+bench_group!(
     benches,
     bench_alloc_free_cycle,
     bench_eq_short,
     bench_slice_64byte
 );
-criterion_main!(benches);
+bench_main!(benches);

@@ -16,7 +16,7 @@ authors.workspace = true
 workspace = true
 
 # Dual crate-type: `rlib` for cargo workspace builds + unit tests +
-# criterion bench harness; `staticlib` emits libtorajs_rc.a so the
+# torajs-bench harness; `staticlib` emits libtorajs_rc.a so the
 # `tr build` link step in ssa_inkwell.rs can co-link it with the
 # user binary alongside the runtime_*.c object files. The staticlib
 # is what carries `__torajs_rc_inc` / `__torajs_rc_dec` into final
@@ -28,7 +28,7 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "rc"

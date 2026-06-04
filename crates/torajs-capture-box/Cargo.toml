@@ -28,7 +28,7 @@ crate-type = ["rlib", "staticlib"]
 # share that crate's drop dispatch).
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "capture_box"

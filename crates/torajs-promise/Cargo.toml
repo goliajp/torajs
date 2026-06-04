@@ -26,7 +26,7 @@ crate-type = ["rlib", "staticlib"]
 torajs-mmalloc = { path = "../torajs-mmalloc" }
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "promise"

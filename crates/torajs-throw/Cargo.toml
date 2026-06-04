@@ -22,7 +22,7 @@ workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dev-dependencies]
-criterion = { workspace = true }
+torajs-bench = { path = "../torajs-bench" }
 
 [[bench]]
 name = "throw"

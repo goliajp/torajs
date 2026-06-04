@@ -3,7 +3,7 @@
 //! 1-10 tasks; we measure the per-task overhead across batch sizes.
 
 use core::hint::black_box;
-use criterion::{Criterion, criterion_group, criterion_main};
+use torajs_bench::{Bench, bench_group, bench_main};
 
 use torajs_microtask::{
     __torajs_microtask_enqueue, __torajs_microtask_pending_count,
@@ -21,7 +21,7 @@ fn drain_clean() {
     assert_eq!(unsafe { __torajs_microtask_pending_count() }, 0);
 }
 
-fn bench_enqueue_drain_burst_8(c: &mut Criterion) {
+fn bench_enqueue_drain_burst_8(c: &mut Bench) {
     let f: MicrotaskFn = task_noop;
     c.bench_function("microtask_enqueue_drain_burst_8-10k", |b| {
         b.iter(|| {
@@ -36,7 +36,7 @@ fn bench_enqueue_drain_burst_8(c: &mut Criterion) {
     drain_clean();
 }
 
-fn bench_enqueue_drain_burst_64(c: &mut Criterion) {
+fn bench_enqueue_drain_burst_64(c: &mut Bench) {
     let f: MicrotaskFn = task_noop;
     c.bench_function("microtask_enqueue_drain_burst_64-1k", |b| {
         b.iter(|| {
@@ -51,9 +51,9 @@ fn bench_enqueue_drain_burst_64(c: &mut Criterion) {
     drain_clean();
 }
 
-criterion_group!(
+bench_group!(
     benches,
     bench_enqueue_drain_burst_8,
     bench_enqueue_drain_burst_64
 );
-criterion_main!(benches);
+bench_main!(benches);

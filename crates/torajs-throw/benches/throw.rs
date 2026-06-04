@@ -7,13 +7,13 @@
 //! rare and not perf-sensitive.
 
 use core::hint::black_box;
-use criterion::{Criterion, criterion_group, criterion_main};
+use torajs_bench::{Bench, bench_group, bench_main};
 
 use torajs_throw::{
     __torajs_throw_check, __torajs_throw_set, __torajs_throw_take, __torajs_throw_take_tag,
 };
 
-fn bench_check_happy_path(c: &mut Criterion) {
+fn bench_check_happy_path(c: &mut Bench) {
     // Make sure slot is clear.
     unsafe {
         __torajs_throw_set(0, 0);
@@ -30,7 +30,7 @@ fn bench_check_happy_path(c: &mut Criterion) {
     });
 }
 
-fn bench_set_take_cycle(c: &mut Criterion) {
+fn bench_set_take_cycle(c: &mut Bench) {
     c.bench_function("throw_set_take_cycle-100k", |b| {
         b.iter(|| {
             for i in 0..100_000i64 {
@@ -44,5 +44,5 @@ fn bench_set_take_cycle(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_check_happy_path, bench_set_take_cycle);
-criterion_main!(benches);
+bench_group!(benches, bench_check_happy_path, bench_set_take_cycle);
+bench_main!(benches);
