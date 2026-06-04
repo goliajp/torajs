@@ -48,7 +48,7 @@ use torajs_core::ssa::{BlockId, Function, InstKind, Terminator};
 use crate::enc::{b_imm26, brk_imm16, cbnz_x, ret};
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
-use crate::regalloc::{Assignment, allocate_trivial};
+use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 
 pub use binop::emit_binop;
@@ -93,9 +93,10 @@ pub struct CompiledFunction {
 }
 
 /// Compile one SSA Function to aarch64 bytes — convenience wrapper
-/// over [`compile_function_with`] that uses the trivial allocator.
+/// over [`compile_function_with`] that uses the Linear Scan
+/// allocator (LS-4 cut-over from trivial).
 pub fn compile_function(func: &Function) -> CompiledFunction {
-    compile_function_with(func, allocate_trivial(func))
+    compile_function_with(func, crate::linear_scan::allocate_linear_scan(func))
 }
 
 /// Compile one SSA Function to aarch64 bytes using a pre-computed
