@@ -19,3 +19,4 @@
 //! lands in S5.
 
 pub mod header;
+pub mod segment;
