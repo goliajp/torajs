@@ -19,41 +19,23 @@ use torajs_obj::{
 
 use crate::archive::ArMember;
 use crate::member_reloc::{MemberRelocEntry, MemberRelocError, parse_member_text_relocs};
+use crate::non_text_layout::NonTextSectionLayout;
 use crate::patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
 use crate::resolve::SymTable;
 
-/// Reloc target post-classification — feeds the patcher's
-/// section-vs-extern dispatch in SD-4c-prereq-b.
-///
-/// Currently only the section-keyed (`r_extern = 0`) case has a
-/// variant; the extern-keyed path stays inline in
-/// [`apply_member_relocs`] until prereq-b promotes both arms behind
-/// this enum.
+/// Reloc target post-classification (SD-4c-prereq-a/b).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatchKind {
-    /// `r_extern = 0` — target is a member-internal *section*. The
-    /// `section_index` is the 1-based ordinal stuffed in
-    /// `r_symbolnum` (Mach-O sections are 8-bit per `nlist.n_sect`);
-    /// `addend` is the accumulated 24-bit signed value collected from
-    /// any preceding `ARM64_RELOC_ADDEND` meta-reloc. Used by rustc /
-    /// cc to reference local constants (`__TEXT,__cstring` panic
-    /// literals, `__TEXT,__const` jump tables, …).
+    /// `r_extern = 0` — target is a member-internal section.
+    /// `section_index` is the 1-based ordinal from `r_symbolnum`;
+    /// `addend` carries any pending `ARM64_RELOC_ADDEND` value.
     SectionRef { section_index: u8, addend: i64 },
 }
 
 /// Classify a section-keyed (`r_extern = 0`) reloc into a
-/// [`PatchKind::SectionRef`]. Returns `None` for extern-keyed relocs
-/// (`r_extern = 1`) — those keep flowing through the existing
-/// named-symbol path in [`apply_member_relocs`]. `pending_addend` is
-/// the accumulated 24-bit signed value from any preceding
-/// `ARM64_RELOC_ADDEND` meta-reloc.
-///
-/// **Not yet wired into [`apply_member_relocs`]** — SD-4c-prereq-a
-/// adds the classifier without changing any caller behaviour; the
-/// dispatch hook lands in SD-4c-prereq-b once the member-section
-/// layout helper exists. Out-of-range `r_symbolnum` (> 255) returns
-/// `None` here; strict validation moves into the prereq-b call site
-/// where the member's section count is known.
+/// [`PatchKind::SectionRef`]. Returns `None` for `r_extern = 1`
+/// (those keep flowing through the named-symbol path) or for
+/// `r_symbolnum > 255` (strict validation moves to the call site).
 pub fn classify_section_reloc(entry: &MemberRelocEntry, pending_addend: i64) -> Option<PatchKind> {
     if entry.r_extern != 0 {
         return None;
@@ -97,11 +79,6 @@ pub enum MemberRelocApplyError {
     /// Member referenced a symbol no archive / sym_table defines —
     /// link is incomplete.
     UnresolvedSymbol { name: String },
-    /// `r_extern = 0` (section-keyed reloc). Real `libtorajs_*.a`
-    /// members emitted by rustc / cc may use these for local jumps;
-    /// S7-C5 ships extern-only support, section-keyed lands later
-    /// when production smoke surfaces it.
-    SectionBasedRelocUnsupported { r_address: u32 },
     /// `r_extern = 0` reloc carried an `r_symbolnum` that doesn't fit
     /// a Mach-O 8-bit section index, or names a section past the end
     /// of the member's section table. Surfaced from SD-4c-prereq-b's
@@ -162,6 +139,7 @@ pub fn apply_member_relocs(
     member: &ArMember<'_>,
     member_vaddr: u64,
     sym_table: &SymTable,
+    non_text_sections: &[NonTextSectionLayout],
 ) -> Result<(), MemberRelocApplyError> {
     let relocs = parse_member_text_relocs(member)?;
     if relocs.is_empty() {
@@ -193,21 +171,54 @@ pub fn apply_member_relocs(
             continue;
         }
 
-        if r.r_extern == 0 {
-            return Err(MemberRelocApplyError::SectionBasedRelocUnsupported {
-                r_address: r.r_address,
-            });
-        }
-        if r.r_symbolnum >= symtab.nsyms {
-            return Err(MemberRelocApplyError::SymbolnumOutOfRange {
+        // SD-4c-prereq-b3 — dispatch r_extern=0 (section-keyed)
+        // relocs through `classify_section_reloc` + lookup in
+        // `non_text_sections`. The named-sym path stays unchanged
+        // for r_extern=1.
+        let sym_vaddr = if let Some(PatchKind::SectionRef {
+            section_index,
+            addend,
+        }) = classify_section_reloc(r, pending_addend)
+        {
+            let layout = non_text_sections
+                .iter()
+                .find(|s| s.section_index == section_index)
+                .ok_or(MemberRelocApplyError::SectionNotInMember { section_index })?;
+            // Replace pending_addend with the classified addend so
+            // the shared post-dispatch arithmetic still applies it
+            // exactly once.
+            pending_addend = addend;
+            layout.final_vaddr
+        } else if r.r_extern == 0 {
+            // classify returned None for an r_extern=0 entry — only
+            // possible when r_symbolnum > 255 (per
+            // classify_section_reloc's strict-validation deferral).
+            return Err(MemberRelocApplyError::InvalidSectionIndex {
                 r_symbolnum: r.r_symbolnum,
-                nsyms: symtab.nsyms,
+                nsects: non_text_sections.len(),
             });
-        }
-        let name = read_nlist_name(member, &symtab, r.r_symbolnum)?;
-        let sym_vaddr = *sym_table
-            .get(&name)
-            .ok_or(MemberRelocApplyError::UnresolvedSymbol { name: name.clone() })?;
+        } else {
+            if r.r_symbolnum >= symtab.nsyms {
+                return Err(MemberRelocApplyError::SymbolnumOutOfRange {
+                    r_symbolnum: r.r_symbolnum,
+                    nsyms: symtab.nsyms,
+                });
+            }
+            let name = read_nlist_name(member, &symtab, r.r_symbolnum)?;
+            if let Some(&v) = sym_table.get(&name) {
+                v
+            } else if let Some(v) = resolve_local_nsect(
+                member,
+                &symtab,
+                r.r_symbolnum,
+                member_vaddr,
+                non_text_sections,
+            ) {
+                v
+            } else {
+                return Err(MemberRelocApplyError::UnresolvedSymbol { name: name.clone() });
+            }
+        };
         // Apply (then clear) the pending addend from any preceding
         // ARM64_RELOC_ADDEND. Sign-extension is preserved through
         // the wrapping add — Mach-O addends commonly point past
@@ -427,6 +438,46 @@ fn read_nlist_name(
         .map_err(|_| MemberRelocApplyError::NameNotUtf8 { sym_index })
 }
 
+/// Resolve a member's reloc that targets a *local* `N_SECT` symbol
+/// (a name in the member's symtab whose `n_type` is `N_SECT` with no
+/// `N_EXT` bit — e.g. rustc's `l_anon.*` panic-string labels). The
+/// link driver's `sym_table` only carries externally-exported names,
+/// so locals fall through to this lookup. Returns `None` when the
+/// nlist entry isn't a local section symbol or the target section
+/// isn't in `non_text_sections` / isn't `__text`.
+fn resolve_local_nsect(
+    member: &ArMember<'_>,
+    symtab: &MemberSymtab,
+    r_symbolnum: u32,
+    member_vaddr: u64,
+    non_text_sections: &[NonTextSectionLayout],
+) -> Option<u64> {
+    const N_TYPE_MASK: u8 = 0x0E;
+    const N_SECT_TYPE: u8 = 0x0E;
+    let bytes = member.data;
+    let nlist_off = symtab.symoff as usize + r_symbolnum as usize * NLIST_64_SIZE as usize;
+    let n_type = bytes[nlist_off + 4];
+    let n_sect = bytes[nlist_off + 5];
+    if (n_type & N_TYPE_MASK) != N_SECT_TYPE || n_sect == 0 {
+        return None;
+    }
+    let n_value = u64::from_le_bytes(bytes[nlist_off + 8..nlist_off + 16].try_into().unwrap());
+    if let Some(layout) = non_text_sections.iter().find(|s| s.section_index == n_sect) {
+        // For .o files section.addr is typically 0, so n_value is
+        // the offset within the section; final target lives at
+        // section.final_vaddr + n_value.
+        Some(layout.final_vaddr + n_value)
+    } else if n_sect == 1 {
+        // Conventional rustc-emit layout puts __TEXT,__text at
+        // section_index 1; compute_non_text_layouts filters it out
+        // so the lookup above misses. member_vaddr is where __text
+        // lands in the final image.
+        Some(member_vaddr + n_value)
+    } else {
+        None
+    }
+}
+
 fn read_u32_le(bytes: &[u8], off: usize) -> u32 {
     u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap())
 }
@@ -509,8 +560,14 @@ mod tests {
         let pre = bytes.clone();
 
         let sym_table = SymTable::new();
-        apply_member_relocs(&mut bytes, &members[0], 0x0000_0001_0000_4000, &sym_table)
-            .expect("noop on leaf");
+        apply_member_relocs(
+            &mut bytes,
+            &members[0],
+            0x0000_0001_0000_4000,
+            &sym_table,
+            &[],
+        )
+        .expect("noop on leaf");
         assert_eq!(bytes, pre, "leaf member bytes must stay untouched");
     }
 
@@ -541,7 +598,7 @@ mod tests {
         let mut sym_table = SymTable::new();
         sym_table.insert("_bar".into(), 0x0000_0001_0000_5000u64);
 
-        apply_member_relocs(&mut bytes, &members[0], member_vaddr, &sym_table)
+        apply_member_relocs(&mut bytes, &members[0], member_vaddr, &sym_table, &[])
             .expect("apply_member_relocs");
 
         // Site = member_vaddr + 0 = 0x100004000; target = 0x100005000.
@@ -707,7 +764,7 @@ mod tests {
         let mut bytes = members[0].data[off..end].to_vec();
 
         let sym_table = SymTable::new();
-        let err = apply_member_relocs(&mut bytes, &members[0], 0x100004000, &sym_table)
+        let err = apply_member_relocs(&mut bytes, &members[0], 0x100004000, &sym_table, &[])
             .expect_err("missing _bar must fail");
         match err {
             MemberRelocApplyError::UnresolvedSymbol { name } => assert_eq!(name, "_bar"),

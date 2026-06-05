@@ -92,12 +92,17 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         let off = m.member_text_offset_in_member as usize;
         let end = off + m.text_size as usize;
         let mut bytes = member.data[off..end].to_vec();
-        apply_member_relocs(&mut bytes, member, m.vaddr, &effective_sym_table).map_err(|err| {
-            ArchiveLayoutError::MemberReloc {
-                archive_idx: m.key.0,
-                member_idx: m.key.1,
-                err,
-            }
+        apply_member_relocs(
+            &mut bytes,
+            member,
+            m.vaddr,
+            &effective_sym_table,
+            &m.non_text_sections,
+        )
+        .map_err(|err| ArchiveLayoutError::MemberReloc {
+            archive_idx: m.key.0,
+            member_idx: m.key.1,
+            err,
         })?;
         member_text_payloads.push(bytes);
     }
