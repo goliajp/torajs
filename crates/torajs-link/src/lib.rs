@@ -50,6 +50,7 @@ pub mod archive;
 pub mod archive_emit;
 pub mod archive_link;
 pub mod archives_merge;
+pub mod dyld_syms;
 pub mod exec;
 pub mod lc;
 pub mod member_apply;
@@ -68,6 +69,7 @@ pub use archives_merge::{
     ArchiveLinkError, ArchiveMergeError, MergedArchives, MergedSymbol, RequiredMembers,
     compute_required_members, merge_archive_indexes, parse_member_undef_externs,
 };
+pub use dyld_syms::{is_libsystem_resolved, libsystem_sym_count};
 pub use exec::{ExecLayout, LinkConfig, compute_layout, link_to_exec};
 pub use member_apply::{MemberRelocApplyError, apply_member_relocs};
 pub use member_reloc::{MemberRelocEntry, MemberRelocError, parse_member_text_relocs};

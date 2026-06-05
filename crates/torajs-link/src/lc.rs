@@ -19,6 +19,8 @@ pub const MH_PIE: u32 = 0x0020_0000;
 /// `LC_REQ_DYLD` — flag bit signalling that dyld must understand
 /// this load command type or refuse to load the image.
 pub const LC_REQ_DYLD: u32 = 0x8000_0000;
+/// `LC_LOAD_DYLIB` — bind a dynamic library at exec time.
+pub const LC_LOAD_DYLIB: u32 = 0xC;
 /// `LC_LOAD_DYLINKER` — points at `/usr/lib/dyld`.
 pub const LC_LOAD_DYLINKER: u32 = 0xE;
 /// `LC_DYSYMTAB` — symbol partition (local / extdef / undef).
@@ -47,6 +49,27 @@ pub const PAGEZERO_VMSIZE: u64 = 0x1_0000_0000;
 
 pub(crate) const DYLINKER_PATH: &str = "/usr/lib/dyld";
 
+/// `libSystem.B.dylib` path — single dyld substrate for SD-1
+/// (libcurl etc. deferred to SD-1+).
+pub(crate) const LIBSYSTEM_PATH: &str = "/usr/lib/libSystem.B.dylib";
+
+/// libSystem.B.dylib `current_version`, encoded as nibbles
+/// `X.Y.Z = (X<<16)|(Y<<8)|Z`. `1356.0.0` matches macOS 14+
+/// (verified via `otool -L` of an `ssa_inkwell`-built production
+/// binary at HEAD `cd546fa`).
+pub const LIBSYSTEM_CURRENT_VERSION: u32 = 1356u32 << 16;
+
+/// libSystem.B.dylib `compatibility_version` = `1.0.0` — the
+/// published stable contract dyld validates the binding against.
+pub const LIBSYSTEM_COMPAT_VERSION: u32 = 1u32 << 16;
+
+/// `LC_LOAD_DYLIB` cmdsize for the libSystem path:
+///   header  = 24 bytes (cmd + cmdsize + name_off + timestamp +
+///                       current_version + compatibility_version)
+///   name    = 26 bytes "/usr/lib/libSystem.B.dylib" + 1 NUL = 27
+///   total   = 51 bytes → pad to 8-byte boundary → 56
+pub const LOAD_DYLIB_LIBSYSTEM_CMDSIZE: u32 = 56;
+
 /// `LC_LOAD_DYLINKER` payload = 12 bytes (cmd + cmdsize + name
 /// offset) + dylinker path (NUL-terminated) padded to 8-byte
 /// boundary. For "/usr/lib/dyld\0" (14 B) → 12 + 14 = 26, round
@@ -72,6 +95,29 @@ pub const LC_CODE_SIGNATURE: u32 = 0x1D;
 pub const LINKEDIT_DATA_CMDSIZE: u32 = 16;
 
 // ---- Writers ----
+
+/// Append `LC_LOAD_DYLIB /usr/lib/libSystem.B.dylib` — the SD-1
+/// dyld substrate. Bundles all libSystem symbols (malloc / pthread /
+/// unwind / dyld helpers / syscalls); per-symbol stubs land in SD-2.
+///
+/// Timestamp is set to `2` to match what `ld64` historically emits
+/// when no real build stamp is available; dyld ignores the field.
+pub fn write_load_dylib_libsystem(buf: &mut Vec<u8>) {
+    let start = buf.len();
+    let name_bytes = LIBSYSTEM_PATH.as_bytes();
+    buf.extend_from_slice(&LC_LOAD_DYLIB.to_le_bytes());
+    buf.extend_from_slice(&LOAD_DYLIB_LIBSYSTEM_CMDSIZE.to_le_bytes());
+    buf.extend_from_slice(&24u32.to_le_bytes()); // name field offset (after header)
+    buf.extend_from_slice(&2u32.to_le_bytes()); // timestamp placeholder
+    buf.extend_from_slice(&LIBSYSTEM_CURRENT_VERSION.to_le_bytes());
+    buf.extend_from_slice(&LIBSYSTEM_COMPAT_VERSION.to_le_bytes());
+    buf.extend_from_slice(name_bytes);
+    buf.push(0); // NUL terminator
+    while (buf.len() - start) < (LOAD_DYLIB_LIBSYSTEM_CMDSIZE as usize) {
+        buf.push(0);
+    }
+    debug_assert_eq!(buf.len() - start, LOAD_DYLIB_LIBSYSTEM_CMDSIZE as usize);
+}
 
 /// Append `LC_LOAD_DYLINKER` carrying `/usr/lib/dyld`. cmdsize is
 /// fixed at 32 so the trailing NUL + zero padding land at 8-byte
@@ -155,6 +201,55 @@ pub fn write_dysymtab(buf: &mut Vec<u8>, nextdefsym: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn load_dylib_libsystem_layout_matches_spec() {
+        let mut buf = Vec::new();
+        write_load_dylib_libsystem(&mut buf);
+        assert_eq!(buf.len(), LOAD_DYLIB_LIBSYSTEM_CMDSIZE as usize);
+        // cmd
+        assert_eq!(
+            u32::from_le_bytes(buf[0..4].try_into().unwrap()),
+            LC_LOAD_DYLIB
+        );
+        // cmdsize = 56
+        assert_eq!(u32::from_le_bytes(buf[4..8].try_into().unwrap()), 56);
+        // name field offset = 24 (skip the 24-byte header)
+        assert_eq!(u32::from_le_bytes(buf[8..12].try_into().unwrap()), 24);
+        // timestamp placeholder = 2
+        assert_eq!(u32::from_le_bytes(buf[12..16].try_into().unwrap()), 2);
+        // current_version = 1356.0.0 = 0x054C_0000
+        assert_eq!(
+            u32::from_le_bytes(buf[16..20].try_into().unwrap()),
+            LIBSYSTEM_CURRENT_VERSION
+        );
+        assert_eq!(LIBSYSTEM_CURRENT_VERSION, 0x054C_0000);
+        // compatibility_version = 1.0.0 = 0x0001_0000
+        assert_eq!(
+            u32::from_le_bytes(buf[20..24].try_into().unwrap()),
+            LIBSYSTEM_COMPAT_VERSION
+        );
+        assert_eq!(LIBSYSTEM_COMPAT_VERSION, 0x0001_0000);
+        // path at offset 24 …
+        assert_eq!(
+            &buf[24..24 + LIBSYSTEM_PATH.len()],
+            LIBSYSTEM_PATH.as_bytes()
+        );
+        // … NUL-terminated …
+        assert_eq!(buf[24 + LIBSYSTEM_PATH.len()], 0);
+        // … and zero-padded to the 8-byte boundary.
+        for off in (24 + LIBSYSTEM_PATH.len() + 1)..(LOAD_DYLIB_LIBSYSTEM_CMDSIZE as usize) {
+            assert_eq!(buf[off], 0);
+        }
+    }
+
+    #[test]
+    fn load_dylib_libsystem_cmdsize_is_8_byte_aligned() {
+        assert_eq!(LOAD_DYLIB_LIBSYSTEM_CMDSIZE % 8, 0);
+        // dylib_command header (24 B) + path "/usr/lib/libSystem.B.dylib" (26 B)
+        // + NUL (1 B) = 51 → round up to 56.
+        assert!(LOAD_DYLIB_LIBSYSTEM_CMDSIZE as usize >= 24 + LIBSYSTEM_PATH.len() + 1);
+    }
 
     #[test]
     fn load_dylinker_is_32_bytes_with_path_at_offset_12() {
