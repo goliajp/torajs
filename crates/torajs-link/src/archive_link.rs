@@ -50,6 +50,7 @@ use crate::lc::{
     APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
     LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, TEXT_VMADDR_BASE,
 };
+use crate::member_apply::MemberRelocApplyError;
 use crate::sign::adhoc_codesign_blob_size;
 
 /// Mach-O segment names + section names referenced by the parser.
@@ -142,6 +143,14 @@ pub enum ArchiveLayoutError {
     /// entry symbol must be user-defined; integrated members are
     /// callable but can't be the entry.)
     EntryNotInUserFuncs { entry: String },
+    /// Member-internal reloc decode/patch failed during the S7-C5
+    /// pass — wire format broken or sym table doesn't cover an
+    /// extern the member references.
+    MemberReloc {
+        archive_idx: usize,
+        member_idx: usize,
+        err: MemberRelocApplyError,
+    },
 }
 
 /// Failures `parse_member_text_section` can report.

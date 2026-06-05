@@ -18,17 +18,13 @@
 //!     codesign blob (SHA-256 + ad-hoc CMS, self-research)
 //! ```
 //!
-//! **Scope of cross-member reloc patching in S7-C4**: only
-//! user-function relocs are patched. Member-internal relocations
-//! (a member referencing another archive member by symbol) are
-//! NOT patched yet — the integrated `__text` bytes go in
-//! verbatim. That keeps the diff small and matches the S7-C4
-//! acceptance fixture (`_main → _foo`, where `_foo` is a leaf).
-//! S7-C5 will surface the production smoke-test case where real
-//! `libtorajs_*.a` members have intra-archive relocs that need
-//! `apply_relocs_with_archives` to fan out across members. The
-//! split is intentional — each step's correctness is
-//! independently verifiable.
+//! **S7-C5 update**: member-internal relocs are now patched in
+//! place via `member_apply::apply_member_relocs`. Each integrated
+//! member's `__text` payload is cloned, fed through the patcher
+//! against the same effective sym table that resolves user-fn
+//! externs, then written into the binary. Acceptance: transitive
+//! `_main → archive_a::_foo → archive_b::_bar` exits with `_bar`'s
+//! return value end-to-end.
 
 use torajs_obj::{
     CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MachHeader64, NLIST_64_SIZE, Nlist64,
@@ -38,13 +34,14 @@ use torajs_obj::{
 };
 
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError, compute_archive_layout};
-use crate::archives_merge::{MergedArchives, merge_archive_indexes};
+use crate::archives_merge::merge_archive_indexes;
 use crate::exec::LinkConfig;
 use crate::lc::{
     BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLINKER_CMDSIZE,
     MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE, MH_NOUNDEFS, MH_PIE, MH_TWOLEVEL, PAGEZERO_VMSIZE,
     write_build_version, write_code_signature, write_dysymtab, write_lc_main, write_load_dylinker,
 };
+use crate::member_apply::apply_member_relocs;
 use crate::resolve::apply_relocs;
 use crate::sign::build_adhoc_codesign_blob;
 
@@ -52,12 +49,13 @@ use crate::sign::build_adhoc_codesign_blob;
 /// complete Mach-O `MH_EXECUTE` byte stream — ad-hoc codesigned,
 /// kernel-loadable on macOS 14+.
 ///
-/// User-function relocs against `Extern(name)` resolve to either
-/// `cfg.sym_table` entries or member-defined externs (member's
-/// vaddr + `nlist_64.n_value`). Member-internal relocs (members
-/// referencing other archive symbols) are NOT yet patched —
-/// integrated member `__text` bytes go in verbatim. See module
-/// doc for the S7-C5 follow-up.
+/// User-function relocs against `Extern(name)` and member-internal
+/// relocs (member X's `__text` BL'ing member Y's symbol) both
+/// resolve against the same effective sym table: caller-supplied
+/// externs union every defined-external symbol any integrated
+/// member exposes. The patching pass runs once per member; the
+/// emit pass concatenates user fns + patched member __text payloads
+/// + LINKEDIT in the order S7-C3 fixed by `ArchiveLayout`.
 pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
     let layout = compute_archive_layout(cfg)?;
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
@@ -71,11 +69,28 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         }
     }
 
-    // Resolve user-function relocs. Member-internal relocs are
-    // intentionally not patched in S7-C4.
+    // Resolve user-function relocs against the effective sym table.
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
 
-    let bytes = emit_binary(cfg, &layout, &merged, &resolved);
+    // S7-C5: patch each integrated member's __text payload in place
+    // against the same effective sym table.
+    let mut member_text_payloads: Vec<Vec<u8>> = Vec::with_capacity(layout.member_layouts.len());
+    for m in &layout.member_layouts {
+        let member = &merged.per_archive_members[m.key.0][m.key.1];
+        let off = m.member_text_offset_in_member as usize;
+        let end = off + m.text_size as usize;
+        let mut bytes = member.data[off..end].to_vec();
+        apply_member_relocs(&mut bytes, member, m.vaddr, &effective_sym_table).map_err(|err| {
+            ArchiveLayoutError::MemberReloc {
+                archive_idx: m.key.0,
+                member_idx: m.key.1,
+                err,
+            }
+        })?;
+        member_text_payloads.push(bytes);
+    }
+
+    let bytes = emit_binary(cfg, &layout, &member_text_payloads, &resolved);
     Ok(bytes)
 }
 
@@ -86,7 +101,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
 fn emit_binary(
     cfg: &LinkConfig,
     layout: &ArchiveLayout,
-    merged: &MergedArchives<'_>,
+    member_text_payloads: &[Vec<u8>],
     resolved: &[crate::resolve::ResolvedFunction],
 ) -> Vec<u8> {
     let header = MachHeader64 {
@@ -189,15 +204,22 @@ fn emit_binary(
     pad_to(&mut buf, layout.text_file_offset as usize);
 
     // __text payload: user funcs (resolved) followed by each
-    // integrated member's __text slice.
+    // integrated member's patched __text slice (S7-C5).
     for r in resolved {
         buf.extend_from_slice(&r.bytes);
     }
-    for m in &layout.member_layouts {
-        let member = &merged.per_archive_members[m.key.0][m.key.1];
-        let off = m.member_text_offset_in_member as usize;
-        let end = off + m.text_size as usize;
-        buf.extend_from_slice(&member.data[off..end]);
+    debug_assert_eq!(
+        member_text_payloads.len(),
+        layout.member_layouts.len(),
+        "patched payload count must match member_layouts",
+    );
+    for (i, m) in layout.member_layouts.iter().enumerate() {
+        debug_assert_eq!(
+            member_text_payloads[i].len() as u32,
+            m.text_size,
+            "patched member __text size must match layout",
+        );
+        buf.extend_from_slice(&member_text_payloads[i]);
     }
 
     pad_to(&mut buf, layout.linkedit_file_offset as usize);
@@ -418,6 +440,69 @@ mod tests {
             "binary did not exit 7 — stdout={:?} stderr={:?}",
             String::from_utf8_lossy(&run.stdout),
             String::from_utf8_lossy(&run.stderr)
+        );
+    }
+
+    /// End-to-end transitive chain — `_main` BL's archive_a's
+    /// `_foo`, which BL's archive_b's `_bar` (the leaf returning 7).
+    /// _foo's `bl _bar` site is patched by S7-C5's
+    /// `apply_member_relocs` against the effective sym table
+    /// (which now resolves _bar to archive_b's final vaddr). Exec
+    /// the result and the kernel-side X0 propagation must surface
+    /// `_bar`'s return value as the process exit code. macOS arm64
+    /// only.
+    #[test]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    fn end_to_end_transitive_member_chain_exits_7() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        // archive_b: _bar leaf returning 7 (via codegen).
+        let bar_cf = compile_function(&make_ret_const_fn("_bar", 7));
+        let archive_b = build_short_name_archive(
+            "b.o",
+            &torajs_obj::write_object(std::slice::from_ref(&bar_cf)),
+        );
+
+        // archive_a: _foo's body = canonical AAPCS64 non-leaf
+        // prologue + `bl _bar` + epilogue + ret. _foo is not a
+        // leaf — it must save LR before the BL so its own RET
+        // returns up the chain rather than looping back into the
+        // prologue. The internal BL placeholder + reloc against
+        // extern _bar is what S7-C5 patches.
+        let foo_cf = fn_calls_extern_then_returns("_foo", "_bar");
+        let archive_a = build_short_name_archive(
+            "a.o",
+            &torajs_obj::write_object(std::slice::from_ref(&foo_cf)),
+        );
+
+        // _main: canonical AAPCS64 non-leaf wrapping `bl _foo`.
+        let main_cf = fn_calls_extern_then_returns("_main", "_foo");
+
+        let cfg = LinkConfig {
+            funcs: vec![main_cf],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
+            archives: vec![archive_a, archive_b],
+        };
+        let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
+
+        let path = format!("/private/tmp/torajs_link_s7c5_{}", std::process::id());
+        std::fs::write(&path, &bytes).expect("write binary");
+        let mut perms = std::fs::metadata(&path).expect("stat").permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).expect("chmod +x");
+
+        let run = Command::new(&path).output().expect("exec emitted binary");
+        let exit = run.status.code();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            exit,
+            Some(7),
+            "binary did not exit 7 — stdout={:?} stderr={:?}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr),
         );
     }
 
