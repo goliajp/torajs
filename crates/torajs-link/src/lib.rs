@@ -52,6 +52,7 @@ pub mod archive_link;
 pub mod archives_merge;
 pub mod exec;
 pub mod lc;
+pub mod member_reloc;
 pub mod patch;
 pub mod resolve;
 pub mod sha256;
@@ -67,5 +68,6 @@ pub use archives_merge::{
     compute_required_members, merge_archive_indexes, parse_member_undef_externs,
 };
 pub use exec::{ExecLayout, LinkConfig, compute_layout, link_to_exec};
+pub use member_reloc::{MemberRelocEntry, MemberRelocError, parse_member_text_relocs};
 pub use patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
 pub use resolve::{ResolvedFunction, SymTable, apply_relocs};
