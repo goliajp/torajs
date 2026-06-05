@@ -48,6 +48,46 @@ pub const ARM64_RELOC_PAGE21: u8 = 3;
 /// Mirrors `ARM64_RELOC_PAGEOFF12`.
 pub const ARM64_RELOC_PAGEOFF12: u8 = 4;
 
+/// ARM64 reloc type — 21-bit page-relative distance for ADRP that
+/// loads from a GOT slot. `r_length = 2`, `r_pcrel = 1`. The
+/// instruction at the patch site is an `ADRP Xn, _sym@GOTPAGE` —
+/// our linker performs a textbook ld64-style relaxation, treating
+/// it identically to `ARM64_RELOC_PAGE21` (direct page disp to
+/// the symbol, no GOT indirection) when the target sits within
+/// the binary's ±4 GiB image range. Mirrors
+/// `ARM64_RELOC_GOT_LOAD_PAGE21`.
+pub const ARM64_RELOC_GOT_LOAD_PAGE21: u8 = 5;
+
+/// ARM64 reloc type — 12-bit page offset for LDR that loads a GOT
+/// slot. `r_length = 2`, `r_pcrel = 0`. Paired with
+/// `ARM64_RELOC_GOT_LOAD_PAGE21`. Our linker relaxes the LDR
+/// instruction to an ADD instruction in place and patches the imm12
+/// to the symbol's page-offset — turning `ADRP+LDR` (indirect via
+/// GOT) into `ADRP+ADD` (PC-relative pointer to the symbol
+/// itself). Mirrors `ARM64_RELOC_GOT_LOAD_PAGEOFF12`.
+pub const ARM64_RELOC_GOT_LOAD_PAGEOFF12: u8 = 6;
+
+/// ARM64 reloc type — `ADRP Xn, _sym@TLVPPAGE`. Loads the page
+/// portion of a TLV (thread-local variable) descriptor. `r_length
+/// = 2`, `r_pcrel = 1`. The descriptor lives in `__DATA,__thread_vars`
+/// and contains `{ tlv_addr_resolver, key, offset }`. Mirrors
+/// `ARM64_RELOC_TLVP_LOAD_PAGE21`.
+pub const ARM64_RELOC_TLVP_LOAD_PAGE21: u8 = 8;
+
+/// ARM64 reloc type — `LDR Xn, [Xn, _sym@TLVPPAGEOFF]`. Loads the
+/// TLV descriptor pointer from the page identified by the paired
+/// `ARM64_RELOC_TLVP_LOAD_PAGE21`. `r_length = 2`, `r_pcrel = 0`.
+/// Mirrors `ARM64_RELOC_TLVP_LOAD_PAGEOFF12`.
+pub const ARM64_RELOC_TLVP_LOAD_PAGEOFF12: u8 = 9;
+
+/// ARM64 reloc type — meta-reloc carrying a 24-bit signed addend.
+/// Its `r_symbolnum` field holds the addend value (sign-extended
+/// from 24 to 32 bits); the addend then applies to the *next*
+/// reloc entry in the table (typically a paired PAGE21 +
+/// PAGEOFF12). `r_extern = 0` by convention. Mirrors
+/// `ARM64_RELOC_ADDEND`.
+pub const ARM64_RELOC_ADDEND: u8 = 10;
+
 /// On-disk size of one `relocation_info` entry.
 pub const RELOCATION_INFO_SIZE: u32 = 8;
 
