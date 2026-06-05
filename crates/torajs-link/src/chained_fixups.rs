@@ -65,7 +65,7 @@
 //! header but no segment, and downstream layout would emit a
 //! useless LC chain.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 /// `dyld_chained_fixups_header.imports_format` — one
 /// `dyld_chained_import` per import, packed 32-bit entries.
@@ -128,6 +128,13 @@ pub fn encode_bind_link(ordinal: u32, next_stride: u32, addend: u8) -> u64 {
 /// Build the complete chained-fixups blob plus the per-import
 /// `__la_symbol_ptr` slot values.
 ///
+/// `imports` is a `name → lib_ordinal` map — `lib_ordinal` is
+/// packed into each `dyld_chained_import.lib_ordinal` field so
+/// dyld picks the right `LC_LOAD_DYLIB` per symbol. SD-4b's
+/// multi-dylib path means the same blob can bind libSystem
+/// symbols (ordinal 1) and libcurl symbols (ordinal 2) in one
+/// `__la_symbol_ptr` chain.
+///
 /// `data_segment_vmaddr_offset` is the offset of the `__DATA`
 /// segment from the image base (`text_vmaddr`) — equal to
 /// `text_vmsize` in our single-text-segment layout.
@@ -148,7 +155,7 @@ pub fn encode_bind_link(ordinal: u32, next_stride: u32, addend: u8) -> u64 {
 /// segment-ordered LC chain (= 2 in our PAGEZERO+TEXT+DATA+LINKEDIT
 /// order).
 pub fn build_chained_fixups(
-    imports: &BTreeSet<String>,
+    imports: &BTreeMap<String, u8>,
     data_segment_vmaddr_offset: u64,
     la_ptr_offset_in_segment: u64,
     seg_count: u32,
@@ -212,11 +219,12 @@ pub fn build_chained_fixups(
     symbols_offset = round_up_4(symbols_offset);
 
     // Compose symbol strings table and remember each name's
-    // starting offset for the imports[] name_offset field.
+    // starting offset + the dylib's lib_ordinal for the imports[]
+    // entry build below.
     let mut sym_blob: Vec<u8> = Vec::new();
-    let mut name_offsets: Vec<u32> = Vec::with_capacity(imports.len());
-    for name in imports {
-        name_offsets.push(sym_blob.len() as u32);
+    let mut name_offsets: Vec<(u32, u8)> = Vec::with_capacity(imports.len());
+    for (name, &lib_ordinal) in imports {
+        name_offsets.push((sym_blob.len() as u32, lib_ordinal));
         sym_blob.extend_from_slice(name.as_bytes());
         sym_blob.push(0);
     }
@@ -227,14 +235,14 @@ pub fn build_chained_fixups(
     }
 
     // Assemble dyld_chained_import[] (4 bytes each, packed).
-    // lib_ordinal = 1 → first LC_LOAD_DYLIB = libSystem (matches
-    // SD-1's single libSystem LC_LOAD_DYLIB). weak_import = 0.
+    // Per-import lib_ordinal picks which LC_LOAD_DYLIB dyld binds
+    // against (1 = libSystem, 2 = libcurl, ...). weak_import = 0.
     let mut imports_blob: Vec<u8> = Vec::with_capacity(4 * imports.len());
-    for &name_off in &name_offsets {
-        let lib_ordinal: u32 = 1;
+    for &(name_off, lib_ordinal) in &name_offsets {
         let weak_import: u32 = 0;
-        let packed: u32 =
-            (lib_ordinal & 0xFF) | ((weak_import & 0x1) << 8) | ((name_off & 0x7F_FFFF) << 9);
+        let packed: u32 = (u32::from(lib_ordinal) & 0xFF)
+            | ((weak_import & 0x1) << 8)
+            | ((name_off & 0x7F_FFFF) << 9);
         imports_blob.extend_from_slice(&packed.to_le_bytes());
     }
 
@@ -282,8 +290,11 @@ fn round_up_4(value: u32) -> u32 {
 mod tests {
     use super::*;
 
-    fn imports_of(names: &[&str]) -> BTreeSet<String> {
-        names.iter().map(|s| (*s).to_string()).collect()
+    /// Helper — all imports route through libSystem (ordinal 1).
+    /// Tests that exercise multi-dylib ordinals use the direct
+    /// `BTreeMap` literal instead.
+    fn imports_of(names: &[&str]) -> BTreeMap<String, u8> {
+        names.iter().map(|s| ((*s).to_string(), 1u8)).collect()
     }
 
     #[test]

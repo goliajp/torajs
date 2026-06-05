@@ -46,14 +46,53 @@
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
-/// Return `true` iff `name` is a known export of
-/// `/usr/lib/libSystem.B.dylib` and therefore safe to bind through
-/// dyld instead of resolving locally.
+/// Per-import `lib_ordinal` value emitted into the
+/// `dyld_chained_import` entries and used by the linker to pick
+/// which `LC_LOAD_DYLIB` resolves the binding. `1` = first
+/// `LC_LOAD_DYLIB` in the binary (libSystem), `2` = second
+/// (libcurl). Matches Apple `ld64`'s `BindOrdinal` numbering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DyldLib {
+    LibSystem = 1,
+    LibCurl = 2,
+}
+
+impl DyldLib {
+    /// Lib ordinal as the `u8` the chained-fixups encoder packs
+    /// into `dyld_chained_import.lib_ordinal`. Apple `ld64`
+    /// reserves `0` for "self" (rebases, not binds), so all
+    /// `LC_LOAD_DYLIB`-resolved imports use `≥ 1`.
+    pub fn ordinal(self) -> u8 {
+        self as u8
+    }
+}
+
+/// Return the `DyldLib` that owns `name`, or `None` if the symbol
+/// isn't part of any known dyld substrate library and must be
+/// resolved locally (or surfaced as `UnresolvedExterns`).
 ///
-/// `name` is matched verbatim against the underlying set; callers
-/// should pass the linker-form symbol exactly as it appears in
-/// Mach-O `nlist` entries (single leading underscore for C symbols,
-/// two leading underscores for Apple-private dyld / unwind symbols).
+/// SD-1 covered libSystem only. SD-4b extends this to libcurl,
+/// returning `DyldLib::LibCurl` for the small set of `curl_easy_*`
+/// symbols torajs-fetch transitively references.
+pub fn dyld_lib_for(name: &str) -> Option<DyldLib> {
+    if libsystem_set().contains(name) {
+        Some(DyldLib::LibSystem)
+    } else if libcurl_set().contains(name) {
+        Some(DyldLib::LibCurl)
+    } else {
+        None
+    }
+}
+
+/// Return `true` iff `name` is a known export of any dyld
+/// substrate library. Convenience wrapper over `dyld_lib_for`.
+pub fn is_dyld_resolved(name: &str) -> bool {
+    dyld_lib_for(name).is_some()
+}
+
+/// Back-compat — `true` iff `name` is libSystem-resolved
+/// specifically. SD-1 callers used this; SD-4b callers should
+/// prefer `dyld_lib_for` to get the lib_ordinal too.
 pub fn is_libsystem_resolved(name: &str) -> bool {
     libsystem_set().contains(name)
 }
@@ -63,10 +102,33 @@ pub fn libsystem_sym_count() -> usize {
     libsystem_set().len()
 }
 
+/// Number of distinct libcurl symbols recognised by SD-4b.
+pub fn libcurl_sym_count() -> usize {
+    libcurl_set().len()
+}
+
 fn libsystem_set() -> &'static BTreeSet<&'static str> {
     static SET: OnceLock<BTreeSet<&'static str>> = OnceLock::new();
     SET.get_or_init(|| LIBSYSTEM_SYMS.iter().copied().collect())
 }
+
+fn libcurl_set() -> &'static BTreeSet<&'static str> {
+    static SET: OnceLock<BTreeSet<&'static str>> = OnceLock::new();
+    SET.get_or_init(|| LIBCURL_SYMS.iter().copied().collect())
+}
+
+/// SD-4b — libcurl.4.dylib exports referenced by torajs-fetch.
+/// Sourced from `probe_real_link ___torajs_str_alloc` at HEAD
+/// `167fc50` after SD-4a print port: the remaining 5 unresolved
+/// symbols are all `_curl_easy_*` entries that
+/// `libcurl.4.dylib`'s otool -L shows.
+const LIBCURL_SYMS: &[&str] = &[
+    "_curl_easy_cleanup",
+    "_curl_easy_getinfo",
+    "_curl_easy_init",
+    "_curl_easy_perform",
+    "_curl_easy_setopt",
+];
 
 /// Static array form — kept sorted so the source diff is reviewable
 /// against future probe runs. `libsystem_set()` materialises it into

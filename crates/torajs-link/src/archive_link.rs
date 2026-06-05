@@ -48,13 +48,14 @@ use crate::chained_fixups::build_chained_fixups;
 use crate::exec::LinkConfig;
 use crate::lc::{
     APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
-    LOAD_DYLIB_LIBSYSTEM_CMDSIZE, LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, TEXT_VMADDR_BASE,
+    LOAD_DYLIB_LIBCURL_CMDSIZE, LOAD_DYLIB_LIBSYSTEM_CMDSIZE, LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE,
+    TEXT_VMADDR_BASE,
 };
 use crate::member_apply::MemberRelocApplyError;
 pub use crate::member_text::{MemberTextError, parse_member_text_section};
 use crate::sign::adhoc_codesign_blob_size;
 use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Per-archive-member computed data the S7-C4 emit pass needs.
 /// `defined_syms` carries `(name, n_value)` exactly as the member's
@@ -114,16 +115,16 @@ pub struct ArchiveLayout {
     pub member_layouts: Vec<MemberLayout>,
     pub codesign_dataoff: u32,
     pub codesign_datasize: u32,
-    /// SD-1 — names classified as libSystem-resolved by
-    /// `dyld_syms::is_libsystem_resolved` during the worklist
-    /// closure. When non-empty, `archive_emit::emit_binary` adds a
-    /// `LC_LOAD_DYLIB /usr/lib/libSystem.B.dylib` to the load
-    /// command chain and (SD-2a) `__TEXT,__stubs` +
-    /// `__DATA,__la_symbol_ptr` sections carrying the per-symbol
-    /// trampoline + lazy pointer slot. SD-2b wires `stub_vaddrs`
-    /// into the effective sym table so user-fn relocs resolve
-    /// against the trampoline addresses listed here.
-    pub dyld_imports: BTreeSet<String>,
+    /// SD-1 / SD-4b — `name → lib_ordinal` map classified by
+    /// `dyld_syms::dyld_lib_for` during the worklist closure.
+    /// When non-empty, `archive_emit::emit_binary` adds an
+    /// `LC_LOAD_DYLIB` per dylib whose ordinals appear (libSystem
+    /// = 1, libcurl = 2) plus the SD-2 `__TEXT,__stubs` +
+    /// `__DATA,__la_symbol_ptr` sections and SD-3
+    /// `LC_DYLD_CHAINED_FIXUPS` blob. SD-2b wires `stub_vaddrs`
+    /// into the effective sym table so user-fn / member relocs
+    /// resolve against the trampoline addresses listed here.
+    pub dyld_imports: BTreeMap<String, u8>,
     /// SD-2a — final image vaddr of the first byte of
     /// `__TEXT,__stubs`. `0` when `dyld_imports` is empty (the
     /// section isn't emitted in that case, so callers can rely on
@@ -269,8 +270,18 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     // members, plus SD-2a __TEXT,__stubs + __DATA,__la_symbol_ptr
     // sections when dyld_imports is non-empty).
     let has_dyld = !required.dyld_imports.is_empty();
-    let load_dylib_libsystem_size = if has_dyld {
+    // SD-4b — count LC_LOAD_DYLIB entries by dylib ordinal. Any
+    // dyld-using binary always emits libSystem at ordinal 1 (so
+    // dyld's ordinal numbering matches the chained-fixups encoder),
+    // even when only libcurl symbols are referenced.
+    let has_libcurl_lc = required.dyld_imports.values().any(|&o| o == 2);
+    let load_dylib_size = if has_dyld {
         LOAD_DYLIB_LIBSYSTEM_CMDSIZE
+            + if has_libcurl_lc {
+                LOAD_DYLIB_LIBCURL_CMDSIZE
+            } else {
+                0
+            }
     } else {
         0
     };
@@ -289,7 +300,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let sizeofcmds = (SEGMENT_COMMAND_64_SIZE * segment_count)
         + (SECTION_64_SIZE * section_count)
         + LOAD_DYLINKER_CMDSIZE
-        + load_dylib_libsystem_size
+        + load_dylib_size
         + BUILD_VERSION_CMDSIZE
         + MAIN_CMDSIZE
         + SYMTAB_COMMAND_SIZE
@@ -345,11 +356,11 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     };
     let la_ptr_section_vaddr = data_vmaddr;
 
-    // Per-import stub vaddr stride is STUB_SIZE. BTreeSet iter is
+    // Per-import stub vaddr stride is STUB_SIZE. BTreeMap iter is
     // sorted-by-name → stub_vaddrs key order is reproducible.
     let mut stub_vaddrs: BTreeMap<String, u64> = BTreeMap::new();
     if has_dyld {
-        for (i, name) in required.dyld_imports.iter().enumerate() {
+        for (i, name) in required.dyld_imports.keys().enumerate() {
             stub_vaddrs.insert(name.clone(), stubs_section_vaddr + (i as u64) * STUB_SIZE);
         }
     }
@@ -603,7 +614,7 @@ mod tests {
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 1);
-        assert!(layout.dyld_imports.contains("_malloc"));
+        assert!(layout.dyld_imports.contains_key("_malloc"));
 
         // Stubs section + slot section non-zero, sized to the
         // single import.

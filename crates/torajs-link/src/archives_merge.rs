@@ -133,17 +133,21 @@ pub fn merge_archive_indexes(
 /// integrated into the final binary so every undefined extern
 /// reachable from `user_funcs` resolves to a defined symbol.
 ///
-/// `dyld_imports` records the orthogonal set of names the worklist
-/// classified as libSystem-resolved (SD-1; see
-/// `dyld_syms::is_libsystem_resolved`). These bind through
-/// `LC_LOAD_DYLIB` + a per-symbol `__TEXT,__stubs` trampoline (SD-2)
-/// rather than being pulled from any archive — keeping them out of
+/// `dyld_imports` records the orthogonal `name → lib_ordinal`
+/// map the worklist classified as dyld-resolved (SD-1 libSystem +
+/// SD-4b libcurl; see `dyld_syms::dyld_lib_for`). These bind
+/// through `LC_LOAD_DYLIB` + a per-symbol `__TEXT,__stubs`
+/// trampoline (SD-2) + chained-fixups entries (SD-3) rather than
+/// being pulled from any archive — keeping them out of
 /// `unresolved` is what unblocks `compute_required_members` for
-/// real production `___torajs_*_alloc` reloc graphs.
+/// real production `___torajs_*_alloc` reloc graphs. `lib_ordinal`
+/// is the `dyld_chained_import.lib_ordinal` value (`1` =
+/// libSystem, `2` = libcurl) so downstream encoders can pack the
+/// right LC chain offset without re-classifying.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequiredMembers {
     pub members: BTreeSet<(usize, usize)>,
-    pub dyld_imports: BTreeSet<String>,
+    pub dyld_imports: BTreeMap<String, u8>,
 }
 
 /// Failures from the worklist closure pass. Either some extern
@@ -195,7 +199,7 @@ pub fn compute_required_members(
     let mut visited_names: BTreeSet<String> = BTreeSet::new();
     let mut worklist: Vec<String> = Vec::new();
     let mut unresolved: BTreeSet<String> = BTreeSet::new();
-    let mut dyld_imports: BTreeSet<String> = BTreeSet::new();
+    let mut dyld_imports: BTreeMap<String, u8> = BTreeMap::new();
 
     // Seed the worklist with every extern name referenced by a
     // user function reloc that isn't defined by another user
@@ -220,11 +224,14 @@ pub fn compute_required_members(
             continue;
         }
         let Some(sym) = merged.index.get(&name) else {
-            // SD-1: libSystem-class externs bind through dyld, not
-            // through any archive's defined-extern set. Classify
-            // them out of `unresolved` so the link can proceed.
-            if crate::dyld_syms::is_libsystem_resolved(&name) {
-                dyld_imports.insert(name);
+            // SD-1 / SD-4b: dyld-class externs (libSystem or
+            // libcurl) bind through `LC_LOAD_DYLIB`, not through
+            // any archive's defined-extern set. Classify them out
+            // of `unresolved` so the link can proceed; record the
+            // resolving dylib's `lib_ordinal` so downstream
+            // encoders know which LC_LOAD_DYLIB to bind against.
+            if let Some(lib) = crate::dyld_syms::dyld_lib_for(&name) {
+                dyld_imports.insert(name, lib.ordinal());
             } else {
                 unresolved.insert(name);
             }
@@ -760,9 +767,9 @@ mod tests {
         let req = compute_required_members(&user, &merged).unwrap();
         assert!(req.members.is_empty(), "no archive member should be pulled");
         assert_eq!(req.dyld_imports.len(), 3);
-        assert!(req.dyld_imports.contains("_malloc"));
-        assert!(req.dyld_imports.contains("_pthread_create"));
-        assert!(req.dyld_imports.contains("_free"));
+        assert!(req.dyld_imports.contains_key("_malloc"));
+        assert!(req.dyld_imports.contains_key("_pthread_create"));
+        assert!(req.dyld_imports.contains_key("_free"));
     }
 
     /// SD-1 — a mix of `_malloc` (dyld) and `_qux` (truly missing)
@@ -781,21 +788,22 @@ mod tests {
         }
     }
 
-    /// SD-1 — `_curl_easy_init` is *not* libSystem-resolved (SD-1
-    /// scope is libSystem only). Without an archive defining it
-    /// the worklist must surface it as unresolved so SD-1+ knows
-    /// to add a separate `LC_LOAD_DYLIB libcurl`.
+    /// SD-4b — `_curl_easy_init` is now classified as libcurl
+    /// (ordinal 2), so the worklist routes it into `dyld_imports`
+    /// alongside the libSystem (ordinal 1) symbols instead of
+    /// surfacing it as unresolved. dyld binds it at load time
+    /// through the second `LC_LOAD_DYLIB`.
     #[test]
-    fn libcurl_externs_stay_unresolved_under_sd1_scope() {
+    fn libcurl_externs_route_into_dyld_imports_with_ordinal_2() {
         let merged = merge_archive_indexes(&[]).unwrap();
-        let user = vec![fn_with_extern_calls("_main", &["_curl_easy_init"])];
-        let err = compute_required_members(&user, &merged).unwrap_err();
-        match err {
-            ArchiveLinkError::UnresolvedExterns { names } => {
-                assert_eq!(names, vec!["_curl_easy_init".to_string()]);
-            }
-            other => panic!("expected UnresolvedExterns (libcurl), got {other:?}"),
-        }
+        let user = vec![fn_with_extern_calls(
+            "_main",
+            &["_curl_easy_init", "_malloc"],
+        )];
+        let req = compute_required_members(&user, &merged).unwrap();
+        assert_eq!(req.dyld_imports.len(), 2);
+        assert_eq!(req.dyld_imports.get("_curl_easy_init").copied(), Some(2));
+        assert_eq!(req.dyld_imports.get("_malloc").copied(), Some(1));
     }
 
     /// An extern reference that resolves to *another* user

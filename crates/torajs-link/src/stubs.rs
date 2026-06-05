@@ -32,7 +32,7 @@
 //! - **BR Xn** — C6.2.36. Indirect branch with no link. Encoding
 //!   for `BR X16` is the fixed word `0xD61F_0200`.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use crate::patch::{patch_page21, patch_pageoff12};
 
@@ -107,12 +107,12 @@ pub struct Stub {
 /// unsigned offset)` requires the byte offset to be a multiple of
 /// 8 (the encoded `imm12` is `byte_offset / 8`).
 pub fn build_stubs(
-    dyld_imports: &BTreeSet<String>,
+    dyld_imports: &BTreeMap<String, u8>,
     stubs_section_vaddr: u64,
     la_ptr_section_vaddr: u64,
 ) -> Vec<Stub> {
     let mut stubs = Vec::with_capacity(dyld_imports.len());
-    for (i, name) in dyld_imports.iter().enumerate() {
+    for (i, name) in dyld_imports.keys().enumerate() {
         let stub_vaddr = stubs_section_vaddr + (i as u64) * STUB_SIZE;
         let slot_vaddr = la_ptr_section_vaddr + (i as u64) * LA_PTR_SLOT_SIZE;
         let slot_page = (slot_vaddr & !0xFFF) as i64;
@@ -145,8 +145,11 @@ pub fn build_stubs(
 mod tests {
     use super::*;
 
-    fn imports_of(names: &[&str]) -> BTreeSet<String> {
-        names.iter().map(|s| (*s).to_string()).collect()
+    /// Test helper — all imports default to libSystem (ordinal 1).
+    /// The stub builder doesn't read the ordinal field, so a
+    /// uniform value is enough for ADRP/LDR/BR encoding round-trips.
+    fn imports_of(names: &[&str]) -> BTreeMap<String, u8> {
+        names.iter().map(|s| ((*s).to_string(), 1u8)).collect()
     }
 
     /// Empty `dyld_imports` → empty stub vector. Matches the
@@ -154,7 +157,7 @@ mod tests {
     /// referenced and the binary stays byte-identical.
     #[test]
     fn empty_imports_emits_no_stubs() {
-        let stubs = build_stubs(&BTreeSet::new(), 0x1_0000_4000, 0x1_0000_8000);
+        let stubs = build_stubs(&BTreeMap::new(), 0x1_0000_4000, 0x1_0000_8000);
         assert!(stubs.is_empty());
     }
 

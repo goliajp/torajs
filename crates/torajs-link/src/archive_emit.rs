@@ -38,10 +38,11 @@ use crate::archives_merge::merge_archive_indexes;
 use crate::dyld_emit::{build_data_segment, build_stubs_section, write_stubs_and_la_ptr};
 use crate::exec::LinkConfig;
 use crate::lc::{
-    BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLIB_LIBSYSTEM_CMDSIZE,
-    LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE, MH_NOUNDEFS, MH_PIE, MH_TWOLEVEL,
-    PAGEZERO_VMSIZE, write_build_version, write_code_signature, write_dyld_chained_fixups,
-    write_dysymtab, write_lc_main, write_load_dylib_libsystem, write_load_dylinker,
+    BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLIB_LIBCURL_CMDSIZE,
+    LOAD_DYLIB_LIBSYSTEM_CMDSIZE, LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE,
+    MH_NOUNDEFS, MH_PIE, MH_TWOLEVEL, PAGEZERO_VMSIZE, write_build_version, write_code_signature,
+    write_dyld_chained_fixups, write_dysymtab, write_lc_main, write_load_dylib_libcurl,
+    write_load_dylib_libsystem, write_load_dylinker,
 };
 use crate::member_apply::apply_member_relocs;
 use crate::resolve::apply_relocs;
@@ -115,21 +116,41 @@ fn emit_binary(
     member_text_payloads: &[Vec<u8>],
     resolved: &[crate::resolve::ResolvedFunction],
 ) -> Vec<u8> {
-    // SD-1: when the worklist surfaced libSystem-resolved externs
-    // we emit an extra `LC_LOAD_DYLIB` for `libSystem.B.dylib`.
-    // SD-2a extends this further — non-empty `dyld_imports` also
-    // means __TEXT gains a `__stubs` section (per-import trampoline)
-    // and a brand-new `__DATA` segment carries `__la_symbol_ptr`
-    // (one 8-byte slot per import, zero-init now; SD-3 wires
-    // LC_DYLD_CHAINED_FIXUPS to bind them). Empty `dyld_imports`
-    // keeps the pre-SD-1 9-LC layout byte-identical so leaf-syscall
-    // fixtures continue to ship the same binary as before.
-    let has_libsystem = !layout.dyld_imports.is_empty();
-    // ncmds delta (when has_libsystem): +1 LC_LOAD_DYLIB libSystem,
-    // +1 LC_SEGMENT_64 __DATA, +1 LC_DYLD_CHAINED_FIXUPS (SD-3).
-    let extra_lc_count = if has_libsystem { 3 } else { 0 };
-    let extra_lc_size = if has_libsystem {
+    // SD-1: when the worklist surfaced dyld-resolved externs we
+    // emit one `LC_LOAD_DYLIB` per referenced dylib (SD-4b: libSystem
+    // and/or libcurl) at fixed ordinal positions — `1` = libSystem,
+    // `2` = libcurl. SD-2a extends this further: non-empty
+    // `dyld_imports` also means __TEXT gains a `__stubs` section
+    // (per-import trampoline) and a brand-new `__DATA` segment
+    // carries `__la_symbol_ptr` (one 8-byte slot per import,
+    // populated with chain-link bind encoding by SD-3). Empty
+    // `dyld_imports` keeps the pre-SD-1 9-LC layout byte-identical
+    // so leaf-syscall fixtures continue to ship the same binary as
+    // before.
+    let has_dyld = !layout.dyld_imports.is_empty();
+    let ordinals_used: std::collections::BTreeSet<u8> =
+        layout.dyld_imports.values().copied().collect();
+    // If any libcurl ordinal (2) appears we must still emit
+    // libSystem at ordinal 1 first — dyld assigns ordinals by
+    // LC_LOAD_DYLIB position, not by reference, and the
+    // chained-fixups encoder hard-codes ordinal 1 = libSystem.
+    let has_libcurl_lc = ordinals_used.contains(&2);
+    let has_libsystem_lc = has_dyld; // every dyld-using binary forces libSystem at ord 1
+    let load_dylib_count = u32::from(has_libsystem_lc) + u32::from(has_libcurl_lc);
+    let load_dylib_size = (if has_libsystem_lc {
         LOAD_DYLIB_LIBSYSTEM_CMDSIZE
+    } else {
+        0
+    }) + (if has_libcurl_lc {
+        LOAD_DYLIB_LIBCURL_CMDSIZE
+    } else {
+        0
+    });
+    // ncmds delta (when has_dyld): +load_dylib_count LC_LOAD_DYLIBs,
+    // +1 LC_SEGMENT_64 __DATA, +1 LC_DYLD_CHAINED_FIXUPS (SD-3).
+    let extra_lc_count = if has_dyld { load_dylib_count + 2 } else { 0 };
+    let extra_lc_size = if has_dyld {
+        load_dylib_size
             // __TEXT gains a second SECTION_64 entry (__stubs).
             + SECTION_64_SIZE
             // __DATA segment + its single __la_symbol_ptr section.
@@ -140,11 +161,11 @@ fn emit_binary(
     } else {
         0
     };
-    // With libSystem present the binary still references dyld-bound
+    // With dyld imports present the binary still references dyld-bound
     // symbols at link time; clearing `MH_NOUNDEFS` matches what
     // `otool -hv` reports for an `ssa_inkwell`-built production
     // binary.
-    let mh_flags = if has_libsystem {
+    let mh_flags = if has_dyld {
         MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
     } else {
         MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
@@ -196,7 +217,7 @@ fn emit_binary(
         reserved3: 0,
     };
     // SD-2a: add __stubs section to __TEXT when has_libsystem.
-    let text_sections = if has_libsystem {
+    let text_sections = if has_dyld {
         vec![text_section, build_stubs_section(layout)]
     } else {
         vec![text_section]
@@ -215,7 +236,7 @@ fn emit_binary(
 
     // SD-2a: __DATA segment + __la_symbol_ptr section between
     // __TEXT and __LINKEDIT (only when has_libsystem).
-    let data_segment_opt = if has_libsystem {
+    let data_segment_opt = if has_dyld {
         Some(build_data_segment(layout))
     } else {
         None
@@ -256,14 +277,21 @@ fn emit_binary(
     }
     linkedit_segment.write_to(&mut buf);
     write_load_dylinker(&mut buf);
-    if has_libsystem {
+    // LC_LOAD_DYLIB order = libSystem first (ordinal 1) then
+    // libcurl (ordinal 2) — matches the lib_ordinal values the
+    // chained-fixups encoder packs per-import. Apple `ld64` uses
+    // the same ordering even when a binary only references libcurl.
+    if has_libsystem_lc {
         write_load_dylib_libsystem(&mut buf);
+    }
+    if has_libcurl_lc {
+        write_load_dylib_libcurl(&mut buf);
     }
     write_build_version(&mut buf);
     write_lc_main(&mut buf, u64::from(layout.entry_file_offset));
     symtab_cmd.write_to(&mut buf);
     write_dysymtab(&mut buf, layout.nsyms);
-    if has_libsystem {
+    if has_dyld {
         write_dyld_chained_fixups(
             &mut buf,
             layout.chained_fixups_dataoff,
@@ -300,7 +328,7 @@ fn emit_binary(
     }
 
     // SD-2a: emit __stubs payload + zero-init __la_symbol_ptr.
-    if has_libsystem {
+    if has_dyld {
         write_stubs_and_la_ptr(&mut buf, layout);
     }
 
@@ -337,7 +365,7 @@ fn emit_binary(
     // SD-3: chained-fixups blob lands directly after the string
     // table and before the codesign blob, so the ad-hoc
     // CodeDirectory hash covers it.
-    if has_libsystem {
+    if has_dyld {
         debug_assert_eq!(buf.len() as u32, layout.chained_fixups_dataoff);
         buf.extend_from_slice(&layout.chained_fixups_blob);
         debug_assert_eq!(
@@ -814,7 +842,7 @@ mod tests {
         // (libSystem reference) AND the archive member's __text.
         let layout = compute_archive_layout(&cfg).expect("layout");
         assert_eq!(layout.member_layouts.len(), 1);
-        assert!(layout.dyld_imports.contains("_malloc"));
+        assert!(layout.dyld_imports.contains_key("_malloc"));
         assert_eq!(link_bytes.len() as u32, layout.total_size);
     }
 

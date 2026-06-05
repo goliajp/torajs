@@ -70,6 +70,27 @@ pub const LIBSYSTEM_COMPAT_VERSION: u32 = 1u32 << 16;
 ///   total   = 51 bytes → pad to 8-byte boundary → 56
 pub const LOAD_DYLIB_LIBSYSTEM_CMDSIZE: u32 = 56;
 
+/// `libcurl.4.dylib` path — SD-4b second dyld substrate. Loaded
+/// at the Apple-installed location; torajs-fetch's `_curl_easy_*`
+/// imports resolve through dyld against the system curl.
+pub(crate) const LIBCURL_PATH: &str = "/usr/lib/libcurl.4.dylib";
+
+/// libcurl.4.dylib `current_version`. macOS 14+ ships
+/// libcurl 8.x; we encode 8.0.0 as the conservative lower bound
+/// (dyld treats the version as a minimum-acceptable hint).
+pub const LIBCURL_CURRENT_VERSION: u32 = 8u32 << 16;
+
+/// libcurl.4.dylib `compatibility_version` = `8.0.0`. dyld
+/// enforces the runtime libcurl's `current_version` is `≥` this
+/// value; using 8.0 means any 8.x ships.
+pub const LIBCURL_COMPAT_VERSION: u32 = 8u32 << 16;
+
+/// `LC_LOAD_DYLIB` cmdsize for libcurl:
+///   header  = 24 bytes
+///   name    = 24 bytes "/usr/lib/libcurl.4.dylib" + 1 NUL = 25
+///   total   = 49 bytes → pad to 8-byte boundary → 56
+pub const LOAD_DYLIB_LIBCURL_CMDSIZE: u32 = 56;
+
 /// `LC_LOAD_DYLINKER` payload = 12 bytes (cmd + cmdsize + name
 /// offset) + dylinker path (NUL-terminated) padded to 8-byte
 /// boundary. For "/usr/lib/dyld\0" (14 B) → 12 + 14 = 26, round
@@ -125,6 +146,28 @@ pub fn write_load_dylib_libsystem(buf: &mut Vec<u8>) {
         buf.push(0);
     }
     debug_assert_eq!(buf.len() - start, LOAD_DYLIB_LIBSYSTEM_CMDSIZE as usize);
+}
+
+/// SD-4b — append `LC_LOAD_DYLIB /usr/lib/libcurl.4.dylib`. Same
+/// dylib_command wire format as the libSystem writer; only path
+/// + version constants differ. dyld uses the position in the LC
+/// chain to assign `lib_ordinal` (libSystem = 1, libcurl = 2),
+/// which the chained-fixups encoder must mirror.
+pub fn write_load_dylib_libcurl(buf: &mut Vec<u8>) {
+    let start = buf.len();
+    let name_bytes = LIBCURL_PATH.as_bytes();
+    buf.extend_from_slice(&LC_LOAD_DYLIB.to_le_bytes());
+    buf.extend_from_slice(&LOAD_DYLIB_LIBCURL_CMDSIZE.to_le_bytes());
+    buf.extend_from_slice(&24u32.to_le_bytes());
+    buf.extend_from_slice(&2u32.to_le_bytes());
+    buf.extend_from_slice(&LIBCURL_CURRENT_VERSION.to_le_bytes());
+    buf.extend_from_slice(&LIBCURL_COMPAT_VERSION.to_le_bytes());
+    buf.extend_from_slice(name_bytes);
+    buf.push(0);
+    while (buf.len() - start) < (LOAD_DYLIB_LIBCURL_CMDSIZE as usize) {
+        buf.push(0);
+    }
+    debug_assert_eq!(buf.len() - start, LOAD_DYLIB_LIBCURL_CMDSIZE as usize);
 }
 
 /// Append `LC_LOAD_DYLINKER` carrying `/usr/lib/dyld`. cmdsize is
