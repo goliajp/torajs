@@ -50,6 +50,7 @@ pub mod archive;
 pub mod archive_emit;
 pub mod archive_link;
 pub mod archives_merge;
+pub mod chained_fixups;
 pub mod dyld_emit;
 pub mod dyld_syms;
 pub mod exec;
