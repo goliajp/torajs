@@ -18,9 +18,52 @@ use torajs_obj::{
 };
 
 use crate::archive::ArMember;
-use crate::member_reloc::{MemberRelocError, parse_member_text_relocs};
+use crate::member_reloc::{MemberRelocEntry, MemberRelocError, parse_member_text_relocs};
 use crate::patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
 use crate::resolve::SymTable;
+
+/// Reloc target post-classification — feeds the patcher's
+/// section-vs-extern dispatch in SD-4c-prereq-b.
+///
+/// Currently only the section-keyed (`r_extern = 0`) case has a
+/// variant; the extern-keyed path stays inline in
+/// [`apply_member_relocs`] until prereq-b promotes both arms behind
+/// this enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatchKind {
+    /// `r_extern = 0` — target is a member-internal *section*. The
+    /// `section_index` is the 1-based ordinal stuffed in
+    /// `r_symbolnum` (Mach-O sections are 8-bit per `nlist.n_sect`);
+    /// `addend` is the accumulated 24-bit signed value collected from
+    /// any preceding `ARM64_RELOC_ADDEND` meta-reloc. Used by rustc /
+    /// cc to reference local constants (`__TEXT,__cstring` panic
+    /// literals, `__TEXT,__const` jump tables, …).
+    SectionRef { section_index: u8, addend: i64 },
+}
+
+/// Classify a section-keyed (`r_extern = 0`) reloc into a
+/// [`PatchKind::SectionRef`]. Returns `None` for extern-keyed relocs
+/// (`r_extern = 1`) — those keep flowing through the existing
+/// named-symbol path in [`apply_member_relocs`]. `pending_addend` is
+/// the accumulated 24-bit signed value from any preceding
+/// `ARM64_RELOC_ADDEND` meta-reloc.
+///
+/// **Not yet wired into [`apply_member_relocs`]** — SD-4c-prereq-a
+/// adds the classifier without changing any caller behaviour; the
+/// dispatch hook lands in SD-4c-prereq-b once the member-section
+/// layout helper exists. Out-of-range `r_symbolnum` (> 255) returns
+/// `None` here; strict validation moves into the prereq-b call site
+/// where the member's section count is known.
+pub fn classify_section_reloc(entry: &MemberRelocEntry, pending_addend: i64) -> Option<PatchKind> {
+    if entry.r_extern != 0 {
+        return None;
+    }
+    let section_index = u8::try_from(entry.r_symbolnum).ok()?;
+    Some(PatchKind::SectionRef {
+        section_index,
+        addend: pending_addend,
+    })
+}
 
 /// Failures `apply_member_relocs` can surface in addition to the
 /// `MemberRelocError` decoding stage. Variants split out the
@@ -59,6 +102,19 @@ pub enum MemberRelocApplyError {
     /// S7-C5 ships extern-only support, section-keyed lands later
     /// when production smoke surfaces it.
     SectionBasedRelocUnsupported { r_address: u32 },
+    /// `r_extern = 0` reloc carried an `r_symbolnum` that doesn't fit
+    /// a Mach-O 8-bit section index, or names a section past the end
+    /// of the member's section table. Surfaced from SD-4c-prereq-b's
+    /// dispatch — prereq-a wires the typed variant so callers added
+    /// later don't need to re-shape the error enum.
+    InvalidSectionIndex { r_symbolnum: u32, nsects: usize },
+    /// The classified section index resolved to a slot the member
+    /// doesn't carry in its `LC_SEGMENT_64` section table. Distinct
+    /// from `InvalidSectionIndex` (which catches malformed
+    /// `r_symbolnum`); this fires when the index parses cleanly but
+    /// the member's layout doesn't expose that section to the
+    /// patcher.
+    SectionNotInMember { section_index: u8 },
     /// Reloc type isn't one of the four ARM64 kinds the patcher
     /// understands.
     UnknownRelocType { r_type: u8, r_address: u32 },
@@ -570,6 +626,69 @@ mod tests {
         const ADD_OP: u32 = 0x9100_0000;
         const RELAX_MASK: u32 = !0x6840_0000;
         assert_eq!(LDR_OP & RELAX_MASK, ADD_OP);
+    }
+
+    /// Section-keyed reloc (`r_extern = 0`) classifies into
+    /// `PatchKind::SectionRef` with the 1-based section index lifted
+    /// from `r_symbolnum` and the running addend preserved.
+    #[test]
+    fn classify_section_reloc_returns_section_ref_for_r_extern_zero() {
+        let entry = MemberRelocEntry {
+            r_address: 0x40,
+            r_symbolnum: 3,
+            r_pcrel: 0,
+            r_length: 2,
+            r_extern: 0,
+            r_type: torajs_obj::ARM64_RELOC_UNSIGNED,
+        };
+        let kind = classify_section_reloc(&entry, 0x100);
+        assert_eq!(
+            kind,
+            Some(PatchKind::SectionRef {
+                section_index: 3,
+                addend: 0x100,
+            }),
+        );
+    }
+
+    /// Extern-keyed reloc (`r_extern = 1`) returns `None` — the
+    /// existing named-symbol path in `apply_member_relocs` stays
+    /// authoritative for that case.
+    #[test]
+    fn classify_section_reloc_returns_none_for_extern() {
+        let entry = MemberRelocEntry {
+            r_address: 0,
+            r_symbolnum: 5,
+            r_pcrel: 1,
+            r_length: 2,
+            r_extern: 1,
+            r_type: torajs_obj::ARM64_RELOC_BRANCH26,
+        };
+        assert_eq!(classify_section_reloc(&entry, 0), None);
+        // Non-zero pending_addend doesn't lift the extern guard.
+        assert_eq!(classify_section_reloc(&entry, 0x42), None);
+    }
+
+    /// `r_extern = 0` with `r_symbolnum` past 8 bits returns `None`.
+    /// Mach-O 8-bit `nlist.n_sect` caps real section counts at 255;
+    /// the strict numeric error variant fires from prereq-b's
+    /// dispatch where the member's true `nsects` is known.
+    #[test]
+    fn classify_section_reloc_returns_none_for_out_of_range_section_idx() {
+        let entry = MemberRelocEntry {
+            r_address: 0,
+            r_symbolnum: 256,
+            r_pcrel: 0,
+            r_length: 2,
+            r_extern: 0,
+            r_type: torajs_obj::ARM64_RELOC_UNSIGNED,
+        };
+        assert_eq!(classify_section_reloc(&entry, 0), None);
+        let entry_huge = MemberRelocEntry {
+            r_symbolnum: 0x00FF_FFFF,
+            ..entry
+        };
+        assert_eq!(classify_section_reloc(&entry_huge, 0), None);
     }
 
     /// Unresolved symbol surfaces as a typed error, not a panic.

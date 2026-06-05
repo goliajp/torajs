@@ -399,6 +399,48 @@ mod tests {
         assert_eq!(r.r_type, ARM64_RELOC_PAGE21);
     }
 
+    /// `r_extern = 0` section-keyed reloc decodes with `r_symbolnum`
+    /// holding the 1-based section index (not a sym table index).
+    /// Hand-pack an 8-byte `relocation_info` blob so the test stays
+    /// independent of `torajs-obj`'s named-sym writer (which only
+    /// emits `r_extern = 1`).
+    #[test]
+    fn section_keyed_reloc_round_trips_with_r_extern_zero() {
+        // r_address = 0x00000020 (LE u32)
+        // packed:
+        //   r_symbolnum (bits  0..23) = 3       — 1-based section idx
+        //   r_pcrel     (bit  24)     = 0
+        //   r_length    (bits 25..26) = 2       — 4-byte patch site
+        //   r_extern    (bit  27)     = 0       — section-keyed
+        //   r_type      (bits 28..31) = 0xA     — ARM64_RELOC_ADDEND
+        let r_address: u32 = 0x0000_0020;
+        let r_symbolnum: u32 = 3;
+        let r_pcrel: u32 = 0;
+        let r_length: u32 = 2;
+        let r_extern: u32 = 0;
+        let r_type: u32 = 0xA;
+        let packed: u32 = (r_symbolnum & 0x00FF_FFFF)
+            | (r_pcrel << 24)
+            | (r_length << 25)
+            | (r_extern << 27)
+            | (r_type << 28);
+
+        let mut bytes: Vec<u8> = Vec::new();
+        bytes.extend_from_slice(&r_address.to_le_bytes());
+        bytes.extend_from_slice(&packed.to_le_bytes());
+        assert_eq!(bytes.len(), RELOCATION_INFO_SIZE as usize);
+
+        let entries = decode_reloc_table(&bytes, 0, 1).unwrap();
+        assert_eq!(entries.len(), 1);
+        let r = entries[0];
+        assert_eq!(r.r_address, 0x20);
+        assert_eq!(r.r_symbolnum, 3, "1-based section index preserved");
+        assert_eq!(r.r_pcrel, 0);
+        assert_eq!(r.r_length, 2);
+        assert_eq!(r.r_extern, 0, "section-keyed flag preserved");
+        assert_eq!(r.r_type, 0xA);
+    }
+
     /// nreloc claims more entries than fit in the buffer →
     /// TruncatedRelocs.
     #[test]

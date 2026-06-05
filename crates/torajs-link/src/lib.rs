@@ -72,7 +72,9 @@ pub use archives_merge::{
 };
 pub use dyld_syms::{is_libsystem_resolved, libsystem_sym_count};
 pub use exec::{ExecLayout, LinkConfig, compute_layout, link_to_exec};
-pub use member_apply::{MemberRelocApplyError, apply_member_relocs};
+pub use member_apply::{
+    MemberRelocApplyError, PatchKind, apply_member_relocs, classify_section_reloc,
+};
 pub use member_reloc::{MemberRelocEntry, MemberRelocError, parse_member_text_relocs};
 pub use member_text::{MemberTextError, parse_member_text_section};
 pub use patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
