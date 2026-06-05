@@ -45,10 +45,44 @@ fn main() {
         PathBuf::from(std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".into()))
             .join("release");
 
-    // Just one archive — the syscall surface. Real production link
-    // would fan out to the entire libtorajs_*.a set, but we start
-    // narrow to surface the smallest possible failure.
-    let archive_paths = vec![target_dir.join("libtorajs_syscall.a")];
+    // Full production archive set. The worklist closure decides which
+    // members actually get pulled in based on the user's reloc graph,
+    // so listing all 32 doesn't necessarily integrate all 32.
+    let archive_names = [
+        "libtorajs_abort.a",
+        "libtorajs_anyvalue.a",
+        "libtorajs_arr.a",
+        "libtorajs_bigint.a",
+        "libtorajs_capture_box.a",
+        "libtorajs_collections.a",
+        "libtorajs_cycle.a",
+        "libtorajs_date.a",
+        "libtorajs_dynobj.a",
+        "libtorajs_embed.a",
+        "libtorajs_fetch.a",
+        "libtorajs_fmt.a",
+        "libtorajs_fs.a",
+        "libtorajs_io.a",
+        "libtorajs_math.a",
+        "libtorajs_mem.a",
+        "libtorajs_meta.a",
+        "libtorajs_microtask.a",
+        "libtorajs_mmalloc.a",
+        "libtorajs_mutex.a",
+        "libtorajs_num.a",
+        "libtorajs_panic.a",
+        "libtorajs_panic_runtime.a",
+        "libtorajs_process.a",
+        "libtorajs_promise.a",
+        "libtorajs_rc.a",
+        "libtorajs_regex.a",
+        "libtorajs_str.a",
+        "libtorajs_syscall.a",
+        "libtorajs_throw.a",
+        "libtorajs_value_drop.a",
+        "libtorajs_weak.a",
+    ];
+    let archive_paths: Vec<PathBuf> = archive_names.iter().map(|n| target_dir.join(n)).collect();
 
     let archives: Vec<Vec<u8>> = archive_paths
         .iter()
@@ -56,7 +90,14 @@ fn main() {
         .collect();
     eprintln!("probing with {} archive(s)", archives.len());
 
-    let main_cf = fn_calls_extern_then_returns("_main", "___torajs_syscall_abort");
+    // Pick the user-facing sym from CLI arg (defaults to the leaf
+    // syscall surface so the original smoke path still runs).
+    let extern_sym = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "___torajs_syscall_abort".to_string());
+    eprintln!("user fn calls extern: {extern_sym}");
+
+    let main_cf = fn_calls_extern_then_returns("_main", &extern_sym);
     let cfg = LinkConfig {
         funcs: vec![main_cf],
         entry: "_main".into(),
