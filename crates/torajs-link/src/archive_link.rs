@@ -44,6 +44,7 @@ use crate::archive::{MemberSymtabError, parse_member_defined_externs};
 use crate::archives_merge::{
     ArchiveLinkError, ArchiveMergeError, compute_required_members, merge_archive_indexes,
 };
+use crate::chained_fixups::build_chained_fixups;
 use crate::exec::LinkConfig;
 use crate::lc::{
     APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
@@ -157,6 +158,21 @@ pub struct ArchiveLayout {
     /// into the effective sym table so user-fn reloc sites BL the
     /// trampoline instead of the raw libSystem symbol.
     pub stub_vaddrs: BTreeMap<String, u64>,
+    /// SD-3 — fully assembled `LC_DYLD_CHAINED_FIXUPS` blob to
+    /// land at `chained_fixups_dataoff` inside `__LINKEDIT`.
+    /// Empty when `dyld_imports` is empty (no LC, no payload).
+    pub chained_fixups_blob: Vec<u8>,
+    /// File offset of the chained-fixups blob; `0` for the empty
+    /// case.
+    pub chained_fixups_dataoff: u32,
+    /// On-disk size of the chained-fixups blob; `0` for the
+    /// empty case.
+    pub chained_fixups_datasize: u32,
+    /// SD-3 — per-import 8-byte chain-link value to write into
+    /// `__DATA,__la_symbol_ptr`. Replaces the SD-2a zero-fill so
+    /// dyld can walk the chain at bind time. Same iteration
+    /// order as `dyld_imports`.
+    pub la_ptr_slot_values: Vec<u64>,
 }
 
 /// Failures `compute_archive_layout` can report.
@@ -267,6 +283,9 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     //   has_dyld: PAGEZERO + TEXT (2 sections) + DATA (1) + LINKEDIT
     //             = 4 segments, 3 sections
     let (segment_count, section_count) = if has_dyld { (4, 3) } else { (3, 1) };
+    // SD-3 adds LC_DYLD_CHAINED_FIXUPS when has_dyld — same
+    // `linkedit_data_command` shape as LC_CODE_SIGNATURE (16 B).
+    let chained_fixups_lc_size = if has_dyld { LINKEDIT_DATA_CMDSIZE } else { 0 };
     let sizeofcmds = (SEGMENT_COMMAND_64_SIZE * segment_count)
         + (SECTION_64_SIZE * section_count)
         + LOAD_DYLINKER_CMDSIZE
@@ -275,6 +294,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         + MAIN_CMDSIZE
         + SYMTAB_COMMAND_SIZE
         + DYSYMTAB_CMDSIZE
+        + chained_fixups_lc_size
         + LINKEDIT_DATA_CMDSIZE;
     let header_plus_lc = (MachHeader64::SIZE as u32) + sizeofcmds;
     let text_file_offset = round_up_to(u64::from(header_plus_lc), APPLE_SILICON_PAGE_SIZE) as u32;
@@ -385,9 +405,36 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         }
     }
 
-    let codesign_dataoff = stroff + strsize;
+    // SD-3 — build the chained-fixups blob now that the layout
+    // numbers it depends on (text_vmsize → __DATA vmaddr offset
+    // from image base) are settled. The blob lands inside
+    // `__LINKEDIT` immediately after the string table and before
+    // the codesign blob so the ad-hoc CodeDirectory hash covers
+    // it. Empty `dyld_imports` skips the blob entirely.
+    let (chained_fixups_blob, la_ptr_slot_values): (Vec<u8>, Vec<u64>) = if has_dyld {
+        let built = build_chained_fixups(
+            &required.dyld_imports,
+            text_vmsize,
+            0,
+            segment_count,
+            // __DATA is index 2 in PAGEZERO + TEXT + DATA + LINKEDIT
+            // order.
+            2,
+        );
+        (built.blob, built.slot_values)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let chained_fixups_dataoff = if has_dyld { stroff + strsize } else { 0 };
+    let chained_fixups_datasize = chained_fixups_blob.len() as u32;
+
+    let codesign_dataoff = if has_dyld {
+        chained_fixups_dataoff + chained_fixups_datasize
+    } else {
+        stroff + strsize
+    };
     let codesign_datasize = adhoc_codesign_blob_size(codesign_dataoff, &cfg.codesign_ident);
-    let linkedit_data_size = nlist_size + strsize + codesign_datasize;
+    let linkedit_data_size = nlist_size + strsize + chained_fixups_datasize + codesign_datasize;
     let linkedit_vmsize = round_up_to(u64::from(linkedit_data_size), APPLE_SILICON_PAGE_SIZE);
     let total_size = linkedit_file_offset + linkedit_data_size;
 
@@ -419,6 +466,10 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         data_vmsize,
         data_vmaddr,
         stub_vaddrs,
+        chained_fixups_blob,
+        chained_fixups_dataoff,
+        chained_fixups_datasize,
+        la_ptr_slot_values,
     })
 }
 

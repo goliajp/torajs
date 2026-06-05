@@ -40,8 +40,8 @@ use crate::exec::LinkConfig;
 use crate::lc::{
     BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLIB_LIBSYSTEM_CMDSIZE,
     LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE, MH_NOUNDEFS, MH_PIE, MH_TWOLEVEL,
-    PAGEZERO_VMSIZE, write_build_version, write_code_signature, write_dysymtab, write_lc_main,
-    write_load_dylib_libsystem, write_load_dylinker,
+    PAGEZERO_VMSIZE, write_build_version, write_code_signature, write_dyld_chained_fixups,
+    write_dysymtab, write_lc_main, write_load_dylib_libsystem, write_load_dylinker,
 };
 use crate::member_apply::apply_member_relocs;
 use crate::resolve::apply_relocs;
@@ -125,9 +125,9 @@ fn emit_binary(
     // keeps the pre-SD-1 9-LC layout byte-identical so leaf-syscall
     // fixtures continue to ship the same binary as before.
     let has_libsystem = !layout.dyld_imports.is_empty();
-    // ncmds delta: +1 LC_LOAD_DYLIB libSystem, +1 LC_SEGMENT_64
-    // __DATA (when has_libsystem).
-    let extra_lc_count = if has_libsystem { 2 } else { 0 };
+    // ncmds delta (when has_libsystem): +1 LC_LOAD_DYLIB libSystem,
+    // +1 LC_SEGMENT_64 __DATA, +1 LC_DYLD_CHAINED_FIXUPS (SD-3).
+    let extra_lc_count = if has_libsystem { 3 } else { 0 };
     let extra_lc_size = if has_libsystem {
         LOAD_DYLIB_LIBSYSTEM_CMDSIZE
             // __TEXT gains a second SECTION_64 entry (__stubs).
@@ -135,6 +135,8 @@ fn emit_binary(
             // __DATA segment + its single __la_symbol_ptr section.
             + SEGMENT_COMMAND_64_SIZE
             + SECTION_64_SIZE
+            // SD-3: LC_DYLD_CHAINED_FIXUPS (linkedit_data_command).
+            + LINKEDIT_DATA_CMDSIZE
     } else {
         0
     };
@@ -261,6 +263,13 @@ fn emit_binary(
     write_lc_main(&mut buf, u64::from(layout.entry_file_offset));
     symtab_cmd.write_to(&mut buf);
     write_dysymtab(&mut buf, layout.nsyms);
+    if has_libsystem {
+        write_dyld_chained_fixups(
+            &mut buf,
+            layout.chained_fixups_dataoff,
+            layout.chained_fixups_datasize,
+        );
+    }
     write_code_signature(&mut buf, layout.codesign_dataoff, layout.codesign_datasize);
 
     debug_assert_eq!(
@@ -324,6 +333,19 @@ fn emit_binary(
         }
     }
     buf.extend_from_slice(strtab.as_bytes());
+
+    // SD-3: chained-fixups blob lands directly after the string
+    // table and before the codesign blob, so the ad-hoc
+    // CodeDirectory hash covers it.
+    if has_libsystem {
+        debug_assert_eq!(buf.len() as u32, layout.chained_fixups_dataoff);
+        buf.extend_from_slice(&layout.chained_fixups_blob);
+        debug_assert_eq!(
+            (buf.len() as u32) - layout.chained_fixups_dataoff,
+            layout.chained_fixups_datasize,
+            "chained-fixups blob size must match layout"
+        );
+    }
 
     debug_assert_eq!(buf.len() as u32, layout.codesign_dataoff);
     let blob = build_adhoc_codesign_blob(&buf, &cfg.codesign_ident);
@@ -579,21 +601,27 @@ mod tests {
         );
     }
 
-    /// SD-2a — when a user fn references a libSystem-resolved
+    /// SD-3 — when a user fn references a libSystem-resolved
     /// extern (`_malloc`), the emitted binary must:
     ///   - grow by exactly the `__stubs` payload (12 B per import)
     ///     plus a page-aligned `__DATA` segment carrying the
     ///     `__la_symbol_ptr` slot
     ///   - place the `__stubs` payload right after the user
     ///     `__text` inside the `__TEXT` segment
-    ///   - zero-init the `__la_symbol_ptr` slot (SD-3 wires
-    ///     LC_DYLD_CHAINED_FIXUPS to bind it)
+    ///   - encode the `__la_symbol_ptr` slot as a
+    ///     `dyld_chained_ptr_64_bind` link (no longer zero-init —
+    ///     SD-3 wires LC_DYLD_CHAINED_FIXUPS to bind it)
+    ///   - report `ncmds = 12` (PAGEZERO + TEXT + DATA + LINKEDIT
+    ///     segments + DYLINKER + LOAD_DYLIB + BUILD_VERSION +
+    ///     LC_MAIN + SYMTAB + DYSYMTAB + DYLD_CHAINED_FIXUPS +
+    ///     CODE_SIGNATURE)
     ///
     /// The test populates `cfg.sym_table` with a within-page
     /// `_malloc` address so `apply_relocs` can patch the BL
-    /// displacement without panicking. SD-2b will replace this
-    /// hand-supplied entry by funnelling `_malloc` through
-    /// `layout.stub_vaddrs` automatically.
+    /// displacement without panicking. SD-2b already routed
+    /// `_malloc` through `layout.stub_vaddrs` automatically, but
+    /// the hand-supplied entry stays for backwards-compat
+    /// coverage of the explicit-sym_table code path.
     #[test]
     fn libsystem_extern_emits_stubs_section_and_la_ptr_slot() {
         // user `_main` does `stp; bl _malloc; ldp; ret`.
@@ -641,19 +669,37 @@ mod tests {
         assert_eq!(stub_bytes_match.len(), 1);
         assert_eq!(stubs, &stub_bytes_match[0].bytes);
 
-        // __la_symbol_ptr slot at la_ptr_file_offset is 8 zero
-        // bytes — dyld will fill them at bind time (SD-3 wires
-        // the LC_DYLD_CHAINED_FIXUPS encoding).
+        // SD-3 — __la_symbol_ptr slot now carries the
+        // dyld_chained_ptr_64_bind encoding (bind=1, ordinal=0,
+        // next=0 for single-import chain end). The byte pattern
+        // matches `0x8000_0000_0000_0000` LE.
         let slot_off = layout.la_ptr_file_offset as usize;
         let slot = &bytes[slot_off..slot_off + 8];
-        assert_eq!(slot, &[0u8; 8]);
+        let expected_link = 0x8000_0000_0000_0000u64;
+        assert_eq!(slot, &expected_link.to_le_bytes());
+        assert_eq!(
+            layout.la_ptr_slot_values,
+            vec![expected_link],
+            "la_ptr_slot_values must match the on-disk encoding",
+        );
 
-        // Header reflects the SD-2a LC chain: 11 cmds total
+        // Header reflects the SD-3 LC chain: 12 cmds total
         // (PAGEZERO + TEXT + DATA + LINKEDIT segments = 4,
         // plus DYLINKER + LOAD_DYLIB + BUILD_VERSION + LC_MAIN +
-        // SYMTAB + DYSYMTAB + CODE_SIGNATURE = 7 → 11 total).
+        // SYMTAB + DYSYMTAB + DYLD_CHAINED_FIXUPS +
+        // CODE_SIGNATURE = 8 → 12 total).
         let ncmds = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
-        assert_eq!(ncmds, 11);
+        assert_eq!(ncmds, 12);
+
+        // SD-3 — the chained_fixups blob must land exactly at
+        // layout.chained_fixups_dataoff and match the buffer the
+        // layout cached.
+        let cf_off = layout.chained_fixups_dataoff as usize;
+        let cf_size = layout.chained_fixups_datasize as usize;
+        assert_eq!(
+            &bytes[cf_off..cf_off + cf_size],
+            &layout.chained_fixups_blob[..]
+        );
     }
 
     /// SD-2b — a user fn referencing a libSystem-resolved extern

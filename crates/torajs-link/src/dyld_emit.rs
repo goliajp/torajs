@@ -88,10 +88,16 @@ pub(crate) fn build_data_segment(layout: &ArchiveLayout) -> SegmentCommand64 {
 
 /// Write the `__stubs` payload right after the user `__text`
 /// (i.e. at `layout.stubs_file_offset`) followed by a page-aligned
-/// jump to `la_ptr_file_offset` and `la_ptr_section_size` zero
-/// bytes for the slot table. Callers invoke this only when
+/// jump to `la_ptr_file_offset` and one chain-link 8-byte word
+/// per import for the slot table. Callers invoke this only when
 /// `dyld_imports` is non-empty; the empty case keeps the payload
 /// byte-stream byte-identical to SD-1.
+///
+/// SD-3 — `__la_symbol_ptr` no longer holds zero bytes. Each slot
+/// now carries the `dyld_chained_ptr_64_bind` encoding (ordinal
+/// + next + bind bit) from `layout.la_ptr_slot_values`, so dyld
+/// can walk the chain at load time and overwrite the encoded
+/// link with the real libSystem fn address.
 pub(crate) fn write_stubs_and_la_ptr(buf: &mut Vec<u8>, layout: &ArchiveLayout) {
     debug_assert_eq!(
         buf.len() as u32,
@@ -117,7 +123,12 @@ pub(crate) fn write_stubs_and_la_ptr(buf: &mut Vec<u8>, layout: &ArchiveLayout) 
         buf.resize(target, 0);
     }
     debug_assert_eq!(buf.len(), target, "la_ptr payload must land at offset");
-    for _ in 0..layout.la_ptr_section_size {
-        buf.push(0);
+    debug_assert_eq!(
+        layout.la_ptr_slot_values.len() * 8,
+        layout.la_ptr_section_size as usize,
+        "la_ptr_slot_values must cover the whole section",
+    );
+    for slot in &layout.la_ptr_slot_values {
+        buf.extend_from_slice(&slot.to_le_bytes());
     }
 }
