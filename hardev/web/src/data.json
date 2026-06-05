@@ -1,12 +1,13 @@
 {
-  "generatedAt": "2026-06-05T12:43:35.143Z",
+  "generatedAt": "2026-06-05T23:56:43.210Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 660,
+    "pass": 723,
     "fail": 0,
-    "skip": 1,
-    "raw": "660/0/1",
-    "source": "hardev/metrics.md"
+    "skip": 4,
+    "raw": "723/0/4",
+    "source": "/tmp/torajs-conformance-e10b166.log",
+    "sourceMtime": "2026-06-05T23:23:57.278Z"
   },
   "test262": {
     "ranAt": "2026-06-03T22:49:10Z",
@@ -27,16 +28,17 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "cd546fa",
-    "commitSubject": "chore(link): probe_real_link CLI sym + full archive set — #8 dyld-gap surface",
+    "commit": "fe31600",
+    "commitSubject": "chore(toolchain): add rust-analyzer component",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 660,
+      "pass": 723,
       "fail": 0,
-      "skip": 1,
-      "raw": "660/0/1",
-      "source": "hardev/metrics.md"
+      "skip": 4,
+      "raw": "723/0/4",
+      "source": "/tmp/torajs-conformance-e10b166.log",
+      "sourceMtime": "2026-06-05T23:23:57.278Z"
     }
   },
   "roadmap": [
@@ -609,73 +611,84 @@
   },
   "commits": [
     {
-      "hash": "cd546fa",
-      "subject": "chore(link): probe_real_link CLI sym + full archive set — #8 dyld-gap surface"
+      "hash": "fe31600",
+      "subject": "chore(toolchain): add rust-analyzer component"
     },
     {
-      "hash": "3f1ad85",
-      "subject": "feat(link): ARM64_RELOC_ADDEND + GOT_LOAD relaxation — #8 S7-C5e"
+      "hash": "e10b166",
+      "subject": "feat(link): emit non-text payloads + grow __text — #9 SD-4c-prereq-c"
     },
     {
-      "hash": "c0b2199",
-      "subject": "chore(link): probe_real_link smoke — leaf syscall → exec → SIGABRT — #8 self-hosted milestone"
+      "hash": "1b6065b",
+      "subject": "feat(link): apply SectionRef arm + local N_SECT resolve — #9 SD-4c-prereq-b3"
     },
     {
-      "hash": "668cc0b",
-      "subject": "chore(link): probe_section_reloc augmented dumps — #8 S7-C5e prep"
+      "hash": "c6324b0",
+      "subject": "feat(link): NonTextSectionLayout + shadow layout for member non-text — #9 SD-4c-prereq-b2"
     },
     {
-      "hash": "3977853",
-      "subject": "feat(link): parse anonymous-segment object-file form (rustc .o) — #8 S7-C5d"
+      "hash": "8d0433f",
+      "subject": "feat(link): collect_member_sections — #9 SD-4c-prereq-b1"
     },
     {
-      "hash": "791c90d",
-      "subject": "feat(link): integrate apply_member_relocs + transitive chain exit 7 — #8 S7-C5c"
+      "hash": "222b28d",
+      "subject": "feat(link): PatchKind + classify_section_reloc for r_extern=0 — #9 SD-4c-prereq-a"
     },
     {
-      "hash": "ea92de9",
-      "subject": "feat(link): apply_member_relocs + extern reloc patcher — #8 S7-C5b"
+      "hash": "84f0656",
+      "subject": "chore(lock): stage torajs-print Cargo.lock entry — SD-4a follow-up"
     },
     {
-      "hash": "9318b7b",
-      "subject": "feat(link): parse_member_text_relocs decoder + MemberRelocEntry — #8 S7-C5a"
+      "hash": "9bf29e7",
+      "subject": "feat(link): multi-dylib LC_LOAD_DYLIB libcurl substrate — #9 SD-4b"
     },
     {
-      "hash": "0aecee4",
-      "subject": "docs(hardev): dashboard snapshot @ b6ef9e7 — #8 S7-C 4 commit ship"
+      "hash": "167fc50",
+      "subject": "feat(print): port _print_bool/_i64/_f64 to torajs-print staticlib — #9 SD-4a"
     },
     {
-      "hash": "b6ef9e7",
-      "subject": "feat(link): link_to_exec_with_archives + e2e exit 7 — #8 S7-C4"
+      "hash": "9dea439",
+      "subject": "feat(link): wire LC_DYLD_CHAINED_FIXUPS + chain-link __la_symbol_ptr — #9 SD-3b"
     },
     {
-      "hash": "d54add7",
-      "subject": "feat(link): compute_archive_layout + ArchiveLayout — #8 S7-C3"
+      "hash": "9f71a56",
+      "subject": "feat(link): LC_DYLD_CHAINED_FIXUPS blob encoder + slot link encoder — #9 SD-3a"
     },
     {
-      "hash": "1e86057",
-      "subject": "feat(link): compute_required_members worklist closure — #8 S7-C2"
+      "hash": "9231fe6",
+      "subject": "feat(link): route libSystem reloc through stub trampolines — #9 SD-2b"
     }
   ],
-  "headSha": "cd546fa",
+  "headSha": "fe31600",
   "autorun": {
-    "total": 56,
+    "total": 57,
     "baselineTarget": 10,
-    "bySelf": 55,
+    "bySelf": 56,
     "byManual": 1,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780553597-3214",
-      "at": "2026-06-04T06:13:17Z",
-      "ts": 1780553597,
+      "rotationId": "r-1780663453-6883",
+      "at": "2026-06-05T12:44:13Z",
+      "ts": 1780663453,
       "trigger": "self",
-      "prevHead": "b3cbaa3",
+      "prevHead": "edfdfe2",
       "handoffSha": "sha256:18e07fd1597cd94e1b9ca359b3d28f265be66fdbdde3b0ed80fcf5e5388073a1",
-      "handoffAgeSec": 14597,
+      "handoffAgeSec": 124454,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780663453-6883",
+        "at": "2026-06-05T12:44:13Z",
+        "ts": 1780663453,
+        "trigger": "self",
+        "prevHead": "edfdfe2",
+        "handoffSha": "sha256:18e07fd1597cd94e1b9ca359b3d28f265be66fdbdde3b0ed80fcf5e5388073a1",
+        "handoffAgeSec": 124454,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780553597-3214",
         "at": "2026-06-04T06:13:17Z",
@@ -772,17 +785,6 @@
         "prevHead": "4988982",
         "handoffSha": "sha256:f56d6db315b49441a15f73979083fd3f3f03e3c01ec8754cca56b51cae3dcfcf",
         "handoffAgeSec": 6,
-        "conformanceBefore": "687/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779972566-01ad",
-        "at": "2026-05-28T12:49:26Z",
-        "ts": 1779972566,
-        "trigger": "self",
-        "prevHead": "ddff4be",
-        "handoffSha": "sha256:934be9ab8ae30c2a5431611c0d7b06a5e5453dd23c2ff3569a626e4946be2f2f",
-        "handoffAgeSec": 5,
         "conformanceBefore": "687/0/1",
         "commitsInSession": null
       }
