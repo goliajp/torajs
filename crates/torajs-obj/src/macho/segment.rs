@@ -62,6 +62,24 @@ pub const S_ATTR_PURE_INSTRUCTIONS: u32 = 0x8000_0000;
 /// combo `clang -c` emits is `(PURE | SOME)`.
 pub const S_ATTR_SOME_INSTRUCTIONS: u32 = 0x0000_0400;
 
+/// Section type (low 8 bits of `flags`) — non-lazy symbol pointers.
+/// `<mach-o/loader.h>::S_NON_LAZY_SYMBOL_POINTERS`. Reserved here for
+/// future GOT-like sections; SD-2a doesn't emit one yet.
+pub const S_NON_LAZY_SYMBOL_POINTERS: u32 = 0x6;
+
+/// Section type — lazy symbol pointers. Mirrors
+/// `<mach-o/loader.h>::S_LAZY_SYMBOL_POINTERS`. Used as the section
+/// type for `__DATA,__la_symbol_ptr` (one 8-byte slot per
+/// dyld-bound import; dyld writes the resolved target address into
+/// each slot at load time / first call).
+pub const S_LAZY_SYMBOL_POINTERS: u32 = 0x7;
+
+/// Section type — symbol stubs. Mirrors
+/// `<mach-o/loader.h>::S_SYMBOL_STUBS`. Used as the section type
+/// for `__TEXT,__stubs`. Pairs with a non-zero `reserved2` carrying
+/// the per-stub byte size (12 for the ARM64 ADRP+LDR+BR trampoline).
+pub const S_SYMBOL_STUBS: u32 = 0x8;
+
 /// On-disk size of `segment_command_64`, excluding the trailing
 /// section table.
 pub const SEGMENT_COMMAND_64_SIZE: u32 = 72;

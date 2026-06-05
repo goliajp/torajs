@@ -35,6 +35,7 @@ use torajs_obj::{
 
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError, compute_archive_layout};
 use crate::archives_merge::merge_archive_indexes;
+use crate::dyld_emit::{build_data_segment, build_stubs_section, write_stubs_and_la_ptr};
 use crate::exec::LinkConfig;
 use crate::lc::{
     BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLIB_LIBSYSTEM_CMDSIZE,
@@ -105,15 +106,26 @@ fn emit_binary(
     member_text_payloads: &[Vec<u8>],
     resolved: &[crate::resolve::ResolvedFunction],
 ) -> Vec<u8> {
-    // SD-1: if the worklist surfaced libSystem-resolved externs we
-    // emit one extra `LC_LOAD_DYLIB` load command pointing at
-    // `/usr/lib/libSystem.B.dylib`. Empty `dyld_imports` keeps the
-    // pre-SD-1 9-LC layout byte-identical so leaf-syscall fixtures
-    // continue to ship the same binary as before.
+    // SD-1: when the worklist surfaced libSystem-resolved externs
+    // we emit an extra `LC_LOAD_DYLIB` for `libSystem.B.dylib`.
+    // SD-2a extends this further — non-empty `dyld_imports` also
+    // means __TEXT gains a `__stubs` section (per-import trampoline)
+    // and a brand-new `__DATA` segment carries `__la_symbol_ptr`
+    // (one 8-byte slot per import, zero-init now; SD-3 wires
+    // LC_DYLD_CHAINED_FIXUPS to bind them). Empty `dyld_imports`
+    // keeps the pre-SD-1 9-LC layout byte-identical so leaf-syscall
+    // fixtures continue to ship the same binary as before.
     let has_libsystem = !layout.dyld_imports.is_empty();
-    let extra_lc_count = u32::from(has_libsystem);
+    // ncmds delta: +1 LC_LOAD_DYLIB libSystem, +1 LC_SEGMENT_64
+    // __DATA (when has_libsystem).
+    let extra_lc_count = if has_libsystem { 2 } else { 0 };
     let extra_lc_size = if has_libsystem {
         LOAD_DYLIB_LIBSYSTEM_CMDSIZE
+            // __TEXT gains a second SECTION_64 entry (__stubs).
+            + SECTION_64_SIZE
+            // __DATA segment + its single __la_symbol_ptr section.
+            + SEGMENT_COMMAND_64_SIZE
+            + SECTION_64_SIZE
     } else {
         0
     };
@@ -172,6 +184,12 @@ fn emit_binary(
         reserved2: 0,
         reserved3: 0,
     };
+    // SD-2a: add __stubs section to __TEXT when has_libsystem.
+    let text_sections = if has_libsystem {
+        vec![text_section, build_stubs_section(layout)]
+    } else {
+        vec![text_section]
+    };
     let text_segment = SegmentCommand64 {
         segname: "__TEXT".into(),
         vmaddr: layout.text_vmaddr,
@@ -181,7 +199,15 @@ fn emit_binary(
         maxprot: VM_PROT_READ | VM_PROT_EXECUTE,
         initprot: VM_PROT_READ | VM_PROT_EXECUTE,
         flags: 0,
-        sections: vec![text_section],
+        sections: text_sections,
+    };
+
+    // SD-2a: __DATA segment + __la_symbol_ptr section between
+    // __TEXT and __LINKEDIT (only when has_libsystem).
+    let data_segment_opt = if has_libsystem {
+        Some(build_data_segment(layout))
+    } else {
+        None
     };
 
     let linkedit_data_size = u64::from(layout.nsyms) * u64::from(NLIST_64_SIZE)
@@ -211,6 +237,12 @@ fn emit_binary(
     header.write_to(&mut buf);
     pagezero.write_to(&mut buf);
     text_segment.write_to(&mut buf);
+    // SD-2a: __DATA segment falls between __TEXT and __LINKEDIT in
+    // segment-vmaddr order, so it's emitted between them in the LC
+    // chain too — matching what `clang -o` produces.
+    if let Some(ref data_segment) = data_segment_opt {
+        data_segment.write_to(&mut buf);
+    }
     linkedit_segment.write_to(&mut buf);
     write_load_dylinker(&mut buf);
     if has_libsystem {
@@ -247,6 +279,11 @@ fn emit_binary(
             "patched member __text size must match layout",
         );
         buf.extend_from_slice(&member_text_payloads[i]);
+    }
+
+    // SD-2a: emit __stubs payload + zero-init __la_symbol_ptr.
+    if has_libsystem {
+        write_stubs_and_la_ptr(&mut buf, layout);
     }
 
     pad_to(&mut buf, layout.linkedit_file_offset as usize);
@@ -531,6 +568,83 @@ mod tests {
             String::from_utf8_lossy(&run.stdout),
             String::from_utf8_lossy(&run.stderr),
         );
+    }
+
+    /// SD-2a — when a user fn references a libSystem-resolved
+    /// extern (`_malloc`), the emitted binary must:
+    ///   - grow by exactly the `__stubs` payload (12 B per import)
+    ///     plus a page-aligned `__DATA` segment carrying the
+    ///     `__la_symbol_ptr` slot
+    ///   - place the `__stubs` payload right after the user
+    ///     `__text` inside the `__TEXT` segment
+    ///   - zero-init the `__la_symbol_ptr` slot (SD-3 wires
+    ///     LC_DYLD_CHAINED_FIXUPS to bind it)
+    ///
+    /// The test populates `cfg.sym_table` with a within-page
+    /// `_malloc` address so `apply_relocs` can patch the BL
+    /// displacement without panicking. SD-2b will replace this
+    /// hand-supplied entry by funnelling `_malloc` through
+    /// `layout.stub_vaddrs` automatically.
+    #[test]
+    fn libsystem_extern_emits_stubs_section_and_la_ptr_slot() {
+        // user `_main` does `stp; bl _malloc; ldp; ret`.
+        let main_cf = fn_calls_extern_then_returns("_main", "_malloc");
+        let mut sym_table = SymTable::new();
+        // _main lands at TEXT_VMADDR_BASE + text_file_offset =
+        // 0x100000000 + 0x4000 = 0x100004000. Point `_malloc` at
+        // the same fn's epilogue so patch_branch26's debug-assert
+        // is happy; the runtime never executes this binary in
+        // this test.
+        let fake_malloc_vaddr = 0x1_0000_4000u64 + (main_cf.bytes.len() as u64 - 4);
+        sym_table.insert("_malloc".into(), fake_malloc_vaddr);
+
+        let cfg = LinkConfig {
+            funcs: vec![main_cf.clone()],
+            entry: "_main".into(),
+            sym_table,
+            codesign_ident: "tora".into(),
+            archives: Vec::new(),
+        };
+        let layout = compute_archive_layout(&cfg).expect("layout");
+        assert!(!layout.dyld_imports.is_empty(), "dyld_imports populated");
+        assert_eq!(layout.stubs_section_size, 12);
+        assert_eq!(layout.la_ptr_section_size, 8);
+
+        // Drive emit_binary directly — apply_relocs is happy
+        // because cfg.sym_table covers `_malloc`.
+        let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &cfg.sym_table);
+        let bytes = emit_binary(&cfg, &layout, &[], &resolved);
+
+        assert_eq!(
+            bytes.len() as u32,
+            layout.total_size,
+            "emitted size must match layout total"
+        );
+
+        // __stubs payload sits at stubs_file_offset, 12 bytes.
+        let stubs_off = layout.stubs_file_offset as usize;
+        let stubs = &bytes[stubs_off..stubs_off + 12];
+        let stub_bytes_match = crate::stubs::build_stubs(
+            &layout.dyld_imports,
+            layout.stubs_section_vaddr,
+            layout.la_ptr_section_vaddr,
+        );
+        assert_eq!(stub_bytes_match.len(), 1);
+        assert_eq!(stubs, &stub_bytes_match[0].bytes);
+
+        // __la_symbol_ptr slot at la_ptr_file_offset is 8 zero
+        // bytes — dyld will fill them at bind time (SD-3 wires
+        // the LC_DYLD_CHAINED_FIXUPS encoding).
+        let slot_off = layout.la_ptr_file_offset as usize;
+        let slot = &bytes[slot_off..slot_off + 8];
+        assert_eq!(slot, &[0u8; 8]);
+
+        // Header reflects the SD-2a LC chain: 11 cmds total
+        // (PAGEZERO + TEXT + DATA + LINKEDIT segments = 4,
+        // plus DYLINKER + LOAD_DYLIB + BUILD_VERSION + LC_MAIN +
+        // SYMTAB + DYSYMTAB + CODE_SIGNATURE = 7 → 11 total).
+        let ncmds = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
+        assert_eq!(ncmds, 11);
     }
 
     /// nm sanity check: integrated member's `_foo` shows up in

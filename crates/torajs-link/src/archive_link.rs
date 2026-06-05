@@ -37,11 +37,10 @@
 //! parallel arrays.
 
 use torajs_obj::{
-    LC_SEGMENT_64, MH_MAGIC_64, MachHeader64, NLIST_64_SIZE, SECTION_64_SIZE,
-    SEGMENT_COMMAND_64_SIZE, SYMTAB_COMMAND_SIZE,
+    MachHeader64, NLIST_64_SIZE, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE, SYMTAB_COMMAND_SIZE,
 };
 
-use crate::archive::{ArMember, MemberSymtabError, parse_member_defined_externs};
+use crate::archive::{MemberSymtabError, parse_member_defined_externs};
 use crate::archives_merge::{
     ArchiveLinkError, ArchiveMergeError, compute_required_members, merge_archive_indexes,
 };
@@ -51,12 +50,10 @@ use crate::lc::{
     LOAD_DYLIB_LIBSYSTEM_CMDSIZE, LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, TEXT_VMADDR_BASE,
 };
 use crate::member_apply::MemberRelocApplyError;
+pub use crate::member_text::{MemberTextError, parse_member_text_section};
 use crate::sign::adhoc_codesign_blob_size;
-use std::collections::BTreeSet;
-
-/// Mach-O segment names + section names referenced by the parser.
-const TEXT_SEGNAME: &[u8] = b"__TEXT";
-const TEXT_SECTNAME: &[u8] = b"__text";
+use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Per-archive-member computed data the S7-C4 emit pass needs.
 /// `defined_syms` carries `(name, n_value)` exactly as the member's
@@ -120,11 +117,46 @@ pub struct ArchiveLayout {
     /// `dyld_syms::is_libsystem_resolved` during the worklist
     /// closure. When non-empty, `archive_emit::emit_binary` adds a
     /// `LC_LOAD_DYLIB /usr/lib/libSystem.B.dylib` to the load
-    /// command chain (per-symbol `__TEXT,__stubs` trampolines land
-    /// in SD-2; until then the dyld imports surface here but the
-    /// binary itself isn't yet runnable when the set is non-empty
-    /// — `apply_relocs` will fail to resolve those externs).
+    /// command chain and (SD-2a) `__TEXT,__stubs` +
+    /// `__DATA,__la_symbol_ptr` sections carrying the per-symbol
+    /// trampoline + lazy pointer slot. SD-2b wires `stub_vaddrs`
+    /// into the effective sym table so user-fn relocs resolve
+    /// against the trampoline addresses listed here.
     pub dyld_imports: BTreeSet<String>,
+    /// SD-2a — final image vaddr of the first byte of
+    /// `__TEXT,__stubs`. `0` when `dyld_imports` is empty (the
+    /// section isn't emitted in that case, so callers can rely on
+    /// `dyld_imports.is_empty()` as the gate before reading this).
+    pub stubs_section_vaddr: u64,
+    /// On-disk / vmsize length of the `__TEXT,__stubs` section.
+    /// Always `dyld_imports.len() * STUB_SIZE`; `0` for the
+    /// empty case.
+    pub stubs_section_size: u64,
+    /// File offset of the first byte of `__TEXT,__stubs`.
+    pub stubs_file_offset: u32,
+    /// Final image vaddr of the first byte of
+    /// `__DATA,__la_symbol_ptr`. `0` for the empty case.
+    pub la_ptr_section_vaddr: u64,
+    /// On-disk / vmsize length of the `__DATA,__la_symbol_ptr`
+    /// section. Always `dyld_imports.len() * LA_PTR_SLOT_SIZE`;
+    /// `0` for the empty case.
+    pub la_ptr_section_size: u64,
+    /// File offset of the first byte of `__DATA,__la_symbol_ptr`.
+    pub la_ptr_file_offset: u32,
+    /// On-disk / vmsize of the `__DATA` segment — page-aligned
+    /// length covering `__la_symbol_ptr`. `0` for the empty case
+    /// (no `__DATA` segment is emitted at all).
+    pub data_vmsize: u64,
+    /// Vaddr of the `__DATA` segment (= `la_ptr_section_vaddr`,
+    /// since `__la_symbol_ptr` is the segment's only section and
+    /// lives at its base). `0` for the empty case.
+    pub data_vmaddr: u64,
+    /// SD-2a — per-import stub vaddr. Same iteration order as
+    /// `dyld_imports` (sorted by name, since both are `BTreeSet` /
+    /// `BTreeMap`-derived). SD-2b inserts `(name → stub_vaddr)`
+    /// into the effective sym table so user-fn reloc sites BL the
+    /// trampoline instead of the raw libSystem symbol.
+    pub stub_vaddrs: BTreeMap<String, u64>,
 }
 
 /// Failures `compute_archive_layout` can report.
@@ -161,102 +193,6 @@ pub enum ArchiveLayoutError {
         member_idx: usize,
         err: MemberRelocApplyError,
     },
-}
-
-/// Failures `parse_member_text_section` can report.
-#[derive(Debug, PartialEq, Eq)]
-pub enum MemberTextError {
-    /// Member is too small to be a Mach-O 64.
-    TruncatedHeader,
-    /// A load command's cmdsize would extend past the buffer or
-    /// is smaller than the minimum 8-byte header.
-    TruncatedLoadCommand { offset: usize },
-    /// `LC_SEGMENT_64` advertised more sections than fit.
-    TruncatedSegmentSections { offset: usize },
-    /// No `__TEXT,__text` section was found. A `.o` codegen-emit
-    /// won't ship without one; if it happens the member isn't a
-    /// torajs-obj output.
-    NoTextSection,
-}
-
-/// Parse a `.o` member's `__TEXT,__text` section. Returns
-/// `(text_offset_in_member, text_size)` where `text_offset_in_member`
-/// is the byte offset inside the member where the payload starts
-/// (= the `section_64.offset` field) and `text_size` is the
-/// payload length (= the `section_64.size` field).
-///
-/// The caller pairs `text_offset_in_member` with
-/// `ArMember.data[text_offset_in_member..+ text_size]` to slice
-/// out the member's `__text` payload bytes.
-pub fn parse_member_text_section(member: &ArMember<'_>) -> Result<(u32, u32), MemberTextError> {
-    let bytes = member.data;
-    if bytes.len() < 32 {
-        return Err(MemberTextError::TruncatedHeader);
-    }
-    let magic = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
-    if magic != MH_MAGIC_64 {
-        return Err(MemberTextError::TruncatedHeader);
-    }
-    let ncmds = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
-
-    let mut cursor = 32usize;
-    for _ in 0..ncmds {
-        if bytes.len() < cursor + 8 {
-            return Err(MemberTextError::TruncatedLoadCommand { offset: cursor });
-        }
-        let cmd = u32::from_le_bytes(bytes[cursor..cursor + 4].try_into().unwrap());
-        let cmdsize =
-            u32::from_le_bytes(bytes[cursor + 4..cursor + 8].try_into().unwrap()) as usize;
-        if cmdsize < 8 || bytes.len() < cursor + cmdsize {
-            return Err(MemberTextError::TruncatedLoadCommand { offset: cursor });
-        }
-        if cmd == LC_SEGMENT_64 {
-            // Object-file Mach-O conventionally puts every section
-            // under one anonymous LC_SEGMENT_64 (empty segname);
-            // final binaries split sections across named segments.
-            // The identifying tuple is per-section (sectname,
-            // segname) — so we walk every LC_SEGMENT_64 and verify
-            // __TEXT,__text at section level.
-            if cmdsize < SEGMENT_COMMAND_64_SIZE as usize {
-                return Err(MemberTextError::TruncatedLoadCommand { offset: cursor });
-            }
-            let nsects =
-                u32::from_le_bytes(bytes[cursor + 64..cursor + 68].try_into().unwrap()) as usize;
-            let sections_start = cursor + SEGMENT_COMMAND_64_SIZE as usize;
-            let need = sections_start + nsects * SECTION_64_SIZE as usize;
-            if bytes.len() < need || cmdsize < need - cursor {
-                return Err(MemberTextError::TruncatedSegmentSections { offset: cursor });
-            }
-            for i in 0..nsects {
-                let sec = sections_start + i * SECTION_64_SIZE as usize;
-                // sectname @ sec+0..16, segname @ sec+16..32
-                if !name16_eq(&bytes[sec..sec + 16], TEXT_SECTNAME) {
-                    continue;
-                }
-                if !name16_eq(&bytes[sec + 16..sec + 32], TEXT_SEGNAME) {
-                    continue;
-                }
-                let size = u64::from_le_bytes(bytes[sec + 40..sec + 48].try_into().unwrap());
-                let offset = u32::from_le_bytes(bytes[sec + 48..sec + 52].try_into().unwrap());
-                return Ok((offset, size as u32));
-            }
-        }
-        cursor += cmdsize;
-    }
-    Err(MemberTextError::NoTextSection)
-}
-
-/// 16-byte name-field comparison: returns true iff `slot`'s
-/// leading bytes (up to NUL / space / end-of-slot) match `name`.
-fn name16_eq(slot: &[u8], name: &[u8]) -> bool {
-    if slot.len() != 16 {
-        return false;
-    }
-    let mut end = slot.len();
-    while end > 0 && (slot[end - 1] == 0 || slot[end - 1] == b' ') {
-        end -= 1;
-    }
-    &slot[..end] == name
 }
 
 fn round_up_to(value: u64, align: u64) -> u64 {
@@ -314,14 +250,25 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
 
     // Phase 3: layout (mirrors exec.rs::compute_layout with
     // text_size + nsyms + strsize extended by the integrated
-    // members).
-    let load_dylib_libsystem_size = if required.dyld_imports.is_empty() {
-        0
-    } else {
+    // members, plus SD-2a __TEXT,__stubs + __DATA,__la_symbol_ptr
+    // sections when dyld_imports is non-empty).
+    let has_dyld = !required.dyld_imports.is_empty();
+    let load_dylib_libsystem_size = if has_dyld {
         LOAD_DYLIB_LIBSYSTEM_CMDSIZE
+    } else {
+        0
     };
-    let sizeofcmds = (SEGMENT_COMMAND_64_SIZE * 3)
-        + SECTION_64_SIZE
+    // Segment count and section count grow when dyld_imports is
+    // populated: __TEXT gains a second section (__stubs) and a
+    // brand-new __DATA segment carries __la_symbol_ptr.
+    //
+    //   empty: PAGEZERO + TEXT (1 section) + LINKEDIT
+    //          = 3 segments, 1 section
+    //   has_dyld: PAGEZERO + TEXT (2 sections) + DATA (1) + LINKEDIT
+    //             = 4 segments, 3 sections
+    let (segment_count, section_count) = if has_dyld { (4, 3) } else { (3, 1) };
+    let sizeofcmds = (SEGMENT_COMMAND_64_SIZE * segment_count)
+        + (SECTION_64_SIZE * section_count)
         + LOAD_DYLINKER_CMDSIZE
         + load_dylib_libsystem_size
         + BUILD_VERSION_CMDSIZE
@@ -335,12 +282,57 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let user_text_size: u32 = cfg.funcs.iter().map(|f| f.bytes.len() as u32).sum();
     let members_text_total: u32 = member_text_sizes.iter().copied().sum();
     let text_size = user_text_size + members_text_total;
-    let text_vmsize = round_up_to(
-        u64::from(text_file_offset) + u64::from(text_size),
-        APPLE_SILICON_PAGE_SIZE,
-    );
-    let linkedit_file_offset = text_vmsize as u32;
-    let linkedit_vmaddr = TEXT_VMADDR_BASE + text_vmsize;
+
+    // __TEXT segment file region = __text + __stubs (when has_dyld).
+    // Both sections live in the same segment so the segment's
+    // vmsize covers everything from byte 0 of the file to the end
+    // of __stubs, rounded up to the page boundary.
+    let dyld_count = required.dyld_imports.len() as u64;
+    let stubs_section_size = if has_dyld { dyld_count * STUB_SIZE } else { 0 };
+    let la_ptr_section_size = if has_dyld {
+        dyld_count * LA_PTR_SLOT_SIZE
+    } else {
+        0
+    };
+    let stubs_file_offset = text_file_offset + text_size;
+    let text_segment_file_end = u64::from(stubs_file_offset) + stubs_section_size;
+    let text_vmsize = round_up_to(text_segment_file_end, APPLE_SILICON_PAGE_SIZE);
+
+    // __DATA segment lives directly after __TEXT in both vaddr and
+    // file order (no other LC_SEGMENT_64s in between). Its vmsize
+    // is page-aligned coverage of __la_symbol_ptr.
+    let data_vmsize = if has_dyld {
+        round_up_to(la_ptr_section_size, APPLE_SILICON_PAGE_SIZE)
+    } else {
+        0
+    };
+    let data_file_offset = if has_dyld { text_vmsize as u32 } else { 0 };
+    let data_vmaddr = if has_dyld {
+        TEXT_VMADDR_BASE + text_vmsize
+    } else {
+        0
+    };
+
+    let linkedit_file_offset = (text_vmsize + data_vmsize) as u32;
+    let linkedit_vmaddr = TEXT_VMADDR_BASE + text_vmsize + data_vmsize;
+
+    // Section vaddrs follow directly from segment vmaddrs +
+    // section file offsets.
+    let stubs_section_vaddr = if has_dyld {
+        TEXT_VMADDR_BASE + u64::from(stubs_file_offset)
+    } else {
+        0
+    };
+    let la_ptr_section_vaddr = data_vmaddr;
+
+    // Per-import stub vaddr stride is STUB_SIZE. BTreeSet iter is
+    // sorted-by-name → stub_vaddrs key order is reproducible.
+    let mut stub_vaddrs: BTreeMap<String, u64> = BTreeMap::new();
+    if has_dyld {
+        for (i, name) in required.dyld_imports.iter().enumerate() {
+            stub_vaddrs.insert(name.clone(), stubs_section_vaddr + (i as u64) * STUB_SIZE);
+        }
+    }
 
     // Per-user-func vaddrs.
     let mut fn_vaddrs: Vec<u64> = Vec::with_capacity(cfg.funcs.len());
@@ -418,6 +410,15 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         codesign_dataoff,
         codesign_datasize,
         dyld_imports: required.dyld_imports,
+        stubs_section_vaddr,
+        stubs_section_size,
+        stubs_file_offset,
+        la_ptr_section_vaddr,
+        la_ptr_section_size,
+        la_ptr_file_offset: data_file_offset,
+        data_vmsize,
+        data_vmaddr,
+        stub_vaddrs,
     })
 }
 
@@ -521,6 +522,101 @@ mod tests {
         assert_eq!(layout.total_size, base.total_size);
         assert_eq!(layout.fn_vaddrs, base.fn_vaddrs);
         assert!(layout.member_layouts.is_empty());
+        // SD-2a — empty dyld_imports leaves the new stubs/la_ptr
+        // fields zero/empty so the rest of the emit path stays
+        // byte-identical to SD-1.
+        assert!(layout.dyld_imports.is_empty());
+        assert_eq!(layout.stubs_section_vaddr, 0);
+        assert_eq!(layout.stubs_section_size, 0);
+        assert_eq!(layout.la_ptr_section_vaddr, 0);
+        assert_eq!(layout.la_ptr_section_size, 0);
+        assert_eq!(layout.data_vmsize, 0);
+        assert_eq!(layout.data_vmaddr, 0);
+        assert!(layout.stub_vaddrs.is_empty());
+    }
+
+    /// SD-2a — a user fn calling a libSystem-resolved extern
+    /// (`_malloc`) must show up in `dyld_imports`, populate the
+    /// `__TEXT,__stubs` + `__DATA,__la_symbol_ptr` section fields,
+    /// and grow `text_vmsize` / `linkedit_file_offset` to make
+    /// room for the new sections + segment.
+    #[test]
+    fn layout_populates_dyld_stubs_when_libsystem_referenced() {
+        let main = fn_with_extern_calls("_main", &["_malloc"]);
+        let cfg = LinkConfig {
+            funcs: vec![main.clone()],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
+            archives: Vec::new(),
+        };
+        let layout = compute_archive_layout(&cfg).unwrap();
+        assert_eq!(layout.dyld_imports.len(), 1);
+        assert!(layout.dyld_imports.contains("_malloc"));
+
+        // Stubs section + slot section non-zero, sized to the
+        // single import.
+        assert_eq!(layout.stubs_section_size, super::STUB_SIZE);
+        assert_eq!(layout.la_ptr_section_size, super::LA_PTR_SLOT_SIZE);
+
+        // Stubs land right after the user __text.
+        assert_eq!(
+            u64::from(layout.stubs_file_offset),
+            u64::from(layout.text_file_offset) + u64::from(layout.text_size),
+        );
+        assert_eq!(
+            layout.stubs_section_vaddr,
+            TEXT_VMADDR_BASE + u64::from(layout.stubs_file_offset),
+        );
+
+        // __DATA segment follows the page-aligned end of __TEXT.
+        assert_eq!(layout.data_vmaddr, TEXT_VMADDR_BASE + layout.text_vmsize);
+        assert_eq!(layout.la_ptr_section_vaddr, layout.data_vmaddr);
+        assert!(layout.data_vmsize >= APPLE_SILICON_PAGE_SIZE);
+        assert!(layout.data_vmsize % APPLE_SILICON_PAGE_SIZE == 0);
+
+        // __LINKEDIT follows __DATA, not __TEXT.
+        assert_eq!(
+            u64::from(layout.linkedit_file_offset),
+            layout.text_vmsize + layout.data_vmsize,
+        );
+
+        // stub_vaddrs map populated for SD-2b's effective sym
+        // table extension.
+        assert_eq!(layout.stub_vaddrs.len(), 1);
+        assert_eq!(
+            layout.stub_vaddrs.get("_malloc").copied(),
+            Some(layout.stubs_section_vaddr),
+        );
+    }
+
+    /// SD-2a — multiple imports stride correctly through both the
+    /// `__stubs` section and the `__la_symbol_ptr` slot table.
+    /// Both sections are emitted in `BTreeSet` (sorted-by-name)
+    /// order so byte output is reproducible across runs.
+    #[test]
+    fn layout_strides_stub_vaddrs_per_import() {
+        let main = fn_with_extern_calls("_main", &["_malloc", "_free", "_pthread_create"]);
+        let cfg = LinkConfig {
+            funcs: vec![main],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
+            archives: Vec::new(),
+        };
+        let layout = compute_archive_layout(&cfg).unwrap();
+        assert_eq!(layout.dyld_imports.len(), 3);
+        assert_eq!(layout.stubs_section_size, 3 * super::STUB_SIZE);
+        assert_eq!(layout.la_ptr_section_size, 3 * super::LA_PTR_SLOT_SIZE);
+        // BTreeSet iter is sorted-by-name → _free < _malloc < _pthread_create.
+        let names: Vec<&String> = layout.stub_vaddrs.keys().collect();
+        assert_eq!(names, vec!["_free", "_malloc", "_pthread_create"]);
+        let stride_zero = layout.stub_vaddrs["_free"];
+        let stride_one = layout.stub_vaddrs["_malloc"];
+        let stride_two = layout.stub_vaddrs["_pthread_create"];
+        assert_eq!(stride_zero, layout.stubs_section_vaddr);
+        assert_eq!(stride_one, stride_zero + super::STUB_SIZE);
+        assert_eq!(stride_two, stride_zero + 2 * super::STUB_SIZE);
     }
 
     /// `_main` calls `_foo` extern; archive contains `_foo`.
