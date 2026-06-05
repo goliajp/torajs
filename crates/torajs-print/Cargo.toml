@@ -1,0 +1,22 @@
+[package]
+name = "torajs-print"
+description = "Primitive console.log helpers (`print_bool`, `print_i64`, `print_f64`) for the torajs AOT TypeScript runtime — ported out of `ssa_inkwell::builders` so the self-research toolchain (codegen → obj → link) can resolve these symbols without the LLVM-IR-emit backend."
+keywords = ["torajs", "console-log", "print", "runtime", "no-panic"]
+categories = ["development-tools", "no-std"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 Cargo deps — `__torajs_syscall_write` + `__torajs_print_f64_js`
+# resolved at staticlib link time from the existing `torajs-syscall`
+# / `torajs-num` archives. Vision #4 (0 Cargo deps) preserved.

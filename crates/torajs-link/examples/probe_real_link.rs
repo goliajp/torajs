@@ -72,6 +72,7 @@ fn main() {
         "libtorajs_num.a",
         "libtorajs_panic.a",
         "libtorajs_panic_runtime.a",
+        "libtorajs_print.a",
         "libtorajs_process.a",
         "libtorajs_promise.a",
         "libtorajs_rc.a",
