@@ -63,12 +63,21 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
 
     // Effective sym table — caller-supplied externs union every
-    // defined-external symbol any integrated member exposes.
+    // defined-external symbol any integrated member exposes, plus
+    // (SD-2b) one entry per dyld-imported symbol pointing at its
+    // `__TEXT,__stubs` trampoline. User-fn / member relocs against
+    // libSystem symbols route through the trampoline; the
+    // trampoline then deref's the `__la_symbol_ptr` slot dyld
+    // populates at bind time (SD-3 wires LC_DYLD_CHAINED_FIXUPS,
+    // until then the slots stay zero and exec hits a null jump).
     let mut effective_sym_table = cfg.sym_table.clone();
     for m in &layout.member_layouts {
         for (name, n_value) in &m.defined_syms {
             effective_sym_table.insert(name.clone(), m.vaddr + n_value);
         }
+    }
+    for (name, stub_vaddr) in &layout.stub_vaddrs {
+        effective_sym_table.insert(name.clone(), *stub_vaddr);
     }
 
     // Resolve user-function relocs against the effective sym table.
@@ -645,6 +654,122 @@ mod tests {
         // SYMTAB + DYSYMTAB + CODE_SIGNATURE = 7 → 11 total).
         let ncmds = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
         assert_eq!(ncmds, 11);
+    }
+
+    /// SD-2b — a user fn referencing a libSystem-resolved extern
+    /// (`_malloc`) links successfully against an empty
+    /// `cfg.sym_table`: `compute_required_members` routes
+    /// `_malloc` into `dyld_imports`, `compute_archive_layout`
+    /// allocates a `__stubs` trampoline, and
+    /// `link_to_exec_with_archives` funnels that stub vaddr
+    /// through `effective_sym_table` so `apply_relocs` patches
+    /// the user fn's BL displacement onto the trampoline.
+    ///
+    /// The patched BL displacement must equal
+    /// `stub_vaddr - bl_site_vaddr`, matching what
+    /// `patch_branch26` would have written by hand. Exec is NOT
+    /// asserted here — the `__la_symbol_ptr` slot is still
+    /// zero-init until SD-3 wires `LC_DYLD_CHAINED_FIXUPS`, so
+    /// any real run would jump through a null pointer. Link
+    /// success + correct patched displacement = SD-2b
+    /// acceptance.
+    #[test]
+    fn libsystem_extern_routes_through_stub_trampoline() {
+        let main_cf = fn_calls_extern_then_returns("_main", "_malloc");
+        let cfg = LinkConfig {
+            funcs: vec![main_cf.clone()],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
+            archives: Vec::new(),
+        };
+        // SD-2b — link must succeed even though cfg.sym_table is
+        // empty. SD-2a's plumbing populates `layout.stub_vaddrs`;
+        // SD-2b's effective_sym_table extension forwards those
+        // into apply_relocs.
+        let bytes = link_to_exec_with_archives(&cfg).expect("link must succeed via stub routing");
+        let layout = compute_archive_layout(&cfg).expect("layout");
+        assert_eq!(layout.dyld_imports.len(), 1);
+        assert!(layout.stub_vaddrs.contains_key("_malloc"));
+
+        // _main lands at vaddr = TEXT_VMADDR_BASE + text_file_offset.
+        let main_vaddr = crate::lc::TEXT_VMADDR_BASE + u64::from(layout.text_file_offset);
+        // BL site offset within _main = 4 (after the stp prologue).
+        let bl_site_vaddr = main_vaddr + 4;
+        let stub_vaddr = layout.stub_vaddrs["_malloc"];
+        let expected_disp = stub_vaddr as i64 - bl_site_vaddr as i64;
+        // The patched BL instruction sits at file offset
+        // text_file_offset + 4. Extract its imm26 and reconstruct
+        // the displacement = imm26 << 2.
+        let bl_off = layout.text_file_offset as usize + 4;
+        let bl_word = u32::from_le_bytes(bytes[bl_off..bl_off + 4].try_into().unwrap());
+        let imm26 = (bl_word & 0x03FF_FFFF) as i32;
+        // Sign-extend to 32 bits.
+        let imm26_se = (imm26 << 6) >> 6;
+        let patched_disp = (imm26_se as i64) * 4;
+        assert_eq!(
+            patched_disp, expected_disp,
+            "BL displacement must point at stub trampoline (expected {expected_disp:#X}, got {patched_disp:#X})",
+        );
+    }
+
+    /// SD-2b — the user fn now refers to a libSystem symbol but
+    /// the worklist also pulls archive members; the merged
+    /// effective sym table must cover both populations (member
+    /// defined_syms and stub_vaddrs) so both reloc kinds resolve.
+    #[test]
+    fn member_and_libsystem_externs_coexist_in_effective_sym_table() {
+        // _main calls archive's `_foo` AND libSystem's `_malloc`.
+        let stp_pre: [u8; 4] = [0xFD, 0x7B, 0xBF, 0xA9];
+        let bl_placeholder: [u8; 4] = [0x00, 0x00, 0x00, 0x94];
+        let ldp_post: [u8; 4] = [0xFD, 0x7B, 0xC1, 0xA8];
+        let ret_bytes: [u8; 4] = [0xC0, 0x03, 0x5F, 0xD6];
+        let mut bytes = Vec::with_capacity(24);
+        bytes.extend_from_slice(&stp_pre); // 0
+        bytes.extend_from_slice(&bl_placeholder); // 4 — bl _foo
+        bytes.extend_from_slice(&bl_placeholder); // 8 — bl _malloc
+        bytes.extend_from_slice(&ldp_post); // 12
+        bytes.extend_from_slice(&ret_bytes); // 16
+        let main_cf = CompiledFunction {
+            name: "_main".into(),
+            bytes,
+            relocs: vec![
+                Reloc {
+                    byte_offset: 4,
+                    kind: RelocKind::CallSite {
+                        target: CallTarget::Extern("_foo".into()),
+                    },
+                },
+                Reloc {
+                    byte_offset: 8,
+                    kind: RelocKind::CallSite {
+                        target: CallTarget::Extern("_malloc".into()),
+                    },
+                },
+            ],
+            frame: FrameLayout::leaf_no_spill(),
+        };
+
+        let foo_cf = compile_function(&make_ret_const_fn("_foo", 7));
+        let archive = build_short_name_archive(
+            "a.o",
+            &torajs_obj::write_object(std::slice::from_ref(&foo_cf)),
+        );
+        let cfg = LinkConfig {
+            funcs: vec![main_cf],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
+            archives: vec![archive],
+        };
+        let link_bytes =
+            link_to_exec_with_archives(&cfg).expect("link must succeed against mixed externs");
+        // Sanity — the binary must include the __stubs section
+        // (libSystem reference) AND the archive member's __text.
+        let layout = compute_archive_layout(&cfg).expect("layout");
+        assert_eq!(layout.member_layouts.len(), 1);
+        assert!(layout.dyld_imports.contains("_malloc"));
+        assert_eq!(link_bytes.len() as u32, layout.total_size);
     }
 
     /// nm sanity check: integrated member's `_foo` shows up in
