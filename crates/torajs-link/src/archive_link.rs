@@ -201,15 +201,14 @@ pub fn parse_member_text_section(member: &ArMember<'_>) -> Result<(u32, u32), Me
             return Err(MemberTextError::TruncatedLoadCommand { offset: cursor });
         }
         if cmd == LC_SEGMENT_64 {
-            // segname @ cursor+8 .. cursor+24 (16 byte)
-            // nsects @ cursor+64 .. cursor+68 (u32)
+            // Object-file Mach-O conventionally puts every section
+            // under one anonymous LC_SEGMENT_64 (empty segname);
+            // final binaries split sections across named segments.
+            // The identifying tuple is per-section (sectname,
+            // segname) — so we walk every LC_SEGMENT_64 and verify
+            // __TEXT,__text at section level.
             if cmdsize < SEGMENT_COMMAND_64_SIZE as usize {
                 return Err(MemberTextError::TruncatedLoadCommand { offset: cursor });
-            }
-            let segname = name16_eq(&bytes[cursor + 8..cursor + 24], TEXT_SEGNAME);
-            if !segname {
-                cursor += cmdsize;
-                continue;
             }
             let nsects =
                 u32::from_le_bytes(bytes[cursor + 64..cursor + 68].try_into().unwrap()) as usize;
@@ -222,6 +221,9 @@ pub fn parse_member_text_section(member: &ArMember<'_>) -> Result<(u32, u32), Me
                 let sec = sections_start + i * SECTION_64_SIZE as usize;
                 // sectname @ sec+0..16, segname @ sec+16..32
                 if !name16_eq(&bytes[sec..sec + 16], TEXT_SECTNAME) {
+                    continue;
+                }
+                if !name16_eq(&bytes[sec + 16..sec + 32], TEXT_SEGNAME) {
                     continue;
                 }
                 let size = u64::from_le_bytes(bytes[sec + 40..sec + 48].try_into().unwrap());
