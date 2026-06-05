@@ -57,6 +57,7 @@ pub mod exec;
 pub mod lc;
 pub mod member_apply;
 pub mod member_reloc;
+pub mod member_sections;
 pub mod member_text;
 pub mod patch;
 pub mod resolve;
@@ -76,6 +77,7 @@ pub use member_apply::{
     MemberRelocApplyError, PatchKind, apply_member_relocs, classify_section_reloc,
 };
 pub use member_reloc::{MemberRelocEntry, MemberRelocError, parse_member_text_relocs};
+pub use member_sections::{MemberSectionInfo, collect_member_sections};
 pub use member_text::{MemberTextError, parse_member_text_section};
 pub use patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
 pub use resolve::{ResolvedFunction, SymTable, apply_relocs};
