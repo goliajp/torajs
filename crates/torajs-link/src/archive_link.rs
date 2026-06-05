@@ -40,177 +40,21 @@ use torajs_obj::{
     MachHeader64, NLIST_64_SIZE, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE, SYMTAB_COMMAND_SIZE,
 };
 
-use crate::archive::{MemberSymtabError, parse_member_defined_externs};
-use crate::archives_merge::{
-    ArchiveLinkError, ArchiveMergeError, compute_required_members, merge_archive_indexes,
-};
+use crate::archive::parse_member_defined_externs;
+use crate::archives_merge::{compute_required_members, merge_archive_indexes};
 use crate::chained_fixups::build_chained_fixups;
 use crate::exec::LinkConfig;
+pub use crate::layout_types::{ArchiveLayout, ArchiveLayoutError, MemberLayout};
 use crate::lc::{
     APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
     LOAD_DYLIB_LIBCURL_CMDSIZE, LOAD_DYLIB_LIBSYSTEM_CMDSIZE, LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE,
     TEXT_VMADDR_BASE,
 };
-use crate::member_apply::MemberRelocApplyError;
 pub use crate::member_text::{MemberTextError, parse_member_text_section};
+use crate::non_text_layout::{NonTextLayoutError, compute_non_text_layouts};
 use crate::sign::adhoc_codesign_blob_size;
 use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
 use std::collections::BTreeMap;
-
-/// Per-archive-member computed data the S7-C4 emit pass needs.
-/// `defined_syms` carries `(name, n_value)` exactly as the member's
-/// `LC_SYMTAB` records them — `n_value` is section-relative inside
-/// the member's `__text`.
-#[derive(Debug, Clone)]
-pub struct MemberLayout {
-    /// `(archive_idx, member_idx)` into `cfg.archives` /
-    /// `MergedArchives::per_archive_members`.
-    pub key: (usize, usize),
-    /// Byte length of the member's `__TEXT,__text` payload.
-    pub text_size: u32,
-    /// Final virtual address where the member's `__text` lands.
-    pub vaddr: u64,
-    /// File offset within `__TEXT,__text` of the member's payload
-    /// (i.e. text_file_offset + member's offset inside the
-    /// concatenated payload).
-    pub file_offset: u32,
-    /// File offset of the member's `__text` *inside the `.o`* —
-    /// where to slice the member bytes from. From the member's
-    /// `LC_SEGMENT_64.__TEXT.section[0].offset` field.
-    pub member_text_offset_in_member: u32,
-    /// Defined-external symbols the member exports. The S7-C4
-    /// emit pass writes each as `Nlist64::defined_extern(strx,
-    /// 1, vaddr + n_value)`.
-    pub defined_syms: Vec<(String, u64)>,
-}
-
-/// Layout decisions for an archive-aware link — superset of
-/// `ExecLayout` with per-member integration data.
-#[derive(Debug, Clone)]
-pub struct ArchiveLayout {
-    /// File offset where the `__text` payload begins.
-    pub text_file_offset: u32,
-    /// Total `__text` size = sum(user_funcs.bytes.len()) +
-    /// sum(member_layouts.text_size).
-    pub text_size: u32,
-    pub text_vmaddr: u64,
-    pub text_vmsize: u64,
-    pub linkedit_file_offset: u32,
-    pub linkedit_vmaddr: u64,
-    pub linkedit_vmsize: u64,
-    pub symoff: u32,
-    pub stroff: u32,
-    pub total_size: u32,
-    /// `cfg.funcs.len() + sum(member.defined_syms.len())`.
-    pub nsyms: u32,
-    pub strsize: u32,
-    /// Final vaddr of the entry symbol — `LC_MAIN.entry_off` will
-    /// store `entry_file_offset` for kernel-side image base
-    /// resolution.
-    pub entry_file_offset: u32,
-    /// Final vaddr per user function, same indexing as `cfg.funcs`.
-    pub fn_vaddrs: Vec<u64>,
-    /// Per integrated member, in sorted `(archive_idx, member_idx)`
-    /// order. Parallel to `member_defined_syms` etc.
-    pub member_layouts: Vec<MemberLayout>,
-    pub codesign_dataoff: u32,
-    pub codesign_datasize: u32,
-    /// SD-1 / SD-4b — `name → lib_ordinal` map classified by
-    /// `dyld_syms::dyld_lib_for` during the worklist closure.
-    /// When non-empty, `archive_emit::emit_binary` adds an
-    /// `LC_LOAD_DYLIB` per dylib whose ordinals appear (libSystem
-    /// = 1, libcurl = 2) plus the SD-2 `__TEXT,__stubs` +
-    /// `__DATA,__la_symbol_ptr` sections and SD-3
-    /// `LC_DYLD_CHAINED_FIXUPS` blob. SD-2b wires `stub_vaddrs`
-    /// into the effective sym table so user-fn / member relocs
-    /// resolve against the trampoline addresses listed here.
-    pub dyld_imports: BTreeMap<String, u8>,
-    /// SD-2a — final image vaddr of the first byte of
-    /// `__TEXT,__stubs`. `0` when `dyld_imports` is empty (the
-    /// section isn't emitted in that case, so callers can rely on
-    /// `dyld_imports.is_empty()` as the gate before reading this).
-    pub stubs_section_vaddr: u64,
-    /// On-disk / vmsize length of the `__TEXT,__stubs` section.
-    /// Always `dyld_imports.len() * STUB_SIZE`; `0` for the
-    /// empty case.
-    pub stubs_section_size: u64,
-    /// File offset of the first byte of `__TEXT,__stubs`.
-    pub stubs_file_offset: u32,
-    /// Final image vaddr of the first byte of
-    /// `__DATA,__la_symbol_ptr`. `0` for the empty case.
-    pub la_ptr_section_vaddr: u64,
-    /// On-disk / vmsize length of the `__DATA,__la_symbol_ptr`
-    /// section. Always `dyld_imports.len() * LA_PTR_SLOT_SIZE`;
-    /// `0` for the empty case.
-    pub la_ptr_section_size: u64,
-    /// File offset of the first byte of `__DATA,__la_symbol_ptr`.
-    pub la_ptr_file_offset: u32,
-    /// On-disk / vmsize of the `__DATA` segment — page-aligned
-    /// length covering `__la_symbol_ptr`. `0` for the empty case
-    /// (no `__DATA` segment is emitted at all).
-    pub data_vmsize: u64,
-    /// Vaddr of the `__DATA` segment (= `la_ptr_section_vaddr`,
-    /// since `__la_symbol_ptr` is the segment's only section and
-    /// lives at its base). `0` for the empty case.
-    pub data_vmaddr: u64,
-    /// SD-2a — per-import stub vaddr. Same iteration order as
-    /// `dyld_imports` (sorted by name, since both are `BTreeSet` /
-    /// `BTreeMap`-derived). SD-2b inserts `(name → stub_vaddr)`
-    /// into the effective sym table so user-fn reloc sites BL the
-    /// trampoline instead of the raw libSystem symbol.
-    pub stub_vaddrs: BTreeMap<String, u64>,
-    /// SD-3 — fully assembled `LC_DYLD_CHAINED_FIXUPS` blob to
-    /// land at `chained_fixups_dataoff` inside `__LINKEDIT`.
-    /// Empty when `dyld_imports` is empty (no LC, no payload).
-    pub chained_fixups_blob: Vec<u8>,
-    /// File offset of the chained-fixups blob; `0` for the empty
-    /// case.
-    pub chained_fixups_dataoff: u32,
-    /// On-disk size of the chained-fixups blob; `0` for the
-    /// empty case.
-    pub chained_fixups_datasize: u32,
-    /// SD-3 — per-import 8-byte chain-link value to write into
-    /// `__DATA,__la_symbol_ptr`. Replaces the SD-2a zero-fill so
-    /// dyld can walk the chain at bind time. Same iteration
-    /// order as `dyld_imports`.
-    pub la_ptr_slot_values: Vec<u64>,
-}
-
-/// Failures `compute_archive_layout` can report.
-#[derive(Debug)]
-pub enum ArchiveLayoutError {
-    /// Top-level archive bytes were malformed.
-    Merge(ArchiveMergeError),
-    /// User code references externs that no archive defines.
-    Link(ArchiveLinkError),
-    /// A pulled member's Mach-O `__TEXT,__text` section couldn't
-    /// be parsed.
-    MemberText {
-        archive_idx: usize,
-        member_idx: usize,
-        err: MemberTextError,
-    },
-    /// A pulled member's symtab walk failed during defined-extern
-    /// enumeration (different code path than the worklist's undef
-    /// enumeration in S7-C2).
-    MemberSymtab {
-        archive_idx: usize,
-        member_idx: usize,
-        err: MemberSymtabError,
-    },
-    /// `cfg.entry` doesn't match any user function name. (The
-    /// entry symbol must be user-defined; integrated members are
-    /// callable but can't be the entry.)
-    EntryNotInUserFuncs { entry: String },
-    /// Member-internal reloc decode/patch failed during the S7-C5
-    /// pass — wire format broken or sym table doesn't cover an
-    /// extern the member references.
-    MemberReloc {
-        archive_idx: usize,
-        member_idx: usize,
-        err: MemberRelocApplyError,
-    },
-}
 
 fn round_up_to(value: u64, align: u64) -> u64 {
     debug_assert!(align.is_power_of_two());
@@ -389,8 +233,32 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
             vaddr: TEXT_VMADDR_BASE + u64::from(text_file_offset) + u64::from(cumulative),
             member_text_offset_in_member: member_text_offsets[i],
             defined_syms: std::mem::take(&mut member_defined_syms[i]),
+            non_text_sections: Vec::new(),
         });
         cumulative += text_size_i;
+    }
+
+    // SD-4c-prereq-b2 — populate non_text_sections per member;
+    // shadow layout only (stubs_file_offset / text_vmsize stay
+    // unshifted, SD-4c-prereq-c does the real shift + emit).
+    let non_text_region_file_offset = text_file_offset + text_size;
+    let non_text_result =
+        compute_non_text_layouts(&merged, &member_keys, non_text_region_file_offset).map_err(
+            |NonTextLayoutError {
+                 archive_idx,
+                 member_idx,
+                 err,
+             }| {
+                ArchiveLayoutError::MemberSections {
+                    archive_idx,
+                    member_idx,
+                    err,
+                }
+            },
+        )?;
+    let non_text_region_size = non_text_result.region_size;
+    for (i, layouts) in non_text_result.per_member.into_iter().enumerate() {
+        member_layouts[i].non_text_sections = layouts;
     }
 
     // nsyms = user fn count + sum(member defined syms).
@@ -481,6 +349,8 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         chained_fixups_dataoff,
         chained_fixups_datasize,
         la_ptr_slot_values,
+        non_text_region_file_offset,
+        non_text_region_size,
     })
 }
 
@@ -488,6 +358,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
 mod tests {
     use super::*;
     use crate::archive::{AR_HEADER_SIZE, AR_MAGIC};
+    use crate::archives_merge::ArchiveLinkError;
     use crate::resolve::SymTable;
     use torajs_codegen::CompiledFunction;
     use torajs_codegen::frame::FrameLayout;
