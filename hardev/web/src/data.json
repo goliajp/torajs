@@ -1,13 +1,12 @@
 {
-  "generatedAt": "2026-06-04T09:18:25.695Z",
+  "generatedAt": "2026-06-05T12:43:35.143Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 723,
+    "pass": 660,
     "fail": 0,
-    "skip": 4,
-    "raw": "723/0/4",
-    "source": "/tmp/torajs-conformance-p13s5.log",
-    "sourceMtime": "2026-06-03T22:22:04.737Z"
+    "skip": 1,
+    "raw": "660/0/1",
+    "source": "hardev/metrics.md"
   },
   "test262": {
     "ranAt": "2026-06-03T22:49:10Z",
@@ -28,17 +27,16 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "b6ef9e7",
-    "commitSubject": "feat(link): link_to_exec_with_archives + e2e exit 7 — #8 S7-C4",
+    "commit": "cd546fa",
+    "commitSubject": "chore(link): probe_real_link CLI sym + full archive set — #8 dyld-gap surface",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 723,
+      "pass": 660,
       "fail": 0,
-      "skip": 4,
-      "raw": "723/0/4",
-      "source": "/tmp/torajs-conformance-p13s5.log",
-      "sourceMtime": "2026-06-03T22:22:04.737Z"
+      "skip": 1,
+      "raw": "660/0/1",
+      "source": "hardev/metrics.md"
     }
   },
   "roadmap": [
@@ -611,6 +609,42 @@
   },
   "commits": [
     {
+      "hash": "cd546fa",
+      "subject": "chore(link): probe_real_link CLI sym + full archive set — #8 dyld-gap surface"
+    },
+    {
+      "hash": "3f1ad85",
+      "subject": "feat(link): ARM64_RELOC_ADDEND + GOT_LOAD relaxation — #8 S7-C5e"
+    },
+    {
+      "hash": "c0b2199",
+      "subject": "chore(link): probe_real_link smoke — leaf syscall → exec → SIGABRT — #8 self-hosted milestone"
+    },
+    {
+      "hash": "668cc0b",
+      "subject": "chore(link): probe_section_reloc augmented dumps — #8 S7-C5e prep"
+    },
+    {
+      "hash": "3977853",
+      "subject": "feat(link): parse anonymous-segment object-file form (rustc .o) — #8 S7-C5d"
+    },
+    {
+      "hash": "791c90d",
+      "subject": "feat(link): integrate apply_member_relocs + transitive chain exit 7 — #8 S7-C5c"
+    },
+    {
+      "hash": "ea92de9",
+      "subject": "feat(link): apply_member_relocs + extern reloc patcher — #8 S7-C5b"
+    },
+    {
+      "hash": "9318b7b",
+      "subject": "feat(link): parse_member_text_relocs decoder + MemberRelocEntry — #8 S7-C5a"
+    },
+    {
+      "hash": "0aecee4",
+      "subject": "docs(hardev): dashboard snapshot @ b6ef9e7 — #8 S7-C 4 commit ship"
+    },
+    {
       "hash": "b6ef9e7",
       "subject": "feat(link): link_to_exec_with_archives + e2e exit 7 — #8 S7-C4"
     },
@@ -621,45 +655,9 @@
     {
       "hash": "1e86057",
       "subject": "feat(link): compute_required_members worklist closure — #8 S7-C2"
-    },
-    {
-      "hash": "67f2702",
-      "subject": "feat(link): merge_archive_indexes + LinkConfig.archives — #8 S7-C1"
-    },
-    {
-      "hash": "d668bb2",
-      "subject": "docs(hardev): dashboard snapshot @ b0023d8 — #8 S7-A/S7-B archive parser"
-    },
-    {
-      "hash": "b0023d8",
-      "subject": "feat(link): archive index — defined-extern symbols per .o member — #8 S7-B"
-    },
-    {
-      "hash": "c2bb8de",
-      "subject": "feat(link): apple .a archive parser — #8 S7-A"
-    },
-    {
-      "hash": "e3a85da",
-      "subject": "docs(hardev): dashboard snapshot @ d9bf9fc — #8 zero-external-tool capstone"
-    },
-    {
-      "hash": "d9bf9fc",
-      "subject": "feat(link): self-research ad-hoc codesign + exit 42 zero-external-tool — #8 S5-B+S5-C"
-    },
-    {
-      "hash": "d70be03",
-      "subject": "feat(link): self-research SHA-256 implementation — #8 S5-A"
-    },
-    {
-      "hash": "e58ba47",
-      "subject": "docs(hardev): dashboard snapshot @ c44e714 — #8 link e2e exit 42 capstone"
-    },
-    {
-      "hash": "c44e714",
-      "subject": "feat(link): MH_EXECUTE emit + end-to-end exit 42 — #8 S3 + S6"
     }
   ],
-  "headSha": "b6ef9e7",
+  "headSha": "cd546fa",
   "autorun": {
     "total": 56,
     "baselineTarget": 10,
