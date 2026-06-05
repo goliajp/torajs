@@ -1,10 +1,12 @@
-//! Member-internal reloc decoder + patcher — S7-C5.
+//! Member-internal reloc decoder — S7-C5a.
 //!
 //! S7-C4 integrated archive members' `__TEXT,__text` bytes verbatim;
 //! that worked for leaf-only members but real `libtorajs_*.a` members
 //! BL each other (member X's `__text` references member Y's
-//! defined-extern). S7-C5 walks each integrated member's reloc table
-//! and patches every entry against the final-link sym table.
+//! defined-extern). S7-C5a parses each member's reloc table; the
+//! patcher (`member_apply::apply_member_relocs`, S7-C5b) consumes
+//! the decoded entries; the emit pass (`archive_emit`, S7-C5c) wires
+//! both into the final-link pipeline.
 //!
 //! Wire format mirrors `<mach-o/reloc.h>` `relocation_info`:
 //!
@@ -18,11 +20,6 @@
 //!       uint32_t r_type      : 4;         // bits 28..31
 //!   };
 //! ```
-//!
-//! S7-C5a (this file's initial scope) — decoder only. S7-C5b adds
-//! `apply_member_relocs` for in-place patching against the final
-//! sym table. S7-C5c wires the patcher into
-//! `archive_emit::link_to_exec_with_archives`.
 
 use torajs_obj::{
     LC_SEGMENT_64, MH_MAGIC_64, RELOCATION_INFO_SIZE, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE,
@@ -148,7 +145,7 @@ pub fn parse_member_text_relocs(
 /// Decode `nreloc` consecutive 8-byte `relocation_info` entries
 /// starting at file offset `reloff`. Pure bit-unpack; mirrors the
 /// inverse of `RelocationInfo::write_to` in `torajs-obj`.
-fn decode_reloc_table(
+pub(crate) fn decode_reloc_table(
     bytes: &[u8],
     reloff: u32,
     nreloc: u32,
