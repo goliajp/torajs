@@ -132,9 +132,18 @@ pub fn merge_archive_indexes(
 /// Set of `(archive_idx, member_idx)` pairs that must be
 /// integrated into the final binary so every undefined extern
 /// reachable from `user_funcs` resolves to a defined symbol.
+///
+/// `dyld_imports` records the orthogonal set of names the worklist
+/// classified as libSystem-resolved (SD-1; see
+/// `dyld_syms::is_libsystem_resolved`). These bind through
+/// `LC_LOAD_DYLIB` + a per-symbol `__TEXT,__stubs` trampoline (SD-2)
+/// rather than being pulled from any archive — keeping them out of
+/// `unresolved` is what unblocks `compute_required_members` for
+/// real production `___torajs_*_alloc` reloc graphs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequiredMembers {
     pub members: BTreeSet<(usize, usize)>,
+    pub dyld_imports: BTreeSet<String>,
 }
 
 /// Failures from the worklist closure pass. Either some extern
@@ -186,6 +195,7 @@ pub fn compute_required_members(
     let mut visited_names: BTreeSet<String> = BTreeSet::new();
     let mut worklist: Vec<String> = Vec::new();
     let mut unresolved: BTreeSet<String> = BTreeSet::new();
+    let mut dyld_imports: BTreeSet<String> = BTreeSet::new();
 
     // Seed the worklist with every extern name referenced by a
     // user function reloc that isn't defined by another user
@@ -210,7 +220,14 @@ pub fn compute_required_members(
             continue;
         }
         let Some(sym) = merged.index.get(&name) else {
-            unresolved.insert(name);
+            // SD-1: libSystem-class externs bind through dyld, not
+            // through any archive's defined-extern set. Classify
+            // them out of `unresolved` so the link can proceed.
+            if crate::dyld_syms::is_libsystem_resolved(&name) {
+                dyld_imports.insert(name);
+            } else {
+                unresolved.insert(name);
+            }
             continue;
         };
         let key = (sym.archive_idx, sym.member_idx);
@@ -240,7 +257,10 @@ pub fn compute_required_members(
         });
     }
 
-    Ok(RequiredMembers { members: required })
+    Ok(RequiredMembers {
+        members: required,
+        dyld_imports,
+    })
 }
 
 /// Name of the external symbol a `RelocKind` references, or
@@ -724,6 +744,57 @@ mod tests {
                 assert_eq!(names, vec!["_qux".to_string(), "_zap".to_string()]);
             }
             other => panic!("expected UnresolvedExterns, got {other:?}"),
+        }
+    }
+
+    /// SD-1 — a `_malloc` reference that no archive defines is
+    /// classified as libSystem-resolved (binds via dyld) instead
+    /// of being flagged as unresolved.
+    #[test]
+    fn libsystem_externs_route_into_dyld_imports_not_unresolved() {
+        let merged = merge_archive_indexes(&[]).unwrap();
+        let user = vec![fn_with_extern_calls(
+            "_main",
+            &["_malloc", "_pthread_create", "_free"],
+        )];
+        let req = compute_required_members(&user, &merged).unwrap();
+        assert!(req.members.is_empty(), "no archive member should be pulled");
+        assert_eq!(req.dyld_imports.len(), 3);
+        assert!(req.dyld_imports.contains("_malloc"));
+        assert!(req.dyld_imports.contains("_pthread_create"));
+        assert!(req.dyld_imports.contains("_free"));
+    }
+
+    /// SD-1 — a mix of `_malloc` (dyld) and `_qux` (truly missing)
+    /// must keep the libSystem name out of `unresolved` while still
+    /// reporting `_qux` as unresolved.
+    #[test]
+    fn libsystem_and_truly_missing_externs_split_correctly() {
+        let merged = merge_archive_indexes(&[]).unwrap();
+        let user = vec![fn_with_extern_calls("_main", &["_malloc", "_qux"])];
+        let err = compute_required_members(&user, &merged).unwrap_err();
+        match err {
+            ArchiveLinkError::UnresolvedExterns { names } => {
+                assert_eq!(names, vec!["_qux".to_string()]);
+            }
+            other => panic!("expected UnresolvedExterns (_qux only), got {other:?}"),
+        }
+    }
+
+    /// SD-1 — `_curl_easy_init` is *not* libSystem-resolved (SD-1
+    /// scope is libSystem only). Without an archive defining it
+    /// the worklist must surface it as unresolved so SD-1+ knows
+    /// to add a separate `LC_LOAD_DYLIB libcurl`.
+    #[test]
+    fn libcurl_externs_stay_unresolved_under_sd1_scope() {
+        let merged = merge_archive_indexes(&[]).unwrap();
+        let user = vec![fn_with_extern_calls("_main", &["_curl_easy_init"])];
+        let err = compute_required_members(&user, &merged).unwrap_err();
+        match err {
+            ArchiveLinkError::UnresolvedExterns { names } => {
+                assert_eq!(names, vec!["_curl_easy_init".to_string()]);
+            }
+            other => panic!("expected UnresolvedExterns (libcurl), got {other:?}"),
         }
     }
 

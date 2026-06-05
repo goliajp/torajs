@@ -37,9 +37,10 @@ use crate::archive_link::{ArchiveLayout, ArchiveLayoutError, compute_archive_lay
 use crate::archives_merge::merge_archive_indexes;
 use crate::exec::LinkConfig;
 use crate::lc::{
-    BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLINKER_CMDSIZE,
-    MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE, MH_NOUNDEFS, MH_PIE, MH_TWOLEVEL, PAGEZERO_VMSIZE,
-    write_build_version, write_code_signature, write_dysymtab, write_lc_main, write_load_dylinker,
+    BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLIB_LIBSYSTEM_CMDSIZE,
+    LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE, MH_NOUNDEFS, MH_PIE, MH_TWOLEVEL,
+    PAGEZERO_VMSIZE, write_build_version, write_code_signature, write_dysymtab, write_lc_main,
+    write_load_dylib_libsystem, write_load_dylinker,
 };
 use crate::member_apply::apply_member_relocs;
 use crate::resolve::apply_relocs;
@@ -104,21 +105,44 @@ fn emit_binary(
     member_text_payloads: &[Vec<u8>],
     resolved: &[crate::resolve::ResolvedFunction],
 ) -> Vec<u8> {
+    // SD-1: if the worklist surfaced libSystem-resolved externs we
+    // emit one extra `LC_LOAD_DYLIB` load command pointing at
+    // `/usr/lib/libSystem.B.dylib`. Empty `dyld_imports` keeps the
+    // pre-SD-1 9-LC layout byte-identical so leaf-syscall fixtures
+    // continue to ship the same binary as before.
+    let has_libsystem = !layout.dyld_imports.is_empty();
+    let extra_lc_count = u32::from(has_libsystem);
+    let extra_lc_size = if has_libsystem {
+        LOAD_DYLIB_LIBSYSTEM_CMDSIZE
+    } else {
+        0
+    };
+    // With libSystem present the binary still references dyld-bound
+    // symbols at link time; clearing `MH_NOUNDEFS` matches what
+    // `otool -hv` reports for an `ssa_inkwell`-built production
+    // binary.
+    let mh_flags = if has_libsystem {
+        MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
+    } else {
+        MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
+    };
+
     let header = MachHeader64 {
         magic: MH_MAGIC_64,
         cputype: CPU_TYPE_ARM64,
         cpusubtype: CPU_SUBTYPE_ARM64_ALL,
         filetype: MH_EXECUTE,
-        ncmds: 9,
+        ncmds: 9 + extra_lc_count,
         sizeofcmds: SEGMENT_COMMAND_64_SIZE * 3
             + SECTION_64_SIZE
             + LOAD_DYLINKER_CMDSIZE
+            + extra_lc_size
             + BUILD_VERSION_CMDSIZE
             + MAIN_CMDSIZE
             + SYMTAB_COMMAND_SIZE
             + DYSYMTAB_CMDSIZE
             + LINKEDIT_DATA_CMDSIZE,
-        flags: MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE,
+        flags: mh_flags,
         reserved: 0,
     };
 
@@ -189,6 +213,9 @@ fn emit_binary(
     text_segment.write_to(&mut buf);
     linkedit_segment.write_to(&mut buf);
     write_load_dylinker(&mut buf);
+    if has_libsystem {
+        write_load_dylib_libsystem(&mut buf);
+    }
     write_build_version(&mut buf);
     write_lc_main(&mut buf, u64::from(layout.entry_file_offset));
     symtab_cmd.write_to(&mut buf);

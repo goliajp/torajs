@@ -48,10 +48,11 @@ use crate::archives_merge::{
 use crate::exec::LinkConfig;
 use crate::lc::{
     APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
-    LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, TEXT_VMADDR_BASE,
+    LOAD_DYLIB_LIBSYSTEM_CMDSIZE, LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, TEXT_VMADDR_BASE,
 };
 use crate::member_apply::MemberRelocApplyError;
 use crate::sign::adhoc_codesign_blob_size;
+use std::collections::BTreeSet;
 
 /// Mach-O segment names + section names referenced by the parser.
 const TEXT_SEGNAME: &[u8] = b"__TEXT";
@@ -115,6 +116,15 @@ pub struct ArchiveLayout {
     pub member_layouts: Vec<MemberLayout>,
     pub codesign_dataoff: u32,
     pub codesign_datasize: u32,
+    /// SD-1 — names classified as libSystem-resolved by
+    /// `dyld_syms::is_libsystem_resolved` during the worklist
+    /// closure. When non-empty, `archive_emit::emit_binary` adds a
+    /// `LC_LOAD_DYLIB /usr/lib/libSystem.B.dylib` to the load
+    /// command chain (per-symbol `__TEXT,__stubs` trampolines land
+    /// in SD-2; until then the dyld imports surface here but the
+    /// binary itself isn't yet runnable when the set is non-empty
+    /// — `apply_relocs` will fail to resolve those externs).
+    pub dyld_imports: BTreeSet<String>,
 }
 
 /// Failures `compute_archive_layout` can report.
@@ -305,9 +315,15 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     // Phase 3: layout (mirrors exec.rs::compute_layout with
     // text_size + nsyms + strsize extended by the integrated
     // members).
+    let load_dylib_libsystem_size = if required.dyld_imports.is_empty() {
+        0
+    } else {
+        LOAD_DYLIB_LIBSYSTEM_CMDSIZE
+    };
     let sizeofcmds = (SEGMENT_COMMAND_64_SIZE * 3)
         + SECTION_64_SIZE
         + LOAD_DYLINKER_CMDSIZE
+        + load_dylib_libsystem_size
         + BUILD_VERSION_CMDSIZE
         + MAIN_CMDSIZE
         + SYMTAB_COMMAND_SIZE
@@ -401,6 +417,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         member_layouts,
         codesign_dataoff,
         codesign_datasize,
+        dyld_imports: required.dyld_imports,
     })
 }
 
