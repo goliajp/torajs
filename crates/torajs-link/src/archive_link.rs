@@ -156,7 +156,30 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
 
     let user_text_size: u32 = cfg.funcs.iter().map(|f| f.bytes.len() as u32).sum();
     let members_text_total: u32 = member_text_sizes.iter().copied().sum();
-    let text_size = user_text_size + members_text_total;
+
+    // SD-4c-prereq-c — compute the non-text region early so
+    // `text_size` (and every layout number derived from it) accounts
+    // for the bytes the emit pass will land between member __texts
+    // and `__TEXT,__stubs`. region_file_offset is the absolute file
+    // offset of the first non-text byte = text_file_offset + user
+    // bytes + member __texts (== current text_size before the grow).
+    let non_text_region_file_offset = text_file_offset + user_text_size + members_text_total;
+    let non_text_result =
+        compute_non_text_layouts(&merged, &member_keys, non_text_region_file_offset).map_err(
+            |NonTextLayoutError {
+                 archive_idx,
+                 member_idx,
+                 err,
+             }| {
+                ArchiveLayoutError::MemberSections {
+                    archive_idx,
+                    member_idx,
+                    err,
+                }
+            },
+        )?;
+    let non_text_region_size = non_text_result.region_size;
+    let text_size = user_text_size + members_text_total + non_text_region_size;
 
     // __TEXT segment file region = __text + __stubs (when has_dyld).
     // Both sections live in the same segment so the segment's
@@ -238,25 +261,10 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         cumulative += text_size_i;
     }
 
-    // SD-4c-prereq-b2 — populate non_text_sections per member;
-    // shadow layout only (stubs_file_offset / text_vmsize stay
-    // unshifted, SD-4c-prereq-c does the real shift + emit).
-    let non_text_region_file_offset = text_file_offset + text_size;
-    let non_text_result =
-        compute_non_text_layouts(&merged, &member_keys, non_text_region_file_offset).map_err(
-            |NonTextLayoutError {
-                 archive_idx,
-                 member_idx,
-                 err,
-             }| {
-                ArchiveLayoutError::MemberSections {
-                    archive_idx,
-                    member_idx,
-                    err,
-                }
-            },
-        )?;
-    let non_text_region_size = non_text_result.region_size;
+    // SD-4c-prereq-c — populate per-member non_text_sections from the
+    // pre-computed layout (the region size + offsets were folded into
+    // text_size up top so stubs_file_offset / text_vmsize landed at
+    // the right values automatically).
     for (i, layouts) in non_text_result.per_member.into_iter().enumerate() {
         member_layouts[i].non_text_sections = layouts;
     }

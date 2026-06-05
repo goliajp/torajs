@@ -87,6 +87,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     // S7-C5: patch each integrated member's __text payload in place
     // against the same effective sym table.
     let mut member_text_payloads: Vec<Vec<u8>> = Vec::with_capacity(layout.member_layouts.len());
+    let mut non_text_payloads: Vec<Vec<u8>> = Vec::new();
     for m in &layout.member_layouts {
         let member = &merged.per_archive_members[m.key.0][m.key.1];
         let off = m.member_text_offset_in_member as usize;
@@ -105,9 +106,24 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
             err,
         })?;
         member_text_payloads.push(bytes);
+        // SD-4c-prereq-c — slice each non-text section's bytes out of
+        // the member, in the order compute_non_text_layouts assigned
+        // them final file offsets (sorted by member, then section
+        // walk order inside each member).
+        for s in &m.non_text_sections {
+            let off = s.member_internal_offset as usize;
+            let end = off + s.size as usize;
+            non_text_payloads.push(member.data[off..end].to_vec());
+        }
     }
 
-    let bytes = emit_binary(cfg, &layout, &member_text_payloads, &resolved);
+    let bytes = emit_binary(
+        cfg,
+        &layout,
+        &member_text_payloads,
+        &non_text_payloads,
+        &resolved,
+    );
     Ok(bytes)
 }
 
@@ -119,6 +135,7 @@ fn emit_binary(
     cfg: &LinkConfig,
     layout: &ArchiveLayout,
     member_text_payloads: &[Vec<u8>],
+    non_text_payloads: &[Vec<u8>],
     resolved: &[crate::resolve::ResolvedFunction],
 ) -> Vec<u8> {
     // SD-1: when the worklist surfaced dyld-resolved externs we
@@ -330,6 +347,16 @@ fn emit_binary(
             "patched member __text size must match layout",
         );
         buf.extend_from_slice(&member_text_payloads[i]);
+    }
+
+    // SD-4c-prereq-c — non-text section payloads (cstring/const/data)
+    // land between member __texts and `__TEXT,__stubs`. Order is the
+    // flat sequence compute_non_text_layouts produced (per member,
+    // then per section); cumulative final_file_offsets line up
+    // contiguously starting at `text_file_offset +
+    // user_text_size + members_text_total`.
+    for p in non_text_payloads {
+        buf.extend_from_slice(p);
     }
 
     // SD-2a: emit __stubs payload + zero-init __la_symbol_ptr.
@@ -683,7 +710,7 @@ mod tests {
         // Drive emit_binary directly — apply_relocs is happy
         // because cfg.sym_table covers `_malloc`.
         let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &cfg.sym_table);
-        let bytes = emit_binary(&cfg, &layout, &[], &resolved);
+        let bytes = emit_binary(&cfg, &layout, &[], &[], &resolved);
 
         assert_eq!(
             bytes.len() as u32,
