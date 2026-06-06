@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-06T13:22:40.644Z",
+  "generatedAt": "2026-06-06T15:14:04.072Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
     "fail": 0,
     "skip": 4,
     "raw": "723/0/4",
-    "source": "/tmp/torajs-conformance-e7a.log",
-    "sourceMtime": "2026-06-06T11:42:09.975Z"
+    "source": "/tmp/torajs-conformance-e8b.log",
+    "sourceMtime": "2026-06-06T14:59:08.120Z"
   },
   "test262": {
     "ranAt": "2026-06-03T22:49:10Z",
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "4885dbf",
-    "commitSubject": "fix(hardev): require bun-aot row in pickBenchFile — block silent-null cross-runtime",
+    "commit": "52e4104",
+    "commitSubject": "feat(link): probe_vtable_link runtime exec exit 42 — #9 SD-4c-prereq+e8c",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -37,8 +37,8 @@
       "fail": 0,
       "skip": 4,
       "raw": "723/0/4",
-      "source": "/tmp/torajs-conformance-e7a.log",
-      "sourceMtime": "2026-06-06T11:42:09.975Z"
+      "source": "/tmp/torajs-conformance-e8b.log",
+      "sourceMtime": "2026-06-06T14:59:08.120Z"
     }
   },
   "roadmap": [
@@ -611,6 +611,42 @@
   },
   "commits": [
     {
+      "hash": "52e4104",
+      "subject": "feat(link): probe_vtable_link runtime exec exit 42 — #9 SD-4c-prereq+e8c"
+    },
+    {
+      "hash": "4d5e8ac",
+      "subject": "feat(link): migrate vtable rodata to __DATA_CONST segment — #9 SD-4c-prereq+e8b"
+    },
+    {
+      "hash": "f04b2f7",
+      "subject": "feat(link): compute_data_const_layout helper — #9 SD-4c-prereq+e8a"
+    },
+    {
+      "hash": "3a37120",
+      "subject": "feat(link): wire vtable rebase chain through emit pass — #9 SD-4c-prereq+e7b-4"
+    },
+    {
+      "hash": "a20cd0f",
+      "subject": "feat(link): compute_vtable_rebase_targets helper — #9 SD-4c-prereq+e7b-4-prep"
+    },
+    {
+      "hash": "c02e931",
+      "subject": "feat(link): build_chained_fixups multi-segment starts + text rebase — #9 SD-4c-prereq+e7b-3"
+    },
+    {
+      "hash": "1a83703",
+      "subject": "feat(link): SlotKind::Rebase mixed-slot bucketing — #9 SD-4c-prereq+e7b-2"
+    },
+    {
+      "hash": "ef5707a",
+      "subject": "feat(link): encode_rebase_link format-6 encoder — #9 SD-4c-prereq+e7b-1"
+    },
+    {
+      "hash": "d7a9d30",
+      "subject": "bench(harness): fresh 8-runner baseline on 4885dbf — dashboard re-pointed"
+    },
+    {
       "hash": "4885dbf",
       "subject": "fix(hardev): require bun-aot row in pickBenchFile — block silent-null cross-runtime"
     },
@@ -621,45 +657,9 @@
     {
       "hash": "1647453",
       "subject": "chore(hardev): dashboard snapshot @ 1172158 — SD-4c-prereq+e1..e7a ship"
-    },
-    {
-      "hash": "1172158",
-      "subject": "feat(link): __vtable_<C> rodata layout + sym vaddr override — #9 SD-4c-prereq+e7a"
-    },
-    {
-      "hash": "8ec096f",
-      "subject": "feat(link): __DATA,__bss zerofill + data-global sym vaddr override — #9 SD-4c-prereq+e4"
-    },
-    {
-      "hash": "74e0a30",
-      "subject": "feat(link): __torajs_fn_<fid> sym alias + worklist defined hint — #9 SD-4c-prereq+e3"
-    },
-    {
-      "hash": "2c05bdd",
-      "subject": "feat(link): UserStringKind { StaticStr, RawBytes } dispatch — #9 SD-4c-prereq+e2"
-    },
-    {
-      "hash": "4aa3cc8",
-      "subject": "feat(link): __TEXT,__cstring user-string emit + sym vaddr override — #9 SD-4c-prereq+e1"
-    },
-    {
-      "hash": "4df870b",
-      "subject": "chore(hardev): dashboard snapshot @ 03a7e8e — SD-4c-prereq+e0 ship"
-    },
-    {
-      "hash": "03a7e8e",
-      "subject": "feat(link): LinkConfig.strings ABI scaffold — #9 SD-4c-prereq+e0"
-    },
-    {
-      "hash": "4138c64",
-      "subject": "chore(hardev): dashboard snapshot @ aa80973 — SD-4c-prereq+d acceptance close"
-    },
-    {
-      "hash": "0d86354",
-      "subject": "chore(hardev): dashboard snapshot @ aa80973"
     }
   ],
-  "headSha": "4885dbf",
+  "headSha": "52e4104",
   "autorun": {
     "total": 64,
     "baselineTarget": 10,
