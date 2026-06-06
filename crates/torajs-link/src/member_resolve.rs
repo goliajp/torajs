@@ -38,7 +38,16 @@ pub(crate) struct MemberSymtab {
 /// Lookup order:
 /// 1. `non_text_sections` (fix-c1 — only `__TEXT,*` regular).
 /// 2. `data_non_text_sections` (fix-c2/c5 — `__DATA,*` regular +
-///    zerofill).
+///    zerofill). The symbol's `n_value` is its *object-file* address
+///    (`section.addr + intra_offset`); rustc places `__DATA,*`
+///    sections after `__text` so `section.addr` (= `member_addr`) is
+///    non-zero. Subtract it to recover the intra-section offset before
+///    adding the final placement — mirrors swap-2e's
+///    [`crate::defined_extern_resolve::section_vaddr_for_sym`]. Without
+///    the subtraction a `__bss`-merged static (e.g. LLVM's
+///    `__MergedGlobals` holding `UNHANDLED_REJECTION_OCCURRED`)
+///    resolves to `final_vaddr + section.addr`, overshooting the
+///    `__DATA` segment into `__LINKEDIT` and reading garbage.
 /// 3. `n_sect == 1` → assume `__TEXT,__text` and use `member_vaddr`
 ///    (rustc convention; `compute_non_text_layouts` filters __text
 ///    out so the first lookup misses).
@@ -66,10 +75,97 @@ pub(crate) fn resolve_local_nsect(
         .iter()
         .find(|s| s.section_index == n_sect)
     {
-        Some(layout.final_vaddr + n_value)
+        Some(layout.final_vaddr + n_value.saturating_sub(layout.member_addr))
     } else if n_sect == 1 {
         Some(member_vaddr + n_value)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a one-entry symtab buffer with an `N_SECT` local nlist
+    /// (`n_sect`, `n_value`) at symbol index 0. nlist_64 layout:
+    /// n_strx(4) n_type(1) n_sect(1) n_desc(2) n_value(8).
+    fn member_with_nsect(n_type: u8, n_sect: u8, n_value: u64) -> Vec<u8> {
+        let mut data = vec![0u8; NLIST_64_SIZE as usize];
+        data[4] = n_type;
+        data[5] = n_sect;
+        data[8..16].copy_from_slice(&n_value.to_le_bytes());
+        data
+    }
+
+    fn symtab() -> MemberSymtab {
+        MemberSymtab {
+            symoff: 0,
+            nsyms: 1,
+            stroff: 0,
+            strsize: 0,
+        }
+    }
+
+    fn data_layout(section_index: u8, member_addr: u64, final_vaddr: u64) -> DataSectionLayout {
+        DataSectionLayout {
+            section_index,
+            sectname: [0; 16],
+            segname: [0; 16],
+            member_internal_offset: 0,
+            size: 0,
+            flags: 0,
+            has_file_storage: false,
+            final_file_offset: 0,
+            final_vaddr,
+            member_addr,
+        }
+    }
+
+    /// A `__bss`-merged static (LLVM `__MergedGlobals`) at section 6,
+    /// `n_value = section.addr = 0x23c8`, must resolve to the section's
+    /// final vaddr with offset 0 — not `final_vaddr + 0x23c8`, which
+    /// overshoots into `__LINKEDIT`. Regression for the swap-2f leaf
+    /// fixture exit-1 (`UNHANDLED_REJECTION_OCCURRED` read garbage).
+    #[test]
+    fn data_section_subtracts_member_addr() {
+        const N_SECT_TYPE: u8 = 0x0E;
+        let data = member_with_nsect(N_SECT_TYPE, 6, 0x23c8);
+        let member = ArMember {
+            name: "cgu.o",
+            data: &data,
+        };
+        let layout = data_layout(6, 0x23c8, 0x1_0031_6264);
+        let v = resolve_local_nsect(&member, &symtab(), 0, 0xDEAD_BEEF, &[], &[layout]);
+        assert_eq!(v, Some(0x1_0031_6264));
+    }
+
+    /// Intra-section offset is preserved: a symbol at
+    /// `member_addr + 0x10` lands at `final_vaddr + 0x10`.
+    #[test]
+    fn data_section_preserves_intra_offset() {
+        const N_SECT_TYPE: u8 = 0x0E;
+        let data = member_with_nsect(N_SECT_TYPE, 4, 0x2408);
+        let member = ArMember {
+            name: "cgu.o",
+            data: &data,
+        };
+        let layout = data_layout(4, 0x2398, 0x2_0000_0000);
+        let v = resolve_local_nsect(&member, &symtab(), 0, 0xDEAD_BEEF, &[], &[layout]);
+        assert_eq!(v, Some(0x2_0000_0070));
+    }
+
+    /// Non-`N_SECT` entries (e.g. undefined externs) return `None` so
+    /// the caller falls through to the global sym-table lookup.
+    #[test]
+    fn non_nsect_returns_none() {
+        let data = member_with_nsect(0x00, 6, 0x23c8); // N_UNDF
+        let member = ArMember {
+            name: "cgu.o",
+            data: &data,
+        };
+        let layout = data_layout(6, 0x23c8, 0x1_0031_6264);
+        let v = resolve_local_nsect(&member, &symtab(), 0, 0xDEAD_BEEF, &[], &[layout]);
+        assert_eq!(v, None);
     }
 }
