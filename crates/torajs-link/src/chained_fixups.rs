@@ -286,6 +286,10 @@ pub fn build_chained_fixups(
     // emit a single chain via `next_stride` links; chains never
     // cross page boundaries — each page starts its own chain via
     // page_start[page_idx].
+    // SD-4c-prereq+e7b-2: rebase_targets is the slice of vtable
+    // rebase slots for this segment. __DATA-only callers (every
+    // existing caller until e7b-3) pass an empty slice so the
+    // bind-chain path is unchanged.
     let starts_in_segment = build_starts_in_segment(
         la_ptr_imports,
         la_ptr_offset_in_segment,
@@ -293,6 +297,17 @@ pub fn build_chained_fixups(
         data_segment_vmsize,
         tlv_thunk_offsets,
         tlv_import_ordinal,
+        &[],
+    );
+    // __DATA-only build_chained_fixups never supplies rebase targets
+    // (vtable rebase lives in __TEXT and goes through the e7b-3
+    // multi-segment path). Loudly fail if a future caller change
+    // accidentally feeds rebase into this single-segment entry.
+    debug_assert!(
+        starts_in_segment.rebase_link_values.is_empty(),
+        "__DATA single-segment build_chained_fixups must not receive \
+         rebase targets — wire them through the multi-seg starts_in_image \
+         path instead",
     );
 
     // Build dyld_chained_starts_in_image. Per-segment
