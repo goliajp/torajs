@@ -20,6 +20,7 @@ use torajs_obj::{
 use crate::archive::ArMember;
 use crate::data_section_layout::DataSectionLayout;
 use crate::member_reloc::{MemberRelocEntry, MemberRelocError, parse_member_text_relocs};
+use crate::member_resolve::{MemberSymtab, resolve_local_nsect};
 use crate::non_text_layout::NonTextSectionLayout;
 use crate::patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
 use crate::resolve::SymTable;
@@ -324,16 +325,6 @@ pub fn apply_member_relocs(
     Ok(())
 }
 
-/// Sub-view of a parsed `LC_SYMTAB`, the four absolute file offsets
-/// + counts the symbol-name resolver needs.
-#[derive(Debug, Clone, Copy)]
-struct MemberSymtab {
-    symoff: u32,
-    nsyms: u32,
-    stroff: u32,
-    strsize: u32,
-}
-
 /// Walk a member's load commands and pull the `LC_SYMTAB` four-tuple.
 /// Bounds-checks the symoff/stroff ranges against the member buffer
 /// up front so the per-reloc loop in `apply_member_relocs` can index
@@ -439,59 +430,6 @@ fn read_nlist_name(
     std::str::from_utf8(name_bytes)
         .map(|s| s.to_string())
         .map_err(|_| MemberRelocApplyError::NameNotUtf8 { sym_index })
-}
-
-/// Resolve a member's reloc that targets a *local* `N_SECT` symbol
-/// (a name in the member's symtab whose `n_type` is `N_SECT` with no
-/// `N_EXT` bit — e.g. rustc's `l_anon.*` panic-string labels). The
-/// link driver's `sym_table` only carries externally-exported names,
-/// so locals fall through to this lookup. Returns `None` when the
-/// nlist entry isn't a local section symbol or the target section
-/// isn't in `non_text_sections` / isn't `__text`.
-fn resolve_local_nsect(
-    member: &ArMember<'_>,
-    symtab: &MemberSymtab,
-    r_symbolnum: u32,
-    member_vaddr: u64,
-    non_text_sections: &[NonTextSectionLayout],
-    data_non_text_sections: &[DataSectionLayout],
-) -> Option<u64> {
-    const N_TYPE_MASK: u8 = 0x0E;
-    const N_SECT_TYPE: u8 = 0x0E;
-    let bytes = member.data;
-    let nlist_off = symtab.symoff as usize + r_symbolnum as usize * NLIST_64_SIZE as usize;
-    let n_type = bytes[nlist_off + 4];
-    let n_sect = bytes[nlist_off + 5];
-    if (n_type & N_TYPE_MASK) != N_SECT_TYPE || n_sect == 0 {
-        return None;
-    }
-    let n_value = u64::from_le_bytes(bytes[nlist_off + 8..nlist_off + 16].try_into().unwrap());
-    if let Some(layout) = non_text_sections.iter().find(|s| s.section_index == n_sect) {
-        // For .o files section.addr is typically 0, so n_value is
-        // the offset within the section; final target lives at
-        // section.final_vaddr + n_value.
-        Some(layout.final_vaddr + n_value)
-    } else if let Some(layout) = data_non_text_sections
-        .iter()
-        .find(|s| s.section_index == n_sect)
-    {
-        // SD-4c-prereq-c-fix-c5 — `__DATA,*` sections live in the
-        // dedicated DataSectionLayout list (fix-c2/c4) rather than
-        // `non_text_sections` (which fix-c1 narrowed to `__TEXT,*`).
-        // For zerofill sections n_value is still a section-relative
-        // byte offset; final_vaddr already accounts for the layout's
-        // file vs zerofill split, so the arithmetic mirrors the
-        // __TEXT branch above.
-        Some(layout.final_vaddr + n_value)
-    } else if n_sect == 1 {
-        // Conventional rustc-emit layout puts __TEXT,__text at
-        // section_index 1; compute_non_text_layouts filters it out
-        // so the lookup above misses. member_vaddr is where __text
-        // lands in the final image.
-        Some(member_vaddr + n_value)
-    } else {
-        None
-    }
 }
 
 fn read_u32_le(bytes: &[u8], off: usize) -> u32 {
