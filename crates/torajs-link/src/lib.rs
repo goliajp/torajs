@@ -72,6 +72,7 @@ pub mod sign;
 pub mod stubs;
 pub mod tlv_descriptor_layout;
 pub mod tlv_thunk_emit;
+pub mod user_data_globals_layout;
 pub mod user_strings_emit;
 pub mod user_strings_layout;
 

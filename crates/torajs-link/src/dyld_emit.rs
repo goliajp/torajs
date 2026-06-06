@@ -20,8 +20,8 @@
 //! stays byte-identical for the syscall path.
 
 use torajs_obj::{
-    S_ATTR_SOME_INSTRUCTIONS, S_LAZY_SYMBOL_POINTERS, S_SYMBOL_STUBS, Section64, SegmentCommand64,
-    VM_PROT_READ, VM_PROT_WRITE,
+    S_ATTR_SOME_INSTRUCTIONS, S_LAZY_SYMBOL_POINTERS, S_SYMBOL_STUBS, S_ZEROFILL, Section64,
+    SegmentCommand64, VM_PROT_READ, VM_PROT_WRITE,
 };
 
 use crate::archive_link::ArchiveLayout;
@@ -48,6 +48,30 @@ pub(crate) fn build_stubs_section(layout: &ArchiveLayout) -> Section64 {
         // Per-stub byte size — both dyld and otool read this to
         // walk the section.
         reserved2: STUB_SIZE as u32,
+        reserved3: 0,
+    }
+}
+
+/// SD-4c-prereq+e4 — build the `__DATA,__bss` zerofill `Section64`
+/// entry covering all user-binary mutable globals. Lands as the last
+/// section inside `__DATA` (Mach-O requires zerofill sections to
+/// follow file-storage sections). `offset` is set to 0 — the
+/// section occupies vmsize within the segment but no file bytes.
+pub(crate) fn build_user_bss_section(layout: &ArchiveLayout) -> Section64 {
+    Section64 {
+        sectname: "__bss".into(),
+        segname: "__DATA".into(),
+        addr: layout.user_data_globals_layout.vaddr,
+        size: u64::from(layout.user_data_globals_layout.total_vmsize),
+        offset: 0,
+        // Slot alignment is per-entry; the section header reports
+        // the maximum (8 bytes) — every primitive Copy slot fits.
+        align_log2: 3,
+        reloff: 0,
+        nreloc: 0,
+        flags: S_ZEROFILL,
+        reserved1: 0,
+        reserved2: 0,
         reserved3: 0,
     }
 }

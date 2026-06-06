@@ -1,52 +1,11 @@
-//! Mach-O `MH_EXECUTE` emit — the high-level link driver that
-//! takes `CompiledFunction`s, lays them out in a runnable binary
-//! image, applies all relocations against the final virtual
-//! addresses, and emits the byte stream.
-//!
-//! S3 (this commit) lands the static structure:
-//!
-//! ```text
-//!   file layout                       vmaddr layout
-//!   ─────────────────                 ─────────────────────────
-//!   mach_header_64 (32)               (header is part of __TEXT)
-//!   load commands                     0x000000000..0x100000000  __PAGEZERO
-//!   padding to page boundary          0x100000000..__TEXT.vmend __TEXT
-//!   __text payload (patched bytes)    __TEXT.vmend..end          __LINKEDIT
-//!   padding to page boundary
-//!   __LINKEDIT data
-//!     nlist_64 table
-//!     string table
-//! ```
-//!
-//! Load commands emitted:
-//!   - `LC_SEGMENT_64 __PAGEZERO`     — 4 GiB null-guard
-//!   - `LC_SEGMENT_64 __TEXT`         — RX, holds mach_header +
-//!                                       load commands + __text
-//!   - `LC_SEGMENT_64 __LINKEDIT`     — R, holds dyld metadata
-//!   - `LC_LOAD_DYLINKER`             — `/usr/lib/dyld`
-//!   - `LC_BUILD_VERSION`             — macOS 14.0 / SDK 14.0
-//!   - `LC_MAIN`                      — entry_off = `_main` file off
-//!   - `LC_SYMTAB`                    — defined functions
-//!   - `LC_DYSYMTAB`                  — extdef partition info
-//!
-//! Deferred to S4-S5:
-//!   - `LC_DYLD_CHAINED_FIXUPS`       — modern dyld bind format
-//!                                       (empty chain for binaries
-//!                                       with no dylib imports —
-//!                                       still required for load)
-//!   - `LC_DYLD_EXPORTS_TRIE`         — export trie
-//!   - `LC_LOAD_DYLIB libSystem`      — even when unused
-//!   - `LC_CODE_SIGNATURE`            — ad-hoc, mandatory on
-//!                                       macOS 14+
-//!
-//! Without those load commands the binary still parses cleanly
-//! through `otool -hlv` but `dyld` refuses to load it. S4 adds
-//! the minimum-viable dyld plumbing; S5 adds ad-hoc codesigning;
-//! S6 verifies end-to-end exec exit code.
-//!
-//! Page size on Apple Silicon (arm64-darwin) is 16 KiB
-//! (`0x4000`), not the historical 4 KiB. `__PAGEZERO` covers the
-//! low 4 GiB so any null-dereference traps cleanly.
+//! Mach-O `MH_EXECUTE` baseline emit — takes `CompiledFunction`s,
+//! computes the static layout, applies relocations, and writes the
+//! byte stream. Load commands: PAGEZERO + TEXT + LINKEDIT segments,
+//! LC_LOAD_DYLINKER, LC_BUILD_VERSION, LC_MAIN, LC_SYMTAB, LC_DYSYMTAB,
+//! LC_CODE_SIGNATURE (ad-hoc, mandatory on macOS 14+). Apple Silicon
+//! page size is 16 KiB; `__PAGEZERO` covers the low 4 GiB to trap
+//! null derefs. Archive-aware path with dyld bind chain lives in
+//! `archive_emit.rs` (built on top of this baseline shape).
 
 use torajs_codegen::CompiledFunction;
 use torajs_obj::{
@@ -123,14 +82,41 @@ pub struct LinkConfig {
     /// integration land in S7-C2..S7-C5. Empty for self-contained
     /// binaries; existing callers don't need to change.
     pub archives: Vec<Vec<u8>>,
-    /// SD-4c-prereq+e0 — user-binary string literal entries
+    /// SD-4c-prereq+e0/e1/e2 — user-binary string literal entries
     /// (`ssa::Module.strings` materialized for the in-house
-    /// codegen+obj+link pipeline replacing ssa_inkwell in #9
-    /// SD-4c). Empty (default in every existing caller) preserves
-    /// pre-e0 emit_binary path byte-identical; e1 will emit
-    /// `__TEXT,__cstring` section + register sym vaddrs in
-    /// effective_sym_table for these entries.
+    /// codegen+obj+link pipeline replacing ssa_inkwell). e1/e2 emit
+    /// per-entry rodata payload to `__TEXT,__cstring` and register
+    /// sym → vaddr via [`crate::user_strings_emit`]. Empty default
+    /// in every existing caller keeps pre-e1 byte streams unchanged.
     pub strings: Vec<UserStringEntry>,
+    /// SD-4c-prereq+e4 — user-binary top-level mutable globals
+    /// (`ssa::Module.data_globals` materialized). Each entry becomes
+    /// one slot inside the binary's `__DATA,__bss` zerofill section
+    /// with a sym vaddr GlobalRef ADRP+ADD pairs resolve against. The
+    /// loader supplies zero bytes — no file payload is emitted.
+    /// Empty default preserves pre-e4 byte streams. Requires the
+    /// has_dyld path (existing `__DATA` segment); a dyld-free binary
+    /// with `data_globals` non-empty is rejected by `compute_archive_layout`.
+    pub data_globals: Vec<UserDataGlobalEntry>,
+}
+
+/// SD-4c-prereq+e4 — one user-binary top-level mutable global slot.
+/// Sized by the `size` byte count (caller derives from the SSA `Type` —
+/// I64=8, I32=4, F64=8, Bool=1; refcount-typed Str/Arr/Obj slots are
+/// 8 bytes / ptr-shaped). `align_log2` is the slot's required
+/// alignment (e.g. `3` for u64). The `__DATA,__bss` section is
+/// zerofill — emit writes no bytes for these slots; the loader
+/// supplies zero bytes at map time.
+#[derive(Debug, Clone)]
+pub struct UserDataGlobalEntry {
+    /// Codegen `RelocKind::Page21 / PageOff12` ADRP+ADD pair target
+    /// — emit_global_ref uses the user-supplied name verbatim, so
+    /// `sym` here matches the SSA-layer `DataGlobal.name`.
+    pub sym: String,
+    /// Slot size in bytes (I64=8, I32=4, F64=8, Bool=1, ptr=8).
+    pub size: u32,
+    /// Log2 of slot alignment requirement (0=byte, 2=u32, 3=u64).
+    pub align_log2: u8,
 }
 
 /// Layout decisions made by the link driver before any bytes are
@@ -513,6 +499,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let layout = compute_layout(&cfg);
 
@@ -564,6 +551,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         let layout = compute_layout(&cfg);
@@ -580,6 +568,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // mach_header_64.filetype @ offset 12..16
@@ -605,6 +594,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // The first 16 bytes after the page boundary should match
@@ -628,6 +618,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 
@@ -748,6 +739,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 

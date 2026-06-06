@@ -33,6 +33,9 @@ use crate::non_text_layout::{NonTextLayoutError, compute_non_text_layouts};
 use crate::sign::adhoc_codesign_blob_size;
 use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
 use crate::tlv_descriptor_layout::compute_tlv_descriptor_layouts;
+use crate::user_data_globals_layout::{
+    build_user_data_globals_region, user_data_globals_extra_defined_syms,
+};
 use crate::user_strings_layout::{build_user_strings_region, user_strings_extra_defined_syms};
 use std::collections::BTreeMap;
 
@@ -50,6 +53,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
     let mut extra = user_strings_extra_defined_syms(&cfg.strings);
     extra.extend(fn_addr_extra_defined_syms(&cfg.funcs));
+    extra.extend(user_data_globals_extra_defined_syms(&cfg.data_globals));
     let required =
         compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;
 
@@ -91,15 +95,11 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
             entry: cfg.entry.clone(),
         })?;
 
-    // Phase 3: layout (mirrors exec.rs::compute_layout with
-    // text_size + nsyms + strsize extended by the integrated
-    // members, plus SD-2a __TEXT,__stubs + __DATA,__la_symbol_ptr
-    // sections when dyld_imports is non-empty).
+    // Phase 3: layout — text_size/nsyms/strsize extended by integrated
+    // members; SD-2a adds __TEXT,__stubs + __DATA,__la_symbol_ptr when
+    // dyld_imports is non-empty; SD-4b LC_LOAD_DYLIB libSystem first
+    // (ord 1 — chained-fixups encoder hard-codes ord 1 = libSystem).
     let has_dyld = !required.dyld_imports.is_empty();
-    // SD-4b — count LC_LOAD_DYLIB entries by dylib ordinal. Any
-    // dyld-using binary always emits libSystem at ordinal 1 (so
-    // dyld's ordinal numbering matches the chained-fixups encoder),
-    // even when only libcurl symbols are referenced.
     let has_libcurl_lc = required.dyld_imports.values().any(|&o| o == 2);
     let load_dylib_size = if has_dyld {
         LOAD_DYLIB_LIBSYSTEM_CMDSIZE
@@ -111,17 +111,11 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     } else {
         0
     };
-    // Segment count and section count grow when dyld_imports is
-    // populated: __TEXT gains a second section (__stubs) and a
-    // brand-new __DATA segment carries __la_symbol_ptr.
-    //
-    //   empty: PAGEZERO + TEXT (1 section) + LINKEDIT
-    //          = 3 segments, 1 section
-    //   has_dyld: PAGEZERO + TEXT (2 sections) + DATA (1) + LINKEDIT
-    //             = 4 segments, 3 sections
+    // (segment_count, section_count): empty = (PAGEZERO+TEXT+LINKEDIT,
+    // __text) = (3, 1); has_dyld adds __stubs section + __DATA segment
+    // with __la_symbol_ptr → (4, 3). SD-3 also adds LC_DYLD_CHAINED_FIXUPS
+    // (linkedit_data_command shape, 16 B) when has_dyld.
     let (segment_count, section_count) = if has_dyld { (4, 3) } else { (3, 1) };
-    // SD-3 adds LC_DYLD_CHAINED_FIXUPS when has_dyld — same
-    // `linkedit_data_command` shape as LC_CODE_SIGNATURE (16 B).
     let chained_fixups_lc_size = if has_dyld { LINKEDIT_DATA_CMDSIZE } else { 0 };
     let sizeofcmds = (SEGMENT_COMMAND_64_SIZE * segment_count)
         + (SECTION_64_SIZE * section_count)
@@ -281,9 +275,19 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     } else {
         0
     };
+    // SD-4c-prereq+e4 — `__DATA,__bss` zerofill after member zerofill
+    // (Mach-O ordering rule: file-storage sections come first).
+    let user_data_globals_layout = build_user_data_globals_region(
+        &cfg.data_globals,
+        has_dyld,
+        data_vmaddr + data_total_file_size + u64::from(data_non_text_zerofill_vmsize),
+    )
+    .map_err(|count| ArchiveLayoutError::DataGlobalsWithoutDyld { count })?;
     let data_vmsize = if has_dyld {
         round_up_to(
-            data_total_file_size + u64::from(data_non_text_zerofill_vmsize),
+            data_total_file_size
+                + u64::from(data_non_text_zerofill_vmsize)
+                + u64::from(user_data_globals_layout.total_vmsize),
             APPLE_SILICON_PAGE_SIZE,
         )
     } else {
@@ -462,6 +466,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         tlv_thunk_link_values,
         user_strings_layout,
         user_strings_payload,
+        user_data_globals_layout,
     })
 }
 
@@ -555,6 +560,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         let base = crate::exec::compute_layout(&cfg);
@@ -595,6 +601,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 1);
@@ -650,6 +657,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 3);
@@ -686,6 +694,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: vec![archive],
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -744,6 +753,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: vec![archive_a, archive_b],
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -777,6 +787,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         match err {
@@ -803,6 +814,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: vec![archive],
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         assert!(matches!(

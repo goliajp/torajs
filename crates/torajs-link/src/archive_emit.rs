@@ -1,26 +1,11 @@
-//! Archive-aware emit pass — S7-C4.
-//!
-//! Builds on `archive_link::compute_archive_layout` (S7-C3) to
-//! emit a complete Mach-O `MH_EXECUTE` byte stream that includes
-//! both user `CompiledFunction`s and `.o` members pulled from
-//! `LinkConfig.archives`. User-function relocations now resolve
-//! against an extended `SymTable` whose entries also cover every
-//! defined-external symbol in every integrated member.
-//!
-//! Layout structure inherited from S7-C3:
-//!
-//! ```text
-//!   __TEXT,__text:
-//!     [ user funcs (resolved bytes) ][ member 0 __text ][ member 1 __text ]…
-//!   __LINKEDIT:
-//!     nlist  = user fns + every integrated member's defined externs
-//!     strtab = "\0" + user fn names + member sym names
-//!     codesign blob (SHA-256 + ad-hoc CMS, self-research)
-//! ```
-//!
-//! S7-C5: member-internal relocs are patched in place via
-//! `member_apply::apply_member_relocs`. SD-4c-prereq+c: TLV
-//! thunk slots patched by `tlv_thunk_emit::patch_tlv_thunk_slots`.
+//! Archive-aware emit pass — S7-C4. Builds on
+//! `archive_link::compute_archive_layout` (S7-C3) to emit a complete
+//! Mach-O `MH_EXECUTE` byte stream including both user
+//! `CompiledFunction`s and `.o` members from `LinkConfig.archives`.
+//! User-fn + member-internal relocs (S7-C5) resolve against one
+//! effective sym table covering caller externs + every member
+//! defined-extern + dyld stub aliases + TLV/user-string/fn-addr/data-
+//! global overrides.
 
 use torajs_obj::{
     CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MachHeader64, Nlist64,
@@ -49,6 +34,7 @@ use crate::member_apply::apply_member_relocs;
 use crate::resolve::apply_relocs;
 use crate::sign::build_adhoc_codesign_blob;
 use crate::tlv_descriptor_layout::apply_tlv_overrides;
+use crate::user_data_globals_layout::apply_user_data_global_overrides;
 use crate::user_strings_emit::apply_user_string_overrides;
 
 /// Link a `LinkConfig` whose `archives` field is populated into a
@@ -84,6 +70,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     // sym vaddr overrides land ADRP+ADD pairs at the right targets.
     apply_tlv_overrides(&layout, &merged, &mut effective_sym_table)?;
     apply_user_string_overrides(&layout.user_strings_layout, &mut effective_sym_table);
+    apply_user_data_global_overrides(&layout.user_data_globals_layout, &mut effective_sym_table);
     register_fn_addr_syms(&cfg.funcs, &layout.fn_vaddrs, &mut effective_sym_table);
 
     // Resolve user-function relocs against the effective sym table.
@@ -216,7 +203,8 @@ fn emit_binary(
         .data_non_text_layouts
         .iter()
         .map(|v| v.len() as u32)
-        .sum();
+        .sum::<u32>()
+        + u32::from(layout.user_data_globals_layout.total_vmsize > 0);
     let extra_lc_size = if has_dyld {
         load_dylib_size
             // __TEXT gains a second SECTION_64 entry (__stubs).
@@ -310,12 +298,13 @@ fn emit_binary(
     // `__DATA,*` (file-storage + zerofill), appended after
     // __la_symbol_ptr so SD-3's chained_fixups encoder's
     // segment_offset=0 invariant on __la_symbol_ptr holds.
-    let data_segment_opt = if has_dyld {
-        let extra_sections = build_data_non_text_section_64_entries(layout);
-        Some(build_data_segment(layout, extra_sections))
-    } else {
-        None
-    };
+    let data_segment_opt = has_dyld.then(|| {
+        let mut extra_sections = build_data_non_text_section_64_entries(layout);
+        if layout.user_data_globals_layout.total_vmsize > 0 {
+            extra_sections.push(crate::dyld_emit::build_user_bss_section(layout));
+        }
+        build_data_segment(layout, extra_sections)
+    });
 
     // __LINKEDIT filesize = codesign end - segment start, covers
     // chained_fixups blob + its 8-byte alignment pad SD-4c-prereq+c
@@ -610,6 +599,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let archive_bytes = link_to_exec_with_archives(&cfg).unwrap();
         let baseline_bytes = link_to_exec(&cfg);
@@ -648,6 +638,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: vec![archive],
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -712,6 +703,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: vec![archive_a, archive_b],
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -774,6 +766,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).expect("layout");
         assert!(!layout.dyld_imports.is_empty(), "dyld_imports populated");
@@ -862,6 +855,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: Vec::new(),
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         // SD-2b — link must succeed even though cfg.sym_table is
         // empty. SD-2a's plumbing populates `layout.stub_vaddrs`;
@@ -942,6 +936,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: vec![archive],
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let link_bytes =
             link_to_exec_with_archives(&cfg).expect("link must succeed against mixed externs");
@@ -975,6 +970,7 @@ mod tests {
             codesign_ident: "tora".into(),
             archives: vec![archive],
             strings: Vec::new(),
+            data_globals: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).unwrap();
 

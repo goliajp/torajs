@@ -105,6 +105,7 @@ fn main() {
             length: 5,
             kind: UserStringKind::StaticStr,
         }],
+        data_globals: Vec::new(),
     };
 
     match link_to_exec_with_archives(&cfg) {

@@ -112,6 +112,7 @@ mod tests {
             tlv_thunk_link_values,
             user_strings_layout: Default::default(),
             user_strings_payload: Vec::new(),
+            user_data_globals_layout: Default::default(),
         }
     }
 

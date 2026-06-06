@@ -98,6 +98,7 @@ fn main() {
             length: 6,
             kind: UserStringKind::RawBytes,
         }],
+        data_globals: Vec::new(),
     };
 
     match link_to_exec_with_archives(&cfg) {

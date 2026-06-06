@@ -18,6 +18,7 @@ use crate::member_reloc::MemberRelocError;
 use crate::member_text::MemberTextError;
 use crate::non_text_layout::NonTextSectionLayout;
 use crate::tlv_descriptor_layout::{TlvDescriptorLayout, TlvSymOverrideError};
+use crate::user_data_globals_layout::UserDataGlobalsLayout;
 use crate::user_strings_layout::UserStringsLayout;
 
 /// Per-archive-member computed data the S7-C4 emit pass needs.
@@ -146,6 +147,11 @@ pub struct ArchiveLayout {
     /// region. emit_binary splices this directly after the member
     /// non-text payloads; size = `user_strings_layout.total_size`.
     pub user_strings_payload: Vec<u8>,
+    /// SD-4c-prereq+e4 — user-binary `__DATA,__bss` placements (per
+    /// `LinkConfig.data_globals` entry). vmsize folded into the
+    /// __DATA segment; no file payload (zerofill). Empty layout
+    /// (`total_vmsize == 0`) when `data_globals.is_empty()`.
+    pub user_data_globals_layout: UserDataGlobalsLayout,
 }
 
 /// Failures `compute_archive_layout` can report.
@@ -185,6 +191,14 @@ pub enum ArchiveLayoutError {
     /// SD-4c-prereq+b2 — TLV sym vaddr override pass rejected a
     /// member. Wraps the underlying [`TlvSymOverrideError`].
     TlvOverride(TlvSymOverrideError),
+    /// SD-4c-prereq+e4 — `LinkConfig.data_globals` is non-empty but
+    /// the worklist closure didn't surface any dyld imports, so no
+    /// `__DATA` segment exists to host `__DATA,__bss`. Production
+    /// codegen always emits libSystem references alongside any
+    /// data globals (rc_inc/dec, str_alloc, etc.) so this should be
+    /// unreachable; the explicit error guards against silent-wrong
+    /// when a synthetic test path skips the dyld layer.
+    DataGlobalsWithoutDyld { count: usize },
 }
 
 impl From<TlvSymOverrideError> for ArchiveLayoutError {

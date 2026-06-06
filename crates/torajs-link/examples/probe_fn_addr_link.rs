@@ -97,6 +97,7 @@ fn main() {
         codesign_ident: "tora".into(),
         archives: Vec::new(),
         strings: Vec::new(),
+        data_globals: Vec::new(),
     };
 
     match link_to_exec_with_archives(&cfg) {

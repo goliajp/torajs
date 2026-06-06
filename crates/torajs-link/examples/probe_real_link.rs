@@ -106,6 +106,7 @@ fn main() {
         codesign_ident: "tora".into(),
         archives,
         strings: Vec::new(),
+        data_globals: Vec::new(),
     };
 
     // Pre-link: query compute_archive_layout directly so we can see
