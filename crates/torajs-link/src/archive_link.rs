@@ -21,6 +21,7 @@ use crate::archives_merge::{compute_required_members, merge_archive_indexes};
 use crate::chained_fixups::build_chained_fixups;
 use crate::data_section_layout::compute_data_section_layouts;
 use crate::exec::LinkConfig;
+use crate::fn_addr_syms::fn_addr_extra_defined_syms;
 pub use crate::layout_types::{ArchiveLayout, ArchiveLayoutError, MemberLayout};
 use crate::lc::{
     APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
@@ -47,7 +48,8 @@ fn round_up_to(value: u64, align: u64) -> u64 {
 /// empty `member_layouts`.
 pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, ArchiveLayoutError> {
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
-    let extra = user_strings_extra_defined_syms(&cfg.strings);
+    let mut extra = user_strings_extra_defined_syms(&cfg.strings);
+    extra.extend(fn_addr_extra_defined_syms(&cfg.funcs));
     let required =
         compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;
 

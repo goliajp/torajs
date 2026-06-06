@@ -56,6 +56,7 @@ pub mod data_section_layout;
 pub mod dyld_emit;
 pub mod dyld_syms;
 pub mod exec;
+pub mod fn_addr_syms;
 pub mod layout_types;
 pub mod lc;
 pub mod member_apply;

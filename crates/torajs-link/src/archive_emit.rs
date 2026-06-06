@@ -37,6 +37,7 @@ use crate::data_section_emit::{
 use crate::data_section_layout::DataSectionLayout;
 use crate::dyld_emit::{build_data_segment, build_stubs_section, write_stubs_and_la_ptr};
 use crate::exec::LinkConfig;
+use crate::fn_addr_syms::register_fn_addr_syms;
 use crate::lc::{
     BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLIB_LIBCURL_CMDSIZE,
     LOAD_DYLIB_LIBSYSTEM_CMDSIZE, LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE,
@@ -79,12 +80,11 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         effective_sym_table.insert(name.clone(), *stub_vaddr);
     }
 
-    // SD-4c-prereq+b2 / +e1 — TLV thunk-slot + user-string sym vaddrs
-    // override the member-defined values so ADRP+ADD pairs land at
-    // descriptors / rodata Str ptrs instead of raw `m.vaddr + n_value`
-    // (which sits in the wrong region or doesn't exist yet).
+    // SD-4c-prereq+b2/+e1/+e3 — TLV thunk-slot + user-string + per-fn
+    // sym vaddr overrides land ADRP+ADD pairs at the right targets.
     apply_tlv_overrides(&layout, &merged, &mut effective_sym_table)?;
     apply_user_string_overrides(&layout.user_strings_layout, &mut effective_sym_table);
+    register_fn_addr_syms(&cfg.funcs, &layout.fn_vaddrs, &mut effective_sym_table);
 
     // Resolve user-function relocs against the effective sym table.
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
