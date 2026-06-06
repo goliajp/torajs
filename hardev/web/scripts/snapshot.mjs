@@ -178,7 +178,16 @@ const headline = [
   },
 ]
 
-// ── benchmark: newest full results file (≥26 cases AND a torajs row) ─────
+// ── benchmark: newest full results file (≥26 cases AND torajs AND bun-aot)
+//
+// `--self` per-commit fast-path runs only torajs / torajs-run (skipping
+// bun-aot, rust, node-v8 to land in seconds). Those files DO satisfy
+// "≥26 cases + torajs" but carry zero cross-runtime comparison rows.
+// If picked as the dashboard source, every `bunAot` / `nodeV8` /
+// `speedup` value collapses to null and the page silently reports
+// "0× faster than bun" — exactly the silent-null failure the design
+// principle 1 ("Bench 对比器必 latest-stable") forbids. Require an
+// actual bun-aot row before accepting a file as the snapshot source.
 function pickBenchFile() {
   const dir = join(REPO_ROOT, 'bench', 'results')
   const files = readdirSync(dir).filter((f) => f.endsWith('.json'))
@@ -193,12 +202,22 @@ function pickBenchFile() {
     if (!Array.isArray(j.rows)) continue
     const cases = new Set(j.rows.map((r) => r.case))
     const hasTora = j.rows.some((r) => r.runtime === 'torajs')
-    if (cases.size < 26 || !hasTora) continue
+    const hasBunAot = j.rows.some((r) => r.runtime === 'bun-aot')
+    if (cases.size < 26 || !hasTora || !hasBunAot) continue
     if (!best || (j.started_at && j.started_at > best.started_at)) {
       best = { file: f, started_at: j.started_at, json: j }
     }
   }
-  if (!best) throw new Error('snapshot: no full bench results file found (≥26 cases + torajs)')
+  if (!best) {
+    throw new Error(
+      'snapshot: no cross-runtime bench results file found ' +
+        '(need ≥26 cases + torajs row + bun-aot row). ' +
+        '`--self` per-commit results do not qualify — ' +
+        'run `cargo run -p bench-harness --release -- run` ' +
+        '(default 4-runtime AOT scope: torajs · torajs-run · rust · bun-aot) ' +
+        'to produce a qualifying baseline.',
+    )
+  }
   return best
 }
 const benchPick = pickBenchFile()
