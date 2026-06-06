@@ -158,6 +158,14 @@ pub struct ArchiveLayout {
     /// total_size folded into `text_size`; payload built at emit time
     /// once the effective sym table is finalized.
     pub user_vtables_layout: UserVtablesLayout,
+    /// SD-4c-prereq+e7b-4 — per-`Some` vtable slot chain-link u64
+    /// computed by `build_chained_fixups` from the __TEXT rebase
+    /// chain. Indexed in `compute_vtable_rebase_targets` output
+    /// order (which equals walking `user_vtables_layout.entries[*]
+    /// .slot_syms` and filtering `Some`). The emit pass splices
+    /// each value onto the matching slot byte position, leaving
+    /// `None` slots as zero. Empty when `vtable_globals` is empty.
+    pub text_rebase_link_values: Vec<u64>,
 }
 
 /// Failures `compute_archive_layout` can report.

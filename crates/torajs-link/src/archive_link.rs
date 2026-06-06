@@ -18,7 +18,7 @@ use torajs_obj::{
 
 use crate::archive::parse_member_defined_externs;
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
-use crate::chained_fixups::build_chained_fixups;
+use crate::chained_fixups::{TextRebaseScope, build_chained_fixups};
 use crate::data_section_layout::compute_data_section_layouts;
 use crate::exec::LinkConfig;
 use crate::fn_addr_syms::fn_addr_extra_defined_syms;
@@ -37,7 +37,10 @@ use crate::user_data_globals_layout::{
     build_user_data_globals_region, user_data_globals_extra_defined_syms,
 };
 use crate::user_strings_layout::{build_user_strings_region, user_strings_extra_defined_syms};
-use crate::user_vtables_layout::{build_user_vtables_region, user_vtables_extra_defined_syms};
+use crate::user_vtables_layout::{
+    build_user_vtables_region, user_vtables_extra_defined_syms,
+    vtable_rebase_targets_from_fn_vaddrs,
+};
 use std::collections::BTreeMap;
 
 fn round_up_to(value: u64, align: u64) -> u64 {
@@ -369,11 +372,28 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         .iter()
         .map(|d| d.thunk_slot_vaddr - data_vmaddr)
         .collect();
-    let (chained_fixups_blob, la_ptr_slot_values, tlv_thunk_link_values): (
-        Vec<u8>,
-        Vec<u64>,
-        Vec<u64>,
-    ) = if has_dyld {
+    // SD-4c-prereq+e7b-4: derive vtable rebase targets from fn_vaddrs.
+    let vtable_rebase_targets =
+        vtable_rebase_targets_from_fn_vaddrs(&user_vtables_layout, &fn_vaddrs, TEXT_VMADDR_BASE);
+
+    let has_text_rebase = !vtable_rebase_targets.is_empty();
+    let (
+        chained_fixups_blob,
+        la_ptr_slot_values,
+        tlv_thunk_link_values,
+        text_rebase_link_values,
+    ): (Vec<u8>, Vec<u64>, Vec<u64>, Vec<u64>) = if has_dyld || has_text_rebase {
+        let text_rebase = if has_text_rebase {
+            Some(TextRebaseScope {
+                text_segment_vmaddr_offset: 0,
+                text_segment_vmsize: text_vmsize,
+                // __TEXT index = 1 in PAGEZERO+TEXT+DATA+LINKEDIT.
+                text_seg_idx: 1,
+                rebase_targets: &vtable_rebase_targets,
+            })
+        } else {
+            None
+        };
         let built = build_chained_fixups(
             &required.dyld_imports,
             text_vmsize,
@@ -383,17 +403,16 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
             segment_count,
             // __DATA index = 2 in PAGEZERO+TEXT+DATA+LINKEDIT.
             2,
-            // SD-4c-prereq+e7b-3: vtable rebase wires in e7b-4 once
-            // archive_emit hands per-slot offsets up to here.
-            None,
+            text_rebase.as_ref(),
         );
         (
             built.blob,
             built.la_ptr_slot_values,
             built.tlv_thunk_link_values,
+            built.text_rebase_link_values,
         )
     } else {
-        (Vec::new(), Vec::new(), Vec::new())
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new())
     };
     // SD-4c-prereq+c: dyld walks u64 fields in the chain blob and
     // CodeDirectory, so both LINKEDIT regions must land at 8-byte
@@ -466,6 +485,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         user_strings_payload,
         user_data_globals_layout,
         user_vtables_layout,
+        text_rebase_link_values,
     })
 }
 
@@ -474,7 +494,6 @@ mod tests {
     use super::*;
     use crate::archive::{AR_HEADER_SIZE, AR_MAGIC};
     use crate::archives_merge::ArchiveLinkError;
-    use crate::resolve::SymTable;
     use torajs_codegen::CompiledFunction;
     use torajs_codegen::frame::FrameLayout;
     use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};

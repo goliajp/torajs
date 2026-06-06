@@ -92,11 +92,20 @@ pub fn compute_user_vtables_layout(
     }
 }
 
-/// Build the contiguous user-vtables byte payload. Each slot is
-/// resolved through `sym_table` — Some(name) → name's final vaddr LE;
-/// None → zero (null ptr). `sym_table` must already include every
-/// alias the user-vtables target (typically e3 fn_addr aliases).
-pub fn build_user_vtables_payload(layout: &UserVtablesLayout, sym_table: &SymTable) -> Vec<u8> {
+/// SD-4c-prereq+e7b-4 — build the contiguous user-vtables byte
+/// payload from chain-link u64 values, not absolute vaddrs.
+///
+/// `slot_link_values` is the same vec `ChainedFixupsBlob.
+/// text_rebase_link_values` returns: one entry per `Some` slot, in
+/// flat `entries[*].slot_syms` walk order. `None` slots emit a zero
+/// 8-byte word (slot pointer stays null, dyld leaves it alone — same
+/// semantics SD-3 uses for weak la-ptr imports).
+///
+/// The vaddr-based path (pre-e7b-4) was load-time wrong: PIE
+/// binaries must let dyld add the ASLR slide via the chain, so
+/// shipping bare vaddrs aliased every vtable slot to a fixed
+/// virtual address that the kernel was free to relocate.
+pub fn build_user_vtables_payload(layout: &UserVtablesLayout, slot_link_values: &[u64]) -> Vec<u8> {
     let mut buf = Vec::with_capacity(layout.total_size as usize);
     // total_size includes a leading 8-align pad (see
     // compute_user_vtables_layout); emit pad zeros first so the
@@ -104,17 +113,31 @@ pub fn build_user_vtables_payload(layout: &UserVtablesLayout, sym_table: &SymTab
     let slot_bytes_total: usize = layout.entries.iter().map(|e| e.byte_size as usize).sum();
     let leading_pad = layout.total_size as usize - slot_bytes_total;
     buf.resize(leading_pad, 0);
+    let mut link_idx = 0;
     for entry in &layout.entries {
         for slot in &entry.slot_syms {
-            let vaddr: u64 = match slot {
-                Some(name) => *sym_table.get(name).unwrap_or_else(|| {
-                    panic!("user-vtable slot sym {name:?} not in effective sym table")
-                }),
+            let link_value: u64 = match slot {
+                Some(_) => {
+                    let v = *slot_link_values.get(link_idx).unwrap_or_else(|| {
+                        panic!(
+                            "slot_link_values too short — expected at least {} entries, got {}",
+                            link_idx + 1,
+                            slot_link_values.len(),
+                        )
+                    });
+                    link_idx += 1;
+                    v
+                }
                 None => 0,
             };
-            buf.extend_from_slice(&vaddr.to_le_bytes());
+            buf.extend_from_slice(&link_value.to_le_bytes());
         }
     }
+    debug_assert_eq!(
+        link_idx,
+        slot_link_values.len(),
+        "slot_link_values carries extras the layout did not consume — caller misalignment",
+    );
     debug_assert_eq!(buf.len() as u32, layout.total_size);
     buf
 }
@@ -168,6 +191,28 @@ pub fn compute_vtable_rebase_targets(
         }
     }
     targets
+}
+
+/// SD-4c-prereq+e7b-4 — thin wrapper: derive the vtable rebase
+/// target list from `fn_vaddrs` directly (registering each
+/// `__torajs_fn_<fid>` alias under the hood). Keeps the
+/// archive_link.rs call site at one line so the layout pass stays
+/// readable. Returns an empty vec when the layout has no entries —
+/// short-circuit so callers can use `is_empty()` to decide whether
+/// to pass `Some(TextRebaseScope)` to `build_chained_fixups`.
+pub fn vtable_rebase_targets_from_fn_vaddrs(
+    layout: &UserVtablesLayout,
+    fn_vaddrs: &[u64],
+    text_vmaddr_base: u64,
+) -> Vec<RebaseTarget> {
+    if layout.entries.is_empty() {
+        return Vec::new();
+    }
+    let mut sym_table = SymTable::new();
+    for (fid, vaddr) in fn_vaddrs.iter().enumerate() {
+        sym_table.insert(format!("__torajs_fn_{fid}"), *vaddr);
+    }
+    compute_vtable_rebase_targets(layout, &sym_table, text_vmaddr_base)
 }
 
 /// Sym names to flag as link-defined in the worklist closure.
@@ -233,21 +278,27 @@ mod tests {
     }
 
     #[test]
-    fn build_payload_resolves_slot_syms() {
+    fn build_payload_splices_link_values_and_zeroes_none_slots() {
+        // 3 slots: Some / None / Some. e7b-4 payload comes from
+        // `slot_link_values` (one entry per `Some`), with `None`
+        // slots emitting an 8-byte zero word.
         let vtables = [entry("__vtable_A", vec![Some("fn_a"), None, Some("fn_b")])];
         let layout = compute_user_vtables_layout(&vtables, 0x4000, 0x1_0000_4000);
-        let mut sym_table = SymTable::new();
-        sym_table.insert("fn_a".into(), 0x1_0000_4100);
-        sym_table.insert("fn_b".into(), 0x1_0000_4200);
-        let payload = build_user_vtables_payload(&layout, &sym_table);
+        let slot_link_values = [0xDEAD_BEEFu64, 0xCAFE_BABEu64];
+
+        let payload = build_user_vtables_payload(&layout, &slot_link_values);
+
         // 3 slots × 8 = 24 bytes, already 4-aligned.
         assert_eq!(payload.len(), 24);
         let slot0 = u64::from_le_bytes(payload[0..8].try_into().unwrap());
         let slot1 = u64::from_le_bytes(payload[8..16].try_into().unwrap());
         let slot2 = u64::from_le_bytes(payload[16..24].try_into().unwrap());
-        assert_eq!(slot0, 0x1_0000_4100);
-        assert_eq!(slot1, 0);
-        assert_eq!(slot2, 0x1_0000_4200);
+        assert_eq!(slot0, 0xDEAD_BEEF, "Some slot 0 picks slot_link_values[0]");
+        assert_eq!(slot1, 0, "None slot stays zero — dyld leaves it alone");
+        assert_eq!(
+            slot2, 0xCAFE_BABE,
+            "Some slot 2 picks slot_link_values[1] (None slot skipped)"
+        );
     }
 
     #[test]

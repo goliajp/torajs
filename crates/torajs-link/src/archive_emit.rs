@@ -74,10 +74,10 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     apply_user_data_global_overrides(&layout.user_data_globals_layout, &mut effective_sym_table);
     register_fn_addr_syms(&cfg.funcs, &layout.fn_vaddrs, &mut effective_sym_table);
     apply_user_vtable_overrides(&layout.user_vtables_layout, &mut effective_sym_table);
-    // SD-4c-prereq+e7 — vtable payload must wait until fn_addr aliases
-    // land so per-slot syms (typically `__torajs_fn_<n>`) resolve.
+    // SD-4c-prereq+e7b-4: vtable slot bytes are chain-link u64s from
+    // build_chained_fixups, not vaddrs — PIE needs dyld to rebase.
     let user_vtables_payload =
-        build_user_vtables_payload(&layout.user_vtables_layout, &effective_sym_table);
+        build_user_vtables_payload(&layout.user_vtables_layout, &layout.text_rebase_link_values);
 
     // Resolve user-function relocs against the effective sym table.
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
