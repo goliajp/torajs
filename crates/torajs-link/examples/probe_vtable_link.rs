@@ -44,20 +44,23 @@ fn build_helper() -> CompiledFunction {
     }
 }
 
-/// _main returns 0 directly — exec validation is e7b. The ADRP+ADD
-/// against `__vtable_A` is left in to exercise the e7a sym vaddr
-/// override path.
+/// _main loads `__vtable_A` base into x1, loads the first slot into
+/// x2, then tail-branches there. dyld rebases the slot at load time
+/// (chained fixup), so BR lands in `_helper` regardless of ASLR
+/// slide; `_helper` then exits 42.
 fn build_main() -> CompiledFunction {
     let adrp_x1: [u8; 4] = [0x01, 0x00, 0x00, 0x90];
     let add_x1_pageoff: [u8; 4] = [0x21, 0x00, 0x00, 0x91];
-    let movz_x0_0: [u8; 4] = [0x00, 0x00, 0x80, 0xD2];
-    let ret: [u8; 4] = [0xC0, 0x03, 0x5F, 0xD6];
+    // LDR x2, [x1, #0] unsigned-offset 64-bit.
+    let ldr_x2_x1: [u8; 4] = [0x22, 0x00, 0x40, 0xF9];
+    // BR x2 (unconditional indirect tail branch).
+    let br_x2: [u8; 4] = [0x40, 0x00, 0x1F, 0xD6];
 
     let mut bytes: Vec<u8> = Vec::with_capacity(16);
     bytes.extend_from_slice(&adrp_x1); // @0   ← Page21
     bytes.extend_from_slice(&add_x1_pageoff); // @4   ← PageOff12
-    bytes.extend_from_slice(&movz_x0_0); // @8
-    bytes.extend_from_slice(&ret); // @12
+    bytes.extend_from_slice(&ldr_x2_x1); // @8   x2 = *(x1 + 0)
+    bytes.extend_from_slice(&br_x2); // @12  jump through x2
 
     CompiledFunction {
         name: "_main".into(),
