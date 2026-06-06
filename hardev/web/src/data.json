@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-06T05:07:59.871Z",
+  "generatedAt": "2026-06-06T06:54:14.952Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
     "fail": 0,
     "skip": 4,
     "raw": "723/0/4",
-    "source": "/tmp/torajs-conformance-aa80973.log",
-    "sourceMtime": "2026-06-06T04:39:09.950Z"
+    "source": "/tmp/torajs-conformance-prereqd.log",
+    "sourceMtime": "2026-06-06T06:51:24.788Z"
   },
   "test262": {
     "ranAt": "2026-06-03T22:49:10Z",
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "aa80973",
-    "commitSubject": "feat(link): chained_fixups TLV thunk bind + multi-page chain — #9 SD-4c-prereq+c",
+    "commit": "0d86354",
+    "commitSubject": "chore(hardev): dashboard snapshot @ aa80973",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -37,8 +37,8 @@
       "fail": 0,
       "skip": 4,
       "raw": "723/0/4",
-      "source": "/tmp/torajs-conformance-aa80973.log",
-      "sourceMtime": "2026-06-06T04:39:09.950Z"
+      "source": "/tmp/torajs-conformance-prereqd.log",
+      "sourceMtime": "2026-06-06T06:51:24.788Z"
     }
   },
   "roadmap": [
@@ -611,6 +611,10 @@
   },
   "commits": [
     {
+      "hash": "0d86354",
+      "subject": "chore(hardev): dashboard snapshot @ aa80973"
+    },
+    {
       "hash": "aa80973",
       "subject": "feat(link): chained_fixups TLV thunk bind + multi-page chain — #9 SD-4c-prereq+c"
     },
@@ -653,31 +657,38 @@
     {
       "hash": "e3c875f",
       "subject": "feat(link): DataSectionLayout + compute_data_section_layouts — #9 SD-4c-prereq-c-fix-c2"
-    },
-    {
-      "hash": "bf6700d",
-      "subject": "feat(link): filter __DATA + zerofill from text non-text region — #9 SD-4c-prereq-c-fix-c1"
     }
   ],
-  "headSha": "aa80973",
+  "headSha": "0d86354",
   "autorun": {
-    "total": 60,
+    "total": 61,
     "baselineTarget": 10,
     "bySelf": 59,
-    "byManual": 1,
+    "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780717032-2493",
-      "at": "2026-06-06T03:37:12Z",
-      "ts": 1780717032,
-      "trigger": "self",
-      "prevHead": "8aba521",
-      "handoffSha": "sha256:91c1247c996c9c41572b44b616c081bc1602c813a1530cc549817c8caf6d44f5",
-      "handoffAgeSec": 3,
+      "rotationId": "r-1780722553-45ee",
+      "at": "2026-06-06T05:09:13Z",
+      "ts": 1780722553,
+      "trigger": "manual",
+      "prevHead": "0d86354",
+      "handoffSha": "sha256:14c325ce69ede74c9dc4e50d16b15f2b0defdc333f6024206513526882f637e8",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780722553-45ee",
+        "at": "2026-06-06T05:09:13Z",
+        "ts": 1780722553,
+        "trigger": "manual",
+        "prevHead": "0d86354",
+        "handoffSha": "sha256:14c325ce69ede74c9dc4e50d16b15f2b0defdc333f6024206513526882f637e8",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780717032-2493",
         "at": "2026-06-06T03:37:12Z",
@@ -775,17 +786,6 @@
         "handoffSha": "sha256:cef2f0686d4857bd8df3c3a4aa0bea5df8d2313a967c9d915e5257d363e333b3",
         "handoffAgeSec": 368211,
         "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780058457-028e",
-        "at": "2026-05-29T12:40:57Z",
-        "ts": 1780058457,
-        "trigger": "self",
-        "prevHead": "fa980fc",
-        "handoffSha": "sha256:3bdc3a90ea8cd1363a3b1be55f2950acebea1f53e909e810a79864bdea79dc91",
-        "handoffAgeSec": 4,
-        "conformanceBefore": "687/0/1",
         "commitsInSession": null
       }
     ],
