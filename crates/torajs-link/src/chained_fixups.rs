@@ -1,14 +1,18 @@
-//! `LC_DYLD_CHAINED_FIXUPS` blob encoder — SD-3a.
+//! `LC_DYLD_CHAINED_FIXUPS` blob encoder — SD-3a + SD-4c-prereq+c.
 //!
 //! Modern macOS (≥ 12 for arm64) uses `LC_DYLD_CHAINED_FIXUPS`
 //! instead of the legacy `LC_DYLD_INFO_ONLY` opcode stream to
 //! describe pointer relocations that dyld must apply at load
 //! time. The blob lives inside `__LINKEDIT` and pairs with chain
 //! values written directly into `__DATA,__la_symbol_ptr` (and
-//! any other writable pointer-bearing section). For SD-2/SD-3
-//! the only chain consumer is the lazy pointer slot table dyld
-//! binds to the libSystem entry points referenced by the stub
-//! trampolines.
+//! any other writable pointer-bearing section). SD-2/SD-3 added
+//! the lazy pointer slot table dyld binds to libSystem entry
+//! points referenced by stub trampolines; SD-4c-prereq+c extends
+//! the same chain to cover every `__DATA,__thread_vars`
+//! descriptor's `thunk` slot so dyld binds it to libSystem's
+//! `__tlv_bootstrap` at startup — without this bind, the thunk
+//! word stays zero and `_str_alloc` jumps through a null function
+//! pointer the first time it reads a `thread_local!`.
 //!
 //! Wire format references:
 //!
@@ -92,16 +96,35 @@ pub const FIXUPS_HEADER_SIZE: u32 = 32;
 /// load-command layer).
 const PAGE_SIZE: u64 = 0x4000;
 
+/// Symbol name for the libSystem TLV trampoline. Every TLV
+/// descriptor's `thunk` slot binds to this entry point; dyld
+/// patches the slot with the runtime address at process start.
+pub const TLV_BOOTSTRAP_SYMBOL: &str = "__tlv_bootstrap";
+
+/// `lib_ordinal` for libSystem — matches the `LC_LOAD_DYLIB`
+/// emission order in `archive_emit::emit_binary` (libSystem is
+/// always written first when `has_dyld`).
+pub const LIBSYSTEM_LIB_ORDINAL: u8 = 1;
+
 /// Result of building a chained-fixups blob. `blob` lands in
-/// `__LINKEDIT` exactly as-is; `slot_values` is the per-import
-/// 8-byte sequence that goes into `__DATA,__la_symbol_ptr` to
-/// form the chain dyld will walk.
+/// `__LINKEDIT` exactly as-is; `la_ptr_slot_values` is the
+/// 8-byte sequence the emit pass writes into
+/// `__DATA,__la_symbol_ptr` (one per import in
+/// `la_ptr_imports` iter order); `tlv_thunk_link_values` is
+/// the 8-byte sequence the emit pass overwrites onto each TLV
+/// descriptor's `thunk` slot (one per entry in the input
+/// `tlv_thunk_offsets`, same order).
 #[derive(Debug, Clone)]
 pub struct ChainedFixupsBlob {
     pub blob: Vec<u8>,
-    /// Per-import slot value in the same order as the
-    /// `BTreeSet<String>` iter (sorted by name, reproducible).
-    pub slot_values: Vec<u64>,
+    /// Per la-ptr-import slot value (sorted by name, same order
+    /// as the `BTreeMap` iter the caller passed in).
+    pub la_ptr_slot_values: Vec<u64>,
+    /// Per TLV thunk slot value, indexed by position in the
+    /// `tlv_thunk_offsets` input. The emit pass pairs each value
+    /// with the corresponding `TlvDescriptorLayout::thunk_slot_vaddr`
+    /// and overwrites the 8-byte slot in the binary.
+    pub tlv_thunk_link_values: Vec<u64>,
 }
 
 /// Encode one chain link for `__DATA,__la_symbol_ptr`. `ordinal`
@@ -125,15 +148,18 @@ pub fn encode_bind_link(ordinal: u32, next_stride: u32, addend: u8) -> u64 {
     ordinal_field | addend_field | next_field | bind_bit
 }
 
-/// Build the complete chained-fixups blob plus the per-import
-/// `__la_symbol_ptr` slot values.
+/// Build the complete chained-fixups blob plus the per-slot
+/// chain link values for `__DATA,__la_symbol_ptr` and every TLV
+/// descriptor's `thunk` slot.
 ///
-/// `imports` is a `name → lib_ordinal` map — `lib_ordinal` is
-/// packed into each `dyld_chained_import.lib_ordinal` field so
-/// dyld picks the right `LC_LOAD_DYLIB` per symbol. SD-4b's
-/// multi-dylib path means the same blob can bind libSystem
-/// symbols (ordinal 1) and libcurl symbols (ordinal 2) in one
-/// `__la_symbol_ptr` chain.
+/// `la_ptr_imports` is the `name → lib_ordinal` map for the
+/// la-ptr-routed imports — `lib_ordinal` is packed into each
+/// `dyld_chained_import.lib_ordinal` field so dyld picks the
+/// right `LC_LOAD_DYLIB` per symbol. SD-4b's multi-dylib path
+/// means the same blob can bind libSystem symbols (ordinal 1)
+/// and libcurl symbols (ordinal 2) in one chain. The iter order
+/// is sorted-by-name and matches the `__la_symbol_ptr` slot
+/// layout the caller will write.
 ///
 /// `data_segment_vmaddr_offset` is the offset of the `__DATA`
 /// segment from the image base (`text_vmaddr`) — equal to
@@ -145,6 +171,21 @@ pub fn encode_bind_link(ordinal: u32, next_stride: u32, addend: u8) -> u64 {
 /// blob format stays decoupled from `compute_archive_layout`'s
 /// numeric choices.
 ///
+/// `data_segment_vmsize` is the `__DATA` segment's vmsize (file
+/// region + zerofill), used to determine `page_count` for the
+/// `dyld_chained_starts_in_segment.page_start[]` table. The
+/// total vmsize is rounded up to whole pages; pages with no
+/// chained slot get the `DYLD_CHAINED_PTR_START_NONE` sentinel.
+///
+/// `tlv_thunk_offsets` is the list of `__DATA`-relative byte
+/// offsets at which TLV descriptor `thunk` slots live. The
+/// encoder appends `__tlv_bootstrap` to the imports table once
+/// (lib_ordinal = libSystem) and emits one chain link per
+/// offset pointing at that import. Pass an empty slice for
+/// binaries that don't reference any thread-local variable
+/// (syscall-abort / `_malloc` probes), in which case no
+/// `__tlv_bootstrap` import is added.
+///
 /// `seg_count` is the total number of segments in the binary
 /// (`PAGEZERO + TEXT + DATA + LINKEDIT = 4`). The
 /// `dyld_chained_starts_in_image::seg_info_offset[]` array fills
@@ -155,42 +196,62 @@ pub fn encode_bind_link(ordinal: u32, next_stride: u32, addend: u8) -> u64 {
 /// segment-ordered LC chain (= 2 in our PAGEZERO+TEXT+DATA+LINKEDIT
 /// order).
 pub fn build_chained_fixups(
-    imports: &BTreeMap<String, u8>,
+    la_ptr_imports: &BTreeMap<String, u8>,
     data_segment_vmaddr_offset: u64,
     la_ptr_offset_in_segment: u64,
+    data_segment_vmsize: u64,
+    tlv_thunk_offsets: &[u64],
     seg_count: u32,
     data_seg_idx: u32,
 ) -> ChainedFixupsBlob {
     debug_assert!(
-        !imports.is_empty(),
-        "build_chained_fixups must be called with non-empty imports — \
-         empty case should short-circuit upstream"
+        !la_ptr_imports.is_empty() || !tlv_thunk_offsets.is_empty(),
+        "build_chained_fixups must be called with at least one chain \
+         participant — empty case should short-circuit upstream"
     );
     debug_assert!(
         data_seg_idx < seg_count,
         "data_seg_idx {data_seg_idx} must be < seg_count {seg_count}"
     );
+    debug_assert!(
+        data_segment_vmsize > 0,
+        "data_segment_vmsize must be non-zero when chain participants exist"
+    );
 
-    // Build the dyld_chained_starts_in_segment for __DATA. The
-    // single page hosts the entire __la_symbol_ptr; page_start[0]
-    // points at the first chain link, which is the first slot.
-    let page_count: u16 = 1;
-    let page_start_first: u16 = la_ptr_offset_in_segment as u16;
-    let starts_in_segment_size: u32 = 4   // size
-                                    + 2   // page_size
-                                    + 2   // pointer_format
-                                    + 8   // segment_offset
-                                    + 4   // max_valid_pointer
-                                    + 2   // page_count
-                                    + 2 * u32::from(page_count); // page_start[]
-    let mut starts_in_segment: Vec<u8> = Vec::with_capacity(starts_in_segment_size as usize);
-    starts_in_segment.extend_from_slice(&starts_in_segment_size.to_le_bytes());
-    starts_in_segment.extend_from_slice(&(PAGE_SIZE as u16).to_le_bytes());
-    starts_in_segment.extend_from_slice(&DYLD_CHAINED_PTR_64_OFFSET.to_le_bytes());
-    starts_in_segment.extend_from_slice(&data_segment_vmaddr_offset.to_le_bytes());
-    starts_in_segment.extend_from_slice(&0u32.to_le_bytes()); // max_valid_pointer
-    starts_in_segment.extend_from_slice(&page_count.to_le_bytes());
-    starts_in_segment.extend_from_slice(&page_start_first.to_le_bytes());
+    // Layout the imports table in two consecutive ordinal ranges
+    // so callers can map per-slot ordinals back without a name
+    // lookup: la-ptr imports own ordinals `[0, la_ptr_n)` (sorted
+    // by name via BTreeMap iter), then `__tlv_bootstrap` —
+    // appended exactly once at the end — owns ordinal `la_ptr_n`.
+    let la_ptr_n = la_ptr_imports.len();
+    let has_tlv_chain = !tlv_thunk_offsets.is_empty();
+    let tlv_import_ordinal: u32 = la_ptr_n as u32;
+
+    // (name, lib_ordinal) pairs in final imports[] order.
+    let mut imports_seq: Vec<(&str, u8)> =
+        Vec::with_capacity(la_ptr_n + usize::from(has_tlv_chain));
+    for (name, &ord) in la_ptr_imports {
+        imports_seq.push((name.as_str(), ord));
+    }
+    if has_tlv_chain {
+        imports_seq.push((TLV_BOOTSTRAP_SYMBOL, LIBSYSTEM_LIB_ORDINAL));
+    }
+
+    // Build the dyld_chained_starts_in_segment for __DATA with one
+    // page_start[] entry per __DATA page. Every chain participant
+    // (la-ptr slot + tlv thunk slot) is bucketed into its page
+    // and ordered by offset within the page. Walk each bucket to
+    // emit a single chain via `next_stride` links; chains never
+    // cross page boundaries — each page starts its own chain via
+    // page_start[page_idx].
+    let starts_in_segment = build_starts_in_segment(
+        la_ptr_imports,
+        la_ptr_offset_in_segment,
+        data_segment_vmaddr_offset,
+        data_segment_vmsize,
+        tlv_thunk_offsets,
+        tlv_import_ordinal,
+    );
 
     // Build dyld_chained_starts_in_image. Per-segment
     // seg_info_offset[] entries are `0` for segments with no
@@ -210,10 +271,10 @@ pub fn build_chained_fixups(
 
     // Concatenate: header + starts_in_image + starts_in_segment
     // → imports table → symbol strings.
-    let starts_total_size = starts_in_image.len() + starts_in_segment.len();
+    let starts_total_size = starts_in_image.len() + starts_in_segment.bytes.len();
     let imports_offset = FIXUPS_HEADER_SIZE + starts_total_size as u32;
     let imports_offset = round_up_4(imports_offset);
-    let imports_count = imports.len() as u32;
+    let imports_count = imports_seq.len() as u32;
     let imports_blob_size = 4 * imports_count;
     let mut symbols_offset = imports_offset + imports_blob_size;
     symbols_offset = round_up_4(symbols_offset);
@@ -222,8 +283,8 @@ pub fn build_chained_fixups(
     // starting offset + the dylib's lib_ordinal for the imports[]
     // entry build below.
     let mut sym_blob: Vec<u8> = Vec::new();
-    let mut name_offsets: Vec<(u32, u8)> = Vec::with_capacity(imports.len());
-    for (name, &lib_ordinal) in imports {
+    let mut name_offsets: Vec<(u32, u8)> = Vec::with_capacity(imports_seq.len());
+    for &(name, lib_ordinal) in &imports_seq {
         name_offsets.push((sym_blob.len() as u32, lib_ordinal));
         sym_blob.extend_from_slice(name.as_bytes());
         sym_blob.push(0);
@@ -237,7 +298,7 @@ pub fn build_chained_fixups(
     // Assemble dyld_chained_import[] (4 bytes each, packed).
     // Per-import lib_ordinal picks which LC_LOAD_DYLIB dyld binds
     // against (1 = libSystem, 2 = libcurl, ...). weak_import = 0.
-    let mut imports_blob: Vec<u8> = Vec::with_capacity(4 * imports.len());
+    let mut imports_blob: Vec<u8> = Vec::with_capacity(4 * imports_seq.len());
     for &(name_off, lib_ordinal) in &name_offsets {
         let weak_import: u32 = 0;
         let packed: u32 = (u32::from(lib_ordinal) & 0xFF)
@@ -259,7 +320,7 @@ pub fn build_chained_fixups(
     debug_assert_eq!(blob.len() as u32, FIXUPS_HEADER_SIZE);
 
     blob.extend_from_slice(&starts_in_image);
-    blob.extend_from_slice(&starts_in_segment);
+    blob.extend_from_slice(&starts_in_segment.bytes);
     while blob.len() < imports_offset as usize {
         blob.push(0);
     }
@@ -269,17 +330,156 @@ pub fn build_chained_fixups(
     }
     blob.extend_from_slice(&sym_blob);
 
-    // Slot values: each consecutive __la_symbol_ptr entry chains
-    // to the next 8 bytes (= 2 × 4-byte stride). The last slot
-    // terminates the chain with `next_stride = 0`.
-    let mut slot_values: Vec<u64> = Vec::with_capacity(imports.len());
-    let n = imports.len();
-    for i in 0..n {
-        let next_stride: u32 = if i + 1 < n { 2 } else { 0 };
-        slot_values.push(encode_bind_link(i as u32, next_stride, 0));
+    ChainedFixupsBlob {
+        blob,
+        la_ptr_slot_values: starts_in_segment.la_ptr_slot_values,
+        tlv_thunk_link_values: starts_in_segment.tlv_thunk_link_values,
+    }
+}
+
+/// Pre-encoded `dyld_chained_starts_in_segment` blob together
+/// with the per-slot 8-byte chain link values the emit pass
+/// writes into `__DATA,__la_symbol_ptr` and each TLV descriptor's
+/// `thunk` slot. Split out so [`build_chained_fixups`] stays under
+/// the function-size limit while the per-page chain math gets
+/// dedicated coverage.
+struct StartsInSegment {
+    bytes: Vec<u8>,
+    la_ptr_slot_values: Vec<u64>,
+    tlv_thunk_link_values: Vec<u64>,
+}
+
+/// Encode the `dyld_chained_starts_in_segment` blob for `__DATA`,
+/// bucketing every chain participant into its `__DATA` page and
+/// linking each bucket's slots via `next_stride`. The per-slot
+/// chain link values are returned alongside so the emit pass can
+/// write them into the binary at the matching offsets.
+fn build_starts_in_segment(
+    la_ptr_imports: &BTreeMap<String, u8>,
+    la_ptr_offset_in_segment: u64,
+    data_segment_vmaddr_offset: u64,
+    data_segment_vmsize: u64,
+    tlv_thunk_offsets: &[u64],
+    tlv_import_ordinal: u32,
+) -> StartsInSegment {
+    /// Identifies which output vec a slot's encoded chain link
+    /// belongs to so callers can match it back to the input
+    /// `la_ptr_imports` iter order or `tlv_thunk_offsets[i]`.
+    #[derive(Clone, Copy)]
+    enum SlotKind {
+        LaPtr(usize),
+        TlvThunk(usize),
     }
 
-    ChainedFixupsBlob { blob, slot_values }
+    // Collect every chain participant as (offset_in_segment,
+    // import_ordinal, kind). Ordinals follow the imports[]
+    // layout choice above: la-ptr ordinals 0..la_ptr_n, tlv
+    // thunk ordinal = la_ptr_n.
+    let mut slots: Vec<(u64, u32, SlotKind)> =
+        Vec::with_capacity(la_ptr_imports.len() + tlv_thunk_offsets.len());
+    for i in 0..la_ptr_imports.len() {
+        let off = la_ptr_offset_in_segment + (i as u64) * 8;
+        slots.push((off, i as u32, SlotKind::LaPtr(i)));
+    }
+    for (i, &off) in tlv_thunk_offsets.iter().enumerate() {
+        slots.push((off, tlv_import_ordinal, SlotKind::TlvThunk(i)));
+    }
+    slots.sort_by_key(|&(off, _, _)| off);
+
+    // Bucket sorted slots by __DATA page. page_count covers the
+    // full vmsize so trailing zerofill pages still appear (with
+    // the empty-page sentinel) — dyld walks all page_start[]
+    // entries up to page_count regardless of where slots live.
+    let page_count_u64 = data_segment_vmsize.div_ceil(PAGE_SIZE);
+    debug_assert!(
+        page_count_u64 <= u64::from(u16::MAX),
+        "page_count {page_count_u64} overflows u16 — __DATA vmsize \
+         {data_segment_vmsize} too large for the chained-fixups encoding",
+    );
+    let page_count: u16 = page_count_u64 as u16;
+    let mut page_starts: Vec<u16> = vec![DYLD_CHAINED_PTR_START_NONE; page_count as usize];
+
+    // Per-slot encoded chain-link value, indexed by sorted-slot
+    // order. After the chain walk we'll dispatch each back into
+    // the la_ptr / tlv_thunk output vecs in input order.
+    let mut sorted_link_values: Vec<u64> = vec![0; slots.len()];
+
+    let mut i = 0usize;
+    while i < slots.len() {
+        let page_idx = (slots[i].0 / PAGE_SIZE) as usize;
+        debug_assert!(
+            page_idx < page_count as usize,
+            "slot offset {} lands on page {page_idx} but page_count is {page_count}",
+            slots[i].0,
+        );
+        // Span [i..j) covers every slot landing on this page —
+        // already contiguous because slots is sorted by offset.
+        let mut j = i + 1;
+        while j < slots.len() && (slots[j].0 / PAGE_SIZE) as usize == page_idx {
+            j += 1;
+        }
+        let page_base = (page_idx as u64) * PAGE_SIZE;
+        page_starts[page_idx] = (slots[i].0 - page_base) as u16;
+        // Link slots[i..j) via next_stride. The last slot in
+        // the bucket terminates the chain (next_stride = 0).
+        for k in i..j {
+            let next_stride = if k + 1 < j {
+                let delta = slots[k + 1].0 - slots[k].0;
+                debug_assert!(
+                    delta % 4 == 0,
+                    "intra-page chain slots must be 4-byte aligned (delta {delta})",
+                );
+                let stride = delta / 4;
+                debug_assert!(
+                    stride < (1 << 12),
+                    "intra-page next_stride {stride} overflows 12-bit field — \
+                     bug in slot bucketing",
+                );
+                stride as u32
+            } else {
+                0
+            };
+            sorted_link_values[k] = encode_bind_link(slots[k].1, next_stride, 0);
+        }
+        i = j;
+    }
+
+    // Dispatch encoded values back into per-kind output vecs in
+    // the input order each caller iter expects.
+    let mut la_ptr_slot_values: Vec<u64> = vec![0; la_ptr_imports.len()];
+    let mut tlv_thunk_link_values: Vec<u64> = vec![0; tlv_thunk_offsets.len()];
+    for (k, &(_, _, kind)) in slots.iter().enumerate() {
+        match kind {
+            SlotKind::LaPtr(idx) => la_ptr_slot_values[idx] = sorted_link_values[k],
+            SlotKind::TlvThunk(idx) => tlv_thunk_link_values[idx] = sorted_link_values[k],
+        }
+    }
+
+    // Encode dyld_chained_starts_in_segment header + page_start[]
+    // table.
+    let starts_in_segment_size: u32 = 4   // size
+                                    + 2   // page_size
+                                    + 2   // pointer_format
+                                    + 8   // segment_offset
+                                    + 4   // max_valid_pointer
+                                    + 2   // page_count
+                                    + 2 * u32::from(page_count); // page_start[]
+    let mut bytes: Vec<u8> = Vec::with_capacity(starts_in_segment_size as usize);
+    bytes.extend_from_slice(&starts_in_segment_size.to_le_bytes());
+    bytes.extend_from_slice(&(PAGE_SIZE as u16).to_le_bytes());
+    bytes.extend_from_slice(&DYLD_CHAINED_PTR_64_OFFSET.to_le_bytes());
+    bytes.extend_from_slice(&data_segment_vmaddr_offset.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // max_valid_pointer
+    bytes.extend_from_slice(&page_count.to_le_bytes());
+    for ps in &page_starts {
+        bytes.extend_from_slice(&ps.to_le_bytes());
+    }
+
+    StartsInSegment {
+        bytes,
+        la_ptr_slot_values,
+        tlv_thunk_link_values,
+    }
 }
 
 fn round_up_4(value: u32) -> u32 {
@@ -324,10 +524,12 @@ mod tests {
     #[test]
     fn single_import_blob_layout_invariants() {
         let imports = imports_of(&["_malloc"]);
-        let result = build_chained_fixups(&imports, 0x8000, 0, 4, 2);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2);
         // Single slot, chain-end encoding.
-        assert_eq!(result.slot_values.len(), 1);
-        assert_eq!(result.slot_values[0], 0x8000_0000_0000_0000);
+        assert_eq!(result.la_ptr_slot_values.len(), 1);
+        assert_eq!(result.la_ptr_slot_values[0], 0x8000_0000_0000_0000);
+        // No TLV thunks → empty tlv link vec.
+        assert!(result.tlv_thunk_link_values.is_empty());
 
         // Header sanity.
         let header = &result.blob[0..32];
@@ -365,20 +567,20 @@ mod tests {
     #[test]
     fn multi_import_slot_values_chain_through_then_terminate() {
         let imports = imports_of(&["_malloc", "_free", "_pthread_create"]);
-        let result = build_chained_fixups(&imports, 0x8000, 0, 4, 2);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2);
         // BTreeSet iter order = sorted: _free, _malloc, _pthread_create
-        assert_eq!(result.slot_values.len(), 3);
+        assert_eq!(result.la_ptr_slot_values.len(), 3);
         // First two slots have next = 2 (8 bytes ahead at stride 4).
         let next_of = |v: u64| (v >> 51) & 0xFFF;
         let ordinal_of = |v: u64| v & 0xFF_FFFF;
-        assert_eq!(next_of(result.slot_values[0]), 2);
-        assert_eq!(next_of(result.slot_values[1]), 2);
+        assert_eq!(next_of(result.la_ptr_slot_values[0]), 2);
+        assert_eq!(next_of(result.la_ptr_slot_values[1]), 2);
         // Last slot terminates the chain.
-        assert_eq!(next_of(result.slot_values[2]), 0);
+        assert_eq!(next_of(result.la_ptr_slot_values[2]), 0);
         // Ordinals march 0, 1, 2 in sorted-by-name order.
-        assert_eq!(ordinal_of(result.slot_values[0]), 0);
-        assert_eq!(ordinal_of(result.slot_values[1]), 1);
-        assert_eq!(ordinal_of(result.slot_values[2]), 2);
+        assert_eq!(ordinal_of(result.la_ptr_slot_values[0]), 0);
+        assert_eq!(ordinal_of(result.la_ptr_slot_values[1]), 1);
+        assert_eq!(ordinal_of(result.la_ptr_slot_values[2]), 2);
     }
 
     #[test]
@@ -386,7 +588,7 @@ mod tests {
         let imports = imports_of(&["_malloc"]);
         // seg_count = 4 (PAGEZERO + TEXT + DATA + LINKEDIT),
         // __DATA is at index 2.
-        let result = build_chained_fixups(&imports, 0x8000, 0, 4, 2);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2);
         // dyld_chained_starts_in_image starts at byte 32 (after header).
         let starts_off = FIXUPS_HEADER_SIZE as usize;
         let seg_count =
@@ -411,7 +613,7 @@ mod tests {
     fn starts_in_segment_fields_for_arm64_macos_layout() {
         let imports = imports_of(&["_malloc"]);
         let data_vmaddr_offset = 0x8000u64;
-        let result = build_chained_fixups(&imports, data_vmaddr_offset, 0, 4, 2);
+        let result = build_chained_fixups(&imports, data_vmaddr_offset, 0, PAGE_SIZE, &[], 4, 2);
         // Locate dyld_chained_starts_in_segment via seg_info_offset[2].
         let starts_off = FIXUPS_HEADER_SIZE as usize;
         let off_pos = starts_off + 4 + 2 * 4;
@@ -443,11 +645,160 @@ mod tests {
     #[test]
     fn imports_and_symbols_offsets_are_4_aligned() {
         let imports = imports_of(&["_a", "_bb", "_ccc"]);
-        let result = build_chained_fixups(&imports, 0x8000, 0, 4, 2);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2);
         let header = &result.blob[0..32];
         let imports_offset = u32::from_le_bytes(header[8..12].try_into().unwrap());
         let symbols_offset = u32::from_le_bytes(header[12..16].try_into().unwrap());
         assert_eq!(imports_offset % 4, 0);
         assert_eq!(symbols_offset % 4, 0);
+    }
+
+    /// Decoder helpers — slice the dyld_chained_starts_in_segment
+    /// blob out of `result.blob` and pull page_count / page_start[]
+    /// without each test having to re-walk the header pointers.
+    fn starts_in_segment_base(result: &ChainedFixupsBlob) -> usize {
+        let starts_off = FIXUPS_HEADER_SIZE as usize;
+        let off_pos = starts_off + 4 + 2 * 4;
+        let seg_info_off =
+            u32::from_le_bytes(result.blob[off_pos..off_pos + 4].try_into().unwrap()) as usize;
+        starts_off + seg_info_off
+    }
+
+    fn read_page_starts(result: &ChainedFixupsBlob) -> Vec<u16> {
+        let base = starts_in_segment_base(result);
+        let page_count =
+            u16::from_le_bytes(result.blob[base + 20..base + 22].try_into().unwrap()) as usize;
+        let mut out = Vec::with_capacity(page_count);
+        for i in 0..page_count {
+            let off = base + 22 + i * 2;
+            out.push(u16::from_le_bytes(
+                result.blob[off..off + 2].try_into().unwrap(),
+            ));
+        }
+        out
+    }
+
+    /// SD-4c-prereq+c — TLV thunk bind in a __DATA whose vmsize
+    /// spans multiple pages. la_ptr lives on page 0; two thunk
+    /// slots sit on page 0 (chained off la_ptr) and page 2
+    /// (independent chain start).
+    #[test]
+    fn tlv_thunks_across_multiple_pages_get_independent_chain_starts() {
+        let imports = imports_of(&["_malloc"]);
+        // __DATA spans 3 pages (48 KB). la_ptr at offset 0 (page 0).
+        // Two thunks: one in page 0 (offset 0x100), one in page 2
+        // (offset 0x8010).
+        let thunks = vec![0x100u64, 0x8010u64];
+        let result = build_chained_fixups(&imports, 0x8000, 0, 3 * PAGE_SIZE, &thunks, 4, 2);
+
+        // imports[] = [_malloc (ord 0), __tlv_bootstrap (ord 1)].
+        let header = &result.blob[0..32];
+        let imports_count = u32::from_le_bytes(header[16..20].try_into().unwrap());
+        assert_eq!(imports_count, 2);
+
+        // page_count = 3, page_start[] reports a chain on every
+        // page that hosts a slot; page 1 is the empty sentinel.
+        let page_starts = read_page_starts(&result);
+        assert_eq!(page_starts.len(), 3);
+        assert_eq!(page_starts[0], 0, "la_ptr chain head at page 0 offset 0");
+        assert_eq!(
+            page_starts[1], DYLD_CHAINED_PTR_START_NONE,
+            "no chain on page 1"
+        );
+        assert_eq!(
+            page_starts[2], 0x10,
+            "page 2 thunk owns its own chain start"
+        );
+
+        // Page 0 chain: la_ptr (offset 0) → thunk (offset 0x100).
+        // next_stride = 0x100 / 4 = 0x40 = 64.
+        let next_of = |v: u64| (v >> 51) & 0xFFF;
+        let ordinal_of = |v: u64| v & 0xFF_FFFF;
+        assert_eq!(next_of(result.la_ptr_slot_values[0]), 64);
+        assert_eq!(ordinal_of(result.la_ptr_slot_values[0]), 0);
+        // Page 0's second slot (thunk at 0x100) terminates the
+        // page-0 chain.
+        assert_eq!(next_of(result.tlv_thunk_link_values[0]), 0);
+        assert_eq!(ordinal_of(result.tlv_thunk_link_values[0]), 1);
+        // Page 2 thunk is a solo chain that terminates.
+        assert_eq!(next_of(result.tlv_thunk_link_values[1]), 0);
+        assert_eq!(ordinal_of(result.tlv_thunk_link_values[1]), 1);
+    }
+
+    /// Two thunks on the same page must chain via next_stride
+    /// computed from their actual offset delta — not the la_ptr
+    /// hard-coded stride=2. Catches regressions where the
+    /// per-page link math falls back to the old single-page
+    /// constant.
+    #[test]
+    fn tlv_thunks_same_page_chain_via_offset_delta() {
+        let imports = BTreeMap::new();
+        // 4 thunks all on page 0, at offsets 0x40, 0x68, 0x80, 0xC0.
+        // Deltas in bytes: 0x28, 0x18, 0x40 → strides in 4-byte
+        // units: 0xA, 0x6, 0x10.
+        let thunks = vec![0x40u64, 0x68, 0x80, 0xC0];
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &thunks, 4, 2);
+
+        let next_of = |v: u64| (v >> 51) & 0xFFF;
+        let page_starts = read_page_starts(&result);
+        assert_eq!(page_starts.len(), 1);
+        assert_eq!(page_starts[0], 0x40);
+        assert_eq!(next_of(result.tlv_thunk_link_values[0]), 0xA);
+        assert_eq!(next_of(result.tlv_thunk_link_values[1]), 0x6);
+        assert_eq!(next_of(result.tlv_thunk_link_values[2]), 0x10);
+        assert_eq!(next_of(result.tlv_thunk_link_values[3]), 0);
+        // imports[] is just __tlv_bootstrap → ordinal 0.
+        let header = &result.blob[0..32];
+        let imports_count = u32::from_le_bytes(header[16..20].try_into().unwrap());
+        assert_eq!(imports_count, 1);
+        let ordinal_of = |v: u64| v & 0xFF_FFFF;
+        for v in &result.tlv_thunk_link_values {
+            assert_eq!(ordinal_of(*v), 0);
+        }
+    }
+
+    /// __tlv_bootstrap appears in the symbol string table when
+    /// (and only when) tlv_thunk_offsets is non-empty, so the
+    /// imports table layout the SD-3 chain decoder expects holds.
+    #[test]
+    fn tlv_bootstrap_string_appears_exactly_when_tlv_present() {
+        let imports = imports_of(&["_malloc"]);
+        let with_tlv = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[0x100], 4, 2);
+        let without_tlv = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2);
+
+        let contains_tlv = |blob: &[u8]| {
+            blob.windows(TLV_BOOTSTRAP_SYMBOL.len())
+                .any(|w| w == TLV_BOOTSTRAP_SYMBOL.as_bytes())
+        };
+        assert!(contains_tlv(&with_tlv.blob));
+        assert!(!contains_tlv(&without_tlv.blob));
+    }
+
+    /// la_ptr_imports = empty, tlv_thunk_offsets = single slot.
+    /// Tests the pure-TLV path (no SD-3 la-ptr imports) — every
+    /// chain field comes from the tlv branch.
+    #[test]
+    fn pure_tlv_chain_with_no_la_ptr_imports() {
+        let imports: BTreeMap<String, u8> = BTreeMap::new();
+        let thunks = vec![0x200u64];
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &thunks, 4, 2);
+
+        let header = &result.blob[0..32];
+        let imports_count = u32::from_le_bytes(header[16..20].try_into().unwrap());
+        assert_eq!(imports_count, 1, "only __tlv_bootstrap in imports[]");
+
+        // la_ptr output is empty, tlv output has one entry.
+        assert!(result.la_ptr_slot_values.is_empty());
+        assert_eq!(result.tlv_thunk_link_values.len(), 1);
+        let v = result.tlv_thunk_link_values[0];
+        // Chain end, ordinal 0 (= __tlv_bootstrap, the only entry).
+        let next_of = (v >> 51) & 0xFFF;
+        let ordinal_of = v & 0xFF_FFFF;
+        assert_eq!(next_of, 0);
+        assert_eq!(ordinal_of, 0);
+
+        // page_count = 1, page_start[0] = 0x200 (the thunk offset).
+        let page_starts = read_page_starts(&result);
+        assert_eq!(page_starts, vec![0x200]);
     }
 }

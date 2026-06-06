@@ -149,6 +149,7 @@ mod tests {
             data_non_text_file_size: 0,
             data_non_text_zerofill_vmsize: 0,
             tlv_descriptors: Vec::new(),
+            tlv_thunk_link_values: Vec::new(),
         }
     }
 

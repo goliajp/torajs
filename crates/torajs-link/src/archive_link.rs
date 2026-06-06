@@ -372,36 +372,60 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         }
     }
 
-    // SD-3 — build the chained-fixups blob now that the layout
-    // numbers it depends on (text_vmsize → __DATA vmaddr offset
-    // from image base) are settled. The blob lands inside
-    // `__LINKEDIT` immediately after the string table and before
-    // the codesign blob so the ad-hoc CodeDirectory hash covers
-    // it. Empty `dyld_imports` skips the blob entirely.
-    let (chained_fixups_blob, la_ptr_slot_values): (Vec<u8>, Vec<u64>) = if has_dyld {
+    // SD-3 chained-fixups blob inside __LINKEDIT. SD-4c-prereq+c
+    // extends the chain to bind each TLV descriptor's `thunk` slot
+    // to libSystem `__tlv_bootstrap`; tlv_thunk_offsets is each
+    // thunk's offset from the __DATA base (chain coordinate space).
+    let tlv_thunk_offsets: Vec<u64> = tlv_descriptors
+        .iter()
+        .map(|d| d.thunk_slot_vaddr - data_vmaddr)
+        .collect();
+    let (chained_fixups_blob, la_ptr_slot_values, tlv_thunk_link_values): (
+        Vec<u8>,
+        Vec<u64>,
+        Vec<u64>,
+    ) = if has_dyld {
         let built = build_chained_fixups(
             &required.dyld_imports,
             text_vmsize,
             0,
+            data_vmsize,
+            &tlv_thunk_offsets,
             segment_count,
-            // __DATA is index 2 in PAGEZERO + TEXT + DATA + LINKEDIT
-            // order.
+            // __DATA index = 2 in PAGEZERO+TEXT+DATA+LINKEDIT.
             2,
         );
-        (built.blob, built.slot_values)
+        (
+            built.blob,
+            built.la_ptr_slot_values,
+            built.tlv_thunk_link_values,
+        )
     } else {
-        (Vec::new(), Vec::new())
+        (Vec::new(), Vec::new(), Vec::new())
     };
-    let chained_fixups_dataoff = if has_dyld { stroff + strsize } else { 0 };
+    // SD-4c-prereq+c: dyld walks u64 fields in the chain blob and
+    // CodeDirectory, so both LINKEDIT regions must land at 8-byte
+    // offsets — `dyld_info` reports "mis-aligned LINKEDIT content"
+    // / "mis-aligned code signature" otherwise.
+    let chained_fixups_dataoff = if has_dyld {
+        round_up_to(u64::from(stroff + strsize), 8) as u32
+    } else {
+        0
+    };
     let chained_fixups_datasize = chained_fixups_blob.len() as u32;
-
     let codesign_dataoff = if has_dyld {
-        chained_fixups_dataoff + chained_fixups_datasize
+        round_up_to(
+            u64::from(chained_fixups_dataoff + chained_fixups_datasize),
+            8,
+        ) as u32
     } else {
         stroff + strsize
     };
     let codesign_datasize = adhoc_codesign_blob_size(codesign_dataoff, &cfg.codesign_ident);
-    let linkedit_data_size = nlist_size + strsize + chained_fixups_datasize + codesign_datasize;
+    // __LINKEDIT filesize = codesign end - segment start (covers
+    // the alignment pads above).
+    let linkedit_data_size =
+        (codesign_dataoff + codesign_datasize).saturating_sub(linkedit_file_offset);
     let linkedit_vmsize = round_up_to(u64::from(linkedit_data_size), APPLE_SILICON_PAGE_SIZE);
     let total_size = linkedit_file_offset + linkedit_data_size;
 
@@ -445,6 +469,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         data_non_text_file_size,
         data_non_text_zerofill_vmsize,
         tlv_descriptors,
+        tlv_thunk_link_values,
     })
 }
 

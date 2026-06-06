@@ -126,8 +126,14 @@ pub struct ArchiveLayout {
     /// when no member contributes a TLV descriptor table (syscall-
     /// abort / `_malloc` probes). SD-4c-prereq+c walks this to add
     /// per-thunk-slot bind entries to the chained-fixups blob.
-    /// Metadata-only in prereq+b1 — does not influence emit.
     pub tlv_descriptors: Vec<TlvDescriptorLayout>,
+    /// SD-4c-prereq+c — per-TLV-descriptor 8-byte chain-link
+    /// value the emit pass writes onto each `thunk` slot in the
+    /// binary. Indexed in the same order as `tlv_descriptors`;
+    /// the emit pass walks both vecs in lockstep so it doesn't
+    /// have to re-derive the offset → link encoding. Empty when
+    /// `tlv_descriptors` is empty.
+    pub tlv_thunk_link_values: Vec<u64>,
 }
 
 /// Failures `compute_archive_layout` can report.

@@ -18,16 +18,12 @@
 //!     codesign blob (SHA-256 + ad-hoc CMS, self-research)
 //! ```
 //!
-//! **S7-C5 update**: member-internal relocs are now patched in
-//! place via `member_apply::apply_member_relocs`. Each integrated
-//! member's `__text` payload is cloned, fed through the patcher
-//! against the same effective sym table that resolves user-fn
-//! externs, then written into the binary. Acceptance: transitive
-//! `_main → archive_a::_foo → archive_b::_bar` exits with `_bar`'s
-//! return value end-to-end.
+//! S7-C5: member-internal relocs are patched in place via
+//! `member_apply::apply_member_relocs`. SD-4c-prereq+c: TLV
+//! thunk slots patched by `tlv_thunk_emit::patch_tlv_thunk_slots`.
 
 use torajs_obj::{
-    CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MachHeader64, NLIST_64_SIZE, Nlist64,
+    CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MachHeader64, Nlist64,
     S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE,
     SYMTAB_COMMAND_SIZE, Section64, SegmentCommand64, StringTable, SymtabCommand, VM_PROT_EXECUTE,
     VM_PROT_READ,
@@ -322,9 +318,12 @@ fn emit_binary(
         None
     };
 
-    let linkedit_data_size = u64::from(layout.nsyms) * u64::from(NLIST_64_SIZE)
-        + u64::from(layout.strsize)
-        + u64::from(layout.codesign_datasize);
+    // __LINKEDIT filesize = codesign end - segment start, covers
+    // chained_fixups blob + its 8-byte alignment pad SD-4c-prereq+c
+    // added (dyld rejects the binary as "code signature extends
+    // beyond end of segment" otherwise).
+    let linkedit_data_size = u64::from(layout.codesign_dataoff + layout.codesign_datasize)
+        - u64::from(layout.linkedit_file_offset);
     let linkedit_segment = SegmentCommand64 {
         segname: "__LINKEDIT".into(),
         vmaddr: layout.linkedit_vmaddr,
@@ -417,15 +416,17 @@ fn emit_binary(
         buf.extend_from_slice(p);
     }
 
-    // SD-2a: emit __stubs payload + zero-init __la_symbol_ptr.
-    // SD-4c-prereq-c-fix-c4: append member `__DATA,*` file-storage
-    // payloads right after la_ptr (within the same __DATA segment
-    // file region). Zerofill sections contribute no file bytes —
-    // loader supplies them at startup; their vmsize accounts for
-    // the trailing pad up to `layout.linkedit_file_offset`.
+    // SD-2a: stubs + zero-init la_ptr.
+    // SD-4c-prereq-c-fix-c4: member `__DATA,*` file-storage payloads
+    // after la_ptr (zerofill sections rely on vmsize, not file
+    // bytes).
+    // SD-4c-prereq+c: patch every TLV descriptor's `thunk` word to
+    // its chained-fixups bind link (dyld binds to `__tlv_bootstrap`
+    // at startup).
     if has_dyld {
         write_stubs_and_la_ptr(&mut buf, layout);
         write_data_non_text_file_payloads(&mut buf, data_non_text_payloads);
+        crate::tlv_thunk_emit::patch_tlv_thunk_slots(&mut buf, layout);
     }
 
     pad_to(&mut buf, layout.linkedit_file_offset as usize);
@@ -458,10 +459,11 @@ fn emit_binary(
     }
     buf.extend_from_slice(strtab.as_bytes());
 
-    // SD-3: chained-fixups blob lands directly after the string
-    // table and before the codesign blob, so the ad-hoc
-    // CodeDirectory hash covers it.
+    // SD-3 + SD-4c-prereq+c: chained-fixups blob lands after the
+    // strtab (with 8-byte alignment pad — dyld rejects unaligned
+    // chains) and before the codesign blob.
     if has_dyld {
+        pad_to(&mut buf, layout.chained_fixups_dataoff as usize);
         debug_assert_eq!(buf.len() as u32, layout.chained_fixups_dataoff);
         buf.extend_from_slice(&layout.chained_fixups_blob);
         debug_assert_eq!(
@@ -471,6 +473,9 @@ fn emit_binary(
         );
     }
 
+    // SD-4c-prereq+c: codesign blob also 8-byte aligned — pad any
+    // gap left by chained_fixups_datasize not being a multiple of 8.
+    pad_to(&mut buf, layout.codesign_dataoff as usize);
     debug_assert_eq!(buf.len() as u32, layout.codesign_dataoff);
     let blob = build_adhoc_codesign_blob(&buf, &cfg.codesign_ident);
     debug_assert_eq!(blob.len() as u32, layout.codesign_datasize);
