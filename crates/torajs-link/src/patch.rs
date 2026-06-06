@@ -83,20 +83,59 @@ pub fn patch_page21(insn: u32, page_displacement_bytes: i64) -> u32 {
     (insn & !PAGE21_MASK) | immlo | immhi
 }
 
-/// Patch an `ADD (immediate)` instruction word with a 12-bit
-/// page-offset immediate (`target_addr & 0xFFF`).
+/// Patch the 12-bit `imm12` slot (bits 21:10) of an `ADD (immediate)`
+/// or scaled load/store (LDR/STR, unsigned immediate) instruction with
+/// the target's page-offset (`target_addr & 0xFFF`).
 ///
-/// Offsets ≥ 4096 (= 0x1000) trigger a debug-assert panic — those
-/// would silently corrupt the `sh` bit. Apple ld emits the
-/// matching ADRP+ADD pair so this offset is always within a
-/// single page by construction.
+/// ADD and load/store share the same `imm12` bit slot but encode the
+/// offset differently. ADD takes the raw byte offset. A load/store
+/// stores the byte offset *divided by its access size* (the CPU
+/// re-multiplies by the element width at execution). Writing the raw
+/// byte offset into a scaled load therefore inflates the effective
+/// displacement by the access size — e.g. a `ldr x` (8-byte) at +0x1F0
+/// would dereference +0xF80. ld64 inspects the opcode and rescales;
+/// this mirrors it (see [`load_store_scale`]).
+///
+/// Offsets ≥ 4096 (= 0x1000), or a load/store offset not aligned to
+/// its access size, trigger a debug-assert panic — both would silently
+/// corrupt the encoding. Apple ld emits the matching ADRP+ADD/LDR pair
+/// so the offset is always within a single page and naturally aligned
+/// by construction.
 pub fn patch_pageoff12(insn: u32, offset: u32) -> u32 {
     debug_assert!(
         offset < 0x1000,
         "PAGEOFF12 offset 0x{offset:X} must fit in 12 bits"
     );
-    let imm12 = (offset & 0xFFF) << 10;
+    let scale = load_store_scale(insn);
+    debug_assert_eq!(
+        offset & ((1 << scale) - 1),
+        0,
+        "PAGEOFF12 offset 0x{offset:X} not aligned to load/store access size 1<<{scale}"
+    );
+    let imm12 = ((offset >> scale) & 0xFFF) << 10;
     (insn & !PAGEOFF12_MASK) | imm12
+}
+
+/// Access-size log2 (`scale`) of a load/store *unsigned immediate*
+/// instruction, or `0` for any other opcode (ADD/SUB take the raw
+/// offset).
+///
+/// The load/store unsigned-immediate family is identified by
+/// `(insn & 0x3B00_0000) == 0x3900_0000`. The scale is the 2-bit
+/// `size` field (bits 31:30) for integer and ≤64-bit SIMD&FP accesses;
+/// 128-bit SIMD&FP (`V` bit 26 and `opc`-high bit 23 both set) is a
+/// 16-byte access with scale 4. Matches cctools/ld64's ARM64
+/// PAGEOFF12 rescaling.
+fn load_store_scale(insn: u32) -> u32 {
+    const LOAD_STORE_UIMM_MASK: u32 = 0x3B00_0000;
+    const LOAD_STORE_UIMM_VAL: u32 = 0x3900_0000;
+    if insn & LOAD_STORE_UIMM_MASK != LOAD_STORE_UIMM_VAL {
+        return 0;
+    }
+    if insn & 0x0480_0000 == 0x0480_0000 {
+        return 4;
+    }
+    insn >> 30
 }
 
 /// Write an 8-byte little-endian absolute address into a data
@@ -314,6 +353,68 @@ mod tests {
     #[should_panic(expected = "PAGEOFF12 offset")]
     fn pageoff12_overflow_panics() {
         let _ = patch_pageoff12(0x9100_0000, 0x1000);
+    }
+
+    /// A 64-bit `LDR Xt, [Xn, #imm]` (scale 3) must store the byte
+    /// offset divided by 8 in imm12. Regression for the
+    /// `__torajs_main_exit_code` Mutex::unlock crash: offset 0x1F0 was
+    /// being written raw, so the CPU re-scaled it to +0xF80 and
+    /// dereferenced a NULL slot. `LDR X0, [X8]` base = 0xF9400000.
+    #[test]
+    fn pageoff12_scales_ldr64() {
+        let ldr_x = 0xF940_0000;
+        let patched = patch_pageoff12(ldr_x, 0x1F0);
+        // imm12 = 0x1F0 >> 3 = 0x3E.
+        assert_eq!((patched >> 10) & 0xFFF, 0x3E);
+        // Effective offset the CPU computes = imm12 << 3 = 0x1F0.
+        assert_eq!(((patched >> 10) & 0xFFF) << 3, 0x1F0);
+    }
+
+    /// A 32-bit `LDR Wt, [Xn, #imm]` (scale 2) stores offset / 4.
+    /// `LDR W0, [X0]` base = 0xB9400000.
+    #[test]
+    fn pageoff12_scales_ldr32() {
+        let ldr_w = 0xB940_0000;
+        let patched = patch_pageoff12(ldr_w, 0x40);
+        assert_eq!((patched >> 10) & 0xFFF, 0x10);
+    }
+
+    /// A byte `LDRB Wt, [Xn, #imm]` (scale 0) stores the raw offset,
+    /// same as ADD. `LDRB W0, [X0]` base = 0x39400000.
+    #[test]
+    fn pageoff12_ldrb_unscaled() {
+        let ldrb = 0x3940_0000;
+        let patched = patch_pageoff12(ldrb, 0x1F0);
+        assert_eq!((patched >> 10) & 0xFFF, 0x1F0);
+    }
+
+    /// A 128-bit SIMD&FP `LDR Qt, [Xn, #imm]` (scale 4) stores
+    /// offset / 16. `LDR Q0, [X0]` base = 0x3DC00000 (V=1, opc-high
+    /// set, size=0).
+    #[test]
+    fn pageoff12_scales_ldr128() {
+        let ldr_q = 0x3DC0_0000;
+        let patched = patch_pageoff12(ldr_q, 0x100);
+        assert_eq!((patched >> 10) & 0xFFF, 0x10);
+    }
+
+    /// ADD is never treated as a scaled access even when its opcode
+    /// bits happen to overlap — `load_store_scale` returns 0.
+    #[test]
+    fn pageoff12_add_unscaled() {
+        assert_eq!(load_store_scale(0x9100_0000), 0);
+        let add = 0x9100_0000;
+        assert_eq!((patch_pageoff12(add, 0x1F0) >> 10) & 0xFFF, 0x1F0);
+    }
+
+    /// A load/store offset not aligned to its access size is a
+    /// mis-encode — debug builds must catch it. `LDR X0` needs
+    /// 8-aligned offsets; 0x1F4 is not.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "not aligned")]
+    fn pageoff12_misaligned_ldr_panics() {
+        let _ = patch_pageoff12(0xF940_0000, 0x1F4);
     }
 
     // ---- write_unsigned64 ----

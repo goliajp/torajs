@@ -57,7 +57,8 @@ const ADRP_X16_BASE: u32 = 0x9000_0010;
 /// unsigned offset) opcode bits 31..22 = `0b11_111_001_01` =
 /// `0xF94`, Rn=16 at bits 9..5 (`0x10 << 5 = 0x200`), Rt=16 at
 /// bits 4..0 (`0x10`). imm12 (bits 21..10) stays 0;
-/// `patch_pageoff12` fills it with `slot_offset / 8`.
+/// `patch_pageoff12` recognises the 64-bit LDR and fills imm12 with
+/// the byte page-offset scaled down to `slot_offset / 8`.
 const LDR_X16_BASE: u32 = 0xF940_0210;
 
 /// Fixed encoding of `BR X16`. ARMv8-A C6.2.36: branch top bits
@@ -126,7 +127,10 @@ pub fn build_stubs(
         );
 
         let adrp = patch_page21(ADRP_X16_BASE, page_disp);
-        let ldr = patch_pageoff12(LDR_X16_BASE, pageoff_bytes / 8);
+        // patch_pageoff12 scales the byte offset by the 64-bit LDR's
+        // access size internally — pass the raw page-offset, not the
+        // pre-divided value.
+        let ldr = patch_pageoff12(LDR_X16_BASE, pageoff_bytes);
 
         let mut bytes = [0u8; 12];
         bytes[0..4].copy_from_slice(&adrp.to_le_bytes());
