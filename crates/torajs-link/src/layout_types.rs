@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 
 use crate::archive::MemberSymtabError;
 use crate::archives_merge::{ArchiveLinkError, ArchiveMergeError};
+use crate::data_section_layout::DataSectionLayout;
 use crate::member_apply::MemberRelocApplyError;
 use crate::member_reloc::MemberRelocError;
 use crate::member_text::MemberTextError;
@@ -89,6 +90,26 @@ pub struct ArchiveLayout {
     /// these to shift `stubs_file_offset` and emit the payloads.
     pub non_text_region_file_offset: u32,
     pub non_text_region_size: u32,
+    /// SD-4c-prereq-c-fix-c3 — per-member `__DATA,*` section
+    /// placements (file-storage entries first, then zerofill).
+    /// Empty outer Vec when `has_dyld == false` (no `__DATA`
+    /// segment exists). fix-c4 walks this to emit section_64
+    /// entries + file payload.
+    pub data_non_text_layouts: Vec<Vec<DataSectionLayout>>,
+    /// SD-4c-prereq-c-fix-c3 shadow number — start file offset of
+    /// the `__DATA` non-text file region (immediately after
+    /// `__la_symbol_ptr`). fix-c4 wires this into the emit pass +
+    /// extends `linkedit_file_offset` past it.
+    pub data_non_text_file_offset: u32,
+    /// SD-4c-prereq-c-fix-c3 shadow number — total bytes the
+    /// file-storage half of `__DATA` non-text occupies. fix-c4
+    /// extends `data_vmsize` / `linkedit_file_offset` by this.
+    pub data_non_text_file_size: u32,
+    /// SD-4c-prereq-c-fix-c3 shadow number — additional vmsize the
+    /// zerofill half needs past the file region (loader supplies
+    /// zero-init at startup; no file payload). fix-c4 extends
+    /// `data_vmsize` by this.
+    pub data_non_text_zerofill_vmsize: u32,
 }
 
 /// Failures `compute_archive_layout` can report.

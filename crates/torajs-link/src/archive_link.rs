@@ -43,6 +43,7 @@ use torajs_obj::{
 use crate::archive::parse_member_defined_externs;
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
 use crate::chained_fixups::build_chained_fixups;
+use crate::data_section_layout::compute_data_section_layouts;
 use crate::exec::LinkConfig;
 pub use crate::layout_types::{ArchiveLayout, ArchiveLayoutError, MemberLayout};
 use crate::lc::{
@@ -315,6 +316,46 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let chained_fixups_dataoff = if has_dyld { stroff + strsize } else { 0 };
     let chained_fixups_datasize = chained_fixups_blob.len() as u32;
 
+    // SD-4c-prereq-c-fix-c3 — compute the `__DATA,*` section
+    // layouts shadow-only. has_dyld=false leaves the outer Vec
+    // empty (no __DATA segment exists). When has_dyld=true, the
+    // file region starts right after `__la_symbol_ptr` so SD-3's
+    // chained_fixups encoder's `segment_offset=0` assumption (which
+    // points at __la_symbol_ptr) stays correct. Layout numbers
+    // (`data_vmsize`, `linkedit_file_offset` etc.) stay at their
+    // fix-c2 values — fix-c4 wires the additions in.
+    let (
+        data_non_text_layouts,
+        data_non_text_file_offset,
+        data_non_text_file_size,
+        data_non_text_zerofill_vmsize,
+    ) = if has_dyld {
+        let file_start = data_file_offset + la_ptr_section_size as u32;
+        let vaddr_start = data_vmaddr + la_ptr_section_size;
+        let res = compute_data_section_layouts(&merged, &member_keys, file_start, vaddr_start)
+            .map_err(
+                |NonTextLayoutError {
+                     archive_idx,
+                     member_idx,
+                     err,
+                 }| {
+                    ArchiveLayoutError::MemberSections {
+                        archive_idx,
+                        member_idx,
+                        err,
+                    }
+                },
+            )?;
+        (
+            res.per_member,
+            file_start,
+            res.file_region_size,
+            res.zerofill_vmsize,
+        )
+    } else {
+        (Vec::new(), 0u32, 0u32, 0u32)
+    };
+
     let codesign_dataoff = if has_dyld {
         chained_fixups_dataoff + chained_fixups_datasize
     } else {
@@ -359,6 +400,10 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         la_ptr_slot_values,
         non_text_region_file_offset,
         non_text_region_size,
+        data_non_text_layouts,
+        data_non_text_file_offset,
+        data_non_text_file_size,
+        data_non_text_zerofill_vmsize,
     })
 }
 
