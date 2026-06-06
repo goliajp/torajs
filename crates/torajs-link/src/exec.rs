@@ -98,6 +98,20 @@ pub struct LinkConfig {
     /// has_dyld path (existing `__DATA` segment); a dyld-free binary
     /// with `data_globals` non-empty is rejected by `compute_archive_layout`.
     pub data_globals: Vec<UserDataGlobalEntry>,
+    /// SD-4c-prereq+e7 — user-binary `__vtable_<C>` tables emitted as
+    /// `[N x ptr]` rodata blocks sharing `__TEXT,__cstring` with
+    /// `strings`. Each `slot_syms[i] = Some(name)` writes the link-
+    /// resolved vaddr of `name` into the 8-byte slot; `None` writes 0.
+    pub vtable_globals: Vec<UserVtableEntry>,
+}
+
+/// SD-4c-prereq+e7 — one `[N x ptr]` vtable. `sym` is what codegen's
+/// `GlobalRef("__vtable_<C>")` ADRP+ADD targets; slots resolve at
+/// emit time (Some(name) → name's final vaddr; None → 0).
+#[derive(Debug, Clone)]
+pub struct UserVtableEntry {
+    pub sym: String,
+    pub slot_syms: Vec<Option<String>>,
 }
 
 /// SD-4c-prereq+e4 — one user-binary top-level mutable global slot.
@@ -500,6 +514,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let layout = compute_layout(&cfg);
 
@@ -552,6 +567,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         let layout = compute_layout(&cfg);
@@ -569,6 +585,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // mach_header_64.filetype @ offset 12..16
@@ -595,6 +612,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // The first 16 bytes after the page boundary should match
@@ -619,6 +637,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 
@@ -740,6 +759,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 

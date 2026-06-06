@@ -20,6 +20,7 @@ use crate::non_text_layout::NonTextSectionLayout;
 use crate::tlv_descriptor_layout::{TlvDescriptorLayout, TlvSymOverrideError};
 use crate::user_data_globals_layout::UserDataGlobalsLayout;
 use crate::user_strings_layout::UserStringsLayout;
+use crate::user_vtables_layout::UserVtablesLayout;
 
 /// Per-archive-member computed data the S7-C4 emit pass needs.
 /// `defined_syms` carries `(name, n_value)` exactly as the member's
@@ -152,6 +153,11 @@ pub struct ArchiveLayout {
     /// __DATA segment; no file payload (zerofill). Empty layout
     /// (`total_vmsize == 0`) when `data_globals.is_empty()`.
     pub user_data_globals_layout: UserDataGlobalsLayout,
+    /// SD-4c-prereq+e7 — user-binary virtual method tables placed
+    /// directly after `user_strings_layout` in `__TEXT,__cstring`.
+    /// total_size folded into `text_size`; payload built at emit time
+    /// once the effective sym table is finalized.
+    pub user_vtables_layout: UserVtablesLayout,
 }
 
 /// Failures `compute_archive_layout` can report.

@@ -107,6 +107,7 @@ fn main() {
         archives,
         strings: Vec::new(),
         data_globals: Vec::new(),
+        vtable_globals: Vec::new(),
     };
 
     // Pre-link: query compute_archive_layout directly so we can see

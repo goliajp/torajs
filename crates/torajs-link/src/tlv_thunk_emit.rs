@@ -113,6 +113,7 @@ mod tests {
             user_strings_layout: Default::default(),
             user_strings_payload: Vec::new(),
             user_data_globals_layout: Default::default(),
+            user_vtables_layout: Default::default(),
         }
     }
 

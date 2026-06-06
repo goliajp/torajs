@@ -37,6 +37,7 @@ use crate::user_data_globals_layout::{
     build_user_data_globals_region, user_data_globals_extra_defined_syms,
 };
 use crate::user_strings_layout::{build_user_strings_region, user_strings_extra_defined_syms};
+use crate::user_vtables_layout::{build_user_vtables_region, user_vtables_extra_defined_syms};
 use std::collections::BTreeMap;
 
 fn round_up_to(value: u64, align: u64) -> u64 {
@@ -54,6 +55,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let mut extra = user_strings_extra_defined_syms(&cfg.strings);
     extra.extend(fn_addr_extra_defined_syms(&cfg.funcs));
     extra.extend(user_data_globals_extra_defined_syms(&cfg.data_globals));
+    extra.extend(user_vtables_extra_defined_syms(&cfg.vtable_globals));
     let required =
         compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;
 
@@ -95,10 +97,9 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
             entry: cfg.entry.clone(),
         })?;
 
-    // Phase 3: layout — text_size/nsyms/strsize extended by integrated
-    // members; SD-2a adds __TEXT,__stubs + __DATA,__la_symbol_ptr when
-    // dyld_imports is non-empty; SD-4b LC_LOAD_DYLIB libSystem first
-    // (ord 1 — chained-fixups encoder hard-codes ord 1 = libSystem).
+    // Phase 3: layout. has_dyld toggles __TEXT,__stubs + __DATA,
+    // __la_symbol_ptr + LC_DYLD_CHAINED_FIXUPS; libSystem always ord 1
+    // (chained-fixups encoder hard-codes it). libcurl gets ord 2.
     let has_dyld = !required.dyld_imports.is_empty();
     let has_libcurl_lc = required.dyld_imports.values().any(|&o| o == 2);
     let load_dylib_size = if has_dyld {
@@ -133,12 +134,9 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let user_text_size: u32 = cfg.funcs.iter().map(|f| f.bytes.len() as u32).sum();
     let members_text_total: u32 = member_text_sizes.iter().copied().sum();
 
-    // SD-4c-prereq-c — compute the non-text region early so
-    // `text_size` (and every layout number derived from it) accounts
-    // for the bytes the emit pass will land between member __texts
-    // and `__TEXT,__stubs`. region_file_offset is the absolute file
-    // offset of the first non-text byte = text_file_offset + user
-    // bytes + member __texts (== current text_size before the grow).
+    // Non-text region (member __cstring/__const) lands between member
+    // __texts and `__TEXT,__stubs`; its size folds into text_size so
+    // stubs_file_offset/text_vmsize/linkedit_file_offset auto-shift.
     let non_text_region_file_offset = text_file_offset + user_text_size + members_text_total;
     let non_text_result =
         compute_non_text_layouts(&merged, &member_keys, non_text_region_file_offset).map_err(
@@ -156,21 +154,27 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         )?;
     let non_text_region_size = non_text_result.region_size;
 
-    // SD-4c-prereq+e1 — user-string region placed after member non-text
-    // payloads (same `__TEXT,__cstring`). Zero-sized when empty.
+    // SD-4c-prereq+e1/e7 — user-string + vtable regions sharing
+    // `__TEXT,__cstring` after member non-text payloads (no new
+    // section_64 entry). Zero-sized when respective inputs empty.
     let (user_strings_layout, user_strings_payload) = build_user_strings_region(
         &cfg.strings,
         TEXT_VMADDR_BASE,
         non_text_region_file_offset + non_text_region_size,
     );
+    let user_vtables_layout = build_user_vtables_region(
+        &cfg.vtable_globals,
+        TEXT_VMADDR_BASE,
+        user_strings_layout.file_offset + user_strings_layout.total_size,
+    );
+    let text_size = user_text_size
+        + members_text_total
+        + non_text_region_size
+        + user_strings_layout.total_size
+        + user_vtables_layout.total_size;
 
-    let text_size =
-        user_text_size + members_text_total + non_text_region_size + user_strings_layout.total_size;
-
-    // __TEXT segment file region = __text + __stubs (when has_dyld).
-    // Both sections live in the same segment so the segment's
-    // vmsize covers everything from byte 0 of the file to the end
-    // of __stubs, rounded up to the page boundary.
+    // __TEXT file region = __text + __stubs (when has_dyld). vmsize
+    // page-aligns the segment past __stubs.
     let dyld_count = required.dyld_imports.len() as u64;
     let stubs_section_size = if has_dyld { dyld_count * STUB_SIZE } else { 0 };
     let la_ptr_section_size = if has_dyld {
@@ -241,18 +245,10 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         (Vec::new(), 0u32, 0u32, 0u32)
     };
 
-    // SD-4c-prereq+b1 — enumerate TLV descriptors across every
-    // member's already-laid-out `__DATA,__thread_vars` sections.
-    // Metadata-only: no offset / vmsize / segment shift. Empty when
-    // no member contributes a TLV section. SD-4c-prereq+c consumes
-    // this to add per-thunk-slot binds to the chained-fixups blob.
-    //
-    // has_dyld=false branch above sets `data_non_text_layouts` to an
-    // empty Vec regardless of `member_keys.len()` — no `__DATA`
-    // segment exists, so no TLV descriptors either. Short-circuit
-    // here to avoid spuriously failing the layout's len-match check
-    // when archive members exist but the binary stays dyld-free
-    // (transitive-call probes / leaf syscall path).
+    // SD-4c-prereq+b1/c — enumerate member __DATA,__thread_vars TLV
+    // descriptors (metadata-only) so prereq+c can add per-thunk-slot
+    // binds to the chained-fixups blob. has_dyld=false short-circuits
+    // (no __DATA segment exists → no TLVs).
     let tlv_descriptors = if has_dyld {
         compute_tlv_descriptor_layouts(&member_keys, &data_non_text_layouts)
             .expect("TLV descriptor layout cannot fail when inputs are zipped from compute_data_section_layouts")
@@ -261,10 +257,9 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         Vec::new()
     };
 
-    // SD-4c-prereq-c-fix-c4 — __DATA segment sizes now account for
-    // member __DATA file storage + zerofill vmsize. data_filesize is
-    // page-aligned so linkedit_file_offset stays page-aligned for
-    // mmap alignment. data_vmsize covers file region + zerofill.
+    // __DATA segment sizes: data_filesize page-aligns the file region
+    // for next-segment fileoff mmap alignment; data_vmsize extends it
+    // with zerofill (member zerofill + e4 user-bss vmsize).
     let data_total_file_size = if has_dyld {
         la_ptr_section_size + u64::from(data_non_text_file_size)
     } else {
@@ -467,6 +462,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         user_strings_layout,
         user_strings_payload,
         user_data_globals_layout,
+        user_vtables_layout,
     })
 }
 
@@ -561,6 +557,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         let base = crate::exec::compute_layout(&cfg);
@@ -602,6 +599,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 1);
@@ -658,6 +656,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 3);
@@ -695,6 +694,7 @@ mod tests {
             archives: vec![archive],
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -754,6 +754,7 @@ mod tests {
             archives: vec![archive_a, archive_b],
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -788,6 +789,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         match err {
@@ -815,6 +817,7 @@ mod tests {
             archives: vec![archive],
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         assert!(matches!(

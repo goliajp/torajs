@@ -115,6 +115,7 @@ fn main() {
             size: 8,
             align_log2: 3,
         }],
+        vtable_globals: Vec::new(),
     };
 
     match link_to_exec_with_archives(&cfg) {

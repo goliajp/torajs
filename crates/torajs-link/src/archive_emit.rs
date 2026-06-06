@@ -36,6 +36,7 @@ use crate::sign::build_adhoc_codesign_blob;
 use crate::tlv_descriptor_layout::apply_tlv_overrides;
 use crate::user_data_globals_layout::apply_user_data_global_overrides;
 use crate::user_strings_emit::apply_user_string_overrides;
+use crate::user_vtables_layout::{apply_user_vtable_overrides, build_user_vtables_payload};
 
 /// Link a `LinkConfig` whose `archives` field is populated into a
 /// complete Mach-O `MH_EXECUTE` byte stream — ad-hoc codesigned,
@@ -72,6 +73,11 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     apply_user_string_overrides(&layout.user_strings_layout, &mut effective_sym_table);
     apply_user_data_global_overrides(&layout.user_data_globals_layout, &mut effective_sym_table);
     register_fn_addr_syms(&cfg.funcs, &layout.fn_vaddrs, &mut effective_sym_table);
+    apply_user_vtable_overrides(&layout.user_vtables_layout, &mut effective_sym_table);
+    // SD-4c-prereq+e7 — vtable payload must wait until fn_addr aliases
+    // land so per-slot syms (typically `__torajs_fn_<n>`) resolve.
+    let user_vtables_payload =
+        build_user_vtables_payload(&layout.user_vtables_layout, &effective_sym_table);
 
     // Resolve user-function relocs against the effective sym table.
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
@@ -147,6 +153,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &non_text_payloads,
         &data_non_text_payloads,
         &resolved,
+        &user_vtables_payload,
     );
     Ok(bytes)
 }
@@ -162,6 +169,7 @@ fn emit_binary(
     non_text_payloads: &[Vec<u8>],
     data_non_text_payloads: &[Vec<u8>],
     resolved: &[crate::resolve::ResolvedFunction],
+    user_vtables_payload: &[u8],
 ) -> Vec<u8> {
     // SD-1: when the worklist surfaced dyld-resolved externs we
     // emit one `LC_LOAD_DYLIB` per referenced dylib (SD-4b: libSystem
@@ -404,6 +412,7 @@ fn emit_binary(
         buf.extend_from_slice(p);
     }
     buf.extend_from_slice(&layout.user_strings_payload);
+    buf.extend_from_slice(user_vtables_payload);
 
     // SD-2a: stubs + zero-init la_ptr.
     // SD-4c-prereq-c-fix-c4: member `__DATA,*` file-storage payloads
@@ -600,6 +609,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let archive_bytes = link_to_exec_with_archives(&cfg).unwrap();
         let baseline_bytes = link_to_exec(&cfg);
@@ -639,6 +649,7 @@ mod tests {
             archives: vec![archive],
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -704,6 +715,7 @@ mod tests {
             archives: vec![archive_a, archive_b],
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -767,6 +779,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).expect("layout");
         assert!(!layout.dyld_imports.is_empty(), "dyld_imports populated");
@@ -776,7 +789,7 @@ mod tests {
         // Drive emit_binary directly — apply_relocs is happy
         // because cfg.sym_table covers `_malloc`.
         let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &cfg.sym_table);
-        let bytes = emit_binary(&cfg, &layout, &[], &[], &[], &resolved);
+        let bytes = emit_binary(&cfg, &layout, &[], &[], &[], &resolved, &[]);
 
         assert_eq!(
             bytes.len() as u32,
@@ -856,6 +869,7 @@ mod tests {
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         // SD-2b — link must succeed even though cfg.sym_table is
         // empty. SD-2a's plumbing populates `layout.stub_vaddrs`;
@@ -937,6 +951,7 @@ mod tests {
             archives: vec![archive],
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let link_bytes =
             link_to_exec_with_archives(&cfg).expect("link must succeed against mixed externs");
@@ -971,6 +986,7 @@ mod tests {
             archives: vec![archive],
             strings: Vec::new(),
             data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).unwrap();
 
