@@ -27,7 +27,7 @@
 use crate::archives_merge::MergedArchives;
 use crate::lc::TEXT_VMADDR_BASE;
 use crate::member_reloc::MemberRelocError;
-use crate::member_sections::{MemberSectionInfo, collect_member_sections};
+use crate::member_sections::{MemberSectionInfo, collect_member_sections, is_no_file_storage};
 
 const TEXT_SECTNAME: &[u8] = b"__text";
 const TEXT_SEGNAME: &[u8] = b"__TEXT";
@@ -92,6 +92,22 @@ fn is_member_text(s: &MemberSectionInfo) -> bool {
     name_eq(&s.sectname, TEXT_SECTNAME) && name_eq(&s.segname, TEXT_SEGNAME)
 }
 
+/// Returns `true` for sections SD-4c-prereq-c-fix-c1 keeps in the
+/// `__TEXT` non-text region — segname `__TEXT` with regular file
+/// storage. `__DATA,*` and zerofill-family sections are filtered
+/// out at this gate; fix-c2/3/4 will reintroduce them through a
+/// dedicated `__DATA` segment + section layout pass.
+///
+/// Pulling the predicate out of the per-section loop keeps the
+/// rationale grep-friendly and ensures the test suite can assert on
+/// the exact admission rule.
+fn keeps_in_text_non_text_region(s: &MemberSectionInfo) -> bool {
+    if is_no_file_storage(s.flags) {
+        return false;
+    }
+    name_eq(&s.segname, TEXT_SEGNAME)
+}
+
 /// Walk every required member, filter the primary `__TEXT,__text`
 /// section, and assign each remaining section a final-binary
 /// `(file_offset, vaddr)` pair. `region_file_offset` is the
@@ -122,6 +138,15 @@ pub fn compute_non_text_layouts(
         let mut layouts: Vec<NonTextSectionLayout> = Vec::new();
         for sec in all {
             if is_member_text(&sec) {
+                continue;
+            }
+            // SD-4c-prereq-c-fix-c1 — only `__TEXT,*` regular
+            // file-storage sections enter the __TEXT non-text region.
+            // `__DATA,*` and `*ZEROFILL` family sections (which the
+            // current __TEXT-only emit can't host without permission
+            // mismatches or vmsize/filesize confusion) are deferred
+            // to fix-c2/3/4's dedicated __DATA layout pass.
+            if !keeps_in_text_non_text_region(&sec) {
                 continue;
             }
             let final_file_offset = region_file_offset + cumulative;
@@ -349,5 +374,218 @@ mod tests {
         assert_eq!(sections[0].section_index, 1);
         assert_eq!(sections[1].section_index, 2);
         assert_eq!(sections[2].section_index, 3);
+    }
+
+    /// SD-4c-prereq-c-fix-c1 — `__DATA,*` sections are dropped from
+    /// the __TEXT non-text layout pass. fix-c2/3/4 reintroduces them
+    /// through a dedicated __DATA segment layout. Without this
+    /// filter, torajs_mmalloc-cgu0's `__DATA,__common` (S_ZEROFILL,
+    /// offset=0 size=2MB) overruns archive_emit's slicer at runtime.
+    #[test]
+    fn fix_c1_drops_data_segment_sections() {
+        let obj = build_mixed_seg_member();
+        let archive = build_short_name_archive("mix.o", &obj);
+        let archives = vec![archive];
+        let merged = merge_archive_indexes(&archives).unwrap();
+        let res = compute_non_text_layouts(&merged, &[(0usize, 0usize)], 0x0001_6000).unwrap();
+        let layouts = &res.per_member[0];
+        // Fixture sections: __text, __cstring (TEXT keep), __data
+        // (DATA drop), __common ZEROFILL (DATA + zerofill drop).
+        // After filter: only __cstring remains.
+        assert_eq!(layouts.len(), 1, "only __TEXT,__cstring survives");
+        let s = &layouts[0];
+        assert_eq!(s.section_index, 2, "__cstring keeps ordinal 2");
+        assert_eq!(trim_name(&s.sectname), b"__cstring");
+        assert_eq!(trim_name(&s.segname), b"__TEXT");
+        // region_size advances only by surviving section's size.
+        assert_eq!(res.region_size, s.size);
+    }
+
+    /// Zerofill section in `__TEXT` (rare but legal per Mach-O spec)
+    /// still drops out — `is_no_file_storage` overrules the segname
+    /// `__TEXT` admission. Otherwise emit would slice past the
+    /// member end.
+    #[test]
+    fn fix_c1_drops_zerofill_even_inside_text_segment() {
+        let obj = build_text_with_zerofill_member();
+        let archive = build_short_name_archive("zft.o", &obj);
+        let archives = vec![archive];
+        let merged = merge_archive_indexes(&archives).unwrap();
+        let res = compute_non_text_layouts(&merged, &[(0usize, 0usize)], 0x0001_6000).unwrap();
+        let layouts = &res.per_member[0];
+        // __text + __cstring keep, __TEXT,__zfsect (S_ZEROFILL)
+        // drops. So only __cstring survives.
+        assert_eq!(layouts.len(), 1);
+        assert_eq!(trim_name(&layouts[0].sectname), b"__cstring");
+    }
+
+    fn trim_name(slot: &[u8; 16]) -> &[u8] {
+        let mut end = slot.len();
+        while end > 0 && (slot[end - 1] == 0 || slot[end - 1] == b' ') {
+            end -= 1;
+        }
+        &slot[..end]
+    }
+
+    /// Hand-pack a Mach-O .o with four sections under one anonymous
+    /// `LC_SEGMENT_64`:
+    ///   1. __TEXT,__text       (4 B RET, S_REGULAR|PURE|SOME)
+    ///   2. __TEXT,__cstring    (8 B,    S_CSTRING_LITERALS)
+    ///   3. __DATA,__data       (16 B,   S_REGULAR)
+    ///   4. __DATA,__common     (2 KB virtual, S_ZEROFILL — offset 0)
+    /// Verifies fix-c1's segname + flags-based admission rule.
+    fn build_mixed_seg_member() -> Vec<u8> {
+        use torajs_obj::{
+            LC_SEGMENT_64, MH_MAGIC_64, S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS,
+            S_CSTRING_LITERALS, S_REGULAR, S_ZEROFILL, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE,
+        };
+        let nsects: u32 = 4;
+        let header_size: u32 = 32;
+        let seg_cmd_size: u32 = SEGMENT_COMMAND_64_SIZE + nsects * SECTION_64_SIZE;
+        let text: [u8; 4] = RET_BYTES;
+        let cstr: [u8; 8] = *b"hello\0\0\0";
+        let data: [u8; 16] = *b"DDDDDDDDDDDDDDDD";
+        let text_off = header_size + seg_cmd_size;
+        let cstr_off = text_off + text.len() as u32;
+        let data_off = cstr_off + cstr.len() as u32;
+        // __common is zerofill — no file payload past data_off.
+        let total = data_off + data.len() as u32;
+
+        let text_flags = S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS;
+        let cstr_flags = S_CSTRING_LITERALS;
+        let data_flags = S_REGULAR;
+        let common_flags = S_ZEROFILL;
+
+        let mut out: Vec<u8> = Vec::with_capacity(total as usize);
+        out.extend_from_slice(&MH_MAGIC_64.to_le_bytes());
+        out.extend_from_slice(&0x0100_000Cu32.to_le_bytes()); // cputype ARM64
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&1u32.to_le_bytes()); // MH_OBJECT
+        out.extend_from_slice(&1u32.to_le_bytes()); // ncmds
+        out.extend_from_slice(&seg_cmd_size.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes()); // flags
+        out.extend_from_slice(&0u32.to_le_bytes()); // reserved
+
+        out.extend_from_slice(&LC_SEGMENT_64.to_le_bytes());
+        out.extend_from_slice(&seg_cmd_size.to_le_bytes());
+        out.extend_from_slice(&[0u8; 16]); // segname (anonymous)
+        out.extend_from_slice(&0u64.to_le_bytes()); // vmaddr
+        out.extend_from_slice(&(total as u64 - text_off as u64).to_le_bytes()); // vmsize
+        out.extend_from_slice(&(text_off as u64).to_le_bytes()); // fileoff
+        out.extend_from_slice(&(total as u64 - text_off as u64).to_le_bytes()); // filesize
+        out.extend_from_slice(&7u32.to_le_bytes()); // maxprot RWX
+        out.extend_from_slice(&7u32.to_le_bytes()); // initprot RWX
+        out.extend_from_slice(&nsects.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes()); // flags
+
+        write_section(&mut out, b"__text", b"__TEXT", 0, 4, text_off, text_flags);
+        write_section(
+            &mut out,
+            b"__cstring",
+            b"__TEXT",
+            4,
+            8,
+            cstr_off,
+            cstr_flags,
+        );
+        write_section(&mut out, b"__data", b"__DATA", 12, 16, data_off, data_flags);
+        // __common is zerofill — section_64.offset is 0 per Mach-O
+        // spec (no file storage), but vmsize is non-zero.
+        write_section(&mut out, b"__common", b"__DATA", 28, 2048, 0, common_flags);
+
+        out.extend_from_slice(&text);
+        out.extend_from_slice(&cstr);
+        out.extend_from_slice(&data);
+        // No payload bytes for __common — that's the whole point of
+        // S_ZEROFILL: the loader supplies zero-init memory at startup.
+        out
+    }
+
+    /// Hand-pack a Mach-O .o with three sections all under `__TEXT`,
+    /// but one of them is `S_ZEROFILL`. The segname check would
+    /// otherwise admit it; verifies `is_no_file_storage` short-
+    /// circuits regardless of segment.
+    fn build_text_with_zerofill_member() -> Vec<u8> {
+        use torajs_obj::{
+            LC_SEGMENT_64, MH_MAGIC_64, S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS,
+            S_CSTRING_LITERALS, S_REGULAR, S_ZEROFILL, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE,
+        };
+        let nsects: u32 = 3;
+        let header_size: u32 = 32;
+        let seg_cmd_size: u32 = SEGMENT_COMMAND_64_SIZE + nsects * SECTION_64_SIZE;
+        let text: [u8; 4] = RET_BYTES;
+        let cstr: [u8; 8] = *b"world!\0\0";
+        let text_off = header_size + seg_cmd_size;
+        let cstr_off = text_off + text.len() as u32;
+        let total = cstr_off + cstr.len() as u32;
+
+        let text_flags = S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS;
+        let cstr_flags = S_CSTRING_LITERALS;
+        let zf_flags = S_ZEROFILL;
+
+        let mut out: Vec<u8> = Vec::with_capacity(total as usize);
+        out.extend_from_slice(&MH_MAGIC_64.to_le_bytes());
+        out.extend_from_slice(&0x0100_000Cu32.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&1u32.to_le_bytes());
+        out.extend_from_slice(&1u32.to_le_bytes());
+        out.extend_from_slice(&seg_cmd_size.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+
+        out.extend_from_slice(&LC_SEGMENT_64.to_le_bytes());
+        out.extend_from_slice(&seg_cmd_size.to_le_bytes());
+        out.extend_from_slice(&[0u8; 16]);
+        out.extend_from_slice(&0u64.to_le_bytes());
+        out.extend_from_slice(&(total as u64 - text_off as u64).to_le_bytes());
+        out.extend_from_slice(&(text_off as u64).to_le_bytes());
+        out.extend_from_slice(&(total as u64 - text_off as u64).to_le_bytes());
+        out.extend_from_slice(&7u32.to_le_bytes());
+        out.extend_from_slice(&7u32.to_le_bytes());
+        out.extend_from_slice(&nsects.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+
+        write_section(&mut out, b"__text", b"__TEXT", 0, 4, text_off, text_flags);
+        write_section(
+            &mut out,
+            b"__cstring",
+            b"__TEXT",
+            4,
+            8,
+            cstr_off,
+            cstr_flags,
+        );
+        write_section(&mut out, b"__zfsect", b"__TEXT", 12, 4096, 0, zf_flags);
+
+        out.extend_from_slice(&text);
+        out.extend_from_slice(&cstr);
+        out
+    }
+
+    fn write_section(
+        out: &mut Vec<u8>,
+        sectname: &[u8],
+        segname: &[u8],
+        addr: u64,
+        size: u64,
+        offset: u32,
+        flags: u32,
+    ) {
+        let mut sn = [0u8; 16];
+        sn[..sectname.len()].copy_from_slice(sectname);
+        out.extend_from_slice(&sn);
+        let mut sg = [0u8; 16];
+        sg[..segname.len()].copy_from_slice(segname);
+        out.extend_from_slice(&sg);
+        out.extend_from_slice(&addr.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&offset.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes()); // align
+        out.extend_from_slice(&0u32.to_le_bytes()); // reloff
+        out.extend_from_slice(&0u32.to_le_bytes()); // nreloc
+        out.extend_from_slice(&flags.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes()); // reserved1
+        out.extend_from_slice(&0u32.to_le_bytes()); // reserved2
+        out.extend_from_slice(&0u32.to_le_bytes()); // reserved3
     }
 }
