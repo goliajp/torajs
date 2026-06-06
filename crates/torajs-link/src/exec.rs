@@ -67,41 +67,37 @@ use crate::sign::{adhoc_codesign_blob_size, build_adhoc_codesign_blob};
 
 // ---- Public API ----
 
-/// SD-4c-prereq+e0 — single user-binary read-only string literal
-/// payload. Used by the codegen+obj+link pipeline (#9 SD-4c) to
-/// materialize `ssa::Module.strings` as link-time-emitted
-/// `__TEXT,__cstring` entries with sym vaddrs that codegen-emitted
-/// `RelocKind::Page21 { target_sym: "__torajs_str_lit_<id>" }` /
-/// `__torajs_str_dyn_<id>` ADRP+ADD pairs resolve against.
-///
-/// `sym` is the final extern label codegen emits in its reloc
-/// table (caller chooses the naming policy — link only sees the
-/// string). `bytes` is the encoded payload; `is_latin1` + `length`
-/// carry the ES `String.length` metadata so link can emit the
-/// `[u64 header, u32 length, u32 _pad, [N x i8]]` rodata Str
-/// layout the runtime's `__torajs_str_*` helpers deref.
-///
-/// e0 scope (this commit): field-only scaffold. Default empty in
-/// every existing caller so the 723 conformance case set ships
-/// byte-identical pre-flight 3 probes. e1 wires
-/// `compute_user_strings_layout` + `emit_user_strings_payload` +
-/// effective_sym_table registration + smoke example.
+/// Two link-emitted user-string flavours (mirrors `ssa_inkwell::globals`):
+/// `StaticStr` ↔ `emit_static_str_global` — full rodata Str
+/// (header+length+pad+bytes), paired with `StaticStrRef` /
+/// `__torajs_str_lit_<id>`. `RawBytes` ↔ `emit_string_global` — payload
+/// only, paired with `StringRef` / `__torajs_str_dyn_<id>` (runtime
+/// `__torajs_str_alloc(ptr, length)` consumes it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserStringKind {
+    StaticStr,
+    RawBytes,
+}
+
+/// SD-4c-prereq+e0/e1/e2 — one user-binary string literal payload.
+/// Materializes `ssa::Module.strings` as `__TEXT,__cstring` rodata
+/// with a sym vaddr that codegen ADRP+ADD pairs (`__torajs_str_lit_*`
+/// / `__torajs_str_dyn_*`) resolve against. `kind` selects the
+/// emit ABI per [`UserStringKind`].
 #[derive(Debug, Clone)]
 pub struct UserStringEntry {
-    /// Final extern sym name codegen `RelocKind::Page21 /
-    /// PageOff12` ADRP+ADD pair will resolve against — e.g.
-    /// `__torajs_str_lit_0` (StaticStrRef rodata Str) or
-    /// `__torajs_str_dyn_0` (raw bytes-only literal).
+    /// Codegen reloc target_sym — e.g. `__torajs_str_lit_0` /
+    /// `__torajs_str_dyn_0`. Caller chooses the naming policy.
     pub sym: String,
-    /// Raw encoded payload bytes — Latin-1: 1 byte / code unit;
-    /// UTF-16: 2 bytes / code unit, little-endian.
+    /// Encoded payload — Latin-1: 1 B / code unit; UTF-16: 2 B / unit LE.
     pub bytes: Vec<u8>,
-    /// Latin-1 (`bytes.len() == length`) vs UTF-16
-    /// (`bytes.len() == length * 2`). Drives the
-    /// `STR_FLAG_IS_LATIN1` bit the runtime's Str header carries.
+    /// Drives `STR_FLAG_IS_LATIN1` in the rodata Str header.
+    /// Ignored when `kind = RawBytes`.
     pub is_latin1: bool,
     /// ES `String.length` code unit count.
     pub length: u32,
+    /// Emit flavour — see [`UserStringKind`].
+    pub kind: UserStringKind,
 }
 
 /// Configuration for `link_to_exec` — caller supplies the per-fn

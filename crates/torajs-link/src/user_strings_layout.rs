@@ -19,7 +19,7 @@
 //! file-IO); the emit pass (`user_strings_emit`) consumes the
 //! computed offsets to materialize bytes.
 
-use crate::exec::UserStringEntry;
+use crate::exec::{UserStringEntry, UserStringKind};
 
 /// Mirror of `ssa_inkwell::globals::STATIC_LITERAL_FLAG`. The
 /// runtime's `__torajs_rc_inc / dec / __torajs_str_free` short-circuit
@@ -85,7 +85,7 @@ pub fn compute_user_strings_layout(
     let mut entries = Vec::with_capacity(strings.len());
     let mut running: u32 = 0;
     for e in strings {
-        let payload_size = STR_HEADER_SIZE + (e.bytes.len() as u32);
+        let payload_size = entry_payload_size(e);
         entries.push(UserStringEntryLayout {
             sym: e.sym.clone(),
             vaddr: vaddr_base + u64::from(running),
@@ -100,6 +100,17 @@ pub fn compute_user_strings_layout(
         file_offset: cursor,
         vaddr: vaddr_base,
         total_size,
+    }
+}
+
+/// Byte size of one entry's emitted region — `StaticStr` carries the
+/// 16-byte rodata Str header in addition to the payload; `RawBytes`
+/// is payload-only.
+pub fn entry_payload_size(e: &UserStringEntry) -> u32 {
+    let payload = e.bytes.len() as u32;
+    match e.kind {
+        UserStringKind::StaticStr => STR_HEADER_SIZE + payload,
+        UserStringKind::RawBytes => payload,
     }
 }
 
@@ -141,6 +152,17 @@ mod tests {
             bytes: bytes.to_vec(),
             is_latin1,
             length,
+            kind: UserStringKind::StaticStr,
+        }
+    }
+
+    fn raw_entry(sym: &str, bytes: &[u8]) -> UserStringEntry {
+        UserStringEntry {
+            sym: sym.into(),
+            bytes: bytes.to_vec(),
+            is_latin1: true,
+            length: bytes.len() as u32,
+            kind: UserStringKind::RawBytes,
         }
     }
 
@@ -213,6 +235,33 @@ mod tests {
         assert_eq!(layout.entries[0].payload_size, STR_HEADER_SIZE + 4);
         // 16 + 4 = 20, already 4-aligned so no extra pad.
         assert_eq!(layout.total_size, STR_HEADER_SIZE + 4);
+    }
+
+    #[test]
+    fn raw_bytes_kind_has_no_header() {
+        // RawBytes payload size = bytes.len() (no 16-byte header).
+        let strings = [raw_entry("__torajs_str_dyn_0", b"hello")];
+        let layout = compute_user_strings_layout(&strings, 0x4000, 0x1_0000_4000);
+        assert_eq!(layout.entries[0].payload_size, 5);
+        // 5 raw bytes rounds up to 8 (next-section 4-byte alignment).
+        assert_eq!(layout.total_size, 8);
+    }
+
+    #[test]
+    fn mixed_kinds_pack_back_to_back() {
+        // Static (16+5=21) + RawBytes (3) = 24, already 4-aligned.
+        let strings = [
+            entry("__torajs_str_lit_0", b"hello", true, 5),
+            raw_entry("__torajs_str_dyn_0", b"abc"),
+        ];
+        let layout = compute_user_strings_layout(&strings, 0x4000, 0x1_0000_4000);
+        assert_eq!(layout.entries[0].payload_size, STR_HEADER_SIZE + 5);
+        assert_eq!(layout.entries[1].payload_size, 3);
+        assert_eq!(
+            layout.entries[1].vaddr,
+            layout.entries[0].vaddr + u64::from(layout.entries[0].payload_size),
+        );
+        assert_eq!(layout.total_size, 24);
     }
 
     #[test]

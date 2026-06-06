@@ -13,7 +13,7 @@
 //! `RelocKind::Page21 / PageOff12 { target_sym: e.sym }` ADRP+ADD
 //! pairs resolve through this map.
 
-use crate::exec::UserStringEntry;
+use crate::exec::{UserStringEntry, UserStringKind};
 use crate::resolve::SymTable;
 use crate::user_strings_layout::{STATIC_LITERAL_FLAG, STR_FLAG_IS_LATIN1, UserStringsLayout};
 
@@ -35,19 +35,29 @@ pub fn build_user_strings_payload(
     );
     let mut buf = Vec::with_capacity(layout.total_size as usize);
     for (e, le) in strings.iter().zip(layout.entries.iter()) {
-        let mut flags: u16 = STATIC_LITERAL_FLAG;
-        if e.is_latin1 {
-            flags |= STR_FLAG_IS_LATIN1;
+        match e.kind {
+            UserStringKind::StaticStr => {
+                let mut flags: u16 = STATIC_LITERAL_FLAG;
+                if e.is_latin1 {
+                    flags |= STR_FLAG_IS_LATIN1;
+                }
+                // refcount=1 in low 32 bits; type_tag=TAG_STR=0 in
+                // [32..48]; flags in [48..64]. Mirrors emit_static_str_global
+                // (refcount is irrelevant — STATIC bit short-circuits
+                // rc_inc/dec at runtime).
+                let header_u64: u64 = 1u64 | ((flags as u64) << 48);
+                buf.extend_from_slice(&header_u64.to_le_bytes());
+                buf.extend_from_slice(&e.length.to_le_bytes());
+                buf.extend_from_slice(&[0u8; 4]); // _pad
+                buf.extend_from_slice(&e.bytes);
+            }
+            UserStringKind::RawBytes => {
+                // Mirrors emit_string_global — payload bytes only, no
+                // header. Caller side (`__torajs_str_alloc(ptr, length)`)
+                // passes the length separately at the SSA layer.
+                buf.extend_from_slice(&e.bytes);
+            }
         }
-        // refcount=1 in low 32 bits; type_tag=TAG_STR=0 in [32..48];
-        // flags in [48..64]. Mirrors emit_static_str_global header
-        // packing (refcount is irrelevant — STATIC bit short-circuits
-        // rc_inc/dec at runtime).
-        let header_u64: u64 = 1u64 | ((flags as u64) << 48);
-        buf.extend_from_slice(&header_u64.to_le_bytes());
-        buf.extend_from_slice(&e.length.to_le_bytes());
-        buf.extend_from_slice(&[0u8; 4]); // _pad
-        buf.extend_from_slice(&e.bytes);
         debug_assert_eq!(
             buf.len() as u32 - (le.file_offset - layout.file_offset),
             le.payload_size,
@@ -84,6 +94,17 @@ mod tests {
             bytes: bytes.to_vec(),
             is_latin1,
             length,
+            kind: UserStringKind::StaticStr,
+        }
+    }
+
+    fn make_raw_entry(sym: &str, bytes: &[u8]) -> UserStringEntry {
+        UserStringEntry {
+            sym: sym.into(),
+            bytes: bytes.to_vec(),
+            is_latin1: true,
+            length: bytes.len() as u32,
+            kind: UserStringKind::RawBytes,
         }
     }
 
@@ -160,6 +181,33 @@ mod tests {
         assert_eq!(&buf[16..18], b"hi");
         // Second entry payload @(entry_size + 16) = "yo".
         assert_eq!(&buf[entry_size + 16..entry_size + 18], b"yo");
+    }
+
+    #[test]
+    fn raw_bytes_entry_emits_payload_only() {
+        let strings = [make_raw_entry("__torajs_str_dyn_0", b"hello")];
+        let layout = compute_user_strings_layout(&strings, 0x4000, 0x1_0000_4000);
+        let buf = build_user_strings_payload(&strings, &layout);
+        // 5 payload bytes, then 3 zero pad bytes to 4-byte align.
+        assert_eq!(buf.len(), 8);
+        assert_eq!(&buf[..5], b"hello");
+        assert_eq!(&buf[5..8], &[0u8; 3]);
+    }
+
+    #[test]
+    fn mixed_kinds_concat_static_then_raw() {
+        // Static (16+5=21) + RawBytes (3) = 24, already 4-aligned.
+        let strings = [
+            make_entry("__torajs_str_lit_0", b"hello", true, 5),
+            make_raw_entry("__torajs_str_dyn_0", b"abc"),
+        ];
+        let layout = compute_user_strings_layout(&strings, 0x4000, 0x1_0000_4000);
+        let buf = build_user_strings_payload(&strings, &layout);
+        assert_eq!(buf.len(), 24);
+        // Static entry: header + length + pad + "hello" @ [0..21].
+        assert_eq!(&buf[16..21], b"hello");
+        // RawBytes entry starts at offset 21 — payload only.
+        assert_eq!(&buf[21..24], b"abc");
     }
 
     #[test]
