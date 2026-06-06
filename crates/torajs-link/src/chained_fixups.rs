@@ -150,6 +150,46 @@ pub fn encode_bind_link(ordinal: u32, next_stride: u32, addend: u8) -> u64 {
     ordinal_field | addend_field | next_field | bind_bit
 }
 
+/// Encode one rebase chain link for `DYLD_CHAINED_PTR_64_OFFSET`
+/// (format 6) — the format every modern arm64 macOS binary uses
+/// for PIE pointer relocations inside `__DATA` and `__TEXT` rodata.
+/// Follows `dyld_chained_ptr_64_rebase` in `<mach-o/fixup-chains.h>`:
+///
+/// ```text
+///   target   : 36   bits 35..0   (offset from image base / text_vmaddr)
+///   high8    :  8   bits 43..36  (high-byte tag — = 0 for regular ptrs)
+///   reserved :  7   bits 50..44  (= 0)
+///   next     : 12   bits 62..51  (stride in 4-byte units, 0 = chain end)
+///   bind     :  1   bit 63       (= 0 for rebase)
+/// ```
+///
+/// `target_offset_in_image` is the absolute offset from `text_vmaddr`
+/// to the symbol the slot resolves to — dyld adds the actual ASLR
+/// slide at load time. With 36 bits the encoding covers up to 64 GiB
+/// of image space, which is well above any plausible torajs binary
+/// (`tr` ships ≪ 64 MiB even at fat-LTO).
+///
+/// `next_stride` matches the bind encoder's semantics (4-byte units
+/// to the next slot inside the same chained-fixups page, `0` ends
+/// the chain). `high8` is reserved for tagged-pointer hints and stays
+/// `0` for vtable / data-pointer slots.
+pub fn encode_rebase_link(target_offset_in_image: u64, next_stride: u32, high8: u8) -> u64 {
+    debug_assert!(
+        target_offset_in_image < (1u64 << 36),
+        "target_offset_in_image {target_offset_in_image} overflows 36-bit field"
+    );
+    debug_assert!(
+        next_stride < (1 << 12),
+        "next_stride {next_stride} overflows 12-bit field"
+    );
+    let target_field = target_offset_in_image & 0x0000_000F_FFFF_FFFF;
+    let high8_field = (u64::from(high8) & 0xFF) << 36;
+    let next_field = (u64::from(next_stride) & 0xFFF) << 51;
+    // bind bit (63) stays 0 — that is what distinguishes a rebase
+    // link from the bind link encode_bind_link emits.
+    target_field | high8_field | next_field
+}
+
 /// Build the complete chained-fixups blob plus the per-slot
 /// chain link values for `__DATA,__la_symbol_ptr` and every TLV
 /// descriptor's `thunk` slot.
@@ -372,6 +412,57 @@ mod tests {
         // ordinal at bits 23..0, bind bit set.
         let expected = (1u64 << 63) | 0x42;
         assert_eq!(v, expected);
+    }
+
+    #[test]
+    fn encode_rebase_link_chain_end_keeps_bind_bit_clear() {
+        // target offset 0x4000 (one page in), chain-end (next=0),
+        // no high8. Bind bit (63) must stay 0 — that is the marker
+        // dyld uses to distinguish rebase from bind.
+        let v = encode_rebase_link(0x4000, 0, 0);
+        assert_eq!(v, 0x4000);
+        assert_eq!(v & (1u64 << 63), 0);
+    }
+
+    #[test]
+    fn encode_rebase_link_next_stride_lands_in_top_bits() {
+        // next stride 3 (= 12 bytes between linked slots).
+        let v = encode_rebase_link(0, 3, 0);
+        let expected = 3u64 << 51;
+        assert_eq!(v, expected);
+        assert_eq!(v & (1u64 << 63), 0);
+    }
+
+    #[test]
+    fn encode_rebase_link_target_lands_in_low_36_bits() {
+        // Target field covers bits 35..0; pick a 36-bit-full value to
+        // confirm the mask and that high8 does not bleed through.
+        let target: u64 = 0x0000_000F_FFFF_FFFF;
+        let v = encode_rebase_link(target, 0, 0);
+        assert_eq!(v & 0x0000_000F_FFFF_FFFF, target);
+        // high8 field (bits 43..36) must be zero in the encoded word.
+        assert_eq!((v >> 36) & 0xFF, 0);
+    }
+
+    #[test]
+    fn encode_rebase_link_high8_lands_in_bits_43_36() {
+        // high8 = 0xC0 — the typical hint dyld accepts for
+        // tagged-pointer auth slots.
+        let v = encode_rebase_link(0x1234, 0, 0xC0);
+        assert_eq!(v & 0x0000_000F_FFFF_FFFF, 0x1234);
+        assert_eq!((v >> 36) & 0xFF, 0xC0);
+        assert_eq!(v & (1u64 << 63), 0);
+    }
+
+    #[test]
+    fn encode_rebase_link_distinguishable_from_bind_link() {
+        // Same numeric value (0) on both encoders — bind sets bit 63,
+        // rebase does not. dyld dispatches the chain walk on this bit.
+        let bind = encode_bind_link(0, 0, 0);
+        let rebase = encode_rebase_link(0, 0, 0);
+        assert_ne!(bind, rebase);
+        assert_eq!(bind & (1u64 << 63), 1u64 << 63);
+        assert_eq!(rebase & (1u64 << 63), 0);
     }
 
     #[test]
