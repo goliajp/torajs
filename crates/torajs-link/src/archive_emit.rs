@@ -38,6 +38,7 @@ use crate::archives_merge::merge_archive_indexes;
 use crate::data_section_emit::{
     build_data_non_text_section_64_entries, write_data_non_text_file_payloads,
 };
+use crate::data_section_layout::DataSectionLayout;
 use crate::dyld_emit::{build_data_segment, build_stubs_section, write_stubs_and_la_ptr};
 use crate::exec::LinkConfig;
 use crate::lc::{
@@ -91,17 +92,28 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     // against the same effective sym table.
     let mut member_text_payloads: Vec<Vec<u8>> = Vec::with_capacity(layout.member_layouts.len());
     let mut non_text_payloads: Vec<Vec<u8>> = Vec::new();
-    for m in &layout.member_layouts {
+    for (mi, m) in layout.member_layouts.iter().enumerate() {
         let member = &merged.per_archive_members[m.key.0][m.key.1];
         let off = m.member_text_offset_in_member as usize;
         let end = off + m.text_size as usize;
         let mut bytes = member.data[off..end].to_vec();
+        // SD-4c-prereq-c-fix-c5 — pass this member's __DATA section
+        // layouts so resolve_local_nsect can resolve `N_SECT N_EXT=0`
+        // local labels (e.g. rustc `l_anon.*`) whose target lives in
+        // __DATA rather than __TEXT.
+        let empty_data: Vec<DataSectionLayout> = Vec::new();
+        let data_sections: &[DataSectionLayout] = layout
+            .data_non_text_layouts
+            .get(mi)
+            .map(Vec::as_slice)
+            .unwrap_or(&empty_data);
         apply_member_relocs(
             &mut bytes,
             member,
             m.vaddr,
             &effective_sym_table,
             &m.non_text_sections,
+            data_sections,
         )
         .map_err(|err| ArchiveLayoutError::MemberReloc {
             archive_idx: m.key.0,

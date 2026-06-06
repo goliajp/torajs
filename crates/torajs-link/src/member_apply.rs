@@ -18,6 +18,7 @@ use torajs_obj::{
 };
 
 use crate::archive::ArMember;
+use crate::data_section_layout::DataSectionLayout;
 use crate::member_reloc::{MemberRelocEntry, MemberRelocError, parse_member_text_relocs};
 use crate::non_text_layout::NonTextSectionLayout;
 use crate::patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
@@ -140,6 +141,7 @@ pub fn apply_member_relocs(
     member_vaddr: u64,
     sym_table: &SymTable,
     non_text_sections: &[NonTextSectionLayout],
+    data_non_text_sections: &[DataSectionLayout],
 ) -> Result<(), MemberRelocApplyError> {
     let relocs = parse_member_text_relocs(member)?;
     if relocs.is_empty() {
@@ -213,6 +215,7 @@ pub fn apply_member_relocs(
                 r.r_symbolnum,
                 member_vaddr,
                 non_text_sections,
+                data_non_text_sections,
             ) {
                 v
             } else {
@@ -451,6 +454,7 @@ fn resolve_local_nsect(
     r_symbolnum: u32,
     member_vaddr: u64,
     non_text_sections: &[NonTextSectionLayout],
+    data_non_text_sections: &[DataSectionLayout],
 ) -> Option<u64> {
     const N_TYPE_MASK: u8 = 0x0E;
     const N_SECT_TYPE: u8 = 0x0E;
@@ -466,6 +470,18 @@ fn resolve_local_nsect(
         // For .o files section.addr is typically 0, so n_value is
         // the offset within the section; final target lives at
         // section.final_vaddr + n_value.
+        Some(layout.final_vaddr + n_value)
+    } else if let Some(layout) = data_non_text_sections
+        .iter()
+        .find(|s| s.section_index == n_sect)
+    {
+        // SD-4c-prereq-c-fix-c5 — `__DATA,*` sections live in the
+        // dedicated DataSectionLayout list (fix-c2/c4) rather than
+        // `non_text_sections` (which fix-c1 narrowed to `__TEXT,*`).
+        // For zerofill sections n_value is still a section-relative
+        // byte offset; final_vaddr already accounts for the layout's
+        // file vs zerofill split, so the arithmetic mirrors the
+        // __TEXT branch above.
         Some(layout.final_vaddr + n_value)
     } else if n_sect == 1 {
         // Conventional rustc-emit layout puts __TEXT,__text at
@@ -566,6 +582,7 @@ mod tests {
             0x0000_0001_0000_4000,
             &sym_table,
             &[],
+            &[],
         )
         .expect("noop on leaf");
         assert_eq!(bytes, pre, "leaf member bytes must stay untouched");
@@ -598,7 +615,7 @@ mod tests {
         let mut sym_table = SymTable::new();
         sym_table.insert("_bar".into(), 0x0000_0001_0000_5000u64);
 
-        apply_member_relocs(&mut bytes, &members[0], member_vaddr, &sym_table, &[])
+        apply_member_relocs(&mut bytes, &members[0], member_vaddr, &sym_table, &[], &[])
             .expect("apply_member_relocs");
 
         // Site = member_vaddr + 0 = 0x100004000; target = 0x100005000.
@@ -764,7 +781,7 @@ mod tests {
         let mut bytes = members[0].data[off..end].to_vec();
 
         let sym_table = SymTable::new();
-        let err = apply_member_relocs(&mut bytes, &members[0], 0x100004000, &sym_table, &[])
+        let err = apply_member_relocs(&mut bytes, &members[0], 0x100004000, &sym_table, &[], &[])
             .expect_err("missing _bar must fail");
         match err {
             MemberRelocApplyError::UnresolvedSymbol { name } => assert_eq!(name, "_bar"),
