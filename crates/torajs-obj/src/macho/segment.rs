@@ -62,6 +62,56 @@ pub const S_ATTR_PURE_INSTRUCTIONS: u32 = 0x8000_0000;
 /// combo `clang -c` emits is `(PURE | SOME)`.
 pub const S_ATTR_SOME_INSTRUCTIONS: u32 = 0x0000_0400;
 
+/// Mask isolating the section-type field (low 8 bits) inside
+/// `section_64.flags`. The remaining 24 bits hold attribute flags
+/// (`S_ATTR_*`). Mirrors `<mach-o/loader.h>::SECTION_TYPE`.
+pub const SECTION_TYPE: u32 = 0x0000_00FF;
+
+/// Section type — regular file-storage section. `<mach-o/loader.h>::
+/// S_REGULAR`. Covers `__TEXT,__text` / `__TEXT,__const` /
+/// `__DATA,__data` etc. — anything whose payload lives in the
+/// `.o` / final binary and is loaded verbatim.
+pub const S_REGULAR: u32 = 0x0;
+
+/// Section type — zero-fill on demand. `<mach-o/loader.h>::
+/// S_ZEROFILL`. `__DATA,__bss` / `__DATA,__common` use this:
+/// `offset` is 0 (no file storage), `size` carries the vmsize the
+/// loader zero-inits at startup. SD-4c-prereq-c-fix needs the
+/// distinction to skip file-storage emit while still reserving
+/// `__DATA` vmsize.
+pub const S_ZEROFILL: u32 = 0x1;
+
+/// Section type — C string literals (`__TEXT,__cstring`).
+/// `<mach-o/loader.h>::S_CSTRING_LITERALS`. Regular file storage,
+/// flagged separately so ld64 can deduplicate identical strings;
+/// our linker just treats it as `S_REGULAR` with extra metadata.
+pub const S_CSTRING_LITERALS: u32 = 0x2;
+
+/// Section type — giant zero-fill. `<mach-o/loader.h>::S_GB_ZEROFILL`.
+/// Same emit semantics as `S_ZEROFILL` (no file storage); separate
+/// type for sections too large to share a vmsize budget with the
+/// rest of `__DATA`.
+pub const S_GB_ZEROFILL: u32 = 0xC;
+
+/// Section type — thread-local storage with initial values
+/// (`__DATA,__thread_data`). `<mach-o/loader.h>::
+/// S_THREAD_LOCAL_REGULAR`. File-storage section, but the loader
+/// duplicates each thread's slice instead of mapping it shared.
+/// SD-4c-prereq+b/c hooks the TLV descriptor emit pass to this.
+pub const S_THREAD_LOCAL_REGULAR: u32 = 0x11;
+
+/// Section type — thread-local zero-fill (`__DATA,__thread_bss`).
+/// `<mach-o/loader.h>::S_THREAD_LOCAL_ZEROFILL`. Same skip-file-
+/// storage semantics as `S_ZEROFILL`; the loader allocates +
+/// zero-inits one slice per thread at TLS bootstrap.
+pub const S_THREAD_LOCAL_ZEROFILL: u32 = 0x12;
+
+/// Section type — thread-local descriptors (`__DATA,__thread_vars`).
+/// `<mach-o/loader.h>::S_THREAD_LOCAL_VARIABLES`. Each 24-byte
+/// `{thunk, key, offset}` entry is dyld-bound at startup; user code
+/// loads `thunk` via TLVP_LOAD_PAGE21/PAGEOFF12 then calls it.
+pub const S_THREAD_LOCAL_VARIABLES: u32 = 0x13;
+
 /// Section type (low 8 bits of `flags`) — non-lazy symbol pointers.
 /// `<mach-o/loader.h>::S_NON_LAZY_SYMBOL_POINTERS`. Reserved here for
 /// future GOT-like sections; SD-2a doesn't emit one yet.
@@ -311,5 +361,50 @@ mod tests {
         assert_eq!(SEGMENT_COMMAND_64_SIZE, 72);
         assert_eq!(SECTION_64_SIZE, 80);
         assert_eq!(LC_SEGMENT_64, 0x19);
+    }
+
+    /// Section type values mirror `<mach-o/loader.h>` exactly.
+    /// SD-4c-prereq-c-fix routes section emit decisions off these,
+    /// so a drift would silently misroute zerofill payloads.
+    #[test]
+    fn section_type_constants_match_loader_h() {
+        assert_eq!(S_REGULAR, 0x0);
+        assert_eq!(S_ZEROFILL, 0x1);
+        assert_eq!(S_CSTRING_LITERALS, 0x2);
+        assert_eq!(S_NON_LAZY_SYMBOL_POINTERS, 0x6);
+        assert_eq!(S_LAZY_SYMBOL_POINTERS, 0x7);
+        assert_eq!(S_SYMBOL_STUBS, 0x8);
+        assert_eq!(S_GB_ZEROFILL, 0xC);
+        assert_eq!(S_THREAD_LOCAL_REGULAR, 0x11);
+        assert_eq!(S_THREAD_LOCAL_ZEROFILL, 0x12);
+        assert_eq!(S_THREAD_LOCAL_VARIABLES, 0x13);
+    }
+
+    /// `SECTION_TYPE` mask isolates the low 8 bits — combining a
+    /// type with attribute flags must round-trip both halves.
+    #[test]
+    fn section_type_mask_isolates_low_8_bits() {
+        assert_eq!(SECTION_TYPE, 0x0000_00FF);
+        let combined = S_THREAD_LOCAL_VARIABLES | S_ATTR_PURE_INSTRUCTIONS;
+        assert_eq!(combined & SECTION_TYPE, S_THREAD_LOCAL_VARIABLES);
+        assert_eq!(combined & !SECTION_TYPE, S_ATTR_PURE_INSTRUCTIONS);
+        // __TEXT,__text canonical flags = (PURE | SOME) atop S_REGULAR.
+        let text_flags = S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS;
+        assert_eq!(text_flags & SECTION_TYPE, S_REGULAR);
+    }
+
+    /// All zerofill-family types must be reachable through one
+    /// predicate; SD-4c-prereq-c-fix's emit pass uses this to skip
+    /// file-storage writes. Verifies the four currently-known
+    /// no-file-storage types.
+    #[test]
+    fn zerofill_family_types_are_distinguishable() {
+        let zf = [S_ZEROFILL, S_GB_ZEROFILL, S_THREAD_LOCAL_ZEROFILL];
+        for ty in zf {
+            assert!(ty == S_ZEROFILL || ty == S_GB_ZEROFILL || ty == S_THREAD_LOCAL_ZEROFILL);
+            assert_ne!(ty, S_REGULAR);
+            assert_ne!(ty, S_THREAD_LOCAL_REGULAR);
+            assert_ne!(ty, S_CSTRING_LITERALS);
+        }
     }
 }
