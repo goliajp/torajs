@@ -52,10 +52,19 @@ pub(crate) fn build_stubs_section(layout: &ArchiveLayout) -> Section64 {
     }
 }
 
-/// Build the `__DATA` segment + its single `__la_symbol_ptr`
-/// section. RW protections; one 8-byte slot per dyld import,
-/// zero-init at link time.
-pub(crate) fn build_data_segment(layout: &ArchiveLayout) -> SegmentCommand64 {
+/// Build the `__DATA` segment with `__la_symbol_ptr` (SD-2) plus
+/// any caller-supplied non-text sections (SD-4c-prereq-c-fix-c4 —
+/// member `__DATA,*` regulars + zerofill). `extra_sections` lands
+/// **after** `__la_symbol_ptr` so SD-3's chained-fixups encoder's
+/// `segment_offset = 0` (= `__la_symbol_ptr`) assumption holds.
+///
+/// `vmsize` covers file storage + zerofill; `filesize` covers only
+/// the page-aligned file region the writer emits — the loader
+/// supplies zero bytes for the trailing vmsize past filesize.
+pub(crate) fn build_data_segment(
+    layout: &ArchiveLayout,
+    extra_sections: Vec<Section64>,
+) -> SegmentCommand64 {
     let la_ptr_section = Section64 {
         sectname: "__la_symbol_ptr".into(),
         segname: "__DATA".into(),
@@ -73,16 +82,19 @@ pub(crate) fn build_data_segment(layout: &ArchiveLayout) -> SegmentCommand64 {
         reserved2: 0,
         reserved3: 0,
     };
+    let mut sections = Vec::with_capacity(1 + extra_sections.len());
+    sections.push(la_ptr_section);
+    sections.extend(extra_sections);
     SegmentCommand64 {
         segname: "__DATA".into(),
         vmaddr: layout.data_vmaddr,
         vmsize: layout.data_vmsize,
         fileoff: u64::from(layout.la_ptr_file_offset),
-        filesize: layout.data_vmsize,
+        filesize: layout.data_filesize,
         maxprot: VM_PROT_READ | VM_PROT_WRITE,
         initprot: VM_PROT_READ | VM_PROT_WRITE,
         flags: 0,
-        sections: vec![la_ptr_section],
+        sections,
     }
 }
 

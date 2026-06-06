@@ -198,22 +198,17 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let text_vmsize = round_up_to(text_segment_file_end, APPLE_SILICON_PAGE_SIZE);
 
     // __DATA segment lives directly after __TEXT in both vaddr and
-    // file order (no other LC_SEGMENT_64s in between). Its vmsize
-    // is page-aligned coverage of __la_symbol_ptr.
-    let data_vmsize = if has_dyld {
-        round_up_to(la_ptr_section_size, APPLE_SILICON_PAGE_SIZE)
-    } else {
-        0
-    };
+    // file order (no other LC_SEGMENT_64s in between). data_vmsize
+    // / data_filesize / linkedit_file_offset are computed after
+    // fix-c3's compute_data_section_layouts below so the file
+    // region + zerofill vmsize can extend the segment past
+    // __la_symbol_ptr alone.
     let data_file_offset = if has_dyld { text_vmsize as u32 } else { 0 };
     let data_vmaddr = if has_dyld {
         TEXT_VMADDR_BASE + text_vmsize
     } else {
         0
     };
-
-    let linkedit_file_offset = (text_vmsize + data_vmsize) as u32;
-    let linkedit_vmaddr = TEXT_VMADDR_BASE + text_vmsize + data_vmsize;
 
     // Section vaddrs follow directly from segment vmaddrs +
     // section file offsets.
@@ -223,6 +218,69 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         0
     };
     let la_ptr_section_vaddr = data_vmaddr;
+
+    // SD-4c-prereq-c-fix-c3/c4 — compute the `__DATA,*` section
+    // layouts. has_dyld=false leaves the outer Vec empty.
+    // has_dyld=true: file region starts after `__la_symbol_ptr` so
+    // SD-3's chained_fixups encoder's segment_offset=0 (= la_ptr)
+    // invariant holds.
+    let (
+        data_non_text_layouts,
+        data_non_text_file_offset,
+        data_non_text_file_size,
+        data_non_text_zerofill_vmsize,
+    ) = if has_dyld {
+        let file_start = data_file_offset + la_ptr_section_size as u32;
+        let vaddr_start = data_vmaddr + la_ptr_section_size;
+        let res = compute_data_section_layouts(&merged, &member_keys, file_start, vaddr_start)
+            .map_err(
+                |NonTextLayoutError {
+                     archive_idx,
+                     member_idx,
+                     err,
+                 }| {
+                    ArchiveLayoutError::MemberSections {
+                        archive_idx,
+                        member_idx,
+                        err,
+                    }
+                },
+            )?;
+        (
+            res.per_member,
+            file_start,
+            res.file_region_size,
+            res.zerofill_vmsize,
+        )
+    } else {
+        (Vec::new(), 0u32, 0u32, 0u32)
+    };
+
+    // SD-4c-prereq-c-fix-c4 — __DATA segment sizes now account for
+    // member __DATA file storage + zerofill vmsize. data_filesize is
+    // page-aligned so linkedit_file_offset stays page-aligned for
+    // mmap alignment. data_vmsize covers file region + zerofill.
+    let data_total_file_size = if has_dyld {
+        la_ptr_section_size + u64::from(data_non_text_file_size)
+    } else {
+        0
+    };
+    let data_filesize = if has_dyld {
+        round_up_to(data_total_file_size, APPLE_SILICON_PAGE_SIZE)
+    } else {
+        0
+    };
+    let data_vmsize = if has_dyld {
+        round_up_to(
+            data_total_file_size + u64::from(data_non_text_zerofill_vmsize),
+            APPLE_SILICON_PAGE_SIZE,
+        )
+    } else {
+        0
+    };
+
+    let linkedit_file_offset = (text_vmsize + data_filesize) as u32;
+    let linkedit_vmaddr = TEXT_VMADDR_BASE + text_vmsize + data_vmsize;
 
     // Per-import stub vaddr stride is STUB_SIZE. BTreeMap iter is
     // sorted-by-name → stub_vaddrs key order is reproducible.
@@ -316,46 +374,6 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let chained_fixups_dataoff = if has_dyld { stroff + strsize } else { 0 };
     let chained_fixups_datasize = chained_fixups_blob.len() as u32;
 
-    // SD-4c-prereq-c-fix-c3 — compute the `__DATA,*` section
-    // layouts shadow-only. has_dyld=false leaves the outer Vec
-    // empty (no __DATA segment exists). When has_dyld=true, the
-    // file region starts right after `__la_symbol_ptr` so SD-3's
-    // chained_fixups encoder's `segment_offset=0` assumption (which
-    // points at __la_symbol_ptr) stays correct. Layout numbers
-    // (`data_vmsize`, `linkedit_file_offset` etc.) stay at their
-    // fix-c2 values — fix-c4 wires the additions in.
-    let (
-        data_non_text_layouts,
-        data_non_text_file_offset,
-        data_non_text_file_size,
-        data_non_text_zerofill_vmsize,
-    ) = if has_dyld {
-        let file_start = data_file_offset + la_ptr_section_size as u32;
-        let vaddr_start = data_vmaddr + la_ptr_section_size;
-        let res = compute_data_section_layouts(&merged, &member_keys, file_start, vaddr_start)
-            .map_err(
-                |NonTextLayoutError {
-                     archive_idx,
-                     member_idx,
-                     err,
-                 }| {
-                    ArchiveLayoutError::MemberSections {
-                        archive_idx,
-                        member_idx,
-                        err,
-                    }
-                },
-            )?;
-        (
-            res.per_member,
-            file_start,
-            res.file_region_size,
-            res.zerofill_vmsize,
-        )
-    } else {
-        (Vec::new(), 0u32, 0u32, 0u32)
-    };
-
     let codesign_dataoff = if has_dyld {
         chained_fixups_dataoff + chained_fixups_datasize
     } else {
@@ -392,6 +410,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         la_ptr_section_size,
         la_ptr_file_offset: data_file_offset,
         data_vmsize,
+        data_filesize,
         data_vmaddr,
         stub_vaddrs,
         chained_fixups_blob,

@@ -75,7 +75,17 @@ pub struct ArchiveLayout {
     pub la_ptr_section_vaddr: u64,
     pub la_ptr_section_size: u64,
     pub la_ptr_file_offset: u32,
+    /// vmsize of the `__DATA` segment — covers `__la_symbol_ptr`
+    /// plus any member `__DATA,*` file-storage + zerofill payloads.
+    /// Page-aligned per Mach-O segment-vmsize convention.
     pub data_vmsize: u64,
+    /// file size of the `__DATA` segment — covers `__la_symbol_ptr`
+    /// plus member `__DATA,*` *file-storage* payloads only (zerofill
+    /// sections occupy vmsize beyond filesize). Page-aligned so the
+    /// next segment's fileoff stays page-aligned too. SD-4c-prereq-
+    /// c-fix-c4 — before fix-c4 the segment had no zerofill so
+    /// filesize == vmsize trivially.
+    pub data_filesize: u64,
     pub data_vmaddr: u64,
     /// SD-2a — per-import stub vaddr (sorted by name).
     pub stub_vaddrs: BTreeMap<String, u64>,

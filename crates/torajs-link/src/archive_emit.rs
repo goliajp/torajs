@@ -35,6 +35,9 @@ use torajs_obj::{
 
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError, compute_archive_layout};
 use crate::archives_merge::merge_archive_indexes;
+use crate::data_section_emit::{
+    build_data_non_text_section_64_entries, write_data_non_text_file_payloads,
+};
 use crate::dyld_emit::{build_data_segment, build_stubs_section, write_stubs_and_la_ptr};
 use crate::exec::LinkConfig;
 use crate::lc::{
@@ -109,11 +112,31 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         // SD-4c-prereq-c — slice each non-text section's bytes out of
         // the member, in the order compute_non_text_layouts assigned
         // them final file offsets (sorted by member, then section
-        // walk order inside each member).
+        // walk order inside each member). fix-c1 filters
+        // __DATA / zerofill out of `m.non_text_sections`, so this
+        // loop only emits `__TEXT,*` regular payloads.
         for s in &m.non_text_sections {
             let off = s.member_internal_offset as usize;
             let end = off + s.size as usize;
             non_text_payloads.push(member.data[off..end].to_vec());
+        }
+    }
+
+    // SD-4c-prereq-c-fix-c4 — collect file-storage `__DATA,*` section
+    // payloads (skipping zerofill — loader supplies their bytes at
+    // startup). Order mirrors `build_data_non_text_section_64_entries`
+    // so emit + section table stay synchronized.
+    let mut data_non_text_payloads: Vec<Vec<u8>> = Vec::new();
+    for (i, per_member) in layout.data_non_text_layouts.iter().enumerate() {
+        let member = &merged.per_archive_members[layout.member_layouts[i].key.0]
+            [layout.member_layouts[i].key.1];
+        for s in per_member {
+            if !s.has_file_storage {
+                continue;
+            }
+            let off = s.member_internal_offset as usize;
+            let end = off + s.size as usize;
+            data_non_text_payloads.push(member.data[off..end].to_vec());
         }
     }
 
@@ -122,6 +145,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &layout,
         &member_text_payloads,
         &non_text_payloads,
+        &data_non_text_payloads,
         &resolved,
     );
     Ok(bytes)
@@ -136,6 +160,7 @@ fn emit_binary(
     layout: &ArchiveLayout,
     member_text_payloads: &[Vec<u8>],
     non_text_payloads: &[Vec<u8>],
+    data_non_text_payloads: &[Vec<u8>],
     resolved: &[crate::resolve::ResolvedFunction],
 ) -> Vec<u8> {
     // SD-1: when the worklist surfaced dyld-resolved externs we
@@ -171,13 +196,23 @@ fn emit_binary(
     // ncmds delta (when has_dyld): +load_dylib_count LC_LOAD_DYLIBs,
     // +1 LC_SEGMENT_64 __DATA, +1 LC_DYLD_CHAINED_FIXUPS (SD-3).
     let extra_lc_count = if has_dyld { load_dylib_count + 2 } else { 0 };
+    // SD-4c-prereq-c-fix-c4 — each member `__DATA,*` section adds
+    // one section_64 entry to the __DATA segment's section table
+    // (both regular file-storage and zerofill).
+    let data_non_text_section_count: u32 = layout
+        .data_non_text_layouts
+        .iter()
+        .map(|v| v.len() as u32)
+        .sum();
     let extra_lc_size = if has_dyld {
         load_dylib_size
             // __TEXT gains a second SECTION_64 entry (__stubs).
             + SECTION_64_SIZE
-            // __DATA segment + its single __la_symbol_ptr section.
+            // __DATA segment + its `__la_symbol_ptr` section, plus
+            // any member `__DATA,*` sections (fix-c4).
             + SEGMENT_COMMAND_64_SIZE
             + SECTION_64_SIZE
+            + (SECTION_64_SIZE * data_non_text_section_count)
             // SD-3: LC_DYLD_CHAINED_FIXUPS (linkedit_data_command).
             + LINKEDIT_DATA_CMDSIZE
     } else {
@@ -258,8 +293,13 @@ fn emit_binary(
 
     // SD-2a: __DATA segment + __la_symbol_ptr section between
     // __TEXT and __LINKEDIT (only when has_libsystem).
+    // SD-4c-prereq-c-fix-c4: __DATA gains one section per member
+    // `__DATA,*` (file-storage + zerofill), appended after
+    // __la_symbol_ptr so SD-3's chained_fixups encoder's
+    // segment_offset=0 invariant on __la_symbol_ptr holds.
     let data_segment_opt = if has_dyld {
-        Some(build_data_segment(layout))
+        let extra_sections = build_data_non_text_section_64_entries(layout);
+        Some(build_data_segment(layout, extra_sections))
     } else {
         None
     };
@@ -360,8 +400,14 @@ fn emit_binary(
     }
 
     // SD-2a: emit __stubs payload + zero-init __la_symbol_ptr.
+    // SD-4c-prereq-c-fix-c4: append member `__DATA,*` file-storage
+    // payloads right after la_ptr (within the same __DATA segment
+    // file region). Zerofill sections contribute no file bytes —
+    // loader supplies them at startup; their vmsize accounts for
+    // the trailing pad up to `layout.linkedit_file_offset`.
     if has_dyld {
         write_stubs_and_la_ptr(&mut buf, layout);
+        write_data_non_text_file_payloads(&mut buf, data_non_text_payloads);
     }
 
     pad_to(&mut buf, layout.linkedit_file_offset as usize);
@@ -710,7 +756,7 @@ mod tests {
         // Drive emit_binary directly — apply_relocs is happy
         // because cfg.sym_table covers `_malloc`.
         let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &cfg.sym_table);
-        let bytes = emit_binary(&cfg, &layout, &[], &[], &resolved);
+        let bytes = emit_binary(&cfg, &layout, &[], &[], &[], &resolved);
 
         assert_eq!(
             bytes.len() as u32,
