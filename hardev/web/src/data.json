@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-05T23:56:43.210Z",
+  "generatedAt": "2026-06-06T02:29:10.785Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
     "fail": 0,
     "skip": 4,
     "raw": "723/0/4",
-    "source": "/tmp/torajs-conformance-e10b166.log",
-    "sourceMtime": "2026-06-05T23:23:57.278Z"
+    "source": "/tmp/torajs-conformance-0c65b29.log",
+    "sourceMtime": "2026-06-06T02:12:47.801Z"
   },
   "test262": {
     "ranAt": "2026-06-03T22:49:10Z",
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "fe31600",
-    "commitSubject": "chore(toolchain): add rust-analyzer component",
+    "commit": "0c65b29",
+    "commitSubject": "feat(link): TLVP_LOAD reloc dispatch (PAGE21 + PAGEOFF12) — #9 SD-4c-prereq+a",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -37,8 +37,8 @@
       "fail": 0,
       "skip": 4,
       "raw": "723/0/4",
-      "source": "/tmp/torajs-conformance-e10b166.log",
-      "sourceMtime": "2026-06-05T23:23:57.278Z"
+      "source": "/tmp/torajs-conformance-0c65b29.log",
+      "sourceMtime": "2026-06-06T02:12:47.801Z"
     }
   },
   "roadmap": [
@@ -611,73 +611,84 @@
   },
   "commits": [
     {
+      "hash": "0c65b29",
+      "subject": "feat(link): TLVP_LOAD reloc dispatch (PAGE21 + PAGEOFF12) — #9 SD-4c-prereq+a"
+    },
+    {
+      "hash": "cedf906",
+      "subject": "refactor(link): extract resolve_local_nsect + MemberSymtab — #9 SD-4c-prereq-c-fix-c5-extract"
+    },
+    {
+      "hash": "c980e58",
+      "subject": "feat(link): resolve_local_nsect fallbacks to __DATA layouts — #9 SD-4c-prereq-c-fix-c5"
+    },
+    {
+      "hash": "01e8e51",
+      "subject": "feat(link): emit __DATA non-text sections + zerofill vmsize — #9 SD-4c-prereq-c-fix-c4"
+    },
+    {
+      "hash": "0770cc7",
+      "subject": "feat(link): wire compute_data_section_layouts into ArchiveLayout — #9 SD-4c-prereq-c-fix-c3"
+    },
+    {
+      "hash": "e3c875f",
+      "subject": "feat(link): DataSectionLayout + compute_data_section_layouts — #9 SD-4c-prereq-c-fix-c2"
+    },
+    {
+      "hash": "bf6700d",
+      "subject": "feat(link): filter __DATA + zerofill from text non-text region — #9 SD-4c-prereq-c-fix-c1"
+    },
+    {
+      "hash": "49d2804",
+      "subject": "feat(link): MemberSectionInfo.flags + zerofill / TLV predicates — #9 SD-4c-prereq-c-fix-b"
+    },
+    {
+      "hash": "152f2b3",
+      "subject": "feat(obj): section type consts + SECTION_TYPE mask — #9 SD-4c-prereq-c-fix-a"
+    },
+    {
+      "hash": "e94e5a1",
+      "subject": "chore(hardev): dashboard snapshot @ fe31600"
+    },
+    {
       "hash": "fe31600",
       "subject": "chore(toolchain): add rust-analyzer component"
     },
     {
       "hash": "e10b166",
       "subject": "feat(link): emit non-text payloads + grow __text — #9 SD-4c-prereq-c"
-    },
-    {
-      "hash": "1b6065b",
-      "subject": "feat(link): apply SectionRef arm + local N_SECT resolve — #9 SD-4c-prereq-b3"
-    },
-    {
-      "hash": "c6324b0",
-      "subject": "feat(link): NonTextSectionLayout + shadow layout for member non-text — #9 SD-4c-prereq-b2"
-    },
-    {
-      "hash": "8d0433f",
-      "subject": "feat(link): collect_member_sections — #9 SD-4c-prereq-b1"
-    },
-    {
-      "hash": "222b28d",
-      "subject": "feat(link): PatchKind + classify_section_reloc for r_extern=0 — #9 SD-4c-prereq-a"
-    },
-    {
-      "hash": "84f0656",
-      "subject": "chore(lock): stage torajs-print Cargo.lock entry — SD-4a follow-up"
-    },
-    {
-      "hash": "9bf29e7",
-      "subject": "feat(link): multi-dylib LC_LOAD_DYLIB libcurl substrate — #9 SD-4b"
-    },
-    {
-      "hash": "167fc50",
-      "subject": "feat(print): port _print_bool/_i64/_f64 to torajs-print staticlib — #9 SD-4a"
-    },
-    {
-      "hash": "9dea439",
-      "subject": "feat(link): wire LC_DYLD_CHAINED_FIXUPS + chain-link __la_symbol_ptr — #9 SD-3b"
-    },
-    {
-      "hash": "9f71a56",
-      "subject": "feat(link): LC_DYLD_CHAINED_FIXUPS blob encoder + slot link encoder — #9 SD-3a"
-    },
-    {
-      "hash": "9231fe6",
-      "subject": "feat(link): route libSystem reloc through stub trampolines — #9 SD-2b"
     }
   ],
-  "headSha": "fe31600",
+  "headSha": "0c65b29",
   "autorun": {
-    "total": 57,
+    "total": 58,
     "baselineTarget": 10,
-    "bySelf": 56,
+    "bySelf": 57,
     "byManual": 1,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780663453-6883",
-      "at": "2026-06-05T12:44:13Z",
-      "ts": 1780663453,
+      "rotationId": "r-1780703920-466d",
+      "at": "2026-06-05T23:58:40Z",
+      "ts": 1780703920,
       "trigger": "self",
-      "prevHead": "edfdfe2",
-      "handoffSha": "sha256:18e07fd1597cd94e1b9ca359b3d28f265be66fdbdde3b0ed80fcf5e5388073a1",
-      "handoffAgeSec": 124454,
+      "prevHead": "e94e5a1",
+      "handoffSha": "sha256:a6135777c15b379cc6418de3ef814ade444a7940714d6aa1d9a804021cb776e0",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780703920-466d",
+        "at": "2026-06-05T23:58:40Z",
+        "ts": 1780703920,
+        "trigger": "self",
+        "prevHead": "e94e5a1",
+        "handoffSha": "sha256:a6135777c15b379cc6418de3ef814ade444a7940714d6aa1d9a804021cb776e0",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780663453-6883",
         "at": "2026-06-05T12:44:13Z",
@@ -774,17 +785,6 @@
         "prevHead": "4457b9e",
         "handoffSha": "sha256:dc362cac54c2aeff551ae283c0bc817083a8d252744d43e49414ec8618b7b2c1",
         "handoffAgeSec": 7,
-        "conformanceBefore": "687/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780016240-3ff5",
-        "at": "2026-05-29T00:57:20Z",
-        "ts": 1780016240,
-        "trigger": "self",
-        "prevHead": "4988982",
-        "handoffSha": "sha256:f56d6db315b49441a15f73979083fd3f3f03e3c01ec8754cca56b51cae3dcfcf",
-        "handoffAgeSec": 6,
         "conformanceBefore": "687/0/1",
         "commitsInSession": null
       }
