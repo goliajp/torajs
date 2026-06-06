@@ -81,6 +81,14 @@ pub struct DataSectionLayout {
     /// first byte lives — always valid for both file-storage and
     /// zerofill sections.
     pub final_vaddr: u64,
+    /// `section_64.addr` from inside the source `.o` member. Needed
+    /// by SD-4c-prereq+b2 to recover descriptor-relative offsets:
+    /// rustc emits non-zero `member_addr` for `__DATA,*` sections in
+    /// `.rcgu.o` members (cumulative section addresses), and
+    /// `nlist.n_value` for a thread-local sym equals `member_addr +
+    /// offset_in_section`. Without this, the layout pass can't tell
+    /// which descriptor a given sym refers to.
+    pub member_addr: u64,
 }
 
 /// Output of [`compute_data_section_layouts`]. `per_member[i]` lines
@@ -177,6 +185,7 @@ pub fn compute_data_section_layouts(
                 has_file_storage: true,
                 final_file_offset,
                 final_vaddr,
+                member_addr: sec.member_addr,
             });
             file_cursor += sec.size;
         }
@@ -208,6 +217,7 @@ pub fn compute_data_section_layouts(
                 has_file_storage: false,
                 final_file_offset: 0,
                 final_vaddr,
+                member_addr: sec.member_addr,
             });
             zerofill_cursor += sec.size;
         }

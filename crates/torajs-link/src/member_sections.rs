@@ -83,6 +83,15 @@ pub struct MemberSectionInfo {
     /// helpers [`is_no_file_storage`] and [`is_tlv_descriptor`]
     /// encapsulate the common predicates.
     pub flags: u32,
+    /// `section_64.addr` — the section's vmaddr **as declared inside
+    /// the `.o`**. Conventionally 0 for `__text` sections (clang +
+    /// torajs-obj emit 0), but **non-zero for `__DATA,*` sections in
+    /// rustc-emit `.rcgu.o` members** — rustc packs descriptor
+    /// tables at cumulative section offsets so `nlist.n_value` for
+    /// a thread-local sym equals `member_addr + offset_in_section`.
+    /// SD-4c-prereq+b2 reads this to recover the descriptor-relative
+    /// offset (`offset = n_value - member_addr`).
+    pub member_addr: u64,
 }
 
 /// Walk a member's `LC_SEGMENT_64` chain and yield every section in
@@ -146,6 +155,7 @@ pub fn collect_member_sections(
             sectname.copy_from_slice(&bytes[sec..sec + 16]);
             let mut segname = [0u8; 16];
             segname.copy_from_slice(&bytes[sec + 16..sec + 32]);
+            let addr = u64::from_le_bytes(bytes[sec + 32..sec + 40].try_into().unwrap());
             let size = u64::from_le_bytes(bytes[sec + 40..sec + 48].try_into().unwrap());
             let offset = u32::from_le_bytes(bytes[sec + 48..sec + 52].try_into().unwrap());
             let flags = u32::from_le_bytes(bytes[sec + 64..sec + 68].try_into().unwrap());
@@ -158,6 +168,7 @@ pub fn collect_member_sections(
                 member_internal_offset: offset,
                 size: size as u32,
                 flags,
+                member_addr: addr,
             });
             next_index += 1;
         }

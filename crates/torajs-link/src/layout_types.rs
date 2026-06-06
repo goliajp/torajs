@@ -17,7 +17,7 @@ use crate::member_apply::MemberRelocApplyError;
 use crate::member_reloc::MemberRelocError;
 use crate::member_text::MemberTextError;
 use crate::non_text_layout::NonTextSectionLayout;
-use crate::tlv_descriptor_layout::TlvDescriptorLayout;
+use crate::tlv_descriptor_layout::{TlvDescriptorLayout, TlvSymOverrideError};
 
 /// Per-archive-member computed data the S7-C4 emit pass needs.
 /// `defined_syms` carries `(name, n_value)` exactly as the member's
@@ -164,4 +164,13 @@ pub enum ArchiveLayoutError {
         member_idx: usize,
         err: MemberRelocError,
     },
+    /// SD-4c-prereq+b2 — TLV sym vaddr override pass rejected a
+    /// member. Wraps the underlying [`TlvSymOverrideError`].
+    TlvOverride(TlvSymOverrideError),
+}
+
+impl From<TlvSymOverrideError> for ArchiveLayoutError {
+    fn from(err: TlvSymOverrideError) -> Self {
+        ArchiveLayoutError::TlvOverride(err)
+    }
 }

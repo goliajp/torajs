@@ -179,6 +179,7 @@ mod tests {
                 has_file_storage: true,
                 final_file_offset: 0x6000,
                 final_vaddr: 0xDA00_0000,
+                member_addr: 0,
             },
             DataSectionLayout {
                 section_index: 4,
@@ -190,6 +191,7 @@ mod tests {
                 has_file_storage: false,
                 final_file_offset: 0,
                 final_vaddr: 0xDA00_0010,
+                member_addr: 0,
             },
         ]];
         let entries = build_data_non_text_section_64_entries(&layout);

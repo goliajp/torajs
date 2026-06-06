@@ -51,6 +51,7 @@ use crate::lc::{
 use crate::member_apply::apply_member_relocs;
 use crate::resolve::apply_relocs;
 use crate::sign::build_adhoc_codesign_blob;
+use crate::tlv_descriptor_layout::apply_tlv_overrides;
 
 /// Link a `LinkConfig` whose `archives` field is populated into a
 /// complete Mach-O `MH_EXECUTE` byte stream — ad-hoc codesigned,
@@ -84,6 +85,11 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     for (name, stub_vaddr) in &layout.stub_vaddrs {
         effective_sym_table.insert(name.clone(), *stub_vaddr);
     }
+
+    // SD-4c-prereq+b2 — override thread-local sym vaddrs to descriptor
+    // vaddrs (raw `m.vaddr + n_value` lands a __DATA offset on __TEXT,
+    // wrong region). prereq+c dyld-binds each thunk slot.
+    apply_tlv_overrides(&layout, &merged, &mut effective_sym_table)?;
 
     // Resolve user-function relocs against the effective sym table.
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
