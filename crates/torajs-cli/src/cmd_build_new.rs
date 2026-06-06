@@ -258,7 +258,7 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
         });
     }
 
-    let data_globals: Vec<UserDataGlobalEntry> = ssa_module
+    let mut data_globals: Vec<UserDataGlobalEntry> = ssa_module
         .data_globals
         .iter()
         .map(|dg| {
@@ -270,6 +270,28 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
             }
         })
         .collect();
+    // SD-4c-prereq swap-2c — ssa_inkwell's `emit_class_layouts` pass
+    // (T-26.C cycle collector metadata) synthesizes two LLVM globals
+    // that libtorajs_cycle.a references unconditionally:
+    //   `__torajs_n_class_layouts` (u32) — class-tag table length
+    //   `__torajs_class_layouts`   (ptr) — class-tag table base
+    // The new pipeline lacks that emit pass; reserve zerofill slots
+    // so the syms resolve. For class-free programs (the leaf-fixture
+    // smoke), zero / null is the correct value and the cycle
+    // collector short-circuits. Class-bearing programs need a real
+    // emit pass (swap-3+); flagged in plan-state.
+    // Sym names use the Apple `_`-prefixed Mach-O export form because
+    // archive members reference them through `nlist` strtab entries.
+    data_globals.push(UserDataGlobalEntry {
+        sym: "___torajs_n_class_layouts".into(),
+        size: 4,
+        align_log2: 2,
+    });
+    data_globals.push(UserDataGlobalEntry {
+        sym: "___torajs_class_layouts".into(),
+        size: 8,
+        align_log2: 3,
+    });
 
     // vtable slots resolve via `register_fn_addr_syms`'s `__torajs_fn_<i>`
     // override (codegen's `FnAddr` convention) — see
