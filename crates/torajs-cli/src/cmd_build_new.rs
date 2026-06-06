@@ -12,6 +12,7 @@
 use std::process::ExitCode;
 
 use torajs_codegen::compile_function;
+use torajs_codegen::reloc::{CallTarget, RelocKind};
 use torajs_core::ssa::{FuncId, Module, Type};
 use torajs_core::{TORAJS_STATICLIBS, ast, check, lexer, modules, parser, ssa_lower};
 use torajs_link::archive_emit::link_to_exec_with_archives;
@@ -195,11 +196,36 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
     // The synthesized top-level wrapper ssa_lower emits as "main" needs
     // to surface as the Apple Silicon `_main` entry — rename after
     // compile so `LinkConfig.entry = "_main"` resolves.
+    //
+    // SSA's `funcs` includes ~370 extern declarations (runtime
+    // intrinsics with `is_declaration() == true`). Those have no body
+    // and `compile_function` would emit a stub prologue at a zero-byte
+    // vaddr, collapsing every extern call onto the same address. The
+    // orthodox fix is to leave them in the slot space (so caller FuncIds
+    // stay stable) but emit empty bytes AND rewrite any reloc targeting
+    // them from `CallTarget::Func(fid)` to `CallTarget::Extern("_name")`
+    // so the link layer resolves through the archive symbol table
+    // (`___torajs_*` with Apple's `_` prefix). Mirrors how LLVM/clang
+    // distinguishes external declarations from internal definitions.
     let mut funcs: Vec<_> = ssa_module
         .funcs
         .iter()
-        .map(compile_function)
+        .map(|f| {
+            if f.is_declaration() {
+                // Reserve a fn_vaddrs slot with empty bytes so call-site
+                // reloc rewrites below preserve FuncId indexing.
+                torajs_codegen::CompiledFunction {
+                    name: f.name.clone(),
+                    bytes: Vec::new(),
+                    relocs: Vec::new(),
+                    frame: torajs_codegen::frame::FrameLayout::leaf_no_spill(),
+                }
+            } else {
+                compile_function(f)
+            }
+        })
         .collect::<Vec<_>>();
+    rewrite_extern_relocs(&mut funcs, &ssa_module.funcs);
     for cf in funcs.iter_mut() {
         if cf.name == "main" {
             cf.name = ENTRY_SYM.to_string();
@@ -274,6 +300,52 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
         data_globals,
         vtable_globals,
     }
+}
+
+/// Rewrite `CallSite{Func(fid)}` relocs that target an extern declaration
+/// into `CallSite{Extern("_<name>")}` so the link layer resolves them
+/// through the archive symbol table (`___torajs_*` Apple form) instead
+/// of a stale fn_vaddrs slot. Page21 / PageOff12 / AbsPtr64 with
+/// `target_sym = "__torajs_fn_<fid>"` pointing at an extern get the same
+/// treatment — FnAddr of an extern becomes an external sym ref.
+fn rewrite_extern_relocs(
+    compiled: &mut [torajs_codegen::CompiledFunction],
+    ssa_funcs: &[torajs_core::ssa::Function],
+) {
+    let is_extern: Vec<bool> = ssa_funcs.iter().map(|f| f.is_declaration()).collect();
+    for cf in compiled.iter_mut() {
+        for r in cf.relocs.iter_mut() {
+            match &mut r.kind {
+                RelocKind::CallSite {
+                    target: CallTarget::Func(fid),
+                } if is_extern[fid.0 as usize] => {
+                    let name = ssa_funcs[fid.0 as usize].name.clone();
+                    r.kind = RelocKind::CallSite {
+                        target: CallTarget::Extern(format!("_{name}")),
+                    };
+                }
+                RelocKind::Page21 { target_sym }
+                | RelocKind::PageOff12 { target_sym }
+                | RelocKind::AbsPtr64 { target_sym } => {
+                    if let Some(fid) = parse_fn_addr_sym(target_sym)
+                        && fid < is_extern.len()
+                        && is_extern[fid]
+                    {
+                        *target_sym = format!("_{}", ssa_funcs[fid].name);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Parse `"__torajs_fn_<n>"` → `<n>` (the original FuncId index), or
+/// `None` for any other sym name. Matches the codegen FnAddr convention
+/// in `crates/torajs-codegen/src/compile/refs.rs:106`.
+fn parse_fn_addr_sym(sym: &str) -> Option<usize> {
+    sym.strip_prefix("__torajs_fn_")
+        .and_then(|tail| tail.parse().ok())
 }
 
 /// SSA `Type` → `(slot size in bytes, log2 alignment)` for
