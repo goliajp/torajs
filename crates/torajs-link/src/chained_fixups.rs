@@ -71,7 +71,39 @@
 
 use std::collections::BTreeMap;
 
-use crate::chained_fixups_starts::{build_starts_in_segment, round_up_4};
+use crate::chained_fixups_starts::{RebaseTarget, build_starts_in_segment, round_up_4};
+
+/// SD-4c-prereq+e7b-3 — `__TEXT` segment rebase descriptor.
+///
+/// Modern arm64 macOS binaries carry user-vtable slots inside
+/// `__TEXT,__const` / `__cstring` rodata. Each slot is an 8-byte
+/// chained-fixup link whose `target` field is the offset from
+/// `text_vmaddr` to a `__torajs_fn_<fid>` body — dyld walks the
+/// `__TEXT` chain at load time, adds the ASLR slide, and stamps
+/// the runtime address into the slot. Pass `Some(...)` to
+/// [`build_chained_fixups`] when the binary has at least one
+/// vtable; pass `None` for syscall-abort / `_malloc` / `_str_alloc`
+/// probes that ship no vtable at all.
+#[derive(Debug, Clone)]
+pub struct TextRebaseScope<'a> {
+    /// Offset of `__TEXT` segment from the image base — equal to
+    /// `0` in our PAGEZERO+TEXT+DATA+LINKEDIT layout because
+    /// `__PAGEZERO` is unmapped and `__TEXT` is the first mapped
+    /// segment.
+    pub text_segment_vmaddr_offset: u64,
+    /// `__TEXT` segment's vmsize (rounded up to whole pages by
+    /// dyld), used to size the per-segment `page_start[]` table.
+    pub text_segment_vmsize: u64,
+    /// 0-based index of `__TEXT` inside the segment-ordered LC
+    /// chain (= `1` in our PAGEZERO+TEXT+DATA+LINKEDIT order).
+    pub text_seg_idx: u32,
+    /// Per-vtable-slot rebase targets — `(offset_in_text_segment,
+    /// target_offset_in_image)`. The matching encoded link values
+    /// come back as `ChainedFixupsBlob.text_rebase_link_values` in
+    /// the same order, so the emit pass can splice each one onto
+    /// its slot byte position.
+    pub rebase_targets: &'a [RebaseTarget],
+}
 
 /// `dyld_chained_fixups_header.imports_format` — one
 /// `dyld_chained_import` per import, packed 32-bit entries.
@@ -127,6 +159,12 @@ pub struct ChainedFixupsBlob {
     /// with the corresponding `TlvDescriptorLayout::thunk_slot_vaddr`
     /// and overwrites the 8-byte slot in the binary.
     pub tlv_thunk_link_values: Vec<u64>,
+    /// SD-4c-prereq+e7b-3 — per vtable-rebase-slot encoded link
+    /// value, indexed by `TextRebaseScope.rebase_targets[i]` input
+    /// order. Empty when the caller passed `text_rebase: None`.
+    /// The emit pass overwrites each `__vtable_<C>` slot byte
+    /// position with the corresponding 8-byte LE value.
+    pub text_rebase_link_values: Vec<u64>,
 }
 
 /// Encode one chain link for `__DATA,__la_symbol_ptr`. `ordinal`
@@ -245,9 +283,11 @@ pub fn build_chained_fixups(
     tlv_thunk_offsets: &[u64],
     seg_count: u32,
     data_seg_idx: u32,
+    text_rebase: Option<&TextRebaseScope<'_>>,
 ) -> ChainedFixupsBlob {
+    let has_text_rebase = text_rebase.is_some_and(|r| !r.rebase_targets.is_empty());
     debug_assert!(
-        !la_ptr_imports.is_empty() || !tlv_thunk_offsets.is_empty(),
+        !la_ptr_imports.is_empty() || !tlv_thunk_offsets.is_empty() || has_text_rebase,
         "build_chained_fixups must be called with at least one chain \
          participant — empty case should short-circuit upstream"
     );
@@ -259,6 +299,23 @@ pub fn build_chained_fixups(
         data_segment_vmsize > 0,
         "data_segment_vmsize must be non-zero when chain participants exist"
     );
+    if let Some(r) = text_rebase {
+        debug_assert!(
+            r.text_seg_idx < seg_count,
+            "text_seg_idx {} must be < seg_count {seg_count}",
+            r.text_seg_idx,
+        );
+        debug_assert!(
+            r.text_seg_idx != data_seg_idx,
+            "text_seg_idx {} must differ from data_seg_idx {data_seg_idx} — \
+             __TEXT and __DATA cannot share a segment slot",
+            r.text_seg_idx,
+        );
+        debug_assert!(
+            r.text_segment_vmsize > 0,
+            "text_segment_vmsize must be non-zero when rebase_targets is non-empty",
+        );
+    }
 
     // Layout the imports table in two consecutive ordinal ranges
     // so callers can map per-slot ordinals back without a name
@@ -279,18 +336,16 @@ pub fn build_chained_fixups(
         imports_seq.push((TLV_BOOTSTRAP_SYMBOL, LIBSYSTEM_LIB_ORDINAL));
     }
 
-    // Build the dyld_chained_starts_in_segment for __DATA with one
-    // page_start[] entry per __DATA page. Every chain participant
-    // (la-ptr slot + tlv thunk slot) is bucketed into its page
+    // Build per-segment dyld_chained_starts_in_segment blocks:
+    // - __DATA always carries la-ptr binds + TLV thunk binds.
+    // - __TEXT only when text_rebase carries vtable rebase slots.
+    //
+    // Every chain participant gets bucketed into its segment page
     // and ordered by offset within the page. Walk each bucket to
-    // emit a single chain via `next_stride` links; chains never
-    // cross page boundaries — each page starts its own chain via
+    // emit one chain via `next_stride` links; chains never cross
+    // page boundaries — each page starts its own chain via
     // page_start[page_idx].
-    // SD-4c-prereq+e7b-2: rebase_targets is the slice of vtable
-    // rebase slots for this segment. __DATA-only callers (every
-    // existing caller until e7b-3) pass an empty slice so the
-    // bind-chain path is unchanged.
-    let starts_in_segment = build_starts_in_segment(
+    let data_starts = build_starts_in_segment(
         la_ptr_imports,
         la_ptr_offset_in_segment,
         data_segment_vmaddr_offset,
@@ -299,36 +354,48 @@ pub fn build_chained_fixups(
         tlv_import_ordinal,
         &[],
     );
-    // __DATA-only build_chained_fixups never supplies rebase targets
-    // (vtable rebase lives in __TEXT and goes through the e7b-3
-    // multi-segment path). Loudly fail if a future caller change
-    // accidentally feeds rebase into this single-segment entry.
     debug_assert!(
-        starts_in_segment.rebase_link_values.is_empty(),
-        "__DATA single-segment build_chained_fixups must not receive \
-         rebase targets — wire them through the multi-seg starts_in_image \
-         path instead",
+        data_starts.rebase_link_values.is_empty(),
+        "__DATA bucketer must not receive rebase targets — wire them \
+         through TextRebaseScope so the per-seg dispatch stays clean",
     );
+    let text_starts = text_rebase.map(|r| {
+        build_starts_in_segment(
+            &BTreeMap::new(),
+            0,
+            r.text_segment_vmaddr_offset,
+            r.text_segment_vmsize,
+            &[],
+            0,
+            r.rebase_targets,
+        )
+    });
 
     // Build dyld_chained_starts_in_image. Per-segment
     // seg_info_offset[] entries are `0` for segments with no
-    // chains, or an offset into this very buffer (relative to
-    // its start) for segments that do.
+    // chains, or the byte offset (from the starts_in_image base)
+    // of that segment's `dyld_chained_starts_in_segment` block.
+    // __DATA always lives directly after the seg_info_offset[]
+    // table; __TEXT (when present) follows __DATA.
     let starts_in_image_header_size: u32 = 4 + 4 * seg_count;
+    let data_starts_off = starts_in_image_header_size;
+    let text_starts_off = data_starts_off + data_starts.bytes.len() as u32;
     let mut starts_in_image: Vec<u8> = Vec::with_capacity(starts_in_image_header_size as usize);
     starts_in_image.extend_from_slice(&seg_count.to_le_bytes());
     for seg in 0..seg_count {
         let off: u32 = if seg == data_seg_idx {
-            starts_in_image_header_size
+            data_starts_off
+        } else if text_starts.is_some() && text_rebase.is_some_and(|r| seg == r.text_seg_idx) {
+            text_starts_off
         } else {
             0
         };
         starts_in_image.extend_from_slice(&off.to_le_bytes());
     }
 
-    // Concatenate: header + starts_in_image + starts_in_segment
-    // → imports table → symbol strings.
-    let starts_total_size = starts_in_image.len() + starts_in_segment.bytes.len();
+    // Concatenate: header + starts_in_image + per-seg starts → imports → symbols.
+    let text_starts_bytes_len = text_starts.as_ref().map_or(0, |s| s.bytes.len());
+    let starts_total_size = starts_in_image.len() + data_starts.bytes.len() + text_starts_bytes_len;
     let imports_offset = FIXUPS_HEADER_SIZE + starts_total_size as u32;
     let imports_offset = round_up_4(imports_offset);
     let imports_count = imports_seq.len() as u32;
@@ -377,7 +444,10 @@ pub fn build_chained_fixups(
     debug_assert_eq!(blob.len() as u32, FIXUPS_HEADER_SIZE);
 
     blob.extend_from_slice(&starts_in_image);
-    blob.extend_from_slice(&starts_in_segment.bytes);
+    blob.extend_from_slice(&data_starts.bytes);
+    if let Some(ref ts) = text_starts {
+        blob.extend_from_slice(&ts.bytes);
+    }
     while blob.len() < imports_offset as usize {
         blob.push(0);
     }
@@ -387,10 +457,14 @@ pub fn build_chained_fixups(
     }
     blob.extend_from_slice(&sym_blob);
 
+    let text_rebase_link_values = text_starts
+        .map(|ts| ts.rebase_link_values)
+        .unwrap_or_default();
     ChainedFixupsBlob {
         blob,
-        la_ptr_slot_values: starts_in_segment.la_ptr_slot_values,
-        tlv_thunk_link_values: starts_in_segment.tlv_thunk_link_values,
+        la_ptr_slot_values: data_starts.la_ptr_slot_values,
+        tlv_thunk_link_values: data_starts.tlv_thunk_link_values,
+        text_rebase_link_values,
     }
 }
 
@@ -483,7 +557,7 @@ mod tests {
     #[test]
     fn single_import_blob_layout_invariants() {
         let imports = imports_of(&["_malloc"]);
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None);
         // Single slot, chain-end encoding.
         assert_eq!(result.la_ptr_slot_values.len(), 1);
         assert_eq!(result.la_ptr_slot_values[0], 0x8000_0000_0000_0000);
@@ -526,7 +600,7 @@ mod tests {
     #[test]
     fn multi_import_slot_values_chain_through_then_terminate() {
         let imports = imports_of(&["_malloc", "_free", "_pthread_create"]);
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None);
         // BTreeSet iter order = sorted: _free, _malloc, _pthread_create
         assert_eq!(result.la_ptr_slot_values.len(), 3);
         // First two slots have next = 2 (8 bytes ahead at stride 4).
@@ -547,7 +621,7 @@ mod tests {
         let imports = imports_of(&["_malloc"]);
         // seg_count = 4 (PAGEZERO + TEXT + DATA + LINKEDIT),
         // __DATA is at index 2.
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None);
         // dyld_chained_starts_in_image starts at byte 32 (after header).
         let starts_off = FIXUPS_HEADER_SIZE as usize;
         let seg_count =
@@ -572,7 +646,8 @@ mod tests {
     fn starts_in_segment_fields_for_arm64_macos_layout() {
         let imports = imports_of(&["_malloc"]);
         let data_vmaddr_offset = 0x8000u64;
-        let result = build_chained_fixups(&imports, data_vmaddr_offset, 0, PAGE_SIZE, &[], 4, 2);
+        let result =
+            build_chained_fixups(&imports, data_vmaddr_offset, 0, PAGE_SIZE, &[], 4, 2, None);
         // Locate dyld_chained_starts_in_segment via seg_info_offset[2].
         let starts_off = FIXUPS_HEADER_SIZE as usize;
         let off_pos = starts_off + 4 + 2 * 4;
@@ -604,7 +679,7 @@ mod tests {
     #[test]
     fn imports_and_symbols_offsets_are_4_aligned() {
         let imports = imports_of(&["_a", "_bb", "_ccc"]);
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None);
         let header = &result.blob[0..32];
         let imports_offset = u32::from_le_bytes(header[8..12].try_into().unwrap());
         let symbols_offset = u32::from_le_bytes(header[12..16].try_into().unwrap());
@@ -648,7 +723,7 @@ mod tests {
         // Two thunks: one in page 0 (offset 0x100), one in page 2
         // (offset 0x8010).
         let thunks = vec![0x100u64, 0x8010u64];
-        let result = build_chained_fixups(&imports, 0x8000, 0, 3 * PAGE_SIZE, &thunks, 4, 2);
+        let result = build_chained_fixups(&imports, 0x8000, 0, 3 * PAGE_SIZE, &thunks, 4, 2, None);
 
         // imports[] = [_malloc (ord 0), __tlv_bootstrap (ord 1)].
         let header = &result.blob[0..32];
@@ -696,7 +771,7 @@ mod tests {
         // Deltas in bytes: 0x28, 0x18, 0x40 → strides in 4-byte
         // units: 0xA, 0x6, 0x10.
         let thunks = vec![0x40u64, 0x68, 0x80, 0xC0];
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &thunks, 4, 2);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &thunks, 4, 2, None);
 
         let next_of = |v: u64| (v >> 51) & 0xFFF;
         let page_starts = read_page_starts(&result);
@@ -722,8 +797,8 @@ mod tests {
     #[test]
     fn tlv_bootstrap_string_appears_exactly_when_tlv_present() {
         let imports = imports_of(&["_malloc"]);
-        let with_tlv = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[0x100], 4, 2);
-        let without_tlv = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2);
+        let with_tlv = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[0x100], 4, 2, None);
+        let without_tlv = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None);
 
         let contains_tlv = |blob: &[u8]| {
             blob.windows(TLV_BOOTSTRAP_SYMBOL.len())
@@ -740,7 +815,7 @@ mod tests {
     fn pure_tlv_chain_with_no_la_ptr_imports() {
         let imports: BTreeMap<String, u8> = BTreeMap::new();
         let thunks = vec![0x200u64];
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &thunks, 4, 2);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &thunks, 4, 2, None);
 
         let header = &result.blob[0..32];
         let imports_count = u32::from_le_bytes(header[16..20].try_into().unwrap());

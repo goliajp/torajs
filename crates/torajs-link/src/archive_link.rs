@@ -383,6 +383,9 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
             segment_count,
             // __DATA index = 2 in PAGEZERO+TEXT+DATA+LINKEDIT.
             2,
+            // SD-4c-prereq+e7b-3: vtable rebase wires in e7b-4 once
+            // archive_emit hands per-slot offsets up to here.
+            None,
         );
         (
             built.blob,
