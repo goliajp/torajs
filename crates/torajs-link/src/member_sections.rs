@@ -92,6 +92,15 @@ pub struct MemberSectionInfo {
     /// SD-4c-prereq+b2 reads this to recover the descriptor-relative
     /// offset (`offset = n_value - member_addr`).
     pub member_addr: u64,
+    /// `section_64.align` — the section's required alignment as a
+    /// power-of-two **log2 exponent** (e.g. `3` ⇒ 8-byte aligned).
+    /// rustc emits `align 2^3` for `__DATA,__common`/`__bss` holding
+    /// the mmalloc atomic free-list globals; honoring it is mandatory
+    /// — an `ldapr` atomic load against an unaligned global SIGBUSes
+    /// (SD-4c swap-2i). The layout pass (`data_section_layout`) rounds
+    /// each section's `final_vaddr` up to `1 << align`; the emit pass
+    /// copies it into the output `section_64.align_log2`.
+    pub align: u8,
 }
 
 /// Walk a member's `LC_SEGMENT_64` chain and yield every section in
@@ -158,7 +167,16 @@ pub fn collect_member_sections(
             let addr = u64::from_le_bytes(bytes[sec + 32..sec + 40].try_into().unwrap());
             let size = u64::from_le_bytes(bytes[sec + 40..sec + 48].try_into().unwrap());
             let offset = u32::from_le_bytes(bytes[sec + 48..sec + 52].try_into().unwrap());
+            let align_raw = u32::from_le_bytes(bytes[sec + 52..sec + 56].try_into().unwrap());
             let flags = u32::from_le_bytes(bytes[sec + 64..sec + 68].try_into().unwrap());
+            // Mach-O section align is a small log2 exponent (≤ 14 in
+            // practice); clamp to 31 so `1 << align` never overflows a
+            // u64 even on a malformed input.
+            debug_assert!(
+                align_raw <= 31,
+                "section align log2 out of range: {align_raw}"
+            );
+            let align = align_raw.min(31) as u8;
             let section_index =
                 u8::try_from(next_index).expect("> 255 sections per Mach-O image not supported");
             out.push(MemberSectionInfo {
@@ -169,6 +187,7 @@ pub fn collect_member_sections(
                 size: size as u32,
                 flags,
                 member_addr: addr,
+                align,
             });
             next_index += 1;
         }

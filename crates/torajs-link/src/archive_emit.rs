@@ -410,7 +410,7 @@ fn emit_binary(
     );
     if has_dyld {
         write_la_ptr_section(&mut buf, layout);
-        write_data_non_text_file_payloads(&mut buf, data_non_text_payloads);
+        write_data_non_text_file_payloads(&mut buf, layout, data_non_text_payloads);
         crate::tlv_thunk_emit::patch_tlv_thunk_slots(&mut buf, layout);
     }
 

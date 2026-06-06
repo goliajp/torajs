@@ -89,6 +89,12 @@ pub struct DataSectionLayout {
     /// offset_in_section`. Without this, the layout pass can't tell
     /// which descriptor a given sym refers to.
     pub member_addr: u64,
+    /// Required alignment as a power-of-two log2 exponent, copied from
+    /// the source `section_64.align`. `final_vaddr` is rounded up to
+    /// `1 << align`; the emit pass writes it into the output
+    /// `section_64.align_log2` and pads the file payload so the
+    /// on-disk offset matches (SD-4c swap-2i).
+    pub align: u8,
 }
 
 /// Output of [`compute_data_section_layouts`]. `per_member[i]` lines
@@ -109,6 +115,14 @@ pub struct DataSectionLayoutResult {
     pub zerofill_vmsize: u32,
 }
 
+/// Padding bytes needed to round `addr` up to the next `1 << align`
+/// boundary (`align` is a log2 exponent ≤ 31, so `1u64 << align`
+/// never overflows). Returns 0 when already aligned or `align == 0`.
+fn round_up_pad(addr: u64, align: u8) -> u64 {
+    let a = 1u64 << align;
+    (a - (addr & (a - 1))) & (a - 1)
+}
+
 /// `segname == "__DATA"` (trimmed of trailing NUL / space padding).
 fn is_data_segment(s: &MemberSectionInfo) -> bool {
     let mut end = s.segname.len();
@@ -123,10 +137,13 @@ fn is_data_segment(s: &MemberSectionInfo) -> bool {
 ///
 /// 1. File-storage sections — accumulate `final_file_offset` and
 ///    `final_vaddr` from the supplied `(file_region_start_offset,
-///    vaddr_start)` pair.
+///    vaddr_start)` pair, rounding each section up to its
+///    `section_64.align` boundary (same pad applied to both cursors so
+///    they stay page-congruent for mmap).
 /// 2. Zerofill sections — accumulate `final_vaddr` only (vmsize
-///    follows the file region in `__DATA` per Mach-O convention);
-///    `final_file_offset` stays at 0 sentinel.
+///    follows the file region in `__DATA` per Mach-O convention),
+///    likewise alignment-rounded; `final_file_offset` stays at 0
+///    sentinel. Returned region sizes include the alignment padding.
 ///
 /// TLV descriptor sections (`S_THREAD_LOCAL_VARIABLES`) flow through
 /// the file-storage path — the descriptors themselves have file
@@ -157,9 +174,17 @@ pub fn compute_data_section_layouts(
     }
 
     let mut per_member: Vec<Vec<DataSectionLayout>> = Vec::with_capacity(member_keys.len());
-    let mut file_cursor: u32 = 0;
     // Pass 1 — file-storage __DATA,* sections, in member order then
-    // walk order inside each member.
+    // walk order inside each member. Both cursors are absolute (vaddr
+    // / file-offset) and stay congruent mod page: each section's
+    // alignment pad is applied identically to both, and the inputs
+    // satisfy `vaddr_start ≡ file_region_start_offset (mod page)` (the
+    // __DATA segment is mmapped, so its vaddr and fileoff are
+    // page-congruent; la_ptr is pointer-sized). Honoring per-section
+    // alignment is mandatory — an `ldapr` against an unaligned mmalloc
+    // atomic global SIGBUSes (swap-2i).
+    let mut vaddr_cursor: u64 = vaddr_start;
+    let mut file_cursor: u64 = u64::from(file_region_start_offset);
     for raw in &per_member_raw {
         let mut layouts: Vec<DataSectionLayout> = Vec::new();
         for sec in raw {
@@ -173,8 +198,9 @@ pub fn compute_data_section_layouts(
             // descriptor tables are regular file storage; prereq+c
             // hooks the per-entry thunk dyld-bind separately.
             let _is_tlv = is_tlv_descriptor(sec.flags);
-            let final_file_offset = file_region_start_offset + file_cursor;
-            let final_vaddr = vaddr_start + u64::from(file_cursor);
+            let pad = round_up_pad(vaddr_cursor, sec.align);
+            vaddr_cursor += pad;
+            file_cursor += pad;
             layouts.push(DataSectionLayout {
                 section_index: sec.section_index,
                 sectname: sec.sectname,
@@ -183,20 +209,26 @@ pub fn compute_data_section_layouts(
                 size: sec.size,
                 flags: sec.flags,
                 has_file_storage: true,
-                final_file_offset,
-                final_vaddr,
+                final_file_offset: file_cursor as u32,
+                final_vaddr: vaddr_cursor,
                 member_addr: sec.member_addr,
+                align: sec.align,
             });
-            file_cursor += sec.size;
+            vaddr_cursor += u64::from(sec.size);
+            file_cursor += u64::from(sec.size);
         }
         per_member.push(layouts);
     }
-    let file_region_size = file_cursor;
+    let file_region_size = (file_cursor - u64::from(file_region_start_offset)) as u32;
 
-    // Pass 2 — zerofill __DATA,* sections, appended *after* the
-    // file region in vmaddr space. No file payload; final_file_offset
-    // stays at 0 sentinel.
-    let mut zerofill_cursor: u32 = 0;
+    // Pass 2 — zerofill __DATA,* sections, appended *after* the file
+    // region in vmaddr space. No file payload; final_file_offset stays
+    // at 0 sentinel. vmsize is measured from the zerofill base so the
+    // leading/inter-section alignment pads are budgeted into
+    // `zerofill_vmsize` (which downstream sizes the __DATA segment and
+    // anchors the user-bss base).
+    let zerofill_base = vaddr_start + u64::from(file_region_size);
+    let mut zf_vaddr: u64 = zerofill_base;
     for (i, raw) in per_member_raw.iter().enumerate() {
         for sec in raw {
             if !is_data_segment(sec) {
@@ -205,8 +237,7 @@ pub fn compute_data_section_layouts(
             if !is_no_file_storage(sec.flags) {
                 continue;
             }
-            let final_vaddr =
-                vaddr_start + u64::from(file_region_size) + u64::from(zerofill_cursor);
+            zf_vaddr += round_up_pad(zf_vaddr, sec.align);
             per_member[i].push(DataSectionLayout {
                 section_index: sec.section_index,
                 sectname: sec.sectname,
@@ -216,13 +247,14 @@ pub fn compute_data_section_layouts(
                 flags: sec.flags,
                 has_file_storage: false,
                 final_file_offset: 0,
-                final_vaddr,
+                final_vaddr: zf_vaddr,
                 member_addr: sec.member_addr,
+                align: sec.align,
             });
-            zerofill_cursor += sec.size;
+            zf_vaddr += u64::from(sec.size);
         }
     }
-    let zerofill_vmsize = zerofill_cursor;
+    let zerofill_vmsize = (zf_vaddr - zerofill_base) as u32;
 
     // Suppress unused-base warning when there are no __DATA sections.
     let _ = TEXT_VMADDR_BASE;
@@ -386,6 +418,46 @@ mod tests {
         let _ = archive;
     }
 
+    /// Sections that declare a `section_64.align` get their
+    /// `final_vaddr` rounded up to `1 << align` — the swap-2i fix. The
+    /// fixture packs __data(align 0, 8B) then __const(align 4 ⇒ 16B)
+    /// then __common(align 3 ⇒ 8B zerofill); the linker must insert an
+    /// 8-byte pad before __const and a 4-byte pad before __common, and
+    /// fold both pads into the region sizes.
+    #[test]
+    fn sections_round_up_to_declared_alignment() {
+        let obj = build_data_aligned_member();
+        let archive = build_short_name_archive("al.o", &obj);
+        let archives = vec![archive];
+        let merged = merge_archive_indexes(&archives).unwrap();
+        // 16-aligned, file/vaddr congruent mod page.
+        let file_start = 0x8000u32;
+        let vaddr_start = 0x0000_0001_0000_8000u64;
+        let res =
+            compute_data_section_layouts(&merged, &[(0usize, 0usize)], file_start, vaddr_start)
+                .unwrap();
+        let layouts = &res.per_member[0];
+        assert_eq!(layouts.len(), 3);
+        // __data — align 0, lands at the base.
+        assert_eq!(layouts[0].align, 0);
+        assert_eq!(layouts[0].final_vaddr, vaddr_start);
+        assert_eq!(layouts[0].final_file_offset, file_start);
+        // __const — align 4 (16B): base+8 rounds up to base+16, with
+        // file offset rounded by the same pad.
+        assert_eq!(layouts[1].align, 4);
+        assert_eq!(layouts[1].final_vaddr, vaddr_start + 16);
+        assert_eq!(layouts[1].final_file_offset, file_start + 16);
+        // file region spans base..base+16+4 = 20 bytes (incl. the pad).
+        assert_eq!(res.file_region_size, 20);
+        // __common — align 3 (8B) zerofill: zerofill base = base+20
+        // (%8 == 4) rounds up to base+24.
+        assert!(!layouts[2].has_file_storage);
+        assert_eq!(layouts[2].align, 3);
+        assert_eq!(layouts[2].final_vaddr, vaddr_start + 24);
+        // zerofill vmsize spans base+20..base+24+16 = 20 bytes.
+        assert_eq!(res.zerofill_vmsize, 20);
+    }
+
     // ── fixture builders ────────────────────────────────────────────
 
     /// 5-section member: `__text` + `__cstring` (TEXT) + `__data`
@@ -431,7 +503,9 @@ mod tests {
         out.extend_from_slice(&0u32.to_le_bytes());
 
         let text_flags = S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS;
-        write_section_64(&mut out, b"__text", b"__TEXT", 0, 4, text_off, text_flags);
+        write_section_64(
+            &mut out, b"__text", b"__TEXT", 0, 4, text_off, text_flags, 0,
+        );
         write_section_64(
             &mut out,
             b"__cstring",
@@ -440,15 +514,77 @@ mod tests {
             8,
             cstr_off,
             S_CSTRING_LITERALS,
+            0,
         );
-        write_section_64(&mut out, b"__data", b"__DATA", 12, 16, data_off, S_REGULAR);
+        write_section_64(
+            &mut out, b"__data", b"__DATA", 12, 16, data_off, S_REGULAR, 0,
+        );
         // Zerofill sections: offset = 0 per Mach-O spec.
-        write_section_64(&mut out, b"__common", b"__DATA", 28, 2048, 0, S_ZEROFILL);
-        write_section_64(&mut out, b"__bss", b"__DATA", 2076, 4096, 0, S_ZEROFILL);
+        write_section_64(&mut out, b"__common", b"__DATA", 28, 2048, 0, S_ZEROFILL, 0);
+        write_section_64(&mut out, b"__bss", b"__DATA", 2076, 4096, 0, S_ZEROFILL, 0);
 
         out.extend_from_slice(&text);
         out.extend_from_slice(&cstr);
         out.extend_from_slice(&data_bytes);
+        out
+    }
+
+    /// 4-section member exercising `section_64.align`: `__text` (TEXT)
+    /// + `__data` (DATA file 8B, align 0) + `__const` (DATA file 4B,
+    /// align 4) + `__common` (DATA zerofill 16B, align 3). Drives the
+    /// `sections_round_up_to_declared_alignment` test.
+    fn build_data_aligned_member() -> Vec<u8> {
+        use torajs_obj::{
+            LC_SEGMENT_64, MH_MAGIC_64, S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS,
+            S_REGULAR, S_ZEROFILL, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE,
+        };
+        let nsects: u32 = 4;
+        let header_size: u32 = 32;
+        let seg_cmd_size: u32 = SEGMENT_COMMAND_64_SIZE + nsects * SECTION_64_SIZE;
+        let text: [u8; 4] = RET_BYTES;
+        let data_bytes: [u8; 8] = [0xAB; 8];
+        let const_bytes: [u8; 4] = [0xCD; 4];
+        let text_off = header_size + seg_cmd_size;
+        let data_off = text_off + text.len() as u32;
+        let const_off = data_off + data_bytes.len() as u32;
+        let total = const_off + const_bytes.len() as u32;
+
+        let mut out: Vec<u8> = Vec::new();
+        out.extend_from_slice(&MH_MAGIC_64.to_le_bytes());
+        out.extend_from_slice(&0x0100_000Cu32.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&1u32.to_le_bytes());
+        out.extend_from_slice(&1u32.to_le_bytes());
+        out.extend_from_slice(&seg_cmd_size.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+
+        out.extend_from_slice(&LC_SEGMENT_64.to_le_bytes());
+        out.extend_from_slice(&seg_cmd_size.to_le_bytes());
+        out.extend_from_slice(&[0u8; 16]);
+        out.extend_from_slice(&0u64.to_le_bytes());
+        out.extend_from_slice(&(total as u64 - text_off as u64).to_le_bytes());
+        out.extend_from_slice(&(text_off as u64).to_le_bytes());
+        out.extend_from_slice(&(total as u64 - text_off as u64).to_le_bytes());
+        out.extend_from_slice(&7u32.to_le_bytes());
+        out.extend_from_slice(&7u32.to_le_bytes());
+        out.extend_from_slice(&nsects.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+
+        let text_flags = S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS;
+        write_section_64(
+            &mut out, b"__text", b"__TEXT", 0, 4, text_off, text_flags, 0,
+        );
+        write_section_64(&mut out, b"__data", b"__DATA", 0, 8, data_off, S_REGULAR, 0);
+        write_section_64(
+            &mut out, b"__const", b"__DATA", 8, 4, const_off, S_REGULAR, 4,
+        );
+        // zerofill: offset = 0 per Mach-O spec, align 3 (8B).
+        write_section_64(&mut out, b"__common", b"__DATA", 12, 16, 0, S_ZEROFILL, 3);
+
+        out.extend_from_slice(&text);
+        out.extend_from_slice(&data_bytes);
+        out.extend_from_slice(&const_bytes);
         out
     }
 
@@ -490,7 +626,9 @@ mod tests {
         out.extend_from_slice(&0u32.to_le_bytes());
 
         let text_flags = S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS;
-        write_section_64(&mut out, b"__text", b"__TEXT", 0, 4, text_off, text_flags);
+        write_section_64(
+            &mut out, b"__text", b"__TEXT", 0, 4, text_off, text_flags, 0,
+        );
         write_section_64(
             &mut out,
             sectname,
@@ -499,6 +637,7 @@ mod tests {
             u64::from(data_size),
             data_off,
             S_REGULAR,
+            0,
         );
 
         out.extend_from_slice(&RET_BYTES);
@@ -506,6 +645,7 @@ mod tests {
         out
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn write_section_64(
         out: &mut Vec<u8>,
         sectname: &[u8],
@@ -514,6 +654,7 @@ mod tests {
         size: u64,
         offset: u32,
         flags: u32,
+        align: u32,
     ) {
         let mut sn = [0u8; 16];
         sn[..sectname.len()].copy_from_slice(sectname);
@@ -524,7 +665,7 @@ mod tests {
         out.extend_from_slice(&addr.to_le_bytes());
         out.extend_from_slice(&size.to_le_bytes());
         out.extend_from_slice(&offset.to_le_bytes());
-        out.extend_from_slice(&0u32.to_le_bytes()); // align
+        out.extend_from_slice(&align.to_le_bytes()); // align
         out.extend_from_slice(&0u32.to_le_bytes()); // reloff
         out.extend_from_slice(&0u32.to_le_bytes()); // nreloc
         out.extend_from_slice(&flags.to_le_bytes());

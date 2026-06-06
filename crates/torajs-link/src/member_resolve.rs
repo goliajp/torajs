@@ -119,6 +119,7 @@ mod tests {
             final_file_offset: 0,
             final_vaddr,
             member_addr,
+            align: 0,
         }
     }
 

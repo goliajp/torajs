@@ -526,6 +526,7 @@ mod tests {
             final_file_offset,
             final_vaddr,
             member_addr: 0,
+            align: 0,
         }
     }
 
@@ -546,6 +547,7 @@ mod tests {
             final_file_offset,
             final_vaddr,
             member_addr: 0,
+            align: 0,
         }
     }
 

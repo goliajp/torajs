@@ -39,10 +39,12 @@ use crate::archive_link::ArchiveLayout;
 /// for file-storage sections, `0` for zerofill per Mach-O spec.
 ///
 /// `flags` is copied verbatim from the source `section_64` so type
-/// + attribute bits both round-trip. `align_log2` defaults to 3
-/// (8-byte alignment, matching pointer-sized sections); the source
-/// alignment is not preserved separately because our linker emits
-/// integer-aligned payloads anyway.
+/// + attribute bits both round-trip. `align_log2` is copied from the
+/// source `section_64.align` (swap-2i): the layout pass already
+/// rounded `final_vaddr` to `1 << align`, so the emitted entry must
+/// advertise the same alignment — e.g. the mmalloc `__common`/`__bss`
+/// atomic-free-list globals declare `align 2^3` and would SIGBUS on an
+/// `ldapr` if placed unaligned.
 pub(crate) fn build_data_non_text_section_64_entries(layout: &ArchiveLayout) -> Vec<Section64> {
     let mut entries: Vec<Section64> = Vec::new();
     for per_member in &layout.data_non_text_layouts {
@@ -58,7 +60,7 @@ pub(crate) fn build_data_non_text_section_64_entries(layout: &ArchiveLayout) -> 
                 addr: s.final_vaddr,
                 size: u64::from(s.size),
                 offset,
-                align_log2: 3,
+                align_log2: u32::from(s.align),
                 reloff: 0,
                 nreloc: 0,
                 flags: s.flags,
@@ -84,13 +86,38 @@ pub(crate) fn build_data_non_text_section_64_entries(layout: &ArchiveLayout) -> 
 /// size]` for each `has_file_storage == true` entry).
 ///
 /// Pre-condition: `buf.len() == layout.la_ptr_file_offset +
-/// layout.la_ptr_section_size`. The la_ptr writer
-/// (`write_stubs_and_la_ptr`) leaves the cursor there; this writer
-/// continues from that position contiguously.
-pub(crate) fn write_data_non_text_file_payloads(buf: &mut Vec<u8>, member_payloads: &[Vec<u8>]) {
-    for p in member_payloads {
-        buf.extend_from_slice(p);
+/// layout.la_ptr_section_size` (= the first file-storage section's
+/// region base). The la_ptr writer (`write_stubs_and_la_ptr`) leaves
+/// the cursor there; this writer continues from that position,
+/// zero-padding up to each section's `final_file_offset` before its
+/// payload so the on-disk offset matches the alignment-rounded layout
+/// (swap-2i — without the pad, an aligned `final_vaddr` would point
+/// past the section's actual file bytes).
+pub(crate) fn write_data_non_text_file_payloads(
+    buf: &mut Vec<u8>,
+    layout: &ArchiveLayout,
+    member_payloads: &[Vec<u8>],
+) {
+    let mut pi = 0;
+    for per_member in &layout.data_non_text_layouts {
+        for s in per_member {
+            if !s.has_file_storage {
+                continue;
+            }
+            // pad to the alignment-rounded file offset; pads are tiny
+            // (< 1 << align) so a push loop is cheap.
+            while (buf.len() as u32) < s.final_file_offset {
+                buf.push(0);
+            }
+            buf.extend_from_slice(&member_payloads[pi]);
+            pi += 1;
+        }
     }
+    debug_assert_eq!(
+        pi,
+        member_payloads.len(),
+        "payload count must match file-storage section count",
+    );
 }
 
 fn trimmed_string(slot: &[u8; 16]) -> String {
@@ -187,6 +214,7 @@ mod tests {
                 final_file_offset: 0x6000,
                 final_vaddr: 0xDA00_0000,
                 member_addr: 0,
+                align: 3,
             },
             DataSectionLayout {
                 section_index: 4,
@@ -199,6 +227,7 @@ mod tests {
                 final_file_offset: 0,
                 final_vaddr: 0xDA00_0010,
                 member_addr: 0,
+                align: 3,
             },
         ]];
         let entries = build_data_non_text_section_64_entries(&layout);
@@ -219,15 +248,48 @@ mod tests {
         assert_eq!(entries[1].flags, torajs_obj::S_ZEROFILL);
     }
 
+    fn file_storage_layout(
+        sectname: &[u8],
+        size: u32,
+        final_file_offset: u32,
+        align: u8,
+    ) -> DataSectionLayout {
+        DataSectionLayout {
+            section_index: 1,
+            sectname: padded_name(sectname),
+            segname: padded_name(b"__DATA"),
+            member_internal_offset: 0,
+            size,
+            flags: torajs_obj::S_REGULAR,
+            has_file_storage: true,
+            final_file_offset,
+            final_vaddr: 0,
+            member_addr: 0,
+            align,
+        }
+    }
+
+    /// Writer zero-pads up to each section's alignment-rounded
+    /// `final_file_offset` before its payload (swap-2i): section B
+    /// declares 16-byte align so the writer inserts an 8-byte pad
+    /// after A (which ends at 24) to land B at 32; C declares 8-byte
+    /// align so a 4-byte pad lands it at 40.
     #[test]
-    fn write_payloads_appends_each_member_chunk_in_order() {
+    fn write_payloads_pads_to_aligned_file_offsets() {
+        let mut layout = empty_archive_layout();
+        layout.data_non_text_layouts = vec![vec![
+            file_storage_layout(b"__data", 8, 16, 0),
+            file_storage_layout(b"__const", 4, 32, 4),
+            file_storage_layout(b"__bar", 4, 40, 3),
+        ]];
         let mut buf: Vec<u8> = vec![0xAA; 16]; // simulate la_ptr already written
-        let payloads = vec![vec![0x11; 8], vec![0x22; 12], vec![0x33; 4]];
-        write_data_non_text_file_payloads(&mut buf, &payloads);
-        // Original 16 bytes + 8 + 12 + 4 = 40.
-        assert_eq!(buf.len(), 40);
-        assert_eq!(&buf[16..24], &[0x11; 8]);
-        assert_eq!(&buf[24..36], &[0x22; 12]);
-        assert_eq!(&buf[36..40], &[0x33; 4]);
+        let payloads = vec![vec![0x11; 8], vec![0x22; 4], vec![0x33; 4]];
+        write_data_non_text_file_payloads(&mut buf, &layout, &payloads);
+        assert_eq!(buf.len(), 44);
+        assert_eq!(&buf[16..24], &[0x11; 8], "section A payload");
+        assert_eq!(&buf[24..32], &[0u8; 8], "pad before 16-aligned B");
+        assert_eq!(&buf[32..36], &[0x22; 4], "section B payload");
+        assert_eq!(&buf[36..40], &[0u8; 4], "pad before 8-aligned C");
+        assert_eq!(&buf[40..44], &[0x33; 4], "section C payload");
     }
 }
