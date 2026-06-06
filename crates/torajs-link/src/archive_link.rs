@@ -494,6 +494,7 @@ mod tests {
     use super::*;
     use crate::archive::{AR_HEADER_SIZE, AR_MAGIC};
     use crate::archives_merge::ArchiveLinkError;
+    use crate::resolve::SymTable;
     use torajs_codegen::CompiledFunction;
     use torajs_codegen::frame::FrameLayout;
     use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};

@@ -52,6 +52,7 @@ pub mod archive_link;
 pub mod archives_merge;
 pub mod chained_fixups;
 pub(crate) mod chained_fixups_starts;
+pub mod data_const_layout;
 pub mod data_section_emit;
 pub mod data_section_layout;
 pub mod dyld_emit;
