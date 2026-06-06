@@ -55,6 +55,7 @@ pub use crate::member_text::{MemberTextError, parse_member_text_section};
 use crate::non_text_layout::{NonTextLayoutError, compute_non_text_layouts};
 use crate::sign::adhoc_codesign_blob_size;
 use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
+use crate::tlv_descriptor_layout::compute_tlv_descriptor_layouts;
 use std::collections::BTreeMap;
 
 fn round_up_to(value: u64, align: u64) -> u64 {
@@ -256,6 +257,26 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         (Vec::new(), 0u32, 0u32, 0u32)
     };
 
+    // SD-4c-prereq+b1 — enumerate TLV descriptors across every
+    // member's already-laid-out `__DATA,__thread_vars` sections.
+    // Metadata-only: no offset / vmsize / segment shift. Empty when
+    // no member contributes a TLV section. SD-4c-prereq+c consumes
+    // this to add per-thunk-slot binds to the chained-fixups blob.
+    //
+    // has_dyld=false branch above sets `data_non_text_layouts` to an
+    // empty Vec regardless of `member_keys.len()` — no `__DATA`
+    // segment exists, so no TLV descriptors either. Short-circuit
+    // here to avoid spuriously failing the layout's len-match check
+    // when archive members exist but the binary stays dyld-free
+    // (transitive-call probes / leaf syscall path).
+    let tlv_descriptors = if has_dyld {
+        compute_tlv_descriptor_layouts(&member_keys, &data_non_text_layouts)
+            .expect("TLV descriptor layout cannot fail when inputs are zipped from compute_data_section_layouts")
+            .descriptors
+    } else {
+        Vec::new()
+    };
+
     // SD-4c-prereq-c-fix-c4 — __DATA segment sizes now account for
     // member __DATA file storage + zerofill vmsize. data_filesize is
     // page-aligned so linkedit_file_offset stays page-aligned for
@@ -423,6 +444,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         data_non_text_file_offset,
         data_non_text_file_size,
         data_non_text_zerofill_vmsize,
+        tlv_descriptors,
     })
 }
 

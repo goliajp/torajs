@@ -17,6 +17,7 @@ use crate::member_apply::MemberRelocApplyError;
 use crate::member_reloc::MemberRelocError;
 use crate::member_text::MemberTextError;
 use crate::non_text_layout::NonTextSectionLayout;
+use crate::tlv_descriptor_layout::TlvDescriptorLayout;
 
 /// Per-archive-member computed data the S7-C4 emit pass needs.
 /// `defined_syms` carries `(name, n_value)` exactly as the member's
@@ -120,6 +121,13 @@ pub struct ArchiveLayout {
     /// zero-init at startup; no file payload). fix-c4 extends
     /// `data_vmsize` by this.
     pub data_non_text_zerofill_vmsize: u32,
+    /// SD-4c-prereq+b1 — enumerated TLV descriptors across every
+    /// integrated member's `__DATA,__thread_vars` sections. Empty
+    /// when no member contributes a TLV descriptor table (syscall-
+    /// abort / `_malloc` probes). SD-4c-prereq+c walks this to add
+    /// per-thunk-slot bind entries to the chained-fixups blob.
+    /// Metadata-only in prereq+b1 — does not influence emit.
+    pub tlv_descriptors: Vec<TlvDescriptorLayout>,
 }
 
 /// Failures `compute_archive_layout` can report.
