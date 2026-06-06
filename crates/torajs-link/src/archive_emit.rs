@@ -1,11 +1,9 @@
-//! Archive-aware emit pass — S7-C4. Builds on
-//! `archive_link::compute_archive_layout` (S7-C3) to emit a complete
-//! Mach-O `MH_EXECUTE` byte stream including both user
-//! `CompiledFunction`s and `.o` members from `LinkConfig.archives`.
-//! User-fn + member-internal relocs (S7-C5) resolve against one
-//! effective sym table covering caller externs + every member
-//! defined-extern + dyld stub aliases + TLV/user-string/fn-addr/data-
-//! global overrides.
+//! Archive-aware emit pass (S7-C4) — builds on
+//! `compute_archive_layout` to emit a complete Mach-O `MH_EXECUTE`
+//! byte stream including user `CompiledFunction`s + `.o` members.
+//! User-fn + member-internal relocs resolve through one effective
+//! sym table (caller externs + every member defined-extern + dyld
+//! stub aliases + TLV / user-string / fn-addr / data-global overrides).
 
 use torajs_obj::{
     CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MachHeader64, Nlist64,
@@ -20,6 +18,7 @@ use crate::data_section_emit::{
     build_data_non_text_section_64_entries, write_data_non_text_file_payloads,
 };
 use crate::data_section_layout::DataSectionLayout;
+use crate::defined_extern_resolve::section_vaddr_for_sym;
 use crate::dyld_emit::{
     build_data_segment, build_stubs_section, write_la_ptr_section, write_stubs_section,
 };
@@ -42,40 +41,21 @@ use crate::user_vtables_layout::{apply_user_vtable_overrides, build_user_vtables
 
 /// Link a `LinkConfig` whose `archives` field is populated into a
 /// complete Mach-O `MH_EXECUTE` byte stream — ad-hoc codesigned,
-/// kernel-loadable on macOS 14+.
-///
-/// User-function relocs against `Extern(name)` and member-internal
-/// relocs (member X's `__text` BL'ing member Y's symbol) both
-/// resolve against the same effective sym table: caller-supplied
-/// externs union every defined-external symbol any integrated
-/// member exposes. The patching pass runs once per member; the
-/// emit pass concatenates user fns + patched member __text payloads
-/// + LINKEDIT in the order S7-C3 fixed by `ArchiveLayout`.
+/// kernel-loadable on macOS 14+. User-fn `Extern(name)` and member-
+/// internal relocs both resolve against one effective sym table
+/// (caller externs + every member defined-external).
 pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
     let layout = compute_archive_layout(cfg)?;
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
 
     // Effective sym table = caller externs + every member defined
-    // extern + (SD-2b) one per dyld import → `__TEXT,__stubs`
-    // trampoline (trampoline deref's `__la_symbol_ptr`, which SD-3
-    // chained-fixups binds at dyld startup).
-    //
-    // SD-4c swap-2e — dispatch each defined extern's final vaddr
-    // through its home section instead of blindly assuming `__text`.
-    // rustc-emit `static FOO: AtomicU32 = ...` lives in `__DATA,__bss`
-    // / `__common`; n_value is the offset *inside that section*, not
-    // inside `__text`. Resolving naively (`m.vaddr + n_value`) lands
-    // every __DATA-resident static onto bogus __text bytes — that's
-    // the bug behind the leaf-fixture `__torajs_cycle_collect` SIGSEGV
-    // (G_BUFFER_LEN's resolved vaddr fell inside another fn's
-    // prologue, the cbz w8 early-out skipped, iteration walked garbage).
+    // extern (vaddr dispatched by home section — see
+    // `defined_extern_resolve`) + (SD-2b) one per dyld import →
+    // `__TEXT,__stubs` trampoline (trampoline deref's
+    // `__la_symbol_ptr`, which SD-3 chained-fixups binds at startup).
     let mut effective_sym_table = cfg.sym_table.clone();
     for (m_idx, m) in layout.member_layouts.iter().enumerate() {
-        let data_layouts = layout
-            .data_non_text_layouts
-            .get(m_idx)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
+        let data_layouts = member_data_layouts(&layout, m_idx);
         for (name, n_value, n_sect) in &m.defined_syms {
             let vaddr = section_vaddr_for_sym(
                 *n_sect,
@@ -106,8 +86,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     // Resolve user-function relocs against the effective sym table.
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
 
-    // S7-C5: patch each integrated member's __text payload in place
-    // against the same effective sym table.
+    // S7-C5 — patch each member's __text in place against effective sym table.
     let mut member_text_payloads: Vec<Vec<u8>> = Vec::with_capacity(layout.member_layouts.len());
     let mut non_text_payloads: Vec<Vec<u8>> = Vec::new();
     for (mi, m) in layout.member_layouts.iter().enumerate() {
@@ -119,19 +98,13 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         // layouts so resolve_local_nsect can resolve `N_SECT N_EXT=0`
         // local labels (e.g. rustc `l_anon.*`) whose target lives in
         // __DATA rather than __TEXT.
-        let empty_data: Vec<DataSectionLayout> = Vec::new();
-        let data_sections: &[DataSectionLayout] = layout
-            .data_non_text_layouts
-            .get(mi)
-            .map(Vec::as_slice)
-            .unwrap_or(&empty_data);
         apply_member_relocs(
             &mut bytes,
             member,
             m.vaddr,
             &effective_sym_table,
             &m.non_text_sections,
-            data_sections,
+            member_data_layouts(&layout, mi),
         )
         .map_err(|err| ArchiveLayoutError::MemberReloc {
             archive_idx: m.key.0,
@@ -139,12 +112,8 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
             err,
         })?;
         member_text_payloads.push(bytes);
-        // SD-4c-prereq-c — slice each non-text section's bytes out of
-        // the member, in the order compute_non_text_layouts assigned
-        // them final file offsets (sorted by member, then section
-        // walk order inside each member). fix-c1 filters
-        // __DATA / zerofill out of `m.non_text_sections`, so this
-        // loop only emits `__TEXT,*` regular payloads.
+        // SD-4c-prereq-c — slice each `__TEXT,*` non-text section's
+        // bytes out of the member, in compute_non_text_layouts order.
         for s in &m.non_text_sections {
             let off = s.member_internal_offset as usize;
             let end = off + s.size as usize;
@@ -152,8 +121,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         }
     }
 
-    // file-storage `__DATA,*` payloads (skip zerofill); order mirrors
-    // build_data_non_text_section_64_entries.
+    // `__DATA,*` file-storage payloads (skip zerofill, mirror entries order).
     let mut data_non_text_payloads: Vec<Vec<u8>> = Vec::new();
     for (i, per_member) in layout.data_non_text_layouts.iter().enumerate() {
         let member = &merged.per_archive_members[layout.member_layouts[i].key.0]
@@ -324,12 +292,9 @@ fn emit_binary(
         sections: text_sections,
     };
 
-    // SD-2a: __DATA segment + __la_symbol_ptr section between
-    // __TEXT and __LINKEDIT (only when has_libsystem).
-    // SD-4c-prereq-c-fix-c4: __DATA gains one section per member
-    // `__DATA,*` (file-storage + zerofill), appended after
-    // __la_symbol_ptr so SD-3's chained_fixups encoder's
-    // segment_offset=0 invariant on __la_symbol_ptr holds.
+    // __DATA segment (only when has_libsystem) — `__la_symbol_ptr`
+    // first, then one section per member `__DATA,*` (SD-4c-prereq-
+    // c-fix-c4 preserves SD-3 chained_fixups segment_offset=0).
     let data_segment_opt = has_dyld.then(|| {
         let mut extra_sections = build_data_non_text_section_64_entries(layout);
         if layout.user_data_globals_layout.total_vmsize > 0 {
@@ -427,12 +392,8 @@ fn emit_binary(
         buf.extend_from_slice(&member_text_payloads[i]);
     }
 
-    // SD-4c-prereq-c — non-text section payloads (cstring/const/data)
-    // land between member __texts and `__TEXT,__stubs`, flat in the
-    // order compute_non_text_layouts assigned final_file_offsets.
-    // SD-4c-prereq+e1 — the user-string region (same
-    // `__TEXT,__cstring`) splices directly after; empty when
-    // `cfg.strings.is_empty()`.
+    // Non-text section payloads + user-strings region splice between
+    // member __texts and `__TEXT,__stubs` (SD-4c-prereq-c / +e1).
     for p in non_text_payloads {
         buf.extend_from_slice(p);
     }
@@ -476,11 +437,7 @@ fn emit_binary(
         nlist.write_to(&mut buf);
     }
     for (mi, m) in layout.member_layouts.iter().enumerate() {
-        let data_layouts = layout
-            .data_non_text_layouts
-            .get(mi)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
+        let data_layouts = member_data_layouts(&layout, mi);
         for (si, (_name, n_value, n_sect)) in m.defined_syms.iter().enumerate() {
             let vaddr = section_vaddr_for_sym(
                 *n_sect,
@@ -524,56 +481,21 @@ fn emit_binary(
     buf
 }
 
+/// Per-member `__DATA,*` placement slice (empty when the member has
+/// no data sections — pre-2e behaviour).
+fn member_data_layouts(layout: &ArchiveLayout, m_idx: usize) -> &[DataSectionLayout] {
+    layout
+        .data_non_text_layouts
+        .get(m_idx)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+}
+
 fn pad_to(buf: &mut Vec<u8>, target_len: usize) {
     if buf.len() < target_len {
         buf.resize(target_len, 0);
     }
     debug_assert_eq!(buf.len(), target_len, "buf grew past target_len");
-}
-
-/// SD-4c swap-2e — defined-extern vaddr dispatch by home section.
-///
-/// `n_sect` is the 1-based cross-segment ordinal recorded by
-/// `collect_member_sections`; `n_value` is the symbol's offset
-/// *inside that section* (which on `.o` files often starts at a
-/// non-zero `addr`, hence the `member_addr` subtraction). The
-/// dispatch mirrors [`crate::member_resolve::resolve_local_nsect`]
-/// but operates on the simpler `defined_syms` path that doesn't
-/// need the nlist re-read.
-///
-/// Fallback when no section matches: `n_sect == 1` → assume
-/// `__TEXT,__text` and use `member_vaddr + n_value` (rustc / clang
-/// emit __text as the first section so `compute_non_text_layouts`
-/// filters it out). For any other unmatched n_sect we still fall
-/// back to the same formula to preserve byte-identity with the
-/// pre-2e behaviour — pathological inputs would already have
-/// failed apply_member_relocs before reaching this point.
-fn section_vaddr_for_sym(
-    n_sect: u8,
-    n_value: u64,
-    member_vaddr: u64,
-    non_text_sections: &[crate::non_text_layout::NonTextSectionLayout],
-    data_non_text_sections: &[crate::data_section_layout::DataSectionLayout],
-) -> u64 {
-    if let Some(layout) = non_text_sections.iter().find(|s| s.section_index == n_sect) {
-        // NonTextSectionLayout doesn't carry the source `section.addr`
-        // (legacy resolve_local_nsect didn't either). For __TEXT,*
-        // non-text sections (__cstring / __const) this matches the
-        // current probes' byte-equality assumption.
-        return layout.final_vaddr + n_value;
-    }
-    if let Some(layout) = data_non_text_sections
-        .iter()
-        .find(|s| s.section_index == n_sect)
-    {
-        // `n_value` for `__DATA,*` syms equals `section.addr + offset`
-        // — rustc emits each successive non-text section at the next
-        // alignment slot, so `section.addr` is non-zero (cycle's
-        // `__common` lands at `0xa28`). Subtract it to recover the
-        // intra-section offset before adding the final placement.
-        return layout.final_vaddr + n_value.saturating_sub(layout.member_addr);
-    }
-    member_vaddr + n_value
 }
 
 #[cfg(test)]

@@ -56,6 +56,7 @@ pub(crate) mod chained_fixups_starts;
 pub mod data_const_layout;
 pub mod data_section_emit;
 pub mod data_section_layout;
+pub(crate) mod defined_extern_resolve;
 pub mod dyld_emit;
 pub mod dyld_syms;
 pub mod exec;
