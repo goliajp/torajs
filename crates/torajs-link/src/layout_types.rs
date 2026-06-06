@@ -18,6 +18,7 @@ use crate::member_reloc::MemberRelocError;
 use crate::member_text::MemberTextError;
 use crate::non_text_layout::NonTextSectionLayout;
 use crate::tlv_descriptor_layout::{TlvDescriptorLayout, TlvSymOverrideError};
+use crate::user_strings_layout::UserStringsLayout;
 
 /// Per-archive-member computed data the S7-C4 emit pass needs.
 /// `defined_syms` carries `(name, n_value)` exactly as the member's
@@ -134,6 +135,17 @@ pub struct ArchiveLayout {
     /// have to re-derive the offset → link encoding. Empty when
     /// `tlv_descriptors` is empty.
     pub tlv_thunk_link_values: Vec<u64>,
+    /// SD-4c-prereq+e1 — `LinkConfig.strings` materialized as a
+    /// rodata `__TEXT,__cstring` region placed after the member
+    /// non-text payloads (sharing the same segment) and before
+    /// `__TEXT,__stubs`. Empty layout (zero-sized) when
+    /// `cfg.strings.is_empty()` so the e0 byte-identical guarantee
+    /// for every current caller holds.
+    pub user_strings_layout: UserStringsLayout,
+    /// SD-4c-prereq+e1 — pre-built byte payload for the user-strings
+    /// region. emit_binary splices this directly after the member
+    /// non-text payloads; size = `user_strings_layout.total_size`.
+    pub user_strings_payload: Vec<u8>,
 }
 
 /// Failures `compute_archive_layout` can report.

@@ -71,6 +71,8 @@ pub mod sign;
 pub mod stubs;
 pub mod tlv_descriptor_layout;
 pub mod tlv_thunk_emit;
+pub mod user_strings_emit;
+pub mod user_strings_layout;
 
 pub use archive_emit::link_to_exec_with_archives;
 pub use archive_link::{ArchiveLayout, ArchiveLayoutError, MemberLayout, compute_archive_layout};

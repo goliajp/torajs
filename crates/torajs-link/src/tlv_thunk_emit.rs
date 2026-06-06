@@ -110,6 +110,8 @@ mod tests {
             data_non_text_zerofill_vmsize: 0,
             tlv_descriptors,
             tlv_thunk_link_values,
+            user_strings_layout: Default::default(),
+            user_strings_payload: Vec::new(),
         }
     }
 

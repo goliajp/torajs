@@ -1,35 +1,15 @@
 //! Merge multiple parsed `.a` archives into a single global
 //! `name → (archive_idx, member_idx, n_value)` symbol lookup.
 //!
-//! S7-C1 — first half of wiring `LinkConfig.archives` into the
-//! link path. `link_to_exec` previously only knew about user-
-//! supplied `CompiledFunction`s plus a hand-filled `SymTable` of
-//! external vaddrs; production swap (#9) needs to resolve
-//! `__torajs_*` / `_libc_*` externs from `libtorajs_*.a` instead.
+//! S7-C1 — first half of wiring `LinkConfig.archives` into the link
+//! path so the worklist closure (S7-C2: `compute_required_members`)
+//! can resolve `__torajs_*` / `_libc_*` externs from `libtorajs_*.a`
+//! instead of relying on a hand-filled `SymTable`.
 //!
-//! Conceptual model:
-//!
-//! ```text
-//!   archives: [libtorajs_syscall.a, libtorajs_str.a, ...]
-//!     │
-//!     │  parse_archive  (S7-A)
-//!     ▼
-//!   per_archive_members: Vec<Vec<ArMember>>
-//!     │
-//!     │  build_archive_index  (S7-B) on each archive
-//!     ▼
-//!   per_archive_index: BTreeMap<String, ArchiveSymbol>
-//!     │
-//!     │  merge with first-archive-wins on duplicates
-//!     ▼
-//!   index: BTreeMap<String, MergedSymbol>
-//! ```
-//!
-//! First-archive-wins matches Apple `ld64`'s search-order
-//! convention: when the user lists `libfoo.a libbar.a` and both
-//! define `_baz`, `libfoo.a`'s copy is the one linked in. Same
-//! convention here so downstream behaviour matches the C
-//! toolchain we're replacing.
+//! Pipeline: `archives` → per-archive `parse_archive` (S7-A) →
+//! per-archive `build_archive_index` (S7-B) → first-archive-wins
+//! merge into a unified `name → MergedSymbol` lookup (matches Apple
+//! `ld64` search-order semantics).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -192,8 +172,16 @@ pub enum ArchiveLinkError {
 pub fn compute_required_members(
     user_funcs: &[CompiledFunction],
     merged: &MergedArchives<'_>,
+    extra_defined_syms: &BTreeSet<String>,
 ) -> Result<RequiredMembers, ArchiveLinkError> {
-    let defined_in_user: BTreeSet<&str> = user_funcs.iter().map(|f| f.name.as_str()).collect();
+    // SD-4c-prereq+e1 — `extra_defined_syms` carries link-defined syms
+    // (e.g. `__torajs_str_lit_*` from `LinkConfig.strings`) so the
+    // worklist doesn't flag them as `UnresolvedExterns` before emit.
+    let defined_in_user: BTreeSet<&str> = user_funcs
+        .iter()
+        .map(|f| f.name.as_str())
+        .chain(extra_defined_syms.iter().map(|s| s.as_str()))
+        .collect();
 
     let mut required: BTreeSet<(usize, usize)> = BTreeSet::new();
     let mut visited_names: BTreeSet<String> = BTreeSet::new();
@@ -665,7 +653,7 @@ mod tests {
     fn no_externs_returns_empty_required_set() {
         let user = vec![fn_leaf("_main")];
         let merged = merge_archive_indexes(&[]).unwrap();
-        let req = compute_required_members(&user, &merged).unwrap();
+        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
         assert!(req.members.is_empty());
     }
 
@@ -679,7 +667,7 @@ mod tests {
         let merged = merge_archive_indexes(&archives).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
-        let req = compute_required_members(&user, &merged).unwrap();
+        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
 
         assert_eq!(req.members.len(), 1);
         assert!(req.members.contains(&(0, 0)));
@@ -699,7 +687,7 @@ mod tests {
         let merged = merge_archive_indexes(&archives).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
-        let req = compute_required_members(&user, &merged).unwrap();
+        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
 
         assert_eq!(req.members.len(), 3);
         assert!(req.members.contains(&(0, 0)));
@@ -719,7 +707,7 @@ mod tests {
         let merged = merge_archive_indexes(&archives).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
-        let req = compute_required_members(&user, &merged).unwrap();
+        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
 
         assert_eq!(req.members.len(), 2);
     }
@@ -734,7 +722,7 @@ mod tests {
         let merged = merge_archive_indexes(&archives).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo", "_foo", "_foo"])];
-        let req = compute_required_members(&user, &merged).unwrap();
+        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
         assert_eq!(req.members.len(), 1);
     }
 
@@ -745,7 +733,7 @@ mod tests {
     fn unresolved_extern_returns_typed_error() {
         let merged = merge_archive_indexes(&[]).unwrap();
         let user = vec![fn_with_extern_calls("_main", &["_qux", "_zap", "_qux"])];
-        let err = compute_required_members(&user, &merged).unwrap_err();
+        let err = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap_err();
         match err {
             ArchiveLinkError::UnresolvedExterns { names } => {
                 assert_eq!(names, vec!["_qux".to_string(), "_zap".to_string()]);
@@ -764,7 +752,7 @@ mod tests {
             "_main",
             &["_malloc", "_pthread_create", "_free"],
         )];
-        let req = compute_required_members(&user, &merged).unwrap();
+        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
         assert!(req.members.is_empty(), "no archive member should be pulled");
         assert_eq!(req.dyld_imports.len(), 3);
         assert!(req.dyld_imports.contains_key("_malloc"));
@@ -779,7 +767,7 @@ mod tests {
     fn libsystem_and_truly_missing_externs_split_correctly() {
         let merged = merge_archive_indexes(&[]).unwrap();
         let user = vec![fn_with_extern_calls("_main", &["_malloc", "_qux"])];
-        let err = compute_required_members(&user, &merged).unwrap_err();
+        let err = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap_err();
         match err {
             ArchiveLinkError::UnresolvedExterns { names } => {
                 assert_eq!(names, vec!["_qux".to_string()]);
@@ -800,7 +788,7 @@ mod tests {
             "_main",
             &["_curl_easy_init", "_malloc"],
         )];
-        let req = compute_required_members(&user, &merged).unwrap();
+        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
         assert_eq!(req.dyld_imports.len(), 2);
         assert_eq!(req.dyld_imports.get("_curl_easy_init").copied(), Some(2));
         assert_eq!(req.dyld_imports.get("_malloc").copied(), Some(1));
@@ -816,7 +804,7 @@ mod tests {
             fn_leaf("_helper"),
         ];
         let merged = merge_archive_indexes(&[]).unwrap();
-        let req = compute_required_members(&user, &merged).unwrap();
+        let req = compute_required_members(&user, &merged, &BTreeSet::new()).unwrap();
         assert!(req.members.is_empty());
     }
 

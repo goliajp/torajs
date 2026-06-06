@@ -48,6 +48,7 @@ use crate::member_apply::apply_member_relocs;
 use crate::resolve::apply_relocs;
 use crate::sign::build_adhoc_codesign_blob;
 use crate::tlv_descriptor_layout::apply_tlv_overrides;
+use crate::user_strings_emit::apply_user_string_overrides;
 
 /// Link a `LinkConfig` whose `archives` field is populated into a
 /// complete Mach-O `MH_EXECUTE` byte stream — ad-hoc codesigned,
@@ -64,14 +65,10 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     let layout = compute_archive_layout(cfg)?;
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
 
-    // Effective sym table — caller-supplied externs union every
-    // defined-external symbol any integrated member exposes, plus
-    // (SD-2b) one entry per dyld-imported symbol pointing at its
-    // `__TEXT,__stubs` trampoline. User-fn / member relocs against
-    // libSystem symbols route through the trampoline; the
-    // trampoline then deref's the `__la_symbol_ptr` slot dyld
-    // populates at bind time (SD-3 wires LC_DYLD_CHAINED_FIXUPS,
-    // until then the slots stay zero and exec hits a null jump).
+    // Effective sym table = caller externs + every member defined
+    // extern + (SD-2b) one per dyld import → `__TEXT,__stubs`
+    // trampoline (trampoline deref's `__la_symbol_ptr`, which SD-3
+    // chained-fixups binds at dyld startup).
     let mut effective_sym_table = cfg.sym_table.clone();
     for m in &layout.member_layouts {
         for (name, n_value) in &m.defined_syms {
@@ -82,10 +79,12 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         effective_sym_table.insert(name.clone(), *stub_vaddr);
     }
 
-    // SD-4c-prereq+b2 — override thread-local sym vaddrs to descriptor
-    // vaddrs (raw `m.vaddr + n_value` lands a __DATA offset on __TEXT,
-    // wrong region). prereq+c dyld-binds each thunk slot.
+    // SD-4c-prereq+b2 / +e1 — TLV thunk-slot + user-string sym vaddrs
+    // override the member-defined values so ADRP+ADD pairs land at
+    // descriptors / rodata Str ptrs instead of raw `m.vaddr + n_value`
+    // (which sits in the wrong region or doesn't exist yet).
     apply_tlv_overrides(&layout, &merged, &mut effective_sym_table)?;
+    apply_user_string_overrides(&layout.user_strings_layout, &mut effective_sym_table);
 
     // Resolve user-function relocs against the effective sym table.
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
@@ -407,14 +406,15 @@ fn emit_binary(
     }
 
     // SD-4c-prereq-c — non-text section payloads (cstring/const/data)
-    // land between member __texts and `__TEXT,__stubs`. Order is the
-    // flat sequence compute_non_text_layouts produced (per member,
-    // then per section); cumulative final_file_offsets line up
-    // contiguously starting at `text_file_offset +
-    // user_text_size + members_text_total`.
+    // land between member __texts and `__TEXT,__stubs`, flat in the
+    // order compute_non_text_layouts assigned final_file_offsets.
+    // SD-4c-prereq+e1 — the user-string region (same
+    // `__TEXT,__cstring`) splices directly after; empty when
+    // `cfg.strings.is_empty()`.
     for p in non_text_payloads {
         buf.extend_from_slice(p);
     }
+    buf.extend_from_slice(&layout.user_strings_payload);
 
     // SD-2a: stubs + zero-init la_ptr.
     // SD-4c-prereq-c-fix-c4: member `__DATA,*` file-storage payloads

@@ -1,40 +1,16 @@
 //! Archive-aware layout pass — S7-C3.
 //!
-//! Extends the base `exec.rs::compute_layout` with the ability to
-//! integrate `.o` members pulled from `LinkConfig.archives`. Each
-//! required member's `__TEXT,__text` payload concatenates after
-//! the user functions in the final image, and every defined-extern
-//! symbol the member exports flattens into the binary's
-//! `LC_SYMTAB` alongside the user function names.
+//! Extends `exec.rs::compute_layout` with `.o`-member integration:
+//! every required member's `__TEXT,__text` payload concatenates after
+//! the user functions and its defined-externs flatten into `LC_SYMTAB`
+//! alongside user fn names. `ArchiveLayout` is the S7-C4 emit-pass
+//! input — three parallel Vecs indexed by `member_keys` order
+//! (`member_text_sizes` / `member_vaddrs` / `member_defined_syms`).
 //!
-//! S7-C3 covers layout only — the actual emit pass + cross-member
-//! reloc patch lands in S7-C4. This file's `ArchiveLayout` is the
-//! data structure the S7-C4 emit pass will consume.
-//!
-//! Map from `compute_archive_layout`'s phases to S7-C2 pieces:
-//!
-//! ```text
-//!   cfg.archives ───► merge_archive_indexes  (S7-C1)
-//!                              │
-//!                              ▼
-//!                       MergedArchives
-//!                              │
-//!   cfg.funcs ───────► compute_required_members  (S7-C2)
-//!                              │
-//!                              ▼
-//!                      RequiredMembers
-//!                              │
-//!                  (this file: parse member text size + defs)
-//!                              │
-//!                              ▼
-//!                      ArchiveLayout
-//! ```
-//!
-//! `ArchiveLayout` extends `ExecLayout` with three Vecs indexed
-//! by `member_keys` enumeration order — `member_text_sizes`,
-//! `member_vaddrs`, and `member_defined_syms`. Indices line up
-//! 1:1 across the three so the S7-C4 emit pass walks them as
-//! parallel arrays.
+//! Pipeline: `cfg.archives` → `merge_archive_indexes` (S7-C1) →
+//! `compute_required_members` (S7-C2, this file's caller) →
+//! per-member __text size + defined-syms parse →
+//! [`ArchiveLayout`].
 
 use torajs_obj::{
     MachHeader64, NLIST_64_SIZE, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE, SYMTAB_COMMAND_SIZE,
@@ -56,6 +32,7 @@ use crate::non_text_layout::{NonTextLayoutError, compute_non_text_layouts};
 use crate::sign::adhoc_codesign_blob_size;
 use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
 use crate::tlv_descriptor_layout::compute_tlv_descriptor_layouts;
+use crate::user_strings_layout::{build_user_strings_region, user_strings_extra_defined_syms};
 use std::collections::BTreeMap;
 
 fn round_up_to(value: u64, align: u64) -> u64 {
@@ -70,8 +47,9 @@ fn round_up_to(value: u64, align: u64) -> u64 {
 /// empty `member_layouts`.
 pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, ArchiveLayoutError> {
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
+    let extra = user_strings_extra_defined_syms(&cfg.strings);
     let required =
-        compute_required_members(&cfg.funcs, &merged).map_err(ArchiveLayoutError::Link)?;
+        compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;
 
     // Sort member keys for reproducible layout.
     let mut member_keys: Vec<(usize, usize)> = required.members.iter().copied().collect();
@@ -181,7 +159,17 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
             },
         )?;
     let non_text_region_size = non_text_result.region_size;
-    let text_size = user_text_size + members_text_total + non_text_region_size;
+
+    // SD-4c-prereq+e1 — user-string region placed after member non-text
+    // payloads (same `__TEXT,__cstring`). Zero-sized when empty.
+    let (user_strings_layout, user_strings_payload) = build_user_strings_region(
+        &cfg.strings,
+        TEXT_VMADDR_BASE,
+        non_text_region_file_offset + non_text_region_size,
+    );
+
+    let text_size =
+        user_text_size + members_text_total + non_text_region_size + user_strings_layout.total_size;
 
     // __TEXT segment file region = __text + __stubs (when has_dyld).
     // Both sections live in the same segment so the segment's
@@ -470,6 +458,8 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         data_non_text_zerofill_vmsize,
         tlv_descriptors,
         tlv_thunk_link_values,
+        user_strings_layout,
+        user_strings_payload,
     })
 }
 
