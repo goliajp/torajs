@@ -154,6 +154,7 @@ mod tests {
             user_strings_payload: Vec::new(),
             user_data_globals_layout: Default::default(),
             user_vtables_layout: Default::default(),
+            data_const_layout: Default::default(),
             text_rebase_link_values: Vec::new(),
         }
     }

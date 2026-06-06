@@ -134,35 +134,28 @@ pub(crate) fn build_data_segment(
 /// + next + bind bit) from `layout.la_ptr_slot_values`, so dyld
 /// can walk the chain at load time and overwrite the encoded
 /// link with the real libSystem fn address.
-pub(crate) fn write_stubs_and_la_ptr(buf: &mut Vec<u8>, layout: &ArchiveLayout) {
-    debug_assert_eq!(
-        buf.len() as u32,
-        layout.stubs_file_offset,
-        "stubs payload must land at layout.stubs_file_offset",
-    );
+pub(crate) fn write_stubs_section(buf: &mut Vec<u8>, layout: &ArchiveLayout) {
+    debug_assert_eq!(buf.len() as u32, layout.stubs_file_offset);
     let stubs = build_stubs(
         &layout.dyld_imports,
         layout.stubs_section_vaddr,
         layout.la_ptr_section_vaddr,
     );
-    debug_assert_eq!(
-        stubs.len() as u64 * STUB_SIZE,
-        layout.stubs_section_size,
-        "stubs payload size must match layout.stubs_section_size",
-    );
+    debug_assert_eq!(stubs.len() as u64 * STUB_SIZE, layout.stubs_section_size);
     for stub in &stubs {
         buf.extend_from_slice(&stub.bytes);
     }
+}
 
+pub(crate) fn write_la_ptr_section(buf: &mut Vec<u8>, layout: &ArchiveLayout) {
     let target = layout.la_ptr_file_offset as usize;
     if buf.len() < target {
         buf.resize(target, 0);
     }
-    debug_assert_eq!(buf.len(), target, "la_ptr payload must land at offset");
+    debug_assert_eq!(buf.len(), target);
     debug_assert_eq!(
         layout.la_ptr_slot_values.len() * 8,
         layout.la_ptr_section_size as usize,
-        "la_ptr_slot_values must cover the whole section",
     );
     for slot in &layout.la_ptr_slot_values {
         buf.extend_from_slice(&slot.to_le_bytes());

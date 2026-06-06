@@ -18,7 +18,8 @@ use torajs_obj::{
 
 use crate::archive::parse_member_defined_externs;
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
-use crate::chained_fixups::{TextRebaseScope, build_chained_fixups};
+use crate::chained_fixups_call::{ChainedFixupsInputs, compute_chained_fixups_outputs};
+use crate::data_const_layout::compute_data_const_layout;
 use crate::data_section_layout::compute_data_section_layouts;
 use crate::exec::LinkConfig;
 use crate::fn_addr_syms::fn_addr_extra_defined_syms;
@@ -38,8 +39,7 @@ use crate::user_data_globals_layout::{
 };
 use crate::user_strings_layout::{build_user_strings_region, user_strings_extra_defined_syms};
 use crate::user_vtables_layout::{
-    build_user_vtables_region, user_vtables_extra_defined_syms,
-    vtable_rebase_targets_from_fn_vaddrs,
+    user_vtables_extra_defined_syms, vtable_rebase_targets_from_fn_vaddrs,
 };
 use std::collections::BTreeMap;
 
@@ -103,7 +103,17 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     // Phase 3: layout. has_dyld toggles __TEXT,__stubs + __DATA,
     // __la_symbol_ptr + LC_DYLD_CHAINED_FIXUPS; libSystem always ord 1
     // (chained-fixups encoder hard-codes it). libcurl gets ord 2.
+    // SD-4c-prereq+e8: vtable rodata → __DATA_CONST seg, so the
+    // chain LC also turns on when vtable_globals is non-empty
+    // (the seg LC follows for placement; chain fixups follow for
+    // any Some slot).
     let has_dyld = !required.dyld_imports.is_empty();
+    let has_vtable_seg = !cfg.vtable_globals.is_empty();
+    let has_vtable_rebase = cfg
+        .vtable_globals
+        .iter()
+        .any(|v| v.slot_syms.iter().any(|s| s.is_some()));
+    let has_chained_fixups = has_dyld || has_vtable_rebase;
     let has_libcurl_lc = required.dyld_imports.values().any(|&o| o == 2);
     let load_dylib_size = if has_dyld {
         LOAD_DYLIB_LIBSYSTEM_CMDSIZE
@@ -115,12 +125,17 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     } else {
         0
     };
-    // (segment_count, section_count): empty = (PAGEZERO+TEXT+LINKEDIT,
-    // __text) = (3, 1); has_dyld adds __stubs section + __DATA segment
-    // with __la_symbol_ptr → (4, 3). SD-3 also adds LC_DYLD_CHAINED_FIXUPS
-    // (linkedit_data_command shape, 16 B) when has_dyld.
-    let (segment_count, section_count) = if has_dyld { (4, 3) } else { (3, 1) };
-    let chained_fixups_lc_size = if has_dyld { LINKEDIT_DATA_CMDSIZE } else { 0 };
+    // segment_count = PAGEZERO + __TEXT + (__DATA_CONST?) + (__DATA?)
+    // + __LINKEDIT. section_count: __text + (__stubs? when has_dyld);
+    // __DATA_CONST has no section_64 entry (segment-only rodata blob).
+    // SD-3 + e8: LC_DYLD_CHAINED_FIXUPS toggles on `has_chained_fixups`.
+    let segment_count = 3 + u32::from(has_dyld) + u32::from(has_vtable_seg);
+    let section_count = 1 + if has_dyld { 2 } else { 0 };
+    let chained_fixups_lc_size = if has_chained_fixups {
+        LINKEDIT_DATA_CMDSIZE
+    } else {
+        0
+    };
     let sizeofcmds = (SEGMENT_COMMAND_64_SIZE * segment_count)
         + (SECTION_64_SIZE * section_count)
         + LOAD_DYLINKER_CMDSIZE
@@ -157,24 +172,18 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         )?;
     let non_text_region_size = non_text_result.region_size;
 
-    // SD-4c-prereq+e1/e7 — user-string + vtable regions sharing
-    // `__TEXT,__cstring` after member non-text payloads (no new
-    // section_64 entry). Zero-sized when respective inputs empty.
+    // SD-4c-prereq+e1 — user-string region sharing __TEXT,__cstring
+    // after member non-text payloads (no new section_64 entry). Zero-
+    // sized when empty. SD-4c-prereq+e8 moved vtable rodata out of
+    // __TEXT,__cstring into a dedicated `__DATA_CONST` segment (see
+    // `data_const_layout`); __TEXT no longer carries vtable bytes.
     let (user_strings_layout, user_strings_payload) = build_user_strings_region(
         &cfg.strings,
         TEXT_VMADDR_BASE,
         non_text_region_file_offset + non_text_region_size,
     );
-    let user_vtables_layout = build_user_vtables_region(
-        &cfg.vtable_globals,
-        TEXT_VMADDR_BASE,
-        user_strings_layout.file_offset + user_strings_layout.total_size,
-    );
-    let text_size = user_text_size
-        + members_text_total
-        + non_text_region_size
-        + user_strings_layout.total_size
-        + user_vtables_layout.total_size;
+    let text_size =
+        user_text_size + members_text_total + non_text_region_size + user_strings_layout.total_size;
 
     // __TEXT file region = __text + __stubs (when has_dyld). vmsize
     // page-aligns the segment past __stubs.
@@ -189,15 +198,23 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let text_segment_file_end = u64::from(stubs_file_offset) + stubs_section_size;
     let text_vmsize = round_up_to(text_segment_file_end, APPLE_SILICON_PAGE_SIZE);
 
-    // __DATA segment lives directly after __TEXT in both vaddr and
-    // file order (no other LC_SEGMENT_64s in between). data_vmsize
-    // / data_filesize / linkedit_file_offset are computed after
-    // fix-c3's compute_data_section_layouts below so the file
-    // region + zerofill vmsize can extend the segment past
-    // __la_symbol_ptr alone.
-    let data_file_offset = if has_dyld { text_vmsize as u32 } else { 0 };
+    // SD-4c-prereq+e8: __DATA_CONST seg between __TEXT and __DATA
+    // hosts vtable rodata so dyld can rebase without breaking the
+    // codesigned __TEXT pages (kernel re-hashes post-mprotect via
+    // SG_READ_ONLY).
+    let data_const_layout = compute_data_const_layout(
+        &cfg.vtable_globals,
+        text_vmsize as u32,
+        TEXT_VMADDR_BASE + text_vmsize,
+    );
+    let has_data_const = data_const_layout.has_data_const;
+    let data_file_offset = if has_dyld {
+        data_const_layout.segment_file_offset + data_const_layout.segment_filesize as u32
+    } else {
+        0
+    };
     let data_vmaddr = if has_dyld {
-        TEXT_VMADDR_BASE + text_vmsize
+        data_const_layout.segment_vmaddr + data_const_layout.segment_vmsize
     } else {
         0
     };
@@ -292,8 +309,12 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         0
     };
 
-    let linkedit_file_offset = (text_vmsize + data_filesize) as u32;
-    let linkedit_vmaddr = TEXT_VMADDR_BASE + text_vmsize + data_vmsize;
+    // e8: __DATA_CONST seg sits between __TEXT and __DATA; account
+    // for its file + vm footprint when locating __LINKEDIT.
+    let linkedit_file_offset =
+        (text_vmsize + data_const_layout.segment_filesize + data_filesize) as u32;
+    let linkedit_vmaddr =
+        TEXT_VMADDR_BASE + text_vmsize + data_const_layout.segment_vmsize + data_vmsize;
 
     // Per-import stub vaddr stride is STUB_SIZE. BTreeMap iter is
     // sorted-by-name → stub_vaddrs key order is reproducible.
@@ -373,58 +394,37 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         .map(|d| d.thunk_slot_vaddr - data_vmaddr)
         .collect();
     // SD-4c-prereq+e7b-4: derive vtable rebase targets from fn_vaddrs.
-    let vtable_rebase_targets =
-        vtable_rebase_targets_from_fn_vaddrs(&user_vtables_layout, &fn_vaddrs, TEXT_VMADDR_BASE);
+    let vtable_rebase_targets = vtable_rebase_targets_from_fn_vaddrs(
+        &data_const_layout.vtable_layout,
+        &fn_vaddrs,
+        data_const_layout.segment_vmaddr,
+        TEXT_VMADDR_BASE,
+    );
 
-    let has_text_rebase = !vtable_rebase_targets.is_empty();
-    let (
-        chained_fixups_blob,
-        la_ptr_slot_values,
-        tlv_thunk_link_values,
-        text_rebase_link_values,
-    ): (Vec<u8>, Vec<u64>, Vec<u64>, Vec<u64>) = if has_dyld || has_text_rebase {
-        let text_rebase = if has_text_rebase {
-            Some(TextRebaseScope {
-                text_segment_vmaddr_offset: 0,
-                text_segment_vmsize: text_vmsize,
-                // __TEXT index = 1 in PAGEZERO+TEXT+DATA+LINKEDIT.
-                text_seg_idx: 1,
-                rebase_targets: &vtable_rebase_targets,
-            })
-        } else {
-            None
-        };
-        let built = build_chained_fixups(
-            &required.dyld_imports,
-            text_vmsize,
-            0,
-            data_vmsize,
-            &tlv_thunk_offsets,
+    // e8: __DATA_CONST idx=2; __DATA shifts to idx 3 when has_data_const.
+    let data_seg_idx: u32 = if has_data_const { 3 } else { 2 };
+    let (chained_fixups_blob, la_ptr_slot_values, tlv_thunk_link_values, text_rebase_link_values) =
+        compute_chained_fixups_outputs(ChainedFixupsInputs {
+            dyld_imports: &required.dyld_imports,
+            data_seg_vmaddr_offset: data_vmaddr.saturating_sub(TEXT_VMADDR_BASE),
+            data_seg_vmsize: data_vmsize,
+            tlv_thunk_offsets: &tlv_thunk_offsets,
             segment_count,
-            // __DATA index = 2 in PAGEZERO+TEXT+DATA+LINKEDIT.
-            2,
-            text_rebase.as_ref(),
-        );
-        (
-            built.blob,
-            built.la_ptr_slot_values,
-            built.tlv_thunk_link_values,
-            built.text_rebase_link_values,
-        )
-    } else {
-        (Vec::new(), Vec::new(), Vec::new(), Vec::new())
-    };
+            data_seg_idx,
+            data_const_layout: &data_const_layout,
+            vtable_rebase_targets: &vtable_rebase_targets,
+        });
     // SD-4c-prereq+c: dyld walks u64 fields in the chain blob and
     // CodeDirectory, so both LINKEDIT regions must land at 8-byte
     // offsets — `dyld_info` reports "mis-aligned LINKEDIT content"
     // / "mis-aligned code signature" otherwise.
-    let chained_fixups_dataoff = if has_dyld {
+    let chained_fixups_dataoff = if has_chained_fixups {
         round_up_to(u64::from(stroff + strsize), 8) as u32
     } else {
         0
     };
     let chained_fixups_datasize = chained_fixups_blob.len() as u32;
-    let codesign_dataoff = if has_dyld {
+    let codesign_dataoff = if has_chained_fixups {
         round_up_to(
             u64::from(chained_fixups_dataoff + chained_fixups_datasize),
             8,
@@ -484,7 +484,8 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         user_strings_layout,
         user_strings_payload,
         user_data_globals_layout,
-        user_vtables_layout,
+        user_vtables_layout: data_const_layout.vtable_layout.clone(),
+        data_const_layout,
         text_rebase_link_values,
     })
 }

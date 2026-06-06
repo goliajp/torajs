@@ -20,7 +20,9 @@ use crate::data_section_emit::{
     build_data_non_text_section_64_entries, write_data_non_text_file_payloads,
 };
 use crate::data_section_layout::DataSectionLayout;
-use crate::dyld_emit::{build_data_segment, build_stubs_section, write_stubs_and_la_ptr};
+use crate::dyld_emit::{
+    build_data_segment, build_stubs_section, write_la_ptr_section, write_stubs_section,
+};
 use crate::exec::LinkConfig;
 use crate::fn_addr_syms::register_fn_addr_syms;
 use crate::lc::{
@@ -128,10 +130,8 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         }
     }
 
-    // SD-4c-prereq-c-fix-c4 — collect file-storage `__DATA,*` section
-    // payloads (skipping zerofill — loader supplies their bytes at
-    // startup). Order mirrors `build_data_non_text_section_64_entries`
-    // so emit + section table stay synchronized.
+    // file-storage `__DATA,*` payloads (skip zerofill); order mirrors
+    // build_data_non_text_section_64_entries.
     let mut data_non_text_payloads: Vec<Vec<u8>> = Vec::new();
     for (i, per_member) in layout.data_non_text_layouts.iter().enumerate() {
         let member = &merged.per_archive_members[layout.member_layouts[i].key.0]
@@ -171,18 +171,14 @@ fn emit_binary(
     resolved: &[crate::resolve::ResolvedFunction],
     user_vtables_payload: &[u8],
 ) -> Vec<u8> {
-    // SD-1: when the worklist surfaced dyld-resolved externs we
-    // emit one `LC_LOAD_DYLIB` per referenced dylib (SD-4b: libSystem
-    // and/or libcurl) at fixed ordinal positions — `1` = libSystem,
-    // `2` = libcurl. SD-2a extends this further: non-empty
-    // `dyld_imports` also means __TEXT gains a `__stubs` section
-    // (per-import trampoline) and a brand-new `__DATA` segment
-    // carries `__la_symbol_ptr` (one 8-byte slot per import,
-    // populated with chain-link bind encoding by SD-3). Empty
-    // `dyld_imports` keeps the pre-SD-1 9-LC layout byte-identical
-    // so leaf-syscall fixtures continue to ship the same binary as
-    // before.
+    // SD-1/2a/3/4b: dyld imports drive LC_LOAD_DYLIB (libSystem ord 1
+    // + optional libcurl ord 2), __TEXT __stubs, __DATA __la_symbol_ptr.
     let has_dyld = !layout.dyld_imports.is_empty();
+    let has_data_const = layout.data_const_layout.has_data_const;
+    // e8: vtable rebase chain participates → LC_DYLD_CHAINED_FIXUPS
+    // LC even when no la-ptr imports are present.
+    let has_text_rebase = !layout.text_rebase_link_values.is_empty();
+    let has_chained_fixups = has_dyld || has_text_rebase;
     let ordinals_used: std::collections::BTreeSet<u8> =
         layout.dyld_imports.values().copied().collect();
     // If any libcurl ordinal (2) appears we must still emit
@@ -201,9 +197,12 @@ fn emit_binary(
     } else {
         0
     });
-    // ncmds delta (when has_dyld): +load_dylib_count LC_LOAD_DYLIBs,
-    // +1 LC_SEGMENT_64 __DATA, +1 LC_DYLD_CHAINED_FIXUPS (SD-3).
-    let extra_lc_count = if has_dyld { load_dylib_count + 2 } else { 0 };
+    // ncmds delta: +load_dylib_count LC_LOAD_DYLIBs +1 LC_SEGMENT_64
+    // __DATA when has_dyld; +1 LC_SEGMENT_64 __DATA_CONST when
+    // has_data_const; +1 LC_DYLD_CHAINED_FIXUPS when has_chained_fixups.
+    let extra_lc_count = if has_dyld { load_dylib_count + 1 } else { 0 }
+        + u32::from(has_data_const)
+        + u32::from(has_chained_fixups);
     // SD-4c-prereq-c-fix-c4 — each member `__DATA,*` section adds
     // one section_64 entry to the __DATA segment's section table
     // (both regular file-storage and zerofill).
@@ -213,24 +212,27 @@ fn emit_binary(
         .map(|v| v.len() as u32)
         .sum::<u32>()
         + u32::from(layout.user_data_globals_layout.total_vmsize > 0);
-    let extra_lc_size = if has_dyld {
+    let extra_lc_size = (if has_dyld {
+        // load_dylibs + __TEXT __stubs section + __DATA seg + its
+        // __la_symbol_ptr section + member __DATA,* sections.
         load_dylib_size
-            // __TEXT gains a second SECTION_64 entry (__stubs).
             + SECTION_64_SIZE
-            // __DATA segment + its `__la_symbol_ptr` section, plus
-            // any member `__DATA,*` sections (fix-c4).
             + SEGMENT_COMMAND_64_SIZE
             + SECTION_64_SIZE
             + (SECTION_64_SIZE * data_non_text_section_count)
-            // SD-3: LC_DYLD_CHAINED_FIXUPS (linkedit_data_command).
-            + LINKEDIT_DATA_CMDSIZE
     } else {
         0
-    };
-    // With dyld imports present the binary still references dyld-bound
-    // symbols at link time; clearing `MH_NOUNDEFS` matches what
-    // `otool -hv` reports for an `ssa_inkwell`-built production
-    // binary.
+    }) + (if has_data_const {
+        SEGMENT_COMMAND_64_SIZE
+    } else {
+        0
+    }) + (if has_chained_fixups {
+        LINKEDIT_DATA_CMDSIZE
+    } else {
+        0
+    });
+    // has_dyld clears MH_NOUNDEFS (binary references unresolved syms
+    // at link time) — matches ssa_inkwell production binary.
     let mh_flags = if has_dyld {
         MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
     } else {
@@ -314,10 +316,12 @@ fn emit_binary(
         build_data_segment(layout, extra_sections)
     });
 
-    // __LINKEDIT filesize = codesign end - segment start, covers
-    // chained_fixups blob + its 8-byte alignment pad SD-4c-prereq+c
-    // added (dyld rejects the binary as "code signature extends
-    // beyond end of segment" otherwise).
+    // SD-4c-prereq+e8: __DATA_CONST seg between __TEXT and __DATA.
+    let data_const_segment_opt =
+        crate::data_const_layout::build_data_const_segment(&layout.data_const_layout);
+
+    // __LINKEDIT filesize = codesign end - seg start (covers chain
+    // blob + 8-byte pad; dyld rejects unaligned end otherwise).
     let linkedit_data_size = u64::from(layout.codesign_dataoff + layout.codesign_datasize)
         - u64::from(layout.linkedit_file_offset);
     let linkedit_segment = SegmentCommand64 {
@@ -344,18 +348,17 @@ fn emit_binary(
     header.write_to(&mut buf);
     pagezero.write_to(&mut buf);
     text_segment.write_to(&mut buf);
-    // SD-2a: __DATA segment falls between __TEXT and __LINKEDIT in
-    // segment-vmaddr order, so it's emitted between them in the LC
-    // chain too — matching what `clang -o` produces.
+    // e8: __DATA_CONST → __DATA → __LINKEDIT in segment-vmaddr order.
+    if let Some(ref s) = data_const_segment_opt {
+        s.write_to(&mut buf);
+    }
     if let Some(ref data_segment) = data_segment_opt {
         data_segment.write_to(&mut buf);
     }
     linkedit_segment.write_to(&mut buf);
     write_load_dylinker(&mut buf);
-    // LC_LOAD_DYLIB order = libSystem first (ordinal 1) then
-    // libcurl (ordinal 2) — matches the lib_ordinal values the
-    // chained-fixups encoder packs per-import. Apple `ld64` uses
-    // the same ordering even when a binary only references libcurl.
+    // LC_LOAD_DYLIB order: libSystem ord 1, libcurl ord 2 (matches
+    // ld64 + the lib_ordinal values the chain encoder packs).
     if has_libsystem_lc {
         write_load_dylib_libsystem(&mut buf);
     }
@@ -366,7 +369,7 @@ fn emit_binary(
     write_lc_main(&mut buf, u64::from(layout.entry_file_offset));
     symtab_cmd.write_to(&mut buf);
     write_dysymtab(&mut buf, layout.nsyms);
-    if has_dyld {
+    if has_chained_fixups {
         write_dyld_chained_fixups(
             &mut buf,
             layout.chained_fixups_dataoff,
@@ -412,17 +415,18 @@ fn emit_binary(
         buf.extend_from_slice(p);
     }
     buf.extend_from_slice(&layout.user_strings_payload);
-    buf.extend_from_slice(user_vtables_payload);
 
-    // SD-2a: stubs + zero-init la_ptr.
-    // SD-4c-prereq-c-fix-c4: member `__DATA,*` file-storage payloads
-    // after la_ptr (zerofill sections rely on vmsize, not file
-    // bytes).
-    // SD-4c-prereq+c: patch every TLV descriptor's `thunk` word to
-    // its chained-fixups bind link (dyld binds to `__tlv_bootstrap`
-    // at startup).
+    // e8: __TEXT __stubs → __DATA_CONST (vtable) → __DATA la_ptr.
     if has_dyld {
-        write_stubs_and_la_ptr(&mut buf, layout);
+        write_stubs_section(&mut buf, layout);
+    }
+    crate::data_const_layout::write_data_const_payload(
+        &mut buf,
+        &layout.data_const_layout,
+        user_vtables_payload,
+    );
+    if has_dyld {
+        write_la_ptr_section(&mut buf, layout);
         write_data_non_text_file_payloads(&mut buf, data_non_text_payloads);
         crate::tlv_thunk_emit::patch_tlv_thunk_slots(&mut buf, layout);
     }
@@ -457,17 +461,15 @@ fn emit_binary(
     }
     buf.extend_from_slice(strtab.as_bytes());
 
-    // SD-3 + SD-4c-prereq+c: chained-fixups blob lands after the
-    // strtab (with 8-byte alignment pad — dyld rejects unaligned
-    // chains) and before the codesign blob.
-    if has_dyld {
+    // SD-3 + e8: chained-fixups blob lands after strtab (8-byte
+    // aligned — dyld rejects unaligned chains) and before codesign.
+    if has_chained_fixups {
         pad_to(&mut buf, layout.chained_fixups_dataoff as usize);
         debug_assert_eq!(buf.len() as u32, layout.chained_fixups_dataoff);
         buf.extend_from_slice(&layout.chained_fixups_blob);
         debug_assert_eq!(
             (buf.len() as u32) - layout.chained_fixups_dataoff,
             layout.chained_fixups_datasize,
-            "chained-fixups blob size must match layout"
         );
     }
 

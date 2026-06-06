@@ -20,6 +20,7 @@
 
 use crate::lc::APPLE_SILICON_PAGE_SIZE;
 use crate::user_vtables_layout::{UserVtablesLayout, compute_user_vtables_layout};
+use torajs_obj::{SegmentCommand64, VM_PROT_READ, VM_PROT_WRITE};
 
 /// `segment_command_64.flags` — segment becomes read-only after dyld
 /// finishes applying chained fixups. The kernel codesign verifier
@@ -107,6 +108,48 @@ pub fn compute_data_const_layout(
         segment_vmsize,
         has_data_const: true,
     }
+}
+
+/// Build the `__DATA_CONST` `LC_SEGMENT_64` load command for the
+/// emit pass. Returns `None` when `has_data_const` is false so the
+/// caller can `let Some(s) = build_data_const_segment(layout) else { skip }`.
+/// `maxprot/initprot = RW` lets dyld apply chained-fixup rebases;
+/// `flags = SG_READ_ONLY` tells the kernel to `mprotect(PROT_READ)`
+/// once dyld is done so codesigned page hashes stay valid.
+pub fn build_data_const_segment(layout: &DataConstLayout) -> Option<SegmentCommand64> {
+    if !layout.has_data_const {
+        return None;
+    }
+    Some(SegmentCommand64 {
+        segname: "__DATA_CONST".into(),
+        vmaddr: layout.segment_vmaddr,
+        vmsize: layout.segment_vmsize,
+        fileoff: u64::from(layout.segment_file_offset),
+        filesize: layout.segment_filesize,
+        maxprot: VM_PROT_READ | VM_PROT_WRITE,
+        initprot: VM_PROT_READ | VM_PROT_WRITE,
+        flags: SG_READ_ONLY,
+        sections: Vec::new(),
+    })
+}
+
+/// Write the `__DATA_CONST` segment payload (vtable bytes + page
+/// padding to segment_filesize). Pad-then-emit so the buf cursor
+/// lands at `segment_file_offset + segment_filesize` before the
+/// next segment's payload starts (la_ptr_file_offset).
+pub fn write_data_const_payload(
+    buf: &mut Vec<u8>,
+    layout: &DataConstLayout,
+    user_vtables_payload: &[u8],
+) {
+    if !layout.has_data_const {
+        return;
+    }
+    let off = layout.segment_file_offset as usize;
+    if buf.len() < off {
+        buf.resize(off, 0);
+    }
+    buf.extend_from_slice(user_vtables_payload);
 }
 
 #[cfg(test)]

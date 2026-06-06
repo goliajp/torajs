@@ -153,11 +153,21 @@ pub struct ArchiveLayout {
     /// __DATA segment; no file payload (zerofill). Empty layout
     /// (`total_vmsize == 0`) when `data_globals.is_empty()`.
     pub user_data_globals_layout: UserDataGlobalsLayout,
-    /// SD-4c-prereq+e7 — user-binary virtual method tables placed
-    /// directly after `user_strings_layout` in `__TEXT,__cstring`.
-    /// total_size folded into `text_size`; payload built at emit time
-    /// once the effective sym table is finalized.
+    /// SD-4c-prereq+e7 / e8 — user-binary virtual method tables.
+    /// e7a placed entries in `__TEXT,__cstring`; e8 migrated the
+    /// rodata to a dedicated `__DATA_CONST` segment so dyld can
+    /// rebase slots without invalidating the codesigned `__TEXT`
+    /// pages. The vtable layout itself (`entries[i].vaddr` /
+    /// `file_offset`) is also exposed through
+    /// `data_const_layout.vtable_layout`; this field is kept for
+    /// the `apply_user_vtable_overrides` + `build_user_vtables_payload`
+    /// emit path that needs the layout directly.
     pub user_vtables_layout: UserVtablesLayout,
+    /// SD-4c-prereq+e8 — `__DATA_CONST` segment placement +
+    /// `has_data_const` flag. When `has_data_const` is false the
+    /// emit pass skips every `__DATA_CONST` emit hook so the binary
+    /// stays byte-identical to the pre-e8 layout.
+    pub data_const_layout: super::data_const_layout::DataConstLayout,
     /// SD-4c-prereq+e7b-4 — per-`Some` vtable slot chain-link u64
     /// computed by `build_chained_fixups` from the __TEXT rebase
     /// chain. Indexed in `compute_vtable_rebase_targets` output

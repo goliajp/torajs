@@ -149,25 +149,27 @@ pub fn apply_user_vtable_overrides(layout: &UserVtablesLayout, sym_table: &mut S
     }
 }
 
-/// SD-4c-prereq+e7b-4 — derive the `(slot_off_in_text_segment,
+/// SD-4c-prereq+e7b-4 / e8 — derive the `(slot_off_in_segment,
 /// target_offset_in_image)` rebase target list the chained-fixups
-/// `__TEXT` chain will encode. Each `Some(name)` slot maps to one
-/// `RebaseTarget`; `None` slots skip the chain entirely (they will
-/// stay zero in the emit pass, mirroring the SD-3 la-ptr handling
-/// of weak imports).
+/// vtable chain encodes. Each `Some(name)` slot maps to one
+/// `RebaseTarget`; `None` slots skip the chain entirely (they stay
+/// zero in the emit pass, mirroring SD-3 weak la-ptr handling).
 ///
 /// `sym_table` must already resolve every `slot_syms[i]` to its
-/// final vaddr — typically populated upstream from `fn_vaddrs`
-/// via `register_fn_addr_syms` so `__torajs_fn_<fid>` aliases
-/// resolve to the correct `__TEXT` body offset.
+/// final vaddr — typically via `register_fn_addr_syms` so
+/// `__torajs_fn_<fid>` aliases resolve to the correct fn body vaddr.
 ///
-/// `text_vmaddr_base` is the image base (`TEXT_VMADDR_BASE`), so the
-/// returned target field is the offset format-6 wants (offset from
-/// image base / `text_vmaddr`).
+/// `seg_vmaddr_base` is where the vtable slots live (e7a: __TEXT
+/// base; e8+: __DATA_CONST base) — slot offsets are computed
+/// relative to it so dyld's per-page chain walker indexes correctly.
+/// `image_vmaddr_base` is the image base (`TEXT_VMADDR_BASE`); the
+/// returned target field is the offset format-6 expects (offset
+/// from image base / `text_vmaddr`).
 pub fn compute_vtable_rebase_targets(
     layout: &UserVtablesLayout,
     sym_table: &SymTable,
-    text_vmaddr_base: u64,
+    seg_vmaddr_base: u64,
+    image_vmaddr_base: u64,
 ) -> Vec<RebaseTarget> {
     let mut targets = Vec::new();
     for entry in &layout.entries {
@@ -175,35 +177,38 @@ pub fn compute_vtable_rebase_targets(
             let Some(name) = slot else { continue };
             let slot_vaddr = entry.vaddr + (slot_idx as u64) * 8;
             debug_assert!(
-                slot_vaddr >= text_vmaddr_base,
-                "vtable slot vaddr {slot_vaddr:#x} cannot precede image base {text_vmaddr_base:#x}",
+                slot_vaddr >= seg_vmaddr_base,
+                "vtable slot vaddr {slot_vaddr:#x} cannot precede segment base {seg_vmaddr_base:#x}",
             );
-            let slot_off_in_text_seg = slot_vaddr - text_vmaddr_base;
+            let slot_off_in_seg = slot_vaddr - seg_vmaddr_base;
             let target_vaddr = *sym_table.get(name).unwrap_or_else(|| {
                 panic!("vtable slot sym {name:?} missing from sym table — register e3 fn_addr aliases before computing rebase targets")
             });
             debug_assert!(
-                target_vaddr >= text_vmaddr_base,
-                "vtable slot {name:?} target vaddr {target_vaddr:#x} cannot precede image base {text_vmaddr_base:#x}",
+                target_vaddr >= image_vmaddr_base,
+                "vtable slot {name:?} target vaddr {target_vaddr:#x} cannot precede image base {image_vmaddr_base:#x}",
             );
-            let target_off_in_image = target_vaddr - text_vmaddr_base;
-            targets.push((slot_off_in_text_seg, target_off_in_image));
+            let target_off_in_image = target_vaddr - image_vmaddr_base;
+            targets.push((slot_off_in_seg, target_off_in_image));
         }
     }
     targets
 }
 
-/// SD-4c-prereq+e7b-4 — thin wrapper: derive the vtable rebase
+/// SD-4c-prereq+e7b-4 / e8 — thin wrapper: derive the vtable rebase
 /// target list from `fn_vaddrs` directly (registering each
-/// `__torajs_fn_<fid>` alias under the hood). Keeps the
-/// archive_link.rs call site at one line so the layout pass stays
-/// readable. Returns an empty vec when the layout has no entries —
-/// short-circuit so callers can use `is_empty()` to decide whether
-/// to pass `Some(TextRebaseScope)` to `build_chained_fixups`.
+/// `__torajs_fn_<fid>` alias under the hood). Returns an empty vec
+/// when the layout has no entries — short-circuit so callers can
+/// use `is_empty()` to decide whether to pass `Some(TextRebaseScope)`
+/// to `build_chained_fixups`.
+///
+/// `seg_vmaddr_base` = __DATA_CONST seg base (e8+, where vtable
+/// slots live). `image_vmaddr_base` = `TEXT_VMADDR_BASE`.
 pub fn vtable_rebase_targets_from_fn_vaddrs(
     layout: &UserVtablesLayout,
     fn_vaddrs: &[u64],
-    text_vmaddr_base: u64,
+    seg_vmaddr_base: u64,
+    image_vmaddr_base: u64,
 ) -> Vec<RebaseTarget> {
     if layout.entries.is_empty() {
         return Vec::new();
@@ -212,7 +217,7 @@ pub fn vtable_rebase_targets_from_fn_vaddrs(
     for (fid, vaddr) in fn_vaddrs.iter().enumerate() {
         sym_table.insert(format!("__torajs_fn_{fid}"), *vaddr);
     }
-    compute_vtable_rebase_targets(layout, &sym_table, text_vmaddr_base)
+    compute_vtable_rebase_targets(layout, &sym_table, seg_vmaddr_base, image_vmaddr_base)
 }
 
 /// Sym names to flag as link-defined in the worklist closure.
@@ -323,7 +328,8 @@ mod tests {
         sym_table.insert("fn_a".into(), 0x1_0000_4100);
         sym_table.insert("fn_b".into(), 0x1_0000_4200);
 
-        let targets = compute_vtable_rebase_targets(&layout, &sym_table, 0x1_0000_0000);
+        let targets =
+            compute_vtable_rebase_targets(&layout, &sym_table, 0x1_0000_0000, 0x1_0000_0000);
 
         assert_eq!(targets.len(), 2, "None slots must not emit rebase targets");
         // Slot 0: offset_in_text_seg = 0x4000, target = fn_a - base = 0x4100.
@@ -345,7 +351,8 @@ mod tests {
         sym_table.insert("a1".into(), 0x1_0000_4108);
         sym_table.insert("b0".into(), 0x1_0000_4200);
 
-        let targets = compute_vtable_rebase_targets(&layout, &sym_table, 0x1_0000_0000);
+        let targets =
+            compute_vtable_rebase_targets(&layout, &sym_table, 0x1_0000_0000, 0x1_0000_0000);
         assert_eq!(targets.len(), 3);
         // a-vtable slots at 0x4000, 0x4008; b-vtable at 0x4010.
         assert_eq!(targets[0], (0x4000, 0x4100));
@@ -357,7 +364,8 @@ mod tests {
     fn rebase_targets_empty_when_layout_empty() {
         let layout = compute_user_vtables_layout(&[], 0x4000, 0x1_0000_4000);
         let sym_table = SymTable::new();
-        let targets = compute_vtable_rebase_targets(&layout, &sym_table, 0x1_0000_0000);
+        let targets =
+            compute_vtable_rebase_targets(&layout, &sym_table, 0x1_0000_0000, 0x1_0000_0000);
         assert!(targets.is_empty());
     }
 }
