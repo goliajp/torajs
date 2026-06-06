@@ -1,12 +1,13 @@
 {
-  "generatedAt": "2026-06-06T07:45:16.140Z",
+  "generatedAt": "2026-06-06T12:33:15.503Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 660,
+    "pass": 723,
     "fail": 0,
-    "skip": 1,
-    "raw": "660/0/1",
-    "source": "hardev/metrics.md"
+    "skip": 4,
+    "raw": "723/0/4",
+    "source": "/tmp/torajs-conformance-e7a.log",
+    "sourceMtime": "2026-06-06T11:42:09.975Z"
   },
   "test262": {
     "ranAt": "2026-06-03T22:49:10Z",
@@ -27,16 +28,17 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "03a7e8e",
-    "commitSubject": "feat(link): LinkConfig.strings ABI scaffold — #9 SD-4c-prereq+e0",
+    "commit": "1172158",
+    "commitSubject": "feat(link): __vtable_<C> rodata layout + sym vaddr override — #9 SD-4c-prereq+e7a",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 660,
+      "pass": 723,
       "fail": 0,
-      "skip": 1,
-      "raw": "660/0/1",
-      "source": "hardev/metrics.md"
+      "skip": 4,
+      "raw": "723/0/4",
+      "source": "/tmp/torajs-conformance-e7a.log",
+      "sourceMtime": "2026-06-06T11:42:09.975Z"
     }
   },
   "roadmap": [
@@ -609,6 +611,30 @@
   },
   "commits": [
     {
+      "hash": "1172158",
+      "subject": "feat(link): __vtable_<C> rodata layout + sym vaddr override — #9 SD-4c-prereq+e7a"
+    },
+    {
+      "hash": "8ec096f",
+      "subject": "feat(link): __DATA,__bss zerofill + data-global sym vaddr override — #9 SD-4c-prereq+e4"
+    },
+    {
+      "hash": "74e0a30",
+      "subject": "feat(link): __torajs_fn_<fid> sym alias + worklist defined hint — #9 SD-4c-prereq+e3"
+    },
+    {
+      "hash": "2c05bdd",
+      "subject": "feat(link): UserStringKind { StaticStr, RawBytes } dispatch — #9 SD-4c-prereq+e2"
+    },
+    {
+      "hash": "4aa3cc8",
+      "subject": "feat(link): __TEXT,__cstring user-string emit + sym vaddr override — #9 SD-4c-prereq+e1"
+    },
+    {
+      "hash": "4df870b",
+      "subject": "chore(hardev): dashboard snapshot @ 03a7e8e — SD-4c-prereq+e0 ship"
+    },
+    {
       "hash": "03a7e8e",
       "subject": "feat(link): LinkConfig.strings ABI scaffold — #9 SD-4c-prereq+e0"
     },
@@ -631,51 +657,38 @@
     {
       "hash": "a22712e",
       "subject": "feat(link): TLV sym vaddr override via descriptor lookup — #9 SD-4c-prereq+b2"
-    },
-    {
-      "hash": "f5b3c38",
-      "subject": "feat(link): TLV descriptor enumeration (metadata-only) — #9 SD-4c-prereq+b1"
-    },
-    {
-      "hash": "dc0491b",
-      "subject": "chore(hardev): dashboard snapshot @ 0c65b29"
-    },
-    {
-      "hash": "0c65b29",
-      "subject": "feat(link): TLVP_LOAD reloc dispatch (PAGE21 + PAGEOFF12) — #9 SD-4c-prereq+a"
-    },
-    {
-      "hash": "cedf906",
-      "subject": "refactor(link): extract resolve_local_nsect + MemberSymtab — #9 SD-4c-prereq-c-fix-c5-extract"
-    },
-    {
-      "hash": "c980e58",
-      "subject": "feat(link): resolve_local_nsect fallbacks to __DATA layouts — #9 SD-4c-prereq-c-fix-c5"
-    },
-    {
-      "hash": "01e8e51",
-      "subject": "feat(link): emit __DATA non-text sections + zerofill vmsize — #9 SD-4c-prereq-c-fix-c4"
     }
   ],
-  "headSha": "03a7e8e",
+  "headSha": "1172158",
   "autorun": {
-    "total": 62,
+    "total": 63,
     "baselineTarget": 10,
-    "bySelf": 60,
+    "bySelf": 61,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780728874-1295",
-      "at": "2026-06-06T06:54:34Z",
-      "ts": 1780728874,
+      "rotationId": "r-1780731921-5b9c",
+      "at": "2026-06-06T07:45:21Z",
+      "ts": 1780731921,
       "trigger": "self",
-      "prevHead": "4138c64",
-      "handoffSha": "sha256:a783e68dc6fcc3bb6d4af16d07b99484dbf2babdd3ae7a0b97c3c6c4c5a56f75",
-      "handoffAgeSec": 46,
+      "prevHead": "4df870b",
+      "handoffSha": "sha256:b886787b9e70e58a15264b22ab73251da0ebf9e7ea29408651fa1394d716b350",
+      "handoffAgeSec": 63,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780731921-5b9c",
+        "at": "2026-06-06T07:45:21Z",
+        "ts": 1780731921,
+        "trigger": "self",
+        "prevHead": "4df870b",
+        "handoffSha": "sha256:b886787b9e70e58a15264b22ab73251da0ebf9e7ea29408651fa1394d716b350",
+        "handoffAgeSec": 63,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780728874-1295",
         "at": "2026-06-06T06:54:34Z",
@@ -772,17 +785,6 @@
         "prevHead": "dde6274",
         "handoffSha": "sha256:6c2f3900d7c46e2a6aea7c933d863bdd2127a94598fde7a74c92d45d9652ada3",
         "handoffAgeSec": 8503,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780488447-63f5",
-        "at": "2026-06-03T12:07:27Z",
-        "ts": 1780488447,
-        "trigger": "self",
-        "prevHead": "b31761d",
-        "handoffSha": "sha256:6ec1761ef5d247b1f7e8dfc8d6a257a2f009f8a3c3862f9dbadd593f74c670b0",
-        "handoffAgeSec": 10305,
         "conformanceBefore": null,
         "commitsInSession": null
       }
