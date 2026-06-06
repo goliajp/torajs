@@ -14,7 +14,8 @@
 use torajs_obj::{
     ARM64_RELOC_ADDEND, ARM64_RELOC_BRANCH26, ARM64_RELOC_GOT_LOAD_PAGE21,
     ARM64_RELOC_GOT_LOAD_PAGEOFF12, ARM64_RELOC_PAGE21, ARM64_RELOC_PAGEOFF12,
-    ARM64_RELOC_UNSIGNED, LC_SYMTAB, NLIST_64_SIZE,
+    ARM64_RELOC_TLVP_LOAD_PAGE21, ARM64_RELOC_TLVP_LOAD_PAGEOFF12, ARM64_RELOC_UNSIGNED, LC_SYMTAB,
+    NLIST_64_SIZE,
 };
 
 use crate::archive::ArMember;
@@ -270,7 +271,17 @@ pub fn apply_member_relocs(
             // pair with a direct PC-relative pair when the target
             // is inside the binary's ±4 GiB range, which our
             // single-image binaries always satisfy.
-            ARM64_RELOC_PAGE21 | ARM64_RELOC_GOT_LOAD_PAGE21 => {
+            //
+            // TLVP_LOAD_PAGE21 (SD-4c-prereq+a) also patches the
+            // ADRP imm21, but the target is the TLV descriptor's
+            // `__DATA,__thread_vars` page. No "TLV relaxation"
+            // exists — dyld binds the descriptor's thunk slot, so
+            // the indirection through the descriptor stays. The
+            // PAGE21 patch math is the same; only the target
+            // source differs (prereq+b/c feeds the descriptor
+            // vaddr through the same sym_table path the named-sym
+            // branch already uses).
+            ARM64_RELOC_PAGE21 | ARM64_RELOC_GOT_LOAD_PAGE21 | ARM64_RELOC_TLVP_LOAD_PAGE21 => {
                 let target_page = (target_vaddr & !0xFFF) as i64;
                 let site_page = (site_vaddr & !0xFFF) as i64;
                 let displacement = target_page - site_page;
@@ -278,7 +289,16 @@ pub fn apply_member_relocs(
                 let patched = patch_page21(insn, displacement);
                 write_u32_le(bytes, off, patched);
             }
-            ARM64_RELOC_PAGEOFF12 => {
+            // PAGEOFF12 patches the imm12 field (bits 21:10) of an
+            // ADD or LDR instruction — the same bit slot regardless
+            // of opcode, so a single patch covers both.
+            //
+            // TLVP_LOAD_PAGEOFF12 (SD-4c-prereq+a) likewise patches
+            // imm12, but unlike GOT_LOAD_PAGEOFF12 there is *no*
+            // LDR→ADD opcode rewrite: dyld must bind the TLV
+            // descriptor's thunk slot at process start, so the LDR-
+            // through-descriptor indirection is preserved.
+            ARM64_RELOC_PAGEOFF12 | ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => {
                 let offset12 = (target_vaddr & 0xFFF) as u32;
                 let insn = read_u32_le(bytes, off);
                 let patched = patch_pageoff12(insn, offset12);
