@@ -233,6 +233,7 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
         .collect::<Vec<_>>();
     rewrite_extern_relocs(&mut funcs, &ssa_module.funcs);
     funcs.push(synthesize_obj_drop_sized());
+    funcs.push(synthesize_obj_alloc());
     for cf in funcs.iter_mut() {
         if cf.name == "main" {
             cf.name = ENTRY_SYM.to_string();
@@ -358,6 +359,39 @@ fn synthesize_obj_drop_sized() -> CompiledFunction {
             byte_offset: reloc_offset,
             kind: RelocKind::CallSite {
                 target: CallTarget::Extern("___torajs_libc_free".into()),
+            },
+        }],
+        frame: FrameLayout::leaf_no_spill(),
+    }
+}
+
+/// SD-4c-prereq swap-2h — `__torajs_obj_alloc(size) -> ptr`.
+/// ssa_inkwell's `obj_builders::define_obj_alloc` inlines a TLAB
+/// fast path (size-class bucket → TLAB.pop → return slot+16) with a
+/// fallback to `___torajs_libc_malloc(size)`. The new pipeline has no
+/// LLVM-IR emit backend; emit the intrinsic directly as a hand-rolled
+/// CompiledFunction that tail-calls the fallback. Loses the TLAB
+/// hot-loop optimization until a native ARM64 TLAB.pop port lands
+/// (swap-3+ backlog, paired with `synthesize_obj_drop_sized`'s
+/// TLAB.push); gains correct alloc semantics — `___torajs_libc_malloc`
+/// already produces the 16-byte-header layout `obj_alloc` returns, so
+/// the tail call is byte-for-byte the inline fallback path.
+///
+/// ARM64 body:
+///   `B ___torajs_libc_malloc`  ; tail call — x0 = size is already in
+///                              ; the right register, return ptr in x0
+///                              ; flows straight back to the caller.
+fn synthesize_obj_alloc() -> CompiledFunction {
+    let mut bytes = Vec::with_capacity(4);
+    let reloc_offset = bytes.len() as u32;
+    bytes.extend_from_slice(&b_imm26(0).to_le_bytes());
+    CompiledFunction {
+        name: "___torajs_obj_alloc".into(),
+        bytes,
+        relocs: vec![Reloc {
+            byte_offset: reloc_offset,
+            kind: RelocKind::CallSite {
+                target: CallTarget::Extern("___torajs_libc_malloc".into()),
             },
         }],
         frame: FrameLayout::leaf_no_spill(),
