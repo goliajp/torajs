@@ -11,8 +11,11 @@
 
 use std::process::ExitCode;
 
+use torajs_codegen::CompiledFunction;
 use torajs_codegen::compile_function;
-use torajs_codegen::reloc::{CallTarget, RelocKind};
+use torajs_codegen::enc::b_imm26;
+use torajs_codegen::frame::FrameLayout;
+use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};
 use torajs_core::ssa::{FuncId, Module, Type};
 use torajs_core::{
     TORAJS_NEW_PIPELINE_EXTRA_STATICLIBS, TORAJS_STATICLIBS, ast, check, lexer, modules, parser,
@@ -217,11 +220,11 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
             if f.is_declaration() {
                 // Reserve a fn_vaddrs slot with empty bytes so call-site
                 // reloc rewrites below preserve FuncId indexing.
-                torajs_codegen::CompiledFunction {
+                CompiledFunction {
                     name: f.name.clone(),
                     bytes: Vec::new(),
                     relocs: Vec::new(),
-                    frame: torajs_codegen::frame::FrameLayout::leaf_no_spill(),
+                    frame: FrameLayout::leaf_no_spill(),
                 }
             } else {
                 compile_function(f)
@@ -229,6 +232,7 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
         })
         .collect::<Vec<_>>();
     rewrite_extern_relocs(&mut funcs, &ssa_module.funcs);
+    funcs.push(synthesize_obj_drop_sized());
     for cf in funcs.iter_mut() {
         if cf.name == "main" {
             cf.name = ENTRY_SYM.to_string();
@@ -325,6 +329,38 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
         strings,
         data_globals,
         vtable_globals,
+    }
+}
+
+/// SD-4c-prereq swap-2d — `__torajs_obj_drop_sized(user_ptr, size) -> void`.
+/// ssa_inkwell's `obj_builders::define_obj_drop_sized` inlines a TLAB
+/// fast path mirroring `define_obj_alloc`'s TLAB pop. The new pipeline
+/// has no LLVM-IR emit backend; emit the intrinsic directly as a
+/// hand-rolled CompiledFunction that tail-calls `___torajs_libc_free`
+/// (the slow path). Loses the TLAB hot-loop optimization until a real
+/// port lands (swap-3+ backlog: TLAB.push fast path in native ARM64);
+/// gains correct drop semantics — every block makes it back to the
+/// allocator instead of leaking.
+///
+/// ARM64 body:
+///   `B ___torajs_libc_free`   ; tail call — x0 = user_ptr is already in
+///                              ; the right register, x1 = size is
+///                              ; discarded by libc_free's signature
+///                              ; (which is `void(ptr)`).
+fn synthesize_obj_drop_sized() -> CompiledFunction {
+    let mut bytes = Vec::with_capacity(4);
+    let reloc_offset = bytes.len() as u32;
+    bytes.extend_from_slice(&b_imm26(0).to_le_bytes());
+    CompiledFunction {
+        name: "___torajs_obj_drop_sized".into(),
+        bytes,
+        relocs: vec![Reloc {
+            byte_offset: reloc_offset,
+            kind: RelocKind::CallSite {
+                target: CallTarget::Extern("___torajs_libc_free".into()),
+            },
+        }],
+        frame: FrameLayout::leaf_no_spill(),
     }
 }
 
