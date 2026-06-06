@@ -105,6 +105,7 @@ fn main() {
         sym_table: SymTable::new(),
         codesign_ident: "tora".into(),
         archives,
+        strings: Vec::new(),
     };
 
     // Pre-link: query compute_archive_layout directly so we can see

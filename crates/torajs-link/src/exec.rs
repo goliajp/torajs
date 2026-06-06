@@ -67,6 +67,43 @@ use crate::sign::{adhoc_codesign_blob_size, build_adhoc_codesign_blob};
 
 // ---- Public API ----
 
+/// SD-4c-prereq+e0 — single user-binary read-only string literal
+/// payload. Used by the codegen+obj+link pipeline (#9 SD-4c) to
+/// materialize `ssa::Module.strings` as link-time-emitted
+/// `__TEXT,__cstring` entries with sym vaddrs that codegen-emitted
+/// `RelocKind::Page21 { target_sym: "__torajs_str_lit_<id>" }` /
+/// `__torajs_str_dyn_<id>` ADRP+ADD pairs resolve against.
+///
+/// `sym` is the final extern label codegen emits in its reloc
+/// table (caller chooses the naming policy — link only sees the
+/// string). `bytes` is the encoded payload; `is_latin1` + `length`
+/// carry the ES `String.length` metadata so link can emit the
+/// `[u64 header, u32 length, u32 _pad, [N x i8]]` rodata Str
+/// layout the runtime's `__torajs_str_*` helpers deref.
+///
+/// e0 scope (this commit): field-only scaffold. Default empty in
+/// every existing caller so the 723 conformance case set ships
+/// byte-identical pre-flight 3 probes. e1 wires
+/// `compute_user_strings_layout` + `emit_user_strings_payload` +
+/// effective_sym_table registration + smoke example.
+#[derive(Debug, Clone)]
+pub struct UserStringEntry {
+    /// Final extern sym name codegen `RelocKind::Page21 /
+    /// PageOff12` ADRP+ADD pair will resolve against — e.g.
+    /// `__torajs_str_lit_0` (StaticStrRef rodata Str) or
+    /// `__torajs_str_dyn_0` (raw bytes-only literal).
+    pub sym: String,
+    /// Raw encoded payload bytes — Latin-1: 1 byte / code unit;
+    /// UTF-16: 2 bytes / code unit, little-endian.
+    pub bytes: Vec<u8>,
+    /// Latin-1 (`bytes.len() == length`) vs UTF-16
+    /// (`bytes.len() == length * 2`). Drives the
+    /// `STR_FLAG_IS_LATIN1` bit the runtime's Str header carries.
+    pub is_latin1: bool,
+    /// ES `String.length` code unit count.
+    pub length: u32,
+}
+
 /// Configuration for `link_to_exec` — caller supplies the per-fn
 /// codegen output, the entry-point symbol name (e.g. `"_main"`),
 /// and a symbol table for any externs the relocs reference.
@@ -90,6 +127,14 @@ pub struct LinkConfig {
     /// integration land in S7-C2..S7-C5. Empty for self-contained
     /// binaries; existing callers don't need to change.
     pub archives: Vec<Vec<u8>>,
+    /// SD-4c-prereq+e0 — user-binary string literal entries
+    /// (`ssa::Module.strings` materialized for the in-house
+    /// codegen+obj+link pipeline replacing ssa_inkwell in #9
+    /// SD-4c). Empty (default in every existing caller) preserves
+    /// pre-e0 emit_binary path byte-identical; e1 will emit
+    /// `__TEXT,__cstring` section + register sym vaddrs in
+    /// effective_sym_table for these entries.
+    pub strings: Vec<UserStringEntry>,
 }
 
 /// Layout decisions made by the link driver before any bytes are
@@ -471,6 +516,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: Vec::new(),
+            strings: Vec::new(),
         };
         let layout = compute_layout(&cfg);
 
@@ -521,6 +567,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: Vec::new(),
+            strings: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         let layout = compute_layout(&cfg);
@@ -536,6 +583,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: Vec::new(),
+            strings: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // mach_header_64.filetype @ offset 12..16
@@ -560,6 +608,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: Vec::new(),
+            strings: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // The first 16 bytes after the page boundary should match
@@ -582,6 +631,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: Vec::new(),
+            strings: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 
@@ -701,6 +751,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: Vec::new(),
+            strings: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 

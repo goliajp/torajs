@@ -562,6 +562,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: Vec::new(),
+            strings: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         let base = crate::exec::compute_layout(&cfg);
@@ -601,6 +602,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: Vec::new(),
+            strings: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 1);
@@ -655,6 +657,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: Vec::new(),
+            strings: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 3);
@@ -690,6 +693,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: vec![archive],
+            strings: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -747,6 +751,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: vec![archive_a, archive_b],
+            strings: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -779,6 +784,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: Vec::new(),
+            strings: Vec::new(),
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         match err {
@@ -804,6 +810,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             archives: vec![archive],
+            strings: Vec::new(),
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         assert!(matches!(
