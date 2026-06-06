@@ -23,9 +23,13 @@ use crate::user_strings_layout::UserStringsLayout;
 use crate::user_vtables_layout::UserVtablesLayout;
 
 /// Per-archive-member computed data the S7-C4 emit pass needs.
-/// `defined_syms` carries `(name, n_value)` exactly as the member's
-/// `LC_SYMTAB` records them — `n_value` is section-relative inside
-/// the member's `__text`.
+/// `defined_syms` carries `(name, n_value, n_sect)` exactly as the
+/// member's `LC_SYMTAB` records them — `n_value` is section-relative
+/// inside the symbol's home section (which `n_sect` identifies).
+/// archive_emit dispatches the final-binary vaddr by looking the
+/// section up: `n_sect = 1` (__text) → `member.vaddr + n_value`;
+/// other sections → `non_text_sections` / `data_non_text_layouts`
+/// final_vaddr + (n_value - section.member_addr).
 #[derive(Debug, Clone)]
 pub struct MemberLayout {
     /// `(archive_idx, member_idx)` into `cfg.archives` /
@@ -40,7 +44,7 @@ pub struct MemberLayout {
     /// File offset of the member's `__text` *inside the `.o`*.
     pub member_text_offset_in_member: u32,
     /// Defined-external symbols the member exports.
-    pub defined_syms: Vec<(String, u64)>,
+    pub defined_syms: Vec<(String, u64, u8)>,
     /// SD-4c-prereq-b2 — non-`__text` sections (cstring/const/data)
     /// with shadow final-binary placements for the SD-4c-prereq-b3
     /// SectionRef arm. See [`NonTextSectionLayout`] for the

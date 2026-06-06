@@ -59,10 +59,32 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     // extern + (SD-2b) one per dyld import → `__TEXT,__stubs`
     // trampoline (trampoline deref's `__la_symbol_ptr`, which SD-3
     // chained-fixups binds at dyld startup).
+    //
+    // SD-4c swap-2e — dispatch each defined extern's final vaddr
+    // through its home section instead of blindly assuming `__text`.
+    // rustc-emit `static FOO: AtomicU32 = ...` lives in `__DATA,__bss`
+    // / `__common`; n_value is the offset *inside that section*, not
+    // inside `__text`. Resolving naively (`m.vaddr + n_value`) lands
+    // every __DATA-resident static onto bogus __text bytes — that's
+    // the bug behind the leaf-fixture `__torajs_cycle_collect` SIGSEGV
+    // (G_BUFFER_LEN's resolved vaddr fell inside another fn's
+    // prologue, the cbz w8 early-out skipped, iteration walked garbage).
     let mut effective_sym_table = cfg.sym_table.clone();
-    for m in &layout.member_layouts {
-        for (name, n_value) in &m.defined_syms {
-            effective_sym_table.insert(name.clone(), m.vaddr + n_value);
+    for (m_idx, m) in layout.member_layouts.iter().enumerate() {
+        let data_layouts = layout
+            .data_non_text_layouts
+            .get(m_idx)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        for (name, n_value, n_sect) in &m.defined_syms {
+            let vaddr = section_vaddr_for_sym(
+                *n_sect,
+                *n_value,
+                m.vaddr,
+                &m.non_text_sections,
+                data_layouts,
+            );
+            effective_sym_table.insert(name.clone(), vaddr);
         }
     }
     for (name, stub_vaddr) in &layout.stub_vaddrs {
@@ -443,7 +465,7 @@ fn emit_binary(
     let mut member_strx: Vec<Vec<u32>> = Vec::with_capacity(layout.member_layouts.len());
     for m in &layout.member_layouts {
         let mut row: Vec<u32> = Vec::with_capacity(m.defined_syms.len());
-        for (name, _) in &m.defined_syms {
+        for (name, _, _) in &m.defined_syms {
             row.push(strtab.add(name));
         }
         member_strx.push(row);
@@ -454,8 +476,20 @@ fn emit_binary(
         nlist.write_to(&mut buf);
     }
     for (mi, m) in layout.member_layouts.iter().enumerate() {
-        for (si, (_name, n_value)) in m.defined_syms.iter().enumerate() {
-            let nlist = Nlist64::defined_extern(member_strx[mi][si], 1, m.vaddr + n_value);
+        let data_layouts = layout
+            .data_non_text_layouts
+            .get(mi)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        for (si, (_name, n_value, n_sect)) in m.defined_syms.iter().enumerate() {
+            let vaddr = section_vaddr_for_sym(
+                *n_sect,
+                *n_value,
+                m.vaddr,
+                &m.non_text_sections,
+                data_layouts,
+            );
+            let nlist = Nlist64::defined_extern(member_strx[mi][si], 1, vaddr);
             nlist.write_to(&mut buf);
         }
     }
@@ -495,6 +529,51 @@ fn pad_to(buf: &mut Vec<u8>, target_len: usize) {
         buf.resize(target_len, 0);
     }
     debug_assert_eq!(buf.len(), target_len, "buf grew past target_len");
+}
+
+/// SD-4c swap-2e — defined-extern vaddr dispatch by home section.
+///
+/// `n_sect` is the 1-based cross-segment ordinal recorded by
+/// `collect_member_sections`; `n_value` is the symbol's offset
+/// *inside that section* (which on `.o` files often starts at a
+/// non-zero `addr`, hence the `member_addr` subtraction). The
+/// dispatch mirrors [`crate::member_resolve::resolve_local_nsect`]
+/// but operates on the simpler `defined_syms` path that doesn't
+/// need the nlist re-read.
+///
+/// Fallback when no section matches: `n_sect == 1` → assume
+/// `__TEXT,__text` and use `member_vaddr + n_value` (rustc / clang
+/// emit __text as the first section so `compute_non_text_layouts`
+/// filters it out). For any other unmatched n_sect we still fall
+/// back to the same formula to preserve byte-identity with the
+/// pre-2e behaviour — pathological inputs would already have
+/// failed apply_member_relocs before reaching this point.
+fn section_vaddr_for_sym(
+    n_sect: u8,
+    n_value: u64,
+    member_vaddr: u64,
+    non_text_sections: &[crate::non_text_layout::NonTextSectionLayout],
+    data_non_text_sections: &[crate::data_section_layout::DataSectionLayout],
+) -> u64 {
+    if let Some(layout) = non_text_sections.iter().find(|s| s.section_index == n_sect) {
+        // NonTextSectionLayout doesn't carry the source `section.addr`
+        // (legacy resolve_local_nsect didn't either). For __TEXT,*
+        // non-text sections (__cstring / __const) this matches the
+        // current probes' byte-equality assumption.
+        return layout.final_vaddr + n_value;
+    }
+    if let Some(layout) = data_non_text_sections
+        .iter()
+        .find(|s| s.section_index == n_sect)
+    {
+        // `n_value` for `__DATA,*` syms equals `section.addr + offset`
+        // — rustc emits each successive non-text section at the next
+        // alignment slot, so `section.addr` is non-zero (cycle's
+        // `__common` lands at `0xa28`). Subtract it to recover the
+        // intra-section offset before adding the final placement.
+        return layout.final_vaddr + n_value.saturating_sub(layout.member_addr);
+    }
+    member_vaddr + n_value
 }
 
 #[cfg(test)]

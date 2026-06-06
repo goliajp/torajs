@@ -220,7 +220,7 @@ pub fn build_archive_index(members: &[ArMember<'_>]) -> Result<ArchiveIndex, Arc
             member_name: m.name.to_string(),
             kind,
         })?;
-        for (name, n_value) in syms {
+        for (name, n_value, _n_sect) in syms {
             index.entry(name).or_insert(ArchiveSymbol {
                 member_idx: i,
                 n_value,
@@ -234,9 +234,16 @@ pub fn build_archive_index(members: &[ArMember<'_>]) -> Result<ArchiveIndex, Arc
 /// `(N_SECT | N_EXT)` symbol — those are the defined-external
 /// entries Apple `ld` resolves against. Pure parser; no allocation
 /// beyond the result `Vec`.
+/// Parse a member's defined extern symbols. Returns `(name, n_value, n_sect)`
+/// per N_SECT | N_EXT entry — the section the symbol lives in is carried
+/// alongside its section-relative offset so callers can dispatch the right
+/// final-binary vaddr (text base vs. `__DATA,*` section placement) at link
+/// time. SD-4c swap-2e — pre-2e callers blindly used `member.vaddr +
+/// n_value` which silently misplaces every `__DATA`-resident static (rustc
+/// `static FOO: AtomicU32 = ...`) onto bogus `__text` bytes.
 pub fn parse_member_defined_externs(
     member: &ArMember<'_>,
-) -> Result<Vec<(String, u64)>, MemberSymtabError> {
+) -> Result<Vec<(String, u64, u8)>, MemberSymtabError> {
     let bytes = member.data;
     if bytes.len() < 32 {
         return Err(MemberSymtabError::TruncatedHeader);
@@ -300,12 +307,13 @@ pub fn parse_member_defined_externs(
     }
 
     let strtab = &bytes[stroff..stroff + strsize];
-    let mut out: Vec<(String, u64)> = Vec::new();
+    let mut out: Vec<(String, u64, u8)> = Vec::new();
 
     for i in 0..nsyms {
         let off = symoff + i * 16;
         let n_strx = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
         let n_type = bytes[off + 4];
+        let n_sect = bytes[off + 5];
         let n_value = u64::from_le_bytes(bytes[off + 8..off + 16].try_into().unwrap());
 
         // N_SECT|N_EXT = defined external.
@@ -332,7 +340,7 @@ pub fn parse_member_defined_externs(
         let name_bytes = &strtab[n_strx..end_off];
         let name = std::str::from_utf8(name_bytes)
             .map_err(|_| MemberSymtabError::NameNotUtf8 { sym_index: i })?;
-        out.push((name.to_string(), n_value));
+        out.push((name.to_string(), n_value, n_sect));
     }
 
     Ok(out)

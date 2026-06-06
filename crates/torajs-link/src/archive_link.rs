@@ -69,7 +69,8 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     // Phase 2: per-member __text size + defined symbols.
     let mut member_text_sizes: Vec<u32> = Vec::with_capacity(member_keys.len());
     let mut member_text_offsets: Vec<u32> = Vec::with_capacity(member_keys.len());
-    let mut member_defined_syms: Vec<Vec<(String, u64)>> = Vec::with_capacity(member_keys.len());
+    let mut member_defined_syms: Vec<Vec<(String, u64, u8)>> =
+        Vec::with_capacity(member_keys.len());
     for &(a_idx, m_idx) in &member_keys {
         let member = &merged.per_archive_members[a_idx][m_idx];
         let (text_off, text_size) =
@@ -380,7 +381,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         strsize += f.name.len() as u32 + 1;
     }
     for m in &member_layouts {
-        for (name, _) in &m.defined_syms {
+        for (name, _, _) in &m.defined_syms {
             strsize += name.len() as u32 + 1;
         }
     }
