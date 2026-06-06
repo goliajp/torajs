@@ -122,6 +122,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_panic_runtime", // Layer-0: custom #![panic_runtime] + #[panic_handler] replacing std default — strips ~150 KiB backtrace/demangle/path/io/Thread tree from user binaries (v0.7 Step 9b)
     "torajs_value_drop", // Layer-1: universal heap-typed drop dispatch — type_tag → per-type _drop (P7.i-drop)
     "torajs_abort", // Layer-0: panic-free abort helper — write(2)+abort(); replaces Rust panic infra (polish A3a)
+    "torajs_print", // SD-4c-prereq swap-2b: print_i64 / print_f64 / print_bool intrinsics — ssa_inkwell synthesizes these inline (builders::define_print_*), the new pipeline (TORAJS_NEW_PIPELINE=1) pulls them from this staticlib via TORAJS_NEW_PIPELINE_EXTRA_STATICLIBS instead.
 ];
 
 fn main() {

@@ -132,3 +132,11 @@ torajs-value-drop = { path = "../torajs-value-drop" }
 # rlib+staticlib; libtorajs_abort.a co-links so __torajs_abort_with
 # resolves at `tr build`. Same dep-order rationale as torajs-panic.
 torajs-abort = { path = "../torajs-abort" }
+# SD-4c-prereq swap-2b: ssa_inkwell historically synthesizes
+# print_i64 / print_f64 / print_bool inline via builders::define_print_*;
+# the new pipeline (TORAJS_NEW_PIPELINE=1) pulls them from this
+# staticlib so codegen + obj + link can resolve the syms without the
+# LLVM-IR-emit backend. Listed in TORAJS_NEW_PIPELINE_EXTRA_STATICLIBS,
+# not TORAJS_STATICLIBS, so the legacy LLVM path keeps its inline
+# definitions to avoid a duplicate-symbol link error.
+torajs-print = { path = "../torajs-print" }

@@ -14,7 +14,10 @@ use std::process::ExitCode;
 use torajs_codegen::compile_function;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
 use torajs_core::ssa::{FuncId, Module, Type};
-use torajs_core::{TORAJS_STATICLIBS, ast, check, lexer, modules, parser, ssa_lower};
+use torajs_core::{
+    TORAJS_NEW_PIPELINE_EXTRA_STATICLIBS, TORAJS_STATICLIBS, ast, check, lexer, modules, parser,
+    ssa_lower,
+};
 use torajs_link::archive_emit::link_to_exec_with_archives;
 use torajs_link::exec::{
     LinkConfig, UserDataGlobalEntry, UserStringEntry, UserStringKind, UserVtableEntry,
@@ -287,6 +290,7 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
 
     let archives: Vec<Vec<u8>> = TORAJS_STATICLIBS
         .iter()
+        .chain(TORAJS_NEW_PIPELINE_EXTRA_STATICLIBS.iter())
         .map(|(_, bytes)| bytes.to_vec())
         .collect();
 

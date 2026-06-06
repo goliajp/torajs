@@ -153,6 +153,20 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
     ),
 ];
 
+/// SD-4c-prereq swap-2b — staticlibs the **new pipeline** (codegen +
+/// obj + link, behind `TORAJS_NEW_PIPELINE=1`) pulls in addition to
+/// [`TORAJS_STATICLIBS`]. Each entry holds an intrinsic
+/// `ssa_inkwell` historically synthesized at compile time
+/// (`builders::define_print_*`, `obj_builders::define_obj_*`, etc.) —
+/// the new pipeline routes them through real archive members instead
+/// of inline LLVM IR emit. Kept out of [`TORAJS_STATICLIBS`] so the
+/// legacy LLVM path can keep its inline definitions without a
+/// duplicate-symbol link error.
+pub const TORAJS_NEW_PIPELINE_EXTRA_STATICLIBS: &[(&str, &[u8])] = &[(
+    "libtorajs_print.a",
+    include_bytes!(env!("TORAJS_PRINT_STATICLIB_PATH")),
+)];
+
 /// Compiler-source fingerprint emitted by build.rs (hash of
 /// `src/ssa_inkwell.rs` / `src/ssa_lower.rs` / `src/check.rs` /
 /// `src/parser.rs` / `src/lexer.rs` / `src/ast.rs` / `src/modules.rs` /

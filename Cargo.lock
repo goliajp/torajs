@@ -1762,6 +1762,7 @@ dependencies = [
  "torajs-mmalloc",
  "torajs-num",
  "torajs-panic",
+ "torajs-print",
  "torajs-process",
  "torajs-promise",
  "torajs-rc",
