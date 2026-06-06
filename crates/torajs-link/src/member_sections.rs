@@ -10,10 +10,36 @@
 //! patcher and can be reused by SD-4c-prereq-c's emit pass without
 //! pulling the symtab / reloc machinery along.
 
-use torajs_obj::{LC_SEGMENT_64, MH_MAGIC_64, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE};
+use torajs_obj::{
+    LC_SEGMENT_64, MH_MAGIC_64, S_GB_ZEROFILL, S_THREAD_LOCAL_VARIABLES, S_THREAD_LOCAL_ZEROFILL,
+    S_ZEROFILL, SECTION_64_SIZE, SECTION_TYPE, SEGMENT_COMMAND_64_SIZE,
+};
 
 use crate::archive::ArMember;
 use crate::member_reloc::MemberRelocError;
+
+/// Returns `true` when `flags` carries a Mach-O section type that
+/// occupies vmsize but **no file storage** — the loader zero-inits
+/// the slice at startup / TLS bootstrap. `compute_non_text_layouts`
+/// (SD-4c-prereq-c-fix) skips file-payload slicing for these and
+/// only reserves `__DATA` vmsize.
+///
+/// Covers `S_ZEROFILL` (`__DATA,__bss` / `__DATA,__common`),
+/// `S_GB_ZEROFILL` (giant BSS), and `S_THREAD_LOCAL_ZEROFILL`
+/// (`__DATA,__thread_bss`).
+pub fn is_no_file_storage(flags: u32) -> bool {
+    let ty = flags & SECTION_TYPE;
+    ty == S_ZEROFILL || ty == S_GB_ZEROFILL || ty == S_THREAD_LOCAL_ZEROFILL
+}
+
+/// Returns `true` when `flags` marks a TLV descriptor section
+/// (`__DATA,__thread_vars`). The descriptor table is regular
+/// file-storage but every 24-byte entry's `thunk` slot needs a
+/// dyld-bind fixup (`__tlv_bootstrap`) — SD-4c-prereq+c hooks that
+/// after fix-c/d settles segment routing.
+pub fn is_tlv_descriptor(flags: u32) -> bool {
+    (flags & SECTION_TYPE) == S_THREAD_LOCAL_VARIABLES
+}
 
 /// Per-section metadata pulled from a member's `LC_SEGMENT_64`
 /// chain. `section_index` is the **1-based, cross-segment** ordinal
@@ -38,11 +64,25 @@ pub struct MemberSectionInfo {
     /// `LC_SEGMENT_64`); populated in final binaries.
     pub segname: [u8; 16],
     /// Byte offset *inside the member* where the section's payload
-    /// starts (= `section_64.offset`). Pair with `size` to slice
-    /// `member.data[member_internal_offset..member_internal_offset + size]`.
+    /// starts (= `section_64.offset`). For zerofill-family sections
+    /// (`flags & SECTION_TYPE` in {`S_ZEROFILL`, `S_GB_ZEROFILL`,
+    /// `S_THREAD_LOCAL_ZEROFILL`}) this is conventionally 0 — no
+    /// file storage. Callers must consult [`is_no_file_storage`]
+    /// before slicing `member.data[off..off + size]`.
     pub member_internal_offset: u32,
-    /// On-disk size of the section payload (= `section_64.size`).
+    /// vm size of the section (= `section_64.size`). Equals the
+    /// file-storage size for regular sections; for zerofill-family
+    /// sections, the loader allocates and zero-inits this many bytes
+    /// at startup, with no file payload.
     pub size: u32,
+    /// Raw 32-bit `section_64.flags` value. Low 8 bits hold the
+    /// section type (compare against `S_REGULAR` / `S_ZEROFILL` /
+    /// `S_THREAD_LOCAL_*` via [`SECTION_TYPE`]); high 24 bits hold
+    /// attribute flags (`S_ATTR_PURE_INSTRUCTIONS` etc.).
+    /// SD-4c-prereq-c-fix routes emit decisions off this; the
+    /// helpers [`is_no_file_storage`] and [`is_tlv_descriptor`]
+    /// encapsulate the common predicates.
+    pub flags: u32,
 }
 
 /// Walk a member's `LC_SEGMENT_64` chain and yield every section in
@@ -108,6 +148,7 @@ pub fn collect_member_sections(
             segname.copy_from_slice(&bytes[sec + 16..sec + 32]);
             let size = u64::from_le_bytes(bytes[sec + 40..sec + 48].try_into().unwrap());
             let offset = u32::from_le_bytes(bytes[sec + 48..sec + 52].try_into().unwrap());
+            let flags = u32::from_le_bytes(bytes[sec + 64..sec + 68].try_into().unwrap());
             let section_index =
                 u8::try_from(next_index).expect("> 255 sections per Mach-O image not supported");
             out.push(MemberSectionInfo {
@@ -116,6 +157,7 @@ pub fn collect_member_sections(
                 segname,
                 member_internal_offset: offset,
                 size: size as u32,
+                flags,
             });
             next_index += 1;
         }
@@ -219,5 +261,64 @@ mod tests {
         let sections = collect_member_sections(&members[0]).expect("walk");
         assert_eq!(sections.len(), 1, "single __text section per .o");
         assert_eq!(sections[0].section_index, 1);
+    }
+
+    /// torajs-obj emits `__TEXT,__text` with the canonical clang
+    /// `(S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS)`
+    /// flag combo. fix-b's flags read-out preserves that exactly so
+    /// fix-c can keep routing __text into __TEXT (RX) instead of
+    /// misclassifying it as __DATA via the flags predicate.
+    #[test]
+    fn text_section_flags_match_torajs_obj_canonical() {
+        use torajs_obj::{S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS, S_REGULAR};
+        let foo = fn_leaf("_foo");
+        let obj = torajs_obj::write_object(std::slice::from_ref(&foo));
+        let archive = build_short_name_archive("a.o", &obj);
+        let members = crate::archive::parse_archive(&archive).unwrap();
+        let sections = collect_member_sections(&members[0]).expect("walk");
+        let s = &sections[0];
+        let expected_flags = S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS;
+        assert_eq!(s.flags, expected_flags, "__text canonical flags");
+        assert_eq!(s.flags & SECTION_TYPE, S_REGULAR);
+        assert!(!is_no_file_storage(s.flags));
+        assert!(!is_tlv_descriptor(s.flags));
+    }
+
+    /// is_no_file_storage covers the three section types whose
+    /// payloads the loader supplies at startup. Other types — even
+    /// thread-local descriptors / TL regular data — keep file
+    /// storage and must NOT be routed through the predicate.
+    #[test]
+    fn is_no_file_storage_matches_zerofill_family_only() {
+        assert!(is_no_file_storage(S_ZEROFILL));
+        assert!(is_no_file_storage(S_GB_ZEROFILL));
+        assert!(is_no_file_storage(S_THREAD_LOCAL_ZEROFILL));
+        // Attributes on top must not change the predicate.
+        assert!(is_no_file_storage(
+            S_ZEROFILL | torajs_obj::S_ATTR_PURE_INSTRUCTIONS,
+        ));
+
+        use torajs_obj::{S_CSTRING_LITERALS, S_REGULAR, S_THREAD_LOCAL_REGULAR};
+        assert!(!is_no_file_storage(S_REGULAR));
+        assert!(!is_no_file_storage(S_CSTRING_LITERALS));
+        assert!(!is_no_file_storage(S_THREAD_LOCAL_REGULAR));
+        assert!(!is_no_file_storage(S_THREAD_LOCAL_VARIABLES));
+    }
+
+    /// is_tlv_descriptor isolates `__thread_vars` (descriptor
+    /// table) from `__thread_data` (regular TL payload) and
+    /// `__thread_bss` (TL zerofill).
+    #[test]
+    fn is_tlv_descriptor_matches_thread_local_variables_only() {
+        assert!(is_tlv_descriptor(S_THREAD_LOCAL_VARIABLES));
+        assert!(is_tlv_descriptor(
+            S_THREAD_LOCAL_VARIABLES | torajs_obj::S_ATTR_PURE_INSTRUCTIONS,
+        ));
+
+        use torajs_obj::{S_REGULAR, S_THREAD_LOCAL_REGULAR};
+        assert!(!is_tlv_descriptor(S_REGULAR));
+        assert!(!is_tlv_descriptor(S_THREAD_LOCAL_REGULAR));
+        assert!(!is_tlv_descriptor(S_THREAD_LOCAL_ZEROFILL));
+        assert!(!is_tlv_descriptor(S_ZEROFILL));
     }
 }
