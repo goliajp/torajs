@@ -14,6 +14,13 @@ path = "src/main.rs"
 [dependencies]
 torajs-core = { path = "../torajs-core" }
 
+# SD-4c-prereq swap-1 — `TORAJS_NEW_PIPELINE=1` routes `tr build`
+# through codegen + link (self-hosted toolchain) instead of
+# ssa_inkwell / LLVM. Default-off until the new pipeline closes
+# coverage parity with the LLVM path; existing builds are unaffected.
+torajs-codegen = { path = "../torajs-codegen" }
+torajs-link = { path = "../torajs-link" }
+
 # v0.3 #5 LSP — JSON-RPC framing + LSP type definitions for the
 # `tr lsp` subcommand. Dev-tooling dep, not in any runtime path.
 lsp-server = "0.7"

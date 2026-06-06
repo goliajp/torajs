@@ -1711,7 +1711,9 @@ dependencies = [
  "rustyline",
  "serde",
  "serde_json",
+ "torajs-codegen",
  "torajs-core",
+ "torajs-link",
 ]
 
 [[package]]

@@ -1,5 +1,6 @@
 mod cache_keys;
 mod cmd_build;
+mod cmd_build_new;
 mod cmd_cache;
 mod cmd_debug;
 mod cmd_fmt;
@@ -73,7 +74,16 @@ fn main() -> ExitCode {
         // hash source → `~/.torajs/cache/<hash>` → exec, or compile + cache + exec.
         // `jit` is kept as a back-compat alias.
         Some("run") | Some("jit") => run_jit(args.get(1)),
-        Some("build") => run_build_llvm(&args[1..]),
+        Some("build") => {
+            // SD-4c-prereq swap-1 — env-gated dispatcher. The new
+            // pipeline (codegen + obj + link) replaces ssa_inkwell
+            // once swap-N closes; default path stays LLVM until then.
+            if std::env::var("TORAJS_NEW_PIPELINE").as_deref() == Ok("1") {
+                cmd_build_new::run(&args[1..])
+            } else {
+                run_build_llvm(&args[1..])
+            }
+        }
         Some("lsp") => match lsp::run() {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
