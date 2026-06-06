@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-06T23:00:34.376Z",
+  "generatedAt": "2026-06-06T23:41:39.522Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "112da52",
-    "commitSubject": "feat(cli): synthesize __torajs_obj_alloc tail-call shim — #9 SD-4c swap-2h",
+    "commit": "5cede78",
+    "commitSubject": "fix(link): honor section_64.align in __DATA layout — #9 SD-4c swap-2i",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,14 @@
   },
   "commits": [
     {
+      "hash": "5cede78",
+      "subject": "fix(link): honor section_64.align in __DATA layout — #9 SD-4c swap-2i"
+    },
+    {
+      "hash": "dd03189",
+      "subject": "chore(hardev): dashboard snapshot @ 112da52 — swap-2f/2g/2h leaf fixture end-to-end"
+    },
+    {
       "hash": "112da52",
       "subject": "feat(cli): synthesize __torajs_obj_alloc tail-call shim — #9 SD-4c swap-2h"
     },
@@ -649,35 +657,38 @@
     {
       "hash": "16b9a1f",
       "subject": "feat(cli): TORAJS_NEW_PIPELINE=1 env-gated build dispatcher — #9 SD-4c swap-1"
-    },
-    {
-      "hash": "8f4736e",
-      "subject": "chore(hardev): dashboard snapshot @ 52e4104 — e7/e8 sub-phase close + #9 swap pending"
-    },
-    {
-      "hash": "52e4104",
-      "subject": "feat(link): probe_vtable_link runtime exec exit 42 — #9 SD-4c-prereq+e8c"
     }
   ],
-  "headSha": "112da52",
+  "headSha": "5cede78",
   "autorun": {
-    "total": 65,
+    "total": 66,
     "baselineTarget": 10,
-    "bySelf": 63,
+    "bySelf": 64,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780758990-299b",
-      "at": "2026-06-06T15:16:30Z",
-      "ts": 1780758990,
+      "rotationId": "r-1780786841-359f",
+      "at": "2026-06-06T23:00:41Z",
+      "ts": 1780786841,
       "trigger": "self",
-      "prevHead": "8f4736e",
-      "handoffSha": "sha256:5b918e712edabd1a8c91d107a08def15ecabaeb581e6ed211d866e06a454380e",
-      "handoffAgeSec": 5,
+      "prevHead": "dd03189",
+      "handoffSha": "sha256:790c824aa01273f96af266c7efa58c42d47fbea1861966db10890eb996eeb6f5",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780786841-359f",
+        "at": "2026-06-06T23:00:41Z",
+        "ts": 1780786841,
+        "trigger": "self",
+        "prevHead": "dd03189",
+        "handoffSha": "sha256:790c824aa01273f96af266c7efa58c42d47fbea1861966db10890eb996eeb6f5",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780758990-299b",
         "at": "2026-06-06T15:16:30Z",
@@ -774,17 +785,6 @@
         "prevHead": "edfdfe2",
         "handoffSha": "sha256:18e07fd1597cd94e1b9ca359b3d28f265be66fdbdde3b0ed80fcf5e5388073a1",
         "handoffAgeSec": 124454,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780553597-3214",
-        "at": "2026-06-04T06:13:17Z",
-        "ts": 1780553597,
-        "trigger": "self",
-        "prevHead": "b3cbaa3",
-        "handoffSha": "sha256:18e07fd1597cd94e1b9ca359b3d28f265be66fdbdde3b0ed80fcf5e5388073a1",
-        "handoffAgeSec": 14597,
         "conformanceBefore": null,
         "commitsInSession": null
       }
