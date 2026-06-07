@@ -9959,8 +9959,8 @@ fn collect_return_anns_stmt(
     }
 }
 
-/// Statically infer an annotation string — literals, ops, idents,
-/// calls (bare / Member-string-method), ternary, arrays, Member.
+/// Statically infer an annotation string — literals, ops, idents, calls
+/// (bare / Member-string-method), ternary, arrays, Member, Index.
 fn infer_expr_ann_with(
     exprs: AstExprsView,
     eid: ExprId,
@@ -9968,6 +9968,7 @@ fn infer_expr_ann_with(
     binds: &std::collections::HashMap<String, String>,
     fn_sigs: &std::collections::HashMap<String, String>,
 ) -> Option<String> {
+    let recur = |id: ExprId| infer_expr_ann_with(exprs, id, params, binds, fn_sigs);
     let e = exprs.get(eid.0 as usize)?;
     match e {
         Expr::Number(_) => Some("number".into()),
@@ -9997,17 +9998,16 @@ fn infer_expr_ann_with(
             | BinOp::UShr => Some("number".into()),
             // `+`: string-propagates / num+num=num / TypeVar+num=`any` (else Void).
             BinOp::Add => {
-                let l = infer_expr_ann_with(exprs, *left, params, binds, fn_sigs)?;
-                let r = infer_expr_ann_with(exprs, *right, params, binds, fn_sigs)?;
+                let (l, r) = (recur(*left)?, recur(*right)?);
                 let is_tv = |s: &str| {
-                    s.strip_prefix("__T")
-                        .is_some_and(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
+                    s.len() > 3
+                        && s.starts_with("__T")
+                        && s[3..].bytes().all(|b| b.is_ascii_digit())
                 };
                 match (l.as_str(), r.as_str()) {
                     ("string", _) | (_, "string") => Some("string".into()),
                     ("number", "number") => Some("number".into()),
-                    (a, "number") if is_tv(a) => Some("any".into()),
-                    ("number", b) if is_tv(b) => Some("any".into()),
+                    (a, "number") | ("number", a) if is_tv(a) => Some("any".into()),
                     _ => None,
                 }
             }
@@ -10016,14 +10016,11 @@ fn infer_expr_ann_with(
             UnaryOp::Not => Some("boolean".into()),
             UnaryOp::Neg | UnaryOp::BitNot | UnaryOp::Plus => Some("number".into()),
         },
-        Expr::Ident(name) => {
-            if let Some(p) = params.iter().find(|p| &p.name == name)
-                && let Some(ann) = &p.type_ann
-            {
-                return Some(ann.clone());
-            }
-            binds.get(name).cloned()
-        }
+        Expr::Ident(name) => params
+            .iter()
+            .find(|p| &p.name == name)
+            .and_then(|p| p.type_ann.clone())
+            .or_else(|| binds.get(name).cloned()),
         // Call: bare Ident → fn_sigs; Member+string-receiver → string-method whitelist.
         Expr::Call { callee, .. } => {
             let c = exprs.get(callee.0 as usize)?;
@@ -10031,13 +10028,20 @@ fn infer_expr_ann_with(
                 return fn_sigs.get(n).cloned();
             }
             if let Expr::Member { obj, name } = c
-                && infer_expr_ann_with(exprs, *obj, params, binds, fn_sigs)? == "string"
-                && matches!(
-                    name.as_str(),
-                    "toUpperCase" | "toLowerCase" | "trim" | "slice" | "substring"
-                )
+                && recur(*obj)? == "string"
             {
-                return Some("string".into());
+                return match name.as_str() {
+                    "toUpperCase" | "toLowerCase" | "trim" | "trimStart" | "trimEnd" | "slice"
+                    | "substring" | "repeat" | "concat" | "replace" | "replaceAll" | "padStart"
+                    | "padEnd" | "at" | "charAt" => Some("string".into()),
+                    "startsWith" | "endsWith" | "includes" => Some("boolean".into()),
+                    "indexOf" | "lastIndexOf" | "charCodeAt" => Some("number".into()),
+                    // `split` returns `string[]` but routing the split-result
+                    // through a user-fn ret slot SIGSEGVs at runtime — reproduces
+                    // with explicit `: string[]` annotation too, so the bug lives
+                    // in the substrate, not the inference. Re-enable post-fix.
+                    _ => None,
+                };
             }
             None
         }
@@ -10046,18 +10050,14 @@ fn infer_expr_ann_with(
             else_branch,
             ..
         } => {
-            let t = infer_expr_ann_with(exprs, *then_branch, params, binds, fn_sigs)?;
-            let f = infer_expr_ann_with(exprs, *else_branch, params, binds, fn_sigs)?;
-            if t == f { Some(t) } else { Some("any".into()) }
+            let (t, f) = (recur(*then_branch)?, recur(*else_branch)?);
+            Some(if t == f { t } else { "any".into() })
         }
-        Expr::Array(elems) => {
-            let t = infer_expr_ann_with(exprs, *elems.first()?, params, binds, fn_sigs)?;
-            Some(format!("{}[]", t))
-        }
-        Expr::Member { obj, name } => {
-            let r = infer_expr_ann_with(exprs, *obj, params, binds, fn_sigs)?;
-            (name == "length" && (r == "string" || r.ends_with("[]"))).then(|| "number".into())
-        }
+        Expr::Array(elems) => Some(format!("{}[]", recur(*elems.first()?)?)),
+        Expr::Member { obj, name } => recur(*obj)
+            .filter(|r| name == "length" && (r == "string" || r.ends_with("[]")))
+            .map(|_| "number".into()),
+        Expr::Index { obj, .. } => recur(*obj)?.strip_suffix("[]").map(str::to_string),
         _ => None,
     }
 }
