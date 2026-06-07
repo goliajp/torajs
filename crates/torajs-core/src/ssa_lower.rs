@@ -7877,14 +7877,13 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// True when an expression's lowered Operand represents a freshly-
-    /// allocated owned value that the surrounding lowering site must
-    /// drop after use. False for borrow-shaped expressions (Ident /
-    /// Member / Index / OptChain) — those lean on the source binding
-    /// to keep the heap alive, and dropping here would either free a
-    /// still-referenced slot or double-drop with the source's own
-    /// scope-end emit_drop. Used by Expr::BinOp's post-call drop pass
-    /// to fix the historical leak where `s + literal` left the literal
-    /// unfreed.
+    /// allocated owned value the surrounding lowering site must drop.
+    /// False for borrow-shaped exprs (Ident / Member / Index / OptChain
+    /// / This — source binding owns the heap) and for string literals
+    /// (`Expr::String(_)`: post-P-rpn lowers to `StaticStrRef`, rc-noop
+    /// via STATIC_LITERAL; emitting `__torajs_str_drop`'s BL still
+    /// clobbers caller-saved X0 and silently destroyed `n + "x"`-style
+    /// ret values). Used by Expr::BinOp's post-call drop pass.
     fn expr_is_fresh_owned(&self, eid: ExprId) -> bool {
         !matches!(
             self.ast.get_expr(eid),
@@ -7893,6 +7892,7 @@ impl<'a> LowerCtx<'a> {
                 | Expr::Index { .. }
                 | Expr::OptChain { .. }
                 | Expr::This
+                | Expr::String(_)
         )
     }
 

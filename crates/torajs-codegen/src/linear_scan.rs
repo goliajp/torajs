@@ -355,11 +355,25 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
             continue;
         }
 
-        // Ret values live in the AAPCS64 ret lane (x0/v0), disjoint
-        // from every scratch pool, so they never join `active`. (A
-        // non-param ret value that itself crosses a call is a separate
-        // pre-existing gap, tracked outside this allocator.)
+        // Ret values: when their interval doesn't cross a call, X0/V0
+        // is the ABI sink — we park them there directly and
+        // `emit_terminator::Ret` is a no-op move at the actual ret.
+        //
+        // When the interval DOES cross a call (e.g. `return n + "x" +
+        // "y"`, where the outer `__torajs_str_concat`'s result lives
+        // across a subsequent `__torajs_str_drop` BL before reaching
+        // the ret), X0/V0 is caller-saved and the intervening BL
+        // clobbers it — silently destroying the ret value. Allocate
+        // callee-saved instead; `emit_terminator::Ret` materializes
+        // the value into X0/V0 at the actual ret point (its
+        // idempotent `if src != X0/V0 { mov }` covers this).
         if ret_vids.contains(&vid) {
+            if crossing {
+                let dst = sweep.alloc_crossing(interval, is_fp);
+                sweep.by_value.insert(vid, dst);
+                sweep.active.push((vid, interval, dst));
+                continue;
+            }
             let reg = if is_fp {
                 Reg::Fpr(aapcs64::FP_ARG_RET[0])
             } else {
