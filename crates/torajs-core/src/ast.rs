@@ -9959,9 +9959,8 @@ fn collect_return_anns_stmt(
     }
 }
 
-/// Statically infer an annotation string for an expression — literals,
-/// boolean-result ops, arithmetic, idents, bare-Ident calls, ternary,
-/// array literals. Bails to None on shapes the typechecker must run.
+/// Statically infer an annotation string — literals, ops, idents,
+/// calls (bare / Member-string-method), ternary, arrays, Member.
 fn infer_expr_ann_with(
     exprs: AstExprsView,
     eid: ExprId,
@@ -9996,24 +9995,20 @@ fn infer_expr_ann_with(
             | BinOp::Shl
             | BinOp::Shr
             | BinOp::UShr => Some("number".into()),
-            // `+` ambiguous: `string + any` → string; `number + number`
-            // → number; TypeVar+number (un-annotated `__T<n>` + concrete)
-            // → `any` (TS spec; without it ret_type → Void → SSA drops Ret).
+            // `+`: string-propagates / num+num=num / TypeVar+num=`any` (else Void).
             BinOp::Add => {
                 let l = infer_expr_ann_with(exprs, *left, params, binds, fn_sigs)?;
                 let r = infer_expr_ann_with(exprs, *right, params, binds, fn_sigs)?;
                 let is_tv = |s: &str| {
                     s.strip_prefix("__T")
-                        .is_some_and(|r| !r.is_empty() && r.bytes().all(|b| b.is_ascii_digit()))
+                        .is_some_and(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
                 };
-                if l == "string" || r == "string" {
-                    Some("string".into())
-                } else if l == "number" && r == "number" {
-                    Some("number".into())
-                } else if (is_tv(&l) && r == "number") || (is_tv(&r) && l == "number") {
-                    Some("any".into())
-                } else {
-                    None
+                match (l.as_str(), r.as_str()) {
+                    ("string", _) | (_, "string") => Some("string".into()),
+                    ("number", "number") => Some("number".into()),
+                    (a, "number") if is_tv(a) => Some("any".into()),
+                    ("number", b) if is_tv(b) => Some("any".into()),
+                    _ => None,
                 }
             }
         },
@@ -10029,20 +10024,23 @@ fn infer_expr_ann_with(
             }
             binds.get(name).cloned()
         }
-        // P8.4 — bare-Ident-callee Call resolves via fn_sigs so arrow
-        // `() => greet()` (and super-rewrite variants) infers greet's
-        // ret_type instead of Void. Bare Ident + non-generic only;
-        // TypeVar return goes through monomorphization, not closures.
+        // Call: bare Ident → fn_sigs; Member+string-receiver → string-method whitelist.
         Expr::Call { callee, .. } => {
-            if let Some(Expr::Ident(name)) = exprs.get(callee.0 as usize)
-                && let Some(ret) = fn_sigs.get(name)
+            let c = exprs.get(callee.0 as usize)?;
+            if let Expr::Ident(n) = c {
+                return fn_sigs.get(n).cloned();
+            }
+            if let Expr::Member { obj, name } = c
+                && infer_expr_ann_with(exprs, *obj, params, binds, fn_sigs)? == "string"
+                && matches!(
+                    name.as_str(),
+                    "toUpperCase" | "toLowerCase" | "trim" | "slice" | "substring"
+                )
             {
-                return Some(ret.clone());
+                return Some("string".into());
             }
             None
         }
-        // Ternary `cond ? a : b`: both arms infer; equal → propagate;
-        // mismatched → `any` (same TS fallback as BinOp::Add).
         Expr::Ternary {
             then_branch,
             else_branch,
@@ -10052,11 +10050,13 @@ fn infer_expr_ann_with(
             let f = infer_expr_ann_with(exprs, *else_branch, params, binds, fn_sigs)?;
             if t == f { Some(t) } else { Some("any".into()) }
         }
-        // Array literal — non-empty: first elem → `T[]` (flat string
-        // parsed by ssa_lower::parse_type / check); empty bails.
         Expr::Array(elems) => {
             let t = infer_expr_ann_with(exprs, *elems.first()?, params, binds, fn_sigs)?;
             Some(format!("{}[]", t))
+        }
+        Expr::Member { obj, name } => {
+            let r = infer_expr_ann_with(exprs, *obj, params, binds, fn_sigs)?;
+            (name == "length" && (r == "string" || r.ends_with("[]"))).then(|| "number".into())
         }
         _ => None,
     }
