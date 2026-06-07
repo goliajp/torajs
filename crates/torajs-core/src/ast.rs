@@ -10060,6 +10060,11 @@ fn infer_expr_ann_with(
             .filter(|r| r == "string" || r.ends_with("[]"))
             .map(|_| "number".into()),
         Expr::Index { obj, .. } => recur(*obj)?.strip_suffix("[]").map(str::to_string),
+        Expr::ObjectLit { fields } => fields
+            .iter()
+            .map(|(n, eid)| recur(*eid).map(|t| format!("{n}:{t}")))
+            .collect::<Option<Vec<_>>>()
+            .map(|p| format!("__inlobj({})", p.join("|"))),
         _ => None,
     }
 }
