@@ -42,10 +42,40 @@
 //! That makes intervals "live-set safe" for the trivial multi-block
 //! shapes the rest of codegen already handles via `BranchFixup`.
 //! Loops and more elaborate join patterns would need a fixed-point
-//! data-flow pass instead; the SSA the lowerer currently produces
-//! does not need one.
+//! data-flow pass instead — see the alloca-result carve-out below
+//! for the only loop-relevant case the lowerer currently emits.
+//!
+//! ## Loop-aware extension (Phase 1 single-pass + Phase 2 CFG fix-up)
+//!
+//! Single-pass liveness assumes execution follows textual order —
+//! true for straight-line code and forward branches, broken by
+//! backedges. A loop body's load that reads from an alloca slot
+//! defined in the entry block looks "expired" once the linear walk
+//! moves past the last textual use, even though the next iteration
+//! will re-read it. The allocator then hands the entry-block
+//! register to a `cset` inside the loop body, and the backedge
+//! delivers garbage to the next load.
+//! `ssa_lower_str::lower_array_index_of_inline_emit` (Array
+//! `indexOf` / `lastIndexOf` / `includes`) hits this canonically.
+//!
+//! Fix: after the linear pass, run a textbook live-in / live-out
+//! fix-point over the block CFG (use[B], def[B], live_in[B] =
+//! use[B] ∪ (live_out[B] \ def[B]), live_out[B] =
+//! ∪{live_in[s] : s ∈ succ(B)}). Any `ValueId` live across a block
+//! has its interval extended to that block's end. Backedges
+//! naturally close the loop: `live_out[loop_body]` pulls in
+//! `live_in[loop_header]`, which propagates the header's
+//! invariants (param-derived loads, alloca-addr loads) back over
+//! the body.
+//!
+//! Param ValueIds get the same treatment via the carve-out below —
+//! AAPCS64-arg ValueIds are not stored back to SSA `Store/Load`
+//! pairs in every shape (some lowers consume them in place), so
+//! pinning `func.params` to `[def, function_end]` covers the case
+//! the fix-point can't see (an arg used only after the loop body
+//! still needs to survive its `cset` clobber).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind, Operand, Terminator, ValueId};
 
@@ -80,6 +110,9 @@ impl Interval {
 /// `regalloc::Assignment`'s map layout for drop-in use.
 pub fn compute_intervals(func: &Function) -> HashMap<u32, Interval> {
     let mut out: HashMap<u32, Interval> = HashMap::new();
+    // Collected during the walk and patched at the end — see the
+    // "Alloca-result carve-out" section in the module docs.
+    let mut alloca_results: Vec<u32> = Vec::new();
 
     // Params are live from before any inst executes — model that as
     // index 0. Any subsequent use will extend `end` past 0; a param
@@ -121,6 +154,9 @@ pub fn compute_intervals(func: &Function) -> HashMap<u32, Interval> {
                     start: idx,
                     end: idx,
                 });
+                if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_)) {
+                    alloca_results.push(result.0);
+                }
             }
             idx += 1;
         }
@@ -138,7 +174,148 @@ pub fn compute_intervals(func: &Function) -> HashMap<u32, Interval> {
         idx += 1;
     }
 
+    let last_idx = idx.saturating_sub(1);
+
+    // Phase 2 — CFG live-in/live-out fix-point. Pins any ValueId
+    // that crosses a block boundary (especially backedges) to a
+    // live interval covering every block where it stays live.
+    // See module docs for the full algorithm.
+    extend_intervals_loop_aware(func, &mut out);
+
+    // Alloca-result + function-param carve-out — see module docs.
+    // Pure data-flow can't always see params (some lowers don't
+    // store-and-reload them, so the param's textual last-use precedes
+    // the loop body that consumes a reloaded copy), so pin both
+    // classes to `[def, last_idx]` regardless.
+    for v in alloca_results {
+        if let Some(it) = out.get_mut(&v)
+            && last_idx > it.end
+        {
+            it.end = last_idx;
+        }
+    }
+    for &p in &func.params {
+        if let Some(it) = out.get_mut(&p.0)
+            && last_idx > it.end
+        {
+            it.end = last_idx;
+        }
+    }
+
     out
+}
+
+/// Run Phase 2 — a textbook backward live-in / live-out fix-point
+/// over the block CFG — and extend every ValueId's `end` to cover
+/// every block where it stays live. See module docs.
+fn extend_intervals_loop_aware(func: &Function, out: &mut HashMap<u32, Interval>) {
+    let n = func.blocks.len();
+    if n == 0 {
+        return;
+    }
+
+    // Index-aligned bookkeeping over `func.blocks`.
+    let mut block_end_idx: Vec<u32> = vec![0; n];
+    let mut block_uses: Vec<HashSet<u32>> = vec![HashSet::new(); n];
+    let mut block_defs: Vec<HashSet<u32>> = vec![HashSet::new(); n];
+    let mut block_succs: Vec<Vec<usize>> = vec![Vec::new(); n];
+
+    // Map BlockId.0 → position in `func.blocks` (BlockId may be
+    // non-contiguous in pathological shapes).
+    let mut block_id_to_pos: HashMap<u32, usize> = HashMap::new();
+    for (i, block) in func.blocks.iter().enumerate() {
+        block_id_to_pos.insert(block.id.0, i);
+    }
+
+    // Walk to compute per-block use/def and end_idx in the same
+    // global numbering as `compute_intervals`.
+    let mut cursor: u32 = 0;
+    for (i, block) in func.blocks.iter().enumerate() {
+        for inst in &block.insts {
+            visit_inst_operands(&inst.kind, |v| {
+                if !block_defs[i].contains(&v.0) {
+                    block_uses[i].insert(v.0);
+                }
+            });
+            if let Some(result) = inst.result {
+                block_defs[i].insert(result.0);
+            }
+            cursor += 1;
+        }
+        visit_terminator_operands(&block.term, |v| {
+            if !block_defs[i].contains(&v.0) {
+                block_uses[i].insert(v.0);
+            }
+        });
+        block_end_idx[i] = cursor; // terminator owns this slot
+        cursor += 1;
+
+        match &block.term {
+            Terminator::Br(t) => {
+                if let Some(&p) = block_id_to_pos.get(&t.0) {
+                    block_succs[i].push(p);
+                }
+            }
+            Terminator::CondBr {
+                then_blk, else_blk, ..
+            } => {
+                if let Some(&p) = block_id_to_pos.get(&then_blk.0) {
+                    block_succs[i].push(p);
+                }
+                if let Some(&p) = block_id_to_pos.get(&else_blk.0) {
+                    block_succs[i].push(p);
+                }
+            }
+            Terminator::Ret(_) | Terminator::Unreachable => {}
+        }
+    }
+
+    // Fix-point: live_in[B] = use[B] ∪ (live_out[B] \ def[B]);
+    // live_out[B] = ∪{live_in[s] : s ∈ succ(B)}.
+    let mut live_in: Vec<HashSet<u32>> = vec![HashSet::new(); n];
+    let mut live_out: Vec<HashSet<u32>> = vec![HashSet::new(); n];
+    loop {
+        let mut changed = false;
+        for b in (0..n).rev() {
+            let mut new_out: HashSet<u32> = HashSet::new();
+            for &s in &block_succs[b] {
+                for v in &live_in[s] {
+                    new_out.insert(*v);
+                }
+            }
+            if new_out != live_out[b] {
+                live_out[b] = new_out;
+                changed = true;
+            }
+            let mut new_in = block_uses[b].clone();
+            for v in &live_out[b] {
+                if !block_defs[b].contains(v) {
+                    new_in.insert(*v);
+                }
+            }
+            if new_in != live_in[b] {
+                live_in[b] = new_in;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // Extend every value's end to the last block where it stays
+    // live (live_in covers "used inside this block from before",
+    // live_out covers "passes through this block to a successor").
+    for b in 0..n {
+        let end = block_end_idx[b];
+        for v in live_in[b].iter().chain(live_out[b].iter()) {
+            if let Some(it) = out.get_mut(v)
+                && end > it.end
+            {
+                it.end = end;
+            }
+        }
+    }
 }
 
 /// Invoke `f` on every `ValueId` referenced as an operand of `kind`.
@@ -494,11 +671,115 @@ mod tests {
             current_origin: None,
         };
         let ivs = compute_intervals(&func);
-        // a and b extend from param start (0) through the Call use
-        // at inst slot 0.
-        assert_eq!(ivs[&0], Interval { start: 0, end: 0 });
-        assert_eq!(ivs[&1], Interval { start: 0, end: 0 });
+        // a and b are function params — the carve-out pins them to
+        // the whole function so a loop-body load after a backedge
+        // can't read from a register the linear walk thought was
+        // free (see module docs). Last idx = 1 here (1 inst slot +
+        // 1 terminator slot, terminator owns slot 1).
+        assert_eq!(ivs[&0], Interval { start: 0, end: 1 });
+        assert_eq!(ivs[&1], Interval { start: 0, end: 1 });
         // c def at slot 0, used by Ret at slot 1.
         assert_eq!(ivs[&2], Interval { start: 0, end: 1 });
+    }
+
+    /// Phase-2 loop-aware liveness regression — the canonical
+    /// `Array.prototype.indexOf` inline-emit shape that triggered
+    /// chunk 9a. Three blocks: entry → header → body → header
+    /// (backedge). Value `v0` is defined in entry and re-loaded
+    /// from `[v0, #8]` inside body on every iteration. Single-pass
+    /// liveness would end v0 at body's load (the textual last
+    /// use); the CFG fix-point must extend v0 through body's
+    /// terminator (the backedge slot) so the allocator keeps a
+    /// register reserved for it across `cset`-shaped intra-body
+    /// defs.
+    ///
+    /// Block layout (`block_end_idx` in parens, terminators own
+    /// their own slot):
+    ///   B0 entry: idx 0 (Alloca), 1 (Br header)
+    ///   B1 header: idx 2 (Load v0+0 → cond), 3 (CondBr body/exit)
+    ///   B2 body: idx 4 (Load v0+8), 5 (Br header) ← backedge
+    ///   B3 exit: idx 6 (Ret)
+    #[test]
+    fn loop_aware_extends_through_backedge() {
+        let v0 = ValueId(0);
+        let v_cond = ValueId(1);
+        let v_body = ValueId(2);
+        let func = Function {
+            name: "loop_body".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values: vec![
+                ValueInfo {
+                    ty: Type::I64,
+                    name: Some("v0".into()),
+                },
+                ValueInfo {
+                    ty: Type::I64,
+                    name: Some("cond".into()),
+                },
+                ValueInfo {
+                    ty: Type::I64,
+                    name: Some("body".into()),
+                },
+            ],
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: vec![Inst {
+                        result: Some(v0),
+                        kind: InstKind::Alloca(Type::I64),
+                        origin: None,
+                    }],
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![Inst {
+                        result: Some(v_cond),
+                        kind: InstKind::Load(Type::I64, Operand::Value(v0), 0),
+                        origin: None,
+                    }],
+                    term: Terminator::CondBr {
+                        cond: Operand::Value(v_cond),
+                        then_blk: BlockId(2),
+                        else_blk: BlockId(3),
+                    },
+                },
+                Block {
+                    id: BlockId(2),
+                    insts: vec![Inst {
+                        result: Some(v_body),
+                        kind: InstKind::Load(Type::I64, Operand::Value(v0), 8),
+                        origin: None,
+                    }],
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(3),
+                    insts: Vec::new(),
+                    term: Terminator::Ret(None),
+                },
+            ],
+            current_origin: None,
+        };
+
+        let ivs = compute_intervals(&func);
+        // v0 is alloca-result + loop-invariant; the carve-out alone
+        // pins it to the whole function. Verify it survives at
+        // least through the body's backedge (idx 5).
+        assert!(
+            ivs[&0].end >= 5,
+            "v0 (loop-invariant alloca) should stay live through backedge at idx 5, got end={}",
+            ivs[&0].end
+        );
+        // cond is defined in header (idx 2) and used by header's
+        // terminator (idx 3). It does NOT cross to body, so the
+        // fix-point should leave it at end=3.
+        assert_eq!(
+            ivs[&1].end, 3,
+            "cond should expire at header's terminator slot 3"
+        );
+        // body-load result is dead immediately (no use).
+        assert_eq!(ivs[&2].start, ivs[&2].end);
     }
 }
