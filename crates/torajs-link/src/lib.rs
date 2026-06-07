@@ -65,6 +65,7 @@ pub mod layout_types;
 pub mod lc;
 pub mod member_apply;
 pub mod member_data_apply;
+pub(crate) mod member_data_rebase_layout;
 pub mod member_reloc;
 pub mod member_resolve;
 pub mod member_sections;
