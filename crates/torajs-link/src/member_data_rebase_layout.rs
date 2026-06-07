@@ -62,7 +62,6 @@ use crate::resolve::SymTable;
 /// reloc table order. 2b-3 / 2b-4 walk the result in the same order
 /// so the patcher's index lines up with the encoder's link-value
 /// output vec.
-#[allow(dead_code)] // wired in chunk 2b-4 (archive_emit + ChainedFixupsInputs); 2b-1 ships inert.
 pub(crate) fn compute_member_data_rebase_targets(
     layout: &ArchiveLayout,
     merged: &MergedArchives<'_>,
@@ -91,7 +90,6 @@ pub(crate) fn compute_member_data_rebase_targets(
 /// without having to materialize an `ArchiveLayout` / `MergedArchives`.
 /// Pushes onto `targets` so the caller controls the output buffer
 /// across the whole member walk.
-#[allow(dead_code)] // wired by compute_member_data_rebase_targets, itself inert until 2b-4.
 fn collect_member_targets(
     member: &ArMember<'_>,
     data_sections: &[DataSectionLayout],

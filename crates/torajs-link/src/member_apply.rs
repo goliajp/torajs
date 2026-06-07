@@ -105,6 +105,11 @@ pub enum MemberRelocApplyError {
         length_bytes: u32,
         text_size: usize,
     },
+    /// swap-2k chunk 2b-4: collector emitted a reloc count that
+    /// disagrees with the chained-fixups encoder's per-slot link
+    /// value vec for the same section — programming bug in the
+    /// archive_emit wire (cursor walks the two in lockstep).
+    SlotCountMismatch { relocs: usize, link_values: usize },
     /// BRANCH26 displacement doesn't fit in a 26-bit signed range
     /// (= 33-bit absolute range). Silent corruption would be worse
     /// than this loud failure.

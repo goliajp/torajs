@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 use crate::chained_fixups::{TextRebaseScope, build_chained_fixups};
 use crate::chained_fixups_starts::RebaseTarget;
 use crate::data_const_layout::DataConstLayout;
+use crate::layout_types::ArchiveLayout;
 use crate::lc::TEXT_VMADDR_BASE;
+use crate::user_vtables_layout::vtable_rebase_targets_from_fn_vaddrs;
 
 /// Args bundle for [`compute_chained_fixups_outputs`] — keeps the
 /// archive_link call site to a handful of lines while still
@@ -73,4 +75,61 @@ pub fn compute_chained_fixups_outputs(
         built.text_rebase_link_values,
         built.data_rebase_link_values,
     )
+}
+
+/// swap-2k chunk 2b-4 — re-run [`compute_chained_fixups_outputs`]
+/// with the collected staticlib member `__DATA,*` rebase targets,
+/// overwrite the chain-related fields on `layout` (blob + per-slot
+/// link-value vecs), and return the per-data-slot link values the
+/// emit pass writes onto each member `__DATA,*` payload via
+/// [`crate::member_data_apply::apply_member_data_const_relocs`].
+/// The blob size is invariant in `data_rebase_targets.len()` (page
+/// count / import table / sym table all unchanged), so caller-side
+/// `chained_fixups_dataoff` / `codesign_dataoff` stay valid.
+pub fn recompute_chained_fixups_with_data_rebase(
+    layout: &mut ArchiveLayout,
+    data_rebase_targets: &[RebaseTarget],
+) -> Vec<u64> {
+    if data_rebase_targets.is_empty() {
+        return Vec::new();
+    }
+    let has_data_const = layout.data_const_layout.has_data_const;
+    let has_dyld = !layout.dyld_imports.is_empty();
+    // Mirrors `archive_link.rs` segment_count: PAGEZERO + __TEXT +
+    // (__DATA_CONST?) + (__DATA?) + __LINKEDIT.
+    let segment_count = 3 + u32::from(has_dyld) + u32::from(has_data_const);
+    let data_seg_idx: u32 = if has_data_const { 3 } else { 2 };
+    let vtable_rebase_targets = vtable_rebase_targets_from_fn_vaddrs(
+        &layout.data_const_layout.vtable_layout,
+        &layout.fn_vaddrs,
+        layout.data_const_layout.segment_vmaddr,
+        TEXT_VMADDR_BASE,
+    );
+    let tlv_thunk_offsets: Vec<u64> = layout
+        .tlv_descriptors
+        .iter()
+        .map(|d| d.thunk_slot_vaddr - layout.data_vmaddr)
+        .collect();
+    let (blob, la_ptr, tlv_thunk, text_rebase, data_rebase) =
+        compute_chained_fixups_outputs(ChainedFixupsInputs {
+            dyld_imports: &layout.dyld_imports,
+            data_seg_vmaddr_offset: layout.data_vmaddr.saturating_sub(TEXT_VMADDR_BASE),
+            data_seg_vmsize: layout.data_vmsize,
+            tlv_thunk_offsets: &tlv_thunk_offsets,
+            segment_count,
+            data_seg_idx,
+            data_const_layout: &layout.data_const_layout,
+            vtable_rebase_targets: &vtable_rebase_targets,
+            data_seg_rebase_targets: data_rebase_targets,
+        });
+    debug_assert_eq!(
+        blob.len(),
+        layout.chained_fixups_blob.len(),
+        "chained_fixups blob size must be invariant in data_rebase_targets.len()",
+    );
+    layout.chained_fixups_blob = blob;
+    layout.la_ptr_slot_values = la_ptr;
+    layout.tlv_thunk_link_values = tlv_thunk;
+    layout.text_rebase_link_values = text_rebase;
+    data_rebase
 }

@@ -1,9 +1,6 @@
-//! Archive-aware emit pass (S7-C4) — builds on
-//! `compute_archive_layout` to emit a complete Mach-O `MH_EXECUTE`
-//! byte stream including user `CompiledFunction`s + `.o` members.
-//! User-fn + member-internal relocs resolve through one effective
-//! sym table (caller externs + every member defined-extern + dyld
-//! stub aliases + TLV / user-string / fn-addr / data-global overrides).
+//! Archive-aware emit pass (S7-C4): emits a complete `MH_EXECUTE`
+//! Mach-O byte stream including user fns + member text/data
+//! payloads + chained-fixups + ad-hoc codesign blob.
 
 use torajs_obj::{
     CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MachHeader64, Nlist64,
@@ -14,6 +11,7 @@ use torajs_obj::{
 
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError, compute_archive_layout};
 use crate::archives_merge::merge_archive_indexes;
+use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
 use crate::data_section_emit::{
     build_data_non_text_section_64_entries, write_data_non_text_file_payloads,
 };
@@ -32,6 +30,8 @@ use crate::lc::{
     write_load_dylib_libsystem, write_load_dylinker,
 };
 use crate::member_apply::apply_member_relocs;
+use crate::member_data_apply::collect_member_data_payloads;
+use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
 use crate::resolve::apply_relocs;
 use crate::sign::build_adhoc_codesign_blob;
 use crate::tlv_descriptor_layout::apply_tlv_overrides;
@@ -45,7 +45,7 @@ use crate::user_vtables_layout::{apply_user_vtable_overrides, build_user_vtables
 /// internal relocs both resolve against one effective sym table
 /// (caller externs + every member defined-external).
 pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
-    let layout = compute_archive_layout(cfg)?;
+    let mut layout = compute_archive_layout(cfg)?;
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
 
     // Effective sym table = caller externs + every member defined
@@ -78,12 +78,25 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     apply_user_data_global_overrides(&layout.user_data_globals_layout, &mut effective_sym_table);
     register_fn_addr_syms(&cfg.funcs, &layout.fn_vaddrs, &mut effective_sym_table);
     apply_user_vtable_overrides(&layout.user_vtables_layout, &mut effective_sym_table);
-    // SD-4c-prereq+e7b-4: vtable slot bytes are chain-link u64s from
-    // build_chained_fixups, not vaddrs — PIE needs dyld to rebase.
+
+    // chunk 2b-4: dyld-rebase every staticlib member `__DATA,*` slot under ASLR.
+    let data_rebase_targets = compute_member_data_rebase_targets(
+        &layout,
+        &merged,
+        &effective_sym_table,
+        layout.data_vmaddr,
+    )
+    .map_err(|err| ArchiveLayoutError::MemberReloc {
+        archive_idx: 0,
+        member_idx: 0,
+        err,
+    })?;
+    let data_rebase_link_values =
+        recompute_chained_fixups_with_data_rebase(&mut layout, &data_rebase_targets);
+
+    // e7b-4: vtable slot bytes are chain-link u64s, not vaddrs.
     let user_vtables_payload =
         build_user_vtables_payload(&layout.user_vtables_layout, &layout.text_rebase_link_values);
-
-    // Resolve user-function relocs against the effective sym table.
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
 
     // S7-C5 — patch each member's __text in place against effective sym table.
@@ -94,10 +107,6 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         let off = m.member_text_offset_in_member as usize;
         let end = off + m.text_size as usize;
         let mut bytes = member.data[off..end].to_vec();
-        // SD-4c-prereq-c-fix-c5 — pass this member's __DATA section
-        // layouts so resolve_local_nsect can resolve `N_SECT N_EXT=0`
-        // local labels (e.g. rustc `l_anon.*`) whose target lives in
-        // __DATA rather than __TEXT.
         apply_member_relocs(
             &mut bytes,
             member,
@@ -121,20 +130,8 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         }
     }
 
-    // `__DATA,*` payloads (chunk 2 `member_data_apply` unwired pending chunk 2b PIE rebase).
-    let mut data_non_text_payloads: Vec<Vec<u8>> = Vec::new();
-    for (i, per_member) in layout.data_non_text_layouts.iter().enumerate() {
-        let member = &merged.per_archive_members[layout.member_layouts[i].key.0]
-            [layout.member_layouts[i].key.1];
-        for s in per_member {
-            if !s.has_file_storage {
-                continue;
-            }
-            let off = s.member_internal_offset as usize;
-            let end = off + s.size as usize;
-            data_non_text_payloads.push(member.data[off..end].to_vec());
-        }
-    }
+    let data_non_text_payloads =
+        collect_member_data_payloads(&layout, &merged, &data_rebase_link_values)?;
 
     let bytes = emit_binary(
         cfg,

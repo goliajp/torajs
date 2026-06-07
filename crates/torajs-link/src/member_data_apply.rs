@@ -37,14 +37,13 @@ use torajs_obj::{
 };
 
 use crate::archive::ArMember;
-use crate::data_section_layout::DataSectionLayout;
+use crate::archive_link::ArchiveLayoutError;
+use crate::archives_merge::MergedArchives;
+use crate::layout_types::ArchiveLayout;
 use crate::member_apply::MemberRelocApplyError;
 use crate::member_reloc::{MemberRelocEntry, MemberRelocError, decode_reloc_table};
-use crate::member_resolve::resolve_local_nsect;
-use crate::member_symtab::{parse_member_symtab, read_nlist_name};
-use crate::non_text_layout::NonTextSectionLayout;
+use crate::member_sections::is_tlv_descriptor;
 use crate::patch::write_unsigned64;
-use crate::resolve::SymTable;
 
 /// Walk a member's load commands and decode every reloc entry on the
 /// section identified by 1-based `target_section_index` (matching the
@@ -119,77 +118,59 @@ pub fn parse_member_section_relocs(
     Ok(Vec::new())
 }
 
-/// Patch every UNSIGNED reloc on a single `__DATA,*` payload in place.
+/// Patch every UNSIGNED reloc on a single `__DATA,*` payload in
+/// place with the chained-fixups encoder's per-slot link value.
 /// `bytes` is a fresh copy of the section's member-internal payload
-/// (`member.data[member_internal_offset..member_internal_offset + size]
-/// .to_vec()`). `section_final_vaddr` is the vaddr the patched payload
-/// will occupy in the linked image — the same `final_vaddr` the
-/// section's [`DataSectionLayout`] entry carries.
+/// (`member.data[member_internal_offset..member_internal_offset +
+/// size].to_vec()`).
 ///
 /// `relocs` are the entries decoded from the section's own reloc
-/// table (see [`parse_member_section_relocs`]). `sym_table` plus
-/// `non_text_sections` / `data_non_text_sections` provide the same
-/// final-link target lookup `apply_member_relocs` uses.
+/// table (see [`parse_member_section_relocs`]).
+/// `slot_link_values` is the matching slice of
+/// `ChainedFixupsBlob.data_rebase_link_values` — one 8-byte LE
+/// `dyld_chained_ptr_64_rebase` link per reloc, in the same order
+/// the collector
+/// [`crate::member_data_rebase_layout::compute_member_data_rebase_targets`]
+/// emitted them so the dyld loader's chain walker stamps each slot
+/// at image load (mirroring the e7b user-vtable path but for the
+/// `__DATA` segment chain bucket).
 ///
-/// Returns `UnknownRelocType` on any non-UNSIGNED entry. Per the
-/// shipped reloc audit (see module doc-comment), every observed
-/// `__DATA,*` reloc is UNSIGNED; surfacing a new kind loudly catches
-/// future rustc / staticlib changes before they can silently write a
-/// NULL slot.
+/// Returns `UnknownRelocType` on any non-UNSIGNED entry,
+/// `InvalidSectionIndex` on `r_extern == 0`,
+/// `SlotCountMismatch` when `relocs.len() != slot_link_values.len()`.
+/// Per the shipped reloc audit (see module doc-comment), every
+/// observed `__DATA,*` reloc is UNSIGNED + `r_extern == 1`; the
+/// strict-validation errors surface rustc / staticlib changes
+/// loudly before the loader can silently write a NULL slot.
 pub fn apply_member_data_const_relocs(
     bytes: &mut [u8],
-    member: &ArMember<'_>,
-    section_final_vaddr: u64,
     relocs: &[MemberRelocEntry],
-    sym_table: &SymTable,
-    non_text_sections: &[NonTextSectionLayout],
-    data_non_text_sections: &[DataSectionLayout],
+    slot_link_values: &[u64],
 ) -> Result<(), MemberRelocApplyError> {
     if relocs.is_empty() {
         return Ok(());
     }
-    let symtab = parse_member_symtab(member)?;
+    if relocs.len() != slot_link_values.len() {
+        return Err(MemberRelocApplyError::SlotCountMismatch {
+            relocs: relocs.len(),
+            link_values: slot_link_values.len(),
+        });
+    }
     let payload_size = bytes.len();
 
-    for r in relocs {
+    for (r, &link_value) in relocs.iter().zip(slot_link_values) {
         if r.r_type != ARM64_RELOC_UNSIGNED {
             return Err(MemberRelocApplyError::UnknownRelocType {
                 r_type: r.r_type,
                 r_address: r.r_address,
             });
         }
-
-        let sym_vaddr = if r.r_extern == 0 {
-            // Per audit, no observed `__DATA,*` UNSIGND uses
-            // `r_extern=0`; report the strict-validation error so a
-            // future encoder change surfaces loudly.
+        if r.r_extern == 0 {
             return Err(MemberRelocApplyError::InvalidSectionIndex {
                 r_symbolnum: r.r_symbolnum,
-                nsects: non_text_sections.len() + data_non_text_sections.len(),
+                nsects: 0,
             });
-        } else {
-            if r.r_symbolnum >= symtab.nsyms {
-                return Err(MemberRelocApplyError::SymbolnumOutOfRange {
-                    r_symbolnum: r.r_symbolnum,
-                    nsyms: symtab.nsyms,
-                });
-            }
-            let name = read_nlist_name(member, &symtab, r.r_symbolnum)?;
-            if let Some(&v) = sym_table.get(&name) {
-                v
-            } else if let Some(v) = resolve_local_nsect(
-                member,
-                &symtab,
-                r.r_symbolnum,
-                section_final_vaddr,
-                non_text_sections,
-                data_non_text_sections,
-            ) {
-                v
-            } else {
-                return Err(MemberRelocApplyError::UnresolvedSymbol { name: name.clone() });
-            }
-        };
+        }
 
         let off = r.r_address as usize;
         if off
@@ -207,15 +188,76 @@ pub fn apply_member_data_const_relocs(
         let slot: &mut [u8; 8] = (&mut bytes[off..off + 8])
             .try_into()
             .expect("PatchSiteOutOfRange guard already enforced 8-byte slot");
-        write_unsigned64(slot, sym_vaddr);
+        write_unsigned64(slot, link_value);
     }
     Ok(())
+}
+
+/// swap-2k chunk 2b-4 emit-pass helper. Walks every integrated
+/// member's `__DATA,*` file-storage section in
+/// `data_non_text_layouts` order, copies each section's bytes out
+/// of the member, runs the patcher for non-TLV sections (TLV
+/// descriptor slots flow through the per-thunk-slot chained-fixups
+/// bind path, not the REBASE chain), and returns the per-section
+/// payload Vec in the order
+/// [`crate::archive_emit::emit_binary`] consumes. The link-value
+/// cursor walks
+/// `data_rebase_link_values` in lockstep with the collector
+/// [`crate::member_data_rebase_layout::compute_member_data_rebase_targets`].
+pub fn collect_member_data_payloads(
+    layout: &ArchiveLayout,
+    merged: &MergedArchives<'_>,
+    data_rebase_link_values: &[u64],
+) -> Result<Vec<Vec<u8>>, ArchiveLayoutError> {
+    let mut payloads: Vec<Vec<u8>> = Vec::new();
+    let mut lv_cursor: usize = 0;
+    for (i, per_member) in layout.data_non_text_layouts.iter().enumerate() {
+        let m_key = layout.member_layouts[i].key;
+        let member = &merged.per_archive_members[m_key.0][m_key.1];
+        for s in per_member {
+            if !s.has_file_storage {
+                continue;
+            }
+            let off = s.member_internal_offset as usize;
+            let end = off + s.size as usize;
+            let mut bytes = member.data[off..end].to_vec();
+            if !is_tlv_descriptor(s.flags) {
+                let relocs =
+                    parse_member_section_relocs(member, s.section_index).map_err(|err| {
+                        ArchiveLayoutError::MemberReloc {
+                            archive_idx: m_key.0,
+                            member_idx: m_key.1,
+                            err: MemberRelocApplyError::Decode(err),
+                        }
+                    })?;
+                let n = relocs.len();
+                if n > 0 {
+                    let lvs = &data_rebase_link_values[lv_cursor..][..n];
+                    apply_member_data_const_relocs(&mut bytes, &relocs, lvs).map_err(|err| {
+                        ArchiveLayoutError::MemberReloc {
+                            archive_idx: m_key.0,
+                            member_idx: m_key.1,
+                            err,
+                        }
+                    })?;
+                    lv_cursor += n;
+                }
+            }
+            payloads.push(bytes);
+        }
+    }
+    debug_assert_eq!(
+        lv_cursor,
+        data_rebase_link_values.len(),
+        "patcher cursor must consume every link value the collector emitted",
+    );
+    Ok(payloads)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::archive::{AR_HEADER_SIZE, AR_MAGIC, ArMember, parse_archive};
+    use crate::archive::{AR_HEADER_SIZE, AR_MAGIC, parse_archive};
     use torajs_codegen::CompiledFunction;
     use torajs_codegen::frame::FrameLayout;
     use torajs_obj::write_object;
@@ -262,69 +304,40 @@ mod tests {
         assert!(entries.is_empty(), "out-of-range index returns empty");
     }
 
-    /// `apply_member_data_const_relocs` with an empty reloc list is a
-    /// no-op, even for a buffer the patcher would otherwise probe.
+    /// Empty reloc list is a no-op short-circuit, regardless of the
+    /// link-value slice length (the chunk 2b-4 cursor walks `relocs.len()`
+    /// entries, so the empty case never touches the link-value slice).
     #[test]
-    fn empty_relocs_skips_symtab_parse() {
-        // Member doesn't need an LC_SYMTAB for the empty-list path —
-        // a bare 32-byte Mach-O header is enough since we never call
-        // `parse_member_symtab` on the empty fast-path.
-        let mut bytes = vec![0u8; 32];
-        bytes[0..4].copy_from_slice(&MH_MAGIC_64.to_le_bytes());
-        let m = ArMember {
-            name: "stub.o",
-            data: &bytes,
-        };
+    fn empty_relocs_short_circuits() {
         let mut payload = vec![0u8; 16];
-        let sym_table = SymTable::new();
-        let r =
-            apply_member_data_const_relocs(&mut payload, &m, 0x1_0000, &[], &sym_table, &[], &[]);
-        assert!(r.is_ok(), "empty reloc list short-circuits");
+        apply_member_data_const_relocs(&mut payload, &[], &[]).expect("empty short-circuit");
         assert_eq!(payload, vec![0u8; 16], "payload untouched");
     }
 
-    /// A single UNSIGNED entry that resolves through `sym_table`
-    /// writes the resolved vaddr as little-endian 8 bytes at
-    /// `r_address`. This is the chunk-2 happy path: vtable fn-ptr
-    /// slot pointing at a code symbol the link driver already knows.
+    /// A single UNSIGNED entry writes its paired link value as
+    /// little-endian 8 bytes at `r_address`. This is the chunk 2b
+    /// happy path: vtable fn-ptr slot stamped with the
+    /// `dyld_chained_ptr_64_rebase` encoding the chained-fixups
+    /// encoder produced.
     #[test]
-    fn unsigned_extern_writes_sym_vaddr_little_endian() {
-        // 16-byte payload, one UNSIGNED reloc at byte 8 → "_target".
-        let foo = fn_leaf("_target");
-        let obj = write_object(std::slice::from_ref(&foo));
-        let archive = build_short_name_archive("a.o", &obj);
-        let members = parse_archive(&archive).unwrap();
-        let member = &members[0];
-
-        // We don't synthesize a real `__DATA,__const` section in the
-        // member (parse_member_section_relocs is exercised separately
-        // by `leaf_member_has_no_data_const_section`); instead we
-        // construct a `MemberRelocEntry` directly and call the
-        // patcher to verify the write semantics in isolation.
+    fn unsigned_extern_writes_link_value_little_endian() {
         let entry = MemberRelocEntry {
             r_address: 8,
-            r_symbolnum: 0, // `_target` is sym index 0 in the leaf object
+            r_symbolnum: 0,
             r_pcrel: 0,
             r_length: 3,
             r_extern: 1,
             r_type: ARM64_RELOC_UNSIGNED,
         };
+        // Link value bit pattern doesn't matter for the patcher —
+        // we just verify it lands at `r_address` little-endian.
+        let link_value = 0xDEAD_BEEF_CAFE_0008u64;
 
         let mut payload = vec![0u8; 16];
-        let mut sym_table = SymTable::new();
-        sym_table.insert("_target".into(), 0xDEAD_BEEF_CAFE_0008);
-        apply_member_data_const_relocs(
-            &mut payload,
-            member,
-            0x1_0000,
-            &[entry],
-            &sym_table,
-            &[],
-            &[],
-        )
-        .expect("happy path patches cleanly");
+        apply_member_data_const_relocs(&mut payload, &[entry], &[link_value])
+            .expect("happy path patches cleanly");
 
-        let expected = 0xDEAD_BEEF_CAFE_0008u64.to_le_bytes();
+        let expected = link_value.to_le_bytes();
         assert_eq!(&payload[0..8], &[0u8; 8], "leading bytes untouched");
         assert_eq!(&payload[8..16], &expected, "8 bytes written at r_address=8");
     }
@@ -333,11 +346,6 @@ mod tests {
     /// silently leaving the slot zero — the audit-driven guarantee.
     #[test]
     fn non_unsigned_reloc_returns_unknown_kind() {
-        let foo = fn_leaf("_target");
-        let obj = write_object(std::slice::from_ref(&foo));
-        let archive = build_short_name_archive("a.o", &obj);
-        let members = parse_archive(&archive).unwrap();
-
         // r_type=1 = ARM64_RELOC_SUBTRACTOR (never observed in
         // shipped staticlib `__DATA,*` reloc tables but a hostile
         // input we still reject loudly).
@@ -351,17 +359,7 @@ mod tests {
         };
 
         let mut payload = vec![0u8; 8];
-        let sym_table = SymTable::new();
-        let err = apply_member_data_const_relocs(
-            &mut payload,
-            &members[0],
-            0x1_0000,
-            &[entry],
-            &sym_table,
-            &[],
-            &[],
-        )
-        .unwrap_err();
+        let err = apply_member_data_const_relocs(&mut payload, &[entry], &[0u64]).unwrap_err();
         match err {
             MemberRelocApplyError::UnknownRelocType { r_type, r_address } => {
                 assert_eq!(r_type, 1);
@@ -376,11 +374,6 @@ mod tests {
     /// adjacent payload bytes.
     #[test]
     fn out_of_range_patch_site_surfaces_typed_error() {
-        let foo = fn_leaf("_target");
-        let obj = write_object(std::slice::from_ref(&foo));
-        let archive = build_short_name_archive("a.o", &obj);
-        let members = parse_archive(&archive).unwrap();
-
         // 4-byte payload, reloc claims an 8-byte write at offset 0 →
         // out of range.
         let entry = MemberRelocEntry {
@@ -393,18 +386,7 @@ mod tests {
         };
 
         let mut payload = vec![0u8; 4];
-        let mut sym_table = SymTable::new();
-        sym_table.insert("_target".into(), 0x1234_5678_9ABC_DEF0);
-        let err = apply_member_data_const_relocs(
-            &mut payload,
-            &members[0],
-            0x1_0000,
-            &[entry],
-            &sym_table,
-            &[],
-            &[],
-        )
-        .unwrap_err();
+        let err = apply_member_data_const_relocs(&mut payload, &[entry], &[0u64]).unwrap_err();
         match err {
             MemberRelocApplyError::PatchSiteOutOfRange {
                 r_address,
@@ -416,6 +398,34 @@ mod tests {
                 assert_eq!(text_size, 4);
             }
             other => panic!("expected PatchSiteOutOfRange, got {other:?}"),
+        }
+    }
+
+    /// `relocs.len() != slot_link_values.len()` is a programming bug
+    /// in the archive_emit wire (cursor walks the two in lockstep);
+    /// surface it as `SlotCountMismatch` instead of panicking on slice
+    /// bounds.
+    #[test]
+    fn slot_count_mismatch_surfaces_typed_error() {
+        let entry = MemberRelocEntry {
+            r_address: 0,
+            r_symbolnum: 0,
+            r_pcrel: 0,
+            r_length: 3,
+            r_extern: 1,
+            r_type: ARM64_RELOC_UNSIGNED,
+        };
+        let mut payload = vec![0u8; 8];
+        let err = apply_member_data_const_relocs(&mut payload, &[entry], &[]).unwrap_err();
+        match err {
+            MemberRelocApplyError::SlotCountMismatch {
+                relocs,
+                link_values,
+            } => {
+                assert_eq!(relocs, 1);
+                assert_eq!(link_values, 0);
+            }
+            other => panic!("expected SlotCountMismatch, got {other:?}"),
         }
     }
 }
