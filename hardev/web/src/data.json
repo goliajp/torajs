@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-07T07:04:53.890Z",
+  "generatedAt": "2026-06-07T07:40:47.351Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "1e7f642",
-    "commitSubject": "feat(link): wire __DATA member rebase patcher under PIE — #9 SD-4c swap-2k chunk 2b-4",
+    "commit": "bea4d45",
+    "commitSubject": "chore: dashboard snapshot @ 1e7f642 — swap-2k chunk 2b整 phase close (PIE rebase wire,String(5) blocker fixed) + mini gate runner online",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,10 @@
   },
   "commits": [
     {
+      "hash": "bea4d45",
+      "subject": "chore: dashboard snapshot @ 1e7f642 — swap-2k chunk 2b整 phase close (PIE rebase wire,String(5) blocker fixed) + mini gate runner online"
+    },
+    {
       "hash": "1e7f642",
       "subject": "feat(link): wire __DATA member rebase patcher under PIE — #9 SD-4c swap-2k chunk 2b-4"
     },
@@ -653,31 +657,38 @@
     {
       "hash": "5cede78",
       "subject": "fix(link): honor section_64.align in __DATA layout — #9 SD-4c swap-2i"
-    },
-    {
-      "hash": "dd03189",
-      "subject": "chore(hardev): dashboard snapshot @ 112da52 — swap-2f/2g/2h leaf fixture end-to-end"
     }
   ],
-  "headSha": "1e7f642",
+  "headSha": "bea4d45",
   "autorun": {
-    "total": 70,
+    "total": 71,
     "baselineTarget": 10,
-    "bySelf": 68,
+    "bySelf": 69,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780805716-0e12",
-      "at": "2026-06-07T04:15:16Z",
-      "ts": 1780805716,
+      "rotationId": "r-1780816077-7941",
+      "at": "2026-06-07T07:07:57Z",
+      "ts": 1780816077,
       "trigger": "self",
-      "prevHead": "49e0376",
-      "handoffSha": "sha256:8ae75acf21b1967ee284766abcdccf3e03154add65ae4e3a3535dd8ed2f4e394",
+      "prevHead": "bea4d45",
+      "handoffSha": "sha256:0652bf491cc405c7c89ef6a4952418b33a34c362594f10e8a6499cbc85f518f9",
       "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780816077-7941",
+        "at": "2026-06-07T07:07:57Z",
+        "ts": 1780816077,
+        "trigger": "self",
+        "prevHead": "bea4d45",
+        "handoffSha": "sha256:0652bf491cc405c7c89ef6a4952418b33a34c362594f10e8a6499cbc85f518f9",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780805716-0e12",
         "at": "2026-06-07T04:15:16Z",
@@ -774,17 +785,6 @@
         "prevHead": "4138c64",
         "handoffSha": "sha256:a783e68dc6fcc3bb6d4af16d07b99484dbf2babdd3ae7a0b97c3c6c4c5a56f75",
         "handoffAgeSec": 46,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780722553-45ee",
-        "at": "2026-06-06T05:09:13Z",
-        "ts": 1780722553,
-        "trigger": "manual",
-        "prevHead": "0d86354",
-        "handoffSha": "sha256:14c325ce69ede74c9dc4e50d16b15f2b0defdc333f6024206513526882f637e8",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
