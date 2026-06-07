@@ -9959,11 +9959,9 @@ fn collect_return_anns_stmt(
     }
 }
 
-/// Statically infer an annotation string for an expression. Limited to
-/// shapes whose annotation is unambiguous without consulting the
-/// typechecker — literals, boolean-result BinOp/Unary, arithmetic ops
-/// with statically-typeable operands, and Ident references resolvable
-/// against `binds` (params + locally-inferred let bindings).
+/// Statically infer an annotation string for an expression — literals,
+/// boolean-result ops, arithmetic, idents, bare-Ident calls, ternary,
+/// array literals. Bails to None on shapes the typechecker must run.
 fn infer_expr_ann_with(
     exprs: AstExprsView,
     eid: ExprId,
@@ -9998,21 +9996,12 @@ fn infer_expr_ann_with(
             | BinOp::Shl
             | BinOp::Shr
             | BinOp::UShr => Some("number".into()),
-            // `+` is the only ambiguous op (number add OR string
-            // concat); fall back to per-side inference and only commit
-            // when both agree on a concrete primitive.
+            // `+` ambiguous: `string + any` → string; `number + number`
+            // → number; TypeVar+number (un-annotated `__T<n>` + concrete)
+            // → `any` (TS spec; without it ret_type → Void → SSA drops Ret).
             BinOp::Add => {
                 let l = infer_expr_ann_with(exprs, *left, params, binds, fn_sigs)?;
                 let r = infer_expr_ann_with(exprs, *right, params, binds, fn_sigs)?;
-                // JS spec: `string + anything` → string concat;
-                // `number + number` → number. When one side is a fresh
-                // implicit-generic TypeVar (un-annotated param defaulted
-                // to `__T<n>` upstream) and the other is a concrete
-                // primitive, `+` is genuinely ambiguous → TS spec degrades
-                // to `any`. Without the `any` fallback, ret_type stays
-                // None → Type::Void → SSA drops the Ret operand and the
-                // caller reads X0's stale value (`f(n){return n+1};f(41)`
-                // returned 41).
                 let is_tv = |s: &str| {
                     s.strip_prefix("__T")
                         .is_some_and(|r| !r.is_empty() && r.bytes().all(|b| b.is_ascii_digit()))
@@ -10040,14 +10029,10 @@ fn infer_expr_ann_with(
             }
             binds.get(name).cloned()
         }
-        // P8.4 — bare-Ident-callee Call resolves through the fn_sigs
-        // table so `() => greet()` (and `() => __cm_A__greet(__this)`
-        // after super-rewrite) infers the arrow's return type from
-        // greet's signature instead of falling back to Void. Restricted
-        // to bare Ident callee + non-generic fn (TypeVar return is the
-        // monomorphization path, not propagable into closures); fn_sigs
-        // is built upstream from non-`__closure_*` top-level FnDecls
-        // with an explicit return_type.
+        // P8.4 — bare-Ident-callee Call resolves via fn_sigs so arrow
+        // `() => greet()` (and super-rewrite variants) infers greet's
+        // ret_type instead of Void. Bare Ident + non-generic only;
+        // TypeVar return goes through monomorphization, not closures.
         Expr::Call { callee, .. } => {
             if let Some(Expr::Ident(name)) = exprs.get(callee.0 as usize)
                 && let Some(ret) = fn_sigs.get(name)
@@ -10056,9 +10041,23 @@ fn infer_expr_ann_with(
             }
             None
         }
-        // Conservatively bail on Member / Index / etc.
-        // The typechecker's regular path will produce the right errors;
-        // we only override when statically obvious.
+        // Ternary `cond ? a : b`: both arms infer; equal → propagate;
+        // mismatched → `any` (same TS fallback as BinOp::Add).
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            let t = infer_expr_ann_with(exprs, *then_branch, params, binds, fn_sigs)?;
+            let f = infer_expr_ann_with(exprs, *else_branch, params, binds, fn_sigs)?;
+            if t == f { Some(t) } else { Some("any".into()) }
+        }
+        // Array literal — non-empty: first elem → `T[]` (flat string
+        // parsed by ssa_lower::parse_type / check); empty bails.
+        Expr::Array(elems) => {
+            let t = infer_expr_ann_with(exprs, *elems.first()?, params, binds, fn_sigs)?;
+            Some(format!("{}[]", t))
+        }
         _ => None,
     }
 }
