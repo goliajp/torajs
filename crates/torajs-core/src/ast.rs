@@ -10004,16 +10004,25 @@ fn infer_expr_ann_with(
             BinOp::Add => {
                 let l = infer_expr_ann_with(exprs, *left, params, binds, fn_sigs)?;
                 let r = infer_expr_ann_with(exprs, *right, params, binds, fn_sigs)?;
-                // JS spec: `string + anything` and `anything + string`
-                // both coerce to string concat; `number + number` stays
-                // number. Other shapes (e.g. number+boolean → number,
-                // boolean+boolean → number) are handled by the
-                // typechecker's regular path — leave None so we don't
-                // commit to a guess that conflicts with the deeper rules.
+                // JS spec: `string + anything` → string concat;
+                // `number + number` → number. When one side is a fresh
+                // implicit-generic TypeVar (un-annotated param defaulted
+                // to `__T<n>` upstream) and the other is a concrete
+                // primitive, `+` is genuinely ambiguous → TS spec degrades
+                // to `any`. Without the `any` fallback, ret_type stays
+                // None → Type::Void → SSA drops the Ret operand and the
+                // caller reads X0's stale value (`f(n){return n+1};f(41)`
+                // returned 41).
+                let is_tv = |s: &str| {
+                    s.strip_prefix("__T")
+                        .is_some_and(|r| !r.is_empty() && r.bytes().all(|b| b.is_ascii_digit()))
+                };
                 if l == "string" || r == "string" {
                     Some("string".into())
                 } else if l == "number" && r == "number" {
                     Some("number".into())
+                } else if (is_tv(&l) && r == "number") || (is_tv(&r) && l == "number") {
+                    Some("any".into())
                 } else {
                     None
                 }

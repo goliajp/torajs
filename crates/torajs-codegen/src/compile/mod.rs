@@ -253,7 +253,35 @@ fn emit_terminator(
     alloc: &Assignment,
 ) {
     match term {
-        Terminator::Ret(_) => {
+        Terminator::Ret(ret_op) => {
+            // AAPCS64: int/ptr/bool return lands in X0, f64 in D0. The
+            // SSA-emit's prior insts left the ret value in its allocated
+            // home reg (X0 in trivial cases, or another GPR / spill slot
+            // under linear scan); materialize it into the ABI slot before
+            // the epilogue tears down the frame. Idempotent: if the
+            // allocator already placed it in X0/V0, `materialize_operand_*`
+            // returns the same reg and the mov is skipped. None ret_op
+            // = `Stmt::Return;` or void-fn fall-through — leave X0/V0 alone
+            // (void calls don't read the ret slot).
+            //
+            // Pre-fix observed silent-wrong: `function g(){return 5};
+            // console.log(g())` emitted a single `ret` for g's body (no
+            // const materialization), so X0 held _main's pre-call scratch
+            // and console.log printed 1 instead of 5. The SSA Ret operand
+            // was reaching emit_terminator but being discarded here.
+            if let Some(op) = ret_op {
+                if operand::operand_is_f64(op, alloc) {
+                    let src = materialize_operand_fpr(bytes, op, Fpr::V0, OP_SCRATCH_LHS, alloc);
+                    if src != Fpr::V0 {
+                        write_u32(bytes, fmov_d_to_d(Fpr::V0, src));
+                    }
+                } else {
+                    let src = materialize_operand_gpr(bytes, op, Gpr::X0, alloc);
+                    if src != Gpr::X0 {
+                        write_u32(bytes, mov_x_reg(Gpr::X0, src));
+                    }
+                }
+            }
             frame.emit_epilogue(bytes);
             write_u32(bytes, ret(Gpr::X30));
         }
