@@ -22,18 +22,27 @@ pub struct ChainedFixupsInputs<'a> {
     pub data_seg_idx: u32,
     pub data_const_layout: &'a DataConstLayout,
     pub vtable_rebase_targets: &'a [RebaseTarget],
+    /// SD-4c swap-2k chunk 2b — per staticlib-member `__DATA,*`
+    /// rebase target list (offset_in_data_segment, target_off_in_image).
+    /// Empty slice (default) keeps the binary byte-identical to the
+    /// pre-2b path; 2b-4 wires the actual targets from
+    /// [`crate::member_data_rebase_layout::compute_member_data_rebase_targets`]
+    /// so dyld rebases each member-data vtable slot at image load.
+    pub data_seg_rebase_targets: &'a [RebaseTarget],
 }
 
 /// Returns `(blob, la_ptr_slot_values, tlv_thunk_link_values,
-/// text_rebase_link_values)`. Short-circuits to four empty vecs when
-/// no la-ptr / TLV / vtable rebase participants exist.
+/// text_rebase_link_values, data_rebase_link_values)`. Short-circuits
+/// to five empty vecs when no la-ptr / TLV / vtable rebase / data
+/// rebase participants exist.
 pub fn compute_chained_fixups_outputs(
     input: ChainedFixupsInputs<'_>,
-) -> (Vec<u8>, Vec<u64>, Vec<u64>, Vec<u64>) {
+) -> (Vec<u8>, Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>) {
     let has_dyld = !input.dyld_imports.is_empty();
     let has_vtable_rebase = !input.vtable_rebase_targets.is_empty();
-    if !has_dyld && !has_vtable_rebase {
-        return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let has_data_rebase = !input.data_seg_rebase_targets.is_empty();
+    if !has_dyld && !has_vtable_rebase && !has_data_rebase {
+        return (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     }
     let text_rebase = if has_vtable_rebase {
         Some(TextRebaseScope {
@@ -55,11 +64,13 @@ pub fn compute_chained_fixups_outputs(
         input.segment_count,
         input.data_seg_idx,
         text_rebase.as_ref(),
+        input.data_seg_rebase_targets,
     );
     (
         built.blob,
         built.la_ptr_slot_values,
         built.tlv_thunk_link_values,
         built.text_rebase_link_values,
+        built.data_rebase_link_values,
     )
 }

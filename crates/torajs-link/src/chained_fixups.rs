@@ -141,30 +141,24 @@ pub const TLV_BOOTSTRAP_SYMBOL: &str = "__tlv_bootstrap";
 pub const LIBSYSTEM_LIB_ORDINAL: u8 = 1;
 
 /// Result of building a chained-fixups blob. `blob` lands in
-/// `__LINKEDIT` exactly as-is; `la_ptr_slot_values` is the
-/// 8-byte sequence the emit pass writes into
-/// `__DATA,__la_symbol_ptr` (one per import in
-/// `la_ptr_imports` iter order); `tlv_thunk_link_values` is
-/// the 8-byte sequence the emit pass overwrites onto each TLV
-/// descriptor's `thunk` slot (one per entry in the input
-/// `tlv_thunk_offsets`, same order).
+/// `__LINKEDIT` as-is; each `*_values` vec is the 8-byte LE word
+/// the emit pass splices onto its respective slot kind (la-ptr,
+/// TLV thunk, vtable rebase, member-data rebase).
 #[derive(Debug, Clone)]
 pub struct ChainedFixupsBlob {
     pub blob: Vec<u8>,
-    /// Per la-ptr-import slot value (sorted by name, same order
-    /// as the `BTreeMap` iter the caller passed in).
+    /// Per la-ptr import slot value, in `la_ptr_imports` BTreeMap iter order.
     pub la_ptr_slot_values: Vec<u64>,
-    /// Per TLV thunk slot value, indexed by position in the
-    /// `tlv_thunk_offsets` input. The emit pass pairs each value
-    /// with the corresponding `TlvDescriptorLayout::thunk_slot_vaddr`
-    /// and overwrites the 8-byte slot in the binary.
+    /// Per TLV thunk slot value, in `tlv_thunk_offsets` input order.
     pub tlv_thunk_link_values: Vec<u64>,
-    /// SD-4c-prereq+e7b-3 — per vtable-rebase-slot encoded link
-    /// value, indexed by `TextRebaseScope.rebase_targets[i]` input
-    /// order. Empty when the caller passed `text_rebase: None`.
-    /// The emit pass overwrites each `__vtable_<C>` slot byte
-    /// position with the corresponding 8-byte LE value.
+    /// e7b-3 vtable-slot rebase link values, indexed by
+    /// `TextRebaseScope.rebase_targets[i]`. Empty when `text_rebase`
+    /// was `None`.
     pub text_rebase_link_values: Vec<u64>,
+    /// swap-2k chunk 2b — member-`__DATA,*` rebase link values,
+    /// indexed by `data_rebase_targets[i]`. Empty when the slice
+    /// was empty (the 2b-2/2b-3 inert path).
+    pub data_rebase_link_values: Vec<u64>,
 }
 
 /// Encode one chain link for `__DATA,__la_symbol_ptr`. `ordinal`
@@ -284,10 +278,15 @@ pub fn build_chained_fixups(
     seg_count: u32,
     data_seg_idx: u32,
     text_rebase: Option<&TextRebaseScope<'_>>,
+    data_rebase_targets: &[RebaseTarget],
 ) -> ChainedFixupsBlob {
     let has_text_rebase = text_rebase.is_some_and(|r| !r.rebase_targets.is_empty());
+    let has_data_rebase = !data_rebase_targets.is_empty();
     debug_assert!(
-        !la_ptr_imports.is_empty() || !tlv_thunk_offsets.is_empty() || has_text_rebase,
+        !la_ptr_imports.is_empty()
+            || !tlv_thunk_offsets.is_empty()
+            || has_text_rebase
+            || has_data_rebase,
         "build_chained_fixups must be called with at least one chain \
          participant — empty case should short-circuit upstream"
     );
@@ -352,12 +351,7 @@ pub fn build_chained_fixups(
         data_segment_vmsize,
         tlv_thunk_offsets,
         tlv_import_ordinal,
-        &[],
-    );
-    debug_assert!(
-        data_starts.rebase_link_values.is_empty(),
-        "__DATA bucketer must not receive rebase targets — wire them \
-         through TextRebaseScope so the per-seg dispatch stays clean",
+        data_rebase_targets,
     );
     let text_starts = text_rebase.map(|r| {
         build_starts_in_segment(
@@ -465,6 +459,7 @@ pub fn build_chained_fixups(
         la_ptr_slot_values: data_starts.la_ptr_slot_values,
         tlv_thunk_link_values: data_starts.tlv_thunk_link_values,
         text_rebase_link_values,
+        data_rebase_link_values: data_starts.rebase_link_values,
     }
 }
 
@@ -557,7 +552,7 @@ mod tests {
     #[test]
     fn single_import_blob_layout_invariants() {
         let imports = imports_of(&["_malloc"]);
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None, &[]);
         // Single slot, chain-end encoding.
         assert_eq!(result.la_ptr_slot_values.len(), 1);
         assert_eq!(result.la_ptr_slot_values[0], 0x8000_0000_0000_0000);
@@ -600,7 +595,7 @@ mod tests {
     #[test]
     fn multi_import_slot_values_chain_through_then_terminate() {
         let imports = imports_of(&["_malloc", "_free", "_pthread_create"]);
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None, &[]);
         // BTreeSet iter order = sorted: _free, _malloc, _pthread_create
         assert_eq!(result.la_ptr_slot_values.len(), 3);
         // First two slots have next = 2 (8 bytes ahead at stride 4).
@@ -621,7 +616,7 @@ mod tests {
         let imports = imports_of(&["_malloc"]);
         // seg_count = 4 (PAGEZERO + TEXT + DATA + LINKEDIT),
         // __DATA is at index 2.
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None, &[]);
         // dyld_chained_starts_in_image starts at byte 32 (after header).
         let starts_off = FIXUPS_HEADER_SIZE as usize;
         let seg_count =
@@ -646,8 +641,17 @@ mod tests {
     fn starts_in_segment_fields_for_arm64_macos_layout() {
         let imports = imports_of(&["_malloc"]);
         let data_vmaddr_offset = 0x8000u64;
-        let result =
-            build_chained_fixups(&imports, data_vmaddr_offset, 0, PAGE_SIZE, &[], 4, 2, None);
+        let result = build_chained_fixups(
+            &imports,
+            data_vmaddr_offset,
+            0,
+            PAGE_SIZE,
+            &[],
+            4,
+            2,
+            None,
+            &[],
+        );
         // Locate dyld_chained_starts_in_segment via seg_info_offset[2].
         let starts_off = FIXUPS_HEADER_SIZE as usize;
         let off_pos = starts_off + 4 + 2 * 4;
@@ -679,7 +683,7 @@ mod tests {
     #[test]
     fn imports_and_symbols_offsets_are_4_aligned() {
         let imports = imports_of(&["_a", "_bb", "_ccc"]);
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None, &[]);
         let header = &result.blob[0..32];
         let imports_offset = u32::from_le_bytes(header[8..12].try_into().unwrap());
         let symbols_offset = u32::from_le_bytes(header[12..16].try_into().unwrap());
@@ -723,7 +727,8 @@ mod tests {
         // Two thunks: one in page 0 (offset 0x100), one in page 2
         // (offset 0x8010).
         let thunks = vec![0x100u64, 0x8010u64];
-        let result = build_chained_fixups(&imports, 0x8000, 0, 3 * PAGE_SIZE, &thunks, 4, 2, None);
+        let result =
+            build_chained_fixups(&imports, 0x8000, 0, 3 * PAGE_SIZE, &thunks, 4, 2, None, &[]);
 
         // imports[] = [_malloc (ord 0), __tlv_bootstrap (ord 1)].
         let header = &result.blob[0..32];
@@ -771,7 +776,7 @@ mod tests {
         // Deltas in bytes: 0x28, 0x18, 0x40 → strides in 4-byte
         // units: 0xA, 0x6, 0x10.
         let thunks = vec![0x40u64, 0x68, 0x80, 0xC0];
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &thunks, 4, 2, None);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &thunks, 4, 2, None, &[]);
 
         let next_of = |v: u64| (v >> 51) & 0xFFF;
         let page_starts = read_page_starts(&result);
@@ -797,8 +802,10 @@ mod tests {
     #[test]
     fn tlv_bootstrap_string_appears_exactly_when_tlv_present() {
         let imports = imports_of(&["_malloc"]);
-        let with_tlv = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[0x100], 4, 2, None);
-        let without_tlv = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None);
+        let with_tlv =
+            build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[0x100], 4, 2, None, &[]);
+        let without_tlv =
+            build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &[], 4, 2, None, &[]);
 
         let contains_tlv = |blob: &[u8]| {
             blob.windows(TLV_BOOTSTRAP_SYMBOL.len())
@@ -815,7 +822,7 @@ mod tests {
     fn pure_tlv_chain_with_no_la_ptr_imports() {
         let imports: BTreeMap<String, u8> = BTreeMap::new();
         let thunks = vec![0x200u64];
-        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &thunks, 4, 2, None);
+        let result = build_chained_fixups(&imports, 0x8000, 0, PAGE_SIZE, &thunks, 4, 2, None, &[]);
 
         let header = &result.blob[0..32];
         let imports_count = u32::from_le_bytes(header[16..20].try_into().unwrap());

@@ -1,16 +1,8 @@
-//! Archive-aware layout pass — S7-C3.
-//!
-//! Extends `exec.rs::compute_layout` with `.o`-member integration:
-//! every required member's `__TEXT,__text` payload concatenates after
-//! the user functions and its defined-externs flatten into `LC_SYMTAB`
-//! alongside user fn names. `ArchiveLayout` is the S7-C4 emit-pass
-//! input — three parallel Vecs indexed by `member_keys` order
-//! (`member_text_sizes` / `member_vaddrs` / `member_defined_syms`).
-//!
-//! Pipeline: `cfg.archives` → `merge_archive_indexes` (S7-C1) →
-//! `compute_required_members` (S7-C2, this file's caller) →
-//! per-member __text size + defined-syms parse →
-//! [`ArchiveLayout`].
+//! Archive-aware layout pass (S7-C3). Extends `exec.rs::compute_layout`
+//! with `.o`-member integration so each required member's __text
+//! concatenates after user fns + its defined externs flatten into
+//! LC_SYMTAB. Pipeline: `cfg.archives` → `merge_archive_indexes` →
+//! `compute_required_members` → per-member parse → [`ArchiveLayout`].
 
 use torajs_obj::{
     MachHeader64, NLIST_64_SIZE, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE, SYMTAB_COMMAND_SIZE,
@@ -404,17 +396,23 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
 
     // e8: __DATA_CONST idx=2; __DATA shifts to idx 3 when has_data_const.
     let data_seg_idx: u32 = if has_data_const { 3 } else { 2 };
-    let (chained_fixups_blob, la_ptr_slot_values, tlv_thunk_link_values, text_rebase_link_values) =
-        compute_chained_fixups_outputs(ChainedFixupsInputs {
-            dyld_imports: &required.dyld_imports,
-            data_seg_vmaddr_offset: data_vmaddr.saturating_sub(TEXT_VMADDR_BASE),
-            data_seg_vmsize: data_vmsize,
-            tlv_thunk_offsets: &tlv_thunk_offsets,
-            segment_count,
-            data_seg_idx,
-            data_const_layout: &data_const_layout,
-            vtable_rebase_targets: &vtable_rebase_targets,
-        });
+    let (
+        chained_fixups_blob,
+        la_ptr_slot_values,
+        tlv_thunk_link_values,
+        text_rebase_link_values,
+        _data_rebase_link_values,
+    ) = compute_chained_fixups_outputs(ChainedFixupsInputs {
+        dyld_imports: &required.dyld_imports,
+        data_seg_vmaddr_offset: data_vmaddr.saturating_sub(TEXT_VMADDR_BASE),
+        data_seg_vmsize: data_vmsize,
+        tlv_thunk_offsets: &tlv_thunk_offsets,
+        segment_count,
+        data_seg_idx,
+        data_const_layout: &data_const_layout,
+        vtable_rebase_targets: &vtable_rebase_targets,
+        data_seg_rebase_targets: &[],
+    });
     // SD-4c-prereq+c: dyld walks u64 fields in the chain blob and
     // CodeDirectory, so both LINKEDIT regions must land at 8-byte
     // offsets — `dyld_info` reports "mis-aligned LINKEDIT content"
