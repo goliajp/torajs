@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-07T11:58:13.201Z",
+  "generatedAt": "2026-06-07T12:37:17.731Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "1171c76",
-    "commitSubject": "fix(codegen,core): materialize ssa ret operand + typevar+number → any inference",
+    "commit": "5ad293c",
+    "commitSubject": "fix(codegen,core): skip drop emit on static str literals + alloc callee-saved for call-crossing ret values",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,14 @@
   },
   "commits": [
     {
+      "hash": "5ad293c",
+      "subject": "fix(codegen,core): skip drop emit on static str literals + alloc callee-saved for call-crossing ret values"
+    },
+    {
+      "hash": "afaf4c1",
+      "subject": "chore: dashboard snapshot @ 1171c76 — L3b-1 audit + user-fn silent-wrong fix"
+    },
+    {
       "hash": "1171c76",
       "subject": "fix(codegen,core): materialize ssa ret operand + typevar+number → any inference"
     },
@@ -649,35 +657,38 @@
     {
       "hash": "2696efb",
       "subject": "feat(link): __DATA member rebase-target collector — #9 SD-4c swap-2k chunk 2b-1"
-    },
-    {
-      "hash": "49e0376",
-      "subject": "chore: dashboard snapshot @ 3ae3c87 — swap-2k chunk 2a ship (audit + substrate, patcher unwired pending chunk 2b PIE rebase)"
-    },
-    {
-      "hash": "3ae3c87",
-      "subject": "feat(link): audit-driven __DATA reloc patcher substrate — #9 SD-4c swap-2k chunk 2a"
     }
   ],
-  "headSha": "1171c76",
+  "headSha": "5ad293c",
   "autorun": {
-    "total": 75,
+    "total": 76,
     "baselineTarget": 10,
-    "bySelf": 73,
+    "bySelf": 74,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780824633-655d",
-      "at": "2026-06-07T09:30:33Z",
-      "ts": 1780824633,
+      "rotationId": "r-1780834793-751f",
+      "at": "2026-06-07T12:19:53Z",
+      "ts": 1780834793,
       "trigger": "self",
-      "prevHead": "3ac88b1",
-      "handoffSha": "sha256:5d1c2c10366c585127ef1cc1661d1a3784ff0be36c48894f7714ddbb66a8a227",
-      "handoffAgeSec": 4,
+      "prevHead": "afaf4c1",
+      "handoffSha": "sha256:e4341799a9e736f6e3d889eb3565e4da278b5fa4318b8e2397d897af06f2b6df",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780834793-751f",
+        "at": "2026-06-07T12:19:53Z",
+        "ts": 1780834793,
+        "trigger": "self",
+        "prevHead": "afaf4c1",
+        "handoffSha": "sha256:e4341799a9e736f6e3d889eb3565e4da278b5fa4318b8e2397d897af06f2b6df",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780824633-655d",
         "at": "2026-06-07T09:30:33Z",
@@ -774,17 +785,6 @@
         "prevHead": "5ffdaf8",
         "handoffSha": "sha256:8ccc6b323b32248243cb0e10bd38f108e5233be8c3cfbefbbbedf278f765b4d2",
         "handoffAgeSec": 15,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780786841-359f",
-        "at": "2026-06-06T23:00:41Z",
-        "ts": 1780786841,
-        "trigger": "self",
-        "prevHead": "dd03189",
-        "handoffSha": "sha256:790c824aa01273f96af266c7efa58c42d47fbea1861966db10890eb996eeb6f5",
-        "handoffAgeSec": 12,
         "conformanceBefore": null,
         "commitsInSession": null
       }
