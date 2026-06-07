@@ -79,6 +79,7 @@ pub(crate) fn compute_member_data_rebase_targets(
             &member_layout.non_text_sections,
             sym_table,
             data_seg_vmaddr,
+            member_layout.vaddr,
             &mut targets,
         )?;
     }
@@ -90,12 +91,23 @@ pub(crate) fn compute_member_data_rebase_targets(
 /// without having to materialize an `ArchiveLayout` / `MergedArchives`.
 /// Pushes onto `targets` so the caller controls the output buffer
 /// across the whole member walk.
+///
+/// `member_text_vaddr` is the final virtual address where the member's
+/// `__TEXT,__text` payload lands — fed to [`resolve_local_nsect`] for
+/// the `n_sect == 1` fallback (member-local sym in `__text`). The
+/// previous swap-2k chunk 2b-1 wire incorrectly passed the per-section
+/// `__DATA` vaddr here, so any vtable slot referencing a member-local
+/// `__text` symbol (e.g. `<I64Writer as fmt::Write>::write_char`)
+/// resolved to `data_seg_vmaddr + n_value`, producing the
+/// `0x10011b920` (= `CORE_ALLOC + 4080`) SIGBUS observed under
+/// `console.log(String(-1))` / `String(1000000)`.
 fn collect_member_targets(
     member: &ArMember<'_>,
     data_sections: &[DataSectionLayout],
     non_text_sections: &[NonTextSectionLayout],
     sym_table: &SymTable,
     data_seg_vmaddr: u64,
+    member_text_vaddr: u64,
     targets: &mut Vec<RebaseTarget>,
 ) -> Result<(), MemberRelocApplyError> {
     let mut symtab_cache = None;
@@ -145,7 +157,7 @@ fn collect_member_targets(
                 member,
                 symtab,
                 r.r_symbolnum,
-                section_final_vaddr,
+                member_text_vaddr,
                 non_text_sections,
                 data_sections,
             ) {
@@ -247,6 +259,7 @@ mod tests {
             &[],
             &sym_table,
             0x2_0000_0000,
+            0xDEAD_BEEF_DEAD_BEEFu64,
             &mut targets,
         )
         .expect("empty data sections short-circuits");
@@ -272,6 +285,7 @@ mod tests {
             &[],
             &sym_table,
             0x2_0000_0000,
+            0xDEAD_BEEF_DEAD_BEEFu64,
             &mut targets,
         )
         .expect("zerofill skip is a no-op");
@@ -299,6 +313,7 @@ mod tests {
             &[],
             &sym_table,
             0x2_0000_0000,
+            0xDEAD_BEEF_DEAD_BEEFu64,
             &mut targets,
         )
         .expect("tlv descriptor skip is a no-op");
@@ -327,6 +342,7 @@ mod tests {
             &[],
             &sym_table,
             0x2_0000_0000,
+            0xDEAD_BEEF_DEAD_BEEFu64,
             &mut targets,
         )
         .expect("out-of-range section index → empty reloc table → no targets");
