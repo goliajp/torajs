@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-07T07:40:47.351Z",
+  "generatedAt": "2026-06-07T08:27:59.580Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "bea4d45",
-    "commitSubject": "chore: dashboard snapshot @ 1e7f642 — swap-2k chunk 2b整 phase close (PIE rebase wire,String(5) blocker fixed) + mini gate runner online",
+    "commit": "0ec521e",
+    "commitSubject": "fix(link): honor __TEXT,* section align in non_text layout — #9 SD-4c swap-2k chunk 3",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,14 @@
   },
   "commits": [
     {
+      "hash": "0ec521e",
+      "subject": "fix(link): honor __TEXT,* section align in non_text layout — #9 SD-4c swap-2k chunk 3"
+    },
+    {
+      "hash": "de38109",
+      "subject": "chore: dashboard snapshot @ 1e7f642 — chunk 3 audit (root cause re-diagnosed: __TEXT,__const layout offset, not mmalloc)"
+    },
+    {
       "hash": "bea4d45",
       "subject": "chore: dashboard snapshot @ 1e7f642 — swap-2k chunk 2b整 phase close (PIE rebase wire,String(5) blocker fixed) + mini gate runner online"
     },
@@ -649,35 +657,38 @@
     {
       "hash": "6342256",
       "subject": "fix(codegen): callee-saved regalloc for call-crossing values — #9 SD-4c swap-2j"
-    },
-    {
-      "hash": "5ffdaf8",
-      "subject": "chore: plan-state + handoff + dashboard snapshot @ 5cede78 — swap-2i ship, swap-2j regalloc blocker locked"
-    },
-    {
-      "hash": "5cede78",
-      "subject": "fix(link): honor section_64.align in __DATA layout — #9 SD-4c swap-2i"
     }
   ],
-  "headSha": "bea4d45",
+  "headSha": "0ec521e",
   "autorun": {
-    "total": 71,
+    "total": 72,
     "baselineTarget": 10,
-    "bySelf": 69,
+    "bySelf": 70,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780816077-7941",
-      "at": "2026-06-07T07:07:57Z",
-      "ts": 1780816077,
+      "rotationId": "r-1780818066-1882",
+      "at": "2026-06-07T07:41:06Z",
+      "ts": 1780818066,
       "trigger": "self",
-      "prevHead": "bea4d45",
-      "handoffSha": "sha256:0652bf491cc405c7c89ef6a4952418b33a34c362594f10e8a6499cbc85f518f9",
-      "handoffAgeSec": 3,
+      "prevHead": "de38109",
+      "handoffSha": "sha256:3a7e6d1adc8cfa702762dc248546fbfae2babd6beb469a098ab1544125103e82",
+      "handoffAgeSec": 27,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780818066-1882",
+        "at": "2026-06-07T07:41:06Z",
+        "ts": 1780818066,
+        "trigger": "self",
+        "prevHead": "de38109",
+        "handoffSha": "sha256:3a7e6d1adc8cfa702762dc248546fbfae2babd6beb469a098ab1544125103e82",
+        "handoffAgeSec": 27,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780816077-7941",
         "at": "2026-06-07T07:07:57Z",
@@ -774,17 +785,6 @@
         "prevHead": "4df870b",
         "handoffSha": "sha256:b886787b9e70e58a15264b22ab73251da0ebf9e7ea29408651fa1394d716b350",
         "handoffAgeSec": 63,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780728874-1295",
-        "at": "2026-06-06T06:54:34Z",
-        "ts": 1780728874,
-        "trigger": "self",
-        "prevHead": "4138c64",
-        "handoffSha": "sha256:a783e68dc6fcc3bb6d4af16d07b99484dbf2babdd3ae7a0b97c3c6c4c5a56f75",
-        "handoffAgeSec": 46,
         "conformanceBefore": null,
         "commitsInSession": null
       }
