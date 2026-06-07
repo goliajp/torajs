@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-07T22:22:36.639Z",
+  "generatedAt": "2026-06-07T23:14:27.344Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "a265209",
-    "commitSubject": "fix(codegen): loop-aware liveness + alloca/param carve-out",
+    "commit": "4d6da4d",
+    "commitSubject": "fix(core): array push/unshift return new length per JS spec",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,14 @@
   },
   "commits": [
     {
+      "hash": "4d6da4d",
+      "subject": "fix(core): array push/unshift return new length per JS spec"
+    },
+    {
+      "hash": "344f942",
+      "subject": "chore: dashboard snapshot @ a265209 — chunk 9 backedge live-range root-cause fix"
+    },
+    {
       "hash": "a265209",
       "subject": "fix(codegen): loop-aware liveness + alloca/param carve-out"
     },
@@ -649,35 +657,38 @@
     {
       "hash": "5ad293c",
       "subject": "fix(codegen,core): skip drop emit on static str literals + alloc callee-saved for call-crossing ret values"
-    },
-    {
-      "hash": "afaf4c1",
-      "subject": "chore: dashboard snapshot @ 1171c76 — L3b-1 audit + user-fn silent-wrong fix"
-    },
-    {
-      "hash": "1171c76",
-      "subject": "fix(codegen,core): materialize ssa ret operand + typevar+number → any inference"
     }
   ],
-  "headSha": "a265209",
+  "headSha": "4d6da4d",
   "autorun": {
-    "total": 79,
+    "total": 80,
     "baselineTarget": 10,
-    "bySelf": 77,
+    "bySelf": 78,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780843458-41b7",
-      "at": "2026-06-07T14:44:18Z",
-      "ts": 1780843458,
+      "rotationId": "r-1780871076-1792",
+      "at": "2026-06-07T22:24:36Z",
+      "ts": 1780871076,
       "trigger": "self",
-      "prevHead": "d14ea0d",
-      "handoffSha": "sha256:6b6f3824396e820032a8b3bc8d70967b8cdecf8e97bc94b3217d6d4ffe9b523e",
+      "prevHead": "344f942",
+      "handoffSha": "sha256:b7f916a76b16bc5962191ebaa8e9da0c00a48e9c78faa8758b9bd9ec96b8ad83",
       "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780871076-1792",
+        "at": "2026-06-07T22:24:36Z",
+        "ts": 1780871076,
+        "trigger": "self",
+        "prevHead": "344f942",
+        "handoffSha": "sha256:b7f916a76b16bc5962191ebaa8e9da0c00a48e9c78faa8758b9bd9ec96b8ad83",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780843458-41b7",
         "at": "2026-06-07T14:44:18Z",
@@ -773,17 +784,6 @@
         "trigger": "self",
         "prevHead": "bea4d45",
         "handoffSha": "sha256:0652bf491cc405c7c89ef6a4952418b33a34c362594f10e8a6499cbc85f518f9",
-        "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780805716-0e12",
-        "at": "2026-06-07T04:15:16Z",
-        "ts": 1780805716,
-        "trigger": "self",
-        "prevHead": "49e0376",
-        "handoffSha": "sha256:8ae75acf21b1967ee284766abcdccf3e03154add65ae4e3a3535dd8ed2f4e394",
         "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
