@@ -121,7 +121,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         }
     }
 
-    // `__DATA,*` file-storage payloads (skip zerofill, mirror entries order).
+    // `__DATA,*` payloads (chunk 2 `member_data_apply` unwired pending chunk 2b PIE rebase).
     let mut data_non_text_payloads: Vec<Vec<u8>> = Vec::new();
     for (i, per_member) in layout.data_non_text_layouts.iter().enumerate() {
         let member = &merged.per_archive_members[layout.member_layouts[i].key.0]
