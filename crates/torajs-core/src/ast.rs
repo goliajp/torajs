@@ -9959,8 +9959,11 @@ fn collect_return_anns_stmt(
     }
 }
 
-/// Statically infer an annotation string — literals, ops, idents, calls
-/// (bare / Member-string-method), ternary, arrays, Member, Index.
+fn is_typevar_ann(s: &str) -> bool {
+    s.starts_with("__T") && s.len() > 3 && s[3..].bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Statically infer the type-annotation string for an expression (best-effort).
 fn infer_expr_ann_with(
     exprs: AstExprsView,
     eid: ExprId,
@@ -9999,49 +10002,48 @@ fn infer_expr_ann_with(
             // `+`: string-propagates / num+num=num / TypeVar+num=`any` (else Void).
             BinOp::Add => {
                 let (l, r) = (recur(*left)?, recur(*right)?);
-                let is_tv = |s: &str| {
-                    s.len() > 3
-                        && s.starts_with("__T")
-                        && s[3..].bytes().all(|b| b.is_ascii_digit())
-                };
                 match (l.as_str(), r.as_str()) {
                     ("string", _) | (_, "string") => Some("string".into()),
                     ("number", "number") => Some("number".into()),
-                    (a, "number") | ("number", a) if is_tv(a) => Some("any".into()),
+                    (a, "number") | ("number", a) if is_typevar_ann(a) => Some("any".into()),
                     _ => None,
                 }
             }
         },
-        Expr::Unary { op, .. } => match op {
-            UnaryOp::Not => Some("boolean".into()),
-            UnaryOp::Neg | UnaryOp::BitNot | UnaryOp::Plus => Some("number".into()),
-        },
+        Expr::Unary { op, .. } if matches!(op, UnaryOp::Not) => Some("boolean".into()),
+        Expr::Unary { .. } => Some("number".into()),
         Expr::Ident(name) => params
             .iter()
             .find(|p| &p.name == name)
             .and_then(|p| p.type_ann.clone())
             .or_else(|| binds.get(name).cloned()),
-        // Call: bare Ident → fn_sigs; Member+string-receiver → string-method whitelist.
+        // Call: bare Ident → fn_sigs; Member+string/`T[]` receiver → method whitelist.
+        // Omitted methods SIGSEGV/silent-wrong even with explicit annotation (L3b).
         Expr::Call { callee, .. } => {
             let c = exprs.get(callee.0 as usize)?;
             if let Expr::Ident(n) = c {
                 return fn_sigs.get(n).cloned();
             }
-            if let Expr::Member { obj, name } = c
-                && recur(*obj)? == "string"
-            {
-                return match name.as_str() {
-                    "toUpperCase" | "toLowerCase" | "trim" | "trimStart" | "trimEnd" | "slice"
-                    | "substring" | "repeat" | "concat" | "replace" | "replaceAll" | "padStart"
-                    | "padEnd" | "at" | "charAt" => Some("string".into()),
-                    "startsWith" | "endsWith" | "includes" => Some("boolean".into()),
-                    "indexOf" | "lastIndexOf" | "charCodeAt" => Some("number".into()),
-                    // `split` returns `string[]` but routing the split-result
-                    // through a user-fn ret slot SIGSEGVs at runtime — reproduces
-                    // with explicit `: string[]` annotation too, so the bug lives
-                    // in the substrate, not the inference. Re-enable post-fix.
-                    _ => None,
+            if let Expr::Member { obj, name } = c {
+                let r = recur(*obj)?;
+                let elem = r.strip_suffix("[]");
+                let ret: &str = match (r.as_str(), elem, name.as_str()) {
+                    (
+                        "string",
+                        _,
+                        "toUpperCase" | "toLowerCase" | "trim" | "trimStart" | "trimEnd" | "slice"
+                        | "substring" | "repeat" | "concat" | "replace" | "replaceAll" | "padStart"
+                        | "padEnd" | "at" | "charAt",
+                    ) => "string",
+                    ("string", _, "startsWith" | "endsWith" | "includes") => "boolean",
+                    ("string", _, "indexOf" | "lastIndexOf" | "charCodeAt") => "number",
+                    (_, Some(e), "pop" | "shift" | "at") => e,
+                    (_, Some(_), "slice" | "map" | "reverse" | "sort" | "concat" | "fill") => &r,
+                    (_, Some(_), "every") => "boolean",
+                    (_, Some(_), "join") => "string",
+                    _ => return None,
                 };
+                return Some(ret.to_string());
             }
             None
         }
@@ -10050,12 +10052,12 @@ fn infer_expr_ann_with(
             else_branch,
             ..
         } => {
-            let (t, f) = (recur(*then_branch)?, recur(*else_branch)?);
-            Some(if t == f { t } else { "any".into() })
+            let (a, b) = (recur(*then_branch)?, recur(*else_branch)?);
+            if a == b { Some(a) } else { Some("any".into()) }
         }
         Expr::Array(elems) => Some(format!("{}[]", recur(*elems.first()?)?)),
-        Expr::Member { obj, name } => recur(*obj)
-            .filter(|r| name == "length" && (r == "string" || r.ends_with("[]")))
+        Expr::Member { obj, name } if name == "length" => recur(*obj)
+            .filter(|r| r == "string" || r.ends_with("[]"))
             .map(|_| "number".into()),
         Expr::Index { obj, .. } => recur(*obj)?.strip_suffix("[]").map(str::to_string),
         _ => None,
