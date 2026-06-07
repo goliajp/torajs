@@ -70,7 +70,13 @@ pub(crate) fn resolve_local_nsect(
     }
     let n_value = u64::from_le_bytes(bytes[nlist_off + 8..nlist_off + 16].try_into().unwrap());
     if let Some(layout) = non_text_sections.iter().find(|s| s.section_index == n_sect) {
-        Some(layout.final_vaddr + n_value)
+        // swap-2k: `n_value` is the sym's *object-file* address
+        // (`section.addr + intra_offset`); multi-section staticlibs
+        // like libtorajs_fmt.a place `__cstring` at section.addr =
+        // 0x3814 (after `__text` + `__const`). Subtract `member_addr`
+        // to recover the intra-section offset before adding the
+        // final placement — mirrors the data_non_text_sections arm.
+        Some(layout.final_vaddr + n_value.saturating_sub(layout.member_addr))
     } else if let Some(layout) = data_non_text_sections
         .iter()
         .find(|s| s.section_index == n_sect)
@@ -154,6 +160,59 @@ mod tests {
         let layout = data_layout(4, 0x2398, 0x2_0000_0000);
         let v = resolve_local_nsect(&member, &symtab(), 0, 0xDEAD_BEEF, &[], &[layout]);
         assert_eq!(v, Some(0x2_0000_0070));
+    }
+
+    fn non_text_layout(
+        section_index: u8,
+        member_addr: u64,
+        final_vaddr: u64,
+    ) -> NonTextSectionLayout {
+        NonTextSectionLayout {
+            section_index,
+            sectname: [0; 16],
+            segname: [0; 16],
+            member_internal_offset: 0,
+            size: 0,
+            final_file_offset: 0,
+            final_vaddr,
+            member_addr,
+        }
+    }
+
+    /// swap-2k regression — multi-section staticlib member (e.g.
+    /// libtorajs_fmt.a packs `__text` + `__const` + `__cstring`)
+    /// places `__cstring` at object-file `section.addr = 0x3814`.
+    /// An LLVM `l_anon.*` sym pointing at b"-Infinity" within the
+    /// section has `n_value = 0x3814 + intra_offset`. Without
+    /// subtracting `member_addr` the resolver overshoots into the
+    /// next member's `__text`, reading code bytes back as ASCII
+    /// (fmt_dtoa returned `"2.3774616733207506"` instead of `"3.14"`).
+    #[test]
+    fn non_text_section_subtracts_member_addr() {
+        const N_SECT_TYPE: u8 = 0x0E;
+        let data = member_with_nsect(N_SECT_TYPE, 3, 0x3814 + 0x42);
+        let member = ArMember {
+            name: "fmt.o",
+            data: &data,
+        };
+        let layout = non_text_layout(3, 0x3814, 0x1_0009_C000);
+        let v = resolve_local_nsect(&member, &symtab(), 0, 0xDEAD_BEEF, &[layout], &[]);
+        assert_eq!(v, Some(0x1_0009_C042));
+    }
+
+    /// Single-section member (member_addr=0) — the saturating_sub
+    /// stays a no-op so legacy syscall/_malloc probes hold.
+    #[test]
+    fn non_text_section_zero_member_addr_is_no_op() {
+        const N_SECT_TYPE: u8 = 0x0E;
+        let data = member_with_nsect(N_SECT_TYPE, 2, 0x100);
+        let member = ArMember {
+            name: "single.o",
+            data: &data,
+        };
+        let layout = non_text_layout(2, 0, 0x1_0000_8000);
+        let v = resolve_local_nsect(&member, &symtab(), 0, 0xDEAD_BEEF, &[layout], &[]);
+        assert_eq!(v, Some(0x1_0000_8100));
     }
 
     /// Non-`N_SECT` entries (e.g. undefined externs) return `None` so

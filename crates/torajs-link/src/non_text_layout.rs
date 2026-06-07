@@ -57,6 +57,16 @@ pub struct NonTextSectionLayout {
     /// will live. Always `TEXT_VMADDR_BASE + final_file_offset`
     /// (the non-text region sits inside `__TEXT`).
     pub final_vaddr: u64,
+    /// `section_64.addr` — the section's vmaddr **as declared inside
+    /// the `.o`**. Conventionally 0 for single-section members but
+    /// **non-zero for multi-section staticlib members** (e.g.
+    /// `libtorajs_fmt.a`'s `__TEXT,__cstring` lands at object-file
+    /// addr 0x3814 after `__text` + `__const`). swap-2k:
+    /// `nlist.n_value` for a `l_anon.*` local sym equals
+    /// `member_addr + intra_section_offset`, so resolvers must
+    /// subtract `member_addr` before adding `final_vaddr` —
+    /// mirrors [`crate::data_section_layout::DataSectionLayout::member_addr`].
+    pub member_addr: u64,
 }
 
 /// Output of [`compute_non_text_layouts`]. `per_member[i]` lines up
@@ -159,6 +169,7 @@ pub fn compute_non_text_layouts(
                 size: sec.size,
                 final_file_offset,
                 final_vaddr,
+                member_addr: sec.member_addr,
             });
             cumulative += sec.size;
         }
