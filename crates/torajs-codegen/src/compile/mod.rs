@@ -45,9 +45,11 @@ use std::collections::HashMap;
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Terminator};
 
-use crate::enc::{b_imm26, brk_imm16, cbnz_x, ret};
+use crate::enc::{
+    b_imm26, brk_imm16, cbnz_x, fmov_d_to_d, mov_x_reg, ret, str_d_imm12, str_x_imm12,
+};
 use crate::frame::FrameLayout;
-use crate::reg::{Fpr, Gpr};
+use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 
@@ -105,11 +107,17 @@ pub fn compile_function(func: &Function) -> CompiledFunction {
 /// `compile_function` through `allocate_linear_scan` here once the
 /// spill-aware emitters land in S5-gap-2-3 (this commit).
 pub fn compile_function_with(func: &Function, alloc: Assignment) -> CompiledFunction {
-    // LS-3: frame carves alloca + spill in one sp adjustment. With
-    // the trivial allocator total_spill_bytes is 0 so this matches
-    // the pre-LS-3 layout byte-for-byte; once compile_function cuts
-    // over to linear_scan (LS-4) the spill region appears here.
-    let frame = FrameLayout::from_alloca_bytes(alloc.total_frame_bytes(), alloc.has_calls);
+    // Frame carves alloca + spill + callee-save area in one sp
+    // adjustment. `used_callee_*_mask` is 0 for leaf / non-crossing
+    // functions, so this matches the pre-callee-save layout
+    // byte-for-byte; call-crossing functions get the callee-save area
+    // above the spill region (offsets unchanged — see `FrameLayout`).
+    let frame = FrameLayout::with_callee_saved(
+        alloc.total_frame_bytes(),
+        alloc.used_callee_gpr_mask,
+        alloc.used_callee_fpr_mask,
+        alloc.has_calls,
+    );
     let mut bytes: Vec<u8> = Vec::new();
     let mut relocs: Vec<Reloc> = Vec::new();
     let mut fixups: Vec<BranchFixup> = Vec::new();
@@ -119,6 +127,10 @@ pub fn compile_function_with(func: &Function, alloc: Assignment) -> CompiledFunc
     let mut block_byte_starts: HashMap<u32, u32> = HashMap::with_capacity(func.blocks.len());
 
     frame.emit_prologue(&mut bytes);
+    // Relocate call-crossing params out of their (caller-saved) arg
+    // registers into the callee-saved registers the allocator picked,
+    // now that the prologue has saved those registers' prior contents.
+    emit_param_entry_moves(&mut bytes, &alloc);
 
     for block in &func.blocks {
         block_byte_starts.insert(block.id.0, bytes.len() as u32);
@@ -307,6 +319,22 @@ pub(crate) fn write_def_spill_gpr(bytes: &mut Vec<u8>, spill_off: Option<u32>, s
 pub(crate) fn write_def_spill_fpr(bytes: &mut Vec<u8>, spill_off: Option<u32>, scratch: Fpr) {
     if let Some(off) = spill_off {
         write_u32(bytes, crate::enc::str_d_imm12(scratch, Gpr::SP, off));
+    }
+}
+
+/// Emit the param entry-moves the allocator recorded: each call-
+/// crossing param is relocated from its caller-saved AAPCS64 arg
+/// register into the callee-saved register (or spill slot) it was
+/// assigned, immediately after the prologue saved those registers.
+fn emit_param_entry_moves(bytes: &mut Vec<u8>, alloc: &Assignment) {
+    for &(src, dst) in &alloc.param_entry_moves {
+        match (src, dst) {
+            (Reg::Gpr(s), Reg::Gpr(d)) => write_u32(bytes, mov_x_reg(d, s)),
+            (Reg::Fpr(s), Reg::Fpr(d)) => write_u32(bytes, fmov_d_to_d(d, s)),
+            (Reg::Gpr(s), Reg::SpillGpr(off)) => write_u32(bytes, str_x_imm12(s, Gpr::SP, off)),
+            (Reg::Fpr(s), Reg::SpillFpr(off)) => write_u32(bytes, str_d_imm12(s, Gpr::SP, off)),
+            other => unreachable!("param entry move with mismatched reg classes: {other:?}"),
+        }
     }
 }
 

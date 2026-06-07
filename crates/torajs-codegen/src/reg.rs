@@ -217,22 +217,38 @@ pub mod aapcs64 {
     pub const RESERVED_OP_SCRATCH: [Gpr; 4] = [Gpr::X9, Gpr::X10, Gpr::X11, Gpr::X12];
 
     /// Caller-saved scratch (besides ARG_RET + RESERVED_OP_SCRATCH).
-    /// 10 slots after LS-3 carved X12 out for spill-result use.
-    /// The trivial / linear-scan allocators hand these out to SSA
-    /// values; once the pool exhausts, LS spills the next claim to a
-    /// stack slot (see `linear_scan::allocate_linear_scan`).
-    pub const CALLER_SAVED_SCRATCH: [Gpr; 10] = [
-        Gpr::X13,
-        Gpr::X14,
-        Gpr::X15,
-        Gpr::X16,
-        Gpr::X17,
-        // x18 reserved on Apple platforms.
+    /// Per AAPCS64 §6.1.1 these are *temporary* registers the callee
+    /// may clobber freely — so the allocator hands them only to SSA
+    /// values whose live interval does NOT cross a call (a value that
+    /// outlives a `BL` must live in `CALLEE_SAVED_SCRATCH` instead;
+    /// see `linear_scan::allocate_linear_scan`'s call-crossing test).
+    ///
+    /// Only X13/X14/X15 qualify: X9-X12 are `RESERVED_OP_SCRATCH`, and
+    /// X16/X17 (IP0/IP1) are conservatively excluded because the
+    /// static linker may clobber them in a branch-island veneer
+    /// (Apple ARM64 ABI §3.2.4) — a value parked there could be
+    /// silently corrupted by a long-range BL the linker rewrites.
+    pub const CALLER_SAVED_SCRATCH: [Gpr; 3] = [Gpr::X13, Gpr::X14, Gpr::X15];
+
+    /// Callee-saved scratch — AAPCS64 §6.1.1 guarantees these survive
+    /// a call, so the allocator parks call-crossing SSA values here.
+    /// The function must save/restore every one it actually uses in
+    /// the prologue/epilogue (`frame::FrameLayout` callee-save area);
+    /// `linear_scan` reports the used subset as a bitmask so the frame
+    /// only spills what it touched. X19-X28 are the full callee-saved
+    /// GPR range; X18 is platform-reserved (Apple ARM64 ABI §3.2.6)
+    /// and X29/X30 are FP/LR (saved by the standard prologue STP).
+    pub const CALLEE_SAVED_SCRATCH: [Gpr; 10] = [
         Gpr::X19,
         Gpr::X20,
         Gpr::X21,
         Gpr::X22,
         Gpr::X23,
+        Gpr::X24,
+        Gpr::X25,
+        Gpr::X26,
+        Gpr::X27,
+        Gpr::X28,
     ];
 
     use super::Fpr;
@@ -281,6 +297,23 @@ pub mod aapcs64 {
         Fpr::V30,
         Fpr::V31,
     ];
+
+    /// FP callee-saved scratch — AAPCS64 §5.1.2 makes only the *low
+    /// 64 bits* of V8-V15 callee-saved. torajs uses the D (64-bit)
+    /// view exclusively for `f64`, so a D-form save/restore preserves
+    /// everything we touch. The allocator parks call-crossing f64
+    /// values here (mirroring `CALLEE_SAVED_SCRATCH` for GPRs); the
+    /// frame D-form STR/LDRs each used one.
+    pub const FP_CALLEE_SAVED_SCRATCH: [Fpr; 8] = [
+        Fpr::V8,
+        Fpr::V9,
+        Fpr::V10,
+        Fpr::V11,
+        Fpr::V12,
+        Fpr::V13,
+        Fpr::V14,
+        Fpr::V15,
+    ];
 }
 
 #[cfg(test)]
@@ -328,10 +361,53 @@ mod tests {
     }
 
     #[test]
-    fn aapcs64_scratch_pool_starts_at_x13_after_ls3() {
-        // LS-3 carved X12 out of the pool for OP_SCRATCH_RESULT_GPR.
-        assert_eq!(aapcs64::CALLER_SAVED_SCRATCH[0], Gpr::X13);
-        assert_eq!(aapcs64::CALLER_SAVED_SCRATCH.len(), 10);
+    fn aapcs64_caller_saved_pool_is_x13_x14_x15() {
+        // Real caller-saved temporaries only: X9-X12 are op scratch,
+        // X16/X17 excluded (linker-veneer risk). A value crossing a
+        // call must NOT land here — it goes to CALLEE_SAVED_SCRATCH.
+        assert_eq!(
+            aapcs64::CALLER_SAVED_SCRATCH,
+            [Gpr::X13, Gpr::X14, Gpr::X15]
+        );
+    }
+
+    #[test]
+    fn aapcs64_callee_saved_pool_is_x19_through_x28() {
+        // AAPCS64 §6.1.1 callee-saved GPR range, minus X18 (platform
+        // reserved) and X29/X30 (FP/LR, saved by the std prologue).
+        assert_eq!(aapcs64::CALLEE_SAVED_SCRATCH.len(), 10);
+        assert_eq!(aapcs64::CALLEE_SAVED_SCRATCH[0], Gpr::X19);
+        assert_eq!(aapcs64::CALLEE_SAVED_SCRATCH[9], Gpr::X28);
+        for r in [Gpr::X16, Gpr::X17, Gpr::X18, Gpr::X29, Gpr::X30] {
+            assert!(
+                !aapcs64::CALLEE_SAVED_SCRATCH.contains(&r),
+                "{r:?} must not be in the callee-saved pool"
+            );
+        }
+    }
+
+    #[test]
+    fn aapcs64_fp_callee_saved_pool_is_v8_through_v15() {
+        // AAPCS64 §5.1.2 — low 64 bits of V8-V15 are callee-saved.
+        assert_eq!(aapcs64::FP_CALLEE_SAVED_SCRATCH.len(), 8);
+        assert_eq!(aapcs64::FP_CALLEE_SAVED_SCRATCH[0], Fpr::V8);
+        assert_eq!(aapcs64::FP_CALLEE_SAVED_SCRATCH[7], Fpr::V15);
+    }
+
+    #[test]
+    fn aapcs64_caller_and_callee_pools_are_disjoint() {
+        for c in aapcs64::CALLER_SAVED_SCRATCH {
+            assert!(
+                !aapcs64::CALLEE_SAVED_SCRATCH.contains(&c),
+                "{c:?} in both caller and callee GPR pools"
+            );
+        }
+        for c in aapcs64::FP_CALLER_SAVED_SCRATCH {
+            assert!(
+                !aapcs64::FP_CALLEE_SAVED_SCRATCH.contains(&c),
+                "{c:?} in both caller and callee FP pools"
+            );
+        }
     }
 
     #[test]

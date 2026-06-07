@@ -49,6 +49,19 @@ pub struct Assignment {
     /// `true` if any `Call` / `CallIndirect` inst is present —
     /// triggers FP/LR save in the prologue (`FrameLayout.uses_calls`).
     pub has_calls: bool,
+    /// Bitmask (`Gpr::idx`) of callee-saved GPRs the allocator handed
+    /// to call-crossing values — the frame must save/restore each.
+    /// 0 for the trivial allocator and leaf / non-crossing functions.
+    pub used_callee_gpr_mask: u32,
+    /// Bitmask (`Fpr::idx`) of callee-saved FPRs used for call-crossing
+    /// f64 values (mirrors `used_callee_gpr_mask`).
+    pub used_callee_fpr_mask: u32,
+    /// Entry moves for params whose live interval crosses a call: the
+    /// AAPCS64 arg register is caller-saved and would be clobbered, so
+    /// the allocator relocates the param to a callee-saved register
+    /// (or a spill slot) and records `(arg_reg, dst)` here. The
+    /// compiler emits these right after the prologue, before the body.
+    pub param_entry_moves: Vec<(Reg, Reg)>,
 }
 
 impl Assignment {
@@ -69,6 +82,12 @@ impl Assignment {
             raw_alloca_bytes,
             total_spill_bytes,
             has_calls,
+            // Callee-saved tracking is filled in by the caller
+            // (`linear_scan`) via the pub fields after construction;
+            // the trivial allocator leaves them empty.
+            used_callee_gpr_mask: 0,
+            used_callee_fpr_mask: 0,
+            param_entry_moves: Vec::new(),
         }
     }
 
@@ -257,6 +276,12 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
         // exhaustion. LS-2/LS-3 produce real spill_bytes.
         total_spill_bytes: 0,
         has_calls,
+        // Trivial allocator predates call-crossing analysis; it never
+        // parks values in callee-saved registers (it panics on pool
+        // overflow before that becomes relevant).
+        used_callee_gpr_mask: 0,
+        used_callee_fpr_mask: 0,
+        param_entry_moves: Vec::new(),
     }
 }
 
