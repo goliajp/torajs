@@ -4470,11 +4470,13 @@ impl Checker {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
                     // M1.2 — `xs.push(v)`: takes one element-typed arg,
-                    // returns void (TS doesn't surface push's "new length"
-                    // return value in our subset since it's rarely useful).
+                    // returns the new length per JS spec §22.1.3.20.
+                    // Runtime helper `__torajs_arr_push` already writes
+                    // `len + 1` into `arr[#8]`; ssa_lower materializes
+                    // the ret as `Load(I64, new_arr, ARR_LEN_OFF)`.
                     (Type::Array(elem), "push") => {
                         let inner = (**elem).clone();
-                        Ok(Type::Function(vec![inner], Box::new(Type::Void)))
+                        Ok(Type::Function(vec![inner], Box::new(Type::Number)))
                     }
                     // `xs.pop()` — remove and return the last element.
                     // Mutates the receiver. tr's subset assumes a non-empty
@@ -4494,13 +4496,11 @@ impl Checker {
                         Ok(Type::Function(Vec::new(), Box::new(inner)))
                     }
                     // `xs.unshift(v)` — insert v at slot 0 (memmoves
-                    // the rest right; may realloc). JS spec returns the
-                    // new length; tr returns void here for parser
-                    // symmetry with push (the return is typically
-                    // discarded).
+                    // the rest right; may realloc). Returns the new
+                    // length per JS spec §22.1.3.34, mirroring push.
                     (Type::Array(elem), "unshift") => {
                         let inner = (**elem).clone();
-                        Ok(Type::Function(vec![inner], Box::new(Type::Void)))
+                        Ok(Type::Function(vec![inner], Box::new(Type::Number)))
                     }
                     // `xs.flat()` — single-level flatten. Receiver must
                     // be `T[][]`; result is `T[]`. v0 supports depth=1

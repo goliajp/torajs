@@ -18475,7 +18475,16 @@ impl<'a> LowerCtx<'a> {
                             ),
                         );
                     }
-                    return Operand::ConstI64(0);
+                    // chunk 9c — JS spec: unshift returns new length.
+                    // Runtime helper bumps `len + 1` into arr[#8] before
+                    // returning; mirror the .length getter.
+                    let new_len = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
+                        Type::I64,
+                        None,
+                    );
+                    return Operand::Value(new_len);
                 }
                 //   (a) Ident bound to a mutable `Type::Arr` local — load
                 //       cur ptr from the slot, call arr_push (which may
@@ -18594,7 +18603,18 @@ impl<'a> LowerCtx<'a> {
                                             0,
                                         ),
                                     );
-                                    return Operand::ConstI64(0);
+                                    // chunk 9c — push spec parity: ret new length.
+                                    let new_len = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(
+                                            Type::I64,
+                                            Operand::Value(new_arr),
+                                            ARR_LEN_OFF,
+                                        ),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    return Operand::Value(new_len);
                                 }
                                 _ => panic!(
                                     "ssa-lower: Array<Any>.push unsupported value type {v_ty:?}"
@@ -18617,7 +18637,14 @@ impl<'a> LowerCtx<'a> {
                                     0,
                                 ),
                             );
-                            return Operand::ConstI64(0);
+                            // chunk 9c — push spec parity: ret new length.
+                            let new_len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
+                                Type::I64,
+                                None,
+                            );
+                            return Operand::Value(new_len);
                         }
                         let cur_arr = self.f.append_inst(
                             self.cur_block,
@@ -18716,7 +18743,9 @@ impl<'a> LowerCtx<'a> {
                                     InstKind::Call(self.intrinsics.rc_inc, vec![val]),
                                 );
                             }
-                            return Operand::ConstI64(0);
+                            // chunk 9c — fast-push spec parity: ret new length
+                            // (already in SSA as `len_next`, mirrors arr[#8]).
+                            return Operand::Value(len_next);
                         }
                         let new_arr = self.f.append_inst(
                             self.cur_block,
@@ -18765,11 +18794,16 @@ impl<'a> LowerCtx<'a> {
                                 ),
                             );
                         }
-                        // push returns void in TS but our intrinsic returns
-                        // the pointer; surface a benign i64(0) so the Call
-                        // expression has SOME operand. Most call sites are
-                        // statement-level and discard the result.
-                        return Operand::ConstI64(0);
+                        // chunk 9c — push spec parity: ret new length per
+                        // JS spec §22.1.3.20. Runtime helper bumped
+                        // arr[#8] = len+1; mirror the .length getter.
+                        let new_len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        return Operand::Value(new_len);
                     }
                     // K.8 — Ident-receiver where the binding is a top-level
                     // refcount global (registered by the K.6 globals pass).
@@ -18820,7 +18854,14 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Store(Operand::Value(new_arr), Operand::Value(slot_ptr), 0),
                         );
-                        return Operand::ConstI64(0);
+                        // chunk 9c — push spec parity: ret new length.
+                        let new_len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        return Operand::Value(new_len);
                     }
                     // (b) `obj.field.push(v)` — field-receiver path. We load
                     // the struct pointer once (borrow), find the field's
@@ -18875,7 +18916,14 @@ impl<'a> LowerCtx<'a> {
                                     self.cur_block,
                                     InstKind::Store(Operand::Value(new_arr), obj_val, offset),
                                 );
-                                return Operand::ConstI64(0);
+                                // chunk 9c — push spec parity: ret new length.
+                                let new_len = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
+                                    Type::I64,
+                                    None,
+                                );
+                                return Operand::Value(new_len);
                             }
                         }
                     }
