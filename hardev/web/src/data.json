@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-07T12:37:17.731Z",
+  "generatedAt": "2026-06-07T13:32:54.605Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "5ad293c",
-    "commitSubject": "fix(codegen,core): skip drop emit on static str literals + alloc callee-saved for call-crossing ret values",
+    "commit": "1dd708f",
+    "commitSubject": "fix(core): infer user-fn ret ann for Member field + string-method Call",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,18 @@
   },
   "commits": [
     {
+      "hash": "1dd708f",
+      "subject": "fix(core): infer user-fn ret ann for Member field + string-method Call"
+    },
+    {
+      "hash": "6c23fc0",
+      "subject": "fix(core): infer user-fn ret ann for Ternary + Array literal exprs"
+    },
+    {
+      "hash": "156f991",
+      "subject": "chore: dashboard snapshot @ 5ad293c — chunk 6 ship (string-concat silent-wrong fix)"
+    },
+    {
       "hash": "5ad293c",
       "subject": "fix(codegen,core): skip drop emit on static str literals + alloc callee-saved for call-crossing ret values"
     },
@@ -645,39 +657,38 @@
     {
       "hash": "bea4d45",
       "subject": "chore: dashboard snapshot @ 1e7f642 — swap-2k chunk 2b整 phase close (PIE rebase wire,String(5) blocker fixed) + mini gate runner online"
-    },
-    {
-      "hash": "1e7f642",
-      "subject": "feat(link): wire __DATA member rebase patcher under PIE — #9 SD-4c swap-2k chunk 2b-4"
-    },
-    {
-      "hash": "8fd647c",
-      "subject": "feat(link): __DATA chained-fixups rebase target plumbing — #9 SD-4c swap-2k chunk 2b-2/2b-3"
-    },
-    {
-      "hash": "2696efb",
-      "subject": "feat(link): __DATA member rebase-target collector — #9 SD-4c swap-2k chunk 2b-1"
     }
   ],
-  "headSha": "5ad293c",
+  "headSha": "1dd708f",
   "autorun": {
-    "total": 76,
+    "total": 77,
     "baselineTarget": 10,
-    "bySelf": 74,
+    "bySelf": 75,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780834793-751f",
-      "at": "2026-06-07T12:19:53Z",
-      "ts": 1780834793,
+      "rotationId": "r-1780836787-3076",
+      "at": "2026-06-07T12:53:07Z",
+      "ts": 1780836787,
       "trigger": "self",
-      "prevHead": "afaf4c1",
-      "handoffSha": "sha256:e4341799a9e736f6e3d889eb3565e4da278b5fa4318b8e2397d897af06f2b6df",
-      "handoffAgeSec": 3,
+      "prevHead": "156f991",
+      "handoffSha": "sha256:5fd40417e77ebfee12fa93dcc5a59b54bf494e866510dbd444d00cd6fb5f3561",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780836787-3076",
+        "at": "2026-06-07T12:53:07Z",
+        "ts": 1780836787,
+        "trigger": "self",
+        "prevHead": "156f991",
+        "handoffSha": "sha256:5fd40417e77ebfee12fa93dcc5a59b54bf494e866510dbd444d00cd6fb5f3561",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780834793-751f",
         "at": "2026-06-07T12:19:53Z",
@@ -774,17 +785,6 @@
         "prevHead": "722e175",
         "handoffSha": "sha256:7dc923b9244e4e4b8e3c0cdc5d5fa842cc13eea89384e6567f75e891f9d0281c",
         "handoffAgeSec": 18,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780789309-35d0",
-        "at": "2026-06-06T23:41:49Z",
-        "ts": 1780789309,
-        "trigger": "self",
-        "prevHead": "5ffdaf8",
-        "handoffSha": "sha256:8ccc6b323b32248243cb0e10bd38f108e5233be8c3cfbefbbbedf278f765b4d2",
-        "handoffAgeSec": 15,
         "conformanceBefore": null,
         "commitsInSession": null
       }
