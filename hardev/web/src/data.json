@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-07T08:27:59.580Z",
+  "generatedAt": "2026-06-07T09:28:29.700Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "0ec521e",
-    "commitSubject": "fix(link): honor __TEXT,* section align in non_text layout — #9 SD-4c swap-2k chunk 3",
+    "commit": "6e2a739",
+    "commitSubject": "fix(link): pass member __TEXT vaddr to resolve_local_nsect in rebase target collector — #9 SD-4c swap-2k chunk 4",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,14 @@
   },
   "commits": [
     {
+      "hash": "6e2a739",
+      "subject": "fix(link): pass member __TEXT vaddr to resolve_local_nsect in rebase target collector — #9 SD-4c swap-2k chunk 4"
+    },
+    {
+      "hash": "f4e9fd6",
+      "subject": "chore: dashboard snapshot @ 0ec521e — chunk 3 ship (__TEXT,* align padding fix)"
+    },
+    {
       "hash": "0ec521e",
       "subject": "fix(link): honor __TEXT,* section align in non_text layout — #9 SD-4c swap-2k chunk 3"
     },
@@ -649,35 +657,49 @@
     {
       "hash": "8854875",
       "subject": "fix(link): subtract member_addr for __TEXT non-text sections — #9 SD-4c swap-2k partial"
-    },
-    {
-      "hash": "722e175",
-      "subject": "chore: plan-state + handoff + dashboard snapshot @ 6342256 — swap-2j regalloc call-crossing ship, swap-2k number->string next"
-    },
-    {
-      "hash": "6342256",
-      "subject": "fix(codegen): callee-saved regalloc for call-crossing values — #9 SD-4c swap-2j"
     }
   ],
-  "headSha": "0ec521e",
+  "headSha": "6e2a739",
   "autorun": {
-    "total": 72,
+    "total": 74,
     "baselineTarget": 10,
-    "bySelf": 70,
+    "bySelf": 72,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780818066-1882",
-      "at": "2026-06-07T07:41:06Z",
-      "ts": 1780818066,
+      "rotationId": "r-1780820997-3a09",
+      "at": "2026-06-07T08:29:57Z",
+      "ts": 1780820997,
       "trigger": "self",
-      "prevHead": "de38109",
-      "handoffSha": "sha256:3a7e6d1adc8cfa702762dc248546fbfae2babd6beb469a098ab1544125103e82",
-      "handoffAgeSec": 27,
+      "prevHead": "f4e9fd6",
+      "handoffSha": "sha256:1b09bb9d742fa9775319d2f71f23c2b3b8dcfa9e4f038e051e5702b0f6e95f4c",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780820997-3a09",
+        "at": "2026-06-07T08:29:57Z",
+        "ts": 1780820997,
+        "trigger": "self",
+        "prevHead": "f4e9fd6",
+        "handoffSha": "sha256:1b09bb9d742fa9775319d2f71f23c2b3b8dcfa9e4f038e051e5702b0f6e95f4c",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1780820987-57c9",
+        "at": "2026-06-07T08:29:47Z",
+        "ts": 1780820987,
+        "trigger": "self",
+        "prevHead": "f4e9fd6",
+        "handoffSha": "sha256:1b09bb9d742fa9775319d2f71f23c2b3b8dcfa9e4f038e051e5702b0f6e95f4c",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780818066-1882",
         "at": "2026-06-07T07:41:06Z",
@@ -763,28 +785,6 @@
         "prevHead": "8f4736e",
         "handoffSha": "sha256:5b918e712edabd1a8c91d107a08def15ecabaeb581e6ed211d866e06a454380e",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780749294-714c",
-        "at": "2026-06-06T12:34:54Z",
-        "ts": 1780749294,
-        "trigger": "self",
-        "prevHead": "1647453",
-        "handoffSha": "sha256:acfc2aeac9cfadb1baa920307d5a0eadd62d66cadcf88273d3223164bed3c29a",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780731921-5b9c",
-        "at": "2026-06-06T07:45:21Z",
-        "ts": 1780731921,
-        "trigger": "self",
-        "prevHead": "4df870b",
-        "handoffSha": "sha256:b886787b9e70e58a15264b22ab73251da0ebf9e7ea29408651fa1394d716b350",
-        "handoffAgeSec": 63,
         "conformanceBefore": null,
         "commitsInSession": null
       }
