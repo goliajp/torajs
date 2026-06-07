@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-07T03:17:12.682Z",
+  "generatedAt": "2026-06-07T04:13:31.375Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
     "fail": 0,
     "skip": 4,
     "raw": "723/0/4",
-    "source": "/tmp/torajs-conformance-8854875.log",
-    "sourceMtime": "2026-06-07T02:58:55.213Z"
+    "source": "/tmp/torajs-conformance-3ae3c87.log",
+    "sourceMtime": "2026-06-07T04:13:17.273Z"
   },
   "test262": {
     "ranAt": "2026-06-03T22:49:10Z",
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "8854875",
-    "commitSubject": "fix(link): subtract member_addr for __TEXT non-text sections — #9 SD-4c swap-2k partial",
+    "commit": "3ae3c87",
+    "commitSubject": "feat(link): audit-driven __DATA reloc patcher substrate — #9 SD-4c swap-2k chunk 2a",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -37,8 +37,8 @@
       "fail": 0,
       "skip": 4,
       "raw": "723/0/4",
-      "source": "/tmp/torajs-conformance-8854875.log",
-      "sourceMtime": "2026-06-07T02:58:55.213Z"
+      "source": "/tmp/torajs-conformance-3ae3c87.log",
+      "sourceMtime": "2026-06-07T04:13:17.273Z"
     }
   },
   "roadmap": [
@@ -611,6 +611,14 @@
   },
   "commits": [
     {
+      "hash": "3ae3c87",
+      "subject": "feat(link): audit-driven __DATA reloc patcher substrate — #9 SD-4c swap-2k chunk 2a"
+    },
+    {
+      "hash": "07f8ef3",
+      "subject": "chore: dashboard snapshot @ 8854875 — swap-2k chunk 1 ship"
+    },
+    {
       "hash": "8854875",
       "subject": "fix(link): subtract member_addr for __TEXT non-text sections — #9 SD-4c swap-2k partial"
     },
@@ -649,35 +657,38 @@
     {
       "hash": "933fc3e",
       "subject": "refactor(link): extract section_vaddr_for_sym to defined_extern_resolve — #9 SD-4c swap-2e-extract"
-    },
-    {
-      "hash": "1744977",
-      "subject": "fix(link): dispatch defined-extern vaddr by home section — #9 SD-4c swap-2e"
-    },
-    {
-      "hash": "00e0da9",
-      "subject": "feat(cli): synthesize __torajs_obj_drop_sized tail-call shim — #9 SD-4c swap-2d"
     }
   ],
-  "headSha": "8854875",
+  "headSha": "3ae3c87",
   "autorun": {
-    "total": 68,
+    "total": 69,
     "baselineTarget": 10,
-    "bySelf": 66,
+    "bySelf": 67,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780798047-3ca7",
-      "at": "2026-06-07T02:07:27Z",
-      "ts": 1780798047,
+      "rotationId": "r-1780802414-46d2",
+      "at": "2026-06-07T03:20:14Z",
+      "ts": 1780802414,
       "trigger": "self",
-      "prevHead": "722e175",
-      "handoffSha": "sha256:7dc923b9244e4e4b8e3c0cdc5d5fa842cc13eea89384e6567f75e891f9d0281c",
-      "handoffAgeSec": 18,
+      "prevHead": "07f8ef3",
+      "handoffSha": "sha256:9125889cca43b522f42142dfa0cdfb7c5907deb0fea796854ddb4c89b97fd118",
+      "handoffAgeSec": 73,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780802414-46d2",
+        "at": "2026-06-07T03:20:14Z",
+        "ts": 1780802414,
+        "trigger": "self",
+        "prevHead": "07f8ef3",
+        "handoffSha": "sha256:9125889cca43b522f42142dfa0cdfb7c5907deb0fea796854ddb4c89b97fd118",
+        "handoffAgeSec": 73,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780798047-3ca7",
         "at": "2026-06-07T02:07:27Z",
@@ -774,17 +785,6 @@
         "prevHead": "8aba521",
         "handoffSha": "sha256:91c1247c996c9c41572b44b616c081bc1602c813a1530cc549817c8caf6d44f5",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780713012-128e",
-        "at": "2026-06-06T02:30:12Z",
-        "ts": 1780713012,
-        "trigger": "self",
-        "prevHead": "dc0491b",
-        "handoffSha": "sha256:a6135777c15b379cc6418de3ef814ade444a7940714d6aa1d9a804021cb776e0",
-        "handoffAgeSec": 9096,
         "conformanceBefore": null,
         "commitsInSession": null
       }
