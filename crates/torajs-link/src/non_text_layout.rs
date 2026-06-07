@@ -67,6 +67,17 @@ pub struct NonTextSectionLayout {
     /// subtract `member_addr` before adding `final_vaddr` —
     /// mirrors [`crate::data_section_layout::DataSectionLayout::member_addr`].
     pub member_addr: u64,
+    /// `section_64.align` — required alignment as a power-of-two log2
+    /// exponent (`3` ⇒ 8-byte aligned, `4` ⇒ 16-byte aligned). The
+    /// layout pass rounds `final_vaddr` / `final_file_offset` up to
+    /// `1 << align` before placing the section, and `archive_emit`
+    /// pads the buffer to the same offset so encoder and runtime
+    /// agree byte-for-byte. swap-2k chunk 3: `__TEXT,__literal16`
+    /// ships `align = 4`; `ldr q0` (128-bit SIMD unsigned-immediate)
+    /// encodes `imm12 = offset >> 4`, silently dropping the low 4
+    /// bits when the target is not 16-aligned (release builds skip
+    /// the matching `debug_assert!` in `patch::patch_pageoff12`).
+    pub align: u8,
 }
 
 /// Output of [`compute_non_text_layouts`]. `per_member[i]` lines up
@@ -137,7 +148,14 @@ pub fn compute_non_text_layouts(
     region_file_offset: u32,
 ) -> Result<NonTextLayoutResult, NonTextLayoutError> {
     let mut per_member: Vec<Vec<NonTextSectionLayout>> = Vec::with_capacity(member_keys.len());
-    let mut cumulative: u32 = 0;
+    // swap-2k chunk 3 — track an absolute file-offset cursor so each
+    // section's `section_64.align` boundary can be honored before its
+    // placement. Mirrors `data_section_layout::compute_data_section_layouts`'s
+    // dual-cursor pattern (vaddr_cursor / file_cursor). Without the pad,
+    // a 16-byte literal in `__TEXT,__literal16` lands at a non-16-aligned
+    // position and `ldr q0` silently round-trips through
+    // `(offset >> 4) << 4`, loading garbage 11 bytes early.
+    let mut file_cursor: u64 = u64::from(region_file_offset);
     for &(a_idx, m_idx) in member_keys {
         let member = &merged.per_archive_members[a_idx][m_idx];
         let all = collect_member_sections(member).map_err(|err| NonTextLayoutError {
@@ -159,7 +177,8 @@ pub fn compute_non_text_layouts(
             if !keeps_in_text_non_text_region(&sec) {
                 continue;
             }
-            let final_file_offset = region_file_offset + cumulative;
+            file_cursor += round_up_pad(file_cursor, sec.align);
+            let final_file_offset = file_cursor as u32;
             let final_vaddr = TEXT_VMADDR_BASE + u64::from(final_file_offset);
             layouts.push(NonTextSectionLayout {
                 section_index: sec.section_index,
@@ -170,15 +189,64 @@ pub fn compute_non_text_layouts(
                 final_file_offset,
                 final_vaddr,
                 member_addr: sec.member_addr,
+                align: sec.align,
             });
-            cumulative += sec.size;
+            file_cursor += u64::from(sec.size);
         }
         per_member.push(layouts);
     }
+    let region_size = (file_cursor - u64::from(region_file_offset)) as u32;
     Ok(NonTextLayoutResult {
         per_member,
-        region_size: cumulative,
+        region_size,
     })
+}
+
+/// Emit each non-text section payload at its layout-assigned
+/// `final_file_offset`, padding with zeros to reconcile per-section
+/// `section_64.align` boundaries that `compute_non_text_layouts`
+/// honored. Called from `archive_emit::emit_binary` between the
+/// patched member-text payloads and `__TEXT,__stubs`.
+///
+/// swap-2k chunk 3 — without the per-section `pad_to`, alignment
+/// padding budgeted into `final_file_offset` would not appear in the
+/// emitted byte stream and `__TEXT,__literal16` would land at the
+/// non-padded cumulative offset, mismatching the patcher's
+/// `final_vaddr` reloc target after `patch_pageoff12`'s silent
+/// `(offset >> scale) << scale` round-trip.
+pub(crate) fn write_non_text_payloads(
+    buf: &mut Vec<u8>,
+    layout: &crate::layout_types::ArchiveLayout,
+    non_text_payloads: &[Vec<u8>],
+) {
+    let mut payload_idx: usize = 0;
+    for m in &layout.member_layouts {
+        for s in &m.non_text_sections {
+            let target_len = s.final_file_offset as usize;
+            if buf.len() < target_len {
+                buf.resize(target_len, 0);
+            }
+            buf.extend_from_slice(&non_text_payloads[payload_idx]);
+            payload_idx += 1;
+        }
+    }
+    debug_assert_eq!(
+        payload_idx,
+        non_text_payloads.len(),
+        "non_text_payloads count must match layout.non_text_sections total",
+    );
+}
+
+/// Padding bytes needed to round `addr` up to the next `1 << align`
+/// boundary. `align` is the Mach-O `section_64.align` log2 exponent
+/// (`≤ 31`), so `1u64 << align` never overflows. Returns 0 when
+/// already aligned or `align == 0`. Mirrors
+/// `data_section_layout::round_up_pad` — kept module-local rather
+/// than shared to avoid coupling the two layout passes (they may
+/// diverge in handling later when `__DATA_CONST` arrives).
+fn round_up_pad(addr: u64, align: u8) -> u64 {
+    let a = 1u64 << align;
+    (a - (addr & (a - 1))) & (a - 1)
 }
 
 #[cfg(test)]
@@ -371,6 +439,112 @@ mod tests {
         out.extend_from_slice(&cstring_payload);
         out.extend_from_slice(&const_payload);
         out
+    }
+
+    /// swap-2k chunk 3 — `__TEXT,__literal16` (align 2^4 = 16 bytes)
+    /// after a preceding section whose end leaves the cumulative
+    /// cursor at a non-16-aligned position must be advanced by
+    /// `round_up_pad`. Without the pad, `compute_non_text_layouts`
+    /// places the 16-byte literal at a 16-misaligned `final_vaddr`
+    /// and `patch_pageoff12` silently rounds it down to the
+    /// 16-aligned floor (scale=4 for `ldr q0`), so the runtime load
+    /// reads garbage `cursor % 16` bytes before the actual literal.
+    ///
+    /// Fixture: a member with `__text` (4 B) + `__cstring` (5 B,
+    /// align 0) + `__literal16` (16 B, align 4). After filtering
+    /// `__text`, the cursor sits at `region_off + 5` (= 16-misaligned)
+    /// before the literal16 — the pad must bump it to `region_off + 16`.
+    #[test]
+    fn literal16_align_advances_cursor_to_16_aligned() {
+        let obj = build_member_with_literal16_after_cstring();
+        let archive = build_short_name_archive("lit16.o", &obj);
+        let archives = vec![archive];
+        let merged = merge_archive_indexes(&archives).unwrap();
+        let region_off = 0x0001_4000u32;
+        let res = compute_non_text_layouts(&merged, &[(0usize, 0usize)], region_off).unwrap();
+        let layouts = &res.per_member[0];
+        assert_eq!(layouts.len(), 2);
+        assert_eq!(trim_name(&layouts[0].sectname), b"__cstring");
+        assert_eq!(layouts[0].final_file_offset, region_off);
+        assert_eq!(layouts[0].size, 5);
+        assert_eq!(trim_name(&layouts[1].sectname), b"__literal16");
+        assert_eq!(layouts[1].final_file_offset, region_off + 16);
+        assert_eq!(layouts[1].final_file_offset & 0xF, 0);
+        assert_eq!(layouts[1].align, 4);
+        // region_size = 5 (cstring) + 11 (pad) + 16 (literal16) = 32.
+        assert_eq!(res.region_size, 32);
+    }
+
+    fn build_member_with_literal16_after_cstring() -> Vec<u8> {
+        use torajs_obj::{LC_SEGMENT_64, MH_MAGIC_64, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE};
+        let nsects: u32 = 3;
+        let header_size: u32 = 32;
+        let seg_cmd_size: u32 = SEGMENT_COMMAND_64_SIZE + nsects * SECTION_64_SIZE;
+        let text_payload: [u8; 4] = RET_BYTES;
+        let cstring_payload: [u8; 5] = *b"hi!\0\0";
+        let lit16_payload: [u8; 16] = [0x18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let text_off = header_size + seg_cmd_size;
+        let cstring_off = text_off + text_payload.len() as u32;
+        let lit16_off = cstring_off + cstring_payload.len() as u32;
+        let total = lit16_off + lit16_payload.len() as u32;
+
+        let mut out: Vec<u8> = Vec::with_capacity(total as usize);
+        out.extend_from_slice(&MH_MAGIC_64.to_le_bytes());
+        out.extend_from_slice(&0x0100_000Cu32.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&1u32.to_le_bytes());
+        out.extend_from_slice(&1u32.to_le_bytes());
+        out.extend_from_slice(&seg_cmd_size.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+
+        out.extend_from_slice(&LC_SEGMENT_64.to_le_bytes());
+        out.extend_from_slice(&seg_cmd_size.to_le_bytes());
+        out.extend_from_slice(&[0u8; 16]);
+        out.extend_from_slice(&0u64.to_le_bytes());
+        out.extend_from_slice(&(total as u64 - text_off as u64).to_le_bytes());
+        out.extend_from_slice(&(text_off as u64).to_le_bytes());
+        out.extend_from_slice(&(total as u64 - text_off as u64).to_le_bytes());
+        out.extend_from_slice(&7u32.to_le_bytes());
+        out.extend_from_slice(&7u32.to_le_bytes());
+        out.extend_from_slice(&nsects.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+
+        write_section_aligned(&mut out, b"__text", b"__TEXT", 0, 4, text_off, 2);
+        write_section_aligned(&mut out, b"__cstring", b"__TEXT", 4, 5, cstring_off, 0);
+        write_section_aligned(&mut out, b"__literal16", b"__TEXT", 16, 16, lit16_off, 4);
+
+        out.extend_from_slice(&text_payload);
+        out.extend_from_slice(&cstring_payload);
+        out.extend_from_slice(&lit16_payload);
+        out
+    }
+
+    fn write_section_aligned(
+        out: &mut Vec<u8>,
+        sectname: &[u8],
+        segname: &[u8],
+        addr: u64,
+        size: u64,
+        offset: u32,
+        align_log2: u32,
+    ) {
+        let mut sn = [0u8; 16];
+        sn[..sectname.len()].copy_from_slice(sectname);
+        out.extend_from_slice(&sn);
+        let mut sg = [0u8; 16];
+        sg[..segname.len()].copy_from_slice(segname);
+        out.extend_from_slice(&sg);
+        out.extend_from_slice(&addr.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&offset.to_le_bytes());
+        out.extend_from_slice(&align_log2.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes()); // reloff
+        out.extend_from_slice(&0u32.to_le_bytes()); // nreloc
+        out.extend_from_slice(&0u32.to_le_bytes()); // flags
+        out.extend_from_slice(&0u32.to_le_bytes()); // reserved1
+        out.extend_from_slice(&0u32.to_le_bytes()); // reserved2
+        out.extend_from_slice(&0u32.to_le_bytes()); // reserved3
     }
 
     /// `parse_archive` looks for `parse_archive` on the result of

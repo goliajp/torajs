@@ -187,7 +187,10 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     } else {
         0
     };
-    let stubs_file_offset = text_file_offset + text_size;
+    // swap-2k chunk 3 — round to 4 so `__stubs` (ARM instructions)
+    // lands at a 4-aligned vmaddr; non-text align padding can leave
+    // the running offset at `mod 4 != 0`. archive_emit pad_to's match.
+    let stubs_file_offset = round_up_to(u64::from(text_file_offset + text_size), 4) as u32;
     let text_segment_file_end = u64::from(stubs_file_offset) + stubs_section_size;
     let text_vmsize = round_up_to(text_segment_file_end, APPLE_SILICON_PAGE_SIZE);
 

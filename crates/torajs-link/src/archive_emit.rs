@@ -391,13 +391,15 @@ fn emit_binary(
 
     // Non-text section payloads + user-strings region splice between
     // member __texts and `__TEXT,__stubs` (SD-4c-prereq-c / +e1).
-    for p in non_text_payloads {
-        buf.extend_from_slice(p);
-    }
+    crate::non_text_layout::write_non_text_payloads(&mut buf, layout, non_text_payloads);
     buf.extend_from_slice(&layout.user_strings_payload);
 
     // e8: __TEXT __stubs → __DATA_CONST (vtable) → __DATA la_ptr.
     if has_dyld {
+        // swap-2k chunk 3 — pad to `stubs_file_offset` so per-section
+        // alignment padding earlier (which leaves `buf.len() <
+        // stubs_file_offset`) gets reconciled before write_stubs_section.
+        pad_to(&mut buf, layout.stubs_file_offset as usize);
         write_stubs_section(&mut buf, layout);
     }
     crate::data_const_layout::write_data_const_payload(
