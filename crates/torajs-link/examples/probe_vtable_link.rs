@@ -1,24 +1,30 @@
-//! SD-4c-prereq+e7a — vtable-global (`__vtable_<C>`) link probe
-//! (ABI / layout validation only — runtime exec is e7b territory).
+//! SD-4c-prereq+e7b — vtable-global (`__vtable_<C>`) runtime-exec probe.
 //!
 //! Codegen's `GlobalRef("__vtable_<C>")` resolves to the vtable's
 //! base vaddr; runtime `__dispatch_<M>` indexes by method offset to
-//! load the fn ptr and BLR's it. e7a emits each
+//! load the fn ptr and BLR's it. e7a wired emission of each
 //! `LinkConfig.vtable_globals` entry as an `[N x ptr]` rodata block
-//! sharing `__TEXT,__cstring` with `strings`, registers the sym
-//! override, and resolves each slot through the effective sym table.
+//! sharing `__TEXT,__cstring` with `strings`, registered the sym
+//! override, and resolved each slot through the effective sym table.
 //!
-//! Why no exec test: each rodata slot is an absolute pointer, which
-//! a PIE binary needs `LC_DYLD_CHAINED_FIXUPS` rebase entries to
-//! correct after the kernel's ASLR slide. Rebase chain emission is
-//! the e7b sub-step; this probe verifies layout / sym registration
-//! / payload byte layout only.
+//! e7b adds the missing piece: each rodata slot is an absolute
+//! pointer that the PIE binary needs `LC_DYLD_CHAINED_FIXUPS` rebase
+//! entries to correct after the kernel's ASLR slide. With the rebase
+//! chain emission in place (`chained_fixups_starts` + `TextRebaseScope`
+//! + multi-segment page-start tables), dyld walks the `__TEXT` chain
+//! at load time, adds the slide, and stamps the runtime `_helper`
+//! address into slot 0 — so the indirect `BR x2` lands inside
+//! `_helper` regardless of ASLR.
 //!
-//! Acceptance: `OK: link produced N bytes`, nm lists `__vtable_A`,
-//! and the bytes at `__vtable_A` decode as a u64 LE = vaddr of
-//! `__torajs_fn_1` (= `_helper`).
+//! Acceptance: `OK: link produced N bytes`; the resulting binary at
+//! `/tmp/torajs_vtable_link` exits with **42** because `_main` does
+//! `ADRP+ADD __vtable_A` → `LDR x2,[x1,#0]` → `BR x2` → `_helper`
+//! sets x0 = 42 and `RET`s (no LR pushed by `BR`, so `_helper`'s
+//! return lands in dyld's main wrapper, which treats x0 as the
+//! exit code).
 //!
 //! Run: `cargo run --release -p torajs-link --example probe_vtable_link`
+//! then `/tmp/torajs_vtable_link; echo "EXIT=$?"`.
 
 use std::fs;
 
