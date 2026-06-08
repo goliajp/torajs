@@ -612,6 +612,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let archive_bytes = link_to_exec_with_archives(&cfg).unwrap();
         let baseline_bytes = link_to_exec(&cfg);
@@ -652,6 +653,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -718,6 +720,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -782,6 +785,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).expect("layout");
         assert!(!layout.dyld_imports.is_empty(), "dyld_imports populated");
@@ -872,6 +876,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         // SD-2b — link must succeed even though cfg.sym_table is
         // empty. SD-2a's plumbing populates `layout.stub_vaddrs`;
@@ -954,6 +959,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let link_bytes =
             link_to_exec_with_archives(&cfg).expect("link must succeed against mixed externs");
@@ -989,6 +995,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).unwrap();
 

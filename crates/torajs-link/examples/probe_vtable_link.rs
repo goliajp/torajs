@@ -102,6 +102,7 @@ fn main() {
             sym: "__vtable_A".into(),
             slot_syms: vec![Some("__torajs_fn_1".into())],
         }],
+        class_layouts: Vec::new(),
     };
 
     match link_to_exec_with_archives(&cfg) {

@@ -116,6 +116,7 @@ fn main() {
             align_log2: 3,
         }],
         vtable_globals: Vec::new(),
+        class_layouts: Vec::new(),
     };
 
     match link_to_exec_with_archives(&cfg) {

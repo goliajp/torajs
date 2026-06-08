@@ -100,6 +100,7 @@ fn main() {
         }],
         data_globals: Vec::new(),
         vtable_globals: Vec::new(),
+        class_layouts: Vec::new(),
     };
 
     match link_to_exec_with_archives(&cfg) {

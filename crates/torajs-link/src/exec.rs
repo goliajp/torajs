@@ -27,35 +27,27 @@ use crate::sign::{adhoc_codesign_blob_size, build_adhoc_codesign_blob};
 // ---- Public API ----
 
 /// Two link-emitted user-string flavours (mirrors `ssa_inkwell::globals`):
-/// `StaticStr` ↔ `emit_static_str_global` — full rodata Str
-/// (header+length+pad+bytes), paired with `StaticStrRef` /
-/// `__torajs_str_lit_<id>`. `RawBytes` ↔ `emit_string_global` — payload
-/// only, paired with `StringRef` / `__torajs_str_dyn_<id>` (runtime
-/// `__torajs_str_alloc(ptr, length)` consumes it).
+/// `StaticStr` = full rodata Str header+payload, `RawBytes` = payload-only
+/// (runtime `__torajs_str_alloc` consumes it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UserStringKind {
     StaticStr,
     RawBytes,
 }
 
-/// SD-4c-prereq+e0/e1/e2 — one user-binary string literal payload.
-/// Materializes `ssa::Module.strings` as `__TEXT,__cstring` rodata
-/// with a sym vaddr that codegen ADRP+ADD pairs (`__torajs_str_lit_*`
-/// / `__torajs_str_dyn_*`) resolve against. `kind` selects the
-/// emit ABI per [`UserStringKind`].
+/// SD-4c-prereq+e0/e1/e2 — user-binary string literal payload. `sym`
+/// is the codegen ADRP+ADD target (`__torajs_str_lit_*` /
+/// `__torajs_str_dyn_*`); `kind` picks the emit ABI per
+/// [`UserStringKind`].
 #[derive(Debug, Clone)]
 pub struct UserStringEntry {
-    /// Codegen reloc target_sym — e.g. `__torajs_str_lit_0` /
-    /// `__torajs_str_dyn_0`. Caller chooses the naming policy.
     pub sym: String,
-    /// Encoded payload — Latin-1: 1 B / code unit; UTF-16: 2 B / unit LE.
+    /// Latin-1: 1 B / code unit; UTF-16: 2 B / unit LE.
     pub bytes: Vec<u8>,
-    /// Drives `STR_FLAG_IS_LATIN1` in the rodata Str header.
-    /// Ignored when `kind = RawBytes`.
+    /// Drives `STR_FLAG_IS_LATIN1` (ignored when `kind = RawBytes`).
     pub is_latin1: bool,
     /// ES `String.length` code unit count.
     pub length: u32,
-    /// Emit flavour — see [`UserStringKind`].
     pub kind: UserStringKind,
 }
 
@@ -72,37 +64,30 @@ pub struct LinkConfig {
     /// External symbol resolution map for the linker's resolve
     /// pass. Empty for self-contained binaries.
     pub sym_table: SymTable,
-    /// Ad-hoc code signature identifier — the string macOS shows
-    /// as `Identifier=…` under `codesign -d -v`. Defaults to
-    /// `"tora"` if the caller doesn't override.
+    /// Ad-hoc codesign `Identifier=…` (default `"tora"`).
     pub codesign_ident: String,
-    /// Static-library `.a` archives in Apple `ld64` search order
-    /// (`archives[0]` is searched before `archives[1]`). S7-C1
-    /// only carries the bytes — symbol resolution + member
-    /// integration land in S7-C2..S7-C5. Empty for self-contained
-    /// binaries; existing callers don't need to change.
+    /// Static-library `.a` archives in Apple `ld64` search order.
+    /// S7-C1 only carries bytes; resolution + integration in C2..C5.
+    /// Empty for self-contained binaries.
     pub archives: Vec<Vec<u8>>,
-    /// SD-4c-prereq+e0/e1/e2 — user-binary string literal entries
-    /// (`ssa::Module.strings` materialized for the in-house
-    /// codegen+obj+link pipeline replacing ssa_inkwell). e1/e2 emit
-    /// per-entry rodata payload to `__TEXT,__cstring` and register
-    /// sym → vaddr via [`crate::user_strings_emit`]. Empty default
-    /// in every existing caller keeps pre-e1 byte streams unchanged.
+    /// SD-4c-prereq+e0/e1/e2 — `ssa::Module.strings` materialized.
+    /// e1/e2 emit rodata to `__TEXT,__cstring` + register sym→vaddr.
+    /// Empty default keeps pre-e1 byte streams unchanged.
     pub strings: Vec<UserStringEntry>,
-    /// SD-4c-prereq+e4 — user-binary top-level mutable globals
-    /// (`ssa::Module.data_globals` materialized). Each entry becomes
-    /// one slot inside the binary's `__DATA,__bss` zerofill section
-    /// with a sym vaddr GlobalRef ADRP+ADD pairs resolve against. The
-    /// loader supplies zero bytes — no file payload is emitted.
-    /// Empty default preserves pre-e4 byte streams. Requires the
-    /// has_dyld path (existing `__DATA` segment); a dyld-free binary
-    /// with `data_globals` non-empty is rejected by `compute_archive_layout`.
+    /// SD-4c-prereq+e4 — `ssa::Module.data_globals` materialized as
+    /// `__DATA,__bss` zerofill slots; loader supplies zero bytes.
+    /// Requires the has_dyld path; non-empty + !has_dyld → reject.
+    /// Empty default preserves pre-e4 byte streams.
     pub data_globals: Vec<UserDataGlobalEntry>,
-    /// SD-4c-prereq+e7 — user-binary `__vtable_<C>` tables emitted as
-    /// `[N x ptr]` rodata blocks sharing `__TEXT,__cstring` with
-    /// `strings`. Each `slot_syms[i] = Some(name)` writes the link-
-    /// resolved vaddr of `name` into the 8-byte slot; `None` writes 0.
+    /// SD-4c-prereq+e7 — `__vtable_<C>` tables emitted as `[N x ptr]`
+    /// rodata sharing `__TEXT,__cstring` with `strings`.
+    /// `slot_syms[i] = Some(name)` writes vaddr-of-`name`; `None` → 0.
     pub vtable_globals: Vec<UserVtableEntry>,
+    /// SD-4c-prereq+e8 — per-class `child_offsets` for the cycle
+    /// collector (T-26.C); materializes ssa_inkwell's
+    /// `__torajs_class_layouts` + `__torajs_n_class_layouts` pair.
+    /// Empty default keeps pre-e8 callers byte-identical.
+    pub class_layouts: Vec<UserClassLayoutEntry>,
 }
 
 /// SD-4c-prereq+e7 — one `[N x ptr]` vtable. `sym` is what codegen's
@@ -114,22 +99,30 @@ pub struct UserVtableEntry {
     pub slot_syms: Vec<Option<String>>,
 }
 
+/// SD-4c-prereq+e8 — per-class `child_offsets` table for the cycle
+/// collector (T-26.C). Mirrors `ssa::ClassLayoutMeta` minus the
+/// (runtime-unused) `class_name`. Each entry → one inner private
+/// `[K x i32]` rodata global; outer `__torajs_class_layouts` packs
+/// `(n_children, inner_ptr)` pairs with inner-ptr rebased via e7b.
+#[derive(Debug, Clone)]
+pub struct UserClassLayoutEntry {
+    /// Byte offsets where refcounted heap-pointer fields live
+    /// (already includes `OBJ_HEADER_SIZE`). Empty = `{0, NULL}`.
+    pub child_offsets: Vec<u32>,
+}
+
 /// SD-4c-prereq+e4 — one user-binary top-level mutable global slot.
-/// Sized by the `size` byte count (caller derives from the SSA `Type` —
-/// I64=8, I32=4, F64=8, Bool=1; refcount-typed Str/Arr/Obj slots are
-/// 8 bytes / ptr-shaped). `align_log2` is the slot's required
-/// alignment (e.g. `3` for u64). The `__DATA,__bss` section is
-/// zerofill — emit writes no bytes for these slots; the loader
-/// supplies zero bytes at map time.
+/// `size` (I64=8, I32=4, F64=8, Bool=1, ptr=8) + `align_log2` are
+/// caller-derived from the SSA `Type`. `__DATA,__bss` is zerofill,
+/// so emit writes no bytes; the loader supplies zeros at map time.
 #[derive(Debug, Clone)]
 pub struct UserDataGlobalEntry {
-    /// Codegen `RelocKind::Page21 / PageOff12` ADRP+ADD pair target
-    /// — emit_global_ref uses the user-supplied name verbatim, so
-    /// `sym` here matches the SSA-layer `DataGlobal.name`.
+    /// Codegen `Page21/PageOff12` ADRP+ADD target — matches the
+    /// SSA-layer `DataGlobal.name`.
     pub sym: String,
-    /// Slot size in bytes (I64=8, I32=4, F64=8, Bool=1, ptr=8).
+    /// Slot size in bytes (see `LinkConfig::data_globals`).
     pub size: u32,
-    /// Log2 of slot alignment requirement (0=byte, 2=u32, 3=u64).
+    /// Log2 of slot alignment (0=byte, 2=u32, 3=u64).
     pub align_log2: u8,
 }
 
@@ -515,6 +508,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let layout = compute_layout(&cfg);
 
@@ -568,6 +562,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         let layout = compute_layout(&cfg);
@@ -586,6 +581,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // mach_header_64.filetype @ offset 12..16
@@ -613,6 +609,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // The first 16 bytes after the page boundary should match
@@ -638,6 +635,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 
@@ -760,6 +758,7 @@ mod tests {
             strings: Vec::new(),
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 
