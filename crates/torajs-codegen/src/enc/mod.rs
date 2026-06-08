@@ -42,4 +42,7 @@ pub use int::{
     mov_w_reg, mov_x_reg, movk_imm, movz_imm, msub_reg, mul_reg, orr_reg, sdiv_reg, sub_imm,
     sub_reg, udiv_reg,
 };
-pub use mem::{ldp_post_index, ldr_x_imm12, ldr_x_reg, stp_pre_index, str_x_imm12, str_x_reg};
+pub use mem::{
+    ldp_post_index, ldr_x_imm12, ldr_x_reg, ldur_x_imm9, stp_pre_index, str_x_imm12, str_x_reg,
+    stur_x_imm9,
+};
