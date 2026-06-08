@@ -1725,6 +1725,17 @@ fn lower_inner(
         &[Type::Ptr, Type::I64],
         Type::Ptr,
     );
+    // `arr.splice(start, delete_count)` — in-place remove + return
+    // the removed slice as a fresh Array<T>. Per ES §23.1.3.31.
+    // Receiver pointer is stable (splice only shrinks the live range
+    // — no realloc), so the SSA dispatch skips slot-writeback.
+    let arr_splice_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_splice",
+        &[Type::Ptr, Type::I64, Type::I64],
+        Type::Ptr,
+    );
     let arr_drop_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4925,6 +4936,7 @@ fn lower_inner(
         arr_push_non_deque: arr_push_non_deque_id,
         arr_shift: arr_shift_id,
         arr_unshift: arr_unshift_id,
+        arr_splice: arr_splice_id,
         arr_drop: arr_drop_id,
         arr_reserve: arr_reserve_id,
         arr_push_unchecked: arr_push_unchecked_id,
@@ -5778,6 +5790,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_push_non_deque: FuncId,
     pub(crate) arr_shift: FuncId,
     pub(crate) arr_unshift: FuncId,
+    pub(crate) arr_splice: FuncId,
     pub(crate) arr_drop: FuncId,
     pub(crate) arr_reserve: FuncId,
     pub(crate) arr_push_unchecked: FuncId,
@@ -18486,6 +18499,77 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(new_len);
                 }
+                // `xs.splice(start, deleteCount)` — in-place remove +
+                // return removed slice as a fresh Array<T>. Per ES
+                // §23.1.3.31. Receiver ptr is stable (splice only
+                // shrinks live range; no realloc), so no slot
+                // writeback. v0 subset: 2-arg only (no `...items`
+                // insert form).
+                // (a) Ident-receiver where xs is a local Type::Arr binding.
+                if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
+                    && name == "splice"
+                    && args.len() == 2
+                    && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
+                    && let Some(info) = self.locals.get(recv_name).copied()
+                    && let Type::Arr(_arr_id) = info.ty
+                {
+                    let arr_ty = info.ty;
+                    let cur_arr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
+                        arr_ty,
+                        None,
+                    );
+                    let start = self.lower_expr(args[0]);
+                    let delete_count = self.lower_expr(args[1]);
+                    let removed = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_splice,
+                            vec![Operand::Value(cur_arr), start, delete_count],
+                        ),
+                        arr_ty,
+                        None,
+                    );
+                    return Operand::Value(removed);
+                }
+                // (b) Ident-receiver where xs is a K.8 top-level refcount
+                // global — load cur ptr via GlobalRef, splice (no realloc,
+                // in-place shrink), no slot writeback.
+                if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
+                    && name == "splice"
+                    && args.len() == 2
+                    && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
+                    && self.locals.get(recv_name).is_none()
+                    && let Some(slot_ty) = self.globals.get(recv_name).copied()
+                    && let Type::Arr(_arr_id) = slot_ty
+                {
+                    let arr_ty = slot_ty;
+                    let slot_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::GlobalRef(recv_name.clone()),
+                        Type::Ptr,
+                        None,
+                    );
+                    let cur_arr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(arr_ty, Operand::Value(slot_ptr), 0),
+                        arr_ty,
+                        None,
+                    );
+                    let start = self.lower_expr(args[0]);
+                    let delete_count = self.lower_expr(args[1]);
+                    let removed = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_splice,
+                            vec![Operand::Value(cur_arr), start, delete_count],
+                        ),
+                        arr_ty,
+                        None,
+                    );
+                    return Operand::Value(removed);
+                }
                 //   (a) Ident bound to a mutable `Type::Arr` local — load
                 //       cur ptr from the slot, call arr_push (which may
                 //       realloc), store result back into the slot.
@@ -26134,6 +26218,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.arr_push
             || fid == i.arr_shift
             || fid == i.arr_unshift
+            || fid == i.arr_splice
             || fid == i.arr_drop
             || fid == i.arr_reserve
             || fid == i.arr_push_unchecked

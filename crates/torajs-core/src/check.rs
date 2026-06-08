@@ -4502,6 +4502,17 @@ impl Checker {
                         let inner = (**elem).clone();
                         Ok(Type::Function(vec![inner], Box::new(Type::Number)))
                     }
+                    // `xs.splice(start, deleteCount)` — remove a slice
+                    // in-place + return removed slice as a fresh
+                    // Array<T>. Per JS spec §23.1.3.31. v0 subset: no
+                    // `...items` rest-arg insert form (deferred).
+                    (Type::Array(elem), "splice") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(
+                            vec![Type::Number, Type::Number],
+                            Box::new(Type::Array(Box::new(inner))),
+                        ))
+                    }
                     // `xs.flat()` — single-level flatten. Receiver must
                     // be `T[][]`; result is `T[]`. v0 supports depth=1
                     // only (no `.flat(2)` arg).
