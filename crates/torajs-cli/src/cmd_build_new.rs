@@ -12,7 +12,7 @@
 use std::process::ExitCode;
 
 use torajs_codegen::CompiledFunction;
-use torajs_codegen::compile_function;
+use torajs_codegen::compile_function_with_sigs;
 use torajs_codegen::enc::{add_imm, b_imm26, bl_imm26, ret as enc_ret, str_x_imm12};
 use torajs_codegen::frame::FrameLayout;
 use torajs_codegen::reg::Gpr;
@@ -222,6 +222,24 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
     // so the link layer resolves through the archive symbol table
     // (`___torajs_*` with Apple's `_` prefix). Mirrors how LLVM/clang
     // distinguishes external declarations from internal definitions.
+    // Per-FuncId param-type table. Indexes line up with the
+    // `funcs` vec below (and with the FuncId space ssa_lower hands
+    // out), so emit_call can read `fn_sigs[target_func.0]` to
+    // discover the declared param types and coerce f64↔i64 args at
+    // the call boundary. Mirrors `ssa_inkwell`'s
+    // `callee.get_type().get_param_types()` lookup on the OLD
+    // pipeline. Declarations (extern intrinsics) carry their sig
+    // through `params + values[vid].ty` the same way as real fns.
+    let fn_sigs: Vec<Vec<torajs_core::ssa::Type>> = ssa_module
+        .funcs
+        .iter()
+        .map(|f| {
+            f.params
+                .iter()
+                .map(|vid| f.values[vid.0 as usize].ty)
+                .collect()
+        })
+        .collect();
     let mut funcs: Vec<_> = ssa_module
         .funcs
         .iter()
@@ -236,7 +254,7 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
                     frame: FrameLayout::leaf_no_spill(),
                 }
             } else {
-                compile_function(f)
+                compile_function_with_sigs(f, &fn_sigs)
             }
         })
         .collect::<Vec<_>>();

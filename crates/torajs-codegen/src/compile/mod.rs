@@ -43,7 +43,7 @@ pub(crate) mod test_fixtures;
 
 use std::collections::HashMap;
 
-use torajs_core::ssa::{BlockId, Function, InstKind, Terminator};
+use torajs_core::ssa::{BlockId, Function, InstKind, Terminator, Type};
 
 use crate::enc::{
     b_imm26, brk_imm16, cbnz_x, fmov_d_to_d, mov_x_reg, ret, str_d_imm12, str_x_imm12,
@@ -97,8 +97,30 @@ pub struct CompiledFunction {
 /// Compile one SSA Function to aarch64 bytes — convenience wrapper
 /// over [`compile_function_with`] that uses the Linear Scan
 /// allocator (LS-4 cut-over from trivial).
+///
+/// Test convenience: callers without a module's cross-fn sig table
+/// pass nothing. Production builds must use
+/// [`compile_function_with_sigs`] so call sites can coerce f64 args
+/// flowing into i64 params (substr / parseInt-with-fractional-radix
+/// etc.); without that table, mismatched-type Calls silently send
+/// the raw f64 bits into the int reg lane.
 pub fn compile_function(func: &Function) -> CompiledFunction {
-    compile_function_with(func, crate::linear_scan::allocate_linear_scan(func))
+    compile_function_with_sigs(func, &[])
+}
+
+/// Production entry: same as [`compile_function`] but with a
+/// `fn_sigs[fid] = Vec<Type>` table for callee param types. Used by
+/// [`call::emit_call`] to coerce each arg's actual SSA type to the
+/// declared param type — emits FCVTZS for f64→i64 and SCVTF for
+/// i64→f64 at the call boundary, mirroring `ssa_inkwell::lower_inst`'s
+/// `build_float_to_signed_int` / `build_signed_int_to_float` step on
+/// the LLVM-backed pipeline.
+pub fn compile_function_with_sigs(func: &Function, fn_sigs: &[Vec<Type>]) -> CompiledFunction {
+    compile_function_with(
+        func,
+        crate::linear_scan::allocate_linear_scan(func),
+        fn_sigs,
+    )
 }
 
 /// Compile one SSA Function to aarch64 bytes using a pre-computed
@@ -106,7 +128,11 @@ pub fn compile_function(func: &Function) -> CompiledFunction {
 /// through the default `allocate_trivial` path; LS-4 will route
 /// `compile_function` through `allocate_linear_scan` here once the
 /// spill-aware emitters land in S5-gap-2-3 (this commit).
-pub fn compile_function_with(func: &Function, alloc: Assignment) -> CompiledFunction {
+pub fn compile_function_with(
+    func: &Function,
+    alloc: Assignment,
+    fn_sigs: &[Vec<Type>],
+) -> CompiledFunction {
     // Frame carves alloca + spill + callee-save area in one sp
     // adjustment. `used_callee_*_mask` is 0 for leaf / non-crossing
     // functions, so this matches the pre-callee-save layout
@@ -135,7 +161,7 @@ pub fn compile_function_with(func: &Function, alloc: Assignment) -> CompiledFunc
     for block in &func.blocks {
         block_byte_starts.insert(block.id.0, bytes.len() as u32);
         for inst in &block.insts {
-            emit_inst(&mut bytes, &mut relocs, inst, &alloc);
+            emit_inst(&mut bytes, &mut relocs, inst, &alloc, fn_sigs);
         }
         emit_terminator(&mut bytes, &mut fixups, &block.term, &frame, &alloc);
     }
@@ -209,6 +235,7 @@ fn emit_inst(
     relocs: &mut Vec<Reloc>,
     inst: &torajs_core::ssa::Inst,
     alloc: &Assignment,
+    fn_sigs: &[Vec<Type>],
 ) {
     match &inst.kind {
         InstKind::BinOp(op, lhs, rhs) => emit_binop(bytes, relocs, inst, op, lhs, rhs, alloc),
@@ -232,7 +259,10 @@ fn emit_inst(
         InstKind::StoreDyn(val, base, dyn_offset) => {
             emit_store_dyn(bytes, val, base, dyn_offset, alloc)
         }
-        InstKind::Call(func_id, args) => emit_call(bytes, relocs, inst, *func_id, args, alloc),
+        InstKind::Call(func_id, args) => {
+            let param_types = fn_sigs.get(func_id.0 as usize).map(|v| v.as_slice());
+            emit_call(bytes, relocs, inst, *func_id, args, alloc, param_types)
+        }
         InstKind::CallIndirect(sig_id, fn_ptr, args) => {
             emit_call_indirect(bytes, inst, *sig_id, fn_ptr, args, alloc)
         }
@@ -639,7 +669,7 @@ mod tests {
             alloc.total_spill_bytes
         );
 
-        let compiled = compile_function_with(&func, alloc);
+        let compiled = compile_function_with(&func, alloc, &[]);
 
         // Frame carves 16-rounded (alloca + spill) and saves FP/LR.
         assert!(

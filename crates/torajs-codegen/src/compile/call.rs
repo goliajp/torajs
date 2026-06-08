@@ -16,11 +16,13 @@
 //!   - > 8 int args (stack-pass per AAPCS64 §5.4.2).
 //!   - Caller-saved registers live across a call (need spill+reload).
 
-use torajs_core::ssa::{FuncId, Inst, Operand, SigId};
+use torajs_core::ssa::{FuncId, Inst, Operand, SigId, Type};
 
 use super::operand::{materialize_operand_fpr, materialize_operand_gpr, operand_is_f64};
 use super::{FP_SCRATCH_LHS, OP_SCRATCH_LHS, write_u32};
-use crate::enc::{bl_imm26, blr_reg, fmov_d_to_d, mov_x_reg, str_d_imm12, str_x_imm12};
+use crate::enc::{
+    bl_imm26, blr_reg, fcvtzs_x_d, fmov_d_to_d, mov_x_reg, scvtf_d_x, str_d_imm12, str_x_imm12,
+};
 use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 use crate::regalloc::Assignment;
 use crate::reloc::{CallTarget, Reloc, RelocKind};
@@ -37,8 +39,9 @@ pub fn emit_call(
     target_func: FuncId,
     args: &[Operand],
     alloc: &Assignment,
+    param_types: Option<&[Type]>,
 ) {
-    pass_args(bytes, args, alloc);
+    pass_args(bytes, args, alloc, param_types);
 
     // Record reloc for the BL site, then emit BL with displacement=0.
     let bl_byte_offset = bytes.len() as u32;
@@ -76,7 +79,14 @@ pub fn emit_call_indirect(
     // Arg setup first so the fn_ptr scratch isn't overwritten by an
     // arg materialization. The fn_ptr is materialized last and
     // therefore lives in OP_SCRATCH_LHS or its assigned register.
-    pass_args(bytes, args, alloc);
+    //
+    // SigId-driven param-type coercion is not yet threaded for
+    // CallIndirect (param_types: None below) — the surface S4-C
+    // exercises (closure dispatch in typed form) hasn't surfaced an
+    // f64-into-i64 mismatch yet. When it does, plumb `module.sigs[
+    // sig_id.0]` here the same way `compile_function_with_sigs`
+    // plumbs fn_sigs for direct Calls.
+    pass_args(bytes, args, alloc, None);
 
     let fn_ptr_reg = materialize_operand_gpr(bytes, fn_ptr, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, blr_reg(fn_ptr_reg));
@@ -91,24 +101,64 @@ pub fn emit_call_indirect(
 /// The two counters advance independently, matching how clang lowers
 /// `void foo(int, double, int, double)` to (X0, D0, X1, D1).
 ///
-/// `_sig_id` for `emit_call_indirect` isn't threaded here yet because
-/// SigId-driven coercion (e.g. promote `i32` arg to `i64`) is not
-/// part of this sub-step; the per-arg `operand_is_f64` classification
-/// suffices for the FP-arg surface that's blocking corpus_check.
-fn pass_args(bytes: &mut Vec<u8>, args: &[Operand], alloc: &Assignment) {
+/// `param_types: Some(&[Type])` enables call-boundary coercion: when
+/// the actual operand's reg class disagrees with the declared param
+/// type, emit FCVTZS (f64→i64) or SCVTF (i64→f64) before placing the
+/// value in its AAPCS64 lane. Mirrors the LLVM-backend behaviour in
+/// `ssa_inkwell::lower_inst::InstKind::Call`, which inserts
+/// `build_float_to_signed_int` / `build_signed_int_to_float` against
+/// `callee.get_type().get_param_types()` — same matrix, here written
+/// at the byte level.
+///
+/// Surfaces this matters for in real code:
+///   - `'abc'.substr(-1.1)` lowers to `Call(__torajs_str_substr,
+///     [strPtr, ConstF64(-1.1), ConstI64(MAX)])` — `__torajs_str_substr`
+///     declares `(Str, I64, I64) -> Str`. Without coercion the f64 bits
+///     land in V0 (FP lane) while the runtime reads X1, gives garbage.
+///   - `parseInt("123", 2.5)` likewise feeds an f64 radix into an i64
+///     param; coercion truncates the fractional part per JS ToInteger.
+///   - The Bool/I32/Ptr lanes are 8-byte int-shape today so they fall
+///     through to the same int lane without an extra coerce step;
+///     widen this matrix when the corpus surfaces a real mismatch.
+///
+/// `param_types: None` keeps the legacy "trust the operand-side reg
+/// class" behaviour for callers without a sig table (CallIndirect,
+/// test fixtures via the empty-sigs `compile_function` wrapper).
+fn pass_args(
+    bytes: &mut Vec<u8>,
+    args: &[Operand],
+    alloc: &Assignment,
+    param_types: Option<&[Type]>,
+) {
     let mut int_idx = 0;
     let mut fp_idx = 0;
-    for arg in args.iter() {
-        if operand_is_f64(arg, alloc) {
+    for (i, arg) in args.iter().enumerate() {
+        let actual_is_f64 = operand_is_f64(arg, alloc);
+        // Expected lane: prefer the declared param type when available
+        // and within the declared arity; varargs / over-supplied args
+        // fall back to the operand's own classification.
+        let expected_is_f64 = match param_types {
+            Some(pt) if i < pt.len() => pt[i] == Type::F64,
+            _ => actual_is_f64,
+        };
+        if expected_is_f64 {
             assert!(
                 fp_idx < aapcs64::FP_ARG_RET.len(),
                 "S4-D supports up to {} fp args; got more (stack-pass lands later)",
                 aapcs64::FP_ARG_RET.len()
             );
             let arg_reg = aapcs64::FP_ARG_RET[fp_idx];
-            let src = materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
-            if src != arg_reg {
-                write_u32(bytes, fmov_d_to_d(arg_reg, src));
+            if actual_is_f64 {
+                let src =
+                    materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+                if src != arg_reg {
+                    write_u32(bytes, fmov_d_to_d(arg_reg, src));
+                }
+            } else {
+                // i64-shaped operand into an f64 param: SCVTF the int
+                // value into the FP arg lane.
+                let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
+                write_u32(bytes, scvtf_d_x(arg_reg, src));
             }
             fp_idx += 1;
         } else {
@@ -118,9 +168,19 @@ fn pass_args(bytes: &mut Vec<u8>, args: &[Operand], alloc: &Assignment) {
                 aapcs64::ARG_RET.len()
             );
             let arg_reg = aapcs64::ARG_RET[int_idx];
-            let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
-            if src != arg_reg {
-                write_u32(bytes, mov_x_reg(arg_reg, src));
+            if actual_is_f64 {
+                // f64 operand into an i64-shaped param: FCVTZS
+                // (truncate toward zero) from the FP src register
+                // straight into the int arg lane. Mirrors JS
+                // ToInteger semantics on call boundaries.
+                let src =
+                    materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+                write_u32(bytes, fcvtzs_x_d(arg_reg, src));
+            } else {
+                let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
+                if src != arg_reg {
+                    write_u32(bytes, mov_x_reg(arg_reg, src));
+                }
             }
             int_idx += 1;
         }

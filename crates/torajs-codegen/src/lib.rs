@@ -33,5 +33,7 @@ pub mod reg;
 pub mod regalloc;
 pub mod reloc;
 
-pub use compile::{CompiledFunction, compile_function, compile_function_with};
+pub use compile::{
+    CompiledFunction, compile_function, compile_function_with, compile_function_with_sigs,
+};
 pub use reloc::{Reloc, RelocKind};
