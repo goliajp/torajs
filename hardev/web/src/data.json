@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-08T05:42:50.149Z",
+  "generatedAt": "2026-06-08T08:50:55.929Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "bbe9778",
-    "commitSubject": "fix(syscall): aarch64 macOS syscall6 missing clobber declaration",
+    "commit": "3c13ada",
+    "commitSubject": "feat(cli): cmd_run_new env-gated new-pipeline dispatch — #9 SD-4c sub-step A",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,42 @@
   },
   "commits": [
     {
+      "hash": "3c13ada",
+      "subject": "feat(cli): cmd_run_new env-gated new-pipeline dispatch — #9 SD-4c sub-step A"
+    },
+    {
+      "hash": "24bf4e4",
+      "subject": "feat(link): class_layouts force_emit + tr build hello.ts e2e — #9 SD-4c-prereq+e8-2c"
+    },
+    {
+      "hash": "5c2a61e",
+      "subject": "fix(cli): cmd_build_new wire class_layouts + drop placeholders — #9 SD-4c-prereq+e8"
+    },
+    {
+      "hash": "8ad2650",
+      "subject": "feat(link): class_layouts rebase wiring + runtime probe — #9 SD-4c-prereq+e8-2b"
+    },
+    {
+      "hash": "3e965df",
+      "subject": "feat(link): DataConstLayout chains class_layouts past vtables — #9 SD-4c-prereq+e8-2a"
+    },
+    {
+      "hash": "d87d131",
+      "subject": "feat(link): user_class_layouts_layout module — #9 SD-4c-prereq+e8-1"
+    },
+    {
+      "hash": "ca5e92b",
+      "subject": "feat(link): LinkConfig.class_layouts ABI scaffold — #9 SD-4c-prereq+e8-0"
+    },
+    {
+      "hash": "6c91244",
+      "subject": "docs(link): probe_vtable_link e7a → e7b runtime-exec wording"
+    },
+    {
+      "hash": "af8aabf",
+      "subject": "chore: dashboard snapshot @ bbe9778 — multi-thread vision rollout (P0-P4 ship)"
+    },
+    {
       "hash": "bbe9778",
       "subject": "fix(syscall): aarch64 macOS syscall6 missing clobber declaration"
     },
@@ -626,63 +662,60 @@
     {
       "hash": "e12dc80",
       "subject": "refactor(core): emit_rc_inc/emit_rc_dec_inline helpers — multi-thread-ready axis D"
-    },
-    {
-      "hash": "62504fe",
-      "subject": "feat(core): Array.prototype.splice(start, deleteCount) per ES §23.1.3.31"
-    },
-    {
-      "hash": "c5f553d",
-      "subject": "docs(roadmap): add axis D + Hard req #8 + P16 placeholder for multi-thread vision"
-    },
-    {
-      "hash": "536e7b8",
-      "subject": "chore: dashboard snapshot @ 4d6da4d — chunk 9c push/unshift spec parity"
-    },
-    {
-      "hash": "4d6da4d",
-      "subject": "fix(core): array push/unshift return new length per JS spec"
-    },
-    {
-      "hash": "344f942",
-      "subject": "chore: dashboard snapshot @ a265209 — chunk 9 backedge live-range root-cause fix"
-    },
-    {
-      "hash": "a265209",
-      "subject": "fix(codegen): loop-aware liveness + alloca/param carve-out"
-    },
-    {
-      "hash": "d14ea0d",
-      "subject": "chore: dashboard snapshot @ d5b0888 — chunk 8 整 phase 收口 ship (Index/Array-method/ObjectLit)"
-    },
-    {
-      "hash": "d5b0888",
-      "subject": "fix(core): infer user-fn ret ann for ObjectLit -> __inlobj(...) encoding"
-    },
-    {
-      "hash": "c47a52f",
-      "subject": "fix(core): infer user-fn ret ann for Array.prototype method calls (T[] receiver)"
     }
   ],
-  "headSha": "bbe9778",
+  "headSha": "3c13ada",
   "autorun": {
-    "total": 81,
+    "total": 84,
     "baselineTarget": 10,
-    "bySelf": 79,
+    "bySelf": 82,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780874087-45c5",
-      "at": "2026-06-07T23:14:47Z",
-      "ts": 1780874087,
+      "rotationId": "r-1780907123-7a8c",
+      "at": "2026-06-08T08:25:23Z",
+      "ts": 1780907123,
       "trigger": "self",
-      "prevHead": "536e7b8",
-      "handoffSha": "sha256:a37e94c1542c533757e475d0f8f10b1bd24a0ef550d14216866fcf60854ffdac",
-      "handoffAgeSec": 25,
+      "prevHead": "24bf4e4",
+      "handoffSha": "sha256:f1990dfbe74767213804ce7cb7d3a9dd6ddef997ede3d4fdc5bb232899831fd8",
+      "handoffAgeSec": 32,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780907123-7a8c",
+        "at": "2026-06-08T08:25:23Z",
+        "ts": 1780907123,
+        "trigger": "self",
+        "prevHead": "24bf4e4",
+        "handoffSha": "sha256:f1990dfbe74767213804ce7cb7d3a9dd6ddef997ede3d4fdc5bb232899831fd8",
+        "handoffAgeSec": 32,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1780907119-1c13",
+        "at": "2026-06-08T08:25:19Z",
+        "ts": 1780907119,
+        "trigger": "self",
+        "prevHead": "24bf4e4",
+        "handoffSha": "sha256:f1990dfbe74767213804ce7cb7d3a9dd6ddef997ede3d4fdc5bb232899831fd8",
+        "handoffAgeSec": 28,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1780897474-6722",
+        "at": "2026-06-08T05:44:34Z",
+        "ts": 1780897474,
+        "trigger": "self",
+        "prevHead": "af8aabf",
+        "handoffSha": "sha256:e1723d3ff690c4cf2d2926b29a1a1f75dbccf62b6cc7eabac989c5969c15ae6a",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780874087-45c5",
         "at": "2026-06-07T23:14:47Z",
@@ -757,39 +790,6 @@
         "prevHead": "3ac88b1",
         "handoffSha": "sha256:5d1c2c10366c585127ef1cc1661d1a3784ff0be36c48894f7714ddbb66a8a227",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780820997-3a09",
-        "at": "2026-06-07T08:29:57Z",
-        "ts": 1780820997,
-        "trigger": "self",
-        "prevHead": "f4e9fd6",
-        "handoffSha": "sha256:1b09bb9d742fa9775319d2f71f23c2b3b8dcfa9e4f038e051e5702b0f6e95f4c",
-        "handoffAgeSec": 15,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780820987-57c9",
-        "at": "2026-06-07T08:29:47Z",
-        "ts": 1780820987,
-        "trigger": "self",
-        "prevHead": "f4e9fd6",
-        "handoffSha": "sha256:1b09bb9d742fa9775319d2f71f23c2b3b8dcfa9e4f038e051e5702b0f6e95f4c",
-        "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780818066-1882",
-        "at": "2026-06-07T07:41:06Z",
-        "ts": 1780818066,
-        "trigger": "self",
-        "prevHead": "de38109",
-        "handoffSha": "sha256:3a7e6d1adc8cfa702762dc248546fbfae2babd6beb469a098ab1544125103e82",
-        "handoffAgeSec": 27,
         "conformanceBefore": null,
         "commitsInSession": null
       }
