@@ -38,8 +38,11 @@ pub use fp::{
     ldr_d_imm12, ldr_d_reg, scvtf_d_x, str_d_imm12, str_d_reg,
 };
 pub use int::{
-    add_imm, add_reg, and_imm_one, and_reg, asrv_reg, cmp_reg, eor_reg, lslv_reg, lsrv_reg,
-    mov_w_reg, mov_x_reg, movk_imm, movz_imm, msub_reg, mul_reg, orr_reg, sdiv_reg, sub_imm,
-    sub_reg, udiv_reg,
+    add_imm, add_reg, and_imm_one, and_reg, asrv_reg, cmp_reg, cmp_w_reg, eor_reg, lslv_reg,
+    lsrv_reg, mov_w_reg, mov_x_reg, movk_imm, movz_imm, msub_reg, mul_reg, orr_reg, sdiv_reg,
+    sub_imm, sub_reg, udiv_reg,
 };
-pub use mem::{ldp_post_index, ldr_x_imm12, ldr_x_reg, stp_pre_index, str_x_imm12, str_x_reg};
+pub use mem::{
+    ldp_post_index, ldr_x_imm12, ldr_x_reg, ldur_x_imm9, stp_pre_index, str_x_imm12, str_x_reg,
+    stur_x_imm9,
+};

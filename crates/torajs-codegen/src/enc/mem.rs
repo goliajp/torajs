@@ -32,6 +32,31 @@ pub fn str_x_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
     0xF820_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
 }
 
+/// LDUR Xt, [Xn, #imm9] — load 64-bit, **unscaled** signed 9-bit
+/// offset (range -256..=255). Use when the offset is not a multiple
+/// of 8 — the scaled LDR form requires 8-byte alignment. ARM ARM
+/// C6.2.139.
+pub fn ldur_x_imm9(rt: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
+    assert!(
+        (-256..=255).contains(&byte_offset),
+        "LDUR imm9 must be in -256..=255 (got {byte_offset})"
+    );
+    let imm9 = (byte_offset as u32) & 0x1FF;
+    0xF840_0000 | (imm9 << 12) | (rn.idx() << 5) | rt.idx()
+}
+
+/// STUR Xt, [Xn, #imm9] — store 64-bit, **unscaled** signed 9-bit
+/// offset. Mirror of [`ldur_x_imm9`]; use when the byte offset is
+/// not 8-byte aligned. ARM ARM C6.2.399.
+pub fn stur_x_imm9(rt: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
+    assert!(
+        (-256..=255).contains(&byte_offset),
+        "STUR imm9 must be in -256..=255 (got {byte_offset})"
+    );
+    let imm9 = (byte_offset as u32) & 0x1FF;
+    0xF800_0000 | (imm9 << 12) | (rn.idx() << 5) | rt.idx()
+}
+
 /// STP Xt, Xt2, [Xn, #byte_offset]! — pre-index store-pair (64-bit).
 /// ARM ARM C6.2.385. `byte_offset` is signed, 8-aligned, ±504 range.
 /// Used in prologue as `STP x29, x30, [SP, #-16]!`.
@@ -83,6 +108,28 @@ mod tests {
     fn stp_x29_x30_pre_index_minus_16_matches_clang() {
         // Canonical leaf-fn prologue `STP x29, x30, [SP, #-16]!`
         assert_eq!(stp_pre_index(Gpr::X29, Gpr::X30, Gpr::SP, -16), 0xA9BF_7BFD);
+    }
+
+    #[test]
+    fn stur_x_imm9_unaligned_offset_4_matches_arm_arm() {
+        // STUR x9, [x12, #4] — imm9=4, encodes when offset isn't
+        // multiple of 8 (where scaled STR would silently misencode
+        // via floor-divide-by-8).
+        assert_eq!(stur_x_imm9(Gpr::X9, Gpr::X12, 4), 0xF800_4189);
+    }
+
+    #[test]
+    fn ldur_x_imm9_unaligned_offset_4_matches_arm_arm() {
+        // LDUR x9, [x12, #4] — mirror of stur_x_imm9 test.
+        assert_eq!(ldur_x_imm9(Gpr::X9, Gpr::X12, 4), 0xF840_4189);
+    }
+
+    #[test]
+    fn stur_x_imm9_negative_offset_minus_8() {
+        // Sanity: negative offsets sign-extend via the 9-bit field.
+        let word = stur_x_imm9(Gpr::X0, Gpr::X1, -8);
+        // imm9 = -8 mod 512 = 0x1F8
+        assert_eq!(word, 0xF800_0000 | (0x1F8 << 12) | (1 << 5));
     }
 
     #[test]

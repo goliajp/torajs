@@ -7,7 +7,7 @@ use super::{
     FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, OP_SCRATCH_RHS,
     OP_SCRATCH_TMP, write_def_spill_gpr, write_u32,
 };
-use crate::enc::{cmp_reg, cond, cset_cond, fcmp_d, orr_reg};
+use crate::enc::{cmp_reg, cmp_w_reg, cond, cset_cond, fcmp_d, orr_reg};
 use crate::regalloc::Assignment;
 
 pub fn emit_icmp(
@@ -22,7 +22,19 @@ pub fn emit_icmp(
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let rn = materialize_operand_gpr(bytes, lhs, OP_SCRATCH_LHS, alloc);
     let rm = materialize_operand_gpr(bytes, rhs, OP_SCRATCH_RHS, alloc);
-    write_u32(bytes, cmp_reg(rn, rm));
+    // I32-typed ICmp (e.g. refcount equality in emit_rc_dec_inline's
+    // `ICmp(Eq, rc_new: I32, ConstI32(0))`) must compare only the
+    // low 32 bits — the 64-bit X-reg slot's high half holds the
+    // adjacent heap header u32 (type_tag/flags), which a 64-bit
+    // cmp would conflate into NZCV and misroute the
+    // walk-vs-cycle-buffer branch. Detect via a ConstI32 operand on
+    // either side; pure I64 ICmp stays on the X-form.
+    let is_i32 = matches!(lhs, Operand::ConstI32(_)) || matches!(rhs, Operand::ConstI32(_));
+    if is_i32 {
+        write_u32(bytes, cmp_w_reg(rn, rm));
+    } else {
+        write_u32(bytes, cmp_reg(rn, rm));
+    }
     write_u32(bytes, cset_cond(dst, ipred_to_cond(pred)));
     write_def_spill_gpr(bytes, spill_off, dst);
 }

@@ -98,6 +98,18 @@ pub fn cmp_reg(rn: Gpr, rm: Gpr) -> u32 {
     0xEB00_0000 | (rm.idx() << 16) | (rn.idx() << 5) | 31
 }
 
+/// CMP Wn, Wm — 32-bit form, alias for SUBS WZR, Wn, Wm. Sets NZCV
+/// based on `Wn - Wm` (low 32 bits only); high 32 ignored. Needed
+/// for I32-typed ICmp where the source 64-bit register slot has
+/// non-zero high bits (e.g. `Load(I32, hdr, 0)` 64-bit-loads a heap
+/// header whose high 32 bits hold `type_tag + flags` — a 64-bit
+/// cmp would inadvertently compare those into the verdict and
+/// misroute the rc_dec walk vs. cycle-buffer branch).
+/// sf=0 → 0x6B00_0000 base (vs. 64-bit 0xEB00_0000).
+pub fn cmp_w_reg(rn: Gpr, rm: Gpr) -> u32 {
+    0x6B00_0000 | (rm.idx() << 16) | (rn.idx() << 5) | 31
+}
+
 /// AND Xd, Xn, #1 — extract the low bit (ZExtBoolToI64 + Trunc-to-Bool).
 /// ARM ARM C6.2.12 with bitmask encoding N=1, immr=0, imms=0.
 pub fn and_imm_one(rd: Gpr, rn: Gpr) -> u32 {
@@ -221,6 +233,13 @@ mod tests {
     #[test]
     fn cmp_x9_x10_matches_arm_arm() {
         assert_eq!(cmp_reg(Gpr::X9, Gpr::X10), 0xEB0A_013F);
+    }
+
+    #[test]
+    fn cmp_w9_w10_matches_arm_arm() {
+        // CMP Wn, Wm = SUBS WZR, Wn, Wm. sf=0 form differs only in the
+        // top sf bit cleared (0x6B vs 0xEB). Same Rn/Rm bit layout.
+        assert_eq!(cmp_w_reg(Gpr::X9, Gpr::X10), 0x6B0A_013F);
     }
 
     #[test]
