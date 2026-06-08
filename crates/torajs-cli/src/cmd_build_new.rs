@@ -23,7 +23,8 @@ use torajs_core::{
 };
 use torajs_link::archive_emit::link_to_exec_with_archives;
 use torajs_link::exec::{
-    LinkConfig, UserDataGlobalEntry, UserStringEntry, UserStringKind, UserVtableEntry,
+    LinkConfig, UserClassLayoutEntry, UserDataGlobalEntry, UserStringEntry, UserStringKind,
+    UserVtableEntry,
 };
 use torajs_link::resolve::SymTable;
 
@@ -263,7 +264,7 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
         });
     }
 
-    let mut data_globals: Vec<UserDataGlobalEntry> = ssa_module
+    let data_globals: Vec<UserDataGlobalEntry> = ssa_module
         .data_globals
         .iter()
         .map(|dg| {
@@ -275,28 +276,21 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
             }
         })
         .collect();
-    // SD-4c-prereq swap-2c — ssa_inkwell's `emit_class_layouts` pass
-    // (T-26.C cycle collector metadata) synthesizes two LLVM globals
-    // that libtorajs_cycle.a references unconditionally:
-    //   `__torajs_n_class_layouts` (u32) — class-tag table length
-    //   `__torajs_class_layouts`   (ptr) — class-tag table base
-    // The new pipeline lacks that emit pass; reserve zerofill slots
-    // so the syms resolve. For class-free programs (the leaf-fixture
-    // smoke), zero / null is the correct value and the cycle
-    // collector short-circuits. Class-bearing programs need a real
-    // emit pass (swap-3+); flagged in plan-state.
-    // Sym names use the Apple `_`-prefixed Mach-O export form because
-    // archive members reference them through `nlist` strtab entries.
-    data_globals.push(UserDataGlobalEntry {
-        sym: "___torajs_n_class_layouts".into(),
-        size: 4,
-        align_log2: 2,
-    });
-    data_globals.push(UserDataGlobalEntry {
-        sym: "___torajs_class_layouts".into(),
-        size: 8,
-        align_log2: 3,
-    });
+    // SD-4c-prereq+e8 — materialize ssa::Module.class_layouts (T-26.C
+    // cycle collector metadata) into the proper in-house rodata path
+    // (`__torajs_class_layouts` outer table + per-class inner
+    // `.__class_offsets_<i>` globals + `__torajs_n_class_layouts`
+    // count). Pre-e8 reserved two zerofill slots in `data_globals`
+    // (now removed): the outer-ptr was NULL so the cycle collector
+    // short-circuited on class-bearing programs. e8 lands real bytes
+    // + dyld rebase via the e7b chained-fixups TextRebaseScope.
+    let class_layouts: Vec<UserClassLayoutEntry> = ssa_module
+        .class_layouts
+        .iter()
+        .map(|cl| UserClassLayoutEntry {
+            child_offsets: cl.child_offsets.clone(),
+        })
+        .collect();
 
     // vtable slots resolve via `register_fn_addr_syms`'s `__torajs_fn_<i>`
     // override (codegen's `FnAddr` convention) — see
@@ -330,6 +324,7 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
         strings,
         data_globals,
         vtable_globals,
+        class_layouts,
     }
 }
 
