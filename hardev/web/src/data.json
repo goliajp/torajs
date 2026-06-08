@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-07T23:14:27.344Z",
+  "generatedAt": "2026-06-08T05:42:50.149Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "4d6da4d",
-    "commitSubject": "fix(core): array push/unshift return new length per JS spec",
+    "commit": "bbe9778",
+    "commitSubject": "fix(syscall): aarch64 macOS syscall6 missing clobber declaration",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -120,6 +120,11 @@
     {
       "id": "P15",
       "title": "Tail call + edge spec",
+      "status": "post-v1.0"
+    },
+    {
+      "id": "P16",
+      "title": "Multi-thread substrate implementation",
       "status": "post-v1.0"
     }
   ],
@@ -611,6 +616,30 @@
   },
   "commits": [
     {
+      "hash": "bbe9778",
+      "subject": "fix(syscall): aarch64 macOS syscall6 missing clobber declaration"
+    },
+    {
+      "hash": "f375d68",
+      "subject": "docs: multi-thread substrate audit — P3 of multi-thread vision rollout"
+    },
+    {
+      "hash": "e12dc80",
+      "subject": "refactor(core): emit_rc_inc/emit_rc_dec_inline helpers — multi-thread-ready axis D"
+    },
+    {
+      "hash": "62504fe",
+      "subject": "feat(core): Array.prototype.splice(start, deleteCount) per ES §23.1.3.31"
+    },
+    {
+      "hash": "c5f553d",
+      "subject": "docs(roadmap): add axis D + Hard req #8 + P16 placeholder for multi-thread vision"
+    },
+    {
+      "hash": "536e7b8",
+      "subject": "chore: dashboard snapshot @ 4d6da4d — chunk 9c push/unshift spec parity"
+    },
+    {
       "hash": "4d6da4d",
       "subject": "fix(core): array push/unshift return new length per JS spec"
     },
@@ -633,51 +662,38 @@
     {
       "hash": "c47a52f",
       "subject": "fix(core): infer user-fn ret ann for Array.prototype method calls (T[] receiver)"
-    },
-    {
-      "hash": "289cf50",
-      "subject": "fix(core): infer user-fn ret ann for Index + extended string-method whitelist"
-    },
-    {
-      "hash": "08347cd",
-      "subject": "chore: dashboard snapshot @ 1dd708f — chunk 7 整 phase ship (Ternary/Array/Member/string-method)"
-    },
-    {
-      "hash": "1dd708f",
-      "subject": "fix(core): infer user-fn ret ann for Member field + string-method Call"
-    },
-    {
-      "hash": "6c23fc0",
-      "subject": "fix(core): infer user-fn ret ann for Ternary + Array literal exprs"
-    },
-    {
-      "hash": "156f991",
-      "subject": "chore: dashboard snapshot @ 5ad293c — chunk 6 ship (string-concat silent-wrong fix)"
-    },
-    {
-      "hash": "5ad293c",
-      "subject": "fix(codegen,core): skip drop emit on static str literals + alloc callee-saved for call-crossing ret values"
     }
   ],
-  "headSha": "4d6da4d",
+  "headSha": "bbe9778",
   "autorun": {
-    "total": 80,
+    "total": 81,
     "baselineTarget": 10,
-    "bySelf": 78,
+    "bySelf": 79,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780871076-1792",
-      "at": "2026-06-07T22:24:36Z",
-      "ts": 1780871076,
+      "rotationId": "r-1780874087-45c5",
+      "at": "2026-06-07T23:14:47Z",
+      "ts": 1780874087,
       "trigger": "self",
-      "prevHead": "344f942",
-      "handoffSha": "sha256:b7f916a76b16bc5962191ebaa8e9da0c00a48e9c78faa8758b9bd9ec96b8ad83",
-      "handoffAgeSec": 4,
+      "prevHead": "536e7b8",
+      "handoffSha": "sha256:a37e94c1542c533757e475d0f8f10b1bd24a0ef550d14216866fcf60854ffdac",
+      "handoffAgeSec": 25,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780874087-45c5",
+        "at": "2026-06-07T23:14:47Z",
+        "ts": 1780874087,
+        "trigger": "self",
+        "prevHead": "536e7b8",
+        "handoffSha": "sha256:a37e94c1542c533757e475d0f8f10b1bd24a0ef550d14216866fcf60854ffdac",
+        "handoffAgeSec": 25,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780871076-1792",
         "at": "2026-06-07T22:24:36Z",
@@ -774,17 +790,6 @@
         "prevHead": "de38109",
         "handoffSha": "sha256:3a7e6d1adc8cfa702762dc248546fbfae2babd6beb469a098ab1544125103e82",
         "handoffAgeSec": 27,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780816077-7941",
-        "at": "2026-06-07T07:07:57Z",
-        "ts": 1780816077,
-        "trigger": "self",
-        "prevHead": "bea4d45",
-        "handoffSha": "sha256:0652bf491cc405c7c89ef6a4952418b33a34c362594f10e8a6499cbc85f518f9",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
