@@ -63,7 +63,6 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_inkwell/obj_builders.rs",
     "src/ssa_inkwell/panic_runtime_link.rs",
     "src/ssa_inkwell/pipeline.rs",
-    "src/ssa_inkwell/split_iter.rs",
     "src/ssa_inkwell/types.rs",
     "src/ssa_lower.rs",
     "src/ssa_lower_substr_trim_into.rs",

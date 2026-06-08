@@ -33,7 +33,6 @@ mod lower_inst;
 mod obj_builders;
 mod panic_runtime_link;
 mod pipeline;
-mod split_iter;
 mod types;
 
 pub use entry::{compile, compile_for, compile_for_kind, compile_for_kind_with_cache};
@@ -49,7 +48,6 @@ use declares::{
 };
 use globals::{emit_data_global, emit_static_str_global, emit_string_global};
 use obj_builders::{define_obj_alloc, define_obj_drop_sized};
-use split_iter::define_split_iter_next;
 use types::declare_ssa_fn;
 
 use inkwell::context::Context;
@@ -333,19 +331,15 @@ pub(super) fn compile_for_kind_impl(
                 mark_alwaysinline(&ctx, f);
                 f
             }
-            "__torajs_split_iter_next" => {
-                // P-iter Plan C — body emitted directly in IR (mirror
-                // of runtime_str.c's removed C body) so LLVM can
-                // inline the byte scan + emit_substr into the caller's
-                // for-of loop. Without this, cross-TU LTO fails
-                // because the inkwell side emits a native object and
-                // Apple's system clang produces incompatible bitcode
-                // for the C side. alwaysinline makes the inliner
-                // skip cost-model and always splice the body in.
-                let f = define_split_iter_next(&ctx, &llvm_module, target);
-                mark_alwaysinline(&ctx, f);
-                f
-            }
+            // __torajs_split_iter_next moved to torajs-str::split::ops
+            // (SD-4c gap4-port, 2026-06-08). Rust impl mirrors the
+            // prior inkwell IR 1:1 (empty-sep / single-byte / multi-byte
+            // sep scan + Substr emit + exhaust/advance decision); LTO
+            // across libtorajs_str.a inlines into the for-of caller
+            // same as the previous alwaysinline IR body. NEW pipeline
+            // links libtorajs_str.a so the symbol resolves there;
+            // keeping the IR body here would cause a duplicate-symbol
+            // link error against the staticlib.
             // __torajs_arr_push moved to torajs-arr::grow (P4.1-l,
             // 2026-05-23). Rust impl mirrors 1:1: fast path → compact
             // (head>0) → grow (max(4, cap*2)) → store + len_inc.

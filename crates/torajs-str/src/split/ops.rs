@@ -302,15 +302,17 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
 }
 
 // ============================================================
-// SplitIter — 48-byte caller-stack struct + init/drop fns.
-// `__torajs_split_iter_next` body is still in inkwell IR
-// (ssa_inkwell::define_split_iter_next) and consolidates into
-// Rust in P3.1-g.
+// SplitIter — 48-byte caller-stack struct + init/drop/next fns.
+// `__torajs_split_iter_next` was ported from inkwell IR to Rust
+// in SD-4c gap4 (2026-06-08) — NEW pipeline has no LLVM backend
+// to host the alwaysinline body, and keeping both definitions
+// alive would race the linker. LTO across libtorajs_str.a still
+// inlines the body into the for-of caller for OLD-pipeline parity.
 // ============================================================
 
 /// 48-byte mirror of the C `__torajs_split_iter_t`. Layout MUST
-/// stay bit-for-bit identical — the IR-emitted `_next` body reads
-/// these fields by hardcoded offset.
+/// stay bit-for-bit identical — `__torajs_split_iter_next` (Rust
+/// port) reads these fields by hardcoded offset.
 #[repr(C)]
 pub struct SplitIter {
     pub parent: *const u8,   // +0  (8B) — owned ref
@@ -355,6 +357,102 @@ pub unsafe extern "C" fn __torajs_split_iter_init(
         });
         __torajs_rc_inc(parent as *mut c_void);
     }
+}
+
+/// Step the iterator to the next chunk. Returns `true` if a chunk
+/// was emitted (and writes a 32-byte Substr layout to `out`),
+/// `false` if the iterator was already exhausted on entry. The
+/// post-emit "no more separators" case still returns `true` (the
+/// tail chunk is yielded); the iter is marked exhausted so the next
+/// call returns `false`. Empty-sep mode yields one code-unit per
+/// step and falls through naturally when `pos >= parent_len`.
+///
+/// Port of `ssa_inkwell::define_split_iter_next` — sub-step
+/// gap4-port (SD-4c sub-step C iter). NEW pipeline has no LLVM IR
+/// backend so the alwaysinline body was a hard gap; LTO across the
+/// staticlib still inlines this body into the for-of caller for
+/// OLD pipeline parity.
+///
+/// Substr layout written at `out` (matches `torajs-str::substr`
+/// + `__torajs_substr_*` consumer offsets):
+///   +0   u64  header  (FLAG_STATIC_LITERAL << 48)
+///   +8   u64  len     (chunk byte length)
+///   +16  ptr  parent  (borrowed Str heap ptr)
+///   +24  u64  offset  (byte offset into parent's payload)
+///
+/// # Safety
+///
+/// `iter` must point at a previously [`__torajs_split_iter_init`]
+/// -ed `SplitIter`. `out` must point at a writable 32-byte
+/// 8-aligned region (caller-stack typical).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_split_iter_next(iter: *mut SplitIter, out: *mut u8) -> bool {
+    let it = unsafe { &mut *iter };
+    if it.exhausted != 0 {
+        return false;
+    }
+    let parent = it.parent;
+    let parent_len = it.parent_len;
+    let sep_data = it.sep_data;
+    let sep_len = it.sep_len;
+    let pos = it.pos;
+    let parent_bytes = unsafe { parent.add(STR_DATA_OFF) };
+
+    // Resolve (k, len, stride, is_empty_sep).
+    let (k_final, len_final, stride, is_empty_sep) = if sep_len == 0 {
+        // Empty separator: yield one byte at a time. Exhaust on entry
+        // without emit when pos already at end.
+        if pos >= parent_len {
+            it.exhausted = 1;
+            return false;
+        }
+        (pos + 1, 1u64, 0u64, true)
+    } else if sep_len == 1 {
+        let target = unsafe { *sep_data };
+        let mut k = pos;
+        while k < parent_len {
+            if unsafe { *parent_bytes.add(k as usize) } == target {
+                break;
+            }
+            k += 1;
+        }
+        (k, k - pos, 1u64, false)
+    } else {
+        let sep_slice = unsafe { core::slice::from_raw_parts(sep_data, sep_len as usize) };
+        let mut mk = pos;
+        let k = loop {
+            if mk + sep_len > parent_len {
+                break parent_len;
+            }
+            let cand = unsafe {
+                core::slice::from_raw_parts(parent_bytes.add(mk as usize), sep_len as usize)
+            };
+            if cand == sep_slice {
+                break mk;
+            }
+            mk += 1;
+        };
+        (k, k - pos, sep_len, false)
+    };
+
+    // Emit Substr to `out`.
+    let header_u64: u64 = (crate::symbol::FLAG_STATIC_LITERAL as u64) << 48;
+    unsafe {
+        (out as *mut u64).write(header_u64);
+        (out.add(8) as *mut u64).write(len_final);
+        (out.add(16) as *mut *const u8).write(parent);
+        (out.add(24) as *mut u64).write(pos);
+    }
+
+    // Advance / exhaust decision. Empty-sep path always advances
+    // (next call hits the pos>=parent_len early-exit). Scan paths
+    // mark exhausted when they hit the end without finding sep.
+    if k_final == parent_len && !is_empty_sep {
+        it.exhausted = 1;
+    } else {
+        it.pos = k_final + stride;
+    }
+    true
 }
 
 /// Drop a `SplitIter` — decrements parent's refcount and frees
