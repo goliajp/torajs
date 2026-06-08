@@ -325,6 +325,11 @@ fn build_link_config(ssa_module: &Module) -> LinkConfig {
         data_globals,
         vtable_globals,
         class_layouts,
+        // tr build bundles libtorajs_cycle.a which references
+        // ___torajs_n_class_layouts + ___torajs_class_layouts even on
+        // class-free programs — force-emit a 4-byte count global (= 0)
+        // and register both syms so the staticlib resolves.
+        force_emit_class_layouts_globals: true,
     }
 }
 

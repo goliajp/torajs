@@ -88,6 +88,10 @@ pub struct LinkConfig {
     /// `__torajs_class_layouts` + `__torajs_n_class_layouts` pair.
     /// Empty default keeps pre-e8 callers byte-identical.
     pub class_layouts: Vec<UserClassLayoutEntry>,
+    /// e8-2c — `true` emits the 4-byte count global + registers both
+    /// class_layouts syms even on class-free programs. `tr build` sets
+    /// this because it pulls libtorajs_cycle.a; probes default `false`.
+    pub force_emit_class_layouts_globals: bool,
 }
 
 /// SD-4c-prereq+e7 — one `[N x ptr]` vtable. `sym` is what codegen's
@@ -99,36 +103,27 @@ pub struct UserVtableEntry {
     pub slot_syms: Vec<Option<String>>,
 }
 
-/// SD-4c-prereq+e8 — per-class `child_offsets` table for the cycle
-/// collector (T-26.C). Mirrors `ssa::ClassLayoutMeta` minus the
-/// (runtime-unused) `class_name`. Each entry → one inner private
-/// `[K x i32]` rodata global; outer `__torajs_class_layouts` packs
-/// `(n_children, inner_ptr)` pairs with inner-ptr rebased via e7b.
+/// e8 — per-class `child_offsets` for the cycle collector (T-26.C);
+/// mirrors `ssa::ClassLayoutMeta` minus `class_name`.
 #[derive(Debug, Clone)]
 pub struct UserClassLayoutEntry {
-    /// Byte offsets where refcounted heap-pointer fields live
-    /// (already includes `OBJ_HEADER_SIZE`). Empty = `{0, NULL}`.
+    /// Byte offsets of refcounted heap-ptr fields (post `OBJ_HEADER_SIZE`).
     pub child_offsets: Vec<u32>,
 }
 
-/// SD-4c-prereq+e4 — one user-binary top-level mutable global slot.
-/// `size` (I64=8, I32=4, F64=8, Bool=1, ptr=8) + `align_log2` are
-/// caller-derived from the SSA `Type`. `__DATA,__bss` is zerofill,
-/// so emit writes no bytes; the loader supplies zeros at map time.
+/// e4 — user-binary top-level mutable global slot. `__DATA,__bss`
+/// zerofill (loader supplies zeros). `size`/`align_log2` from SSA `Type`.
 #[derive(Debug, Clone)]
 pub struct UserDataGlobalEntry {
-    /// Codegen `Page21/PageOff12` ADRP+ADD target — matches the
-    /// SSA-layer `DataGlobal.name`.
+    /// Codegen `Page21/PageOff12` target — matches `DataGlobal.name`.
     pub sym: String,
-    /// Slot size in bytes (see `LinkConfig::data_globals`).
+    /// I64/F64/ptr=8, I32=4, Bool=1.
     pub size: u32,
-    /// Log2 of slot alignment (0=byte, 2=u32, 3=u64).
+    /// 0=byte, 2=u32, 3=u64.
     pub align_log2: u8,
 }
 
-/// Layout decisions made by the link driver before any bytes are
-/// emitted. Public so callers (and tests) can inspect the
-/// resulting structure; internal to the link path otherwise.
+/// Layout decisions the link driver makes before any bytes are emitted.
 #[derive(Debug, Clone)]
 pub struct ExecLayout {
     /// File offset where the `__text` payload begins. Lands on
@@ -509,6 +504,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let layout = compute_layout(&cfg);
 
@@ -563,6 +559,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let bytes = link_to_exec(&cfg);
         let layout = compute_layout(&cfg);
@@ -582,6 +579,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let bytes = link_to_exec(&cfg);
         // mach_header_64.filetype @ offset 12..16
@@ -610,6 +608,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let bytes = link_to_exec(&cfg);
         // The first 16 bytes after the page boundary should match
@@ -636,6 +635,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let bytes = link_to_exec(&cfg);
 
@@ -759,6 +759,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let bytes = link_to_exec(&cfg);
 

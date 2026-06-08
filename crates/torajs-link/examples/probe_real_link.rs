@@ -109,6 +109,7 @@ fn main() {
         data_globals: Vec::new(),
         vtable_globals: Vec::new(),
         class_layouts: Vec::new(),
+        force_emit_class_layouts_globals: false,
     };
 
     // Pre-link: query compute_archive_layout directly so we can see

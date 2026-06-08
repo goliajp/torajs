@@ -23,9 +23,13 @@ use crate::exec::UserClassLayoutEntry;
 use crate::resolve::SymTable;
 
 /// Public sym names the link layer registers into the effective sym
-/// table after this layout's vaddr placement is known.
-pub const CLASS_LAYOUTS_SYM: &str = "__torajs_class_layouts";
-pub const N_CLASS_LAYOUTS_SYM: &str = "__torajs_n_class_layouts";
+/// table after this layout's vaddr placement is known. Apple `_`-prefix
+/// form (the actual Mach-O on-disk name) so staticlib members that
+/// reference these via `extern "C"` resolve at the link layer; codegen
+/// callers (probe + tr build) emit `Page21`/`PageOff12` relocs against
+/// the same name.
+pub const CLASS_LAYOUTS_SYM: &str = "___torajs_class_layouts";
+pub const N_CLASS_LAYOUTS_SYM: &str = "___torajs_n_class_layouts";
 
 /// On-disk size of one outer-table entry:
 ///   `u32 n_children` (4) + 4-byte pad + `ptr offsets` (8) = 16
@@ -103,8 +107,21 @@ pub fn compute_user_class_layouts_layout(
     class_layouts: &[UserClassLayoutEntry],
     cursor: u32,
     vaddr_base: u64,
+    force_emit_globals: bool,
 ) -> UserClassLayoutsLayout {
-    if class_layouts.is_empty() {
+    // class_layouts empty + force_emit_globals=false → no bytes, no
+    // sym registration. Self-contained probes (no `libtorajs_cycle.a`
+    // dep) take this path and stay byte-identical to the pre-e8
+    // baseline.
+    //
+    // class_layouts empty + force_emit_globals=true → emit a 4-byte
+    // count global (= 0) and register both syms aliased to it; the
+    // empty outer table has zero bytes so `outer_vaddr` sharing the
+    // count slot is safe (runtime reads count first, only walks the
+    // outer table when N > 0). `tr build` takes this path because
+    // every staticlib bundle pulls `libtorajs_cycle.a`, which
+    // unconditionally references these syms.
+    if class_layouts.is_empty() && !force_emit_globals {
         return UserClassLayoutsLayout {
             entries: Vec::new(),
             file_offset: cursor,
@@ -271,9 +288,10 @@ pub fn apply_user_class_layouts_overrides(
 /// report them as unresolved externs.
 pub fn user_class_layouts_extra_defined_syms(
     class_layouts: &[UserClassLayoutEntry],
+    force_emit_globals: bool,
 ) -> std::collections::BTreeSet<String> {
     let mut out = std::collections::BTreeSet::new();
-    if !class_layouts.is_empty() {
+    if !class_layouts.is_empty() || force_emit_globals {
         out.insert(CLASS_LAYOUTS_SYM.into());
         out.insert(N_CLASS_LAYOUTS_SYM.into());
     }
@@ -317,9 +335,10 @@ pub fn build_user_class_layouts_region(
     seg_vmaddr_base: u64,
     file_offset: u32,
     seg_file_offset_base: u32,
+    force_emit_globals: bool,
 ) -> UserClassLayoutsLayout {
     let vaddr_base = seg_vmaddr_base + u64::from(file_offset - seg_file_offset_base);
-    compute_user_class_layouts_layout(class_layouts, file_offset, vaddr_base)
+    compute_user_class_layouts_layout(class_layouts, file_offset, vaddr_base, force_emit_globals)
 }
 
 #[cfg(test)]
@@ -334,9 +353,29 @@ mod tests {
 
     #[test]
     fn empty_input_zero_total() {
-        let layout = compute_user_class_layouts_layout(&[], 0x4000, 0x1_0000_4000);
+        let layout = compute_user_class_layouts_layout(&[], 0x4000, 0x1_0000_4000, false);
         assert!(layout.entries.is_empty());
         assert_eq!(layout.total_size, 0);
+    }
+
+    #[test]
+    fn empty_input_force_emit_yields_4byte_count_global() {
+        // tr build path — staticlib references the syms even when the
+        // program has no classes; force_emit_globals lands a 4-byte u32
+        // count = 0 + aliases both sym vaddrs to it.
+        let layout = compute_user_class_layouts_layout(&[], 0x4000, 0x1_0000_4000, true);
+        assert!(layout.entries.is_empty());
+        assert_eq!(layout.total_size, 4);
+        assert_eq!(layout.outer_vaddr, 0x1_0000_4000);
+        assert_eq!(layout.count_vaddr, 0x1_0000_4000);
+
+        let payload = build_user_class_layouts_payload(&layout, &[]);
+        assert_eq!(payload, vec![0u8, 0, 0, 0]);
+
+        let mut sym_table = SymTable::new();
+        apply_user_class_layouts_overrides(&layout, &mut sym_table);
+        assert_eq!(sym_table.get(CLASS_LAYOUTS_SYM), Some(&0x1_0000_4000));
+        assert_eq!(sym_table.get(N_CLASS_LAYOUTS_SYM), Some(&0x1_0000_4000));
     }
 
     #[test]
@@ -345,7 +384,8 @@ mod tests {
         // count 4 bytes = 28 bytes. cursor 0x4000 is 8-aligned so no
         // leading pads needed.
         let class_layouts = [entry(&[24, 32])];
-        let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000);
+        let layout =
+            compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
         assert_eq!(layout.entries.len(), 1);
         // Inner starts at base.
         assert_eq!(layout.entries[0].inner_file_offset, 0x4000);
@@ -365,7 +405,8 @@ mod tests {
         // 1 entry, 0 child offsets → no inner; outer 16 bytes (n=0,
         // ptr=0) + count 4 bytes = 20 bytes.
         let class_layouts = [entry(&[])];
-        let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000);
+        let layout =
+            compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
         assert!(layout.entries[0].inner_vaddr.is_none());
         assert_eq!(layout.outer_file_offset, 0x4000);
         assert_eq!(layout.total_size, 20);
@@ -377,7 +418,8 @@ mod tests {
         // Entry 1: empty (no inner)
         // Entry 2: 2 offsets (inner 8 bytes back-to-back after entry 0's 4)
         let class_layouts = [entry(&[16]), entry(&[]), entry(&[32, 40])];
-        let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000);
+        let layout =
+            compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
         assert_eq!(layout.entries[0].inner_file_offset, 0x4000);
         assert_eq!(layout.entries[0].inner_vaddr, Some(0x1_0000_4000));
         assert!(layout.entries[1].inner_vaddr.is_none());
@@ -394,7 +436,8 @@ mod tests {
     #[test]
     fn build_payload_emits_inner_outer_count_in_order() {
         let class_layouts = [entry(&[16, 24])];
-        let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000);
+        let layout =
+            compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
         let link_values = [0xDEAD_BEEFu64];
         let payload = build_user_class_layouts_payload(&layout, &link_values);
         assert_eq!(payload.len(), 28);
@@ -417,7 +460,8 @@ mod tests {
     #[test]
     fn build_payload_zeroes_empty_entry_outer_slot() {
         let class_layouts = [entry(&[])];
-        let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000);
+        let layout =
+            compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
         let payload = build_user_class_layouts_payload(&layout, &[]);
         assert_eq!(payload.len(), 20);
         // outer entry n_children = 0
@@ -431,7 +475,8 @@ mod tests {
     #[test]
     fn apply_overrides_inserts_both_syms() {
         let class_layouts = [entry(&[16])];
-        let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000);
+        let layout =
+            compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
         let mut sym_table = SymTable::new();
         apply_user_class_layouts_overrides(&layout, &mut sym_table);
         assert_eq!(sym_table.get(CLASS_LAYOUTS_SYM), Some(&layout.outer_vaddr));
@@ -443,7 +488,7 @@ mod tests {
 
     #[test]
     fn apply_overrides_skips_empty_input() {
-        let layout = compute_user_class_layouts_layout(&[], 0x4000, 0x1_0000_4000);
+        let layout = compute_user_class_layouts_layout(&[], 0x4000, 0x1_0000_4000, false);
         let mut sym_table = SymTable::new();
         apply_user_class_layouts_overrides(&layout, &mut sym_table);
         assert!(sym_table.get(CLASS_LAYOUTS_SYM).is_none());
@@ -451,11 +496,15 @@ mod tests {
     }
 
     #[test]
-    fn extra_defined_syms_two_when_nonempty_zero_when_empty() {
-        let empty = user_class_layouts_extra_defined_syms(&[]);
+    fn extra_defined_syms_two_when_nonempty_or_force_emit() {
+        let empty = user_class_layouts_extra_defined_syms(&[], false);
         assert!(empty.is_empty());
+        let forced = user_class_layouts_extra_defined_syms(&[], true);
+        assert_eq!(forced.len(), 2);
+        assert!(forced.contains(CLASS_LAYOUTS_SYM));
+        assert!(forced.contains(N_CLASS_LAYOUTS_SYM));
         let class_layouts = [entry(&[16])];
-        let some = user_class_layouts_extra_defined_syms(&class_layouts);
+        let some = user_class_layouts_extra_defined_syms(&class_layouts, false);
         assert_eq!(some.len(), 2);
         assert!(some.contains(CLASS_LAYOUTS_SYM));
         assert!(some.contains(N_CLASS_LAYOUTS_SYM));
@@ -464,7 +513,8 @@ mod tests {
     #[test]
     fn rebase_targets_emit_one_per_nonempty_entry() {
         let class_layouts = [entry(&[16]), entry(&[]), entry(&[24, 32])];
-        let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000);
+        let layout =
+            compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
         let targets = compute_class_layouts_rebase_targets(&layout, 0x1_0000_0000, 0x1_0000_0000);
         // 2 non-empty entries → 2 rebase targets.
         assert_eq!(targets.len(), 2);

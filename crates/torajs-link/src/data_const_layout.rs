@@ -78,10 +78,11 @@ pub struct DataConstLayout {
 pub fn compute_data_const_layout(
     vtable_globals: &[crate::exec::UserVtableEntry],
     class_layouts: &[crate::exec::UserClassLayoutEntry],
+    force_emit_class_layouts_globals: bool,
     segment_file_offset_base: u32,
     segment_vmaddr_base: u64,
 ) -> DataConstLayout {
-    if vtable_globals.is_empty() && class_layouts.is_empty() {
+    if vtable_globals.is_empty() && class_layouts.is_empty() && !force_emit_class_layouts_globals {
         return DataConstLayout {
             vtable_layout: UserVtablesLayout::default(),
             class_layouts_layout: UserClassLayoutsLayout::default(),
@@ -106,8 +107,12 @@ pub fn compute_data_const_layout(
     );
     let class_layouts_cursor = segment_file_offset_base + vtable_layout.total_size;
     let class_layouts_vaddr = segment_vmaddr_base + u64::from(vtable_layout.total_size);
-    let class_layouts_layout =
-        compute_user_class_layouts_layout(class_layouts, class_layouts_cursor, class_layouts_vaddr);
+    let class_layouts_layout = compute_user_class_layouts_layout(
+        class_layouts,
+        class_layouts_cursor,
+        class_layouts_vaddr,
+        force_emit_class_layouts_globals,
+    );
     let total_region_size = vtable_layout.total_size + class_layouts_layout.total_size;
     // Page-align so dyld's chained-fixup page walker can index from
     // the segment base — `page_start[]` always covers whole pages.
@@ -185,7 +190,7 @@ mod tests {
 
     #[test]
     fn empty_input_marks_segment_absent() {
-        let layout = compute_data_const_layout(&[], &[], 0x4000, 0x1_0000_4000);
+        let layout = compute_data_const_layout(&[], &[], false, 0x4000, 0x1_0000_4000);
         assert!(!layout.has_data_const);
         assert_eq!(layout.segment_vmsize, 0);
         assert_eq!(layout.segment_filesize, 0);
@@ -195,7 +200,7 @@ mod tests {
     #[test]
     fn single_vtable_fits_in_one_page() {
         let vtables = [entry("__vtable_A", vec![Some("fn_0")])];
-        let layout = compute_data_const_layout(&vtables, &[], 0x4000, 0x1_0000_4000);
+        let layout = compute_data_const_layout(&vtables, &[], false, 0x4000, 0x1_0000_4000);
         assert!(layout.has_data_const);
         // 8 bytes vtable -> one page after alignment.
         assert_eq!(layout.segment_vmsize, 0x4000);
@@ -216,7 +221,7 @@ mod tests {
             entry("__vtable_B", vec![Some("b0"); 8]),
             entry("__vtable_C", vec![Some("c0"); 8]),
         ];
-        let layout = compute_data_const_layout(&vtables, &[], 0x4000, 0x1_0000_4000);
+        let layout = compute_data_const_layout(&vtables, &[], false, 0x4000, 0x1_0000_4000);
         assert!(layout.has_data_const);
         assert_eq!(layout.segment_vmsize, 0x4000);
         // 3 vtables × 64 bytes payload = 192 bytes total_size.
@@ -228,7 +233,7 @@ mod tests {
         // file_offset_base / vmaddr_base mismatch — checks the helper
         // doesn't re-derive them from anywhere else.
         let vtables = [entry("__vtable_A", vec![Some("fn_0"), Some("fn_1")])];
-        let layout = compute_data_const_layout(&vtables, &[], 0x8000, 0x1_0000_8000);
+        let layout = compute_data_const_layout(&vtables, &[], false, 0x8000, 0x1_0000_8000);
         assert_eq!(layout.segment_file_offset, 0x8000);
         assert_eq!(layout.segment_vmaddr, 0x1_0000_8000);
         assert_eq!(layout.vtable_layout.entries[0].vaddr, 0x1_0000_8000);

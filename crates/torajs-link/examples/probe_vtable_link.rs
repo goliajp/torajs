@@ -103,6 +103,7 @@ fn main() {
             slot_syms: vec![Some("__torajs_fn_1".into())],
         }],
         class_layouts: Vec::new(),
+        force_emit_class_layouts_globals: false,
     };
 
     match link_to_exec_with_archives(&cfg) {

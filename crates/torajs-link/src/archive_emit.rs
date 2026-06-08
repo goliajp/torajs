@@ -217,8 +217,7 @@ fn emit_binary(
     } else {
         0
     });
-    // has_dyld clears MH_NOUNDEFS (binary references unresolved syms
-    // at link time) — matches ssa_inkwell production binary.
+    // has_dyld clears MH_NOUNDEFS (link-time unresolved syms allowed).
     let mh_flags = if has_dyld {
         MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
     } else {
@@ -288,9 +287,7 @@ fn emit_binary(
         sections: text_sections,
     };
 
-    // __DATA segment (only when has_libsystem) — `__la_symbol_ptr`
-    // first, then one section per member `__DATA,*` (SD-4c-prereq-
-    // c-fix-c4 preserves SD-3 chained_fixups segment_offset=0).
+    // __DATA (has_dyld): `__la_symbol_ptr` first, then member `__DATA,*`.
     let data_segment_opt = has_dyld.then(|| {
         let mut extra_sections = build_data_non_text_section_64_entries(layout);
         if layout.user_data_globals_layout.total_vmsize > 0 {
@@ -303,8 +300,7 @@ fn emit_binary(
     let data_const_segment_opt =
         crate::data_const_layout::build_data_const_segment(&layout.data_const_layout);
 
-    // __LINKEDIT filesize = codesign end - seg start (covers chain
-    // blob + 8-byte pad; dyld rejects unaligned end otherwise).
+    // __LINKEDIT covers chain blob + 8-byte pad past codesign end.
     let linkedit_data_size = u64::from(layout.codesign_dataoff + layout.codesign_datasize)
         - u64::from(layout.linkedit_file_offset);
     let linkedit_segment = SegmentCommand64 {
@@ -340,8 +336,7 @@ fn emit_binary(
     }
     linkedit_segment.write_to(&mut buf);
     write_load_dylinker(&mut buf);
-    // LC_LOAD_DYLIB order: libSystem ord 1, libcurl ord 2 (matches
-    // ld64 + the lib_ordinal values the chain encoder packs).
+    // LC_LOAD_DYLIB: libSystem ord 1, libcurl ord 2 (matches chain enc).
     if has_libsystem_lc {
         write_load_dylib_libsystem(&mut buf);
     }
@@ -395,9 +390,7 @@ fn emit_binary(
 
     // e8: __TEXT __stubs → __DATA_CONST (vtable) → __DATA la_ptr.
     if has_dyld {
-        // swap-2k chunk 3 — pad to `stubs_file_offset` so per-section
-        // alignment padding earlier (which leaves `buf.len() <
-        // stubs_file_offset`) gets reconciled before write_stubs_section.
+        // chunk 3 — pad to `stubs_file_offset` past per-section align.
         pad_to(&mut buf, layout.stubs_file_offset as usize);
         write_stubs_section(&mut buf, layout);
     }
@@ -613,6 +606,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let archive_bytes = link_to_exec_with_archives(&cfg).unwrap();
         let baseline_bytes = link_to_exec(&cfg);
@@ -654,6 +648,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -721,6 +716,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -786,6 +782,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let layout = compute_archive_layout(&cfg).expect("layout");
         assert!(!layout.dyld_imports.is_empty(), "dyld_imports populated");
@@ -877,6 +874,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         // SD-2b — link must succeed even though cfg.sym_table is
         // empty. SD-2a's plumbing populates `layout.stub_vaddrs`;
@@ -960,6 +958,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let link_bytes =
             link_to_exec_with_archives(&cfg).expect("link must succeed against mixed externs");
@@ -996,6 +995,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let bytes = link_to_exec_with_archives(&cfg).unwrap();
 

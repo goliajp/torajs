@@ -60,13 +60,13 @@ fn build_main() -> CompiledFunction {
             Reloc {
                 byte_offset: 0,
                 kind: RelocKind::Page21 {
-                    target_sym: "__torajs_class_layouts".into(),
+                    target_sym: "___torajs_class_layouts".into(),
                 },
             },
             Reloc {
                 byte_offset: 4,
                 kind: RelocKind::PageOff12 {
-                    target_sym: "__torajs_class_layouts".into(),
+                    target_sym: "___torajs_class_layouts".into(),
                 },
             },
         ],
@@ -87,6 +87,7 @@ fn main() {
         class_layouts: vec![UserClassLayoutEntry {
             child_offsets: vec![42],
         }],
+        force_emit_class_layouts_globals: false,
     };
 
     match link_to_exec_with_archives(&cfg) {

@@ -43,18 +43,21 @@ fn round_up_to(value: u64, align: u64) -> u64 {
     (value + align - 1) & !(align - 1)
 }
 
-/// Compute the file + virtual layout for a `LinkConfig` whose
-/// `archives` field is populated. The fast path when
-/// `cfg.archives.is_empty()` behaves like `exec.rs::compute_layout`
-/// — returns the same numbers wrapped in `ArchiveLayout` with an
-/// empty `member_layouts`.
+/// File + virtual layout for an `archives`-populated `LinkConfig`.
+/// `cfg.archives.is_empty()` mirrors `exec.rs::compute_layout` with
+/// an empty `member_layouts`.
 pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, ArchiveLayoutError> {
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
     let mut extra = user_strings_extra_defined_syms(&cfg.strings);
     extra.extend(fn_addr_extra_defined_syms(&cfg.funcs));
     extra.extend(user_data_globals_extra_defined_syms(&cfg.data_globals));
     extra.extend(user_vtables_extra_defined_syms(&cfg.vtable_globals));
-    extra.extend(user_class_layouts_extra_defined_syms(&cfg.class_layouts));
+    // e8-2c — `tr build` sets force_emit so the libtorajs_cycle.a
+    // extern resolves even on class-free programs (probes stay false).
+    extra.extend(user_class_layouts_extra_defined_syms(
+        &cfg.class_layouts,
+        cfg.force_emit_class_layouts_globals,
+    ));
     let required =
         compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;
 
@@ -87,8 +90,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         member_defined_syms.push(defs);
     }
 
-    // Entry must be a user function — integrated members can be
-    // called but aren't the entry point.
+    // Entry must be a user fn — member fns can be called, not entry.
     let entry_idx = cfg
         .funcs
         .iter()
@@ -97,12 +99,13 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
             entry: cfg.entry.clone(),
         })?;
 
-    // Phase 3: layout. has_dyld → __TEXT,__stubs + __DATA,__la_symbol_ptr
-    // + LC_DYLD_CHAINED_FIXUPS (libSystem ord 1 hard-coded, libcurl ord 2).
-    // e8: __DATA_CONST hosts vtable + class_layouts rodata; chain LC also
-    // turns on whenever any __DATA_CONST slot needs rebasing.
+    // Phase 3: layout. has_dyld → __stubs/__la_symbol_ptr/chain LC
+    // (libSystem ord 1, libcurl ord 2). e8: __DATA_CONST hosts vtable
+    // + class_layouts; chain LC also turns on for __DATA_CONST rebases.
     let has_dyld = !required.dyld_imports.is_empty();
-    let has_data_const_seg = !cfg.vtable_globals.is_empty() || !cfg.class_layouts.is_empty();
+    let has_data_const_seg = !cfg.vtable_globals.is_empty()
+        || !cfg.class_layouts.is_empty()
+        || cfg.force_emit_class_layouts_globals;
     let has_vtable_rebase = cfg
         .vtable_globals
         .iter()
@@ -168,9 +171,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         )?;
     let non_text_region_size = non_text_result.region_size;
 
-    // e1 — user-string region in `__TEXT,__cstring` past member
-    // non-text payloads (no section_64 entry; e8 moved vtable rodata
-    // to a dedicated `__DATA_CONST` seg, see `data_const_layout`).
+    // e1 — user strings in `__TEXT,__cstring` past member non-text.
     let (user_strings_layout, user_strings_payload) = build_user_strings_region(
         &cfg.strings,
         TEXT_VMADDR_BASE,
@@ -179,8 +180,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let text_size =
         user_text_size + members_text_total + non_text_region_size + user_strings_layout.total_size;
 
-    // __TEXT file region = __text + __stubs (when has_dyld). vmsize
-    // page-aligns the segment past __stubs.
+    // __TEXT = __text + __stubs (has_dyld); vmsize page-aligned.
     let dyld_count = required.dyld_imports.len() as u64;
     let stubs_section_size = if has_dyld { dyld_count * STUB_SIZE } else { 0 };
     let la_ptr_section_size = if has_dyld {
@@ -193,11 +193,11 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let text_segment_file_end = u64::from(stubs_file_offset) + stubs_section_size;
     let text_vmsize = round_up_to(text_segment_file_end, APPLE_SILICON_PAGE_SIZE);
 
-    // SD-4c-prereq+e8: __DATA_CONST hosts vtable + class_layouts
-    // rodata so dyld rebases without breaking codesigned __TEXT pages.
+    // e8 __DATA_CONST — vtable + class_layouts rodata.
     let data_const_layout = compute_data_const_layout(
         &cfg.vtable_globals,
         &cfg.class_layouts,
+        cfg.force_emit_class_layouts_globals,
         text_vmsize as u32,
         TEXT_VMADDR_BASE + text_vmsize,
     );
@@ -222,9 +222,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     };
     let la_ptr_section_vaddr = data_vmaddr;
 
-    // c-fix-c3/c4 — `__DATA,*` section layouts. has_dyld=true:
-    // file region starts past `__la_symbol_ptr` so SD-3's chain
-    // encoder's segment_offset=0 invariant holds.
+    // c-fix-c3/c4 — `__DATA,*` past `__la_symbol_ptr` (chain seg_off=0).
     let (
         data_non_text_layouts,
         data_non_text_file_offset,
@@ -361,7 +359,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let symoff = linkedit_file_offset;
     let stroff = symoff + nlist_size;
 
-    // strtab: "\0" sentinel + user fn names + member defined-sym names.
+    // strtab: "\0" + user fn names + member defined-sym names.
     let mut strsize: u32 = 1;
     for f in &cfg.funcs {
         strsize += f.name.len() as u32 + 1;
@@ -372,14 +370,12 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         }
     }
 
-    // SD-3 chained-fixups blob. +c extends the chain to bind each TLV
-    // thunk slot to `__tlv_bootstrap` (offsets from __DATA base).
+    // SD-3 chain blob; +c binds each TLV thunk to `__tlv_bootstrap`.
     let tlv_thunk_offsets: Vec<u64> = tlv_descriptors
         .iter()
         .map(|d| d.thunk_slot_vaddr - data_vmaddr)
         .collect();
-    // e7b-4/e8-2b: vtable + class_layouts rebase targets — concat in
-    // walk order so emit pass can split the link-value vec back out.
+    // e7b/e8-2b: concat vtable + class_layouts rebase in walk order.
     let vtable_rebase_targets = vtable_rebase_targets_from_fn_vaddrs(
         &data_const_layout.vtable_layout,
         &fn_vaddrs,
@@ -414,10 +410,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         vtable_rebase_targets: &combined_text_rebase_targets,
         data_seg_rebase_targets: &[],
     });
-    // SD-4c-prereq+c: dyld walks u64 fields in the chain blob and
-    // CodeDirectory, so both LINKEDIT regions must land at 8-byte
-    // offsets — `dyld_info` reports "mis-aligned LINKEDIT content"
-    // / "mis-aligned code signature" otherwise.
+    // +c: chain + CodeDir both need 8-aligned LINKEDIT offsets.
     let chained_fixups_dataoff = if has_chained_fixups {
         round_up_to(u64::from(stroff + strsize), 8) as u32
     } else {
@@ -584,6 +577,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         let base = crate::exec::compute_layout(&cfg);
@@ -627,6 +621,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 1);
@@ -685,6 +680,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 3);
@@ -724,6 +720,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -785,6 +782,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -821,6 +819,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         match err {
@@ -850,6 +849,7 @@ mod tests {
             data_globals: Vec::new(),
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         assert!(matches!(
