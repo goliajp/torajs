@@ -10,6 +10,7 @@ use crate::chained_fixups_starts::RebaseTarget;
 use crate::data_const_layout::DataConstLayout;
 use crate::layout_types::ArchiveLayout;
 use crate::lc::TEXT_VMADDR_BASE;
+use crate::user_class_layouts_layout::compute_class_layouts_rebase_targets;
 use crate::user_vtables_layout::vtable_rebase_targets_from_fn_vaddrs;
 
 /// Args bundle for [`compute_chained_fixups_outputs`] — keeps the
@@ -105,6 +106,13 @@ pub fn recompute_chained_fixups_with_data_rebase(
         layout.data_const_layout.segment_vmaddr,
         TEXT_VMADDR_BASE,
     );
+    let class_layouts_rebase_targets = compute_class_layouts_rebase_targets(
+        &layout.data_const_layout.class_layouts_layout,
+        layout.data_const_layout.segment_vmaddr,
+        TEXT_VMADDR_BASE,
+    );
+    let mut combined_text_rebase = vtable_rebase_targets;
+    combined_text_rebase.extend(class_layouts_rebase_targets);
     let tlv_thunk_offsets: Vec<u64> = layout
         .tlv_descriptors
         .iter()
@@ -119,7 +127,7 @@ pub fn recompute_chained_fixups_with_data_rebase(
             segment_count,
             data_seg_idx,
             data_const_layout: &layout.data_const_layout,
-            vtable_rebase_targets: &vtable_rebase_targets,
+            vtable_rebase_targets: &combined_text_rebase,
             data_seg_rebase_targets: data_rebase_targets,
         });
     debug_assert_eq!(

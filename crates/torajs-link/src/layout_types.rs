@@ -172,14 +172,20 @@ pub struct ArchiveLayout {
     /// emit pass skips every `__DATA_CONST` emit hook so the binary
     /// stays byte-identical to the pre-e8 layout.
     pub data_const_layout: super::data_const_layout::DataConstLayout,
-    /// SD-4c-prereq+e7b-4 — per-`Some` vtable slot chain-link u64
-    /// computed by `build_chained_fixups` from the __TEXT rebase
-    /// chain. Indexed in `compute_vtable_rebase_targets` output
-    /// order (which equals walking `user_vtables_layout.entries[*]
-    /// .slot_syms` and filtering `Some`). The emit pass splices
-    /// each value onto the matching slot byte position, leaving
-    /// `None` slots as zero. Empty when `vtable_globals` is empty.
+    /// SD-4c-prereq+e7b-4/e8-2b — combined __DATA_CONST rebase
+    /// chain-link u64 values. First `vtable_rebase_target_count`
+    /// entries match `compute_vtable_rebase_targets` output order
+    /// (one per `Some` vtable slot); the remainder belong to
+    /// `compute_class_layouts_rebase_targets` (one per non-empty
+    /// class_layouts entry's inner-ptr slot). The emit pass splits
+    /// at `vtable_rebase_target_count` to feed the two `build_*_payload`
+    /// helpers their respective slices.
     pub text_rebase_link_values: Vec<u64>,
+    /// SD-4c-prereq+e8-2b — split point into `text_rebase_link_values`.
+    /// Equals the number of vtable slots that produced a rebase target
+    /// (= total `Some` slot_syms across all entries in
+    /// `user_vtables_layout`).
+    pub vtable_rebase_target_count: usize,
 }
 
 /// Failures `compute_archive_layout` can report.

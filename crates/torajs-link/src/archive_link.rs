@@ -26,6 +26,9 @@ use crate::non_text_layout::{NonTextLayoutError, compute_non_text_layouts};
 use crate::sign::adhoc_codesign_blob_size;
 use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
 use crate::tlv_descriptor_layout::compute_tlv_descriptor_layouts;
+use crate::user_class_layouts_layout::{
+    compute_class_layouts_rebase_targets, user_class_layouts_extra_defined_syms,
+};
 use crate::user_data_globals_layout::{
     build_user_data_globals_region, user_data_globals_extra_defined_syms,
 };
@@ -51,6 +54,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     extra.extend(fn_addr_extra_defined_syms(&cfg.funcs));
     extra.extend(user_data_globals_extra_defined_syms(&cfg.data_globals));
     extra.extend(user_vtables_extra_defined_syms(&cfg.vtable_globals));
+    extra.extend(user_class_layouts_extra_defined_syms(&cfg.class_layouts));
     let required =
         compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;
 
@@ -93,20 +97,21 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
             entry: cfg.entry.clone(),
         })?;
 
-    // Phase 3: layout. has_dyld toggles __TEXT,__stubs + __DATA,
-    // __la_symbol_ptr + LC_DYLD_CHAINED_FIXUPS; libSystem always ord 1
-    // (chained-fixups encoder hard-codes it). libcurl gets ord 2.
-    // SD-4c-prereq+e8: vtable rodata → __DATA_CONST seg, so the
-    // chain LC also turns on when vtable_globals is non-empty
-    // (the seg LC follows for placement; chain fixups follow for
-    // any Some slot).
+    // Phase 3: layout. has_dyld → __TEXT,__stubs + __DATA,__la_symbol_ptr
+    // + LC_DYLD_CHAINED_FIXUPS (libSystem ord 1 hard-coded, libcurl ord 2).
+    // e8: __DATA_CONST hosts vtable + class_layouts rodata; chain LC also
+    // turns on whenever any __DATA_CONST slot needs rebasing.
     let has_dyld = !required.dyld_imports.is_empty();
-    let has_vtable_seg = !cfg.vtable_globals.is_empty();
+    let has_data_const_seg = !cfg.vtable_globals.is_empty() || !cfg.class_layouts.is_empty();
     let has_vtable_rebase = cfg
         .vtable_globals
         .iter()
         .any(|v| v.slot_syms.iter().any(|s| s.is_some()));
-    let has_chained_fixups = has_dyld || has_vtable_rebase;
+    let has_class_layouts_rebase = cfg
+        .class_layouts
+        .iter()
+        .any(|e| !e.child_offsets.is_empty());
+    let has_chained_fixups = has_dyld || has_vtable_rebase || has_class_layouts_rebase;
     let has_libcurl_lc = required.dyld_imports.values().any(|&o| o == 2);
     let load_dylib_size = if has_dyld {
         LOAD_DYLIB_LIBSYSTEM_CMDSIZE
@@ -118,11 +123,10 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     } else {
         0
     };
-    // segment_count = PAGEZERO + __TEXT + (__DATA_CONST?) + (__DATA?)
-    // + __LINKEDIT. section_count: __text + (__stubs? when has_dyld);
-    // __DATA_CONST has no section_64 entry (segment-only rodata blob).
-    // SD-3 + e8: LC_DYLD_CHAINED_FIXUPS toggles on `has_chained_fixups`.
-    let segment_count = 3 + u32::from(has_dyld) + u32::from(has_vtable_seg);
+    // segment_count = PAGEZERO + __TEXT + (__DATA_CONST?) + (__DATA?) +
+    // __LINKEDIT. section_count = __text + (__stubs? when has_dyld);
+    // __DATA_CONST = segment-only rodata blob (no section_64 entry).
+    let segment_count = 3 + u32::from(has_dyld) + u32::from(has_data_const_seg);
     let section_count = 1 + if has_dyld { 2 } else { 0 };
     let chained_fixups_lc_size = if has_chained_fixups {
         LINKEDIT_DATA_CMDSIZE
@@ -146,8 +150,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let members_text_total: u32 = member_text_sizes.iter().copied().sum();
 
     // Non-text region (member __cstring/__const) lands between member
-    // __texts and `__TEXT,__stubs`; its size folds into text_size so
-    // stubs_file_offset/text_vmsize/linkedit_file_offset auto-shift.
+    // __texts and `__TEXT,__stubs`; folds into text_size auto-shift.
     let non_text_region_file_offset = text_file_offset + user_text_size + members_text_total;
     let non_text_result =
         compute_non_text_layouts(&merged, &member_keys, non_text_region_file_offset).map_err(
@@ -165,11 +168,9 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         )?;
     let non_text_region_size = non_text_result.region_size;
 
-    // SD-4c-prereq+e1 — user-string region sharing __TEXT,__cstring
-    // after member non-text payloads (no new section_64 entry). Zero-
-    // sized when empty. SD-4c-prereq+e8 moved vtable rodata out of
-    // __TEXT,__cstring into a dedicated `__DATA_CONST` segment (see
-    // `data_const_layout`); __TEXT no longer carries vtable bytes.
+    // e1 — user-string region in `__TEXT,__cstring` past member
+    // non-text payloads (no section_64 entry; e8 moved vtable rodata
+    // to a dedicated `__DATA_CONST` seg, see `data_const_layout`).
     let (user_strings_layout, user_strings_payload) = build_user_strings_region(
         &cfg.strings,
         TEXT_VMADDR_BASE,
@@ -187,9 +188,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     } else {
         0
     };
-    // swap-2k chunk 3 — round to 4 so `__stubs` (ARM instructions)
-    // lands at a 4-aligned vmaddr; non-text align padding can leave
-    // the running offset at `mod 4 != 0`. archive_emit pad_to's match.
+    // chunk 3 — 4-align `__stubs` (ARM instr) past non-text padding.
     let stubs_file_offset = round_up_to(u64::from(text_file_offset + text_size), 4) as u32;
     let text_segment_file_end = u64::from(stubs_file_offset) + stubs_section_size;
     let text_vmsize = round_up_to(text_segment_file_end, APPLE_SILICON_PAGE_SIZE);
@@ -223,11 +222,9 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     };
     let la_ptr_section_vaddr = data_vmaddr;
 
-    // SD-4c-prereq-c-fix-c3/c4 — compute the `__DATA,*` section
-    // layouts. has_dyld=false leaves the outer Vec empty.
-    // has_dyld=true: file region starts after `__la_symbol_ptr` so
-    // SD-3's chained_fixups encoder's segment_offset=0 (= la_ptr)
-    // invariant holds.
+    // c-fix-c3/c4 — `__DATA,*` section layouts. has_dyld=true:
+    // file region starts past `__la_symbol_ptr` so SD-3's chain
+    // encoder's segment_offset=0 invariant holds.
     let (
         data_non_text_layouts,
         data_non_text_file_offset,
@@ -260,10 +257,8 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         (Vec::new(), 0u32, 0u32, 0u32)
     };
 
-    // SD-4c-prereq+b1/c — enumerate member __DATA,__thread_vars TLV
-    // descriptors (metadata-only) so prereq+c can add per-thunk-slot
-    // binds to the chained-fixups blob. has_dyld=false short-circuits
-    // (no __DATA segment exists → no TLVs).
+    // b1/c — member __DATA,__thread_vars TLV descriptors for chain
+    // per-thunk-slot binds. has_dyld=false → no __DATA → no TLVs.
     let tlv_descriptors = if has_dyld {
         compute_tlv_descriptor_layouts(&member_keys, &data_non_text_layouts)
             .expect("TLV descriptor layout cannot fail when inputs are zipped from compute_data_section_layouts")
@@ -272,9 +267,8 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         Vec::new()
     };
 
-    // __DATA segment sizes: data_filesize page-aligns the file region
-    // for next-segment fileoff mmap alignment; data_vmsize extends it
-    // with zerofill (member zerofill + e4 user-bss vmsize).
+    // __DATA: data_filesize page-aligns for next-seg fileoff; vmsize
+    // extends with zerofill (member zerofill + e4 user-bss).
     let data_total_file_size = if has_dyld {
         la_ptr_section_size + u64::from(data_non_text_file_size)
     } else {
@@ -285,8 +279,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     } else {
         0
     };
-    // SD-4c-prereq+e4 — `__DATA,__bss` zerofill after member zerofill
-    // (Mach-O ordering rule: file-storage sections come first).
+    // e4 — `__DATA,__bss` zerofill past member zerofill.
     let user_data_globals_layout = build_user_data_globals_region(
         &cfg.data_globals,
         has_dyld,
@@ -331,8 +324,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let entry_file_offset = text_file_offset
         + (fn_vaddrs[entry_idx] - TEXT_VMADDR_BASE - u64::from(text_file_offset)) as u32;
 
-    // Per-member layout pinning — each member's __text follows the
-    // previous member's, cumulative-summed past the user funcs.
+    // Per-member __text pinning, cumulative past user funcs.
     let mut member_layouts: Vec<MemberLayout> = Vec::with_capacity(member_keys.len());
     let mut cumulative: u32 = running;
     for (i, &key) in member_keys.iter().enumerate() {
@@ -380,21 +372,28 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         }
     }
 
-    // SD-3 chained-fixups blob inside __LINKEDIT. SD-4c-prereq+c
-    // extends the chain to bind each TLV descriptor's `thunk` slot
-    // to libSystem `__tlv_bootstrap`; tlv_thunk_offsets is each
-    // thunk's offset from the __DATA base (chain coordinate space).
+    // SD-3 chained-fixups blob. +c extends the chain to bind each TLV
+    // thunk slot to `__tlv_bootstrap` (offsets from __DATA base).
     let tlv_thunk_offsets: Vec<u64> = tlv_descriptors
         .iter()
         .map(|d| d.thunk_slot_vaddr - data_vmaddr)
         .collect();
-    // SD-4c-prereq+e7b-4: derive vtable rebase targets from fn_vaddrs.
+    // e7b-4/e8-2b: vtable + class_layouts rebase targets — concat in
+    // walk order so emit pass can split the link-value vec back out.
     let vtable_rebase_targets = vtable_rebase_targets_from_fn_vaddrs(
         &data_const_layout.vtable_layout,
         &fn_vaddrs,
         data_const_layout.segment_vmaddr,
         TEXT_VMADDR_BASE,
     );
+    let class_layouts_rebase_targets = compute_class_layouts_rebase_targets(
+        &data_const_layout.class_layouts_layout,
+        data_const_layout.segment_vmaddr,
+        TEXT_VMADDR_BASE,
+    );
+    let vtable_rebase_target_count = vtable_rebase_targets.len();
+    let mut combined_text_rebase_targets = vtable_rebase_targets;
+    combined_text_rebase_targets.extend(class_layouts_rebase_targets);
 
     // e8: __DATA_CONST idx=2; __DATA shifts to idx 3 when has_data_const.
     let data_seg_idx: u32 = if has_data_const { 3 } else { 2 };
@@ -412,7 +411,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         segment_count,
         data_seg_idx,
         data_const_layout: &data_const_layout,
-        vtable_rebase_targets: &vtable_rebase_targets,
+        vtable_rebase_targets: &combined_text_rebase_targets,
         data_seg_rebase_targets: &[],
     });
     // SD-4c-prereq+c: dyld walks u64 fields in the chain blob and
@@ -488,6 +487,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         user_vtables_layout: data_const_layout.vtable_layout.clone(),
         data_const_layout,
         text_rebase_link_values,
+        vtable_rebase_target_count,
     })
 }
 

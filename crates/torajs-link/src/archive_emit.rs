@@ -35,7 +35,9 @@ use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
 use crate::resolve::apply_relocs;
 use crate::sign::build_adhoc_codesign_blob;
 use crate::tlv_descriptor_layout::apply_tlv_overrides;
-use crate::user_class_layouts_layout::build_user_class_layouts_payload;
+use crate::user_class_layouts_layout::{
+    apply_user_class_layouts_overrides, build_user_class_layouts_payload,
+};
 use crate::user_data_globals_layout::apply_user_data_global_overrides;
 use crate::user_strings_emit::apply_user_string_overrides;
 use crate::user_vtables_layout::{apply_user_vtable_overrides, build_user_vtables_payload};
@@ -74,6 +76,10 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     apply_user_data_global_overrides(&layout.user_data_globals_layout, &mut effective_sym_table);
     register_fn_addr_syms(&cfg.funcs, &layout.fn_vaddrs, &mut effective_sym_table);
     apply_user_vtable_overrides(&layout.user_vtables_layout, &mut effective_sym_table);
+    apply_user_class_layouts_overrides(
+        &layout.data_const_layout.class_layouts_layout,
+        &mut effective_sym_table,
+    );
 
     // chunk 2b-4: dyld-rebase member `__DATA,*` slots under ASLR.
     let data_rebase_targets = compute_member_data_rebase_targets(
@@ -90,12 +96,13 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     let data_rebase_link_values =
         recompute_chained_fixups_with_data_rebase(&mut layout, &data_rebase_targets);
 
-    // e7b-4/e8-2a: vtable + class_layouts slot bytes are chain-link
-    // u64s (class_layouts inner-ptr wiring lands in e8-2b).
-    let user_vtables_payload =
-        build_user_vtables_payload(&layout.user_vtables_layout, &layout.text_rebase_link_values);
+    // e7b-4/e8-2b: split text_rebase_link_values = vtable + class_layouts.
+    let (vtable_lv, class_lv) = layout
+        .text_rebase_link_values
+        .split_at(layout.vtable_rebase_target_count);
+    let user_vtables_payload = build_user_vtables_payload(&layout.user_vtables_layout, vtable_lv);
     let user_class_layouts_payload =
-        build_user_class_layouts_payload(&layout.data_const_layout.class_layouts_layout, &[]);
+        build_user_class_layouts_payload(&layout.data_const_layout.class_layouts_layout, class_lv);
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
 
     // S7-C5 — patch each member's __text in place against effective sym table.
@@ -157,20 +164,16 @@ fn emit_binary(
     user_vtables_payload: &[u8],
     user_class_layouts_payload: &[u8],
 ) -> Vec<u8> {
-    // SD-1/2a/3/4b: dyld imports drive LC_LOAD_DYLIB (libSystem ord 1
-    // + optional libcurl ord 2), __TEXT __stubs, __DATA __la_symbol_ptr.
+    // dyld imports → LC_LOAD_DYLIB + __stubs/__la_symbol_ptr;
+    // e8 text rebase → LC_DYLD_CHAINED_FIXUPS even without la-ptr.
     let has_dyld = !layout.dyld_imports.is_empty();
     let has_data_const = layout.data_const_layout.has_data_const;
-    // e8: vtable rebase chain participates → LC_DYLD_CHAINED_FIXUPS
-    // LC even when no la-ptr imports are present.
     let has_text_rebase = !layout.text_rebase_link_values.is_empty();
     let has_chained_fixups = has_dyld || has_text_rebase;
     let ordinals_used: std::collections::BTreeSet<u8> =
         layout.dyld_imports.values().copied().collect();
-    // If any libcurl ordinal (2) appears we must still emit
-    // libSystem at ordinal 1 first — dyld assigns ordinals by
-    // LC_LOAD_DYLIB position, not by reference, and the
-    // chained-fixups encoder hard-codes ordinal 1 = libSystem.
+    // dyld assigns ordinals by LC_LOAD_DYLIB position; chain encoder
+    // hard-codes ord 1 = libSystem, so emit libSystem first.
     let has_libcurl_lc = ordinals_used.contains(&2);
     let has_libsystem_lc = has_dyld; // every dyld-using binary forces libSystem at ord 1
     let load_dylib_count = u32::from(has_libsystem_lc) + u32::from(has_libcurl_lc);
@@ -183,15 +186,12 @@ fn emit_binary(
     } else {
         0
     });
-    // ncmds delta: +load_dylib_count LC_LOAD_DYLIBs +1 LC_SEGMENT_64
-    // __DATA when has_dyld; +1 LC_SEGMENT_64 __DATA_CONST when
-    // has_data_const; +1 LC_DYLD_CHAINED_FIXUPS when has_chained_fixups.
+    // ncmds delta: LC_LOAD_DYLIBs + (__DATA when has_dyld) +
+    // (__DATA_CONST when has_data_const) + LC_DYLD_CHAINED_FIXUPS.
     let extra_lc_count = if has_dyld { load_dylib_count + 1 } else { 0 }
         + u32::from(has_data_const)
         + u32::from(has_chained_fixups);
-    // SD-4c-prereq-c-fix-c4 — each member `__DATA,*` section adds
-    // one section_64 entry to the __DATA segment's section table
-    // (both regular file-storage and zerofill).
+    // c-fix-c4 — each member `__DATA,*` section + 1 section_64 entry.
     let data_non_text_section_count: u32 = layout
         .data_non_text_layouts
         .iter()

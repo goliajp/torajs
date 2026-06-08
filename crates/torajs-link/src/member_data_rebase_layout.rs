@@ -422,6 +422,7 @@ mod tests {
             user_vtables_layout: crate::user_vtables_layout::UserVtablesLayout::default(),
             data_const_layout: crate::data_const_layout::DataConstLayout::default(),
             text_rebase_link_values: Vec::new(),
+            vtable_rebase_target_count: 0,
         }
     }
 }
