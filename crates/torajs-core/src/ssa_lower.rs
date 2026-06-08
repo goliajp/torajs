@@ -8846,7 +8846,26 @@ impl<'a> LowerCtx<'a> {
     /// the cheaper in-place alloca (no behavior change for them).
     fn binding_slot_alloca(&mut self, ty: Type, name: &str) -> ValueId {
         if ty.is_refcounted() {
-            self.alloca_in_entry(ty, Some(name))
+            let slot = self.alloca_in_entry(ty, Some(name));
+            // T-49b — NULL-init the refcounted slot at entry. Without
+            // this, a `const c = <may-throw-expr>` whose RHS throws
+            // (e.g. `10n / 0n`) leaves the entry-hoisted slot with
+            // stack-uninit bytes; the scope-end / main-exit drop walk
+            // then calls `rc_dec` on garbage and SIGSEGVs. NULL is
+            // the rc-dec NULL-guard sentinel — drops on it are
+            // no-ops, mirroring the OLD LLVM pipeline's behaviour
+            // where the LLVM mem2pass turns the alloca into an SSA
+            // phi initialized to `null` in the entry block.
+            //
+            // Cheap: one store per refcounted let / const binding,
+            // overwritten by the normal-path assignment. Bool flags
+            // already follow this shape (see
+            // `alloca_bool_flag_in_entry`).
+            self.f.append_void(
+                BlockId(0),
+                InstKind::Store(Operand::ConstPtrNull, Operand::Value(slot), 0),
+            );
+            slot
         } else {
             self.alloca(ty, Some(name))
         }
