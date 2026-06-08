@@ -35,6 +35,14 @@ pub fn build_user_strings_payload(
     );
     let mut buf = Vec::with_capacity(layout.total_size as usize);
     for (e, le) in strings.iter().zip(layout.entries.iter()) {
+        // Leading pad up to this entry's slot (covers the first
+        // entry's pre-base alignment + previous entry's trailing
+        // 8-byte slot pad — see `compute_user_strings_layout` for
+        // the dynobj-bucket-tagging alignment requirement).
+        let target = (le.file_offset - layout.file_offset) as usize;
+        while buf.len() < target {
+            buf.push(0);
+        }
         match e.kind {
             UserStringKind::StaticStr => {
                 let mut flags: u16 = STATIC_LITERAL_FLAG;
@@ -58,10 +66,15 @@ pub fn build_user_strings_payload(
                 buf.extend_from_slice(&e.bytes);
             }
         }
+        // Trailing pad up to the entry's slot end (per layout).
+        let slot_end = target + le.payload_size as usize;
+        while buf.len() < slot_end {
+            buf.push(0);
+        }
         debug_assert_eq!(
             buf.len() as u32 - (le.file_offset - layout.file_offset),
             le.payload_size,
-            "emitted entry size must match layout.payload_size"
+            "emitted entry occupied bytes must match layout.payload_size"
         );
     }
     // Trailing zero-pad to 4-byte alignment so the next __TEXT section
@@ -86,7 +99,7 @@ pub fn apply_user_string_overrides(layout: &UserStringsLayout, sym_table: &mut S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::user_strings_layout::{STR_HEADER_SIZE, compute_user_strings_layout};
+    use crate::user_strings_layout::compute_user_strings_layout;
 
     fn make_entry(sym: &str, bytes: &[u8], is_latin1: bool, length: u32) -> UserStringEntry {
         UserStringEntry {
@@ -175,12 +188,15 @@ mod tests {
         let layout = compute_user_strings_layout(&strings, 0x4000, 0x1_0000_4000);
         let buf = build_user_strings_payload(&strings, &layout);
 
-        let entry_size = (STR_HEADER_SIZE + 2) as usize;
-        assert_eq!(buf.len(), entry_size * 2);
-        // First entry payload @16 = "hi".
+        // body = 16 + 2 = 18; slot = 24 (next 8-aligned for dynobj
+        // key-ptr alignment). Two entries → total 48 bytes.
+        let slot_size = 24usize;
+        assert_eq!(buf.len(), slot_size * 2);
+        // First entry payload @16 = "hi"; trailing 6 bytes zero pad.
         assert_eq!(&buf[16..18], b"hi");
-        // Second entry payload @(entry_size + 16) = "yo".
-        assert_eq!(&buf[entry_size + 16..entry_size + 18], b"yo");
+        assert_eq!(&buf[18..slot_size], &[0u8; 6]);
+        // Second entry payload @(slot_size + 16) = "yo".
+        assert_eq!(&buf[slot_size + 16..slot_size + 18], b"yo");
     }
 
     #[test]
@@ -188,7 +204,7 @@ mod tests {
         let strings = [make_raw_entry("__torajs_str_dyn_0", b"hello")];
         let layout = compute_user_strings_layout(&strings, 0x4000, 0x1_0000_4000);
         let buf = build_user_strings_payload(&strings, &layout);
-        // 5 payload bytes, then 3 zero pad bytes to 4-byte align.
+        // body = 5; slot = 8 (next 8-aligned).
         assert_eq!(buf.len(), 8);
         assert_eq!(&buf[..5], b"hello");
         assert_eq!(&buf[5..8], &[0u8; 3]);
@@ -196,18 +212,22 @@ mod tests {
 
     #[test]
     fn mixed_kinds_concat_static_then_raw() {
-        // Static (16+5=21) + RawBytes (3) = 24, already 4-aligned.
+        // Static (body=21 → slot=24) + RawBytes (body=3 → slot=8) = 32.
         let strings = [
             make_entry("__torajs_str_lit_0", b"hello", true, 5),
             make_raw_entry("__torajs_str_dyn_0", b"abc"),
         ];
         let layout = compute_user_strings_layout(&strings, 0x4000, 0x1_0000_4000);
         let buf = build_user_strings_payload(&strings, &layout);
-        assert_eq!(buf.len(), 24);
+        assert_eq!(buf.len(), 32);
         // Static entry: header + length + pad + "hello" @ [0..21].
         assert_eq!(&buf[16..21], b"hello");
-        // RawBytes entry starts at offset 21 — payload only.
-        assert_eq!(&buf[21..24], b"abc");
+        // Slot trailing pad @ [21..24].
+        assert_eq!(&buf[21..24], &[0u8; 3]);
+        // RawBytes entry starts at offset 24 — payload only.
+        assert_eq!(&buf[24..27], b"abc");
+        // RawBytes slot trailing pad @ [27..32].
+        assert_eq!(&buf[27..32], &[0u8; 5]);
     }
 
     #[test]
@@ -220,9 +240,7 @@ mod tests {
         let mut sym_table = SymTable::new();
         apply_user_string_overrides(&layout, &mut sym_table);
         assert_eq!(sym_table.get("__torajs_str_lit_0"), Some(&0x1_0000_4000));
-        assert_eq!(
-            sym_table.get("__torajs_str_lit_1"),
-            Some(&(0x1_0000_4000 + (STR_HEADER_SIZE as u64 + 2))),
-        );
+        // Entry 1 starts at entry 0's 8-aligned slot end (= 24).
+        assert_eq!(sym_table.get("__torajs_str_lit_1"), Some(&0x1_0000_4018),);
     }
 }

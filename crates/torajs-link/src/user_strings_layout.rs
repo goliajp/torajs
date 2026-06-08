@@ -72,6 +72,17 @@ pub struct UserStringsLayout {
 /// `__TEXT` segment since fileoff = 0 there). Pure function — no
 /// allocations beyond the returned `entries` Vec.
 ///
+/// Each entry is 8-byte aligned because dynobj's
+/// `bucket_make_key_tagged` (see crates/torajs-dynobj/src/probe.rs)
+/// packs 3 flag bits into the low 3 bits of the Str key ptr; an
+/// unaligned key ptr loses bits in the round-trip, so
+/// `bucket_key_ptr(key | flags) & !0x7` returns a different ptr,
+/// `str_eq` reads `str_len` from the wrong offset, and dynobj_get
+/// reports "not found" on a key dynobj_set just inserted. Each
+/// `payload_size` includes the trailing pad so the next entry's
+/// vaddr lands on the 8-byte boundary regardless of the entry's
+/// own body length. Leading pad on the first entry covers the case
+/// where the caller-supplied `vaddr_base` is not itself 8-aligned.
 /// `total_size` is rounded up to 4 bytes so the next-section section
 /// (`__TEXT,__stubs`, all ARM64 instructions) lands at a 4-aligned
 /// vaddr. ARM64 traps SIGILL on misaligned instruction fetch — without
@@ -82,10 +93,28 @@ pub fn compute_user_strings_layout(
     cursor: u32,
     vaddr_base: u64,
 ) -> UserStringsLayout {
+    if strings.is_empty() {
+        return UserStringsLayout {
+            entries: Vec::new(),
+            file_offset: cursor,
+            vaddr: vaddr_base,
+            total_size: 0,
+        };
+    }
     let mut entries = Vec::with_capacity(strings.len());
-    let mut running: u32 = 0;
+    // Leading pad so the first entry sits on an 8-aligned vaddr.
+    let leading_pad = {
+        let aligned = (vaddr_base + 7) & !7;
+        (aligned - vaddr_base) as u32
+    };
+    let mut running: u32 = leading_pad;
     for e in strings {
-        let payload_size = entry_payload_size(e);
+        let body_size = entry_body_size(e);
+        // Trailing pad so the next entry's vaddr is 8-aligned. For
+        // the last entry this just becomes part of `total_size`
+        // (then aggregated with the section-tail 4-byte pad below).
+        let aligned_next = (running + body_size + 7) & !7;
+        let payload_size = aligned_next - running;
         entries.push(UserStringEntryLayout {
             sym: e.sym.clone(),
             vaddr: vaddr_base + u64::from(running),
@@ -94,7 +123,7 @@ pub fn compute_user_strings_layout(
         });
         running += payload_size;
     }
-    let total_size = if running == 0 { 0 } else { (running + 3) & !3 };
+    let total_size = (running + 3) & !3;
     UserStringsLayout {
         entries,
         file_offset: cursor,
@@ -105,8 +134,12 @@ pub fn compute_user_strings_layout(
 
 /// Byte size of one entry's emitted region — `StaticStr` carries the
 /// 16-byte rodata Str header in addition to the payload; `RawBytes`
-/// is payload-only.
-pub fn entry_payload_size(e: &UserStringEntry) -> u32 {
+/// is payload-only. NOTE: this is the **body** size (no alignment
+/// pad); see `compute_user_strings_layout` for the slot-size
+/// (`payload_size`) which rounds each entry up to 8 bytes so the
+/// next entry's vaddr is 8-aligned (required by dynobj's
+/// `bucket_make_key_tagged` low-3-bit flag packing).
+pub fn entry_body_size(e: &UserStringEntry) -> u32 {
     let payload = e.bytes.len() as u32;
     match e.kind {
         UserStringKind::StaticStr => STR_HEADER_SIZE + payload,
@@ -177,18 +210,18 @@ mod tests {
 
     #[test]
     fn single_latin1_entry_packs_header_plus_payload() {
+        // vaddr_base 0x1_0000_4100 is 8-aligned (0x4100 = 16640, div 8).
         let strings = [entry("__torajs_str_lit_0", b"hello", true, 5)];
         let layout = compute_user_strings_layout(&strings, 0x4100, 0x1_0000_4100);
         assert_eq!(layout.entries.len(), 1);
-        // Per-entry payload_size = raw 21 (16 header + 5 bytes), but
-        // region total rounds up to 24 so the next __TEXT section
-        // (`__stubs`) lands on a 4-byte boundary.
-        assert_eq!(layout.total_size, 24);
+        // body = 16 + 5 = 21; slot rounds up to 24 (next 8-aligned)
+        // for the dynobj-bucket-tagging key-ptr alignment requirement.
         let e = &layout.entries[0];
         assert_eq!(e.sym, "__torajs_str_lit_0");
         assert_eq!(e.file_offset, 0x4100);
         assert_eq!(e.vaddr, 0x1_0000_4100);
-        assert_eq!(e.payload_size, STR_HEADER_SIZE + 5);
+        assert_eq!(e.payload_size, 24);
+        assert_eq!(layout.total_size, 24);
     }
 
     #[test]
@@ -212,14 +245,17 @@ mod tests {
         assert_eq!(e1.vaddr, e0.vaddr + u64::from(e0.payload_size));
         assert_eq!(e2.vaddr, e1.vaddr + u64::from(e1.payload_size));
 
-        assert_eq!(e0.payload_size, STR_HEADER_SIZE + 2);
-        assert_eq!(e1.payload_size, STR_HEADER_SIZE + 6);
-        assert_eq!(e2.payload_size, STR_HEADER_SIZE + 1);
+        // body sizes: 18 / 22 / 17, each rounded up to 8-aligned slot
+        // (24 / 24 / 24).
+        assert_eq!(e0.payload_size, 24);
+        assert_eq!(e1.payload_size, 24);
+        assert_eq!(e2.payload_size, 24);
+        assert_eq!(layout.total_size, 72);
 
-        // Sum of payload_size = 18 + 22 + 17 = 57, rounded up to 60.
-        let raw_sum = e0.payload_size + e1.payload_size + e2.payload_size;
-        assert_eq!(raw_sum, 57);
-        assert_eq!(layout.total_size, 60);
+        // Every entry vaddr 8-aligned — that's the contract.
+        assert_eq!(e0.vaddr % 8, 0);
+        assert_eq!(e1.vaddr % 8, 0);
+        assert_eq!(e2.vaddr % 8, 0);
     }
 
     #[test]
@@ -232,36 +268,50 @@ mod tests {
             2,
         )];
         let layout = compute_user_strings_layout(&strings, 0x4000, 0x1_0000_4000);
-        assert_eq!(layout.entries[0].payload_size, STR_HEADER_SIZE + 4);
-        // 16 + 4 = 20, already 4-aligned so no extra pad.
-        assert_eq!(layout.total_size, STR_HEADER_SIZE + 4);
+        // body = 16 + 4 = 20; slot = 24 (next 8-aligned).
+        assert_eq!(layout.entries[0].payload_size, 24);
+        assert_eq!(layout.total_size, 24);
     }
 
     #[test]
     fn raw_bytes_kind_has_no_header() {
-        // RawBytes payload size = bytes.len() (no 16-byte header).
+        // RawBytes body = 5; slot rounds up to 8.
         let strings = [raw_entry("__torajs_str_dyn_0", b"hello")];
         let layout = compute_user_strings_layout(&strings, 0x4000, 0x1_0000_4000);
-        assert_eq!(layout.entries[0].payload_size, 5);
-        // 5 raw bytes rounds up to 8 (next-section 4-byte alignment).
+        assert_eq!(layout.entries[0].payload_size, 8);
         assert_eq!(layout.total_size, 8);
     }
 
     #[test]
     fn mixed_kinds_pack_back_to_back() {
-        // Static (16+5=21) + RawBytes (3) = 24, already 4-aligned.
+        // Static (body=21 → slot=24) + RawBytes (body=3 → slot=8) = 32.
         let strings = [
             entry("__torajs_str_lit_0", b"hello", true, 5),
             raw_entry("__torajs_str_dyn_0", b"abc"),
         ];
         let layout = compute_user_strings_layout(&strings, 0x4000, 0x1_0000_4000);
-        assert_eq!(layout.entries[0].payload_size, STR_HEADER_SIZE + 5);
-        assert_eq!(layout.entries[1].payload_size, 3);
+        assert_eq!(layout.entries[0].payload_size, 24);
+        assert_eq!(layout.entries[1].payload_size, 8);
         assert_eq!(
             layout.entries[1].vaddr,
             layout.entries[0].vaddr + u64::from(layout.entries[0].payload_size),
         );
-        assert_eq!(layout.total_size, 24);
+        assert_eq!(layout.entries[1].vaddr % 8, 0);
+        assert_eq!(layout.total_size, 32);
+    }
+
+    #[test]
+    fn unaligned_vaddr_base_gets_leading_pad() {
+        // vaddr_base ends in `+3` (not 8-aligned). Layout must
+        // pre-pad so the first entry's vaddr is still 8-aligned —
+        // dynobj bucket tagging requires the key ptr's low 3 bits be
+        // zero.
+        let strings = [entry("__torajs_str_lit_0", b"a", true, 1)];
+        let layout = compute_user_strings_layout(&strings, 0x4003, 0x1_0000_4003);
+        let e = &layout.entries[0];
+        assert_eq!(e.vaddr % 8, 0, "first entry vaddr must be 8-aligned");
+        assert_eq!(e.vaddr, 0x1_0000_4008);
+        assert_eq!(e.file_offset, 0x4008);
     }
 
     #[test]
