@@ -6,6 +6,7 @@ mod cmd_debug;
 mod cmd_fmt;
 mod cmd_lint;
 mod cmd_run;
+mod cmd_run_new;
 mod lsp;
 mod lsp_bench;
 mod repl;
@@ -73,7 +74,18 @@ fn main() -> ExitCode {
         // `tr run` is AOT-with-cache (replaced Cranelift JIT 2026-05-01):
         // hash source → `~/.torajs/cache/<hash>` → exec, or compile + cache + exec.
         // `jit` is kept as a back-compat alias.
-        Some("run") | Some("jit") => run_jit(args.get(1)),
+        //
+        // SD-4c-prereq+ sub-step A — env-gated dispatcher mirrors
+        // `Some("build")` below. New pipeline (codegen + obj + link)
+        // materializes to a tmp file and execs; legacy ssa_inkwell
+        // path stays the default until atomic swap-C closes.
+        Some("run") | Some("jit") => {
+            if std::env::var("TORAJS_NEW_PIPELINE").as_deref() == Ok("1") {
+                cmd_run_new::run(args.get(1))
+            } else {
+                run_jit(args.get(1))
+            }
+        }
         Some("build") => {
             // SD-4c-prereq swap-1 — env-gated dispatcher. The new
             // pipeline (codegen + obj + link) replaces ssa_inkwell

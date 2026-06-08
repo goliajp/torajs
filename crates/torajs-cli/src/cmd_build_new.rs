@@ -120,7 +120,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
+pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     let src = read_source(input).map_err(|e| {
         eprintln!("error: {e}");
         ExitCode::from(2)
@@ -198,7 +198,7 @@ fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     })
 }
 
-fn build_link_config(ssa_module: &Module) -> LinkConfig {
+pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
     // Compile each SSA function to aarch64 bytes + per-fn reloc table.
     // The synthesized top-level wrapper ssa_lower emits as "main" needs
     // to surface as the Apple Silicon `_main` entry — rename after
