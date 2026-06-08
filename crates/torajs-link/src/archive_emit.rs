@@ -35,24 +35,21 @@ use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
 use crate::resolve::apply_relocs;
 use crate::sign::build_adhoc_codesign_blob;
 use crate::tlv_descriptor_layout::apply_tlv_overrides;
+use crate::user_class_layouts_layout::build_user_class_layouts_payload;
 use crate::user_data_globals_layout::apply_user_data_global_overrides;
 use crate::user_strings_emit::apply_user_string_overrides;
 use crate::user_vtables_layout::{apply_user_vtable_overrides, build_user_vtables_payload};
 
-/// Link a `LinkConfig` whose `archives` field is populated into a
-/// complete Mach-O `MH_EXECUTE` byte stream — ad-hoc codesigned,
-/// kernel-loadable on macOS 14+. User-fn `Extern(name)` and member-
-/// internal relocs both resolve against one effective sym table
-/// (caller externs + every member defined-external).
+/// Link an `archives`-populated `LinkConfig` into a complete
+/// ad-hoc-codesigned `MH_EXECUTE` byte stream. User-fn + member
+/// relocs both resolve against one effective sym table (caller
+/// externs + every member defined-external + dyld stub vaddrs).
 pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
     let mut layout = compute_archive_layout(cfg)?;
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
 
-    // Effective sym table = caller externs + every member defined
-    // extern (vaddr dispatched by home section — see
-    // `defined_extern_resolve`) + (SD-2b) one per dyld import →
-    // `__TEXT,__stubs` trampoline (trampoline deref's
-    // `__la_symbol_ptr`, which SD-3 chained-fixups binds at startup).
+    // Effective sym table = caller externs + member defined-externs
+    // (vaddr dispatched by home section) + SD-2b dyld-stub vaddrs.
     let mut effective_sym_table = cfg.sym_table.clone();
     for (m_idx, m) in layout.member_layouts.iter().enumerate() {
         let data_layouts = member_data_layouts(&layout, m_idx);
@@ -71,15 +68,14 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         effective_sym_table.insert(name.clone(), *stub_vaddr);
     }
 
-    // SD-4c-prereq+b2/+e1/+e3 — TLV thunk-slot + user-string + per-fn
-    // sym vaddr overrides land ADRP+ADD pairs at the right targets.
+    // SD-4c-prereq overrides for ADRP+ADD targets.
     apply_tlv_overrides(&layout, &merged, &mut effective_sym_table)?;
     apply_user_string_overrides(&layout.user_strings_layout, &mut effective_sym_table);
     apply_user_data_global_overrides(&layout.user_data_globals_layout, &mut effective_sym_table);
     register_fn_addr_syms(&cfg.funcs, &layout.fn_vaddrs, &mut effective_sym_table);
     apply_user_vtable_overrides(&layout.user_vtables_layout, &mut effective_sym_table);
 
-    // chunk 2b-4: dyld-rebase every staticlib member `__DATA,*` slot under ASLR.
+    // chunk 2b-4: dyld-rebase member `__DATA,*` slots under ASLR.
     let data_rebase_targets = compute_member_data_rebase_targets(
         &layout,
         &merged,
@@ -94,9 +90,12 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     let data_rebase_link_values =
         recompute_chained_fixups_with_data_rebase(&mut layout, &data_rebase_targets);
 
-    // e7b-4: vtable slot bytes are chain-link u64s, not vaddrs.
+    // e7b-4/e8-2a: vtable + class_layouts slot bytes are chain-link
+    // u64s (class_layouts inner-ptr wiring lands in e8-2b).
     let user_vtables_payload =
         build_user_vtables_payload(&layout.user_vtables_layout, &layout.text_rebase_link_values);
+    let user_class_layouts_payload =
+        build_user_class_layouts_payload(&layout.data_const_layout.class_layouts_layout, &[]);
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
 
     // S7-C5 — patch each member's __text in place against effective sym table.
@@ -141,14 +140,13 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &data_non_text_payloads,
         &resolved,
         &user_vtables_payload,
+        &user_class_layouts_payload,
     );
     Ok(bytes)
 }
 
-/// Concatenate header + load commands + __text + __LINKEDIT
-/// (nlist, strtab, codesign blob) into a single byte stream.
-/// Layout decisions all come from `ArchiveLayout`; this fn is
-/// pure assembly of bytes.
+/// Concatenate header + LCs + __text + __LINKEDIT (nlist, strtab,
+/// codesign blob). Pure byte assembly — layout from `ArchiveLayout`.
 fn emit_binary(
     cfg: &LinkConfig,
     layout: &ArchiveLayout,
@@ -157,6 +155,7 @@ fn emit_binary(
     data_non_text_payloads: &[Vec<u8>],
     resolved: &[crate::resolve::ResolvedFunction],
     user_vtables_payload: &[u8],
+    user_class_layouts_payload: &[u8],
 ) -> Vec<u8> {
     // SD-1/2a/3/4b: dyld imports drive LC_LOAD_DYLIB (libSystem ord 1
     // + optional libcurl ord 2), __TEXT __stubs, __DATA __la_symbol_ptr.
@@ -406,6 +405,7 @@ fn emit_binary(
         &mut buf,
         &layout.data_const_layout,
         user_vtables_payload,
+        user_class_layouts_payload,
     );
     if has_dyld {
         write_la_ptr_section(&mut buf, layout);
@@ -795,7 +795,7 @@ mod tests {
         // Drive emit_binary directly — apply_relocs is happy
         // because cfg.sym_table covers `_malloc`.
         let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &cfg.sym_table);
-        let bytes = emit_binary(&cfg, &layout, &[], &[], &[], &resolved, &[]);
+        let bytes = emit_binary(&cfg, &layout, &[], &[], &[], &resolved, &[], &[]);
 
         assert_eq!(
             bytes.len() as u32,

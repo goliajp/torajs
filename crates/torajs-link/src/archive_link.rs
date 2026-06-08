@@ -194,12 +194,11 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let text_segment_file_end = u64::from(stubs_file_offset) + stubs_section_size;
     let text_vmsize = round_up_to(text_segment_file_end, APPLE_SILICON_PAGE_SIZE);
 
-    // SD-4c-prereq+e8: __DATA_CONST seg between __TEXT and __DATA
-    // hosts vtable rodata so dyld can rebase without breaking the
-    // codesigned __TEXT pages (kernel re-hashes post-mprotect via
-    // SG_READ_ONLY).
+    // SD-4c-prereq+e8: __DATA_CONST hosts vtable + class_layouts
+    // rodata so dyld rebases without breaking codesigned __TEXT pages.
     let data_const_layout = compute_data_const_layout(
         &cfg.vtable_globals,
+        &cfg.class_layouts,
         text_vmsize as u32,
         TEXT_VMADDR_BASE + text_vmsize,
     );

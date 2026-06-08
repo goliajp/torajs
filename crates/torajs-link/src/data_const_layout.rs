@@ -19,6 +19,7 @@
 //!   `SG_READ_ONLY` and applies the post-fixup mprotect
 
 use crate::lc::APPLE_SILICON_PAGE_SIZE;
+use crate::user_class_layouts_layout::{UserClassLayoutsLayout, compute_user_class_layouts_layout};
 use crate::user_vtables_layout::{UserVtablesLayout, compute_user_vtables_layout};
 use torajs_obj::{SegmentCommand64, VM_PROT_READ, VM_PROT_WRITE};
 
@@ -39,6 +40,11 @@ pub struct DataConstLayout {
     /// / `entries[i].vaddr` are absolute (image-relative + base) so
     /// callers can pass them through unchanged to the emit pass.
     pub vtable_layout: UserVtablesLayout,
+    /// SD-4c-prereq+e8 — per-class `child_offsets` tables for the
+    /// cycle collector. Chained immediately after the vtable bytes
+    /// inside the same `__DATA_CONST` segment so dyld's chained-fixup
+    /// page walker covers both regions in one pass.
+    pub class_layouts_layout: UserClassLayoutsLayout,
     /// File offset of the `__DATA_CONST` segment's first byte.
     /// Equals `text_segment_file_offset + text_vmsize` in our layout.
     pub segment_file_offset: u32,
@@ -71,12 +77,14 @@ pub struct DataConstLayout {
 /// vtable-less probe survives.
 pub fn compute_data_const_layout(
     vtable_globals: &[crate::exec::UserVtableEntry],
+    class_layouts: &[crate::exec::UserClassLayoutEntry],
     segment_file_offset_base: u32,
     segment_vmaddr_base: u64,
 ) -> DataConstLayout {
-    if vtable_globals.is_empty() {
+    if vtable_globals.is_empty() && class_layouts.is_empty() {
         return DataConstLayout {
             vtable_layout: UserVtablesLayout::default(),
+            class_layouts_layout: UserClassLayoutsLayout::default(),
             segment_file_offset: segment_file_offset_base,
             segment_vmaddr: segment_vmaddr_base,
             segment_filesize: 0,
@@ -84,24 +92,30 @@ pub fn compute_data_const_layout(
             has_data_const: false,
         };
     }
-    // Place the vtable rodata at the start of the segment. The
-    // existing `compute_user_vtables_layout` handles 8-byte alignment
-    // and per-entry offset math; we just point it at the new base.
-    // Unlike `build_user_vtables_region` (which adds `file_offset` to
-    // the image base assuming __TEXT placement), we pass the segment
-    // base directly so __DATA_CONST entries land at their actual
+    // Place the vtable rodata at the start of the segment, then chain
+    // class_layouts directly after. `compute_user_*_layout` handle the
+    // per-region alignment + offset math; we hand them the running
+    // cursor + vaddr. Unlike `build_user_vtables_region` (which adds
+    // `file_offset` to the image base assuming __TEXT placement), we
+    // pass the segment base directly so entries land at their actual
     // vaddrs.
     let vtable_layout = compute_user_vtables_layout(
         vtable_globals,
         segment_file_offset_base,
         segment_vmaddr_base,
     );
+    let class_layouts_cursor = segment_file_offset_base + vtable_layout.total_size;
+    let class_layouts_vaddr = segment_vmaddr_base + u64::from(vtable_layout.total_size);
+    let class_layouts_layout =
+        compute_user_class_layouts_layout(class_layouts, class_layouts_cursor, class_layouts_vaddr);
+    let total_region_size = vtable_layout.total_size + class_layouts_layout.total_size;
     // Page-align so dyld's chained-fixup page walker can index from
     // the segment base — `page_start[]` always covers whole pages.
-    let segment_vmsize = u64::from(vtable_layout.total_size).div_ceil(APPLE_SILICON_PAGE_SIZE)
-        * APPLE_SILICON_PAGE_SIZE;
+    let segment_vmsize =
+        u64::from(total_region_size).div_ceil(APPLE_SILICON_PAGE_SIZE) * APPLE_SILICON_PAGE_SIZE;
     DataConstLayout {
         vtable_layout,
+        class_layouts_layout,
         segment_file_offset: segment_file_offset_base,
         segment_vmaddr: segment_vmaddr_base,
         segment_filesize: segment_vmsize,
@@ -133,14 +147,18 @@ pub fn build_data_const_segment(layout: &DataConstLayout) -> Option<SegmentComma
     })
 }
 
-/// Write the `__DATA_CONST` segment payload (vtable bytes + page
-/// padding to segment_filesize). Pad-then-emit so the buf cursor
-/// lands at `segment_file_offset + segment_filesize` before the
-/// next segment's payload starts (la_ptr_file_offset).
+/// Write the `__DATA_CONST` segment payload (vtable bytes,
+/// class_layouts bytes if any, plus page padding to segment_filesize).
+/// Pad-then-emit so the buf cursor lands at `segment_file_offset +
+/// segment_filesize` before the next segment's payload starts
+/// (la_ptr_file_offset). The `*_payload` slices are the byte streams
+/// `build_user_vtables_payload` / `build_user_class_layouts_payload`
+/// return — caller is responsible for handing them in.
 pub fn write_data_const_payload(
     buf: &mut Vec<u8>,
     layout: &DataConstLayout,
     user_vtables_payload: &[u8],
+    user_class_layouts_payload: &[u8],
 ) {
     if !layout.has_data_const {
         return;
@@ -150,6 +168,7 @@ pub fn write_data_const_payload(
         buf.resize(off, 0);
     }
     buf.extend_from_slice(user_vtables_payload);
+    buf.extend_from_slice(user_class_layouts_payload);
 }
 
 #[cfg(test)]
@@ -166,7 +185,7 @@ mod tests {
 
     #[test]
     fn empty_input_marks_segment_absent() {
-        let layout = compute_data_const_layout(&[], 0x4000, 0x1_0000_4000);
+        let layout = compute_data_const_layout(&[], &[], 0x4000, 0x1_0000_4000);
         assert!(!layout.has_data_const);
         assert_eq!(layout.segment_vmsize, 0);
         assert_eq!(layout.segment_filesize, 0);
@@ -176,7 +195,7 @@ mod tests {
     #[test]
     fn single_vtable_fits_in_one_page() {
         let vtables = [entry("__vtable_A", vec![Some("fn_0")])];
-        let layout = compute_data_const_layout(&vtables, 0x4000, 0x1_0000_4000);
+        let layout = compute_data_const_layout(&vtables, &[], 0x4000, 0x1_0000_4000);
         assert!(layout.has_data_const);
         // 8 bytes vtable -> one page after alignment.
         assert_eq!(layout.segment_vmsize, 0x4000);
@@ -197,7 +216,7 @@ mod tests {
             entry("__vtable_B", vec![Some("b0"); 8]),
             entry("__vtable_C", vec![Some("c0"); 8]),
         ];
-        let layout = compute_data_const_layout(&vtables, 0x4000, 0x1_0000_4000);
+        let layout = compute_data_const_layout(&vtables, &[], 0x4000, 0x1_0000_4000);
         assert!(layout.has_data_const);
         assert_eq!(layout.segment_vmsize, 0x4000);
         // 3 vtables × 64 bytes payload = 192 bytes total_size.
@@ -209,7 +228,7 @@ mod tests {
         // file_offset_base / vmaddr_base mismatch — checks the helper
         // doesn't re-derive them from anywhere else.
         let vtables = [entry("__vtable_A", vec![Some("fn_0"), Some("fn_1")])];
-        let layout = compute_data_const_layout(&vtables, 0x8000, 0x1_0000_8000);
+        let layout = compute_data_const_layout(&vtables, &[], 0x8000, 0x1_0000_8000);
         assert_eq!(layout.segment_file_offset, 0x8000);
         assert_eq!(layout.segment_vmaddr, 0x1_0000_8000);
         assert_eq!(layout.vtable_layout.entries[0].vaddr, 0x1_0000_8000);
