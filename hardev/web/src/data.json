@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-08T08:50:55.929Z",
+  "generatedAt": "2026-06-08T15:49:12.907Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "3c13ada",
-    "commitSubject": "feat(cli): cmd_run_new env-gated new-pipeline dispatch — #9 SD-4c sub-step A",
+    "commit": "7f0830a",
+    "commitSubject": "Revert \"fix(codegen): STUR/LDUR for non-8-aligned Load/Store offsets — #9 SD-4c gap5\"",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,34 @@
   },
   "commits": [
     {
+      "hash": "7f0830a",
+      "subject": "Revert \"fix(codegen): STUR/LDUR for non-8-aligned Load/Store offsets — #9 SD-4c gap5\""
+    },
+    {
+      "hash": "11c8bce",
+      "subject": "fix(codegen): STUR/LDUR for non-8-aligned Load/Store offsets — #9 SD-4c gap5"
+    },
+    {
+      "hash": "a967963",
+      "subject": "refactor(str): port __torajs_split_iter_next IR → Rust — #9 SD-4c gap4"
+    },
+    {
+      "hash": "d9d3919",
+      "subject": "fix(cli+link): main argv wrapper + user-string layout 8-align — #9 SD-4c gap3+gap2-completion"
+    },
+    {
+      "hash": "81224d6",
+      "subject": "fix(link): 8-align user-string entries — #9 SD-4c gap2 dynobj key ptr"
+    },
+    {
+      "hash": "e754c0d",
+      "subject": "fix(codegen): derive param entry-moves post-sweep — #9 SD-4c gap1"
+    },
+    {
+      "hash": "f15e453",
+      "subject": "chore: dashboard snapshot @ 3c13ada — SD-4c sub-step A ship + B gate baseline"
+    },
+    {
       "hash": "3c13ada",
       "subject": "feat(cli): cmd_run_new env-gated new-pipeline dispatch — #9 SD-4c sub-step A"
     },
@@ -634,55 +662,38 @@
     {
       "hash": "3e965df",
       "subject": "feat(link): DataConstLayout chains class_layouts past vtables — #9 SD-4c-prereq+e8-2a"
-    },
-    {
-      "hash": "d87d131",
-      "subject": "feat(link): user_class_layouts_layout module — #9 SD-4c-prereq+e8-1"
-    },
-    {
-      "hash": "ca5e92b",
-      "subject": "feat(link): LinkConfig.class_layouts ABI scaffold — #9 SD-4c-prereq+e8-0"
-    },
-    {
-      "hash": "6c91244",
-      "subject": "docs(link): probe_vtable_link e7a → e7b runtime-exec wording"
-    },
-    {
-      "hash": "af8aabf",
-      "subject": "chore: dashboard snapshot @ bbe9778 — multi-thread vision rollout (P0-P4 ship)"
-    },
-    {
-      "hash": "bbe9778",
-      "subject": "fix(syscall): aarch64 macOS syscall6 missing clobber declaration"
-    },
-    {
-      "hash": "f375d68",
-      "subject": "docs: multi-thread substrate audit — P3 of multi-thread vision rollout"
-    },
-    {
-      "hash": "e12dc80",
-      "subject": "refactor(core): emit_rc_inc/emit_rc_dec_inline helpers — multi-thread-ready axis D"
     }
   ],
-  "headSha": "3c13ada",
+  "headSha": "7f0830a",
   "autorun": {
-    "total": 84,
+    "total": 85,
     "baselineTarget": 10,
-    "bySelf": 82,
+    "bySelf": 83,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780907123-7a8c",
-      "at": "2026-06-08T08:25:23Z",
-      "ts": 1780907123,
+      "rotationId": "r-1780908665-53ee",
+      "at": "2026-06-08T08:51:05Z",
+      "ts": 1780908665,
       "trigger": "self",
-      "prevHead": "24bf4e4",
-      "handoffSha": "sha256:f1990dfbe74767213804ce7cb7d3a9dd6ddef997ede3d4fdc5bb232899831fd8",
-      "handoffAgeSec": 32,
+      "prevHead": "f15e453",
+      "handoffSha": "sha256:d19c229d562a290dd6aff793809d8d5c086c45242fda38685464759768ea7ea0",
+      "handoffAgeSec": 14,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780908665-53ee",
+        "at": "2026-06-08T08:51:05Z",
+        "ts": 1780908665,
+        "trigger": "self",
+        "prevHead": "f15e453",
+        "handoffSha": "sha256:d19c229d562a290dd6aff793809d8d5c086c45242fda38685464759768ea7ea0",
+        "handoffAgeSec": 14,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780907123-7a8c",
         "at": "2026-06-08T08:25:23Z",
@@ -779,17 +790,6 @@
         "prevHead": "afaf4c1",
         "handoffSha": "sha256:e4341799a9e736f6e3d889eb3565e4da278b5fa4318b8e2397d897af06f2b6df",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780824633-655d",
-        "at": "2026-06-07T09:30:33Z",
-        "ts": 1780824633,
-        "trigger": "self",
-        "prevHead": "3ac88b1",
-        "handoffSha": "sha256:5d1c2c10366c585127ef1cc1661d1a3784ff0be36c48894f7714ddbb66a8a227",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
