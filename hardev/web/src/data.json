@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-08T15:49:12.907Z",
+  "generatedAt": "2026-06-08T17:23:51.004Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "7f0830a",
-    "commitSubject": "Revert \"fix(codegen): STUR/LDUR for non-8-aligned Load/Store offsets — #9 SD-4c gap5\"",
+    "commit": "d01fe0a",
+    "commitSubject": "fix(ssa_lower): NULL-init entry-hoisted refcounted binding slots — #9 SD-4c gap7",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,22 @@
   },
   "commits": [
     {
+      "hash": "d01fe0a",
+      "subject": "fix(ssa_lower): NULL-init entry-hoisted refcounted binding slots — #9 SD-4c gap7"
+    },
+    {
+      "hash": "4da8e54",
+      "subject": "fix(codegen): sig-aware pass_args coerces f64↔i64 at call boundary — #9 SD-4c gap6"
+    },
+    {
+      "hash": "9331b1e",
+      "subject": "fix(codegen): STUR/LDUR + 32-bit I32 ICmp — #9 SD-4c gap5 re-attempt"
+    },
+    {
+      "hash": "d3236c5",
+      "subject": "chore: dashboard snapshot @ 7f0830a — SD-4c gap1-4 ship + gap5 revert (715/8/4)"
+    },
+    {
       "hash": "7f0830a",
       "subject": "Revert \"fix(codegen): STUR/LDUR for non-8-aligned Load/Store offsets — #9 SD-4c gap5\""
     },
@@ -646,43 +662,38 @@
     {
       "hash": "3c13ada",
       "subject": "feat(cli): cmd_run_new env-gated new-pipeline dispatch — #9 SD-4c sub-step A"
-    },
-    {
-      "hash": "24bf4e4",
-      "subject": "feat(link): class_layouts force_emit + tr build hello.ts e2e — #9 SD-4c-prereq+e8-2c"
-    },
-    {
-      "hash": "5c2a61e",
-      "subject": "fix(cli): cmd_build_new wire class_layouts + drop placeholders — #9 SD-4c-prereq+e8"
-    },
-    {
-      "hash": "8ad2650",
-      "subject": "feat(link): class_layouts rebase wiring + runtime probe — #9 SD-4c-prereq+e8-2b"
-    },
-    {
-      "hash": "3e965df",
-      "subject": "feat(link): DataConstLayout chains class_layouts past vtables — #9 SD-4c-prereq+e8-2a"
     }
   ],
-  "headSha": "7f0830a",
+  "headSha": "d01fe0a",
   "autorun": {
-    "total": 85,
+    "total": 86,
     "baselineTarget": 10,
-    "bySelf": 83,
+    "bySelf": 84,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780908665-53ee",
-      "at": "2026-06-08T08:51:05Z",
-      "ts": 1780908665,
+      "rotationId": "r-1780933852-66fa",
+      "at": "2026-06-08T15:50:52Z",
+      "ts": 1780933852,
       "trigger": "self",
-      "prevHead": "f15e453",
-      "handoffSha": "sha256:d19c229d562a290dd6aff793809d8d5c086c45242fda38685464759768ea7ea0",
-      "handoffAgeSec": 14,
+      "prevHead": "d3236c5",
+      "handoffSha": "sha256:f79004358b34c14d46d71603a9dd0c6944fd68f1db3e81a4d8caf6561d1bf0ee",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780933852-66fa",
+        "at": "2026-06-08T15:50:52Z",
+        "ts": 1780933852,
+        "trigger": "self",
+        "prevHead": "d3236c5",
+        "handoffSha": "sha256:f79004358b34c14d46d71603a9dd0c6944fd68f1db3e81a4d8caf6561d1bf0ee",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780908665-53ee",
         "at": "2026-06-08T08:51:05Z",
@@ -779,17 +790,6 @@
         "prevHead": "156f991",
         "handoffSha": "sha256:5fd40417e77ebfee12fa93dcc5a59b54bf494e866510dbd444d00cd6fb5f3561",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780834793-751f",
-        "at": "2026-06-07T12:19:53Z",
-        "ts": 1780834793,
-        "trigger": "self",
-        "prevHead": "afaf4c1",
-        "handoffSha": "sha256:e4341799a9e736f6e3d889eb3565e4da278b5fa4318b8e2397d897af06f2b6df",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
