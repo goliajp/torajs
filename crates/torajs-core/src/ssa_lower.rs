@@ -9437,10 +9437,7 @@ impl<'a> LowerCtx<'a> {
             Type::Ptr,
             None,
         );
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(elem)]),
-        );
+        self.emit_rc_inc(Operand::Value(elem));
         let i_next = self.f.append_inst(
             self.cur_block,
             InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
@@ -9572,6 +9569,65 @@ impl<'a> LowerCtx<'a> {
         Operand::Value(dst)
     }
 
+    /// Emit a refcount inc on `op`. Today expands to a single
+    /// `Call(intrinsics.rc_inc, vec![op])` — semantically and
+    /// instruction-wise equivalent to a direct emit. This helper
+    /// is the single retrofit point for the future biased ARC
+    /// (owner-thread fast path 0 atomic 增量 + share transition +
+    /// atomic 慢路径,详见 `.claude/vision.md` 三-1 节 +
+    /// `rules/torajs-design-principles.md` §6.2)。
+    ///
+    /// **HARD RULE (§6.2):** all refcount inc emit goes through
+    /// this helper. Direct `InstKind::Call(intrinsics.rc_inc, ...)`
+    /// in lowering code is a §6 violation.
+    pub(crate) fn emit_rc_inc(&mut self, op: Operand) {
+        let block = self.cur_block;
+        self.emit_rc_inc_in(block, op);
+    }
+
+    /// Same as [`emit_rc_inc`] but emits into an explicit `block`
+    /// instead of `self.cur_block`. Used by control-flow shapes that
+    /// build a fresh `then_end` / `else_blk` and need to inc in a
+    /// branch tail (e.g. Nullish-coalescing `??`).
+    pub(crate) fn emit_rc_inc_in(&mut self, block: BlockId, op: Operand) {
+        self.f
+            .append_void(block, InstKind::Call(self.intrinsics.rc_inc, vec![op]));
+    }
+
+    /// Emit an inline refcount dec on the heap-header pointer `hdr`.
+    /// Returns the new refcount value (Type::I32) so the caller can
+    /// `ICmp(Eq, _, ConstI32(0))` to dispatch to drop. Mirrors the
+    /// existing Bacon-Rajan inline shape: Load i32 @ offset 0 →
+    /// `Sub 1` → Store back.
+    ///
+    /// Future biased ARC swap-point: this helper expands to an
+    /// owner-thread check + atomic_rmw fetch_sub for shared objects.
+    /// Today equivalent to the raw Load-Sub-Store sequence.
+    ///
+    /// **HARD RULE (§6.2):** all refcount dec emit goes through
+    /// this helper or through the typed drop helpers
+    /// (`emit_drop_value` / `intrinsics.{str_drop, arr_drop,
+    /// substr_drop, value_drop_heap}`).
+    pub(crate) fn emit_rc_dec_inline(&mut self, hdr: Operand) -> Operand {
+        let rc_now = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I32, hdr.clone(), 0),
+            Type::I32,
+            None,
+        );
+        let rc_new = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Sub, Operand::Value(rc_now), Operand::ConstI32(1)),
+            Type::I32,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(rc_new), hdr, 0),
+        );
+        Operand::Value(rc_new)
+    }
+
     pub(crate) fn emit_drop_value(&mut self, val: Operand, ty: Type) {
         match ty {
             Type::Str => {
@@ -9630,25 +9686,10 @@ impl<'a> LowerCtx<'a> {
                     },
                 );
                 self.cur_block = dec_blk;
-                let rc_now = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::I32, val, 0),
-                    Type::I32,
-                    None,
-                );
-                let rc_dec = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::BinOp(SsaBinOp::Sub, Operand::Value(rc_now), Operand::ConstI32(1)),
-                    Type::I32,
-                    None,
-                );
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(rc_dec), val, 0),
-                );
+                let rc_new = self.emit_rc_dec_inline(val);
                 let is_zero = self.f.append_inst(
                     self.cur_block,
-                    InstKind::ICmp(IPred::Eq, Operand::Value(rc_dec), Operand::ConstI32(0)),
+                    InstKind::ICmp(IPred::Eq, rc_new, Operand::ConstI32(0)),
                     Type::Bool,
                     None,
                 );
@@ -10297,13 +10338,7 @@ impl<'a> LowerCtx<'a> {
                                 // pointer. rc_inc since the new struct
                                 // takes its own owning ref (the
                                 // entries array still holds one).
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.rc_inc,
-                                        vec![Operand::Value(val_raw)],
-                                    ),
-                                );
+                                self.emit_rc_inc(Operand::Value(val_raw));
                                 Operand::Value(val_raw)
                             }
                             other => {
@@ -12860,10 +12895,7 @@ impl<'a> LowerCtx<'a> {
                     continue;
                 }
                 _ if v_ty.is_refcounted() => {
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.rc_inc, vec![v_raw.clone()]),
-                    );
+                    self.emit_rc_inc(v_raw.clone());
                     (4, v_raw)
                 }
                 Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
@@ -13020,10 +13052,7 @@ impl<'a> LowerCtx<'a> {
                 (Operand::Value(tag_v), Operand::Value(val_v))
             }
             _ if val_ty.is_refcounted() => {
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.rc_inc, vec![val.clone()]),
-                );
+                self.emit_rc_inc(val.clone());
                 (Operand::ConstI64(4), val)
             }
             Type::Ptr if matches!(val, Operand::ConstPtrNull) => {
@@ -13427,10 +13456,7 @@ impl<'a> LowerCtx<'a> {
                     // current InstKind enum doesn't expose). Drop
                     // walks via __torajs_arr_drop_any when the array
                     // dies.
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.rc_inc, vec![val.clone()]),
-                    );
+                    self.emit_rc_inc(val.clone());
                     (4, val)
                 }
                 Type::Ptr => {
@@ -13608,10 +13634,7 @@ impl<'a> LowerCtx<'a> {
                         info.ty,
                         None,
                     );
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(v)]),
-                    );
+                    self.emit_rc_inc(Operand::Value(v));
                     return Operand::Value(v);
                 }
                 let v = self.f.append_inst(
@@ -13939,10 +13962,7 @@ impl<'a> LowerCtx<'a> {
                                 _ => false,
                             };
                             if needs_inc {
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.rc_inc, vec![v]),
-                                );
+                                self.emit_rc_inc(v);
                             }
                         }
                         // Type-check the rhs against the slot type. Without
@@ -14150,10 +14170,7 @@ impl<'a> LowerCtx<'a> {
                                     return v_raw;
                                 }
                                 _ if v_ty.is_refcounted() => {
-                                    self.f.append_void(
-                                        self.cur_block,
-                                        InstKind::Call(self.intrinsics.rc_inc, vec![v_raw.clone()]),
-                                    );
+                                    self.emit_rc_inc(v_raw.clone());
                                     (4, v_raw)
                                 }
                                 Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
@@ -17043,13 +17060,7 @@ impl<'a> LowerCtx<'a> {
                             Operand::Value(cloned)
                         } else {
                             if fty.is_refcounted() {
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.rc_inc,
-                                        vec![Operand::Value(src_v)],
-                                    ),
-                                );
+                                self.emit_rc_inc(Operand::Value(src_v));
                             }
                             Operand::Value(src_v)
                         };
@@ -17534,10 +17545,7 @@ impl<'a> LowerCtx<'a> {
                         Type::Str,
                         None,
                     );
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(body_v)]),
-                    );
+                    self.emit_rc_inc(Operand::Value(body_v));
                     let p_v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(
@@ -18013,10 +18021,7 @@ impl<'a> LowerCtx<'a> {
                         let key_str = self.intern_string_literal(fname);
                         // rc_inc on key str so push_any takes an
                         // owning ref (matches T-10.b push_any contract).
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(key_str)]),
-                        );
+                        self.emit_rc_inc(Operand::Value(key_str));
                         let inner_after_key = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
@@ -18061,10 +18066,7 @@ impl<'a> LowerCtx<'a> {
                                 (1, Operand::Value(zext))
                             }
                             t if t.is_refcounted() => {
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.rc_inc, vec![val_op.clone()]),
-                                );
+                                self.emit_rc_inc(val_op.clone());
                                 (4, val_op)
                             }
                             Type::Ptr => (0, Operand::ConstI64(0)),
@@ -18461,10 +18463,7 @@ impl<'a> LowerCtx<'a> {
                         None,
                     );
                     if elem_ty.is_refcounted() {
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.rc_inc, vec![val]),
-                        );
+                        self.emit_rc_inc(val);
                     }
                     self.f.append_void(
                         self.cur_block,
@@ -18629,10 +18628,7 @@ impl<'a> LowerCtx<'a> {
                                 _ if v_ty.is_refcounted() => {
                                     // ANY_HEAP slot — bump rc so the
                                     // array's slot owns a balanced ref.
-                                    self.f.append_void(
-                                        self.cur_block,
-                                        InstKind::Call(self.intrinsics.rc_inc, vec![v_raw.clone()]),
-                                    );
+                                    self.emit_rc_inc(v_raw.clone());
                                     (4, v_raw)
                                 }
                                 Type::Ptr => {
@@ -18822,10 +18818,7 @@ impl<'a> LowerCtx<'a> {
                                 ),
                             );
                             if elem_ty.is_refcounted() {
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.rc_inc, vec![val]),
-                                );
+                                self.emit_rc_inc(val);
                             }
                             // chunk 9c — fast-push spec parity: ret new length
                             // (already in SSA as `len_next`, mirrors arr[#8]).
@@ -18841,10 +18834,7 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         if elem_ty.is_refcounted() {
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.rc_inc, vec![val]),
-                            );
+                            self.emit_rc_inc(val);
                         }
                         self.f.append_void(
                             self.cur_block,
@@ -18929,10 +18919,7 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         if elem_ty.is_refcounted() {
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.rc_inc, vec![val]),
-                            );
+                            self.emit_rc_inc(val);
                         }
                         self.f.append_void(
                             self.cur_block,
@@ -18991,10 +18978,7 @@ impl<'a> LowerCtx<'a> {
                                     None,
                                 );
                                 if elem_ty.is_refcounted() {
-                                    self.f.append_void(
-                                        self.cur_block,
-                                        InstKind::Call(self.intrinsics.rc_inc, vec![val]),
-                                    );
+                                    self.emit_rc_inc(val);
                                 }
                                 self.f.append_void(
                                     self.cur_block,
@@ -19427,13 +19411,7 @@ impl<'a> LowerCtx<'a> {
                                         Type::Any,
                                         None,
                                     );
-                                    self.f.append_void(
-                                        self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.rc_inc,
-                                            vec![recv_op.clone()],
-                                        ),
-                                    );
+                                    self.emit_rc_inc(recv_op.clone());
                                     let _ = match known_fid {
                                         Some(fid) => self.call_fn_value_devirt(
                                             fid,
@@ -19923,13 +19901,7 @@ impl<'a> LowerCtx<'a> {
                                      * rc_inc since each iteration
                                      * transfers a fresh ref into the
                                      * closure. */
-                                    self.f.append_void(
-                                        self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.rc_inc,
-                                            vec![recv_op.clone()],
-                                        ),
-                                    );
+                                    self.emit_rc_inc(recv_op.clone());
                                     let _ = match known_fid {
                                         Some(fid) => self.call_fn_value_devirt(
                                             fid,
@@ -20489,13 +20461,7 @@ impl<'a> LowerCtx<'a> {
                         "every" => Operand::ConstBool(false),
                         "find" | "findLast" => {
                             if elem_ty.is_refcounted() {
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.rc_inc,
-                                        vec![Operand::Value(elem)],
-                                    ),
-                                );
+                                self.emit_rc_inc(Operand::Value(elem));
                             }
                             Operand::Value(elem)
                         }
@@ -20699,13 +20665,7 @@ impl<'a> LowerCtx<'a> {
                         None,
                     );
                     if dst_elem_ty.is_refcounted() {
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.rc_inc,
-                                vec![Operand::Value(inner_elem)],
-                            ),
-                        );
+                        self.emit_rc_inc(Operand::Value(inner_elem));
                     }
                     let cur_dst = self.f.append_inst(
                         self.cur_block,
@@ -21198,10 +21158,7 @@ impl<'a> LowerCtx<'a> {
                         let argv_op = argv[i + 1]; // env_ptr is at 0
                         let a_ty = self.operand_ty(&argv_op);
                         if a_ty.is_refcounted() {
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.rc_inc, vec![argv_op]),
-                            );
+                            self.emit_rc_inc(argv_op);
                         } else {
                             self.consume_if_ident(*a);
                         }
@@ -21259,10 +21216,7 @@ impl<'a> LowerCtx<'a> {
                     for (i, a) in args.iter().enumerate() {
                         let a_ty = self.operand_ty(&argv[i]);
                         if a_ty.is_refcounted() {
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.rc_inc, vec![argv[i]]),
-                            );
+                            self.emit_rc_inc(argv[i]);
                         } else {
                             self.consume_if_ident(*a);
                         }
@@ -21541,10 +21495,7 @@ impl<'a> LowerCtx<'a> {
                                 None,
                             );
                             if st.is_refcounted() {
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(v)]),
-                                );
+                                self.emit_rc_inc(Operand::Value(v));
                             }
                             let v_op = Operand::Value(v);
                             if let Some(pos) = field_tys.iter().position(|(k, _)| k == sn) {
@@ -21576,10 +21527,7 @@ impl<'a> LowerCtx<'a> {
                             _ => false,
                         };
                     if needs_inc {
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.rc_inc, vec![v]),
-                        );
+                        self.emit_rc_inc(v);
                     } else {
                         self.consume_if_ident(*eid);
                     }
@@ -22086,10 +22034,7 @@ impl<'a> LowerCtx<'a> {
                             // libc free is real. Inc here so the user
                             // gets a live ref independent of the
                             // Promise's lifetime.
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(ptr)]),
-                            );
+                            self.emit_rc_inc(Operand::Value(ptr));
                             ptr
                         }
                         // Bool: narrow i64 → i1 via TruncI64ToBool.
@@ -22861,10 +22806,7 @@ impl<'a> LowerCtx<'a> {
                             InstKind::Store(*val, Operand::Value(arr_ptr), off),
                         );
                         if elem_inc_after[i] {
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.rc_inc, vec![*val]),
-                            );
+                            self.emit_rc_inc(*val);
                         }
                     }
                     return Operand::Value(arr_ptr);
@@ -22992,10 +22934,7 @@ impl<'a> LowerCtx<'a> {
                             // Phase B refcount: array now shares
                             // ownership of `v` with the caller.
                             if elem_is_refcounted {
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.rc_inc, vec![v]),
-                                );
+                                self.emit_rc_inc(v);
                             }
                         }
                         Item::Spread(src) => {
@@ -23829,10 +23768,7 @@ impl<'a> LowerCtx<'a> {
                         InstKind::Store(rhs_op, Operand::Value(res_slot), 0),
                     );
                     if rhs_ty.is_refcounted() {
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.rc_inc, vec![rhs_op]),
-                        );
+                        self.emit_rc_inc(rhs_op);
                     }
                     // is_nullish = (tag == 0) | (tag == 5)
                     let is_null = self.f.append_inst(
@@ -23880,10 +23816,7 @@ impl<'a> LowerCtx<'a> {
                     // box and store it in the slot.
                     self.cur_block = unbox_blk;
                     let unboxed: Operand = if matches!(rhs_ty, Type::Any) {
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.rc_inc, vec![lhs_op.clone()]),
-                        );
+                        self.emit_rc_inc(lhs_op.clone());
                         lhs_op.clone()
                     } else {
                         // Step 7c: shim Call (was inline +16 direct-offset).
@@ -23920,13 +23853,7 @@ impl<'a> LowerCtx<'a> {
                             _ if rhs_ty.is_refcounted() => {
                                 // Heap-typed value: i64 already holds the
                                 // ptr. rc_inc so we own a balanced share.
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.rc_inc,
-                                        vec![Operand::Value(val)],
-                                    ),
-                                );
+                                self.emit_rc_inc(Operand::Value(val));
                                 Operand::Value(val)
                             }
                             _ => Operand::Value(val),
@@ -23982,18 +23909,12 @@ impl<'a> LowerCtx<'a> {
                     InstKind::Store(rhs_op, Operand::Value(res_slot), 0),
                 );
                 if lhs_ty.is_refcounted() {
-                    self.f.append_void(
-                        then_end,
-                        InstKind::Call(self.intrinsics.rc_inc, vec![rhs_op]),
-                    );
+                    self.emit_rc_inc_in(then_end, rhs_op);
                 }
                 self.f.set_term(then_end, Terminator::Br(after));
                 // non-null path: slot already holds lhs; inc it.
                 if lhs_ty.is_refcounted() {
-                    self.f.append_void(
-                        else_blk,
-                        InstKind::Call(self.intrinsics.rc_inc, vec![lhs_op]),
-                    );
+                    self.emit_rc_inc_in(else_blk, lhs_op);
                 }
                 self.f.set_term(else_blk, Terminator::Br(after));
                 self.cur_block = after;

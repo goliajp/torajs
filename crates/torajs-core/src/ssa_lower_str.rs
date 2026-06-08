@@ -1585,10 +1585,7 @@ pub(crate) fn try_lower_method_call(
         ctx.emit_drop_value(Operand::Value(old), elem_ty);
         ctx.f
             .append_void(ctx.cur_block, InstKind::StoreDyn(value, recv_op, off));
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.rc_inc, vec![value]),
-        );
+        ctx.emit_rc_inc(value);
         let i_next = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
