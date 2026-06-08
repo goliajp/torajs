@@ -62,8 +62,36 @@ perf-focused push 拉新 case 进 SOTA 范围。
   这事" 不是引入它的理由 — 必须 audit (a) crate 质量 (b) 是否能自研
   替代 (c) last-stable 锁版本。
 
-三轴的硬冲突时：质量优先（轴 A 正确性）> 性能优先（轴 B）> 自研优先
-（轴 C）。极少出现冲突；通常三轴同向。
+**轴 D — multi-thread-ready substrate**（2026-06-08 追加；ceiling-first
+multi-thread vision，详见 `.claude/vision.md` 三-1 节 + `rules/torajs-
+design-principles.md` 第六条 HARD RULE）
+
+终态：v1.0 ship 后立 P14+ multi-thread implementation trunk，落地
+biased ARC（owner-thread fast path 0 atomic 增量 + 跨线程 share
+transition + atomic 慢路径，CPython 3.13 PEP 703 + Lee PACT 2018 路径），
+single thread cost 对齐 Rust native thread（几十 KB stack + 极小 TLS），
+无 GC（永远 RC + Bacon-Rajan cycle collector 并发版，不引入 mark-sweep /
+stop-the-world）。**ceiling 目标比 bun "<2MB / thread + 1 GC" 高得多**。
+
+**v1.0 期间（现在 ~ P13）该轴的接受形态**：substrate 按 multi-thread-
+ready shape 长，**真切换不做**。每 phase 接受时除三轴外加审：
+
+- refcount inc/dec emit 必走 `emit_rc_inc(op)` / `emit_rc_dec(op)` helper，
+  禁止直接 emit `InstKind::Call(intrinsics.rc_inc, ...)` 等原始 site
+- 新加 global mutable state 默认 `thread_local!` 或 `Atomic*`，不
+  `lazy_static<Mutex<T>>` / `static mut` 等 single-mutator 形态
+- heap header layout 不固化 single-mutator 假设（owner_thread_id 字段位预留）
+- helper / FFI 签名不假设 single-mutator
+
+**该轴 0 增量 perf 代价**（helper 抽象今天等价 raw call；real biased ARC
+切换在 v1.0 后），但**早期 framing 不落 = 后期 50-100 处 site-by-site
+retrofit**。这是 ceiling-first early framing 实践 — vision 现在落，实施推迟。
+
+---
+
+四轴的硬冲突时：质量优先（轴 A 正确性）> 性能优先（轴 B）> 自研优先
+（轴 C）> multi-thread-ready 形态（轴 D framing 优先级最低，因 framing
+本身 0 代价；真冲突极罕见，通常四轴同向）。
 
 ### Hard requirements (kept from v1)
 
@@ -72,13 +100,20 @@ perf-focused push 拉新 case 进 SOTA 范围。
    compile (~50–90 ms); subsequent runs hit the cache.
 3. **Interpretable** — `tr run foo.ts` is the dev-loop entry point.
 4. **No GC, internal ARC** for shared-heap values via a universal heap
-   header. Single-owner uses compile-time ownership inference.
+   header. Single-owner uses compile-time ownership inference. **强化
+   (2026-06-08)**：永远不引入 GC（mark-sweep / generational / concurrent /
+   stop-the-world / GC pause），对标 Rust `Arc<T>` + `Weak<T>` + 自动 cycle
+   collection。RC 多线程下走 biased ARC（详见轴 D）。
 5. **TS-shape semantics** — what works, works the same as bun. No
    Rust-flavoured idioms in user code.
 6. **Full TS coverage as a roadmap target** — every TS feature bun
    supports has a roadmap phase. Compile errors point at the phase.
 7. **test262 in-scope 100%** as the v1.0 stretch target — gated by
    substrate completeness, not by pass-rate %.
+8. **比 bun 上限高得多的真多线程能力**（2026-06-08 追加）— 1 shared
+   heap + no GC + 任意 object cross-thread + thread cost 对齐 Rust native
+   thread + biased ARC 保 single-thread 0 regress。v1.0 期间走轴 D
+   framing，真实施 P14+ trunk。
 
 ### Two-tier execution model (introduced 2026-05-14, kept)
 
@@ -1429,6 +1464,41 @@ but not the gate; the gate is substrate completeness.
 - [ ] **P15.3** locale-dependent behaviour (Intl subset)
 - [ ] **P15.4** Host hook tests — open new sub-trunk when runner
       breakdown points here
+
+---
+
+### P16 — Multi-thread substrate implementation (post-v1.0, placeholder)
+
+**Goal**: 落地 vision "比 bun 上限高得多的真多线程能力"。详见
+`.claude/vision.md` 三-1 节 + `rules/torajs-design-principles.md` §6。
+**这是 placeholder phase** — v1.0 期间走轴 D framing（substrate ready
+shape，0 增量代价）；P16 真切换在 v1.0 ship 后立项展开，每项有自己的子
+RFC（biased ARC state machine / share transition / shared heap allocator
+/ concurrent cycle collector / Send/Sync semantic enforcement / Worker
+API 重设计 / per-thread budget 实测）。
+
+**Substrate checklist (placeholder, 待 v1.0 ship 后展开)**:
+
+- [ ] **P16.1** biased ARC state machine — owner_thread_id + share
+      transition + atomic 慢路径 emit；参考 CPython 3.13 PEP 703 + Lee
+      PACT 2018
+- [ ] **P16.2** Shared heap allocator — thread-local cache + cross-thread
+      free queue（mimalloc 模型 + raw syscall mmap-backed）
+- [ ] **P16.3** Concurrent Bacon-Rajan cycle collector — 多 mutator
+      assumption + 跨线程 buffer
+- [ ] **P16.4** `Send` / `Sync` semantic enforcement in SSA-lower（user
+      JS 语法透明，substrate 层 enforce）
+- [ ] **P16.5** Worker API 重设计 — 1 shared heap + 任意 object cross-
+      thread + 无 postMessage + Rust native thread cost
+- [ ] **P16.6** per-thread budget 实测 — thread bootstrap cost / TLS
+      metadata footprint / 跟 Rust `std::thread::spawn` 对齐基准
+
+**Bench**: 多线程 workload SOTA vs bun-aot / nodejs worker_threads / go
+goroutine。single-thread typed-tier 0 regression invariant 仍生效（biased
+ARC owner-thread fast path 0 atomic 增量）。
+
+**自研**: 0 deps 不变；atomic ops 走 LLVM intrinsics 不引入 crate；
+syscall 走 raw（A5 轴产物）。
 
 ---
 
