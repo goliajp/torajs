@@ -316,7 +316,6 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
     }
 
     let mut sweep = Sweep::new(next_alloca_offset);
-    let mut param_entry_moves: Vec<(Reg, Reg)> = Vec::new();
 
     // Sweep every interval (params + inst/alloca results) by start;
     // ties broken by ValueId to keep the sweep deterministic.
@@ -346,10 +345,10 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
                 continue;
             }
             // Crosses a call — the caller-saved arg register would be
-            // clobbered. Relocate to a callee-saved reg (or spill) and
-            // move it there on entry.
+            // clobbered. Relocate to a callee-saved reg (or spill);
+            // entry moves are derived from final `by_value` after the
+            // sweep so a later `spill_at_active` eviction stays sound.
             let dst = sweep.alloc_crossing(interval, is_fp);
-            param_entry_moves.push((arg_reg, dst));
             sweep.by_value.insert(vid, dst);
             sweep.active.push((vid, interval, dst));
             continue;
@@ -395,6 +394,28 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
     let total_spill_bytes = sweep.next_spill_offset - next_alloca_offset;
     let used_callee_gpr_mask = sweep.used_callee_gpr_mask;
     let used_callee_fpr_mask = sweep.used_callee_fpr_mask;
+
+    // Derive entry moves from post-sweep `by_value` — a param the
+    // sweep parked in a callee-saved reg may later be evicted to a
+    // spill slot by `spill_at_active`; the original push would still
+    // `mov` to the reassigned reg while load sites read from the
+    // never-written spill slot. Walking final state gives the correct
+    // `(arg_reg → callee_reg | SpillGpr)` shape regardless of victim.
+    let mut param_entry_moves: Vec<(Reg, Reg)> = Vec::new();
+    for &param in &func.params {
+        let vid = param.0;
+        let arg_reg = *param_arg_reg
+            .get(&vid)
+            .expect("param must have an AAPCS64 arg register");
+        let final_reg = *sweep
+            .by_value
+            .get(&vid)
+            .expect("param must have a final assignment after sweep");
+        if final_reg != arg_reg {
+            param_entry_moves.push((arg_reg, final_reg));
+        }
+    }
+
     let mut assignment = Assignment::from_parts(
         sweep.by_value,
         alloca_offsets,
