@@ -15,8 +15,8 @@ use super::{
     OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, ldr_d_imm12, ldr_d_reg, ldr_x_imm12, ldr_x_reg, ldur_x_imm9, str_d_imm12, str_d_reg,
-    str_x_imm12, str_x_reg, stur_x_imm9,
+    add_imm, ldr_d_imm12, ldr_d_reg, ldr_x_imm12, ldr_x_reg, str_d_imm12, str_d_reg, str_x_imm12,
+    str_x_reg,
 };
 use crate::reg::Gpr;
 use crate::regalloc::Assignment;
@@ -62,27 +62,7 @@ pub fn emit_load(
         write_def_spill_fpr(bytes, spill_off, dst);
     } else {
         let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
-        // ssa_lower emits `Load _, ptr +4` and similar non-8-aligned
-        // offsets when accessing struct/heap-header fields packed
-        // at byte granularity (refcount/type_tag/flags). The scaled
-        // LDR imm12 form requires the offset be a multiple of 8 —
-        // pre-fix the encoder silently floor-divided unaligned
-        // offsets by 8, redirecting the load to the wrong address
-        // (root cause of fn-return dynobj typeof returning "string"
-        // because the type_tag read at +4 collided with offset 0's
-        // refcount slot). Use unscaled LDUR (signed imm9, ±256) for
-        // unaligned offsets and the canonical LDR scaled imm12 form
-        // for aligned ones; offsets outside both ranges (≥4096 or
-        // ≥256 unaligned) still hit the existing 32760 assert.
-        if offset % 8 == 0 {
-            write_u32(bytes, ldr_x_imm12(dst, rn, offset as u32));
-        } else {
-            assert!(
-                offset < 256,
-                "non-aligned Load offset {offset} must fit LDUR imm9 (= 255 max); larger needs scratch-reg path"
-            );
-            write_u32(bytes, ldur_x_imm9(dst, rn, offset as i32));
-        }
+        write_u32(bytes, ldr_x_imm12(dst, rn, offset as u32));
         write_def_spill_gpr(bytes, spill_off, dst);
     }
 }
@@ -104,26 +84,11 @@ pub fn emit_store(
     if operand_is_f64(val, alloc) {
         let rs = materialize_operand_fpr(bytes, val, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
         let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
-        // D-form scaled store: not yet ssa_lower-emitted at non-
-        // aligned offsets; keep the aligned-only form until a real
-        // need surfaces (mirror the LDR path's safety strategy).
         write_u32(bytes, str_d_imm12(rs, rn, offset as u32));
     } else {
         let rs = materialize_operand_gpr(bytes, val, OP_SCRATCH_LHS, alloc);
         let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
-        // See `emit_load`'s comment for why non-8-aligned offsets
-        // route through STUR — pre-fix this branch went through
-        // STR-scaled and silently floor-divided to the wrong slot,
-        // breaking every heap-header field write (type_tag@+4 etc.).
-        if offset % 8 == 0 {
-            write_u32(bytes, str_x_imm12(rs, rn, offset as u32));
-        } else {
-            assert!(
-                offset < 256,
-                "non-aligned Store offset {offset} must fit STUR imm9 (= 255 max)"
-            );
-            write_u32(bytes, stur_x_imm9(rs, rn, offset as i32));
-        }
+        write_u32(bytes, str_x_imm12(rs, rn, offset as u32));
     }
 }
 
