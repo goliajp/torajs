@@ -13,8 +13,9 @@ use std::process::ExitCode;
 
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::compile_function;
-use torajs_codegen::enc::b_imm26;
+use torajs_codegen::enc::{add_imm, b_imm26, bl_imm26, ret as enc_ret, str_x_imm12};
 use torajs_codegen::frame::FrameLayout;
+use torajs_codegen::reg::Gpr;
 use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};
 use torajs_core::ssa::{FuncId, Module, Type};
 use torajs_core::{
@@ -35,6 +36,13 @@ use crate::util::{base_dir_for, read_source};
 /// emits the synthesized top-level wrapper as `"main"` so we rename
 /// after compile to land at the right name in `LinkConfig.entry`.
 const ENTRY_SYM: &str = "_main";
+
+/// Renamed user-main sym — the `__torajs_main_entry` wrapper below
+/// occupies the real `_main` symbol so it can run argv-init before
+/// jumping to the user main body. Mirrors `ssa_inkwell::lower.rs`
+/// inserting a `__torajs_argv_init(argc, argv, envp)` call at the
+/// top of `main`'s entry block.
+const USER_MAIN_SYM: &str = "_main_user";
 
 pub(crate) fn run(args: &[String]) -> ExitCode {
     if matches!(
@@ -235,11 +243,17 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
     rewrite_extern_relocs(&mut funcs, &ssa_module.funcs);
     funcs.push(synthesize_obj_drop_sized());
     funcs.push(synthesize_obj_alloc());
+    // Rename the SSA-synthesized top-level wrapper from "main" to the
+    // internal `_main_user` symbol; the `_main` entry sym goes to the
+    // argv-init wrapper synthesized below so `process.argv` /
+    // `Bun.argv` see the kernel-supplied argc/argv before the user
+    // body runs.
     for cf in funcs.iter_mut() {
         if cf.name == "main" {
-            cf.name = ENTRY_SYM.to_string();
+            cf.name = USER_MAIN_SYM.to_string();
         }
     }
+    funcs.push(synthesize_main_argv_wrapper());
 
     // ssa::Module.strings → both UserStringKind flavours per literal.
     // Codegen emits StaticStrRef (`__torajs_str_lit_<i>`) for `"x"`
@@ -330,6 +344,85 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
         // class-free programs — force-emit a 4-byte count global (= 0)
         // and register both syms so the staticlib resolves.
         force_emit_class_layouts_globals: true,
+    }
+}
+
+/// SD-4c gap2 — wrapper that occupies `_main` and forwards the
+/// kernel-supplied `(argc=x0, argv=x1, envp=x2)` triple to
+/// `__torajs_argv_init` before invoking the user main body. Mirrors
+/// `ssa_inkwell::lower.rs`'s entry-block call insertion, but at the
+/// raw ARM64 level since the NEW pipeline has no LLVM IR backend.
+///
+/// The wrapper preserves x0..x2 across the init call by storing
+/// them on stack and restoring before the user-main BL. Strictly
+/// speaking only argv (x1) + envp (x2) need preservation post-init
+/// since user main takes no args; we save all three for symmetry
+/// + future-proofing. AAPCS64 §6.4 requires 16-byte sp alignment,
+/// so the frame is 48 bytes (3 × 16 = 48, holding x29/x30 + the
+/// saved triple).
+///
+/// ARM64 body (12 inst × 4 = 48 bytes):
+///   stp  x29, x30, [sp, #-48]!   ; save fp/lr + alloca 48 bytes
+///   mov  x29, sp
+///   stp  x0,  x1,  [sp, #16]     ; preserve argc + argv (unused
+///                                 ; post-init, kept for clarity)
+///   str  x2,        [sp, #32]    ; preserve envp (unused post-init)
+///   bl   ___torajs_argv_init     ; argc/argv/envp already in x0..2
+///   bl   __main_user             ; user main(), returns i32 in x0
+///   ldp  x29, x30, [sp], #48     ; restore fp/lr + free frame
+///   ret
+fn synthesize_main_argv_wrapper() -> CompiledFunction {
+    let mut bytes = Vec::with_capacity(48);
+    // stp x29, x30, [sp, #-48]!  — pre-index frame allocation
+    //   encoding: 0xA9BD7BFD = stp x29, x30, [sp, #-48]!
+    //   immediate field = (-48 / 8) as 7-bit signed = -6 = 0x7A
+    //   full word: 1010 1001 1011 1010 0111 1011 1111 1101 = 0xA9BA7BFD
+    // Easier to hand-pick the matching pre-index pattern. Use enc::
+    // stp_pre_index when available; otherwise inline the constant.
+    bytes.extend_from_slice(
+        &torajs_codegen::enc::stp_pre_index(Gpr::X29, Gpr::X30, Gpr::SP, -48).to_le_bytes(),
+    );
+    // mov x29, sp  =  add x29, sp, #0
+    bytes.extend_from_slice(&add_imm(Gpr::X29, Gpr::SP, 0).to_le_bytes());
+    // str x0, [sp, #16]  / str x1, [sp, #24]
+    bytes.extend_from_slice(&str_x_imm12(Gpr::X0, Gpr::SP, 16).to_le_bytes());
+    bytes.extend_from_slice(&str_x_imm12(Gpr::X1, Gpr::SP, 24).to_le_bytes());
+    // str x2, [sp, #32]
+    bytes.extend_from_slice(&str_x_imm12(Gpr::X2, Gpr::SP, 32).to_le_bytes());
+    // bl __torajs_argv_init (args already in x0/x1/x2 from dyld)
+    let argv_init_bl_off = bytes.len() as u32;
+    bytes.extend_from_slice(&bl_imm26(0).to_le_bytes());
+    // bl _main_user (no args; returns i32 in x0)
+    let user_main_bl_off = bytes.len() as u32;
+    bytes.extend_from_slice(&bl_imm26(0).to_le_bytes());
+    // ldp x29, x30, [sp], #48  — post-index frame release
+    bytes.extend_from_slice(
+        &torajs_codegen::enc::ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 48).to_le_bytes(),
+    );
+    // ret x30
+    bytes.extend_from_slice(&enc_ret(Gpr::X30).to_le_bytes());
+    CompiledFunction {
+        name: ENTRY_SYM.to_string(),
+        bytes,
+        relocs: vec![
+            Reloc {
+                byte_offset: argv_init_bl_off,
+                kind: RelocKind::CallSite {
+                    target: CallTarget::Extern("___torajs_argv_init".into()),
+                },
+            },
+            Reloc {
+                byte_offset: user_main_bl_off,
+                kind: RelocKind::CallSite {
+                    target: CallTarget::Extern(USER_MAIN_SYM.into()),
+                },
+            },
+        ],
+        // The wrapper saves its own fp/lr inline; the frame layout is
+        // a hand-built stp/ldp pair, not the standard leaf prologue.
+        // Mark as `leaf_no_spill` so codegen's epilogue emit doesn't
+        // try to wrap this fn — it's already complete.
+        frame: FrameLayout::leaf_no_spill(),
     }
 }
 

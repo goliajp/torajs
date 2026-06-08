@@ -102,12 +102,18 @@ pub fn compute_user_strings_layout(
         };
     }
     let mut entries = Vec::with_capacity(strings.len());
-    // Leading pad so the first entry sits on an 8-aligned vaddr.
-    let leading_pad = {
+    // Leading pad shifts the first entry to an 8-aligned vaddr — the
+    // caller-supplied `vaddr_base` may not be 8-aligned (the preceding
+    // non-text region's tail is only 4-byte-padded by other passes).
+    // After this, `running` is the offset from the aligned base so
+    // `& !7` rounds to a real 8-aligned position.
+    let leading_pad: u32 = {
         let aligned = (vaddr_base + 7) & !7;
         (aligned - vaddr_base) as u32
     };
-    let mut running: u32 = leading_pad;
+    let aligned_base_vaddr: u64 = vaddr_base + u64::from(leading_pad);
+    let aligned_base_file_offset: u32 = cursor + leading_pad;
+    let mut running: u32 = 0;
     for e in strings {
         let body_size = entry_body_size(e);
         // Trailing pad so the next entry's vaddr is 8-aligned. For
@@ -117,13 +123,13 @@ pub fn compute_user_strings_layout(
         let payload_size = aligned_next - running;
         entries.push(UserStringEntryLayout {
             sym: e.sym.clone(),
-            vaddr: vaddr_base + u64::from(running),
-            file_offset: cursor + running,
+            vaddr: aligned_base_vaddr + u64::from(running),
+            file_offset: aligned_base_file_offset + running,
             payload_size,
         });
         running += payload_size;
     }
-    let total_size = (running + 3) & !3;
+    let total_size = leading_pad + ((running + 3) & !3);
     UserStringsLayout {
         entries,
         file_offset: cursor,
