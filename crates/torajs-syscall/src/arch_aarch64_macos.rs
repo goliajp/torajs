@@ -45,6 +45,19 @@ pub unsafe fn syscall6(sysno: u32, a0: i64, a1: i64, a2: i64, a3: i64, a4: i64, 
             in("x3") a3,
             in("x4") a4,
             in("x5") a5,
+            // macOS aarch64 syscall ABI: SVC clobbers all scratch
+            // registers (x0–x18) + NZCV per Darwin convention; only
+            // callee-saved (x19–x28, x29, x30, sp) survive across
+            // the trap. Without these clobbers, the compiler may
+            // park a live caller value (e.g. `&self.state` in
+            // torajs-mutex::lock_contended) in x6–x15 across the
+            // `ulock_wait` syscall, the kernel trashes it, and the
+            // post-syscall load dereferences NULL → SIGSEGV in the
+            // contended-path race. `clobber_abi("C")` covers the
+            // AArch64 PCS caller-saved set; `nostack` keeps `sp`
+            // alignment guarantees; `preserves_flags` is INTENTIONALLY
+            // absent because we read NZCV (`b.cc`) inside the asm.
+            clobber_abi("C"),
             options(nostack),
         );
     }
