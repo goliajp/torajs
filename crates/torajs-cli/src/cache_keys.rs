@@ -20,6 +20,15 @@ use std::path::PathBuf;
 /// Notably absent: tr binary mtime, staticlib content. Both can
 /// change without affecting .o bytes; including them would cause
 /// false invalidations and defeat the entire point of this cache.
+///
+/// Bump the trailing version literal whenever cli-side code that
+/// affects SSA-Module → .o emission changes — e.g. the egraph
+/// mid-end pass added between `lower_to_ssa` and codegen, or any
+/// future cli-side IR rewrite. `torajs-core/build.rs`'s
+/// `COMPILER_SOURCE_FILES` covers in-core changes via
+/// `TORAJS_COMPILER_REV`; this literal is the cli-side counterpart
+/// that catches cross-crate integration shifts the core fingerprint
+/// can't see.
 pub(crate) fn fixture_o_cache_key(src: &str, import_closure: &[(PathBuf, Vec<u8>)]) -> String {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -38,7 +47,7 @@ pub(crate) fn fixture_o_cache_key(src: &str, import_closure: &[(PathBuf, Vec<u8>
     // which means env! resolves it ONLY inside torajs-core itself.
     // To reach it from cli, expose via a `pub const` in torajs-core::lib.
     h.write(torajs_core::TORAJS_COMPILER_REV.as_bytes());
-    "fixture-o-v1".hash(&mut h);
+    "fixture-o-v2-egraph".hash(&mut h);
     format!("{:016x}", h.finish())
 }
 
