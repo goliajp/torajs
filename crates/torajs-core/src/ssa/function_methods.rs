@@ -281,6 +281,10 @@ impl Function {
                 write!(w, "id ")?;
                 self.write_operand(w, op)?;
             }
+            InstKind::Neg(op) => {
+                write!(w, "neg ")?;
+                self.write_operand(w, op)?;
+            }
         }
         writeln!(w)
     }

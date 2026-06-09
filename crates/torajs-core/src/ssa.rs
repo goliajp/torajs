@@ -416,6 +416,13 @@ pub enum InstKind {
     CallIndirect(SigId, Operand, Vec<Operand>),
     /// P-OPT Phase 1 — `id <op>`: egraph rewrite placeholder; elaborate aliases via `set_opt_value`.
     Identity(Operand),
+    /// P-OPT Phase 2 chunk 11b — `%v = neg <op>` two's-complement
+    /// negate. Emitted by the egraph `SubNegate` rule rewriting
+    /// `sub 0 x → Neg(x)` (the asymmetric LHS-zero case left by
+    /// `SubZero`, which only handles RHS-zero). Codegen: aarch64
+    /// `neg Xd, Xn` is the `sub Xd, XZR, Xn` alias (ARM ARM C7.2.273);
+    /// LLVM: `sub i64 0, %x`. i64 only — FP Neg deferred.
+    Neg(Operand),
 }
 
 #[derive(Debug, Clone)]

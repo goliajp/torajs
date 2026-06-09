@@ -38,13 +38,13 @@ pub mod canon;
 pub mod self_fold;
 pub mod strength_reduction;
 
-pub use arith_identity::{AddZero, MulOne, MulZero, SubZero};
+pub use arith_identity::{AddZero, MulOne, MulZero, SubNegate, SubZero};
 pub use bitwise_identity::{AndAllOnes, AndZero, OrAllOnes, OrZero, XorZero};
 pub use canon::CommutativeCanon;
 pub use self_fold::{SubSelf, XorSelf};
 pub use strength_reduction::MulPow2ToShl;
 
-use arith_identity::{ADD_ZERO, MUL_ONE, MUL_ZERO, SUB_ZERO};
+use arith_identity::{ADD_ZERO, MUL_ONE, MUL_ZERO, SUB_NEGATE, SUB_ZERO};
 use bitwise_identity::{AND_ALL_ONES, AND_ZERO, OR_ALL_ONES, OR_ZERO, XOR_ZERO};
 use canon::COMMUTATIVE_CANON;
 use self_fold::{SUB_SELF, XOR_SELF};
@@ -162,12 +162,16 @@ impl RewriteRegistry {
 ///   for Sub / Xor / Or / And, completing the textbook arithmetic +
 ///   bitwise identity coverage. All six rely on the canon invariant
 ///   (except SubZero which is RHS-only by SSA emission shape).
+/// - Phase 2 chunk 11b adds SubNegate (`sub 0 x → Neg(x)`), the
+///   sister of SubZero handling the LHS-zero arm. Order in the
+///   list doesn't matter w.r.t. SubZero (patterns are disjoint).
 pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[
     &COMMUTATIVE_CANON,
     &ADD_ZERO,
     &MUL_ONE,
     &MUL_ZERO,
     &SUB_ZERO,
+    &SUB_NEGATE,
     &XOR_ZERO,
     &OR_ZERO,
     &AND_ALL_ONES,
@@ -365,5 +369,21 @@ mod tests {
             apply_rewrites_recursive(reg.rules(), &sub_z),
             InstKind::Identity(Operand::Value(ValueId(4)))
         );
+    }
+
+    #[test]
+    fn sub_negate_fires_through_registry_lhs_zero_only() {
+        // `sub 0 %v` → Neg(%v) — chunk 11b SubNegate rule. Sub is
+        // non-commutative so canon is a no-op here; SubNegate fires
+        // directly on the LHS-zero pattern. Neg has no further
+        // rewrite, so the recursive walk stops there.
+        let reg = RewriteRegistry::with_builtins();
+        let lhs = InstKind::BinOp(BinOp::Sub, Operand::ConstI64(0), val(7));
+        let out = apply_rewrites_recursive(reg.rules(), &lhs);
+        assert_eq!(out, InstKind::Neg(Operand::Value(ValueId(7))));
+        // `sub %v 0` still goes through SubZero, NOT SubNegate.
+        let rhs_z = InstKind::BinOp(BinOp::Sub, val(7), Operand::ConstI64(0));
+        let out2 = apply_rewrites_recursive(reg.rules(), &rhs_z);
+        assert_eq!(out2, InstKind::Identity(Operand::Value(ValueId(7))));
     }
 }

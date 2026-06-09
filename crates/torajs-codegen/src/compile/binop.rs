@@ -15,6 +15,18 @@ use crate::reg::aapcs64;
 use crate::regalloc::Assignment;
 use crate::reloc::{CallTarget, Reloc, RelocKind};
 
+/// P-OPT Phase 2 chunk 11b — emit `%v = neg %op` as the aarch64
+/// `NEG Xd, Xn` alias of `SUB Xd, XZR, Xn` (ARM ARM C7.2.273).
+/// Emitted in place of `sub 0 x` by the egraph `SubNegate` rule.
+pub fn emit_neg(bytes: &mut Vec<u8>, inst: &Inst, op: &Operand, alloc: &Assignment) {
+    use crate::reg::Gpr;
+    let result_vid = inst.result.expect("Neg must have a result ValueId");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    let rn = materialize_operand_gpr(bytes, op, OP_SCRATCH_LHS, alloc);
+    write_u32(bytes, sub_reg(dst, Gpr::XZR, rn));
+    write_def_spill_gpr(bytes, spill_off, dst);
+}
+
 pub fn emit_binop(
     bytes: &mut Vec<u8>,
     relocs: &mut Vec<Reloc>,

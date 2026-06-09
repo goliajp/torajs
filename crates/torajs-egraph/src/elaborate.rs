@@ -286,6 +286,7 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::ZExtBoolToI64(v) => InstKind::ZExtBoolToI64(map_operand(v, egraph)),
         InstKind::ZExtI32ToI64(v) => InstKind::ZExtI32ToI64(map_operand(v, egraph)),
         InstKind::Identity(v) => InstKind::Identity(map_operand(v, egraph)),
+        InstKind::Neg(v) => InstKind::Neg(map_operand(v, egraph)),
         InstKind::BitCastF64ToI64(v) => InstKind::BitCastF64ToI64(map_operand(v, egraph)),
         InstKind::BitCastI64ToF64(v) => InstKind::BitCastI64ToF64(map_operand(v, egraph)),
         InstKind::IntToPtr(v) => InstKind::IntToPtr(map_operand(v, egraph)),

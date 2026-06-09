@@ -182,6 +182,7 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::ZExtBoolToI64(v) => InstKind::ZExtBoolToI64(map_op(v, egraph)),
         InstKind::ZExtI32ToI64(v) => InstKind::ZExtI32ToI64(map_op(v, egraph)),
         InstKind::Identity(v) => InstKind::Identity(map_op(v, egraph)),
+        InstKind::Neg(v) => InstKind::Neg(map_op(v, egraph)),
         // Side-effecting kinds (Store, StoreDyn, Call, Alloca,
         // AllocaBytes) are not GVN candidates — return as-is. They
         // pass through the walk but don't participate in
@@ -217,6 +218,9 @@ fn is_pure(kind: &InstKind) -> bool {
         // (elaboration runs after GVN, so Identity may legitimately
         // appear in the e-class table once Phase 1 rules fire).
         InstKind::Identity(_) => true,
+        // `Neg(op)` is a pure single-operand arithmetic op — no
+        // memory effect, deterministic output. GVN-eligible.
+        InstKind::Neg(_) => true,
         // `Load` / `LoadDyn` are NOT pure without alias analysis —
         // a syntactically identical `load %p+off` may yield a
         // DIFFERENT value if an intervening `Store` to %p+off

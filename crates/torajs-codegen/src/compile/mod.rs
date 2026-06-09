@@ -53,7 +53,7 @@ use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 
-pub use binop::emit_binop;
+pub use binop::{emit_binop, emit_neg};
 pub use call::{emit_call, emit_call_indirect};
 pub use cast::{
     emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64, emit_fp_to_si, emit_int_to_ptr,
@@ -276,6 +276,7 @@ fn emit_inst(
             "InstKind::Identity reached aarch64 emit — egraph elaborate must \
              drop it via set_opt_value before this point"
         ),
+        InstKind::Neg(op) => emit_neg(bytes, inst, op, alloc),
     }
 }
 

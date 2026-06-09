@@ -448,6 +448,16 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                      must drop it via set_opt_value before this point"
                 )
             }
+            InstKind::Neg(op) => {
+                // P-OPT Phase 2 chunk 11b — two's-complement negate. LLVM
+                // textbook lowering is `sub i64 0, %x`; the backend's
+                // peephole folds this to aarch64 `neg Xd, Xn` (alias of
+                // `sub Xd, XZR, Xn`).
+                let av = self.operand_int(op);
+                let zero = self.ctx.i64_type().const_zero();
+                let r = self.builder.build_int_sub(zero, av, "neg").unwrap();
+                Some(BasicValueEnum::IntValue(r))
+            }
         };
 
         if let (Some(r), Some(v)) = (inst.result, result_val) {
