@@ -464,6 +464,8 @@ mod tests {
         // Pre-seed the egraph with the GVN union the optimize phase
         // would produce: two identical pure adds in one block.
         // Elaborate must keep the first and drop the second.
+        // (Use Value+Value operands — both-const operands would
+        // const-fold to Identity, bypassing the GVN dedup path.)
         let values = vec![
             vinfo("a", Type::I64),
             vinfo("b", Type::I64),
@@ -475,11 +477,19 @@ mod tests {
             insts: vec![
                 val_inst(
                     ValueId(2),
-                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(7), Operand::ConstI64(11)),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(1)),
+                    ),
                 ),
                 val_inst(
                     ValueId(3),
-                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(7), Operand::ConstI64(11)),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(1)),
+                    ),
                 ),
             ],
             term: Terminator::Ret(None),
