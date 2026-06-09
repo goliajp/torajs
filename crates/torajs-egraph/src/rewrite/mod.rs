@@ -35,18 +35,21 @@ use torajs_core::ssa::InstKind;
 pub mod arith_identity;
 pub mod bitwise_identity;
 pub mod canon;
+pub mod const_fold;
 pub mod self_fold;
 pub mod strength_reduction;
 
 pub use arith_identity::{AddZero, MulOne, MulZero, SubNegate, SubZero};
 pub use bitwise_identity::{AndAllOnes, AndZero, OrAllOnes, OrZero, XorZero};
 pub use canon::CommutativeCanon;
+pub use const_fold::BinOpConstFold;
 pub use self_fold::{SubSelf, XorSelf};
 pub use strength_reduction::MulPow2ToShl;
 
 use arith_identity::{ADD_ZERO, MUL_ONE, MUL_ZERO, SUB_NEGATE, SUB_ZERO};
 use bitwise_identity::{AND_ALL_ONES, AND_ZERO, OR_ALL_ONES, OR_ZERO, XOR_ZERO};
 use canon::COMMUTATIVE_CANON;
+use const_fold::BIN_OP_CONST_FOLD;
 use self_fold::{SUB_SELF, XOR_SELF};
 use strength_reduction::MUL_POW2;
 
@@ -165,6 +168,11 @@ impl RewriteRegistry {
 /// - Phase 2 chunk 11b adds SubNegate (`sub 0 x → Neg(x)`), the
 ///   sister of SubZero handling the LHS-zero arm. Order in the
 ///   list doesn't matter w.r.t. SubZero (patterns are disjoint).
+/// - Phase 2 chunk 11c adds BinOpConstFold (`(op ConstI64 ConstI64)
+///   → Identity(ConstI64(folded))`) covering all 11 integer BinOps.
+///   Placed before strength-reduction; pattern is `(Const, Const)` —
+///   disjoint with identity/annihilator (`Value, Const`) and self-fold
+///   (`Value, same Value`), so order is correctness-neutral.
 pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[
     &COMMUTATIVE_CANON,
     &ADD_ZERO,
@@ -179,6 +187,7 @@ pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[
     &OR_ALL_ONES,
     &SUB_SELF,
     &XOR_SELF,
+    &BIN_OP_CONST_FOLD,
     &MUL_POW2,
 ];
 
@@ -368,6 +377,43 @@ mod tests {
         assert_eq!(
             apply_rewrites_recursive(reg.rules(), &sub_z),
             InstKind::Identity(Operand::Value(ValueId(4)))
+        );
+    }
+
+    #[test]
+    fn binop_const_fold_fires_through_registry() {
+        // `add 3 5` — both const, neither identity nor self-fold can
+        // fire; BinOpConstFold catches it directly. Canon is a no-op
+        // when both operands are const.
+        let reg = RewriteRegistry::with_builtins();
+        let add = InstKind::BinOp(BinOp::Add, Operand::ConstI64(3), Operand::ConstI64(5));
+        assert_eq!(
+            apply_rewrites_recursive(reg.rules(), &add),
+            InstKind::Identity(Operand::ConstI64(8))
+        );
+        // `sdiv 20 4` → Identity(5) — signed division const-fold.
+        let sdiv = InstKind::BinOp(BinOp::SDiv, Operand::ConstI64(20), Operand::ConstI64(4));
+        assert_eq!(
+            apply_rewrites_recursive(reg.rules(), &sdiv),
+            InstKind::Identity(Operand::ConstI64(5))
+        );
+        // `shl 1 8` → Identity(256) — shift in-range const-fold.
+        let shl = InstKind::BinOp(BinOp::Shl, Operand::ConstI64(1), Operand::ConstI64(8));
+        assert_eq!(
+            apply_rewrites_recursive(reg.rules(), &shl),
+            InstKind::Identity(Operand::ConstI64(256))
+        );
+        // `sdiv 5 0` — bail; no rule should fire, recursive walk
+        // returns the original.
+        let sdiv0 = InstKind::BinOp(BinOp::SDiv, Operand::ConstI64(5), Operand::ConstI64(0));
+        assert_eq!(apply_rewrites_recursive(reg.rules(), &sdiv0), sdiv0);
+        // `add 0 0` → Identity(0) — even the degenerate all-zero case
+        // const-folds (AddZero would fire if RHS were Value, but both
+        // const goes through const-fold instead).
+        let zz = InstKind::BinOp(BinOp::Add, Operand::ConstI64(0), Operand::ConstI64(0));
+        assert_eq!(
+            apply_rewrites_recursive(reg.rules(), &zz),
+            InstKind::Identity(Operand::ConstI64(0))
         );
     }
 
