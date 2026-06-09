@@ -60,7 +60,7 @@ pub struct ArrId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SigId(pub u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Type {
     I64,
     F64,
@@ -232,6 +232,11 @@ pub enum Type {
     Any,
 }
 
+// PartialEq + Eq + Hash are implemented manually below so `ConstF64`
+// can compare and hash by IEEE 754 bit pattern (NaN-stable; required
+// by the egraph GVN map where two textually identical f64 constants
+// must collapse even if one of them is NaN, matching Cranelift's
+// `gvn_map.rs` treatment of the same edge case).
 #[derive(Debug, Clone, Copy)]
 pub enum Operand {
     Value(ValueId),
@@ -247,7 +252,7 @@ pub enum Operand {
     ConstPtrNull,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinOp {
     // Integer
     Add,
@@ -271,7 +276,7 @@ pub enum BinOp {
     FRem,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IPred {
     Eq,
     Ne,
@@ -281,7 +286,7 @@ pub enum IPred {
     Sge,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FPred {
     Oeq,
     One,
@@ -295,7 +300,7 @@ pub enum FPred {
     Une,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InstKind {
     BinOp(BinOp, Operand, Operand),
     ICmp(IPred, Operand, Operand),

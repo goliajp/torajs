@@ -20,5 +20,6 @@
 
 pub mod cost;
 pub mod dominator;
+pub mod egraph;
 pub mod loop_analysis;
 pub mod scope_map;

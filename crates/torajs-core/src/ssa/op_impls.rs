@@ -6,7 +6,8 @@
 //!
 //! Extracted from `ssa.rs` (2026-05-25, god-file decomp batch 15).
 
-use super::{BinOp, FPred, IPred, Type};
+use super::{BinOp, FPred, IPred, Operand, Type};
+use std::hash::{Hash, Hasher};
 
 impl Type {
     pub fn as_str(self) -> &'static str {
@@ -150,6 +151,52 @@ impl FPred {
             FPred::Ole => "ole",
             FPred::Oge => "oge",
             FPred::Une => "une",
+        }
+    }
+}
+
+// `Operand` carries an `f64` constant variant; the auto-derived
+// `PartialEq` / `Hash` would either reject f64 entirely (Eq) or
+// produce hashes that don't agree with equality (since `NaN != NaN`
+// in IEEE 754). The egraph GVN map needs both `Eq` and a stable
+// `Hash` so duplicate-constant detection collapses two `ConstF64(x)`
+// uses into one e-class entry even when `x.is_nan()`.
+//
+// Treatment is the standard SSA-optimizer approach (Cranelift's
+// `cranelift/codegen/src/ir/immediates.rs` does the same): compare
+// and hash the IEEE 754 bit pattern via `f64::to_bits()`. Two NaNs
+// with identical bit patterns are equal; +0.0 and -0.0 have distinct
+// bit patterns and so hash distinctly, matching the conservative
+// behaviour GVN needs (sign of zero is observable in JS via `1/x`).
+impl PartialEq for Operand {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Operand::Value(a), Operand::Value(b)) => a == b,
+            (Operand::ConstI64(a), Operand::ConstI64(b)) => a == b,
+            (Operand::ConstI32(a), Operand::ConstI32(b)) => a == b,
+            (Operand::ConstF64(a), Operand::ConstF64(b)) => a.to_bits() == b.to_bits(),
+            (Operand::ConstBool(a), Operand::ConstBool(b)) => a == b,
+            (Operand::ConstPtrNull, Operand::ConstPtrNull) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Operand {}
+
+impl Hash for Operand {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Mix the discriminant first so two different variants holding
+        // the same bit pattern (e.g. ConstI64(0) and ConstPtrNull) hash
+        // distinctly.
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Operand::Value(v) => v.hash(state),
+            Operand::ConstI64(x) => x.hash(state),
+            Operand::ConstI32(x) => x.hash(state),
+            Operand::ConstF64(x) => x.to_bits().hash(state),
+            Operand::ConstBool(b) => b.hash(state),
+            Operand::ConstPtrNull => {}
         }
     }
 }
