@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-09T08:29:24.364Z",
+  "generatedAt": "2026-06-09T08:51:12.502Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 700,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "c72893e",
-    "commitSubject": "feat(egraph): const-fold rules + value_to_const eclass map — P-OPT Phase 1 chunk 9a-3",
+    "commit": "be1b8f4",
+    "commitSubject": "chore(bench): add mini self-mode 3-run baseline + current — P-OPT Phase 1 真 acceptance close",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,14 @@
   },
   "commits": [
     {
+      "hash": "be1b8f4",
+      "subject": "chore(bench): add mini self-mode 3-run baseline + current — P-OPT Phase 1 真 acceptance close"
+    },
+    {
+      "hash": "02ab278",
+      "subject": "chore: dashboard snapshot @ c72893e — P-OPT Phase 1 first rule cluster ship close"
+    },
+    {
       "hash": "c72893e",
       "subject": "feat(egraph): const-fold rules + value_to_const eclass map — P-OPT Phase 1 chunk 9a-3"
     },
@@ -654,35 +662,38 @@
     {
       "hash": "4bce7a4",
       "subject": "feat(egraph): EgraphPass + cmd_build/cmd_run integration — Phase 0 step 8b"
-    },
-    {
-      "hash": "e77972a",
-      "subject": "feat(egraph): scoped elaboration (domtree DFS + GVN drop) — Phase 0 step 8a"
-    },
-    {
-      "hash": "9476c2a",
-      "subject": "chore: dashboard snapshot @ 7ff51df + mini bench result — Phase 0 7/8 step ship"
     }
   ],
-  "headSha": "c72893e",
+  "headSha": "be1b8f4",
   "autorun": {
-    "total": 92,
+    "total": 93,
     "baselineTarget": 10,
-    "bySelf": 90,
+    "bySelf": 91,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780983230-03c2",
-      "at": "2026-06-09T05:33:50Z",
-      "ts": 1780983230,
+      "rotationId": "r-1780993877-7ac7",
+      "at": "2026-06-09T08:31:17Z",
+      "ts": 1780993877,
       "trigger": "self",
-      "prevHead": "2ffd164",
-      "handoffSha": "sha256:ed91052a66d3a09cfda9fbc42b4f844e83d2cc8e96e79e5b03e79ee299ff1b70",
-      "handoffAgeSec": 45,
+      "prevHead": "02ab278",
+      "handoffSha": "sha256:232f9d111ab0c68f7ed5bd3bffeedd87611a659a6f704de941186e76c38224e0",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780993877-7ac7",
+        "at": "2026-06-09T08:31:17Z",
+        "ts": 1780993877,
+        "trigger": "self",
+        "prevHead": "02ab278",
+        "handoffSha": "sha256:232f9d111ab0c68f7ed5bd3bffeedd87611a659a6f704de941186e76c38224e0",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780983230-03c2",
         "at": "2026-06-09T05:33:50Z",
@@ -779,17 +790,6 @@
         "prevHead": "24bf4e4",
         "handoffSha": "sha256:f1990dfbe74767213804ce7cb7d3a9dd6ddef997ede3d4fdc5bb232899831fd8",
         "handoffAgeSec": 32,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780907119-1c13",
-        "at": "2026-06-08T08:25:19Z",
-        "ts": 1780907119,
-        "trigger": "self",
-        "prevHead": "24bf4e4",
-        "handoffSha": "sha256:f1990dfbe74767213804ce7cb7d3a9dd6ddef997ede3d4fdc5bb232899831fd8",
-        "handoffAgeSec": 28,
         "conformanceBefore": null,
         "commitsInSession": null
       }
