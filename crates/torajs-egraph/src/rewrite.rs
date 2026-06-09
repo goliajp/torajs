@@ -36,6 +36,19 @@
 //! Phase 1 (next clusters) extends with: `InstKind::Identity` + the 5
 //! deferred arithmetic rules, phi simplification, SimplifyCFG-style
 //! branch folding, more arithmetic identities, Inlining trigger.
+//!
+//! Phase 2 chunk 10a adds `CommutativeCanon` — a strictly-directed
+//! single-shot swap that lands any ConstI64 operand on the RHS for
+//! the five commutative integer ops (Add/Mul/And/Or/Xor). The
+//! fixed-point predicate is "LHS is Const && RHS is not Const", so
+//! one swap reaches canonical form and the rule self-disarms (no
+//! commutativity explosion). Sequenced **first** in `BUILTIN_RULES`
+//! so the identity / const-fold rules see normalised input; their
+//! current both-sides match arms stay correct (Phase 2 follow-up
+//! will simplify them to single-side once the canon invariant is
+//! relied on). Floating-point FAdd/FMul are excluded — IEEE 754
+//! commutativity is non-strict around NaN sign-bit propagation;
+//! revisit under a fast-math flag.
 
 use crate::egraph::REWRITE_LIMIT;
 use torajs_core::ssa::{BinOp, InstKind, Operand};
@@ -273,7 +286,45 @@ impl Rewrite for MulZero {
     }
 }
 
+// ---- Phase 2 chunk 10a — commutative canonicalisation ----
+//
+// Strictly-directed single-shot swap. For the five commutative
+// integer binops (Add/Mul/And/Or/Xor), if LHS is ConstI64 and RHS
+// is not ConstI64, swap so the const lands on the right. The
+// "RHS is not Const" guard makes the rule self-disarm after one
+// fire — no commutativity explosion. Two-const cases (e.g.
+// `add 3 5`) are not rewritten here; a future const-fold rule
+// computes them.
+//
+// Floating-point FAdd/FMul are excluded — IEEE 754 commutativity
+// is non-strict around NaN sign-bit propagation; revisit under a
+// fast-math flag.
+
+/// Canonicalise commutative integer binops by moving any ConstI64
+/// operand to the RHS.
+pub struct CommutativeCanon;
+
+impl Rewrite for CommutativeCanon {
+    fn name(&self) -> &'static str {
+        "commutative_canon"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(op, a, b) = lhs
+            && matches!(
+                op,
+                BinOp::Add | BinOp::Mul | BinOp::And | BinOp::Or | BinOp::Xor
+            )
+            && matches!(a, Operand::ConstI64(_))
+            && !matches!(b, Operand::ConstI64(_))
+        {
+            return Some(InstKind::BinOp(*op, *b, *a));
+        }
+        None
+    }
+}
+
 // Static rule references — registry holds `&'static dyn Rewrite`.
+static COMMUTATIVE_CANON: CommutativeCanon = CommutativeCanon;
 static MUL_POW2: MulPow2ToShl = MulPow2ToShl;
 static ADD_ZERO: AddZero = AddZero;
 static MUL_ONE: MulOne = MulOne;
@@ -291,8 +342,19 @@ static MUL_ZERO: MulZero = MulZero;
 /// - Phase 1 chunk 9a-3 adds SubSelf + XorSelf + MulZero (const-fold
 ///   via the eclass `value_to_const` map; no `InstKind::Const`
 ///   variant needed).
+/// - Phase 2 chunk 10a prepends CommutativeCanon so identity /
+///   const-fold rules see normalised operand order (const on RHS).
+///   Their current both-sides match arms stay correct — Phase 2
+///   follow-up simplifies them to single-side once the canon
+///   invariant is relied on.
 pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[
-    &ADD_ZERO, &MUL_ONE, &MUL_ZERO, &SUB_SELF, &XOR_SELF, &MUL_POW2,
+    &COMMUTATIVE_CANON,
+    &ADD_ZERO,
+    &MUL_ONE,
+    &MUL_ZERO,
+    &SUB_SELF,
+    &XOR_SELF,
+    &MUL_POW2,
 ];
 
 #[cfg(test)]
@@ -533,6 +595,99 @@ mod tests {
         assert_eq!(
             rhs,
             InstKind::BinOp(BinOp::Add, val(9), Operand::ConstI64(7))
+        );
+    }
+
+    // ---- Phase 2 chunk 10a — CommutativeCanon ----
+
+    #[test]
+    fn commutative_canon_swaps_const_to_rhs_for_all_five_ops() {
+        for op in [BinOp::Add, BinOp::Mul, BinOp::And, BinOp::Or, BinOp::Xor] {
+            let lhs = InstKind::BinOp(op, Operand::ConstI64(7), val(4));
+            let rhs = CommutativeCanon
+                .try_apply(&lhs)
+                .unwrap_or_else(|| panic!("CommutativeCanon must fire on {op:?}"));
+            assert_eq!(rhs, InstKind::BinOp(op, val(4), Operand::ConstI64(7)));
+        }
+    }
+
+    #[test]
+    fn commutative_canon_already_canonical_no_change() {
+        // const already on RHS — rule must not fire.
+        let lhs = InstKind::BinOp(BinOp::Add, val(4), Operand::ConstI64(7));
+        assert_eq!(CommutativeCanon.try_apply(&lhs), None);
+    }
+
+    #[test]
+    fn commutative_canon_skips_non_commutative_ops() {
+        // Sub/SDiv/Shl etc. must NOT swap even when LHS is const.
+        for op in [BinOp::Sub, BinOp::SDiv, BinOp::Shl, BinOp::AShr] {
+            let lhs = InstKind::BinOp(op, Operand::ConstI64(7), val(4));
+            assert_eq!(
+                CommutativeCanon.try_apply(&lhs),
+                None,
+                "must not swap {op:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn commutative_canon_skips_two_const_operands() {
+        // `add 3 5` is a const-fold candidate, not a canon candidate.
+        let lhs = InstKind::BinOp(BinOp::Add, Operand::ConstI64(3), Operand::ConstI64(5));
+        assert_eq!(CommutativeCanon.try_apply(&lhs), None);
+    }
+
+    #[test]
+    fn commutative_canon_skips_two_value_operands() {
+        // Both Value — no const to canonicalise; rule must not fire.
+        let lhs = InstKind::BinOp(BinOp::Add, val(4), val(9));
+        assert_eq!(CommutativeCanon.try_apply(&lhs), None);
+    }
+
+    #[test]
+    fn commutative_canon_self_disarms_on_recursive_apply() {
+        // apply_rewrites_recursive must reach a fixed point in exactly
+        // one step — no swap/swap/swap loop within REWRITE_LIMIT.
+        let lhs = InstKind::BinOp(BinOp::Mul, Operand::ConstI64(5), val(4));
+        let canon = vec![&COMMUTATIVE_CANON as &dyn Rewrite];
+        let out = apply_rewrites_recursive(&canon, &lhs);
+        assert_eq!(
+            out,
+            InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(5))
+        );
+    }
+
+    #[test]
+    fn commutative_canon_chains_into_add_zero_through_registry() {
+        // `add 0 %v` — CommutativeCanon swaps to `add %v 0`, AddZero
+        // then fires and produces `Identity(%v)`. Verifies rule
+        // ordering (CommutativeCanon first) + chain.
+        let reg = RewriteRegistry::with_builtins();
+        let lhs = InstKind::BinOp(BinOp::Add, Operand::ConstI64(0), val(4));
+        let out = apply_rewrites_recursive(reg.rules(), &lhs);
+        assert_eq!(out, InstKind::Identity(Operand::Value(ValueId(4))));
+    }
+
+    #[test]
+    fn commutative_canon_chains_into_mul_zero_through_registry() {
+        // `mul 0 %v` — CommutativeCanon swaps to `mul %v 0`, MulZero
+        // then fires and produces `Identity(ConstI64(0))`.
+        let reg = RewriteRegistry::with_builtins();
+        let lhs = InstKind::BinOp(BinOp::Mul, Operand::ConstI64(0), val(4));
+        let out = apply_rewrites_recursive(reg.rules(), &lhs);
+        assert_eq!(out, InstKind::Identity(Operand::ConstI64(0)));
+    }
+
+    #[test]
+    fn commutative_canon_runs_before_other_rules_in_builtin_order() {
+        // First rule in BUILTIN_RULES must be CommutativeCanon — its
+        // priority underwrites the single-side simplification of
+        // Phase 2+ identity rules.
+        let reg = RewriteRegistry::with_builtins();
+        assert_eq!(
+            reg.rules().first().expect("non-empty registry").name(),
+            "commutative_canon"
         );
     }
 }
