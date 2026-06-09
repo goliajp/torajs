@@ -38,6 +38,7 @@
 
 use crate::dominator::DominatorTree;
 use crate::egraph::{Egraph, GvnKey};
+use crate::rewrite::{RewriteRegistry, apply_rewrites_recursive};
 use torajs_core::ssa::{Function, InstKind, Operand};
 
 /// Outcome of running Phase 1 over one function. Mostly diagnostic;
@@ -53,6 +54,10 @@ pub struct OptimizeStats {
     /// Number of skeleton (side-effecting) instructions visited and
     /// left in place for elaboration.
     pub skeleton_seen: u32,
+    /// Number of rewrite rules that fired into an `Identity(Value(_))`
+    /// form and aliased the result via `set_opt_value` (chunk 9a-2:
+    /// AddZero, MulOne).
+    pub identity_rewrites_fired: u32,
 }
 
 /// Phase 1 pass: walk the dominator tree in preorder, canonicalising
@@ -64,6 +69,7 @@ pub fn remove_pure_and_optimize(
     egraph: &mut Egraph,
 ) -> OptimizeStats {
     let mut stats = OptimizeStats::default();
+    let registry = RewriteRegistry::with_builtins();
     for &blk_id in dom.reverse_postorder() {
         // Domtree preorder is approximated by RPO for the GVN scope
         // push/pop pattern: each block enters its own scope so values
@@ -98,7 +104,24 @@ pub fn remove_pure_and_optimize(
                     .get(result.0 as usize)
                     .map(|vi| vi.ty)
                     .unwrap_or(torajs_core::ssa::Type::Void);
-                let key: GvnKey = (result_ty, canon_kind);
+
+                // P-OPT Phase 1 — fire rewrite rules. When a rule
+                // produces `Identity(Value(target))` (the AddZero /
+                // MulOne shape), alias `result` onto `target` and
+                // skip GVN insert: downstream uses canonicalise to
+                // `target` via `opt_value`, and elaborate never sees
+                // an Identity inst because the rewrite never lands
+                // back in the IR — the rewrite "subsumes" the
+                // original. Other rewrite shapes (e.g. MulPow2ToShl)
+                // fall through to GVN using the rewritten kind so
+                // dedup keys off the cheaper form.
+                let rewritten_kind = apply_rewrites_recursive(registry.rules(), &canon_kind);
+                if let InstKind::Identity(Operand::Value(target_v)) = rewritten_kind {
+                    egraph.set_opt_value(result, target_v);
+                    stats.identity_rewrites_fired += 1;
+                    continue;
+                }
+                let key: GvnKey = (result_ty, rewritten_kind);
                 if let Some(&existing) = egraph.gvn().get(&key) {
                     egraph.union(result, existing);
                     stats.gvn_hits += 1;
@@ -106,8 +129,6 @@ pub fn remove_pure_and_optimize(
                     egraph.gvn_mut().insert(key, result);
                     egraph.set_available_block(result, blk_id);
                     stats.gvn_inserts += 1;
-                    // Phase 1 hook: try_rewrite(canon_kind, &mut egraph).
-                    // Phase 0 = no-op.
                 }
             } else {
                 stats.skeleton_seen += 1;
@@ -437,6 +458,63 @@ mod tests {
         assert_eq!(stats.gvn_hits, 0);
         assert_eq!(stats.gvn_inserts, 0);
         assert_eq!(stats.skeleton_seen, 0);
+    }
+
+    #[test]
+    fn add_zero_rewrite_aliases_result_to_operand() {
+        // %0 = (param-shaped) value
+        // %1 = add %0, 0     # AddZero fires → set_opt_value(%1, %0)
+        // %2 = sub %1, %0    # %1 must canonicalise to %0 downstream
+        let values = vec![int_value("a"), int_value("r1"), int_value("r2")];
+        let blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![
+                empty_inst(
+                    ValueId(1),
+                    InstKind::BinOp(BinOp::Add, Operand::Value(ValueId(0)), Operand::ConstI64(0)),
+                ),
+                empty_inst(
+                    ValueId(2),
+                    InstKind::BinOp(
+                        BinOp::Sub,
+                        Operand::Value(ValueId(1)),
+                        Operand::Value(ValueId(0)),
+                    ),
+                ),
+            ],
+            term: Terminator::Ret(None),
+        }];
+        let func = fixture(values, blocks);
+        let dom = DominatorTree::compute(&func);
+        let mut eg = Egraph::new(func.values.len());
+        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        assert_eq!(
+            stats.identity_rewrites_fired, 1,
+            "AddZero must fire exactly once on (add %0 0)"
+        );
+        // opt_value(%1) resolves to %0 because the rewrite wired the alias.
+        assert_eq!(eg.opt_value(ValueId(1)), ValueId(0));
+    }
+
+    #[test]
+    fn mul_one_rewrite_aliases_result_to_operand() {
+        // %0 = (param-shaped) value
+        // %1 = mul %0, 1     # MulOne fires → set_opt_value(%1, %0)
+        let values = vec![int_value("a"), int_value("r1")];
+        let blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![empty_inst(
+                ValueId(1),
+                InstKind::BinOp(BinOp::Mul, Operand::Value(ValueId(0)), Operand::ConstI64(1)),
+            )],
+            term: Terminator::Ret(None),
+        }];
+        let func = fixture(values, blocks);
+        let dom = DominatorTree::compute(&func);
+        let mut eg = Egraph::new(func.values.len());
+        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        assert_eq!(stats.identity_rewrites_fired, 1);
+        assert_eq!(eg.opt_value(ValueId(1)), ValueId(0));
     }
 
     #[test]

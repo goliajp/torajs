@@ -153,8 +153,11 @@ impl Rewrite for MulPow2ToShl {
         "mul_pow2_to_shl"
     }
     fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        // Excludes c==1 (shl by 0 is a no-op — MulOne handles that as
+        // an identity rewrite instead) so the rule registry's
+        // identity-first priority doesn't get racy.
         if let InstKind::BinOp(BinOp::Mul, x, Operand::ConstI64(c)) = lhs
-            && *c > 0
+            && *c > 1
             && (*c as u64).is_power_of_two()
         {
             let k = (*c as u64).trailing_zeros() as i64;
@@ -164,14 +167,68 @@ impl Rewrite for MulPow2ToShl {
     }
 }
 
+// ---- Phase 1 chunk 9a-2 — Identity-Value arithmetic identities ----
+//
+// Both rules rewrite to `Identity(x)` so the optimizer aliases
+// `result` onto `x` via `set_opt_value` and never emits an inst.
+// Each tries both operand orderings (commutative); a future
+// `add_swap_canonical` rule will canonicalise constants to the RHS
+// and let these match a single side.
+
+/// `(add x 0) | (add 0 x) → Identity(x)` — additive identity.
+pub struct AddZero;
+
+impl Rewrite for AddZero {
+    fn name(&self) -> &'static str {
+        "add_zero_to_identity"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(BinOp::Add, a, b) = lhs {
+            if matches!(b, Operand::ConstI64(0)) {
+                return Some(InstKind::Identity(*a));
+            }
+            if matches!(a, Operand::ConstI64(0)) {
+                return Some(InstKind::Identity(*b));
+            }
+        }
+        None
+    }
+}
+
+/// `(mul x 1) | (mul 1 x) → Identity(x)` — multiplicative identity.
+pub struct MulOne;
+
+impl Rewrite for MulOne {
+    fn name(&self) -> &'static str {
+        "mul_one_to_identity"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(BinOp::Mul, a, b) = lhs {
+            if matches!(b, Operand::ConstI64(1)) {
+                return Some(InstKind::Identity(*a));
+            }
+            if matches!(a, Operand::ConstI64(1)) {
+                return Some(InstKind::Identity(*b));
+            }
+        }
+        None
+    }
+}
+
 // Static rule references — registry holds `&'static dyn Rewrite`.
 static MUL_POW2: MulPow2ToShl = MulPow2ToShl;
+static ADD_ZERO: AddZero = AddZero;
+static MUL_ONE: MulOne = MulOne;
 
 /// Built-in rule set. Order = priority — first match wins in
-/// `apply_rewrites`. Phase 0 ships one genuine rule
-/// (`MulPow2ToShl`); Phase 1 adds the deferred arithmetic identities
-/// + phi simplification + branch folding clusters.
-pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[&MUL_POW2];
+/// `apply_rewrites`. Identity rules fire first (zero-cost alias);
+/// strength-reduction rules fire on what's left.
+///
+/// Phase 0 shipped MulPow2ToShl; Phase 1 chunk 9a-2 adds AddZero +
+/// MulOne. Const-folding rules (SubSelf / XorSelf / MulZero) land
+/// in chunk 9a-3 once `InstKind::Const` / constant-propagation
+/// plumbing exists.
+pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[&ADD_ZERO, &MUL_ONE, &MUL_POW2];
 
 #[cfg(test)]
 mod tests {
@@ -271,6 +328,67 @@ mod tests {
         assert_eq!(
             result,
             InstKind::BinOp(BinOp::Add, val(REWRITE_LIMIT as u32), Operand::ConstI64(1))
+        );
+    }
+
+    #[test]
+    fn add_zero_rewrites_to_identity_both_sides() {
+        // (add x 0) → Identity(x)
+        let lhs = InstKind::BinOp(BinOp::Add, val(4), Operand::ConstI64(0));
+        assert_eq!(
+            AddZero.try_apply(&lhs),
+            Some(InstKind::Identity(Operand::Value(ValueId(4))))
+        );
+        // (add 0 x) → Identity(x)
+        let lhs2 = InstKind::BinOp(BinOp::Add, Operand::ConstI64(0), val(7));
+        assert_eq!(
+            AddZero.try_apply(&lhs2),
+            Some(InstKind::Identity(Operand::Value(ValueId(7))))
+        );
+        // (add x 1) — doesn't fire.
+        let nope = InstKind::BinOp(BinOp::Add, val(4), Operand::ConstI64(1));
+        assert!(AddZero.try_apply(&nope).is_none());
+        // (sub x 0) — wrong op, doesn't fire.
+        let other_op = InstKind::BinOp(BinOp::Sub, val(4), Operand::ConstI64(0));
+        assert!(AddZero.try_apply(&other_op).is_none());
+    }
+
+    #[test]
+    fn mul_one_rewrites_to_identity_both_sides() {
+        // (mul x 1) → Identity(x)
+        let lhs = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(1));
+        assert_eq!(
+            MulOne.try_apply(&lhs),
+            Some(InstKind::Identity(Operand::Value(ValueId(4))))
+        );
+        // (mul 1 x) → Identity(x)
+        let lhs2 = InstKind::BinOp(BinOp::Mul, Operand::ConstI64(1), val(9));
+        assert_eq!(
+            MulOne.try_apply(&lhs2),
+            Some(InstKind::Identity(Operand::Value(ValueId(9))))
+        );
+        // (mul x 0) — doesn't fire (MulZero is a Phase 1 chunk 9a-3 rule).
+        let zero = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(0));
+        assert!(MulOne.try_apply(&zero).is_none());
+        // (mul x 2) — doesn't fire (MulPow2ToShl handles it).
+        let two = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(2));
+        assert!(MulOne.try_apply(&two).is_none());
+    }
+
+    #[test]
+    fn builtin_registry_includes_add_zero_and_mul_one() {
+        let reg = RewriteRegistry::with_builtins();
+        // add 0 fires through the registry.
+        let add = InstKind::BinOp(BinOp::Add, val(4), Operand::ConstI64(0));
+        assert_eq!(
+            apply_rewrites(reg.rules(), &add),
+            Some(InstKind::Identity(Operand::Value(ValueId(4))))
+        );
+        // mul 1 fires through the registry.
+        let mul = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(1));
+        assert_eq!(
+            apply_rewrites(reg.rules(), &mul),
+            Some(InstKind::Identity(Operand::Value(ValueId(4))))
         );
     }
 
