@@ -23,4 +23,5 @@ pub mod dominator;
 pub mod egraph;
 pub mod loop_analysis;
 pub mod optimize;
+pub mod rewrite;
 pub mod scope_map;
