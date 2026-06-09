@@ -280,6 +280,119 @@ impl Rewrite for MulZero {
     }
 }
 
+// ---- Phase 2 chunk 10c — extended identity / annihilator rules ----
+//
+// Six rules follow the chunk-10a/b pattern: CommutativeCanon
+// guarantees that any ConstI64 operand of And/Or/Xor lands on the
+// RHS, so each rule matches the single RHS-Const arm. Sub is not
+// commutative; `sub x 0` already has the const on the RHS by SSA
+// emission convention (no canon needed), and `sub 0 x → -x` is a
+// separate negate rewrite, deferred to a later chunk.
+//
+// Rule body: textbook identity / annihilator —
+//   sub x 0  → x         (additive identity, RHS-only by SSA shape)
+//   xor x 0  → x         (xor identity)
+//   or  x 0  → x         (or identity)
+//   and x -1 → x         (all-ones bitwise identity, i64 -1 = 0xFF…F)
+//   and x 0  → 0         (zero annihilator on And)
+//   or  x -1 → -1        (all-ones annihilator on Or)
+
+/// `(sub x 0) → Identity(x)` — subtractive zero identity.
+pub struct SubZero;
+
+impl Rewrite for SubZero {
+    fn name(&self) -> &'static str {
+        "sub_zero_to_identity"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(BinOp::Sub, a, Operand::ConstI64(0)) = lhs {
+            return Some(InstKind::Identity(*a));
+        }
+        None
+    }
+}
+
+/// `(xor x 0) → Identity(x)` — xor zero identity. Relies on
+/// CommutativeCanon to land the const on the RHS.
+pub struct XorZero;
+
+impl Rewrite for XorZero {
+    fn name(&self) -> &'static str {
+        "xor_zero_to_identity"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(BinOp::Xor, a, Operand::ConstI64(0)) = lhs {
+            return Some(InstKind::Identity(*a));
+        }
+        None
+    }
+}
+
+/// `(or x 0) → Identity(x)` — or zero identity. Relies on
+/// CommutativeCanon to land the const on the RHS.
+pub struct OrZero;
+
+impl Rewrite for OrZero {
+    fn name(&self) -> &'static str {
+        "or_zero_to_identity"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(BinOp::Or, a, Operand::ConstI64(0)) = lhs {
+            return Some(InstKind::Identity(*a));
+        }
+        None
+    }
+}
+
+/// `(and x -1) → Identity(x)` — bitwise all-ones identity for i64
+/// (`-1` two's-complement is `0xFFFF_FFFF_FFFF_FFFF`). Relies on
+/// CommutativeCanon to land the const on the RHS.
+pub struct AndAllOnes;
+
+impl Rewrite for AndAllOnes {
+    fn name(&self) -> &'static str {
+        "and_all_ones_to_identity"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(BinOp::And, a, Operand::ConstI64(-1)) = lhs {
+            return Some(InstKind::Identity(*a));
+        }
+        None
+    }
+}
+
+/// `(and x 0) → 0` — And-with-zero annihilator. Relies on
+/// CommutativeCanon to land the const on the RHS.
+pub struct AndZero;
+
+impl Rewrite for AndZero {
+    fn name(&self) -> &'static str {
+        "and_zero_to_zero"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(BinOp::And, _, Operand::ConstI64(0)) = lhs {
+            return Some(InstKind::Identity(Operand::ConstI64(0)));
+        }
+        None
+    }
+}
+
+/// `(or x -1) → -1` — Or-with-all-ones annihilator. Relies on
+/// CommutativeCanon to land the const on the RHS.
+pub struct OrAllOnes;
+
+impl Rewrite for OrAllOnes {
+    fn name(&self) -> &'static str {
+        "or_all_ones_to_all_ones"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(BinOp::Or, _, Operand::ConstI64(-1)) = lhs {
+            return Some(InstKind::Identity(Operand::ConstI64(-1)));
+        }
+        None
+    }
+}
+
 // ---- Phase 2 chunk 10a — commutative canonicalisation ----
 //
 // Strictly-directed single-shot swap. For the five commutative
@@ -325,6 +438,12 @@ static MUL_ONE: MulOne = MulOne;
 static SUB_SELF: SubSelf = SubSelf;
 static XOR_SELF: XorSelf = XorSelf;
 static MUL_ZERO: MulZero = MulZero;
+static SUB_ZERO: SubZero = SubZero;
+static XOR_ZERO: XorZero = XorZero;
+static OR_ZERO: OrZero = OrZero;
+static AND_ALL_ONES: AndAllOnes = AndAllOnes;
+static AND_ZERO: AndZero = AndZero;
+static OR_ALL_ONES: OrAllOnes = OrAllOnes;
 
 /// Built-in rule set. Order = priority — first match wins in
 /// `apply_rewrites`. Identity / const-fold rules fire first
@@ -341,11 +460,22 @@ static MUL_ZERO: MulZero = MulZero;
 /// - Phase 2 chunk 10b simplifies AddZero / MulOne / MulZero to
 ///   match the RHS-Const arm only, relying on the canon invariant
 ///   established in chunk 10a.
+/// - Phase 2 chunk 10c adds SubZero / XorZero / OrZero / AndAllOnes
+///   / AndZero / OrAllOnes — RHS-Const identity / annihilator rules
+///   for Sub / Xor / Or / And, completing the textbook arithmetic +
+///   bitwise identity coverage. All six rely on the canon invariant
+///   (except SubZero which is RHS-only by SSA emission shape).
 pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[
     &COMMUTATIVE_CANON,
     &ADD_ZERO,
     &MUL_ONE,
     &MUL_ZERO,
+    &SUB_ZERO,
+    &XOR_ZERO,
+    &OR_ZERO,
+    &AND_ALL_ONES,
+    &AND_ZERO,
+    &OR_ALL_ONES,
     &SUB_SELF,
     &XOR_SELF,
     &MUL_POW2,
@@ -677,6 +807,137 @@ mod tests {
         assert_eq!(
             reg.rules().first().expect("non-empty registry").name(),
             "commutative_canon"
+        );
+    }
+
+    // ---- Phase 2 chunk 10c — extended identity / annihilator ----
+
+    #[test]
+    fn sub_zero_rewrites_to_identity() {
+        let lhs = InstKind::BinOp(BinOp::Sub, val(4), Operand::ConstI64(0));
+        assert_eq!(
+            SubZero.try_apply(&lhs),
+            Some(InstKind::Identity(Operand::Value(ValueId(4))))
+        );
+        // `sub 0 x` — Sub isn't commutative; rule must NOT fire (this
+        // is the `0 - x = -x` negate case, deferred to a later rule).
+        let lhs2 = InstKind::BinOp(BinOp::Sub, Operand::ConstI64(0), val(7));
+        assert_eq!(SubZero.try_apply(&lhs2), None);
+        // wrong op doesn't fire.
+        let add = InstKind::BinOp(BinOp::Add, val(4), Operand::ConstI64(0));
+        assert_eq!(SubZero.try_apply(&add), None);
+        // non-zero const doesn't fire.
+        let one = InstKind::BinOp(BinOp::Sub, val(4), Operand::ConstI64(1));
+        assert_eq!(SubZero.try_apply(&one), None);
+    }
+
+    #[test]
+    fn xor_zero_rewrites_to_identity_rhs_only_after_canon() {
+        let lhs = InstKind::BinOp(BinOp::Xor, val(4), Operand::ConstI64(0));
+        assert_eq!(
+            XorZero.try_apply(&lhs),
+            Some(InstKind::Identity(Operand::Value(ValueId(4))))
+        );
+        // LHS-Const direct-call no longer fires; canon swaps first.
+        let lhs2 = InstKind::BinOp(BinOp::Xor, Operand::ConstI64(0), val(7));
+        assert!(XorZero.try_apply(&lhs2).is_none());
+        // non-zero const doesn't fire.
+        let nz = InstKind::BinOp(BinOp::Xor, val(4), Operand::ConstI64(1));
+        assert!(XorZero.try_apply(&nz).is_none());
+    }
+
+    #[test]
+    fn or_zero_rewrites_to_identity_rhs_only_after_canon() {
+        let lhs = InstKind::BinOp(BinOp::Or, val(4), Operand::ConstI64(0));
+        assert_eq!(
+            OrZero.try_apply(&lhs),
+            Some(InstKind::Identity(Operand::Value(ValueId(4))))
+        );
+        let lhs2 = InstKind::BinOp(BinOp::Or, Operand::ConstI64(0), val(7));
+        assert!(OrZero.try_apply(&lhs2).is_none());
+    }
+
+    #[test]
+    fn and_all_ones_rewrites_to_identity_rhs_only_after_canon() {
+        let lhs = InstKind::BinOp(BinOp::And, val(4), Operand::ConstI64(-1));
+        assert_eq!(
+            AndAllOnes.try_apply(&lhs),
+            Some(InstKind::Identity(Operand::Value(ValueId(4))))
+        );
+        // LHS-Const direct-call no longer fires; canon swaps first.
+        let lhs2 = InstKind::BinOp(BinOp::And, Operand::ConstI64(-1), val(7));
+        assert!(AndAllOnes.try_apply(&lhs2).is_none());
+        // `and x 0` is AndZero territory, not AndAllOnes.
+        let zero = InstKind::BinOp(BinOp::And, val(4), Operand::ConstI64(0));
+        assert!(AndAllOnes.try_apply(&zero).is_none());
+    }
+
+    #[test]
+    fn and_zero_folds_to_zero_rhs_only_after_canon() {
+        let lhs = InstKind::BinOp(BinOp::And, val(4), Operand::ConstI64(0));
+        assert_eq!(
+            AndZero.try_apply(&lhs),
+            Some(InstKind::Identity(Operand::ConstI64(0)))
+        );
+        let lhs2 = InstKind::BinOp(BinOp::And, Operand::ConstI64(0), val(7));
+        assert!(AndZero.try_apply(&lhs2).is_none());
+        // `and x -1` is AndAllOnes territory.
+        let neg1 = InstKind::BinOp(BinOp::And, val(4), Operand::ConstI64(-1));
+        assert!(AndZero.try_apply(&neg1).is_none());
+    }
+
+    #[test]
+    fn or_all_ones_folds_to_all_ones_rhs_only_after_canon() {
+        let lhs = InstKind::BinOp(BinOp::Or, val(4), Operand::ConstI64(-1));
+        assert_eq!(
+            OrAllOnes.try_apply(&lhs),
+            Some(InstKind::Identity(Operand::ConstI64(-1)))
+        );
+        let lhs2 = InstKind::BinOp(BinOp::Or, Operand::ConstI64(-1), val(7));
+        assert!(OrAllOnes.try_apply(&lhs2).is_none());
+        // `or x 0` is OrZero territory.
+        let zero = InstKind::BinOp(BinOp::Or, val(4), Operand::ConstI64(0));
+        assert!(OrAllOnes.try_apply(&zero).is_none());
+    }
+
+    #[test]
+    fn chunk_10c_rules_chain_through_registry_with_canon() {
+        let reg = RewriteRegistry::with_builtins();
+        // `xor 0 %v` — canon swaps → `xor %v 0` → XorZero → Identity(%v).
+        let xor = InstKind::BinOp(BinOp::Xor, Operand::ConstI64(0), val(4));
+        assert_eq!(
+            apply_rewrites_recursive(reg.rules(), &xor),
+            InstKind::Identity(Operand::Value(ValueId(4)))
+        );
+        // `or 0 %v` — canon swaps → `or %v 0` → OrZero → Identity(%v).
+        let or_ = InstKind::BinOp(BinOp::Or, Operand::ConstI64(0), val(4));
+        assert_eq!(
+            apply_rewrites_recursive(reg.rules(), &or_),
+            InstKind::Identity(Operand::Value(ValueId(4)))
+        );
+        // `and -1 %v` — canon swaps → `and %v -1` → AndAllOnes → Identity(%v).
+        let and_ = InstKind::BinOp(BinOp::And, Operand::ConstI64(-1), val(4));
+        assert_eq!(
+            apply_rewrites_recursive(reg.rules(), &and_),
+            InstKind::Identity(Operand::Value(ValueId(4)))
+        );
+        // `and 0 %v` — canon swaps → `and %v 0` → AndZero → Identity(0).
+        let and_z = InstKind::BinOp(BinOp::And, Operand::ConstI64(0), val(4));
+        assert_eq!(
+            apply_rewrites_recursive(reg.rules(), &and_z),
+            InstKind::Identity(Operand::ConstI64(0))
+        );
+        // `or -1 %v` — canon swaps → `or %v -1` → OrAllOnes → Identity(-1).
+        let or_ones = InstKind::BinOp(BinOp::Or, Operand::ConstI64(-1), val(4));
+        assert_eq!(
+            apply_rewrites_recursive(reg.rules(), &or_ones),
+            InstKind::Identity(Operand::ConstI64(-1))
+        );
+        // `sub %v 0` — SubZero direct (no canon needed, Sub non-commutative).
+        let sub_z = InstKind::BinOp(BinOp::Sub, val(4), Operand::ConstI64(0));
+        assert_eq!(
+            apply_rewrites_recursive(reg.rules(), &sub_z),
+            InstKind::Identity(Operand::Value(ValueId(4)))
         );
     }
 }
