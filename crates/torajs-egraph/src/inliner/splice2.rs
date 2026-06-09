@@ -62,6 +62,28 @@ pub enum SpliceMultiError {
     /// Ret-shape mismatch (value-bearing Ret without `result_value`,
     /// or `result_value` set but only void Rets).
     RetShapeMismatch,
+    /// Callee uses refcounted SSA types in its signature (params or
+    /// return type) or any of its non-parameter values.
+    ///
+    /// torajs's refcounted types (`Str` / `Substr` / `Arr` / `Obj` /
+    /// `Closure` / `Promise` / `Map` / `Set` / etc.) participate in
+    /// caller-side `__torajs_rc_inc` / `__torajs_rc_dec` calling-
+    /// convention that ssa_lower emits around the original `Call`
+    /// instruction. Splicing the callee body into the caller without
+    /// rebalancing those calls causes double-drops or use-after-free
+    /// at runtime (observed as SIGSEGV / SIGBUS on the
+    /// parser-optional-param / restparam / spread conformance
+    /// fixtures during the first Phase 2.0a ship). Until the splice
+    /// becomes RC-aware (Phase 2.0c+), this guard restricts inlining
+    /// to value-shaped callees (number / bool / void).
+    RefcountedTypeNotSupported,
+    /// Callee body contains an `Alloca` or `AllocaBytes` instruction.
+    /// These materialise stack slots in the callee's frame; cloning
+    /// them into the caller's body interacts with codegen's frame-
+    /// builder in ways the Phase 2.0a splice does not yet model
+    /// (slot lifetime, alignment, drop-on-frame-exit). Reject for
+    /// safety until codegen-level frame-merge analysis lands.
+    AllocaInBody,
 }
 
 pub fn inline_multi_block_leaf(
@@ -100,6 +122,9 @@ pub fn inline_multi_block_leaf(
             ) {
                 return Err(SpliceMultiError::NotLeaf);
             }
+            if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_)) {
+                return Err(SpliceMultiError::AllocaInBody);
+            }
         }
         match &blk.term {
             Terminator::Br(_) | Terminator::CondBr { .. } => {}
@@ -118,6 +143,29 @@ pub fn inline_multi_block_leaf(
     }
     if (value_ret_count == 1) != result_value.is_some() {
         return Err(SpliceMultiError::RetShapeMismatch);
+    }
+    // ---- 1b. Refcounted-type guard. ssa_lower emits rc_inc/rc_dec
+    // calls around the original call site for refcounted types
+    // (Str / Arr / Obj / Closure / Promise / Map / Set / ...);
+    // splicing without rebalancing those calls causes double-drops
+    // or use-after-free. Until the splice becomes RC-aware, restrict
+    // inlining to value-shaped callees.
+    if callee.ret.is_refcounted() {
+        return Err(SpliceMultiError::RefcountedTypeNotSupported);
+    }
+    for param_id in &callee.params {
+        let ty = &callee.values[param_id.0 as usize].ty;
+        if ty.is_refcounted() {
+            return Err(SpliceMultiError::RefcountedTypeNotSupported);
+        }
+    }
+    for (i, vi) in callee.values.iter().enumerate() {
+        if callee.params.iter().any(|p| p.0 as usize == i) {
+            continue;
+        }
+        if vi.ty.is_refcounted() {
+            return Err(SpliceMultiError::RefcountedTypeNotSupported);
+        }
     }
 
     // ---- 2. Allocate BlockIds: one per callee block + one

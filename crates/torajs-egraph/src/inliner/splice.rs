@@ -59,6 +59,15 @@ pub enum SpliceError {
     /// site result slot: `Ret(Some(_))` without `result_value` (or
     /// the reverse) means the inliner cannot bind the produced value.
     RetShapeMismatch,
+    /// Callee uses refcounted SSA types in its signature or non-
+    /// parameter values. See `splice2::SpliceMultiError::
+    /// RefcountedTypeNotSupported` for the RC-aware-splice rationale —
+    /// Phase 1.0a inherits the same guard so a future change to its
+    /// fire conditions doesn't introduce double-drop bugs.
+    RefcountedTypeNotSupported,
+    /// Callee body contains an `Alloca` / `AllocaBytes`. See the
+    /// matching variant in `splice2::SpliceMultiError`.
+    AllocaInBody,
 }
 
 /// Splice a single-block leaf `callee`'s body into `caller` at the
@@ -109,6 +118,9 @@ pub fn inline_single_block_leaf(
         ) {
             return Err(SpliceError::NotLeaf);
         }
+        if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_)) {
+            return Err(SpliceError::AllocaInBody);
+        }
     }
     let ret_operand = match &callee_blk.term {
         Terminator::Ret(opt) => opt.clone(),
@@ -131,6 +143,23 @@ pub fn inline_single_block_leaf(
         InstKind::Call(_, _)
     ) {
         return Err(SpliceError::NotCallSite);
+    }
+    // ---- 1b. Refcounted-type guard (matches splice2).
+    if callee.ret.is_refcounted() {
+        return Err(SpliceError::RefcountedTypeNotSupported);
+    }
+    for param_id in &callee.params {
+        if callee.values[param_id.0 as usize].ty.is_refcounted() {
+            return Err(SpliceError::RefcountedTypeNotSupported);
+        }
+    }
+    for (i, vi) in callee.values.iter().enumerate() {
+        if callee.params.iter().any(|p| p.0 as usize == i) {
+            continue;
+        }
+        if vi.ty.is_refcounted() {
+            return Err(SpliceError::RefcountedTypeNotSupported);
+        }
     }
 
     // ---- 2. Build callee-ValueId → caller-Operand mapping.
