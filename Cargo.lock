@@ -1713,6 +1713,7 @@ dependencies = [
  "serde_json",
  "torajs-codegen",
  "torajs-core",
+ "torajs-egraph",
  "torajs-link",
 ]
 

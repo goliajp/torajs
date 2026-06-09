@@ -94,6 +94,11 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
         Err(code) => return code,
     };
 
+    // Phase 0 step 8b — egraph mid-end pass between SSA lowering and
+    // codegen. Round-trip-equivalent under no active rule cluster;
+    // honors `TORAJS_EGRAPH_OFF=1` for bisection.
+    let ssa_module = torajs_egraph::transform_module(ssa_module);
+
     let cfg = build_link_config(&ssa_module);
 
     let bytes = match link_to_exec_with_archives(&cfg) {

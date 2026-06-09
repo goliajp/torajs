@@ -29,6 +29,10 @@ pub(crate) fn run(file_arg: Option<&String>) -> ExitCode {
         Err(code) => return code,
     };
 
+    // Phase 0 step 8b — egraph mid-end pass (round-trip-equivalent
+    // in Phase 0; `TORAJS_EGRAPH_OFF=1` bypasses for bisection).
+    let ssa_module = torajs_egraph::transform_module(ssa_module);
+
     let cfg = build_link_config(&ssa_module);
 
     let bytes = match link_to_exec_with_archives(&cfg) {

@@ -21,6 +21,13 @@ torajs-core = { path = "../torajs-core" }
 torajs-codegen = { path = "../torajs-codegen" }
 torajs-link = { path = "../torajs-link" }
 
+# Phase 0 step 8 — egraph mid-end optimizer wired into the new pipeline
+# between `ssa_lower::lower_with_arity` and `torajs_codegen::compile_function`.
+# Currently round-trip-equivalent (no rule cluster active); Phase 1+
+# wires the first arithmetic + branch-folding rules. Honors
+# `TORAJS_EGRAPH_OFF=1` env gate for bisection.
+torajs-egraph = { path = "../torajs-egraph" }
+
 # v0.3 #5 LSP — JSON-RPC framing + LSP type definitions for the
 # `tr lsp` subcommand. Dev-tooling dep, not in any runtime path.
 lsp-server = "0.7"
