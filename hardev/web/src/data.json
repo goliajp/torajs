@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-09T10:15:12.629Z",
+  "generatedAt": "2026-06-09T10:36:43.130Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 700,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "188fb11",
-    "commitSubject": "feat(egraph): extended identity / annihilator rules — P-OPT Phase 2 chunk 10c",
+    "commit": "8c42e39",
+    "commitSubject": "refactor(egraph): split rewrite.rs into rewrite/ module — P-OPT Phase 2 chunk 11a",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,14 @@
   },
   "commits": [
     {
+      "hash": "8c42e39",
+      "subject": "refactor(egraph): split rewrite.rs into rewrite/ module — P-OPT Phase 2 chunk 11a"
+    },
+    {
+      "hash": "a508440",
+      "subject": "chore: dashboard snapshot @ 188fb11 — P-OPT Phase 2 rewrite-rule cluster close"
+    },
+    {
       "hash": "188fb11",
       "subject": "feat(egraph): extended identity / annihilator rules — P-OPT Phase 2 chunk 10c"
     },
@@ -654,35 +662,38 @@
     {
       "hash": "d37e77d",
       "subject": "feat(ssa): add InstKind::Identity(Operand) + match arm cascade — P-OPT Phase 1 chunk 9a-1"
-    },
-    {
-      "hash": "e25a801",
-      "subject": "chore: dashboard snapshot @ 2ffd164 — P-OPT Phase 0 真 close + Phase 1 trigger 解锁"
-    },
-    {
-      "hash": "2ffd164",
-      "subject": "feat(egraph): re-enable cmd_build/cmd_run wire-in + bump fixture_o cache key — Phase 0 close"
     }
   ],
-  "headSha": "188fb11",
+  "headSha": "8c42e39",
   "autorun": {
-    "total": 94,
+    "total": 95,
     "baselineTarget": 10,
-    "bySelf": 92,
+    "bySelf": 93,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780995091-3199",
-      "at": "2026-06-09T08:51:31Z",
-      "ts": 1780995091,
+      "rotationId": "r-1781000206-6535",
+      "at": "2026-06-09T10:16:46Z",
+      "ts": 1781000206,
       "trigger": "self",
-      "prevHead": "12aeebb",
-      "handoffSha": "sha256:189a02136be59e845ce5c5862f0a9be5214d15d64cfb3f2f849a207fff033a6e",
-      "handoffAgeSec": 60,
+      "prevHead": "a508440",
+      "handoffSha": "sha256:04447c8493e786984973a92dfdb1cabbb7312562f9aafda469074a208c062694",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781000206-6535",
+        "at": "2026-06-09T10:16:46Z",
+        "ts": 1781000206,
+        "trigger": "self",
+        "prevHead": "a508440",
+        "handoffSha": "sha256:04447c8493e786984973a92dfdb1cabbb7312562f9aafda469074a208c062694",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780995091-3199",
         "at": "2026-06-09T08:51:31Z",
@@ -779,17 +790,6 @@
         "prevHead": "d3236c5",
         "handoffSha": "sha256:f79004358b34c14d46d71603a9dd0c6944fd68f1db3e81a4d8caf6561d1bf0ee",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780908665-53ee",
-        "at": "2026-06-08T08:51:05Z",
-        "ts": 1780908665,
-        "trigger": "self",
-        "prevHead": "f15e453",
-        "handoffSha": "sha256:d19c229d562a290dd6aff793809d8d5c086c45242fda38685464759768ea7ea0",
-        "handoffAgeSec": 14,
         "conformanceBefore": null,
         "commitsInSession": null
       }
