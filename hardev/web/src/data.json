@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-09T16:08:47.849Z",
+  "generatedAt": "2026-06-09T17:26:44.822Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 700,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "e9af243",
-    "commitSubject": "chore(bench): mini --self 3-run at 30e92e6 — Phase 2 chunk 13 LICM proper P95 audit",
+    "commit": "0d5a8b0",
+    "commitSubject": "feat(#9): retire ssa_inkwell + inkwell dep — production swap atomic",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,14 @@
   },
   "commits": [
     {
+      "hash": "0d5a8b0",
+      "subject": "feat(#9): retire ssa_inkwell + inkwell dep — production swap atomic"
+    },
+    {
+      "hash": "9747cbe",
+      "subject": "chore: dashboard snapshot @ e9af243 — P-OPT Phase 2 chunk 13 LICM proper P95 audit"
+    },
+    {
       "hash": "e9af243",
       "subject": "chore(bench): mini --self 3-run at 30e92e6 — Phase 2 chunk 13 LICM proper P95 audit"
     },
@@ -654,35 +662,38 @@
     {
       "hash": "3b4d682",
       "subject": "chore: dashboard snapshot @ d46d621 — P-OPT Phase 2 chunk 11b SubNegate + Neg variant"
-    },
-    {
-      "hash": "d46d621",
-      "subject": "feat(egraph): negate rule sub-0-x to Neg variant — P-OPT Phase 2 chunk 11b"
-    },
-    {
-      "hash": "a051929",
-      "subject": "chore: dashboard snapshot @ 8c42e39 — P-OPT Phase 2 chunk 11a rewrite.rs module split"
     }
   ],
-  "headSha": "e9af243",
+  "headSha": "0d5a8b0",
   "autorun": {
-    "total": 100,
+    "total": 101,
     "baselineTarget": 10,
-    "bySelf": 98,
+    "bySelf": 99,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781020769-344c",
-      "at": "2026-06-09T15:59:29Z",
-      "ts": 1781020769,
+      "rotationId": "r-1781021456-0cb3",
+      "at": "2026-06-09T16:10:56Z",
+      "ts": 1781021456,
       "trigger": "self",
-      "prevHead": "6112934",
-      "handoffSha": "sha256:632d779d230bbda3e8fc44720077df8dc8ae2914fe4368a14c2072979941b5e9",
+      "prevHead": "9747cbe",
+      "handoffSha": "sha256:43dd42cc38c0b0d3f690c08be5a7d9d70a0f7a926b2c2022cd4538351a9d51e3",
       "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781021456-0cb3",
+        "at": "2026-06-09T16:10:56Z",
+        "ts": 1781021456,
+        "trigger": "self",
+        "prevHead": "9747cbe",
+        "handoffSha": "sha256:43dd42cc38c0b0d3f690c08be5a7d9d70a0f7a926b2c2022cd4538351a9d51e3",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781020769-344c",
         "at": "2026-06-09T15:59:29Z",
@@ -779,17 +790,6 @@
         "prevHead": "2ffd164",
         "handoffSha": "sha256:ed91052a66d3a09cfda9fbc42b4f844e83d2cc8e96e79e5b03e79ee299ff1b70",
         "handoffAgeSec": 45,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780981493-50b4",
-        "at": "2026-06-09T05:04:53Z",
-        "ts": 1780981493,
-        "trigger": "self",
-        "prevHead": "51425f6",
-        "handoffSha": "sha256:cc5034d4d6bde501084eeeab1a19a6d2c6b229a265a865bed24805498d439544",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
