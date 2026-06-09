@@ -69,6 +69,13 @@ pub struct ElaborateStats {
     /// (`if (true)` / `if (false)`) or both arms targeted the same
     /// block. Chunk 9b — P-OPT Phase 1 Cluster B.
     pub branches_folded: u32,
+    /// Number of instructions whose emit position was relocated to a
+    /// dominator block because Phase 1's LICM pass had marked their
+    /// canonical e-class root with a new `available_block`. The inst
+    /// counts toward `emitted` (it's still in the output), but this
+    /// counter tracks how many went somewhere other than their
+    /// source block. Chunk 13 — P-OPT Phase 2 LICM proper.
+    pub licm_relocated: u32,
 }
 
 /// Run the elaboration pass.
@@ -166,6 +173,13 @@ pub fn elaborate(
                         continue;
                     }
 
+                    // LICM hoist redirect target — Phase 1 may have
+                    // marked the canon's `available_block` to a strict
+                    // dominator block (the loop's preheader slot). If
+                    // so, redirect this inst's emission there instead
+                    // of the source block. Otherwise emit normally in
+                    // this block.
+                    let mut emit_block = bid;
                     if let Some(res) = inst.result {
                         let canon = egraph.opt_value(res);
                         if canon != res && elaborated.contains_key(&canon) {
@@ -176,13 +190,36 @@ pub fn elaborate(
                             stats.gvn_skipped += 1;
                             continue;
                         }
-                        elaborated.insert(canon, bid);
+                        if let Some(target) = egraph.available_block(canon) {
+                            if target != bid && dom.dominates(target, bid) {
+                                emit_block = target;
+                                stats.licm_relocated += 1;
+                            }
+                        }
+                        elaborated.insert(canon, emit_block);
                     }
-                    new_insts.push(Inst {
+                    let new_inst = Inst {
                         result: inst.result,
                         kind: new_kind,
                         origin: inst.origin,
-                    });
+                    };
+                    if emit_block == bid {
+                        new_insts.push(new_inst);
+                    } else {
+                        // Append into the dominator's already-finalised
+                        // block tail — sits before its terminator, the
+                        // textbook preheader slot.
+                        let ti = emit_block.0 as usize;
+                        if ti < out_blocks.len() {
+                            out_blocks[ti].insts.push(new_inst);
+                        } else {
+                            // Defensive — should never trigger because
+                            // dom.dominates would have returned false
+                            // for an out-of-range target. Keep the
+                            // inst in the source block as a fallback.
+                            new_insts.push(new_inst);
+                        }
+                    }
                     stats.emitted += 1;
                 }
                 out_blocks[bi].insts = new_insts;
@@ -402,6 +439,21 @@ mod tests {
         Function {
             name: "test".into(),
             params: vec![],
+            ret: Type::Void,
+            blocks,
+            values,
+            current_origin: None,
+        }
+    }
+
+    fn func_with_params(
+        params: Vec<ValueId>,
+        values: Vec<ValueInfo>,
+        blocks: Vec<Block>,
+    ) -> Function {
+        Function {
+            name: "test".into(),
+            params,
             ret: Type::Void,
             blocks,
             values,
@@ -933,5 +985,122 @@ mod tests {
         assert_eq!(out.blocks[1].insts.len(), 1);
         // Only block 0 was actually walked by the DFS.
         assert_eq!(stats.blocks_visited, 1);
+    }
+
+    #[test]
+    fn licm_relocates_invariant_add_to_preheader_block() {
+        // End-to-end LICM round-trip:
+        //
+        //   params: %0 = a, %1 = b
+        //   block 0 (preheader slot) → br block 1
+        //   block 1 (header)         → condbr → block 2, block 3
+        //   block 2 (body)           : %2 = add %0, %1; br block 1
+        //   block 3 (exit)           : ret
+        //
+        // After remove_pure_and_optimize, %2 has its available_block
+        // marked as block 0 (idom of header). Elaboration must then
+        // emit the `%2 = add %0, %1` instruction into block 0 — the
+        // preheader slot — and leave block 2 with no insts.
+        let values = vec![
+            vinfo("a", Type::I64),
+            vinfo("b", Type::I64),
+            vinfo("c", Type::I64),
+        ];
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![],
+                term: Terminator::Br(BlockId(1)),
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![],
+                term: Terminator::CondBr {
+                    cond: Operand::ConstBool(true),
+                    then_blk: BlockId(2),
+                    else_blk: BlockId(3),
+                },
+            },
+            Block {
+                id: BlockId(2),
+                insts: vec![val_inst(
+                    ValueId(2),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(1)),
+                    ),
+                )],
+                term: Terminator::Br(BlockId(1)),
+            },
+            Block {
+                id: BlockId(3),
+                insts: vec![],
+                term: Terminator::Ret(None),
+            },
+        ];
+        let f = func_with_params(vec![ValueId(0), ValueId(1)], values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let mut eg = Egraph::new(f.values.len());
+        let opt_stats = remove_pure_and_optimize(&f, &dom, &mut eg);
+        assert_eq!(
+            opt_stats.licm_hoisted, 1,
+            "Phase 1 marks the add for hoisting"
+        );
+
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        // Phase 2 must report exactly one relocation.
+        assert_eq!(
+            stats.licm_relocated, 1,
+            "elaborate relocates the hoisted inst"
+        );
+        // The add now lives in block 0 (preheader slot).
+        assert_eq!(
+            out.blocks[0].insts.len(),
+            1,
+            "block 0 holds the hoisted add"
+        );
+        assert_eq!(out.blocks[0].insts[0].result, Some(ValueId(2)));
+        // Block 2 (loop body) is empty now — its only inst was hoisted.
+        assert_eq!(
+            out.blocks[2].insts.len(),
+            0,
+            "block 2 loses the hoisted inst"
+        );
+    }
+
+    #[test]
+    fn licm_relocated_counter_zero_in_loopless_function() {
+        // Straight-line program — no hoisting possible. Verify
+        // licm_relocated stays at zero so the counter does not fire
+        // spuriously on non-loop functions.
+        let values = vec![
+            vinfo("a", Type::I64),
+            vinfo("b", Type::I64),
+            vinfo("c", Type::I64),
+        ];
+        let blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![val_inst(
+                ValueId(2),
+                InstKind::BinOp(
+                    BinOp::Add,
+                    Operand::Value(ValueId(0)),
+                    Operand::Value(ValueId(1)),
+                ),
+            )],
+            term: Terminator::Ret(None),
+        }];
+        let f = func_with_params(vec![ValueId(0), ValueId(1)], values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let mut eg = Egraph::new(f.values.len());
+        let _ = remove_pure_and_optimize(&f, &dom, &mut eg);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        assert_eq!(stats.licm_relocated, 0);
+        // The add stays in block 0 (its original source block — which
+        // also happens to be the only block).
+        assert_eq!(out.blocks[0].insts.len(), 1);
     }
 }
