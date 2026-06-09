@@ -25,7 +25,7 @@
 
 use crate::scope_map::ScopedHashMap;
 use std::collections::HashMap;
-use torajs_core::ssa::{BlockId, InstKind, Type, ValueId};
+use torajs_core::ssa::{BlockId, InstKind, Operand, Type, ValueId};
 
 /// Max e-nodes per equivalence class. When a rewrite would push the
 /// class past this limit, the new node is dropped (or, future:
@@ -81,6 +81,15 @@ pub struct Egraph {
     /// is reused throughout its descendants but invisible to siblings
     /// (the source of automatic CSE/GVN/LICM via dominance).
     gvn_map: ScopedHashMap<GvnKey, ValueId>,
+    /// Const-folded representative for an SSA value (chunk 9a-3).
+    /// When a rewrite rule produces `Identity(Const*)` (e.g.
+    /// SubSelf → 0, MulZero → 0), optimize calls `set_const(result,
+    /// const_op)` here; elaborate's `map_operand` then propagates
+    /// `Operand::Value(v)` → `const_op` so downstream uses fold to
+    /// the literal without us having to add an `InstKind::Const`
+    /// variant + cross-crate codegen cascade. Indexed by UF root —
+    /// reads go through `find` first.
+    value_to_const: HashMap<ValueId, Operand>,
 }
 
 impl Egraph {
@@ -96,6 +105,7 @@ impl Egraph {
             available_block: vec![None; n_values],
             eclass_size: HashMap::new(),
             gvn_map: ScopedHashMap::new(),
+            value_to_const: HashMap::new(),
         }
     }
 
@@ -197,6 +207,24 @@ impl Egraph {
         } else {
             self.opt_value(stored)
         }
+    }
+
+    /// P-OPT Phase 1 chunk 9a-3 — install a constant representative
+    /// for `v`'s class root. Used by rewrite rules whose RHS is a
+    /// literal value (e.g. `SubSelf` / `XorSelf` → 0, `MulZero` → 0).
+    /// elaborate's `map_operand` checks `const_of` before falling back
+    /// to `Operand::Value`, propagating the literal into every use
+    /// without us minting an `InstKind::Const` variant.
+    pub fn set_const(&mut self, v: ValueId, op: Operand) {
+        let r = self.find(v);
+        self.value_to_const.insert(r, op);
+    }
+
+    /// Lookup the constant representative for `v` if a rewrite rule
+    /// has folded it. Returns `None` for ordinary values.
+    pub fn const_of(&mut self, v: ValueId) -> Option<Operand> {
+        let r = self.find(v);
+        self.value_to_const.get(&r).copied()
     }
 
     /// Install a preferred canonical value for `v`'s class root. Used

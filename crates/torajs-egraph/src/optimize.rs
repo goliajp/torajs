@@ -116,8 +116,16 @@ pub fn remove_pure_and_optimize(
                 // fall through to GVN using the rewritten kind so
                 // dedup keys off the cheaper form.
                 let rewritten_kind = apply_rewrites_recursive(registry.rules(), &canon_kind);
-                if let InstKind::Identity(Operand::Value(target_v)) = rewritten_kind {
-                    egraph.set_opt_value(result, target_v);
+                if let InstKind::Identity(op) = rewritten_kind {
+                    match op {
+                        Operand::Value(target_v) => egraph.set_opt_value(result, target_v),
+                        // Chunk 9a-3 — const-fold rules (SubSelf /
+                        // XorSelf / MulZero) RHS lands here as
+                        // `Identity(ConstI64(0))` etc. Stash the
+                        // literal on the eclass root so map_operand
+                        // propagates it into every downstream use.
+                        const_op => egraph.set_const(result, const_op),
+                    }
                     stats.identity_rewrites_fired += 1;
                     continue;
                 }
@@ -488,12 +496,82 @@ mod tests {
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
         let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
-        assert_eq!(
-            stats.identity_rewrites_fired, 1,
-            "AddZero must fire exactly once on (add %0 0)"
-        );
+        // 1× AddZero on `add %0 0` aliases %1→%0; the `sub %1 %0`
+        // then canonicalises to `sub %0 %0` and SubSelf folds it to
+        // 0 — chunk 9a-3 cascade.
+        assert_eq!(stats.identity_rewrites_fired, 2);
         // opt_value(%1) resolves to %0 because the rewrite wired the alias.
         assert_eq!(eg.opt_value(ValueId(1)), ValueId(0));
+        // %2 is const-folded to ConstI64(0).
+        assert_eq!(eg.const_of(ValueId(2)), Some(Operand::ConstI64(0)));
+    }
+
+    #[test]
+    fn sub_self_rewrite_folds_to_const_zero_propagated_to_uses() {
+        // %0, %1 = (param-shaped) values
+        // %2 = sub %0 %0   # SubSelf fires → set_const(%2, ConstI64(0))
+        // %3 = add %2 %1   # the optimize/elaborate pipeline must
+        //                   propagate 0 into %2's slot downstream
+        let values = vec![
+            int_value("a"),
+            int_value("b"),
+            int_value("r2"),
+            int_value("r3"),
+        ];
+        let blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![
+                empty_inst(
+                    ValueId(2),
+                    InstKind::BinOp(
+                        BinOp::Sub,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(0)),
+                    ),
+                ),
+                empty_inst(
+                    ValueId(3),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(2)),
+                        Operand::Value(ValueId(1)),
+                    ),
+                ),
+            ],
+            term: Terminator::Ret(None),
+        }];
+        let func = fixture(values, blocks);
+        let dom = DominatorTree::compute(&func);
+        let mut eg = Egraph::new(func.values.len());
+        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        assert_eq!(
+            stats.identity_rewrites_fired, 1,
+            "SubSelf must fire once on (sub %0 %0)"
+        );
+        // The eclass for %2 now carries ConstI64(0) so callers
+        // resolve it as a literal.
+        assert_eq!(eg.const_of(ValueId(2)), Some(Operand::ConstI64(0)));
+    }
+
+    #[test]
+    fn mul_zero_rewrite_folds_to_const_zero() {
+        // %0 = param-shaped
+        // %1 = mul %0 0   # MulZero fires → set_const(%1, ConstI64(0))
+        let values = vec![int_value("a"), int_value("r1")];
+        let blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![empty_inst(
+                ValueId(1),
+                InstKind::BinOp(BinOp::Mul, Operand::Value(ValueId(0)), Operand::ConstI64(0)),
+            )],
+            term: Terminator::Ret(None),
+        }];
+        let func = fixture(values, blocks);
+        let dom = DominatorTree::compute(&func);
+        let mut eg = Egraph::new(func.values.len());
+        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        assert_eq!(stats.identity_rewrites_fired, 1);
+        assert_eq!(eg.const_of(ValueId(1)), Some(Operand::ConstI64(0)));
     }
 
     #[test]

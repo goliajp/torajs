@@ -354,7 +354,17 @@ fn rewrite_terminator(
 #[inline]
 fn map_operand(op: &Operand, egraph: &mut Egraph) -> Operand {
     match op {
-        Operand::Value(v) => Operand::Value(egraph.opt_value(*v)),
+        Operand::Value(v) => {
+            // P-OPT Phase 1 chunk 9a-3 — const-folded values
+            // propagate as literal operands. Falls back to the
+            // canonical Value when no rule has wired a constant.
+            let canon = egraph.opt_value(*v);
+            if let Some(const_op) = egraph.const_of(canon) {
+                const_op
+            } else {
+                Operand::Value(canon)
+            }
+        }
         other => *other,
     }
 }
@@ -714,6 +724,67 @@ mod tests {
         }
         // opt_value(%2) now resolves to %0 because Identity wired the alias.
         assert_eq!(eg.opt_value(ValueId(2)), ValueId(0));
+    }
+
+    #[test]
+    fn const_fold_propagates_to_downstream_operand() {
+        // %2 = sub %0 %0   # SubSelf fires (via optimize.rs) →
+        //                   set_const(%2, ConstI64(0))
+        // %3 = add %2 %1   # elaborate must canonicalise %2's
+        //                   operand slot to ConstI64(0)
+        let values = vec![
+            vinfo("a", Type::I64),
+            vinfo("b", Type::I64),
+            vinfo("r2", Type::I64),
+            vinfo("r3", Type::I64),
+        ];
+        let blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![
+                val_inst(
+                    ValueId(2),
+                    InstKind::BinOp(
+                        BinOp::Sub,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(0)),
+                    ),
+                ),
+                val_inst(
+                    ValueId(3),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(2)),
+                        Operand::Value(ValueId(1)),
+                    ),
+                ),
+            ],
+            term: Terminator::Ret(Some(Operand::Value(ValueId(3)))),
+        }];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        let _ = remove_pure_and_optimize(&f, &dom, &mut eg);
+        let (out, _) = elaborate(&f, &dom, &lp, &mut eg);
+        // The Sub itself stays in layout (no Identity inst in the
+        // input IR; const propagation only fires on use-sites).
+        // The Add's LHS must canonicalise to ConstI64(0).
+        let add_inst = out.blocks[0]
+            .insts
+            .iter()
+            .find(|i| matches!(i.kind, InstKind::BinOp(BinOp::Add, _, _)))
+            .expect("Add inst must survive elaborate");
+        match &add_inst.kind {
+            InstKind::BinOp(BinOp::Add, lhs, rhs) => {
+                assert_eq!(
+                    *lhs,
+                    Operand::ConstI64(0),
+                    "SubSelf's result must propagate as ConstI64(0) into use-sites"
+                );
+                assert_eq!(*rhs, Operand::Value(ValueId(1)));
+            }
+            other => panic!("expected BinOp::Add, got {other:?}"),
+        }
     }
 
     #[test]

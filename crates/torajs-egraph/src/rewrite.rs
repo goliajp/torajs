@@ -215,20 +215,85 @@ impl Rewrite for MulOne {
     }
 }
 
+// ---- Phase 1 chunk 9a-3 — const-folding arithmetic identities ----
+//
+// These RHS forms are `Identity(ConstI64(0))`; optimize.rs detects
+// the const operand and calls `set_const` on the eclass root, so
+// downstream `map_operand` propagates `0` into every use. No new
+// `InstKind` variant or codegen path is needed.
+
+/// `(sub x x) → 0` — self-subtraction identity.
+pub struct SubSelf;
+
+impl Rewrite for SubSelf {
+    fn name(&self) -> &'static str {
+        "sub_self_to_zero"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(BinOp::Sub, a, b) = lhs
+            && a == b
+        {
+            return Some(InstKind::Identity(Operand::ConstI64(0)));
+        }
+        None
+    }
+}
+
+/// `(xor x x) → 0` — self-xor identity.
+pub struct XorSelf;
+
+impl Rewrite for XorSelf {
+    fn name(&self) -> &'static str {
+        "xor_self_to_zero"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(BinOp::Xor, a, b) = lhs
+            && a == b
+        {
+            return Some(InstKind::Identity(Operand::ConstI64(0)));
+        }
+        None
+    }
+}
+
+/// `(mul x 0) | (mul 0 x) → 0` — zero-annihilator.
+pub struct MulZero;
+
+impl Rewrite for MulZero {
+    fn name(&self) -> &'static str {
+        "mul_zero_to_zero"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        if let InstKind::BinOp(BinOp::Mul, a, b) = lhs
+            && (matches!(a, Operand::ConstI64(0)) || matches!(b, Operand::ConstI64(0)))
+        {
+            return Some(InstKind::Identity(Operand::ConstI64(0)));
+        }
+        None
+    }
+}
+
 // Static rule references — registry holds `&'static dyn Rewrite`.
 static MUL_POW2: MulPow2ToShl = MulPow2ToShl;
 static ADD_ZERO: AddZero = AddZero;
 static MUL_ONE: MulOne = MulOne;
+static SUB_SELF: SubSelf = SubSelf;
+static XOR_SELF: XorSelf = XorSelf;
+static MUL_ZERO: MulZero = MulZero;
 
 /// Built-in rule set. Order = priority — first match wins in
-/// `apply_rewrites`. Identity rules fire first (zero-cost alias);
-/// strength-reduction rules fire on what's left.
+/// `apply_rewrites`. Identity / const-fold rules fire first
+/// (zero-cost alias / literal propagation); strength-reduction
+/// rules fire on what's left.
 ///
-/// Phase 0 shipped MulPow2ToShl; Phase 1 chunk 9a-2 adds AddZero +
-/// MulOne. Const-folding rules (SubSelf / XorSelf / MulZero) land
-/// in chunk 9a-3 once `InstKind::Const` / constant-propagation
-/// plumbing exists.
-pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[&ADD_ZERO, &MUL_ONE, &MUL_POW2];
+/// - Phase 0 shipped MulPow2ToShl.
+/// - Phase 1 chunk 9a-2 added AddZero + MulOne.
+/// - Phase 1 chunk 9a-3 adds SubSelf + XorSelf + MulZero (const-fold
+///   via the eclass `value_to_const` map; no `InstKind::Const`
+///   variant needed).
+pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[
+    &ADD_ZERO, &MUL_ONE, &MUL_ZERO, &SUB_SELF, &XOR_SELF, &MUL_POW2,
+];
 
 #[cfg(test)]
 mod tests {
@@ -373,6 +438,55 @@ mod tests {
         // (mul x 2) — doesn't fire (MulPow2ToShl handles it).
         let two = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(2));
         assert!(MulOne.try_apply(&two).is_none());
+    }
+
+    #[test]
+    fn sub_self_folds_to_const_zero() {
+        let lhs = InstKind::BinOp(BinOp::Sub, val(4), val(4));
+        assert_eq!(
+            SubSelf.try_apply(&lhs),
+            Some(InstKind::Identity(Operand::ConstI64(0)))
+        );
+        // sub %a %b where a != b — no fire.
+        let mixed = InstKind::BinOp(BinOp::Sub, val(4), val(5));
+        assert!(SubSelf.try_apply(&mixed).is_none());
+        // sub const const equal — also fires (constants compare by value).
+        let const_eq = InstKind::BinOp(BinOp::Sub, Operand::ConstI64(7), Operand::ConstI64(7));
+        assert_eq!(
+            SubSelf.try_apply(&const_eq),
+            Some(InstKind::Identity(Operand::ConstI64(0)))
+        );
+    }
+
+    #[test]
+    fn xor_self_folds_to_const_zero() {
+        let lhs = InstKind::BinOp(BinOp::Xor, val(4), val(4));
+        assert_eq!(
+            XorSelf.try_apply(&lhs),
+            Some(InstKind::Identity(Operand::ConstI64(0)))
+        );
+        let mixed = InstKind::BinOp(BinOp::Xor, val(4), val(5));
+        assert!(XorSelf.try_apply(&mixed).is_none());
+        // wrong op doesn't fire.
+        let sub = InstKind::BinOp(BinOp::Sub, val(4), val(4));
+        assert!(XorSelf.try_apply(&sub).is_none());
+    }
+
+    #[test]
+    fn mul_zero_folds_both_sides() {
+        let rhs_zero = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(0));
+        assert_eq!(
+            MulZero.try_apply(&rhs_zero),
+            Some(InstKind::Identity(Operand::ConstI64(0)))
+        );
+        let lhs_zero = InstKind::BinOp(BinOp::Mul, Operand::ConstI64(0), val(4));
+        assert_eq!(
+            MulZero.try_apply(&lhs_zero),
+            Some(InstKind::Identity(Operand::ConstI64(0)))
+        );
+        // mul x 1 — doesn't fire (MulOne handles).
+        let one = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(1));
+        assert!(MulZero.try_apply(&one).is_none());
     }
 
     #[test]
