@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-09T05:33:21.295Z",
+  "generatedAt": "2026-06-09T08:29:24.364Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 723,
-    "fail": 0,
+    "pass": 700,
+    "fail": 23,
     "skip": 4,
-    "raw": "723/0/4",
-    "source": "/tmp/torajs-conformance-step8c.log",
-    "sourceMtime": "2026-06-09T05:28:53.379Z"
+    "raw": "700/23/4",
+    "source": "/tmp/torajs-conformance-9a1.log",
+    "sourceMtime": "2026-06-09T06:15:29.698Z"
   },
   "test262": {
     "ranAt": "2026-06-03T22:49:10Z",
@@ -28,17 +28,17 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "2ffd164",
-    "commitSubject": "feat(egraph): re-enable cmd_build/cmd_run wire-in + bump fixture_o cache key — Phase 0 close",
+    "commit": "c72893e",
+    "commitSubject": "feat(egraph): const-fold rules + value_to_const eclass map — P-OPT Phase 1 chunk 9a-3",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 723,
-      "fail": 0,
+      "pass": 700,
+      "fail": 23,
       "skip": 4,
-      "raw": "723/0/4",
-      "source": "/tmp/torajs-conformance-step8c.log",
-      "sourceMtime": "2026-06-09T05:28:53.379Z"
+      "raw": "700/23/4",
+      "source": "/tmp/torajs-conformance-9a1.log",
+      "sourceMtime": "2026-06-09T06:15:29.698Z"
     }
   },
   "roadmap": [
@@ -616,6 +616,26 @@
   },
   "commits": [
     {
+      "hash": "c72893e",
+      "subject": "feat(egraph): const-fold rules + value_to_const eclass map — P-OPT Phase 1 chunk 9a-3"
+    },
+    {
+      "hash": "a8dd024",
+      "subject": "feat(egraph): branch folding — CondBr → Br on const cond / same-arm — P-OPT Phase 1 chunk 9b"
+    },
+    {
+      "hash": "dac536b",
+      "subject": "feat(egraph): hook try_rewrite + AddZero/MulOne Identity rules — P-OPT Phase 1 chunk 9a-2"
+    },
+    {
+      "hash": "d37e77d",
+      "subject": "feat(ssa): add InstKind::Identity(Operand) + match arm cascade — P-OPT Phase 1 chunk 9a-1"
+    },
+    {
+      "hash": "e25a801",
+      "subject": "chore: dashboard snapshot @ 2ffd164 — P-OPT Phase 0 真 close + Phase 1 trigger 解锁"
+    },
+    {
       "hash": "2ffd164",
       "subject": "feat(egraph): re-enable cmd_build/cmd_run wire-in + bump fixture_o cache key — Phase 0 close"
     },
@@ -642,47 +662,38 @@
     {
       "hash": "9476c2a",
       "subject": "chore: dashboard snapshot @ 7ff51df + mini bench result — Phase 0 7/8 step ship"
-    },
-    {
-      "hash": "7ff51df",
-      "subject": "feat(egraph): ISLE-inspired rule engine + strength-reduction demo — Phase 0 step 7"
-    },
-    {
-      "hash": "c0109be",
-      "subject": "feat(egraph): canonicalize + GVN walk (Phase 1 skeleton) — Phase 0 step 6"
-    },
-    {
-      "hash": "a3e8d25",
-      "subject": "feat(egraph): implicit e-graph + Union-Find — Phase 0 step 5 + SSA Hash/Eq prereq"
-    },
-    {
-      "hash": "3cdec44",
-      "subject": "feat(egraph): natural loop detection + nest depth — Phase 0 step 4"
-    },
-    {
-      "hash": "c0070e3",
-      "subject": "feat(egraph): Cooper-Harvey-Kennedy dominator tree — Phase 0 step 3"
     }
   ],
-  "headSha": "2ffd164",
+  "headSha": "c72893e",
   "autorun": {
-    "total": 91,
+    "total": 92,
     "baselineTarget": 10,
-    "bySelf": 89,
+    "bySelf": 90,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780981493-50b4",
-      "at": "2026-06-09T05:04:53Z",
-      "ts": 1780981493,
+      "rotationId": "r-1780983230-03c2",
+      "at": "2026-06-09T05:33:50Z",
+      "ts": 1780983230,
       "trigger": "self",
-      "prevHead": "51425f6",
-      "handoffSha": "sha256:cc5034d4d6bde501084eeeab1a19a6d2c6b229a265a865bed24805498d439544",
-      "handoffAgeSec": 3,
+      "prevHead": "2ffd164",
+      "handoffSha": "sha256:ed91052a66d3a09cfda9fbc42b4f844e83d2cc8e96e79e5b03e79ee299ff1b70",
+      "handoffAgeSec": 45,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780983230-03c2",
+        "at": "2026-06-09T05:33:50Z",
+        "ts": 1780983230,
+        "trigger": "self",
+        "prevHead": "2ffd164",
+        "handoffSha": "sha256:ed91052a66d3a09cfda9fbc42b4f844e83d2cc8e96e79e5b03e79ee299ff1b70",
+        "handoffAgeSec": 45,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780981493-50b4",
         "at": "2026-06-09T05:04:53Z",
@@ -779,17 +790,6 @@
         "prevHead": "24bf4e4",
         "handoffSha": "sha256:f1990dfbe74767213804ce7cb7d3a9dd6ddef997ede3d4fdc5bb232899831fd8",
         "handoffAgeSec": 28,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780897474-6722",
-        "at": "2026-06-08T05:44:34Z",
-        "ts": 1780897474,
-        "trigger": "self",
-        "prevHead": "af8aabf",
-        "handoffSha": "sha256:e1723d3ff690c4cf2d2926b29a1a1f75dbccf62b6cc7eabac989c5969c15ae6a",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
