@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-09T10:36:43.130Z",
+  "generatedAt": "2026-06-09T12:23:31.069Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 700,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "8c42e39",
-    "commitSubject": "refactor(egraph): split rewrite.rs into rewrite/ module — P-OPT Phase 2 chunk 11a",
+    "commit": "d46d621",
+    "commitSubject": "feat(egraph): negate rule sub-0-x to Neg variant — P-OPT Phase 2 chunk 11b",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,14 @@
   },
   "commits": [
     {
+      "hash": "d46d621",
+      "subject": "feat(egraph): negate rule sub-0-x to Neg variant — P-OPT Phase 2 chunk 11b"
+    },
+    {
+      "hash": "a051929",
+      "subject": "chore: dashboard snapshot @ 8c42e39 — P-OPT Phase 2 chunk 11a rewrite.rs module split"
+    },
+    {
       "hash": "8c42e39",
       "subject": "refactor(egraph): split rewrite.rs into rewrite/ module — P-OPT Phase 2 chunk 11a"
     },
@@ -654,35 +662,38 @@
     {
       "hash": "a8dd024",
       "subject": "feat(egraph): branch folding — CondBr → Br on const cond / same-arm — P-OPT Phase 1 chunk 9b"
-    },
-    {
-      "hash": "dac536b",
-      "subject": "feat(egraph): hook try_rewrite + AddZero/MulOne Identity rules — P-OPT Phase 1 chunk 9a-2"
-    },
-    {
-      "hash": "d37e77d",
-      "subject": "feat(ssa): add InstKind::Identity(Operand) + match arm cascade — P-OPT Phase 1 chunk 9a-1"
     }
   ],
-  "headSha": "8c42e39",
+  "headSha": "d46d621",
   "autorun": {
-    "total": 95,
+    "total": 96,
     "baselineTarget": 10,
-    "bySelf": 93,
+    "bySelf": 94,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781000206-6535",
-      "at": "2026-06-09T10:16:46Z",
-      "ts": 1781000206,
+      "rotationId": "r-1781001559-6fba",
+      "at": "2026-06-09T10:39:19Z",
+      "ts": 1781001559,
       "trigger": "self",
-      "prevHead": "a508440",
-      "handoffSha": "sha256:04447c8493e786984973a92dfdb1cabbb7312562f9aafda469074a208c062694",
-      "handoffAgeSec": 7,
+      "prevHead": "a051929",
+      "handoffSha": "sha256:33eb1b315de6c6dedbcc9fea85ebaf0d8b3e95c7d21bb2e2bb010e1c1bf5ed21",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781001559-6fba",
+        "at": "2026-06-09T10:39:19Z",
+        "ts": 1781001559,
+        "trigger": "self",
+        "prevHead": "a051929",
+        "handoffSha": "sha256:33eb1b315de6c6dedbcc9fea85ebaf0d8b3e95c7d21bb2e2bb010e1c1bf5ed21",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781000206-6535",
         "at": "2026-06-09T10:16:46Z",
@@ -779,17 +790,6 @@
         "prevHead": "5347d6e",
         "handoffSha": "sha256:39ea888e77727d4af733da56d5b484d9f21dde348941bae9a6a31440bd2ed855",
         "handoffAgeSec": 18,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780933852-66fa",
-        "at": "2026-06-08T15:50:52Z",
-        "ts": 1780933852,
-        "trigger": "self",
-        "prevHead": "d3236c5",
-        "handoffSha": "sha256:f79004358b34c14d46d71603a9dd0c6944fd68f1db3e81a4d8caf6561d1bf0ee",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
