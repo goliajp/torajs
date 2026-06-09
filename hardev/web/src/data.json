@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-09T14:15:38.525Z",
+  "generatedAt": "2026-06-09T15:18:44.151Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 700,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "f94bd74",
-    "commitSubject": "test(egraph): use Value+Value in 2 more gvn tests to avoid const_fold",
+    "commit": "fd2588b",
+    "commitSubject": "feat(egraph): dom-nested DFS walk in optimize — P-OPT Phase 2 chunk 12 scope-stack upgrade",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,14 @@
   },
   "commits": [
     {
+      "hash": "fd2588b",
+      "subject": "feat(egraph): dom-nested DFS walk in optimize — P-OPT Phase 2 chunk 12 scope-stack upgrade"
+    },
+    {
+      "hash": "5c4ae5b",
+      "subject": "chore: dashboard snapshot @ f94bd74 — P-OPT Phase 2 chunk 11c integer BinOp const-fold"
+    },
+    {
       "hash": "f94bd74",
       "subject": "test(egraph): use Value+Value in 2 more gvn tests to avoid const_fold"
     },
@@ -654,35 +662,38 @@
     {
       "hash": "b8e4339",
       "subject": "refactor(egraph): identity rules single-side after canon — P-OPT Phase 2 chunk 10b"
-    },
-    {
-      "hash": "d9b8a66",
-      "subject": "feat(egraph): commutative canonicalisation rule — P-OPT Phase 2 chunk 10a"
-    },
-    {
-      "hash": "12aeebb",
-      "subject": "chore: dashboard snapshot @ be1b8f4 — P-OPT Phase 1 真 acceptance close"
     }
   ],
-  "headSha": "f94bd74",
+  "headSha": "fd2588b",
   "autorun": {
-    "total": 97,
+    "total": 98,
     "baselineTarget": 10,
-    "bySelf": 95,
+    "bySelf": 96,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781008103-4ad6",
-      "at": "2026-06-09T12:28:23Z",
-      "ts": 1781008103,
+      "rotationId": "r-1781014689-2069",
+      "at": "2026-06-09T14:18:09Z",
+      "ts": 1781014689,
       "trigger": "self",
-      "prevHead": "3b4d682",
-      "handoffSha": "sha256:e35b48821eee4a1c2a6c53151f831c52883aeaa54dfd6256a6f9434a9b229288",
-      "handoffAgeSec": 13,
+      "prevHead": "5c4ae5b",
+      "handoffSha": "sha256:de5f1f60361b37987bf9f0c9c652168040e137af02c3dd3b266c2e109edd93fe",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781014689-2069",
+        "at": "2026-06-09T14:18:09Z",
+        "ts": 1781014689,
+        "trigger": "self",
+        "prevHead": "5c4ae5b",
+        "handoffSha": "sha256:de5f1f60361b37987bf9f0c9c652168040e137af02c3dd3b266c2e109edd93fe",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781008103-4ad6",
         "at": "2026-06-09T12:28:23Z",
@@ -779,17 +790,6 @@
         "prevHead": "eb9f984",
         "handoffSha": "sha256:08c6e19155a1eab2836b40e38ac7856b214abe76e0c9f8dd42a5d784cf3d5f29",
         "handoffAgeSec": 42,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780960050-5d87",
-        "at": "2026-06-08T23:07:30Z",
-        "ts": 1780960050,
-        "trigger": "self",
-        "prevHead": "71a2584",
-        "handoffSha": "sha256:f3741a6716190e0f82237d70e8c59cf147a0fb6a4eb3886c835c1005ab382861",
-        "handoffAgeSec": 181,
         "conformanceBefore": null,
         "commitsInSession": null
       }
