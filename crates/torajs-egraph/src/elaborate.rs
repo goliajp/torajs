@@ -64,6 +64,11 @@ pub struct ElaborateStats {
     pub identity_dropped: u32,
     /// Number of blocks visited by the domtree preorder walk.
     pub blocks_visited: u32,
+    /// Number of `Terminator::CondBr` folded to `Terminator::Br`
+    /// because the condition canonicalised to a `ConstBool`
+    /// (`if (true)` / `if (false)`) or both arms targeted the same
+    /// block. Chunk 9b — P-OPT Phase 1 Cluster B.
+    pub branches_folded: u32,
 }
 
 /// Run the elaboration pass.
@@ -181,7 +186,7 @@ pub fn elaborate(
                     stats.emitted += 1;
                 }
                 out_blocks[bi].insts = new_insts;
-                out_blocks[bi].term = rewrite_terminator(&src.term, egraph);
+                out_blocks[bi].term = rewrite_terminator(&src.term, egraph, &mut stats);
 
                 // Exit before children so it pops AFTER they finish.
                 stack.push(Visit::Exit);
@@ -298,18 +303,48 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
 
 /// Canonicalise SSA value operands in a `Terminator`. CondBr `cond`
 /// and Ret value are subject to rewrite; target BlockIds stay as-is.
-fn rewrite_terminator(term: &Terminator, egraph: &mut Egraph) -> Terminator {
+///
+/// Chunk 9b — Cluster B branch folding: when the canonicalised cond
+/// is `ConstBool(true)`/`ConstBool(false)`, or when both arms target
+/// the same block, the `CondBr` is rewritten to a single-target `Br`
+/// and `stats.branches_folded` increments. The block that the fold
+/// drops on the floor is left as dead — a SimplifyCFG-style pass
+/// later can prune unreachable blocks; elaboration's existing
+/// "unreachable preserved verbatim" path keeps them safe in the
+/// meantime.
+fn rewrite_terminator(
+    term: &Terminator,
+    egraph: &mut Egraph,
+    stats: &mut ElaborateStats,
+) -> Terminator {
     match term {
         Terminator::Br(b) => Terminator::Br(*b),
         Terminator::CondBr {
             cond,
             then_blk,
             else_blk,
-        } => Terminator::CondBr {
-            cond: map_operand(cond, egraph),
-            then_blk: *then_blk,
-            else_blk: *else_blk,
-        },
+        } => {
+            let cond_canon = map_operand(cond, egraph);
+            match cond_canon {
+                Operand::ConstBool(true) => {
+                    stats.branches_folded += 1;
+                    Terminator::Br(*then_blk)
+                }
+                Operand::ConstBool(false) => {
+                    stats.branches_folded += 1;
+                    Terminator::Br(*else_blk)
+                }
+                _ if then_blk == else_blk => {
+                    stats.branches_folded += 1;
+                    Terminator::Br(*then_blk)
+                }
+                _ => Terminator::CondBr {
+                    cond: cond_canon,
+                    then_blk: *then_blk,
+                    else_blk: *else_blk,
+                },
+            }
+        }
         Terminator::Ret(Some(op)) => Terminator::Ret(Some(map_operand(op, egraph))),
         Terminator::Ret(None) => Terminator::Ret(None),
         Terminator::Unreachable => Terminator::Unreachable,
@@ -679,6 +714,112 @@ mod tests {
         }
         // opt_value(%2) now resolves to %0 because Identity wired the alias.
         assert_eq!(eg.opt_value(ValueId(2)), ValueId(0));
+    }
+
+    #[test]
+    fn const_true_cond_folds_to_unconditional_then_branch() {
+        // `if (true) goto B1 else goto B2` → `goto B1`
+        let values = vec![vinfo("dummy", Type::I64)];
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![],
+                term: Terminator::CondBr {
+                    cond: Operand::ConstBool(true),
+                    then_blk: BlockId(1),
+                    else_blk: BlockId(2),
+                },
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![],
+                term: Terminator::Ret(None),
+            },
+            Block {
+                id: BlockId(2),
+                insts: vec![],
+                term: Terminator::Ret(None),
+            },
+        ];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        assert_eq!(stats.branches_folded, 1);
+        match out.blocks[0].term {
+            Terminator::Br(b) => assert_eq!(b, BlockId(1)),
+            ref other => panic!("expected Br(1), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn const_false_cond_folds_to_unconditional_else_branch() {
+        // `if (false) goto B1 else goto B2` → `goto B2`
+        let values = vec![vinfo("dummy", Type::I64)];
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![],
+                term: Terminator::CondBr {
+                    cond: Operand::ConstBool(false),
+                    then_blk: BlockId(1),
+                    else_blk: BlockId(2),
+                },
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![],
+                term: Terminator::Ret(None),
+            },
+            Block {
+                id: BlockId(2),
+                insts: vec![],
+                term: Terminator::Ret(None),
+            },
+        ];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        assert_eq!(stats.branches_folded, 1);
+        match out.blocks[0].term {
+            Terminator::Br(b) => assert_eq!(b, BlockId(2)),
+            ref other => panic!("expected Br(2), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn same_target_arms_fold_to_unconditional_branch() {
+        // `if (cond) goto B1 else goto B1` → `goto B1` (regardless of cond)
+        let values = vec![vinfo("cond", Type::Bool)];
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![],
+                term: Terminator::CondBr {
+                    cond: Operand::Value(ValueId(0)),
+                    then_blk: BlockId(1),
+                    else_blk: BlockId(1),
+                },
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![],
+                term: Terminator::Ret(None),
+            },
+        ];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        assert_eq!(stats.branches_folded, 1);
+        match out.blocks[0].term {
+            Terminator::Br(b) => assert_eq!(b, BlockId(1)),
+            ref other => panic!("expected Br(1), got {other:?}"),
+        }
     }
 
     #[test]
