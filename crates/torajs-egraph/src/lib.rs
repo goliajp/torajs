@@ -19,4 +19,5 @@
 //! rule cluster.
 
 pub mod cost;
+pub mod dominator;
 pub mod scope_map;
