@@ -13,8 +13,7 @@
 //!   over its blocks.
 //! * Apply per-callee cost ceiling + per-caller cumulative budget +
 //!   self-recursion guard + declaration / indirect-call exclusion.
-//! * Report decisions via `InlinerStats`. The `inline_module` driver
-//!   observes the module by shared reference; nothing is mutated.
+//! * Report decisions via `InlinerStats`.
 //!
 //! Phase 1.0a (shipped) — splice mutation API in `splice` sub-module:
 //!
@@ -22,20 +21,34 @@
 //!   block leaf callee into the caller block, removing the matching
 //!   call instruction. Fresh `ValueId`s for non-parameter callee
 //!   values; callee parameters substituted by caller-supplied `args`.
-//! * Not wired into `transform_module` in Phase 1.0a — exercised by
-//!   unit tests only; the production pipeline remains identity-on-IR
-//!   until Phase 1.0b wires the driver.
 //!
-//! Future phases — Phase 1.0b wires the driver into the production
-//! pipeline behind a `TORAJS_INLINER_OFF` env-gate; Phase 2 generalises
-//! beyond single-block leaves (block-split + Φ-node insertion) and
-//! threads `LoopAnalysis` so callee cost is depth-weighted (matching
-//! the elaborator's existing LICM weighting in `cost::scale_for_depth`).
+//! Phase 1.0b (this commit) — driver wired into production pipeline:
+//!
+//! * `inline_module(&mut Module)` switches to mutating signature and
+//!   gains an emit pass: every would-inline candidate that also clears
+//!   the splice's narrow scope (single-block leaf + Ret terminator) is
+//!   spliced in reverse `(blk, site)` order so coordinates remain
+//!   valid. The `would_inline - inlined` gap exposes splice rejections
+//!   (multi-block callee, non-Ret terminator, ...) to the attribution
+//!   layer.
+//! * `TORAJS_INLINER_OFF=1` env-gate short-circuits to dry-run:
+//!   classification + stats still happen but no mutation occurs. Used
+//!   for bisection when validating that a perf regression is or is not
+//!   caused by the inliner.
+//! * `transform_module` in `lib.rs` now invokes the inliner before the
+//!   per-function `EgraphPass`. Identity-aliased values bound by the
+//!   splice get GVN-collapsed by `elaborate.rs`'s existing identity
+//!   handling.
+//!
+//! Future phases — Phase 2 generalises beyond single-block leaves
+//! (block-split + Φ-node insertion) and threads `LoopAnalysis` so
+//! callee cost is depth-weighted (matching the elaborator's existing
+//! LICM weighting in `cost::scale_for_depth`).
 
 mod splice;
 
 use crate::cost::{Cost, cost_of_kind};
-use torajs_core::ssa::{Function, InstKind, Module};
+use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, ValueId};
 
 pub use splice::{SpliceError, inline_single_block_leaf};
 
@@ -121,10 +134,20 @@ pub struct InlinerStats {
     /// counted toward `skipped_indirect` and NOT toward `candidates`
     /// (an indirect site is not a candidate at Phase 0).
     pub candidates: u32,
-    /// Sites that passed every check. Phase 0: this is a *would-have-
-    /// inlined* count — no SSA emit happens, so the output module is
-    /// unchanged regardless of this value.
+    /// Sites that passed every check at the classifier (cost-benefit
+    /// budget + recursion + indirect filters). A would-inline decision
+    /// is necessary but not sufficient for actual emit: Phase 1's
+    /// `splice` module further requires single-block leaf shape, so
+    /// `inlined` ≤ `would_inline` at all times. Inspect the gap to
+    /// attribute splice rejections (multi-block callee, non-Ret
+    /// terminator, etc.).
     pub would_inline: u32,
+    /// Sites that not only passed the classifier but were also
+    /// successfully spliced into the caller body via
+    /// `splice::inline_single_block_leaf`. Always ≤ `would_inline`.
+    /// In dry-run mode (`TORAJS_INLINER_OFF=1`) this stays at 0
+    /// regardless of `would_inline`.
+    pub inlined: u32,
     /// Sites rejected by `SkipReason::CalleeTooLarge`.
     pub skipped_callee_too_large: u32,
     /// Sites rejected by `SkipReason::CallerBudgetExhausted`.
@@ -156,52 +179,74 @@ pub fn callee_body_cost(func: &Function) -> Cost {
 }
 
 /// Classify every `InstKind::Call` site in `module.funcs[caller_idx]`
-/// against `budget`, returning per-site decisions in source order.
+/// against `budget`, returning per-site decisions paired with the
+/// `(caller_blk_idx, site_idx)` coordinates needed by the Phase 1.0b
+/// driver to dispatch to `splice::inline_single_block_leaf`.
 /// `callee_costs[i]` must equal `callee_body_cost(&module.funcs[i])`
 /// (precomputed by `inline_module_with_budget` so callee bodies are
 /// scanned exactly once per pass).
 ///
-/// `CallIndirect` sites land in the returned `Vec` as
-/// `Skip(Indirect)` so the caller can count them toward
+/// Decisions are returned in source order. `CallIndirect` sites land
+/// as `Skip(Indirect)` so the caller can count them toward
 /// `InlinerStats::skipped_indirect` without re-scanning.
 fn classify_caller_sites(
     module: &Module,
     caller_idx: usize,
     budget: &InlineBudget,
     callee_costs: &[Cost],
-) -> Vec<InlineDecision> {
+) -> Vec<(usize, usize, InlineDecision)> {
     let caller = &module.funcs[caller_idx];
     let mut decisions = Vec::new();
     let mut caller_spent = Cost::ZERO;
-    for blk in &caller.blocks {
-        for inst in &blk.insts {
+    for (blk_idx, blk) in caller.blocks.iter().enumerate() {
+        for (site_idx, inst) in blk.insts.iter().enumerate() {
             match &inst.kind {
                 InstKind::Call(callee_id, _args) => {
                     let callee_ix = callee_id.0 as usize;
                     let callee = &module.funcs[callee_ix];
                     if callee.is_declaration() {
-                        decisions.push(InlineDecision::Skip(SkipReason::CalleeIsDeclaration));
+                        decisions.push((
+                            blk_idx,
+                            site_idx,
+                            InlineDecision::Skip(SkipReason::CalleeIsDeclaration),
+                        ));
                         continue;
                     }
                     if callee_ix == caller_idx && budget.max_recursion_depth == 0 {
-                        decisions.push(InlineDecision::Skip(SkipReason::Recursion));
+                        decisions.push((
+                            blk_idx,
+                            site_idx,
+                            InlineDecision::Skip(SkipReason::Recursion),
+                        ));
                         continue;
                     }
                     let callee_cost = callee_costs[callee_ix];
                     if callee_cost > budget.callee_cost_ceiling {
-                        decisions.push(InlineDecision::Skip(SkipReason::CalleeTooLarge));
+                        decisions.push((
+                            blk_idx,
+                            site_idx,
+                            InlineDecision::Skip(SkipReason::CalleeTooLarge),
+                        ));
                         continue;
                     }
                     let projected = caller_spent.add(callee_cost);
                     if projected > budget.caller_total_budget {
-                        decisions.push(InlineDecision::Skip(SkipReason::CallerBudgetExhausted));
+                        decisions.push((
+                            blk_idx,
+                            site_idx,
+                            InlineDecision::Skip(SkipReason::CallerBudgetExhausted),
+                        ));
                         continue;
                     }
                     caller_spent = projected;
-                    decisions.push(InlineDecision::Inline { callee_cost });
+                    decisions.push((blk_idx, site_idx, InlineDecision::Inline { callee_cost }));
                 }
                 InstKind::CallIndirect(_, _, _) => {
-                    decisions.push(InlineDecision::Skip(SkipReason::Indirect));
+                    decisions.push((
+                        blk_idx,
+                        site_idx,
+                        InlineDecision::Skip(SkipReason::Indirect),
+                    ));
                 }
                 _ => {}
             }
@@ -211,25 +256,48 @@ fn classify_caller_sites(
 }
 
 /// Run the inliner pass over `module` with the default `InlineBudget`.
-/// Phase 0 returns aggregate statistics; the module itself is observed
-/// only by shared reference and its SSA representation is unchanged
-/// after the call. Phase 1.0b switches the signature to `&mut Module`
-/// and starts splicing callee blocks into approved call sites via
-/// `splice::inline_single_block_leaf`.
-pub fn inline_module(module: &Module) -> InlinerStats {
+/// Phase 1.0b: emits via `splice::inline_single_block_leaf` for every
+/// would-inline candidate that also satisfies the splice's narrow
+/// scope (single-block leaf + Ret terminator). The `TORAJS_INLINER_OFF
+/// =1` env-gate short-circuits to dry-run: classification + stats still
+/// happen but no `Module::funcs` mutation occurs.
+pub fn inline_module(module: &mut Module) -> InlinerStats {
     inline_module_with_budget(module, InlineBudget::default())
 }
 
 /// `inline_module` with a caller-supplied budget. Used in tests to
-/// exercise individual skip-reason buckets and budget exhaustion
-/// boundaries.
-pub fn inline_module_with_budget(module: &Module, budget: InlineBudget) -> InlinerStats {
+/// exercise individual skip-reason buckets, budget exhaustion
+/// boundaries, and the splice emit path.
+///
+/// Algorithm:
+///
+/// 1. Pre-compute every function's body cost — `callee_body_cost` is
+///    O(insts) and we'd otherwise re-scan once per caller × call site.
+/// 2. For each caller in source order, classify each call site against
+///    the budget. The classifier yields `(blk, site, decision)`
+///    triples; we tally stats from the decisions (this is the Phase 0
+///    behaviour, untouched).
+/// 3. Unless dry-run is requested, collect every `InlineDecision::
+///    Inline` triple, clone the callee body (Rust borrow-check
+///    requirement: `&module.funcs[callee]` cannot coexist with
+///    `&mut module.funcs[caller]`), and dispatch to
+///    `inline_single_block_leaf`. Splice errors are silent — they mean
+///    the candidate cleared the cost-benefit filter but not the Phase 1
+///    splice-shape filter (e.g. multi-block callee); the gap
+///    `would_inline - inlined` exposes them to the bench attribution
+///    layer.
+/// 4. Sites are spliced in reverse `(blk, site)` order so the index
+///    coordinates the classifier captured remain valid throughout the
+///    emit pass.
+pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> InlinerStats {
+    let dry_run = std::env::var("TORAJS_INLINER_OFF").as_deref() == Ok("1");
     let callee_costs: Vec<Cost> = module.funcs.iter().map(callee_body_cost).collect();
     let mut stats = InlinerStats::default();
     let n = module.funcs.len();
     for caller_idx in 0..n {
         let decisions = classify_caller_sites(module, caller_idx, &budget, &callee_costs);
-        for dec in decisions {
+        // Pass A — tally classifier stats. Reads decisions only.
+        for (_, _, dec) in &decisions {
             match dec {
                 InlineDecision::Inline { .. } => {
                     stats.candidates += 1;
@@ -256,6 +324,38 @@ pub fn inline_module_with_budget(module: &Module, budget: InlineBudget) -> Inlin
                         stats.skipped_indirect += 1;
                     }
                 },
+            }
+        }
+        if dry_run {
+            continue;
+        }
+        // Pass B — collect Inline targets with full splice payload.
+        let mut targets: Vec<(usize, usize, FuncId, Vec<Operand>, Option<ValueId>)> = Vec::new();
+        for (blk_idx, site_idx, dec) in &decisions {
+            if matches!(dec, InlineDecision::Inline { .. }) {
+                let inst = &module.funcs[caller_idx].blocks[*blk_idx].insts[*site_idx];
+                if let InstKind::Call(callee_id, args) = &inst.kind {
+                    targets.push((*blk_idx, *site_idx, *callee_id, args.clone(), inst.result));
+                }
+            }
+        }
+        // Reverse-sort so deeper sites splice first; lower-index
+        // targets keep their captured `site_idx` valid.
+        targets.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+        for (blk_idx, site_idx, callee_id, args, result_value) in targets {
+            let callee_clone = module.funcs[callee_id.0 as usize].clone();
+            let caller = &mut module.funcs[caller_idx];
+            if inline_single_block_leaf(
+                caller,
+                blk_idx,
+                site_idx,
+                &callee_clone,
+                &args,
+                result_value,
+            )
+            .is_ok()
+            {
+                stats.inlined += 1;
             }
         }
     }
@@ -362,15 +462,15 @@ mod tests {
 
     #[test]
     fn empty_module_returns_zero_stats() {
-        let m = Module::default();
-        let stats = inline_module(&m);
+        let mut m = Module::default();
+        let stats = inline_module(&mut m);
         assert_eq!(stats, InlinerStats::default());
     }
 
     #[test]
     fn caller_with_no_calls_yields_zero_candidates() {
-        let m = module_of(vec![caller("main", vec![])]);
-        let stats = inline_module(&m);
+        let mut m = module_of(vec![caller("main", vec![])]);
+        let stats = inline_module(&mut m);
         assert_eq!(stats.candidates, 0);
         assert_eq!(stats.would_inline, 0);
     }
@@ -379,8 +479,8 @@ mod tests {
     fn small_leaf_call_is_a_would_inline_candidate() {
         let leaf = alu_body("leaf", 3);
         let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
-        let m = module_of(vec![main, leaf]);
-        let stats = inline_module(&m);
+        let mut m = module_of(vec![main, leaf]);
+        let stats = inline_module(&mut m);
         assert_eq!(stats.candidates, 1);
         assert_eq!(stats.would_inline, 1);
         assert_eq!(stats.skipped_callee_too_large, 0);
@@ -390,8 +490,8 @@ mod tests {
     fn oversized_leaf_is_rejected_with_callee_too_large() {
         let leaf = alu_body("fat", 300);
         let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
-        let m = module_of(vec![main, leaf]);
-        let stats = inline_module(&m);
+        let mut m = module_of(vec![main, leaf]);
+        let stats = inline_module(&mut m);
         assert_eq!(stats.candidates, 1);
         assert_eq!(stats.would_inline, 0);
         assert_eq!(stats.skipped_callee_too_large, 1);
@@ -401,8 +501,8 @@ mod tests {
     fn declaration_callee_is_skipped() {
         let leaf = declaration("extern_intrinsic");
         let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
-        let m = module_of(vec![main, leaf]);
-        let stats = inline_module(&m);
+        let mut m = module_of(vec![main, leaf]);
+        let stats = inline_module(&mut m);
         assert_eq!(stats.candidates, 1);
         assert_eq!(stats.would_inline, 0);
         assert_eq!(stats.skipped_declaration, 1);
@@ -411,8 +511,8 @@ mod tests {
     #[test]
     fn self_recursive_call_is_rejected_at_default_depth_zero() {
         let main = caller("main", vec![void_inst(InstKind::Call(FuncId(0), vec![]))]);
-        let m = module_of(vec![main]);
-        let stats = inline_module(&m);
+        let mut m = module_of(vec![main]);
+        let stats = inline_module(&mut m);
         assert_eq!(stats.candidates, 1);
         assert_eq!(stats.skipped_recursion, 1);
         assert_eq!(stats.would_inline, 0);
@@ -428,8 +528,8 @@ mod tests {
                 vec![],
             ))],
         );
-        let m = module_of(vec![main]);
-        let stats = inline_module(&m);
+        let mut m = module_of(vec![main]);
+        let stats = inline_module(&mut m);
         assert_eq!(stats.candidates, 0);
         assert_eq!(stats.skipped_indirect, 1);
         assert_eq!(stats.would_inline, 0);
@@ -451,27 +551,105 @@ mod tests {
             caller_total_budget: Cost::new(250),
             max_recursion_depth: 0,
         };
-        let m = module_of(vec![main, leaf]);
-        let stats = inline_module_with_budget(&m, budget);
+        let mut m = module_of(vec![main, leaf]);
+        let stats = inline_module_with_budget(&mut m, budget);
         assert_eq!(stats.candidates, 3);
         assert_eq!(stats.would_inline, 2);
         assert_eq!(stats.skipped_caller_budget, 1);
     }
 
+    // ---- Phase 1.0b emit-side tests ----
+
     #[test]
-    fn module_is_not_mutated_in_phase_0() {
+    fn single_block_leaf_call_is_actually_inlined() {
+        // Leaf: 4 ALU adds, void return. Caller: one void call site.
+        // Expected after Phase 1.0b: main's block body grows from 1
+        // (the call inst) to 4 (the 4 inlined add insts), and the
+        // call instruction itself is gone.
         let leaf = alu_body("leaf", 4);
         let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
-        let m_before = module_of(vec![main.clone(), leaf.clone()]);
-        let m_after = m_before.clone();
-        let _ = inline_module(&m_after);
-        assert_eq!(m_after.funcs.len(), m_before.funcs.len());
-        for (a, b) in m_after.funcs.iter().zip(m_before.funcs.iter()) {
-            assert_eq!(a.name, b.name);
-            assert_eq!(a.blocks.len(), b.blocks.len());
-            for (ba, bb) in a.blocks.iter().zip(b.blocks.iter()) {
-                assert_eq!(ba.insts.len(), bb.insts.len());
-            }
+        let mut m = module_of(vec![main, leaf]);
+        let stats = inline_module(&mut m);
+        assert_eq!(stats.would_inline, 1);
+        assert_eq!(stats.inlined, 1, "single-block leaf passes splice");
+        assert_eq!(
+            m.funcs[0].blocks[0].insts.len(),
+            4,
+            "call inst replaced by 4 leaf adds"
+        );
+        for inst in &m.funcs[0].blocks[0].insts {
+            assert!(
+                matches!(inst.kind, InstKind::BinOp(BinOp::Add, _, _)),
+                "every inlined inst is the leaf Add"
+            );
         }
+    }
+
+    #[test]
+    fn multi_block_callee_passes_classifier_but_splice_fails() {
+        // Multi-block leaf — cheap by cost (no body work), so the
+        // classifier produces a would_inline decision. The splice then
+        // rejects it with NotSingleBlock, so inlined stays 0 and the
+        // would_inline minus inlined gap is the attribution surface.
+        let multi = Function {
+            name: "two_blocks".into(),
+            params: vec![],
+            ret: Type::Void,
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: vec![],
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![],
+                    term: Terminator::Ret(None),
+                },
+            ],
+            values: vec![],
+            current_origin: None,
+        };
+        let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
+        let mut m = module_of(vec![main, multi]);
+        let before_inst_count = m.funcs[0].blocks[0].insts.len();
+        let stats = inline_module(&mut m);
+        assert_eq!(stats.would_inline, 1);
+        assert_eq!(stats.inlined, 0, "splice fails on multi-block callee");
+        assert_eq!(
+            m.funcs[0].blocks[0].insts.len(),
+            before_inst_count,
+            "caller block unchanged when splice fails"
+        );
+    }
+
+    #[test]
+    fn dry_run_env_gate_skips_emit_but_classifies() {
+        // TORAJS_INLINER_OFF=1 → stats still reflect classification,
+        // but no module mutation happens (inlined stays 0). Mirrors
+        // the existing TORAJS_EGRAPH_OFF gate pattern in lib.rs::tests.
+        //
+        // SAFETY: env mutation is process-global; we set+remove in a
+        // controlled scope and rely on cargo nextest's per-test
+        // process isolation (.claude/rules/torajs-autorun-pipeline.md
+        // "test 判定" section).
+        unsafe {
+            std::env::set_var("TORAJS_INLINER_OFF", "1");
+        }
+        let leaf = alu_body("leaf", 4);
+        let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
+        let mut m = module_of(vec![main, leaf]);
+        let before_inst_count = m.funcs[0].blocks[0].insts.len();
+        let stats = inline_module(&mut m);
+        unsafe {
+            std::env::remove_var("TORAJS_INLINER_OFF");
+        }
+        assert_eq!(stats.would_inline, 1, "classification still happens");
+        assert_eq!(stats.inlined, 0, "dry-run does not emit");
+        assert_eq!(
+            m.funcs[0].blocks[0].insts.len(),
+            before_inst_count,
+            "module unchanged in dry-run"
+        );
     }
 }

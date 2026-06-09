@@ -73,11 +73,22 @@ impl<'a> EgraphPass<'a> {
     }
 }
 
-/// Apply `EgraphPass` to every function in a `Module`, returning the
-/// transformed module. Honors the `TORAJS_EGRAPH_OFF=1` environment
-/// gate (skips transformation, returns the module unchanged) — used
-/// for bisection when validating that a regression is or isn't caused
-/// by the egraph pass.
+/// Apply the Cluster E inliner (Phase 1.0b) followed by `EgraphPass`
+/// to every function in a `Module`, returning the transformed module.
+///
+/// Order matters: the inliner runs **before** the per-function egraph
+/// pass so that any `InstKind::Identity` aliases the splice emits to
+/// bind callee `Ret(Some(_))` values to the caller's call-result
+/// `ValueId` get collapsed by `elaborate.rs`'s existing identity-
+/// dropping path.
+///
+/// Honors two independent env gates (used for bisection when
+/// validating which sub-pass is responsible for a regression):
+/// * `TORAJS_EGRAPH_OFF=1` — skip both inliner and egraph; return the
+///   module unchanged.
+/// * `TORAJS_INLINER_OFF=1` — skip only the inliner emit pass
+///   (classification stats are still produced but discarded here);
+///   `EgraphPass` still runs.
 ///
 /// This is the canonical integration entry point for the `tr build` /
 /// `tr run` new-pipeline drivers; they call this between
@@ -86,6 +97,7 @@ pub fn transform_module(mut module: Module) -> Module {
     if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
         return module;
     }
+    let _inliner_stats = inliner::inline_module(&mut module);
     for func in module.funcs.iter_mut() {
         let new_func = EgraphPass::new(func).run();
         *func = new_func;
