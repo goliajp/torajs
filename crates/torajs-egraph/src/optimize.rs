@@ -170,23 +170,28 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
 /// their original block.
 fn is_pure(kind: &InstKind) -> bool {
     match kind {
-        // Pure: arithmetic, comparisons, type casts, zero-extends,
-        // pointer-loadlable values (load is treated as pure here only
-        // for the no-aliased-store case; full alias analysis lives in
-        // a later phase. Phase 0 keeps Load pure conservatively —
-        // GVN-deduplicating two `load %p+0` in the same scope is safe
-        // when no intervening store to %p exists, and the canonical
-        // skeleton-walk ordering will enforce that invariant in
-        // Phase 1's alias module).
+        // Pure: arithmetic, comparisons, type casts, zero-extends.
+        // Two pure ops with identical kind + canonical operands are
+        // guaranteed to produce the same value (no memory dependence,
+        // no observable effect).
         InstKind::BinOp(_, _, _)
         | InstKind::ICmp(_, _, _)
         | InstKind::FCmp(_, _, _)
         | InstKind::SiToFp(_)
         | InstKind::FpToSi(_)
         | InstKind::ZExtBoolToI64(_)
-        | InstKind::ZExtI32ToI64(_)
-        | InstKind::Load(_, _, _)
-        | InstKind::LoadDyn(_, _, _) => true,
+        | InstKind::ZExtI32ToI64(_) => true,
+        // `Load` / `LoadDyn` are NOT pure without alias analysis —
+        // a syntactically identical `load %p+off` may yield a
+        // DIFFERENT value if an intervening `Store` to %p+off
+        // happened between the two loads (or to any aliasing
+        // pointer). torajs ssa_lower routinely emits `load %p; store
+        // new, %p; load %p` for `let x = ...; x++; ...` and
+        // `arr.push(v); load(arr+8)` (chunk 9c pattern) — GVN-dedup
+        // there silently substitutes the stale pre-store value and
+        // returns wrong results. Phase 1 alias module enables Load
+        // dedup safely. Phase 0 keeps Load as skeleton.
+        InstKind::Load(_, _, _) | InstKind::LoadDyn(_, _, _) => false,
         // Skeleton: writes and calls.
         InstKind::Store(_, _, _) | InstKind::StoreDyn(_, _, _) | InstKind::Call(_, _) => false,
         // Alloca returns a unique pointer per invocation — two
@@ -439,7 +444,8 @@ mod tests {
             Operand::ConstI64(0),
             Operand::ConstI64(0),
         )));
-        assert!(classify_pure(&InstKind::Load(
+        // Load is NOT pure without alias analysis — see is_pure doc.
+        assert!(!classify_pure(&InstKind::Load(
             Type::I64,
             Operand::ConstPtrNull,
             0,
