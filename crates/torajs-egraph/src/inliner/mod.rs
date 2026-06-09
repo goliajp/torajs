@@ -45,15 +45,12 @@
 //! callee cost is depth-weighted (matching the elaborator's existing
 //! LICM weighting in `cost::scale_for_depth`).
 
-mod rewrite;
 mod splice;
-mod splice2;
 
 use crate::cost::{Cost, cost_of_kind};
 use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, ValueId};
 
 pub use splice::{SpliceError, inline_single_block_leaf};
-pub use splice2::{SpliceMultiError, inline_multi_block_leaf};
 
 /// Budget configuration for `inline_module`. Defaults are conservative
 /// starting points calibrated against LLVM `-O2` hint thresholds
@@ -146,19 +143,11 @@ pub struct InlinerStats {
     /// terminator, etc.).
     pub would_inline: u32,
     /// Sites that not only passed the classifier but were also
-    /// successfully spliced into the caller body. Sum of
-    /// `inlined_single_block` and `inlined_multi_block`. Always ≤
-    /// `would_inline`. In dry-run mode (`TORAJS_INLINER_OFF=1`) this
-    /// stays at 0 regardless of `would_inline`.
+    /// successfully spliced into the caller body via
+    /// `splice::inline_single_block_leaf`. Always ≤ `would_inline`.
+    /// In dry-run mode (`TORAJS_INLINER_OFF=1`) this stays at 0
+    /// regardless of `would_inline`.
     pub inlined: u32,
-    /// Subset of `inlined` that took the Phase 1.0a single-block-leaf
-    /// fast path via `splice::inline_single_block_leaf`.
-    pub inlined_single_block: u32,
-    /// Subset of `inlined` that fell through to Phase 2.0a multi-block
-    /// leaf via `splice2::inline_multi_block_leaf`. Real production
-    /// code tends to land here because `ssa_lower` emits multi-block
-    /// functions even for the smallest leaf bodies.
-    pub inlined_multi_block: u32,
     /// Sites rejected by `SkipReason::CalleeTooLarge`.
     pub skipped_callee_too_large: u32,
     /// Sites rejected by `SkipReason::CallerBudgetExhausted`.
@@ -356,37 +345,17 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
         for (blk_idx, site_idx, callee_id, args, result_value) in targets {
             let callee_clone = module.funcs[callee_id.0 as usize].clone();
             let caller = &mut module.funcs[caller_idx];
-            // Phase 1.0a fast path: single-block leaf. If the callee's
-            // shape is outside that envelope (multi-block / branchy
-            // body), fall through to Phase 2.0a multi-block splice.
-            match inline_single_block_leaf(
+            if inline_single_block_leaf(
                 caller,
                 blk_idx,
                 site_idx,
                 &callee_clone,
                 &args,
                 result_value,
-            ) {
-                Ok(()) => {
-                    stats.inlined += 1;
-                    stats.inlined_single_block += 1;
-                }
-                Err(SpliceError::NotSingleBlock) => {
-                    if inline_multi_block_leaf(
-                        caller,
-                        blk_idx,
-                        site_idx,
-                        &callee_clone,
-                        &args,
-                        result_value,
-                    )
-                    .is_ok()
-                    {
-                        stats.inlined += 1;
-                        stats.inlined_multi_block += 1;
-                    }
-                }
-                Err(_) => {}
+            )
+            .is_ok()
+            {
+                stats.inlined += 1;
             }
         }
     }
@@ -617,13 +586,11 @@ mod tests {
     }
 
     #[test]
-    fn multi_block_void_callee_takes_phase_2_splice_fallback() {
-        // Multi-block void leaf — cheap by cost (no body work), so the
-        // classifier produces a would_inline decision. The Phase 1.0a
-        // splice rejects it with NotSingleBlock, then the driver falls
-        // through to Phase 2.0a multi-block splice which succeeds.
-        // Expect inlined_multi_block = 1 and the caller block to gain
-        // the cloned callee blocks + a continuation block.
+    fn multi_block_callee_passes_classifier_but_splice_fails() {
+        // Multi-block leaf — cheap by cost (no body work), so the
+        // classifier produces a would_inline decision. The splice then
+        // rejects it with NotSingleBlock, so inlined stays 0 and the
+        // would_inline minus inlined gap is the attribution surface.
         let multi = Function {
             name: "two_blocks".into(),
             params: vec![],
@@ -645,18 +612,14 @@ mod tests {
         };
         let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
         let mut m = module_of(vec![main, multi]);
+        let before_inst_count = m.funcs[0].blocks[0].insts.len();
         let stats = inline_module(&mut m);
         assert_eq!(stats.would_inline, 1);
-        assert_eq!(stats.inlined, 1, "Phase 2.0a multi-block splice ok");
-        assert_eq!(stats.inlined_multi_block, 1);
-        assert_eq!(stats.inlined_single_block, 0);
-        // Caller's main function: original block 0 (now Br to cloned
-        // entry) + 2 cloned callee blocks + 1 continuation = 4 blocks.
-        assert_eq!(m.funcs[0].blocks.len(), 4);
+        assert_eq!(stats.inlined, 0, "splice fails on multi-block callee");
         assert_eq!(
             m.funcs[0].blocks[0].insts.len(),
-            0,
-            "original call inst replaced; pre-call insts empty"
+            before_inst_count,
+            "caller block unchanged when splice fails"
         );
     }
 
