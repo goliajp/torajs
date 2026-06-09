@@ -1,0 +1,18 @@
+[package]
+name = "torajs-egraph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Acyclic e-graph mid-end optimizer for torajs SSA — Cranelift aegraph form, pure rust, 0 external dep. Inputs torajs-core SSA Module, outputs an optimized SSA Module ready for torajs-codegen."
+
+# Day-one constraint: 0 external dep (only std + future torajs-core for the
+# SSA module type). See RFC 20260609-torajs-codegen-optimizer §3 for the full
+# module decomposition and the project-principle rationale (pure rust / no
+# LLVM / no staging — directly implements Cranelift aegraph form natively).
+[dependencies]
+
+[lints]
+workspace = true
