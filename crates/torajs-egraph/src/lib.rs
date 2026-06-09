@@ -22,6 +22,7 @@ pub mod cost;
 pub mod dominator;
 pub mod egraph;
 pub mod elaborate;
+pub mod inliner;
 pub mod loop_analysis;
 pub mod optimize;
 pub mod rewrite;
