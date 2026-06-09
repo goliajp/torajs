@@ -4,13 +4,17 @@
 # to its own local target; see ~/.claude-shared/global/cargo-target-dir.md).
 # only host-specific rustflags remain below.
 
-# torajs no longer uses sccache (takagi 2026-06-09). Empty string in
-# [build] rustc-wrapper disables any host-set `RUSTC_WRAPPER` env (which
-# many dev hosts default to /opt/homebrew/bin/sccache). Cargo treats an
-# empty wrapper as unset, so the build invokes rustc directly. This is a
-# project-level override — does not modify the host shell config.
-[build]
-rustc-wrapper = ""
+# torajs no longer uses sccache (takagi 2026-06-09). Host shells often
+# carry `RUSTC_WRAPPER=/opt/homebrew/bin/sccache` from older configs;
+# if the sccache binary has since been uninstalled, every `cargo build`
+# fails with "No such file or directory" before it even starts. The
+# [env] block below force-overrides the inherited env var to empty so
+# cargo invokes rustc directly. `force = true` is essential — without
+# it the host env takes precedence and the override is silent. Host
+# shell config is left untouched (project-level fix only).
+[env]
+RUSTC_WRAPPER = { value = "", force = true }
+CARGO_BUILD_RUSTC_WRAPPER = { value = "", force = true }
 
 # B1b (2026-05-24) — silence `linker_messages` lint on macOS hosts.
 # nightly's rustc surfaces ld's "building for macOS-11.0 but linking
