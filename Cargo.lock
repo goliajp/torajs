@@ -1798,6 +1798,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-egraph"
+version = "0.1.0"
+
+[[package]]
 name = "torajs-embed"
 version = "0.1.0"
 dependencies = [
