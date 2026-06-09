@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-09T08:51:12.502Z",
+  "generatedAt": "2026-06-09T10:15:12.629Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 700,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "be1b8f4",
-    "commitSubject": "chore(bench): add mini self-mode 3-run baseline + current — P-OPT Phase 1 真 acceptance close",
+    "commit": "188fb11",
+    "commitSubject": "feat(egraph): extended identity / annihilator rules — P-OPT Phase 2 chunk 10c",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,22 @@
   },
   "commits": [
     {
+      "hash": "188fb11",
+      "subject": "feat(egraph): extended identity / annihilator rules — P-OPT Phase 2 chunk 10c"
+    },
+    {
+      "hash": "b8e4339",
+      "subject": "refactor(egraph): identity rules single-side after canon — P-OPT Phase 2 chunk 10b"
+    },
+    {
+      "hash": "d9b8a66",
+      "subject": "feat(egraph): commutative canonicalisation rule — P-OPT Phase 2 chunk 10a"
+    },
+    {
+      "hash": "12aeebb",
+      "subject": "chore: dashboard snapshot @ be1b8f4 — P-OPT Phase 1 真 acceptance close"
+    },
+    {
       "hash": "be1b8f4",
       "subject": "chore(bench): add mini self-mode 3-run baseline + current — P-OPT Phase 1 真 acceptance close"
     },
@@ -646,43 +662,38 @@
     {
       "hash": "2ffd164",
       "subject": "feat(egraph): re-enable cmd_build/cmd_run wire-in + bump fixture_o cache key — Phase 0 close"
-    },
-    {
-      "hash": "51425f6",
-      "subject": "chore: dashboard snapshot @ 8b4d8ec — Phase 0 substrate close + wire-in deferred"
-    },
-    {
-      "hash": "8b4d8ec",
-      "subject": "revert(egraph): hold out production wire-in pending perf root-cause"
-    },
-    {
-      "hash": "7fe975a",
-      "subject": "fix(egraph): drop Load/LoadDyn from is_pure — no alias analysis in Phase 0"
-    },
-    {
-      "hash": "4bce7a4",
-      "subject": "feat(egraph): EgraphPass + cmd_build/cmd_run integration — Phase 0 step 8b"
     }
   ],
-  "headSha": "be1b8f4",
+  "headSha": "188fb11",
   "autorun": {
-    "total": 93,
+    "total": 94,
     "baselineTarget": 10,
-    "bySelf": 91,
+    "bySelf": 92,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780993877-7ac7",
-      "at": "2026-06-09T08:31:17Z",
-      "ts": 1780993877,
+      "rotationId": "r-1780995091-3199",
+      "at": "2026-06-09T08:51:31Z",
+      "ts": 1780995091,
       "trigger": "self",
-      "prevHead": "02ab278",
-      "handoffSha": "sha256:232f9d111ab0c68f7ed5bd3bffeedd87611a659a6f704de941186e76c38224e0",
-      "handoffAgeSec": 4,
+      "prevHead": "12aeebb",
+      "handoffSha": "sha256:189a02136be59e845ce5c5862f0a9be5214d15d64cfb3f2f849a207fff033a6e",
+      "handoffAgeSec": 60,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780995091-3199",
+        "at": "2026-06-09T08:51:31Z",
+        "ts": 1780995091,
+        "trigger": "self",
+        "prevHead": "12aeebb",
+        "handoffSha": "sha256:189a02136be59e845ce5c5862f0a9be5214d15d64cfb3f2f849a207fff033a6e",
+        "handoffAgeSec": 60,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780993877-7ac7",
         "at": "2026-06-09T08:31:17Z",
@@ -779,17 +790,6 @@
         "prevHead": "f15e453",
         "handoffSha": "sha256:d19c229d562a290dd6aff793809d8d5c086c45242fda38685464759768ea7ea0",
         "handoffAgeSec": 14,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780907123-7a8c",
-        "at": "2026-06-08T08:25:23Z",
-        "ts": 1780907123,
-        "trigger": "self",
-        "prevHead": "24bf4e4",
-        "handoffSha": "sha256:f1990dfbe74767213804ce7cb7d3a9dd6ddef997ede3d4fdc5bb232899831fd8",
-        "handoffAgeSec": 32,
         "conformanceBefore": null,
         "commitsInSession": null
       }
