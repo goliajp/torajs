@@ -5,7 +5,6 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 
 /// Format a byte count as a human-friendly MB / GB string (used by
 /// `tr cache size` reporting).
@@ -39,16 +38,6 @@ pub(crate) fn dir_size_bytes(p: &Path) -> u64 {
         }
     }
     sum
-}
-
-/// `execvp`-replace the current process with `p`. Used by `tr run`'s
-/// JIT-cache fast path so we hand the cached binary's exit code +
-/// signal back to the original caller transparently.
-pub(crate) fn exec_binary(p: &Path) -> ExitCode {
-    use std::os::unix::process::CommandExt;
-    let err = std::process::Command::new(p).exec();
-    eprintln!("exec {}: {err}", p.display());
-    ExitCode::from(1)
 }
 
 /// Hex-encoded nanos-since-epoch suffix for per-build temp dir names.

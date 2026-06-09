@@ -4,24 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 # v0.3 #6 Graduation — compiler internals as a library crate. Owns
-# the lex / parse / desugar / typecheck / SSA-lower / inkwell-emit
-# pipeline. Depends on torajs-runtime for the C source files
-# embedded into each `tr build` artifact.
+# the lex / parse / desugar / typecheck / SSA-lower pipeline; downstream
+# AOT codegen lives in torajs-codegen → torajs-obj → torajs-link.
+# Depends on torajs-runtime for the C source files embedded into each
+# `tr build` artifact.
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
-# Inkwell drives LLVM 22 (brew) for both `tr build` AOT and `tr run`
-# AOT-with-cache. Build needs LLVM_SYS_221_PREFIX=/opt/homebrew/opt/llvm
-# in the environment.
-inkwell = { version = "0.9", features = ["llvm22-1-prefer-dynamic"] }
-
 torajs-runtime = { path = "../torajs-runtime" }
-# v0.7-A2 metal-tier allocator. Needed at build time of torajs-core
-# so ssa_inkwell can read TLAB layout constants (TLAB_DEPTH_OFFSET,
-# TLAB_SLOT_STRIDE, etc.) for Phase 2e IR-emit inline TLAB.pop /
-# push sequences at user-binary alloc/free call sites.
+# v0.7-A2 metal-tier allocator. TLAB layout constants are read at
+# `tr build` time so SSA lowering can emit inline TLAB.pop / push at
+# user-binary alloc/free call sites.
 torajs-mmalloc = { path = "../torajs-mmalloc" }
 # Layer-0: 0-libc buffered stdout writer (v0.7-A3 Step 14-a).
 # Dual rlib+staticlib; libtorajs_io.a co-links so
@@ -46,9 +41,8 @@ torajs-fmt = { path = "../torajs-fmt" }
 torajs-mem = { path = "../torajs-mem" }
 # Layer-1 substrate: rc_inc / rc_dec / HeapHeader. Pulled in for both
 # (a) the rlib (so torajs-core can call rc_inc directly from Rust if
-# needed later) and (b) the staticlib that build.rs copies into
-# OUT_DIR and that `ssa_inkwell::compile()` links into every
-# `tr build` user-binary alongside the runtime_*.c object files.
+# needed later) and (b) the staticlib that torajs-link co-links into
+# every `tr build` user-binary alongside the runtime_*.c object files.
 torajs-rc = { path = "../torajs-rc" }
 # Layer-1 substrate: AnyBox heap value (boxed Type::Any). Same dual
 # rlib+staticlib usage as torajs-rc above.
@@ -132,11 +126,7 @@ torajs-value-drop = { path = "../torajs-value-drop" }
 # rlib+staticlib; libtorajs_abort.a co-links so __torajs_abort_with
 # resolves at `tr build`. Same dep-order rationale as torajs-panic.
 torajs-abort = { path = "../torajs-abort" }
-# SD-4c-prereq swap-2b: ssa_inkwell historically synthesizes
-# print_i64 / print_f64 / print_bool inline via builders::define_print_*;
-# the new pipeline (TORAJS_NEW_PIPELINE=1) pulls them from this
-# staticlib so codegen + obj + link can resolve the syms without the
-# LLVM-IR-emit backend. Listed in TORAJS_NEW_PIPELINE_EXTRA_STATICLIBS,
-# not TORAJS_STATICLIBS, so the legacy LLVM path keeps its inline
-# definitions to avoid a duplicate-symbol link error.
+# Layer-0: console primitives (print_bool / print_i64 / print_f64).
+# torajs-link co-links libtorajs_print.a so the in-house toolchain
+# resolves these symbols at `tr build`.
 torajs-print = { path = "../torajs-print" }

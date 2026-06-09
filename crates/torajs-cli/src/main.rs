@@ -1,12 +1,9 @@
-mod cache_keys;
 mod cmd_build;
-mod cmd_build_new;
 mod cmd_cache;
 mod cmd_debug;
 mod cmd_fmt;
 mod cmd_lint;
 mod cmd_run;
-mod cmd_run_new;
 mod lsp;
 mod lsp_bench;
 mod repl;
@@ -18,12 +15,10 @@ use std::process::ExitCode;
 
 use torajs_core::{ast, check, lexer, modules, parser, ssa, ssa_lower};
 
-use cmd_build::run_build_llvm;
 use cmd_cache::run_cache_subcmd;
 use cmd_debug::run_debug;
 use cmd_fmt::run_fmt;
 use cmd_lint::run_lint;
-use cmd_run::run_jit;
 use util::{base_dir_for, read_source};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -74,28 +69,10 @@ fn main() -> ExitCode {
         // `tr run` is AOT-with-cache (replaced Cranelift JIT 2026-05-01):
         // hash source → `~/.torajs/cache/<hash>` → exec, or compile + cache + exec.
         // `jit` is kept as a back-compat alias.
-        //
-        // SD-4c-prereq+ sub-step A — env-gated dispatcher mirrors
-        // `Some("build")` below. New pipeline (codegen + obj + link)
-        // materializes to a tmp file and execs; legacy ssa_inkwell
-        // path stays the default until atomic swap-C closes.
-        Some("run") | Some("jit") => {
-            if std::env::var("TORAJS_NEW_PIPELINE").as_deref() == Ok("1") {
-                cmd_run_new::run(args.get(1))
-            } else {
-                run_jit(args.get(1))
-            }
-        }
-        Some("build") => {
-            // SD-4c-prereq swap-1 — env-gated dispatcher. The new
-            // pipeline (codegen + obj + link) replaces ssa_inkwell
-            // once swap-N closes; default path stays LLVM until then.
-            if std::env::var("TORAJS_NEW_PIPELINE").as_deref() == Ok("1") {
-                cmd_build_new::run(&args[1..])
-            } else {
-                run_build_llvm(&args[1..])
-            }
-        }
+        // Pipeline: codegen → torajs-obj → torajs-link (in-house aarch64 toolchain,
+        // ssa_inkwell/LLVM retired in #9 atomic swap).
+        Some("run") | Some("jit") => cmd_run::run(args.get(1)),
+        Some("build") => cmd_build::run(&args[1..]),
         Some("lsp") => match lsp::run() {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -134,14 +111,14 @@ fn print_usage() {
     println!("    tr <COMMAND> <file|->");
     println!();
     println!("COMMANDS:");
-    println!("    run <file>           AOT-compile via LLVM (cached at ~/.torajs/cache), execute");
+    println!("    run <file>           AOT-compile (cached at ~/.torajs/cache), execute");
     println!("    jit <file>           alias for `run` (back-compat)");
     println!("    tokenize <file>      print the token stream");
     println!("    parse <file>         print the parsed AST");
     println!("    check <file>         type-check, exit nonzero on error");
     println!("    ssa <file>           print the lowered SSA IR");
-    println!("    build <in> -o <out> [--opt O0|O1|O2|O3]");
-    println!("                         AOT-compile via LLVM 22 → native binary");
+    println!("    build <in> -o <out>");
+    println!("                         AOT-compile via in-house aarch64 toolchain → native binary");
     println!("    ssa-demo             print a hand-built SSA fib40 (P3.5 step 1 leftover)");
     println!("    lsp                  speak Language Server Protocol over stdio");
     println!("    lsp-bench            measure LSP latency on a synthetic 1K-line fixture");
@@ -210,8 +187,8 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
         }
     };
     // v0.3 #4 DWARF — retain source bytes so byte_to_line_col can
-    // resolve Expr spans into DILocation values during ssa_inkwell
-    // emission and during runtime panic backtraces.
+    // resolve Expr spans into DILocation values during codegen and
+    // during runtime panic backtraces.
     ast.source = src.to_string();
     ast.warm_newline_cache();
     // K.2 — resolve cross-file imports BEFORE the desugar pipeline so

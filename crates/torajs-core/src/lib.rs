@@ -1,14 +1,15 @@
 //! v0.3 #6 Graduation — torajs-core crate.
 //!
 //! The compiler library: lex → parse → desugar → typecheck → SSA
-//! lower → inkwell-emit. Public modules let downstream callers
-//! (`torajs-cli`, the conformance and bench harnesses) drive any
-//! sub-stage of the pipeline directly.
+//! lower. Downstream AOT codegen + Mach-O emit + linking lives in
+//! torajs-codegen → torajs-obj → torajs-link. Public modules let
+//! downstream callers (`torajs-cli`, the conformance and bench
+//! harnesses) drive any sub-stage of the pipeline directly.
 //!
 //! Depends on `torajs-runtime` for the C source files that get
 //! embedded into every `tr build` artifact (string/array helpers,
 //! regex/Date engines, ...) and on `torajs-rc` for the Layer-1
-//! refcount staticlib that ssa_inkwell links into every user
+//! refcount staticlib that torajs-link co-links into every user
 //! binary alongside those C object files.
 
 /// Embedded staticlib bytes for every Layer-1+ Rust sub-crate
@@ -25,11 +26,11 @@
 /// run BEFORE the staticlib artifact is finalized — embedding a
 /// stale copy into `tr`. See `build.rs` for the full rationale.
 ///
-/// `ssa_inkwell::compile()` writes each entry to a per-build temp
-/// `.a` file and appends every path to the cc link command.
-/// Adding a new sub-crate is a single line here + a single line
-/// in `build.rs`'s `STATICLIBS` list — no other change needed for
-/// the link wiring to pick it up.
+/// `torajs-link` writes each entry to a per-build temp `.a` file and
+/// hands the paths to the in-house Mach-O linker. Adding a new
+/// sub-crate is a single line here + a single line in `build.rs`'s
+/// `STATICLIBS` list — no other change needed for the link wiring to
+/// pick it up.
 pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
     (
         "libtorajs_syscall.a",
@@ -151,30 +152,20 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
         "libtorajs_abort.a",
         include_bytes!(env!("TORAJS_ABORT_STATICLIB_PATH")),
     ),
+    (
+        "libtorajs_print.a",
+        include_bytes!(env!("TORAJS_PRINT_STATICLIB_PATH")),
+    ),
 ];
 
-/// SD-4c-prereq swap-2b — staticlibs the **new pipeline** (codegen +
-/// obj + link, behind `TORAJS_NEW_PIPELINE=1`) pulls in addition to
-/// [`TORAJS_STATICLIBS`]. Each entry holds an intrinsic
-/// `ssa_inkwell` historically synthesized at compile time
-/// (`builders::define_print_*`, `obj_builders::define_obj_*`, etc.) —
-/// the new pipeline routes them through real archive members instead
-/// of inline LLVM IR emit. Kept out of [`TORAJS_STATICLIBS`] so the
-/// legacy LLVM path can keep its inline definitions without a
-/// duplicate-symbol link error.
-pub const TORAJS_NEW_PIPELINE_EXTRA_STATICLIBS: &[(&str, &[u8])] = &[(
-    "libtorajs_print.a",
-    include_bytes!(env!("TORAJS_PRINT_STATICLIB_PATH")),
-)];
-
 /// Compiler-source fingerprint emitted by build.rs (hash of
-/// `src/ssa_inkwell.rs` / `src/ssa_lower.rs` / `src/check.rs` /
-/// `src/parser.rs` / `src/lexer.rs` / `src/ast.rs` / `src/modules.rs` /
-/// `src/ssa.rs`). Used by the per-fixture `.o` cache (B-1 phase 2):
-/// substrate ships don't touch these `.rs` files → fingerprint stable
-/// across ships → `.o` cache stays warm even though tr binary mtime
-/// changes. Compiler-logic ships (touching any file above) flip the
-/// fingerprint and invalidate the cache — correct semantics.
+/// `src/ssa_lower.rs` / `src/check.rs` / `src/parser.rs` /
+/// `src/lexer.rs` / `src/ast.rs` / `src/modules.rs` / `src/ssa.rs`).
+/// Used by the per-fixture `.o` cache (B-1 phase 2): substrate ships
+/// don't touch these `.rs` files → fingerprint stable across ships →
+/// `.o` cache stays warm even though tr binary mtime changes.
+/// Compiler-logic ships (touching any file above) flip the fingerprint
+/// and invalidate the cache — correct semantics.
 pub const TORAJS_COMPILER_REV: &str = env!("TORAJS_COMPILER_REV");
 
 pub mod ast;
@@ -186,7 +177,6 @@ pub mod modules;
 pub mod parser;
 pub mod short_str_encode;
 pub mod ssa;
-pub mod ssa_inkwell;
 pub mod ssa_lower;
 pub mod ssa_lower_body_returns_closure;
 pub mod ssa_lower_closure_captures;

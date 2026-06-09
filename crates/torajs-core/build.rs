@@ -1,9 +1,9 @@
 //! Build script — emit the path to every Layer-1+ Rust sub-crate's
 //! `lib<name>.a` as a cargo env var so `lib.rs` can `include_bytes!`
 //! the staticlib bytes directly into the `tr` binary. At `tr build`
-//! time, `ssa_inkwell::compile()` writes each `.a` to a temp file
-//! and passes the resulting paths to the link command alongside
-//! the runtime_*.c object files.
+//! time, `torajs-link` writes each `.a` to a temp file and hands the
+//! paths to the in-house Mach-O linker alongside the runtime_*.c
+//! object files.
 //!
 //! Why this dance: `tr` is a Rust binary; `tr build` runs on user
 //! machines that have no Rust toolchain. Each Layer-1+ staticlib
@@ -26,44 +26,16 @@
 use std::env;
 use std::path::PathBuf;
 
-/// Compiler-source `.rs` files that, when modified, change the LLVM IR /
+/// Compiler-source `.rs` files that, when modified, change the
 /// `.o` bytes a `tr` invocation produces from a fixed `.ts` source.
 /// Cache keys derived from this list must invalidate whenever any of
 /// these change (per-fixture .o cache, post-substrate-ship gate scenario).
 ///
-/// IMPORTANT: kept narrow on purpose — only ssa/lower/inkwell/check/parser/
-/// lexer/ast/modules/linter affect codegen output. Adding e.g. formatter.rs
+/// IMPORTANT: kept narrow on purpose — only ssa/lower/check/parser/
+/// lexer/ast/modules affect codegen output. Adding e.g. formatter.rs
 /// here would invalidate the cache on cosmetic source-formatting changes
 /// (no effect on emitted .o), wasting cache hits.
 const COMPILER_SOURCE_FILES: &[&str] = &[
-    "src/ssa_inkwell.rs",
-    // ssa_inkwell sub-modules — every .rs file under src/ssa_inkwell/
-    // contributes to codegen output (extern declares, attribute
-    // application, IR builders for print/alloc/array families).
-    // Without these in the fingerprint, a substrate ship that
-    // changes an IR symbol name (e.g. v0.7-A3 Step 14-b/c cutover
-    // from libc `putchar` to `__torajs_io_putc_stdout` in
-    // `declares.rs`) leaves the per-fixture `.o` cache stale:
-    // cached objects still reference the old symbol while the
-    // current staticlib provides only the new symbol, producing
-    // mixed-buffer ordering bugs at link time.
-    "src/ssa_inkwell/arr_builders.rs",
-    "src/ssa_inkwell/arr_builders_non_deque.rs",
-    "src/ssa_inkwell/arr_helpers.rs",
-    "src/ssa_inkwell/attrs.rs",
-    "src/ssa_inkwell/builders.rs",
-    "src/ssa_inkwell/class_globals.rs",
-    "src/ssa_inkwell/declares.rs",
-    "src/ssa_inkwell/entry.rs",
-    "src/ssa_inkwell/globals.rs",
-    "src/ssa_inkwell/link.rs",
-    "src/ssa_inkwell/lower.rs",
-    "src/ssa_inkwell/lower_fns.rs",
-    "src/ssa_inkwell/lower_inst.rs",
-    "src/ssa_inkwell/obj_builders.rs",
-    "src/ssa_inkwell/panic_runtime_link.rs",
-    "src/ssa_inkwell/pipeline.rs",
-    "src/ssa_inkwell/types.rs",
     "src/ssa_lower.rs",
     "src/ssa_lower_substr_trim_into.rs",
     "src/ssa_lower_while_push_fast.rs",
@@ -121,7 +93,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_panic_runtime", // Layer-0: custom #![panic_runtime] + #[panic_handler] replacing std default — strips ~150 KiB backtrace/demangle/path/io/Thread tree from user binaries (v0.7 Step 9b)
     "torajs_value_drop", // Layer-1: universal heap-typed drop dispatch — type_tag → per-type _drop (P7.i-drop)
     "torajs_abort", // Layer-0: panic-free abort helper — write(2)+abort(); replaces Rust panic infra (polish A3a)
-    "torajs_print", // SD-4c-prereq swap-2b: print_i64 / print_f64 / print_bool intrinsics — ssa_inkwell synthesizes these inline (builders::define_print_*), the new pipeline (TORAJS_NEW_PIPELINE=1) pulls them from this staticlib via TORAJS_NEW_PIPELINE_EXTRA_STATICLIBS instead.
+    "torajs_print", // Layer-0: console primitives (print_bool / print_i64 / print_f64) — co-linked by torajs-link at `tr build`.
 ];
 
 fn main() {
@@ -164,12 +136,12 @@ fn main() {
 
     // Compute a compiler-source fingerprint for the per-fixture .o
     // cache key (B-1 phase 2). Hash every `.rs` file that affects
-    // codegen output; emit as `TORAJS_COMPILER_REV` so ssa_inkwell
-    // can put it in the cache key. Substrate ships don't change
-    // these files → cache stays warm across substrate ships, even
-    // though `tr` binary mtime does change. Compiler-logic ships
-    // (touching ssa_lower / ssa_inkwell / check / etc.) flip the
-    // hash and invalidate the cache — correct semantics.
+    // codegen output; emit as `TORAJS_COMPILER_REV` so the cli can
+    // put it in the cache key. Substrate ships don't change these
+    // files → cache stays warm across substrate ships, even though
+    // `tr` binary mtime does change. Compiler-logic ships (touching
+    // ssa_lower / check / etc.) flip the hash and invalidate the
+    // cache — correct semantics.
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     for rel in COMPILER_SOURCE_FILES {
