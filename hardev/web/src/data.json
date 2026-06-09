@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-09T03:13:48.852Z",
+  "generatedAt": "2026-06-09T05:03:11.958Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
     "fail": 0,
     "skip": 4,
     "raw": "723/0/4",
-    "source": "/tmp/torajs-conformance-3ae3c87.log",
-    "sourceMtime": "2026-06-07T04:13:17.273Z"
+    "source": "/tmp/torajs-conformance-cold.log",
+    "sourceMtime": "2026-06-09T05:02:39.116Z"
   },
   "test262": {
     "ranAt": "2026-06-03T22:49:10Z",
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "7ff51df",
-    "commitSubject": "feat(egraph): ISLE-inspired rule engine + strength-reduction demo — Phase 0 step 7",
+    "commit": "8b4d8ec",
+    "commitSubject": "revert(egraph): hold out production wire-in pending perf root-cause",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -37,8 +37,8 @@
       "fail": 0,
       "skip": 4,
       "raw": "723/0/4",
-      "source": "/tmp/torajs-conformance-3ae3c87.log",
-      "sourceMtime": "2026-06-07T04:13:17.273Z"
+      "source": "/tmp/torajs-conformance-cold.log",
+      "sourceMtime": "2026-06-09T05:02:39.116Z"
     }
   },
   "roadmap": [
@@ -616,6 +616,26 @@
   },
   "commits": [
     {
+      "hash": "8b4d8ec",
+      "subject": "revert(egraph): hold out production wire-in pending perf root-cause"
+    },
+    {
+      "hash": "7fe975a",
+      "subject": "fix(egraph): drop Load/LoadDyn from is_pure — no alias analysis in Phase 0"
+    },
+    {
+      "hash": "4bce7a4",
+      "subject": "feat(egraph): EgraphPass + cmd_build/cmd_run integration — Phase 0 step 8b"
+    },
+    {
+      "hash": "e77972a",
+      "subject": "feat(egraph): scoped elaboration (domtree DFS + GVN drop) — Phase 0 step 8a"
+    },
+    {
+      "hash": "9476c2a",
+      "subject": "chore: dashboard snapshot @ 7ff51df + mini bench result — Phase 0 7/8 step ship"
+    },
+    {
       "hash": "7ff51df",
       "subject": "feat(egraph): ISLE-inspired rule engine + strength-reduction demo — Phase 0 step 7"
     },
@@ -642,47 +662,38 @@
     {
       "hash": "92fd865",
       "subject": "feat(egraph): Apple Silicon M1 cycle-cost model — Phase 0 step 2"
-    },
-    {
-      "hash": "def4488",
-      "subject": "chore(cargo): disable sccache project-wide via empty rustc-wrapper"
-    },
-    {
-      "hash": "08e42c4",
-      "subject": "chore: sync Cargo.lock for torajs-egraph workspace member (chunk 1 follow-up)"
-    },
-    {
-      "hash": "17a538a",
-      "subject": "feat(egraph): torajs-egraph sub-crate scaffold + ScopedHashMap — Phase 0 step 1"
-    },
-    {
-      "hash": "eb9f984",
-      "subject": "chore: dashboard snapshot @ 71a2584 — SD-5 close (SD sub-phase done, #9 still hot)"
-    },
-    {
-      "hash": "71a2584",
-      "subject": "chore: dashboard snapshot @ d01fe0a — SD-4d bench audit + 3-run median"
     }
   ],
-  "headSha": "7ff51df",
+  "headSha": "8b4d8ec",
   "autorun": {
-    "total": 89,
+    "total": 90,
     "baselineTarget": 10,
-    "bySelf": 87,
+    "bySelf": 88,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780960868-5aea",
-      "at": "2026-06-08T23:21:08Z",
-      "ts": 1780960868,
+      "rotationId": "r-1780974933-079c",
+      "at": "2026-06-09T03:15:33Z",
+      "ts": 1780974933,
       "trigger": "self",
-      "prevHead": "eb9f984",
-      "handoffSha": "sha256:08c6e19155a1eab2836b40e38ac7856b214abe76e0c9f8dd42a5d784cf3d5f29",
-      "handoffAgeSec": 42,
+      "prevHead": "9476c2a",
+      "handoffSha": "sha256:cf341991d2c23e420181dad4040ea888e1ce7d6622f669df424e48223db7a93c",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780974933-079c",
+        "at": "2026-06-09T03:15:33Z",
+        "ts": 1780974933,
+        "trigger": "self",
+        "prevHead": "9476c2a",
+        "handoffSha": "sha256:cf341991d2c23e420181dad4040ea888e1ce7d6622f669df424e48223db7a93c",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780960868-5aea",
         "at": "2026-06-08T23:21:08Z",
@@ -779,17 +790,6 @@
         "prevHead": "536e7b8",
         "handoffSha": "sha256:a37e94c1542c533757e475d0f8f10b1bd24a0ef550d14216866fcf60854ffdac",
         "handoffAgeSec": 25,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780871076-1792",
-        "at": "2026-06-07T22:24:36Z",
-        "ts": 1780871076,
-        "trigger": "self",
-        "prevHead": "344f942",
-        "handoffSha": "sha256:b7f916a76b16bc5962191ebaa8e9da0c00a48e9c78faa8758b9bd9ec96b8ad83",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
