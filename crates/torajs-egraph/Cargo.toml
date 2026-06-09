@@ -8,11 +8,18 @@ homepage.workspace = true
 authors.workspace = true
 description = "Acyclic e-graph mid-end optimizer for torajs SSA — Cranelift aegraph form, pure rust, 0 external dep. Inputs torajs-core SSA Module, outputs an optimized SSA Module ready for torajs-codegen."
 
-# Day-one constraint: 0 external dep (only std + future torajs-core for the
-# SSA module type). See RFC 20260609-torajs-codegen-optimizer §3 for the full
+# Day-one constraint: 0 external dep — only std + torajs-core (for the SSA
+# Module / Function / Block / Inst / InstKind types this crate reads and
+# mutates). See RFC 20260609-torajs-codegen-optimizer §3 for the full
 # module decomposition and the project-principle rationale (pure rust / no
 # LLVM / no staging — directly implements Cranelift aegraph form natively).
+#
+# Dep graph: torajs-egraph → torajs-core (read SSA types). torajs-core does
+# NOT import torajs-egraph; integration happens in `torajs-cli::cmd_build` /
+# `cmd_run` between `ssa_lower::lower_with_arity` and
+# `torajs_codegen::compile_function`. No cycle.
 [dependencies]
+torajs-core = { path = "../torajs-core" }
 
 [lints]
 workspace = true

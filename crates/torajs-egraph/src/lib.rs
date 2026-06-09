@@ -18,4 +18,5 @@
 //! is identity (round-trip-equivalent) until Phase 1 lands the first
 //! rule cluster.
 
+pub mod cost;
 pub mod scope_map;
