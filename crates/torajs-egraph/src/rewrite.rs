@@ -184,11 +184,15 @@ impl Rewrite for MulPow2ToShl {
 //
 // Both rules rewrite to `Identity(x)` so the optimizer aliases
 // `result` onto `x` via `set_opt_value` and never emits an inst.
-// Each tries both operand orderings (commutative); a future
-// `add_swap_canonical` rule will canonicalise constants to the RHS
-// and let these match a single side.
+//
+// Phase 2 chunk 10b simplified the match to RHS-only after
+// CommutativeCanon (chunk 10a) became the registry's first rule —
+// `(add 0 x)` and `(mul 1 x)` are now canonicalised to the RHS
+// form before these rules see them. The LHS-Const arm is
+// unreachable and was dropped.
 
-/// `(add x 0) | (add 0 x) → Identity(x)` — additive identity.
+/// `(add x 0) → Identity(x)` — additive identity. Relies on
+/// CommutativeCanon to land the const on the RHS.
 pub struct AddZero;
 
 impl Rewrite for AddZero {
@@ -196,19 +200,15 @@ impl Rewrite for AddZero {
         "add_zero_to_identity"
     }
     fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
-        if let InstKind::BinOp(BinOp::Add, a, b) = lhs {
-            if matches!(b, Operand::ConstI64(0)) {
-                return Some(InstKind::Identity(*a));
-            }
-            if matches!(a, Operand::ConstI64(0)) {
-                return Some(InstKind::Identity(*b));
-            }
+        if let InstKind::BinOp(BinOp::Add, a, Operand::ConstI64(0)) = lhs {
+            return Some(InstKind::Identity(*a));
         }
         None
     }
 }
 
-/// `(mul x 1) | (mul 1 x) → Identity(x)` — multiplicative identity.
+/// `(mul x 1) → Identity(x)` — multiplicative identity. Relies on
+/// CommutativeCanon to land the const on the RHS.
 pub struct MulOne;
 
 impl Rewrite for MulOne {
@@ -216,13 +216,8 @@ impl Rewrite for MulOne {
         "mul_one_to_identity"
     }
     fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
-        if let InstKind::BinOp(BinOp::Mul, a, b) = lhs {
-            if matches!(b, Operand::ConstI64(1)) {
-                return Some(InstKind::Identity(*a));
-            }
-            if matches!(a, Operand::ConstI64(1)) {
-                return Some(InstKind::Identity(*b));
-            }
+        if let InstKind::BinOp(BinOp::Mul, a, Operand::ConstI64(1)) = lhs {
+            return Some(InstKind::Identity(*a));
         }
         None
     }
@@ -269,7 +264,8 @@ impl Rewrite for XorSelf {
     }
 }
 
-/// `(mul x 0) | (mul 0 x) → 0` — zero-annihilator.
+/// `(mul x 0) → 0` — zero-annihilator. Relies on CommutativeCanon
+/// to land the const on the RHS.
 pub struct MulZero;
 
 impl Rewrite for MulZero {
@@ -277,9 +273,7 @@ impl Rewrite for MulZero {
         "mul_zero_to_zero"
     }
     fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
-        if let InstKind::BinOp(BinOp::Mul, a, b) = lhs
-            && (matches!(a, Operand::ConstI64(0)) || matches!(b, Operand::ConstI64(0)))
-        {
+        if let InstKind::BinOp(BinOp::Mul, _, Operand::ConstI64(0)) = lhs {
             return Some(InstKind::Identity(Operand::ConstI64(0)));
         }
         None
@@ -344,9 +338,9 @@ static MUL_ZERO: MulZero = MulZero;
 ///   variant needed).
 /// - Phase 2 chunk 10a prepends CommutativeCanon so identity /
 ///   const-fold rules see normalised operand order (const on RHS).
-///   Their current both-sides match arms stay correct — Phase 2
-///   follow-up simplifies them to single-side once the canon
-///   invariant is relied on.
+/// - Phase 2 chunk 10b simplifies AddZero / MulOne / MulZero to
+///   match the RHS-Const arm only, relying on the canon invariant
+///   established in chunk 10a.
 pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[
     &COMMUTATIVE_CANON,
     &ADD_ZERO,
@@ -459,19 +453,18 @@ mod tests {
     }
 
     #[test]
-    fn add_zero_rewrites_to_identity_both_sides() {
+    fn add_zero_rewrites_to_identity_rhs_only_after_canon() {
         // (add x 0) → Identity(x)
         let lhs = InstKind::BinOp(BinOp::Add, val(4), Operand::ConstI64(0));
         assert_eq!(
             AddZero.try_apply(&lhs),
             Some(InstKind::Identity(Operand::Value(ValueId(4))))
         );
-        // (add 0 x) → Identity(x)
+        // (add 0 x) — chunk 10b drops the LHS-Const arm; CommutativeCanon
+        // (registry first) lands the const on the RHS before AddZero
+        // sees it. Direct call no longer fires.
         let lhs2 = InstKind::BinOp(BinOp::Add, Operand::ConstI64(0), val(7));
-        assert_eq!(
-            AddZero.try_apply(&lhs2),
-            Some(InstKind::Identity(Operand::Value(ValueId(7))))
-        );
+        assert!(AddZero.try_apply(&lhs2).is_none());
         // (add x 1) — doesn't fire.
         let nope = InstKind::BinOp(BinOp::Add, val(4), Operand::ConstI64(1));
         assert!(AddZero.try_apply(&nope).is_none());
@@ -481,19 +474,17 @@ mod tests {
     }
 
     #[test]
-    fn mul_one_rewrites_to_identity_both_sides() {
+    fn mul_one_rewrites_to_identity_rhs_only_after_canon() {
         // (mul x 1) → Identity(x)
         let lhs = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(1));
         assert_eq!(
             MulOne.try_apply(&lhs),
             Some(InstKind::Identity(Operand::Value(ValueId(4))))
         );
-        // (mul 1 x) → Identity(x)
+        // (mul 1 x) — chunk 10b drops the LHS-Const arm; canon swaps
+        // first. Direct call no longer fires.
         let lhs2 = InstKind::BinOp(BinOp::Mul, Operand::ConstI64(1), val(9));
-        assert_eq!(
-            MulOne.try_apply(&lhs2),
-            Some(InstKind::Identity(Operand::Value(ValueId(9))))
-        );
+        assert!(MulOne.try_apply(&lhs2).is_none());
         // (mul x 0) — doesn't fire (MulZero is a Phase 1 chunk 9a-3 rule).
         let zero = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(0));
         assert!(MulOne.try_apply(&zero).is_none());
@@ -535,17 +526,15 @@ mod tests {
     }
 
     #[test]
-    fn mul_zero_folds_both_sides() {
+    fn mul_zero_folds_rhs_only_after_canon() {
         let rhs_zero = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(0));
         assert_eq!(
             MulZero.try_apply(&rhs_zero),
             Some(InstKind::Identity(Operand::ConstI64(0)))
         );
+        // chunk 10b drops the LHS-Const arm; canon swaps first.
         let lhs_zero = InstKind::BinOp(BinOp::Mul, Operand::ConstI64(0), val(4));
-        assert_eq!(
-            MulZero.try_apply(&lhs_zero),
-            Some(InstKind::Identity(Operand::ConstI64(0)))
-        );
+        assert!(MulZero.try_apply(&lhs_zero).is_none());
         // mul x 1 — doesn't fire (MulOne handles).
         let one = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(1));
         assert!(MulZero.try_apply(&one).is_none());
