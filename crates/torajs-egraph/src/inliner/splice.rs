@@ -118,6 +118,9 @@ pub fn inline_single_block_leaf(
         ) {
             return Err(SpliceError::NotLeaf);
         }
+        if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_)) {
+            return Err(SpliceError::AllocaInBody);
+        }
     }
     let ret_operand = match &callee_blk.term {
         Terminator::Ret(opt) => opt.clone(),

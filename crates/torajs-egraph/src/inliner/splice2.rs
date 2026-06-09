@@ -122,6 +122,9 @@ pub fn inline_multi_block_leaf(
             ) {
                 return Err(SpliceMultiError::NotLeaf);
             }
+            if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_)) {
+                return Err(SpliceMultiError::AllocaInBody);
+            }
         }
         match &blk.term {
             Terminator::Br(_) | Terminator::CondBr { .. } => {}
