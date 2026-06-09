@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-09T15:18:44.151Z",
+  "generatedAt": "2026-06-09T15:57:05.416Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 700,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "fd2588b",
-    "commitSubject": "feat(egraph): dom-nested DFS walk in optimize — P-OPT Phase 2 chunk 12 scope-stack upgrade",
+    "commit": "30e92e6",
+    "commitSubject": "feat(egraph): LICM proper — P-OPT Phase 2 chunk 13 loop-invariant hoist",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,14 @@
   },
   "commits": [
     {
+      "hash": "30e92e6",
+      "subject": "feat(egraph): LICM proper — P-OPT Phase 2 chunk 13 loop-invariant hoist"
+    },
+    {
+      "hash": "94d85d6",
+      "subject": "chore: dashboard snapshot @ fd2588b — P-OPT Phase 2 chunk 12 dom-nested DFS walk"
+    },
+    {
       "hash": "fd2588b",
       "subject": "feat(egraph): dom-nested DFS walk in optimize — P-OPT Phase 2 chunk 12 scope-stack upgrade"
     },
@@ -654,35 +662,38 @@
     {
       "hash": "a508440",
       "subject": "chore: dashboard snapshot @ 188fb11 — P-OPT Phase 2 rewrite-rule cluster close"
-    },
-    {
-      "hash": "188fb11",
-      "subject": "feat(egraph): extended identity / annihilator rules — P-OPT Phase 2 chunk 10c"
-    },
-    {
-      "hash": "b8e4339",
-      "subject": "refactor(egraph): identity rules single-side after canon — P-OPT Phase 2 chunk 10b"
     }
   ],
-  "headSha": "fd2588b",
+  "headSha": "30e92e6",
   "autorun": {
-    "total": 98,
+    "total": 99,
     "baselineTarget": 10,
-    "bySelf": 96,
+    "bySelf": 97,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781014689-2069",
-      "at": "2026-06-09T14:18:09Z",
-      "ts": 1781014689,
+      "rotationId": "r-1781018476-55ab",
+      "at": "2026-06-09T15:21:16Z",
+      "ts": 1781018476,
       "trigger": "self",
-      "prevHead": "5c4ae5b",
-      "handoffSha": "sha256:de5f1f60361b37987bf9f0c9c652168040e137af02c3dd3b266c2e109edd93fe",
-      "handoffAgeSec": 5,
+      "prevHead": "94d85d6",
+      "handoffSha": "sha256:912e647aab3b9c0d258242510d14a59394b6b5d9f2cca3981a08e6e7aa0b0630",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781018476-55ab",
+        "at": "2026-06-09T15:21:16Z",
+        "ts": 1781018476,
+        "trigger": "self",
+        "prevHead": "94d85d6",
+        "handoffSha": "sha256:912e647aab3b9c0d258242510d14a59394b6b5d9f2cca3981a08e6e7aa0b0630",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781014689-2069",
         "at": "2026-06-09T14:18:09Z",
@@ -779,17 +790,6 @@
         "prevHead": "9476c2a",
         "handoffSha": "sha256:cf341991d2c23e420181dad4040ea888e1ce7d6622f669df424e48223db7a93c",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780960868-5aea",
-        "at": "2026-06-08T23:21:08Z",
-        "ts": 1780960868,
-        "trigger": "self",
-        "prevHead": "eb9f984",
-        "handoffSha": "sha256:08c6e19155a1eab2836b40e38ac7856b214abe76e0c9f8dd42a5d784cf3d5f29",
-        "handoffAgeSec": 42,
         "conformanceBefore": null,
         "commitsInSession": null
       }
