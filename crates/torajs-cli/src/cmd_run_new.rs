@@ -29,9 +29,11 @@ pub(crate) fn run(file_arg: Option<&String>) -> ExitCode {
         Err(code) => return code,
     };
 
-    // Phase 0 step 8b — egraph mid-end pass (round-trip-equivalent
-    // in Phase 0; `TORAJS_EGRAPH_OFF=1` bypasses for bisection).
-    let ssa_module = torajs_egraph::transform_module(ssa_module);
+    // Phase 0 step 8b egraph wire-in held out pending perf root-cause
+    // investigation — see cmd_build_new::run for the full context.
+    // Scaffold + EgraphPass + transform_module API are shipped; only
+    // the production call site is gated. Re-enable with:
+    //   let ssa_module = torajs_egraph::transform_module(ssa_module);
 
     let cfg = build_link_config(&ssa_module);
 

@@ -94,10 +94,23 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
         Err(code) => return code,
     };
 
-    // Phase 0 step 8b — egraph mid-end pass between SSA lowering and
-    // codegen. Round-trip-equivalent under no active rule cluster;
-    // honors `TORAJS_EGRAPH_OFF=1` for bisection.
-    let ssa_module = torajs_egraph::transform_module(ssa_module);
+    // Phase 0 step 8b egraph wire-in (`torajs_egraph::transform_module`)
+    // is held out pending a perf root-cause investigation: a
+    // conformance gate run on `4bce7a4` showed 16 timeout SIGKILLs
+    // (60s) on simple fixtures (bitop / class / for-loop). Per-fixture
+    // single-process timing reproduces only the FIRST invocation as
+    // slow (~71s wall / 0.43s CPU — cold-cache wait pattern), while
+    // subsequent runs match baseline (0.13s). Suspected root cause is
+    // .o cache mix (fixture_o_cache_key doesn't see the egraph
+    // integration so cached .o from pre-integration ships hits, mixed
+    // with the new staticlib path) or build-time work imbalance under
+    // 8-worker parallel conformance load. Scaffold ships ready
+    // (torajs-egraph 58/58 nextest, transform_module exported,
+    // TORAJS_EGRAPH_OFF env gate honored); next session finds the
+    // perf root cause then reinstates the call site.
+    //
+    // To re-enable in a focused experiment:
+    //   let ssa_module = torajs_egraph::transform_module(ssa_module);
 
     let cfg = build_link_config(&ssa_module);
 
