@@ -1,0 +1,643 @@
+//! Phase 2 of the egraph pipeline — scoped elaboration.
+//!
+//! Walks the dominator tree of one `Function` in preorder, re-emitting
+//! a new `Function` whose instructions reference the canonical
+//! (UF-rooted, opt_value-resolved) representative for each operand.
+//! GVN-redundant pure instructions whose canonical replacement is
+//! already elaborated in an enclosing dominance scope are dropped.
+//!
+//! Algorithm (per Cranelift `wasmtime/cranelift/codegen/src/egraph/
+//! elaborate.rs::Elaborator`):
+//!
+//! ```text
+//! for blk in domtree.preorder():
+//!     elaborated.push_scope()
+//!     for inst in blk.insts:
+//!         kind' = rewrite each Value(v) operand to Value(egraph.opt_value(v))
+//!         if inst.result is Some(res):
+//!             canon = egraph.opt_value(res)
+//!             if canon != res and elaborated.contains(canon):
+//!                 # redundant — already emitted in a dominator scope
+//!                 continue
+//!             elaborated.insert(canon, blk.id)
+//!         emit(Inst { result, kind: kind', origin })
+//!     blk.term' = rewrite Value operands in terminator
+//!     # recurse to child blocks in domtree
+//!     elaborated.pop_scope()
+//! ```
+//!
+//! Scope nesting tracks dominance exactly — a value elaborated in a
+//! dominator is visible (and reusable) in every descendant block, and
+//! invisible to siblings. That's the single mechanism behind GVN, CSE
+//! and (Phase 1+) LICM in this design — no per-pass machinery.
+//!
+//! **Phase 0** (this commit) ships round-trip-equivalent elaboration:
+//! no rewrite rules fire in `optimize::remove_pure_and_optimize`, so
+//! no `union`s happen, so `egraph.opt_value(v) == v` for every value
+//! and every instruction emits unchanged. The conformance gate must
+//! see identical TS-runtime behaviour with the egraph pass switched
+//! on (`TORAJS_NEW_PIPELINE=1`) vs off.
+//!
+//! **LICM** (loop-invariant code motion) — hoisting pure values to a
+//! shallower-loop-nest dominator block — is the next milestone. The
+//! data plumbing for it is here (`LoopAnalysis` + `Cost::scale_for_depth`)
+//! but the placement decision lands in Phase 1.
+
+use crate::dominator::DominatorTree;
+use crate::egraph::Egraph;
+use crate::loop_analysis::LoopAnalysis;
+use crate::scope_map::ScopedHashMap;
+use torajs_core::ssa::{Block, BlockId, Function, Inst, InstKind, Operand, Terminator, ValueId};
+
+/// Per-pass diagnostic counters. Reported to the integration layer for
+/// logging / regression tracking; not used to gate correctness.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ElaborateStats {
+    /// Instructions kept in the output function.
+    pub emitted: u32,
+    /// Instructions dropped because their result was GVN-unioned onto
+    /// a value already elaborated in an enclosing dominance scope.
+    pub gvn_skipped: u32,
+    /// Number of blocks visited by the domtree preorder walk.
+    pub blocks_visited: u32,
+}
+
+/// Run the elaboration pass.
+///
+/// The input `Function` is consumed by reference; its `values` table is
+/// cloned verbatim into the output (Phase 0 mints no new SSA values,
+/// only drops redundant ones). The returned `Function` has the same
+/// block layout and terminator shape; only `insts` may shrink (via
+/// GVN drop) or have operands canonicalised.
+///
+/// `_loop_info` is plumbed through unused in Phase 0; Phase 1 LICM
+/// consumes it to decide hoist placement.
+pub fn elaborate(
+    func: &Function,
+    dom: &DominatorTree,
+    _loop_info: &LoopAnalysis,
+    egraph: &mut Egraph,
+) -> (Function, ElaborateStats) {
+    let mut stats = ElaborateStats::default();
+    let n = func.blocks.len();
+    if n == 0 {
+        return (func.clone(), stats);
+    }
+
+    // Invert idom edges → per-block list of immediate domtree children.
+    // Sorted by `BlockId` so the DFS visits children in deterministic
+    // order independent of how `idom` was built.
+    let mut children: Vec<Vec<BlockId>> = vec![Vec::new(); n];
+    for bi in 0..n {
+        let bid = BlockId(bi as u32);
+        if let Some(idom) = dom.immediate_dominator(bid) {
+            let i = idom.0 as usize;
+            if i < n {
+                children[i].push(bid);
+            }
+        }
+    }
+    for kids in children.iter_mut() {
+        kids.sort_by_key(|b| b.0);
+    }
+
+    // Pre-allocate output blocks so per-block fills land at the
+    // matching index. Terminators get overwritten during the DFS
+    // visit; insts start empty and grow as we emit.
+    let mut out_blocks: Vec<Block> = func
+        .blocks
+        .iter()
+        .map(|b| Block {
+            id: b.id,
+            insts: Vec::new(),
+            term: b.term.clone(),
+        })
+        .collect();
+
+    // Per-eclass elaboration scope. Key = canonical (opt_value) result;
+    // value = the block at which it was emitted. Lookup answers "is
+    // this value already available in an enclosing dominance scope?".
+    let mut elaborated: ScopedHashMap<ValueId, BlockId> = ScopedHashMap::new();
+
+    // Domtree DFS via an explicit stack of Enter/Exit markers — Exit
+    // pops the scope opened on Enter. Children are pushed in reverse
+    // so the lowest BlockId is popped first.
+    enum Visit {
+        Enter(BlockId),
+        Exit,
+    }
+    let mut stack: Vec<Visit> = Vec::with_capacity(n * 2);
+    stack.push(Visit::Enter(BlockId(0)));
+
+    while let Some(v) = stack.pop() {
+        match v {
+            Visit::Enter(bid) => {
+                let bi = bid.0 as usize;
+                if bi >= n {
+                    continue;
+                }
+                elaborated.push_scope();
+                stats.blocks_visited += 1;
+
+                let src = &func.blocks[bi];
+                let mut new_insts: Vec<Inst> = Vec::with_capacity(src.insts.len());
+                for inst in &src.insts {
+                    let new_kind = canonicalize_operands(&inst.kind, egraph);
+
+                    if let Some(res) = inst.result {
+                        let canon = egraph.opt_value(res);
+                        if canon != res && elaborated.contains_key(&canon) {
+                            // Redundant: the canonical representative
+                            // was emitted in a dominator scope; users
+                            // already pick it up via opt_value
+                            // canonicalisation, so skip this inst.
+                            stats.gvn_skipped += 1;
+                            continue;
+                        }
+                        elaborated.insert(canon, bid);
+                    }
+                    new_insts.push(Inst {
+                        result: inst.result,
+                        kind: new_kind,
+                        origin: inst.origin,
+                    });
+                    stats.emitted += 1;
+                }
+                out_blocks[bi].insts = new_insts;
+                out_blocks[bi].term = rewrite_terminator(&src.term, egraph);
+
+                // Exit before children so it pops AFTER they finish.
+                stack.push(Visit::Exit);
+                for &child in children[bi].iter().rev() {
+                    stack.push(Visit::Enter(child));
+                }
+            }
+            Visit::Exit => {
+                elaborated.pop_scope();
+            }
+        }
+    }
+
+    // Any blocks unreachable from BlockId(0) keep their original
+    // contents — Phase 0 doesn't prune dead blocks (a separate
+    // SimplifyCFG pass lands later). Clone insts verbatim with
+    // terminator untouched.
+    for (bi, block) in func.blocks.iter().enumerate() {
+        if out_blocks[bi].insts.is_empty() && !block.insts.is_empty() {
+            // Distinguish "visited and emitted zero" from "never
+            // visited" by checking if we ever pushed the block.
+            // Phase 0 cheats: if the block was never visited
+            // (unreachable), `term` was initialised to the source's
+            // term (the clone in the prealloc), but `insts` is empty.
+            // For a truly visited block with all insts GVN-skipped,
+            // insts is also empty but term has been re-rewritten. We
+            // can detect "never visited" by checking the dominator
+            // tree: if `dom.immediate_dominator(bid)` is None AND
+            // bid != BlockId(0), the block is unreachable.
+            let bid = BlockId(bi as u32);
+            if bid != BlockId(0) && dom.immediate_dominator(bid).is_none() {
+                // Preserve original insts verbatim for unreachable
+                // blocks — round-trip equivalence.
+                out_blocks[bi].insts = block.insts.clone();
+            }
+        }
+    }
+
+    let func_out = Function {
+        name: func.name.clone(),
+        params: func.params.clone(),
+        ret: func.ret,
+        blocks: out_blocks,
+        values: func.values.clone(),
+        current_origin: func.current_origin,
+    };
+    (func_out, stats)
+}
+
+/// Rewrite every `Operand::Value(v)` operand of an `InstKind` through
+/// `egraph.opt_value(v)`. Non-Value operands (constants) pass through.
+///
+/// This is the inverse-of-clone path: every `InstKind` variant carrying
+/// an SSA value is enumerated explicitly so newly added variants don't
+/// silently miss canonicalisation. Variants with no SSA-value payload
+/// fall to the catch-all clone arm.
+fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
+    match kind {
+        InstKind::BinOp(op, l, r) => {
+            let l = map_operand(l, egraph);
+            let r = map_operand(r, egraph);
+            InstKind::BinOp(*op, l, r)
+        }
+        InstKind::ICmp(p, l, r) => {
+            let l = map_operand(l, egraph);
+            let r = map_operand(r, egraph);
+            InstKind::ICmp(*p, l, r)
+        }
+        InstKind::FCmp(p, l, r) => {
+            let l = map_operand(l, egraph);
+            let r = map_operand(r, egraph);
+            InstKind::FCmp(*p, l, r)
+        }
+        InstKind::Call(fid, args) => {
+            let new_args: Vec<Operand> = args.iter().map(|a| map_operand(a, egraph)).collect();
+            InstKind::Call(*fid, new_args)
+        }
+        InstKind::CallIndirect(sig, ptr, args) => {
+            let new_ptr = map_operand(ptr, egraph);
+            let new_args: Vec<Operand> = args.iter().map(|a| map_operand(a, egraph)).collect();
+            InstKind::CallIndirect(*sig, new_ptr, new_args)
+        }
+        InstKind::Load(ty, addr, off) => InstKind::Load(*ty, map_operand(addr, egraph), *off),
+        InstKind::Store(val, addr, off) => {
+            InstKind::Store(map_operand(val, egraph), map_operand(addr, egraph), *off)
+        }
+        InstKind::LoadDyn(ty, addr, off) => {
+            InstKind::LoadDyn(*ty, map_operand(addr, egraph), map_operand(off, egraph))
+        }
+        InstKind::StoreDyn(val, addr, off) => InstKind::StoreDyn(
+            map_operand(val, egraph),
+            map_operand(addr, egraph),
+            map_operand(off, egraph),
+        ),
+        InstKind::SiToFp(v) => InstKind::SiToFp(map_operand(v, egraph)),
+        InstKind::FpToSi(v) => InstKind::FpToSi(map_operand(v, egraph)),
+        InstKind::ZExtBoolToI64(v) => InstKind::ZExtBoolToI64(map_operand(v, egraph)),
+        InstKind::ZExtI32ToI64(v) => InstKind::ZExtI32ToI64(map_operand(v, egraph)),
+        InstKind::BitCastF64ToI64(v) => InstKind::BitCastF64ToI64(map_operand(v, egraph)),
+        InstKind::BitCastI64ToF64(v) => InstKind::BitCastI64ToF64(map_operand(v, egraph)),
+        InstKind::IntToPtr(v) => InstKind::IntToPtr(map_operand(v, egraph)),
+        InstKind::PtrToInt(v) => InstKind::PtrToInt(map_operand(v, egraph)),
+        InstKind::TruncI64ToBool(v) => InstKind::TruncI64ToBool(map_operand(v, egraph)),
+        // No SSA Value payload — just clone.
+        InstKind::Alloca(_)
+        | InstKind::AllocaBytes(_)
+        | InstKind::StringRef(_)
+        | InstKind::StaticStrRef(_)
+        | InstKind::GlobalRef(_)
+        | InstKind::FnAddr(_) => kind.clone(),
+    }
+}
+
+/// Canonicalise SSA value operands in a `Terminator`. CondBr `cond`
+/// and Ret value are subject to rewrite; target BlockIds stay as-is.
+fn rewrite_terminator(term: &Terminator, egraph: &mut Egraph) -> Terminator {
+    match term {
+        Terminator::Br(b) => Terminator::Br(*b),
+        Terminator::CondBr {
+            cond,
+            then_blk,
+            else_blk,
+        } => Terminator::CondBr {
+            cond: map_operand(cond, egraph),
+            then_blk: *then_blk,
+            else_blk: *else_blk,
+        },
+        Terminator::Ret(Some(op)) => Terminator::Ret(Some(map_operand(op, egraph))),
+        Terminator::Ret(None) => Terminator::Ret(None),
+        Terminator::Unreachable => Terminator::Unreachable,
+    }
+}
+
+#[inline]
+fn map_operand(op: &Operand, egraph: &mut Egraph) -> Operand {
+    match op {
+        Operand::Value(v) => Operand::Value(egraph.opt_value(*v)),
+        other => *other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::optimize::remove_pure_and_optimize;
+    use torajs_core::ssa::{
+        BinOp, Block, BlockId, Function, IPred, Inst, Operand, Terminator, Type, ValueId, ValueInfo,
+    };
+
+    fn val_inst(result: ValueId, kind: InstKind) -> Inst {
+        Inst {
+            result: Some(result),
+            kind,
+            origin: None,
+        }
+    }
+    fn void_inst(kind: InstKind) -> Inst {
+        Inst {
+            result: None,
+            kind,
+            origin: None,
+        }
+    }
+    fn vinfo(name: &str, ty: Type) -> ValueInfo {
+        ValueInfo {
+            ty,
+            name: Some(name.into()),
+        }
+    }
+    fn func(values: Vec<ValueInfo>, blocks: Vec<Block>) -> Function {
+        Function {
+            name: "test".into(),
+            params: vec![],
+            ret: Type::Void,
+            blocks,
+            values,
+            current_origin: None,
+        }
+    }
+
+    #[test]
+    fn empty_function_round_trips_safely() {
+        let f = func(vec![], vec![]);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(0);
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        assert_eq!(out.blocks.len(), 0);
+        assert_eq!(stats.emitted, 0);
+        assert_eq!(stats.blocks_visited, 0);
+    }
+
+    #[test]
+    fn round_trip_when_no_unions() {
+        // Two distinct adds + a void call + ret. No rewrites fire; the
+        // output function must mirror the input exactly (same inst
+        // count, same kinds, same terminator).
+        let values = vec![
+            vinfo("a", Type::I64),
+            vinfo("b", Type::I64),
+            vinfo("c", Type::I64),
+            vinfo("d", Type::I64),
+        ];
+        let blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![
+                val_inst(
+                    ValueId(2),
+                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(1), Operand::ConstI64(2)),
+                ),
+                val_inst(
+                    ValueId(3),
+                    InstKind::BinOp(BinOp::Sub, Operand::ConstI64(9), Operand::ConstI64(4)),
+                ),
+                void_inst(InstKind::Call(torajs_core::ssa::FuncId(0), vec![])),
+            ],
+            term: Terminator::Ret(None),
+        }];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        assert_eq!(out.blocks.len(), 1);
+        assert_eq!(out.blocks[0].insts.len(), 3);
+        assert_eq!(stats.emitted, 3);
+        assert_eq!(stats.gvn_skipped, 0);
+        assert_eq!(stats.blocks_visited, 1);
+    }
+
+    #[test]
+    fn gvn_dedup_drops_second_add_in_same_block() {
+        // Pre-seed the egraph with the GVN union the optimize phase
+        // would produce: two identical pure adds in one block.
+        // Elaborate must keep the first and drop the second.
+        let values = vec![
+            vinfo("a", Type::I64),
+            vinfo("b", Type::I64),
+            vinfo("c", Type::I64),
+            vinfo("d", Type::I64),
+        ];
+        let blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![
+                val_inst(
+                    ValueId(2),
+                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(7), Operand::ConstI64(11)),
+                ),
+                val_inst(
+                    ValueId(3),
+                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(7), Operand::ConstI64(11)),
+                ),
+            ],
+            term: Terminator::Ret(None),
+        }];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        // Run optimize first so the GVN union is recorded.
+        let _ = remove_pure_and_optimize(&f, &dom, &mut eg);
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        assert_eq!(out.blocks.len(), 1);
+        assert_eq!(
+            out.blocks[0].insts.len(),
+            1,
+            "second redundant add must be dropped"
+        );
+        assert_eq!(stats.emitted, 1);
+        assert_eq!(stats.gvn_skipped, 1);
+    }
+
+    #[test]
+    fn operand_canonicalisation_follows_union() {
+        // Pre-union %0 ↔ %1 (lower wins). A downstream BinOp(%1, %3)
+        // must elaborate to BinOp(%0, %3).
+        let values = vec![
+            vinfo("p0", Type::I64),
+            vinfo("p1", Type::I64),
+            vinfo("r2", Type::I64),
+            vinfo("p3", Type::I64),
+        ];
+        let blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![val_inst(
+                ValueId(2),
+                InstKind::BinOp(
+                    BinOp::Add,
+                    Operand::Value(ValueId(1)),
+                    Operand::Value(ValueId(3)),
+                ),
+            )],
+            term: Terminator::Ret(Some(Operand::Value(ValueId(2)))),
+        }];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        assert!(eg.union(ValueId(0), ValueId(1)));
+        let (out, _) = elaborate(&f, &dom, &lp, &mut eg);
+        assert_eq!(out.blocks[0].insts.len(), 1);
+        match &out.blocks[0].insts[0].kind {
+            InstKind::BinOp(BinOp::Add, l, r) => {
+                assert_eq!(*l, Operand::Value(ValueId(0)));
+                assert_eq!(*r, Operand::Value(ValueId(3)));
+            }
+            other => panic!("expected BinOp::Add, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn terminator_value_operands_canonicalised() {
+        // Ret(Value(%1)) with %0 ↔ %1 union should rewrite to Ret(%0).
+        // CondBr cond Operand::Value also rewrites.
+        let values = vec![
+            vinfo("a", Type::I64),
+            vinfo("b", Type::I64),
+            vinfo("c", Type::Bool),
+        ];
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![],
+                term: Terminator::CondBr {
+                    cond: Operand::Value(ValueId(2)),
+                    then_blk: BlockId(1),
+                    else_blk: BlockId(2),
+                },
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![],
+                term: Terminator::Ret(Some(Operand::Value(ValueId(1)))),
+            },
+            Block {
+                id: BlockId(2),
+                insts: vec![],
+                term: Terminator::Ret(None),
+            },
+        ];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        assert!(eg.union(ValueId(0), ValueId(1)));
+        let (out, _) = elaborate(&f, &dom, &lp, &mut eg);
+        // Ret in block 1 picks up the union root.
+        match &out.blocks[1].term {
+            Terminator::Ret(Some(Operand::Value(v))) => assert_eq!(*v, ValueId(0)),
+            other => panic!("expected Ret(Value(0)), got {other:?}"),
+        }
+        // CondBr cond is not unioned (no rewrite); just round-trips.
+        match &out.blocks[0].term {
+            Terminator::CondBr { cond, .. } => assert_eq!(*cond, Operand::Value(ValueId(2))),
+            other => panic!("expected CondBr, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn skeleton_inst_stays_in_layout() {
+        // A void call (skeleton) is never deduped even when textually
+        // identical to a prior one — elaborate must emit both.
+        let values = vec![vinfo("r", Type::I64)];
+        let blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![
+                void_inst(InstKind::Call(torajs_core::ssa::FuncId(0), vec![])),
+                void_inst(InstKind::Call(torajs_core::ssa::FuncId(0), vec![])),
+                val_inst(
+                    ValueId(0),
+                    InstKind::ICmp(IPred::Eq, Operand::ConstI64(0), Operand::ConstI64(0)),
+                ),
+            ],
+            term: Terminator::Ret(None),
+        }];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        assert_eq!(out.blocks[0].insts.len(), 3);
+        assert_eq!(stats.emitted, 3);
+        assert_eq!(stats.gvn_skipped, 0);
+    }
+
+    #[test]
+    fn multi_block_domtree_dfs_visits_all_reachable() {
+        // 0 → {1, 2}, 1 → 3, 2 → 3 (diamond)
+        // Each block has one trivial add. Without unions all 4 emit.
+        let values = vec![
+            vinfo("a", Type::I64),
+            vinfo("b", Type::I64),
+            vinfo("c", Type::I64),
+            vinfo("d", Type::I64),
+        ];
+        let mk_add = |res: u32, off: i64| {
+            val_inst(
+                ValueId(res),
+                InstKind::BinOp(
+                    BinOp::Add,
+                    Operand::ConstI64(off),
+                    Operand::ConstI64(off + 1),
+                ),
+            )
+        };
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![mk_add(0, 1)],
+                term: Terminator::CondBr {
+                    cond: Operand::ConstBool(true),
+                    then_blk: BlockId(1),
+                    else_blk: BlockId(2),
+                },
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![mk_add(1, 5)],
+                term: Terminator::Br(BlockId(3)),
+            },
+            Block {
+                id: BlockId(2),
+                insts: vec![mk_add(2, 9)],
+                term: Terminator::Br(BlockId(3)),
+            },
+            Block {
+                id: BlockId(3),
+                insts: vec![mk_add(3, 13)],
+                term: Terminator::Ret(None),
+            },
+        ];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        assert_eq!(stats.blocks_visited, 4);
+        assert_eq!(stats.emitted, 4);
+        assert_eq!(stats.gvn_skipped, 0);
+        // Layout preserved — every block has exactly one inst.
+        for b in &out.blocks {
+            assert_eq!(b.insts.len(), 1);
+        }
+    }
+
+    #[test]
+    fn unreachable_block_preserved_verbatim() {
+        // Block 0 → ret. Block 1 is unreachable but holds insts that
+        // must NOT vanish (round-trip preserves layout).
+        let values = vec![vinfo("a", Type::I64)];
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![],
+                term: Terminator::Ret(None),
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![val_inst(
+                    ValueId(0),
+                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(1), Operand::ConstI64(2)),
+                )],
+                term: Terminator::Unreachable,
+            },
+        ];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        // Block 1 is unreachable from entry — preserved verbatim.
+        assert_eq!(out.blocks[1].insts.len(), 1);
+        // Only block 0 was actually walked by the DFS.
+        assert_eq!(stats.blocks_visited, 1);
+    }
+}
