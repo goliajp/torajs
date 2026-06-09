@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-09T05:03:11.958Z",
+  "generatedAt": "2026-06-09T05:33:21.295Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
     "fail": 0,
     "skip": 4,
     "raw": "723/0/4",
-    "source": "/tmp/torajs-conformance-cold.log",
-    "sourceMtime": "2026-06-09T05:02:39.116Z"
+    "source": "/tmp/torajs-conformance-step8c.log",
+    "sourceMtime": "2026-06-09T05:28:53.379Z"
   },
   "test262": {
     "ranAt": "2026-06-03T22:49:10Z",
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "8b4d8ec",
-    "commitSubject": "revert(egraph): hold out production wire-in pending perf root-cause",
+    "commit": "2ffd164",
+    "commitSubject": "feat(egraph): re-enable cmd_build/cmd_run wire-in + bump fixture_o cache key — Phase 0 close",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -37,8 +37,8 @@
       "fail": 0,
       "skip": 4,
       "raw": "723/0/4",
-      "source": "/tmp/torajs-conformance-cold.log",
-      "sourceMtime": "2026-06-09T05:02:39.116Z"
+      "source": "/tmp/torajs-conformance-step8c.log",
+      "sourceMtime": "2026-06-09T05:28:53.379Z"
     }
   },
   "roadmap": [
@@ -616,6 +616,14 @@
   },
   "commits": [
     {
+      "hash": "2ffd164",
+      "subject": "feat(egraph): re-enable cmd_build/cmd_run wire-in + bump fixture_o cache key — Phase 0 close"
+    },
+    {
+      "hash": "51425f6",
+      "subject": "chore: dashboard snapshot @ 8b4d8ec — Phase 0 substrate close + wire-in deferred"
+    },
+    {
       "hash": "8b4d8ec",
       "subject": "revert(egraph): hold out production wire-in pending perf root-cause"
     },
@@ -654,35 +662,38 @@
     {
       "hash": "c0070e3",
       "subject": "feat(egraph): Cooper-Harvey-Kennedy dominator tree — Phase 0 step 3"
-    },
-    {
-      "hash": "984fa7c",
-      "subject": "fix(cargo): use [env] force-override to disable sccache (was [build] rustc-wrapper)"
-    },
-    {
-      "hash": "92fd865",
-      "subject": "feat(egraph): Apple Silicon M1 cycle-cost model — Phase 0 step 2"
     }
   ],
-  "headSha": "8b4d8ec",
+  "headSha": "2ffd164",
   "autorun": {
-    "total": 90,
+    "total": 91,
     "baselineTarget": 10,
-    "bySelf": 88,
+    "bySelf": 89,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780974933-079c",
-      "at": "2026-06-09T03:15:33Z",
-      "ts": 1780974933,
+      "rotationId": "r-1780981493-50b4",
+      "at": "2026-06-09T05:04:53Z",
+      "ts": 1780981493,
       "trigger": "self",
-      "prevHead": "9476c2a",
-      "handoffSha": "sha256:cf341991d2c23e420181dad4040ea888e1ce7d6622f669df424e48223db7a93c",
-      "handoffAgeSec": 0,
+      "prevHead": "51425f6",
+      "handoffSha": "sha256:cc5034d4d6bde501084eeeab1a19a6d2c6b229a265a865bed24805498d439544",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780981493-50b4",
+        "at": "2026-06-09T05:04:53Z",
+        "ts": 1780981493,
+        "trigger": "self",
+        "prevHead": "51425f6",
+        "handoffSha": "sha256:cc5034d4d6bde501084eeeab1a19a6d2c6b229a265a865bed24805498d439544",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780974933-079c",
         "at": "2026-06-09T03:15:33Z",
@@ -779,17 +790,6 @@
         "prevHead": "af8aabf",
         "handoffSha": "sha256:e1723d3ff690c4cf2d2926b29a1a1f75dbccf62b6cc7eabac989c5969c15ae6a",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780874087-45c5",
-        "at": "2026-06-07T23:14:47Z",
-        "ts": 1780874087,
-        "trigger": "self",
-        "prevHead": "536e7b8",
-        "handoffSha": "sha256:a37e94c1542c533757e475d0f8f10b1bd24a0ef550d14216866fcf60854ffdac",
-        "handoffAgeSec": 25,
         "conformanceBefore": null,
         "commitsInSession": null
       }
