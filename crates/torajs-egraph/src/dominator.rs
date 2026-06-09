@@ -40,6 +40,15 @@ pub struct DominatorTree {
     /// block was unreachable. Used by `intersect` to climb finger
     /// pointers in O(1) per step.
     rpo_index: Vec<usize>,
+    /// Reverse map of `idom`: `children[i]` = blocks whose immediate
+    /// dominator is block `i`. The entry block's CHK self-loop is
+    /// suppressed (entry is not listed as its own child). Empty
+    /// `Vec` for leaf / unreachable blocks. Drives domtree preorder
+    /// DFS in scoped passes (e.g. `optimize::remove_pure_and_optimize`'s
+    /// dom-nested GVN walk) so values inserted in a dominator are
+    /// visible across every descendant subtree while siblings stay
+    /// isolated.
+    children: Vec<Vec<BlockId>>,
 }
 
 impl DominatorTree {
@@ -53,6 +62,7 @@ impl DominatorTree {
                 idom: Vec::new(),
                 rpo: Vec::new(),
                 rpo_index: Vec::new(),
+                children: Vec::new(),
             };
         }
         let entry = BlockId(0);
@@ -63,10 +73,12 @@ impl DominatorTree {
         }
         let preds = predecessors(func, n);
         let idom = compute_idoms(&rpo, &rpo_index, &preds, entry);
+        let children = build_children(&idom);
         Self {
             idom,
             rpo,
             rpo_index,
+            children,
         }
     }
 
@@ -118,6 +130,22 @@ impl DominatorTree {
     pub fn is_reachable(&self, b: BlockId) -> bool {
         let i = b.0 as usize;
         i < self.rpo_index.len() && self.rpo_index[i] != usize::MAX
+    }
+
+    /// Blocks whose immediate dominator is `b` — i.e. the children of
+    /// `b` in the dominator tree. Returns `&[]` for leaves and for any
+    /// out-of-range / unreachable block. Drives domtree preorder DFS
+    /// in scoped analyses that need dom-nested visibility (entries
+    /// inserted while visiting `b` reachable to every descendant via
+    /// recursion, isolated from siblings via push/pop on the visit
+    /// boundary).
+    pub fn children(&self, b: BlockId) -> &[BlockId] {
+        let i = b.0 as usize;
+        if i < self.children.len() {
+            &self.children[i]
+        } else {
+            &[]
+        }
     }
 }
 
@@ -225,6 +253,25 @@ fn compute_idoms(
         }
     }
     doms
+}
+
+/// Reverse the `idom` table into a parent → children adjacency list.
+/// The CHK convention makes the entry block its own immediate
+/// dominator; that self-loop is suppressed so the entry is not listed
+/// as its own child. Unreachable blocks (idom = `None`) contribute no
+/// edge. Result is keyed by block index (matching `idom.len()`).
+fn build_children(idom: &[Option<BlockId>]) -> Vec<Vec<BlockId>> {
+    let n = idom.len();
+    let mut children: Vec<Vec<BlockId>> = vec![Vec::new(); n];
+    for (i, parent) in idom.iter().enumerate() {
+        if let Some(p) = parent {
+            let pi = p.0 as usize;
+            if pi != i && pi < n {
+                children[pi].push(BlockId(i as u32));
+            }
+        }
+    }
+    children
 }
 
 /// Climb two RPO-numbered fingers until they meet — the meeting point
@@ -427,5 +474,81 @@ mod tests {
         assert!(dt.reverse_postorder().is_empty());
         assert_eq!(dt.immediate_dominator(BlockId(0)), None);
         assert!(!dt.is_reachable(BlockId(0)));
+        // Out-of-range children query degrades to empty slice rather
+        // than panicking — domtree consumers can call children on any
+        // BlockId without prior bounds checking.
+        assert!(dt.children(BlockId(0)).is_empty());
+    }
+
+    #[test]
+    fn children_reverse_idom_with_entry_self_loop_suppressed() {
+        // diamond: 0 (cond) → 1, 2; both → 3 (ret). idom is:
+        //   0: self-loop (entry, CHK convention)
+        //   1: 0
+        //   2: 0
+        //   3: 0  (the immediate post-dominator join)
+        // children inverse:
+        //   0: [1, 2, 3]   ← self-loop NOT included
+        //   1: []   2: []   3: []
+        let func = fixture(vec![
+            block(
+                0,
+                Terminator::CondBr {
+                    cond: Operand::ConstBool(true),
+                    then_blk: BlockId(1),
+                    else_blk: BlockId(2),
+                },
+            ),
+            block(1, Terminator::Br(BlockId(3))),
+            block(2, Terminator::Br(BlockId(3))),
+            block(3, Terminator::Ret(None)),
+        ]);
+        let dt = DominatorTree::compute(&func);
+        let mut kids: Vec<u32> = dt.children(BlockId(0)).iter().map(|b| b.0).collect();
+        kids.sort();
+        assert_eq!(kids, vec![1, 2, 3]);
+        // Entry's self-loop must NOT leak into `children[0]`.
+        assert!(!dt.children(BlockId(0)).contains(&BlockId(0)));
+        // Leaves stay empty.
+        assert!(dt.children(BlockId(1)).is_empty());
+        assert!(dt.children(BlockId(2)).is_empty());
+        assert!(dt.children(BlockId(3)).is_empty());
+    }
+
+    #[test]
+    fn children_linear_chain_walks_root_to_leaf() {
+        // 0 → 1 → 2 → 3 (ret). idom chain produces a single spine;
+        // children list is each block's lone successor on the chain.
+        let func = fixture(vec![
+            block(0, Terminator::Br(BlockId(1))),
+            block(1, Terminator::Br(BlockId(2))),
+            block(2, Terminator::Br(BlockId(3))),
+            block(3, Terminator::Ret(None)),
+        ]);
+        let dt = DominatorTree::compute(&func);
+        assert_eq!(dt.children(BlockId(0)), &[BlockId(1)]);
+        assert_eq!(dt.children(BlockId(1)), &[BlockId(2)]);
+        assert_eq!(dt.children(BlockId(2)), &[BlockId(3)]);
+        assert!(dt.children(BlockId(3)).is_empty());
+    }
+
+    #[test]
+    fn children_omits_unreachable_blocks() {
+        // 0 → 1 (ret); 2 unreachable. children must not list 2 anywhere.
+        let func = fixture(vec![
+            block(0, Terminator::Br(BlockId(1))),
+            block(1, Terminator::Ret(None)),
+            block(2, Terminator::Ret(None)),
+        ]);
+        let dt = DominatorTree::compute(&func);
+        assert_eq!(dt.children(BlockId(0)), &[BlockId(1)]);
+        // Block 2 is unreachable (idom None) → never appears as a
+        // child anywhere in the tree.
+        for b in 0..3 {
+            assert!(
+                !dt.children(BlockId(b)).contains(&BlockId(2)),
+                "block {b} children must not list unreachable block 2"
+            );
+        }
     }
 }

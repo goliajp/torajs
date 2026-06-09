@@ -39,7 +39,7 @@
 use crate::dominator::DominatorTree;
 use crate::egraph::{Egraph, GvnKey};
 use crate::rewrite::{RewriteRegistry, apply_rewrites_recursive};
-use torajs_core::ssa::{Function, InstKind, Operand};
+use torajs_core::ssa::{BlockId, Function, InstKind, Operand};
 
 /// Outcome of running Phase 1 over one function. Mostly diagnostic;
 /// the elaboration phase reads the mutated `Egraph`, not this struct.
@@ -63,6 +63,21 @@ pub struct OptimizeStats {
 /// Phase 1 pass: walk the dominator tree in preorder, canonicalising
 /// operands through the egraph and feeding pure instructions through
 /// the scoped GVN map. Mutates the egraph; reports per-pass stats.
+///
+/// Walk shape: strict domtree preorder DFS. Each block opens a fresh
+/// GVN scope, processes its instructions (so they see every GVN entry
+/// inserted in any ancestor block on the idom chain), then recurses
+/// into each immediate child via `DominatorTree::children` before
+/// popping its scope. This gives the textbook scoped-GVN invariant —
+/// a value inserted while visiting block `b` is visible across every
+/// descendant subtree of `b`, but two siblings (whose only common
+/// ancestor is their idom) cannot see each other's inserts. The prior
+/// Phase 0 walk used a flat per-block scope (RPO loop with push/pop on
+/// each block boundary), which kept siblings isolated by accident but
+/// also hid every dominator's GVN entries from its descendants —
+/// negating the whole point of scoped GVN. The dom-nested walk is a
+/// prerequisite for LICM (loop-invariant code motion), which needs to
+/// hoist values into a preheader block dominating the loop body.
 pub fn remove_pure_and_optimize(
     func: &Function,
     dom: &DominatorTree,
@@ -70,81 +85,112 @@ pub fn remove_pure_and_optimize(
 ) -> OptimizeStats {
     let mut stats = OptimizeStats::default();
     let registry = RewriteRegistry::with_builtins();
-    for &blk_id in dom.reverse_postorder() {
-        // Domtree preorder is approximated by RPO for the GVN scope
-        // push/pop pattern: each block enters its own scope so values
-        // inserted while visiting `b` are visible to b's descendants
-        // (next blocks in RPO that b dominates) but pop_scope happens
-        // once we've processed every descendant of b. For Phase 0 we
-        // use a flat per-block scope (push at block start, pop at
-        // block end) which is correct for non-nested blocks; nested
-        // domtree scope handling lands when elaboration's scoped
-        // traversal does — Phase 0 walk's job is to seed the egraph,
-        // not to compute final placements.
-        egraph.gvn_mut().push_scope();
-        let blk_idx = blk_id.0 as usize;
-        if blk_idx >= func.blocks.len() {
-            egraph.gvn_mut().pop_scope();
-            continue;
-        }
+    let rpo = dom.reverse_postorder();
+    if rpo.is_empty() {
+        return stats;
+    }
+    // RPO's first entry is the function's entry block by construction
+    // (DFS postorder starts at entry, postorder reverses so entry sits
+    // at index 0). Start the dom-nested DFS from there.
+    let entry = rpo[0];
+    visit_dom_nested(func, dom, egraph, &registry, entry, &mut stats);
+    stats
+}
+
+/// Recursive domtree preorder visit. Opens a GVN scope, processes the
+/// block's instructions (their inserts become visible to every
+/// descendant in the recursion), recurses into each immediate dominated
+/// child, then pops the scope so siblings see a fresh state.
+fn visit_dom_nested(
+    func: &Function,
+    dom: &DominatorTree,
+    egraph: &mut Egraph,
+    registry: &RewriteRegistry,
+    blk_id: BlockId,
+    stats: &mut OptimizeStats,
+) {
+    egraph.gvn_mut().push_scope();
+    let blk_idx = blk_id.0 as usize;
+    if blk_idx < func.blocks.len() {
         let block = &func.blocks[blk_idx];
         for inst in &block.insts {
-            let Some(result) = inst.result else {
-                // Void instructions (stores, some calls) are skeleton.
-                stats.skeleton_seen += 1;
-                continue;
-            };
-            // Canonicalise operands by rewriting Operand::Value(v) →
-            // Operand::Value(egraph.opt_value(v)). Constant operands
-            // are passed through unchanged.
-            let canon_kind = canonicalize_operands(&inst.kind, egraph);
-            if is_pure(&canon_kind) {
-                let result_ty = func
-                    .values
-                    .get(result.0 as usize)
-                    .map(|vi| vi.ty)
-                    .unwrap_or(torajs_core::ssa::Type::Void);
-
-                // P-OPT Phase 1 — fire rewrite rules. When a rule
-                // produces `Identity(Value(target))` (the AddZero /
-                // MulOne shape), alias `result` onto `target` and
-                // skip GVN insert: downstream uses canonicalise to
-                // `target` via `opt_value`, and elaborate never sees
-                // an Identity inst because the rewrite never lands
-                // back in the IR — the rewrite "subsumes" the
-                // original. Other rewrite shapes (e.g. MulPow2ToShl)
-                // fall through to GVN using the rewritten kind so
-                // dedup keys off the cheaper form.
-                let rewritten_kind = apply_rewrites_recursive(registry.rules(), &canon_kind);
-                if let InstKind::Identity(op) = rewritten_kind {
-                    match op {
-                        Operand::Value(target_v) => egraph.set_opt_value(result, target_v),
-                        // Chunk 9a-3 — const-fold rules (SubSelf /
-                        // XorSelf / MulZero) RHS lands here as
-                        // `Identity(ConstI64(0))` etc. Stash the
-                        // literal on the eclass root so map_operand
-                        // propagates it into every downstream use.
-                        const_op => egraph.set_const(result, const_op),
-                    }
-                    stats.identity_rewrites_fired += 1;
-                    continue;
-                }
-                let key: GvnKey = (result_ty, rewritten_kind);
-                if let Some(&existing) = egraph.gvn().get(&key) {
-                    egraph.union(result, existing);
-                    stats.gvn_hits += 1;
-                } else {
-                    egraph.gvn_mut().insert(key, result);
-                    egraph.set_available_block(result, blk_id);
-                    stats.gvn_inserts += 1;
-                }
-            } else {
-                stats.skeleton_seen += 1;
-            }
+            process_inst(func, egraph, registry, blk_id, inst, stats);
         }
-        egraph.gvn_mut().pop_scope();
     }
-    stats
+    // Domtree DFS — clone the child list to release the immutable
+    // borrow of `dom` before the recursive call (which takes
+    // `&mut Egraph` and conflicts with nothing here, but the borrow
+    // checker can't prove it while we hold a slice into `dom`).
+    let children: Vec<BlockId> = dom.children(blk_id).to_vec();
+    for child in children {
+        visit_dom_nested(func, dom, egraph, registry, child, stats);
+    }
+    egraph.gvn_mut().pop_scope();
+}
+
+/// Per-instruction worker — canonicalise operands, fire rewrite rules,
+/// and either GVN-dedup or insert. Pure factored body of the inner
+/// loop; the dom-nested walk above keeps the scope discipline.
+fn process_inst(
+    func: &Function,
+    egraph: &mut Egraph,
+    registry: &RewriteRegistry,
+    blk_id: BlockId,
+    inst: &torajs_core::ssa::Inst,
+    stats: &mut OptimizeStats,
+) {
+    let Some(result) = inst.result else {
+        // Void instructions (stores, some calls) are skeleton.
+        stats.skeleton_seen += 1;
+        return;
+    };
+    // Canonicalise operands by rewriting Operand::Value(v) →
+    // Operand::Value(egraph.opt_value(v)). Constant operands
+    // are passed through unchanged.
+    let canon_kind = canonicalize_operands(&inst.kind, egraph);
+    if !is_pure(&canon_kind) {
+        stats.skeleton_seen += 1;
+        return;
+    }
+    let result_ty = func
+        .values
+        .get(result.0 as usize)
+        .map(|vi| vi.ty)
+        .unwrap_or(torajs_core::ssa::Type::Void);
+
+    // P-OPT Phase 1 — fire rewrite rules. When a rule
+    // produces `Identity(Value(target))` (the AddZero /
+    // MulOne shape), alias `result` onto `target` and
+    // skip GVN insert: downstream uses canonicalise to
+    // `target` via `opt_value`, and elaborate never sees
+    // an Identity inst because the rewrite never lands
+    // back in the IR — the rewrite "subsumes" the
+    // original. Other rewrite shapes (e.g. MulPow2ToShl)
+    // fall through to GVN using the rewritten kind so
+    // dedup keys off the cheaper form.
+    let rewritten_kind = apply_rewrites_recursive(registry.rules(), &canon_kind);
+    if let InstKind::Identity(op) = rewritten_kind {
+        match op {
+            Operand::Value(target_v) => egraph.set_opt_value(result, target_v),
+            // Chunk 9a-3 — const-fold rules (SubSelf /
+            // XorSelf / MulZero) RHS lands here as
+            // `Identity(ConstI64(0))` etc. Stash the
+            // literal on the eclass root so map_operand
+            // propagates it into every downstream use.
+            const_op => egraph.set_const(result, const_op),
+        }
+        stats.identity_rewrites_fired += 1;
+        return;
+    }
+    let key: GvnKey = (result_ty, rewritten_kind);
+    if let Some(&existing) = egraph.gvn().get(&key) {
+        egraph.union(result, existing);
+        stats.gvn_hits += 1;
+    } else {
+        egraph.gvn_mut().insert(key, result);
+        egraph.set_available_block(result, blk_id);
+        stats.gvn_inserts += 1;
+    }
 }
 
 /// Rewrite each Value operand through the egraph's canonical mapping.
@@ -422,8 +468,11 @@ mod tests {
     #[test]
     fn gvn_does_not_leak_across_sibling_scopes() {
         // 0 (cond) -> 1, 2 ; 1 has %2 = add x,y ; 2 has %3 = add x,y
-        // After block 1, pop_scope -> block 2 sees fresh GVN map ->
-        // %3 is a fresh insert, NOT a hit on %2 (sibling isolation).
+        // Dom-nested DFS: visit(0) push, process [], recurse {1, 2}.
+        // visit(1) push, %2 inserts into GVN, pop. visit(2) push —
+        // sees a scope state where %2's entry has been popped along
+        // with block 1's scope, so %3 is a fresh insert, NOT a hit on
+        // %2. Sibling isolation: 2 inserts + 0 hits.
         // (Use Value+Value operands — both-const operands would
         // const-fold to Identity in chunk 11c, bypassing GVN.)
         let values = vec![
@@ -471,12 +520,148 @@ mod tests {
         let dom = DominatorTree::compute(&func);
         let mut eg = Egraph::new(func.values.len());
         let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
-        // Phase 0 uses flat per-block scope (not strict domtree
-        // nesting), so siblings see each other's inserts when RPO
-        // visits them sequentially. Document the current behaviour
-        // and tighten in Phase 1 when scoped elaboration takes over
-        // proper domtree-nested scoping. For now: 1 insert + 1 hit.
-        assert_eq!(stats.gvn_inserts + stats.gvn_hits, 2);
+        // Strict dom-nested invariant — siblings must not GVN-dedup.
+        assert_eq!(stats.gvn_inserts, 2, "each sibling inserts independently");
+        assert_eq!(stats.gvn_hits, 0, "siblings must not see each other");
+        assert!(
+            !eg.equiv(ValueId(2), ValueId(3)),
+            "sibling adds in disjoint branches must remain distinct values"
+        );
+    }
+
+    #[test]
+    fn gvn_value_inserted_in_dominator_visible_in_descendant() {
+        // 0 -> 1 (ret). Block 0 is the immediate dominator of block 1.
+        // %2 = add %0, %1 in block 0 (inserts into GVN map).
+        // %3 = add %0, %1 in block 1 (descendant) — dom-nested DFS
+        // keeps block 0's GVN entry on the scope stack while visiting
+        // block 1, so %3 hits %2 and gets unioned. This is the textbook
+        // dom-nested GVN invariant that the prior flat-scope walk
+        // failed to honour (it popped block 0's entries before
+        // entering block 1, hiding every dominator's GVN map).
+        let values = vec![
+            int_value("a"),
+            int_value("b"),
+            int_value("c"),
+            int_value("d"),
+        ];
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![empty_inst(
+                    ValueId(2),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(1)),
+                    ),
+                )],
+                term: Terminator::Br(BlockId(1)),
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![empty_inst(
+                    ValueId(3),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(1)),
+                    ),
+                )],
+                term: Terminator::Ret(None),
+            },
+        ];
+        let func = fixture(values, blocks);
+        let dom = DominatorTree::compute(&func);
+        let mut eg = Egraph::new(func.values.len());
+        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        assert_eq!(stats.gvn_inserts, 1, "dominator's add inserts once");
+        assert_eq!(
+            stats.gvn_hits, 1,
+            "descendant's add hits the dominator's entry"
+        );
+        assert!(
+            eg.equiv(ValueId(2), ValueId(3)),
+            "dominator and dominated adds must be unioned"
+        );
+        assert_eq!(eg.opt_value(ValueId(3)), ValueId(2));
+    }
+
+    #[test]
+    fn gvn_diamond_join_does_not_see_branch_inserts() {
+        // 0 (cond) -> 1, 2; both -> 3 (ret).
+        // Block 1 has %4 = add %0,%1 ; block 2 has %5 = add %0,%1.
+        // Block 3 has %6 = add %0,%1. Block 3's idom is block 0 (the
+        // diamond's pre-branch entry), so block 3 must NOT see block
+        // 1's or block 2's inserts — they live in sibling subtrees
+        // popped before block 3's scope opens.
+        let values = vec![
+            int_value("c"),
+            int_value("x"),
+            int_value("y"),
+            int_value("r1"),
+            int_value("r2"),
+            int_value("r3"),
+            int_value("r4"),
+        ];
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![],
+                term: Terminator::CondBr {
+                    cond: Operand::ConstBool(true),
+                    then_blk: BlockId(1),
+                    else_blk: BlockId(2),
+                },
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![empty_inst(
+                    ValueId(4),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(1)),
+                        Operand::Value(ValueId(2)),
+                    ),
+                )],
+                term: Terminator::Br(BlockId(3)),
+            },
+            Block {
+                id: BlockId(2),
+                insts: vec![empty_inst(
+                    ValueId(5),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(1)),
+                        Operand::Value(ValueId(2)),
+                    ),
+                )],
+                term: Terminator::Br(BlockId(3)),
+            },
+            Block {
+                id: BlockId(3),
+                insts: vec![empty_inst(
+                    ValueId(6),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(1)),
+                        Operand::Value(ValueId(2)),
+                    ),
+                )],
+                term: Terminator::Ret(None),
+            },
+        ];
+        let func = fixture(values, blocks);
+        let dom = DominatorTree::compute(&func);
+        let mut eg = Egraph::new(func.values.len());
+        let stats = remove_pure_and_optimize(&func, &dom, &mut eg);
+        // %4, %5, %6 each insert in their own scope; no cross-branch
+        // GVN hits because block 3's idom is block 0, not block 1/2.
+        assert_eq!(stats.gvn_inserts, 3);
+        assert_eq!(stats.gvn_hits, 0);
+        assert!(!eg.equiv(ValueId(4), ValueId(5)));
+        assert!(!eg.equiv(ValueId(4), ValueId(6)));
+        assert!(!eg.equiv(ValueId(5), ValueId(6)));
     }
 
     #[test]
