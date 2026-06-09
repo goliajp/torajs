@@ -164,7 +164,17 @@ mod tests {
     fn pass_dedups_identical_pure_adds_in_same_block() {
         // Two identical adds → optimize records GVN union; elaborate
         // drops the redundant second one. End-to-end pass-level test.
+        // (Use Value+Value operands — both-const operands would
+        // const-fold to Identity in chunk 11c, bypassing GVN.)
         let values = vec![
+            ValueInfo {
+                ty: Type::I64,
+                name: None,
+            },
+            ValueInfo {
+                ty: Type::I64,
+                name: None,
+            },
             ValueInfo {
                 ty: Type::I64,
                 name: None,
@@ -178,12 +188,20 @@ mod tests {
             id: BlockId(0),
             insts: vec![
                 val_inst(
-                    ValueId(0),
-                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(7), Operand::ConstI64(11)),
+                    ValueId(2),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(1)),
+                    ),
                 ),
                 val_inst(
-                    ValueId(1),
-                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(7), Operand::ConstI64(11)),
+                    ValueId(3),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(1)),
+                    ),
                 ),
             ],
             term: Terminator::Ret(None),

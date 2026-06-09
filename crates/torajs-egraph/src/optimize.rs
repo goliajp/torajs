@@ -303,11 +303,11 @@ mod tests {
 
     #[test]
     fn gvn_dedup_two_identical_adds() {
-        // %0 = const i64 7
-        // %1 = const i64 11
         // %2 = add %0, %1
         // %3 = add %0, %1   # GVN should union %3 into %2
         // ret
+        // (Use Value+Value operands — both-const operands would
+        // const-fold to Identity in chunk 11c, bypassing GVN.)
         let values = vec![
             int_value("a"),
             int_value("b"),
@@ -319,11 +319,19 @@ mod tests {
             insts: vec![
                 empty_inst(
                     ValueId(2),
-                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(7), Operand::ConstI64(11)),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(1)),
+                    ),
                 ),
                 empty_inst(
                     ValueId(3),
-                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(7), Operand::ConstI64(11)),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(1)),
+                    ),
                 ),
             ],
             term: Terminator::Ret(None),
@@ -413,9 +421,11 @@ mod tests {
 
     #[test]
     fn gvn_does_not_leak_across_sibling_scopes() {
-        // 0 (cond) -> 1, 2 ; 1 has %2 = add 3,4 ; 2 has %3 = add 3,4
+        // 0 (cond) -> 1, 2 ; 1 has %2 = add x,y ; 2 has %3 = add x,y
         // After block 1, pop_scope -> block 2 sees fresh GVN map ->
         // %3 is a fresh insert, NOT a hit on %2 (sibling isolation).
+        // (Use Value+Value operands — both-const operands would
+        // const-fold to Identity in chunk 11c, bypassing GVN.)
         let values = vec![
             int_value("c"),
             int_value("x"),
@@ -436,7 +446,11 @@ mod tests {
                 id: BlockId(1),
                 insts: vec![empty_inst(
                     ValueId(2),
-                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(3), Operand::ConstI64(4)),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(1)),
+                    ),
                 )],
                 term: Terminator::Ret(None),
             },
@@ -444,7 +458,11 @@ mod tests {
                 id: BlockId(2),
                 insts: vec![empty_inst(
                     ValueId(3),
-                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(3), Operand::ConstI64(4)),
+                    InstKind::BinOp(
+                        BinOp::Add,
+                        Operand::Value(ValueId(0)),
+                        Operand::Value(ValueId(1)),
+                    ),
                 )],
                 term: Terminator::Ret(None),
             },
