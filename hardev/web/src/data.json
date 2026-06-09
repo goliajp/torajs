@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-09T12:23:31.069Z",
+  "generatedAt": "2026-06-09T14:15:38.525Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 700,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "d46d621",
-    "commitSubject": "feat(egraph): negate rule sub-0-x to Neg variant — P-OPT Phase 2 chunk 11b",
+    "commit": "f94bd74",
+    "commitSubject": "test(egraph): use Value+Value in 2 more gvn tests to avoid const_fold",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,22 @@
   },
   "commits": [
     {
+      "hash": "f94bd74",
+      "subject": "test(egraph): use Value+Value in 2 more gvn tests to avoid const_fold"
+    },
+    {
+      "hash": "0a36e42",
+      "subject": "test(egraph): use Value+Value in gvn dedup test to avoid const_fold"
+    },
+    {
+      "hash": "12675f7",
+      "subject": "feat(egraph): integer binop const fold — P-OPT Phase 2 chunk 11c"
+    },
+    {
+      "hash": "3b4d682",
+      "subject": "chore: dashboard snapshot @ d46d621 — P-OPT Phase 2 chunk 11b SubNegate + Neg variant"
+    },
+    {
       "hash": "d46d621",
       "subject": "feat(egraph): negate rule sub-0-x to Neg variant — P-OPT Phase 2 chunk 11b"
     },
@@ -646,43 +662,38 @@
     {
       "hash": "12aeebb",
       "subject": "chore: dashboard snapshot @ be1b8f4 — P-OPT Phase 1 真 acceptance close"
-    },
-    {
-      "hash": "be1b8f4",
-      "subject": "chore(bench): add mini self-mode 3-run baseline + current — P-OPT Phase 1 真 acceptance close"
-    },
-    {
-      "hash": "02ab278",
-      "subject": "chore: dashboard snapshot @ c72893e — P-OPT Phase 1 first rule cluster ship close"
-    },
-    {
-      "hash": "c72893e",
-      "subject": "feat(egraph): const-fold rules + value_to_const eclass map — P-OPT Phase 1 chunk 9a-3"
-    },
-    {
-      "hash": "a8dd024",
-      "subject": "feat(egraph): branch folding — CondBr → Br on const cond / same-arm — P-OPT Phase 1 chunk 9b"
     }
   ],
-  "headSha": "d46d621",
+  "headSha": "f94bd74",
   "autorun": {
-    "total": 96,
+    "total": 97,
     "baselineTarget": 10,
-    "bySelf": 94,
+    "bySelf": 95,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781001559-6fba",
-      "at": "2026-06-09T10:39:19Z",
-      "ts": 1781001559,
+      "rotationId": "r-1781008103-4ad6",
+      "at": "2026-06-09T12:28:23Z",
+      "ts": 1781008103,
       "trigger": "self",
-      "prevHead": "a051929",
-      "handoffSha": "sha256:33eb1b315de6c6dedbcc9fea85ebaf0d8b3e95c7d21bb2e2bb010e1c1bf5ed21",
-      "handoffAgeSec": 5,
+      "prevHead": "3b4d682",
+      "handoffSha": "sha256:e35b48821eee4a1c2a6c53151f831c52883aeaa54dfd6256a6f9434a9b229288",
+      "handoffAgeSec": 13,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781008103-4ad6",
+        "at": "2026-06-09T12:28:23Z",
+        "ts": 1781008103,
+        "trigger": "self",
+        "prevHead": "3b4d682",
+        "handoffSha": "sha256:e35b48821eee4a1c2a6c53151f831c52883aeaa54dfd6256a6f9434a9b229288",
+        "handoffAgeSec": 13,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781001559-6fba",
         "at": "2026-06-09T10:39:19Z",
@@ -779,17 +790,6 @@
         "prevHead": "71a2584",
         "handoffSha": "sha256:f3741a6716190e0f82237d70e8c59cf147a0fb6a4eb3886c835c1005ab382861",
         "handoffAgeSec": 181,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780939444-117a",
-        "at": "2026-06-08T17:24:04Z",
-        "ts": 1780939444,
-        "trigger": "self",
-        "prevHead": "5347d6e",
-        "handoffSha": "sha256:39ea888e77727d4af733da56d5b484d9f21dde348941bae9a6a31440bd2ed855",
-        "handoffAgeSec": 18,
         "conformanceBefore": null,
         "commitsInSession": null
       }
