@@ -436,6 +436,18 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     None
                 }
             }
+            InstKind::Identity(_) => {
+                // `InstKind::Identity(op)` is a Phase 1 placeholder emitted by
+                // egraph rewrite rules; the elaborator aliases its result to
+                // `op` via `set_opt_value` and skips emission, so codegen
+                // must never see one. Reaching this arm signals an optimizer
+                // bug (rule produced Identity but elaboration didn't run /
+                // didn't drop it).
+                unreachable!(
+                    "InstKind::Identity reached codegen — egraph elaborate \
+                     must drop it via set_opt_value before this point"
+                )
+            }
         };
 
         if let (Some(r), Some(v)) = (inst.result, result_val) {

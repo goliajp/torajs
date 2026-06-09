@@ -373,6 +373,14 @@ fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         | InstKind::StringRef(_)
         | InstKind::StaticStrRef(_)
         | InstKind::FnAddr(_) => {}
+        // P-OPT Phase 1 — `Identity` is dropped by egraph elaborate
+        // before liveness ever runs. If it survives, liveness would
+        // see a "result with no real def site" and produce nonsense;
+        // signal the bug instead of silently accepting it.
+        InstKind::Identity(_) => unreachable!(
+            "InstKind::Identity reached liveness — egraph elaborate must \
+             drop it via set_opt_value before this point"
+        ),
     }
 }
 

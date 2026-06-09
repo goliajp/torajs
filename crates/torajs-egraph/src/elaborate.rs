@@ -58,6 +58,10 @@ pub struct ElaborateStats {
     /// Instructions dropped because their result was GVN-unioned onto
     /// a value already elaborated in an enclosing dominance scope.
     pub gvn_skipped: u32,
+    /// Instructions dropped because they were `InstKind::Identity(op)`
+    /// placeholders emitted by rewrite rules — their result is aliased
+    /// to `op` via `egraph.set_opt_value` and never reaches codegen.
+    pub identity_dropped: u32,
     /// Number of blocks visited by the domtree preorder walk.
     pub blocks_visited: u32,
 }
@@ -143,6 +147,19 @@ pub fn elaborate(
                 let mut new_insts: Vec<Inst> = Vec::with_capacity(src.insts.len());
                 for inst in &src.insts {
                     let new_kind = canonicalize_operands(&inst.kind, egraph);
+
+                    // P-OPT Phase 1 — rewrite-rule `Identity(op)`
+                    // placeholders are dropped here: alias the result
+                    // to `op` via `set_opt_value` so downstream use-
+                    // sites canonicalise straight to it, then skip
+                    // emission so codegen never sees the marker.
+                    if let InstKind::Identity(op) = &new_kind {
+                        if let (Some(res), Operand::Value(target_v)) = (inst.result, op) {
+                            egraph.set_opt_value(res, *target_v);
+                        }
+                        stats.identity_dropped += 1;
+                        continue;
+                    }
 
                     if let Some(res) = inst.result {
                         let canon = egraph.opt_value(res);
@@ -263,6 +280,7 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::FpToSi(v) => InstKind::FpToSi(map_operand(v, egraph)),
         InstKind::ZExtBoolToI64(v) => InstKind::ZExtBoolToI64(map_operand(v, egraph)),
         InstKind::ZExtI32ToI64(v) => InstKind::ZExtI32ToI64(map_operand(v, egraph)),
+        InstKind::Identity(v) => InstKind::Identity(map_operand(v, egraph)),
         InstKind::BitCastF64ToI64(v) => InstKind::BitCastF64ToI64(map_operand(v, egraph)),
         InstKind::BitCastI64ToF64(v) => InstKind::BitCastI64ToF64(map_operand(v, egraph)),
         InstKind::IntToPtr(v) => InstKind::IntToPtr(map_operand(v, egraph)),
@@ -608,6 +626,59 @@ mod tests {
         for b in &out.blocks {
             assert_eq!(b.insts.len(), 1);
         }
+    }
+
+    #[test]
+    fn identity_inst_dropped_and_result_aliased_to_operand() {
+        // Setup mimics a Phase 1 rewrite rule that turned `%2 = add %0, 0`
+        // into `%2 = id %0`. Elaborate must drop the Identity inst and
+        // alias %2's opt_value onto %0, so a downstream use `%3 = sub %2, %1`
+        // canonicalises to `sub %0, %1`.
+        let values = vec![
+            vinfo("p0", Type::I64),
+            vinfo("p1", Type::I64),
+            vinfo("r2", Type::I64),
+            vinfo("r3", Type::I64),
+        ];
+        let blocks = vec![Block {
+            id: BlockId(0),
+            insts: vec![
+                val_inst(ValueId(2), InstKind::Identity(Operand::Value(ValueId(0)))),
+                val_inst(
+                    ValueId(3),
+                    InstKind::BinOp(
+                        BinOp::Sub,
+                        Operand::Value(ValueId(2)),
+                        Operand::Value(ValueId(1)),
+                    ),
+                ),
+            ],
+            term: Terminator::Ret(Some(Operand::Value(ValueId(3)))),
+        }];
+        let f = func(values, blocks);
+        let dom = DominatorTree::compute(&f);
+        let lp = LoopAnalysis::compute(&f, &dom);
+        let mut eg = Egraph::new(f.values.len());
+        let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
+        assert_eq!(
+            stats.identity_dropped, 1,
+            "Identity placeholder must be counted as dropped"
+        );
+        // Only the Sub survives in the emitted block — Identity was skipped.
+        assert_eq!(out.blocks[0].insts.len(), 1);
+        match &out.blocks[0].insts[0].kind {
+            InstKind::BinOp(BinOp::Sub, l, r) => {
+                assert_eq!(
+                    *l,
+                    Operand::Value(ValueId(0)),
+                    "Sub LHS must be canonicalised through Identity alias"
+                );
+                assert_eq!(*r, Operand::Value(ValueId(1)));
+            }
+            other => panic!("expected BinOp::Sub, got {other:?}"),
+        }
+        // opt_value(%2) now resolves to %0 because Identity wired the alias.
+        assert_eq!(eg.opt_value(ValueId(2)), ValueId(0));
     }
 
     #[test]

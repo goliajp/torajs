@@ -414,6 +414,8 @@ pub enum InstKind {
     /// at codegen so the backend can build the right calling convention.
     /// M2 Phase B Stage 3.
     CallIndirect(SigId, Operand, Vec<Operand>),
+    /// P-OPT Phase 1 — `id <op>`: egraph rewrite placeholder; elaborate aliases via `set_opt_value`.
+    Identity(Operand),
 }
 
 #[derive(Debug, Clone)]

@@ -140,6 +140,12 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         // Bit-width zero-extends collapse to a `mov` on aarch64.
         InstKind::ZExtBoolToI64(_) | InstKind::ZExtI32ToI64(_) => ALU_COST,
 
+        // `Identity(op)` is dropped by the elaborator before codegen —
+        // no machine code is ever emitted for it. Elaboration scores
+        // it as a zero-cost alias so the cost model picks it whenever
+        // it appears in an e-class.
+        InstKind::Identity(_) => Cost::ZERO,
+
         // Anything not enumerated above defaults to ALU cost. Adding a
         // new `InstKind` variant without updating this match is fine
         // (defensive default), but the variant author should add an

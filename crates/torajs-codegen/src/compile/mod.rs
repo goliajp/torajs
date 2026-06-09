@@ -272,6 +272,10 @@ fn emit_inst(
             emit_static_str_ref(bytes, relocs, inst, *string_id, alloc)
         }
         InstKind::FnAddr(func_id) => emit_fn_addr(bytes, relocs, inst, *func_id, alloc),
+        InstKind::Identity(_) => unreachable!(
+            "InstKind::Identity reached aarch64 emit — egraph elaborate must \
+             drop it via set_opt_value before this point"
+        ),
     }
 }
 

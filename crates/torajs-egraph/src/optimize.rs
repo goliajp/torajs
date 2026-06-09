@@ -152,6 +152,7 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::FpToSi(v) => InstKind::FpToSi(map_op(v, egraph)),
         InstKind::ZExtBoolToI64(v) => InstKind::ZExtBoolToI64(map_op(v, egraph)),
         InstKind::ZExtI32ToI64(v) => InstKind::ZExtI32ToI64(map_op(v, egraph)),
+        InstKind::Identity(v) => InstKind::Identity(map_op(v, egraph)),
         // Side-effecting kinds (Store, StoreDyn, Call, Alloca,
         // AllocaBytes) are not GVN candidates — return as-is. They
         // pass through the walk but don't participate in
@@ -181,6 +182,12 @@ fn is_pure(kind: &InstKind) -> bool {
         | InstKind::FpToSi(_)
         | InstKind::ZExtBoolToI64(_)
         | InstKind::ZExtI32ToI64(_) => true,
+        // `Identity(op)` is a placeholder rewrite-rule output that the
+        // elaborator drops by aliasing its result to `op`. Treated as
+        // pure so GVN tolerates seeing it in the canonicalised stream
+        // (elaboration runs after GVN, so Identity may legitimately
+        // appear in the e-class table once Phase 1 rules fire).
+        InstKind::Identity(_) => true,
         // `Load` / `LoadDyn` are NOT pure without alias analysis —
         // a syntactically identical `load %p+off` may yield a
         // DIFFERENT value if an intervening `Store` to %p+off

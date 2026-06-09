@@ -277,6 +277,10 @@ impl Function {
                 }
                 write!(w, ")")?;
             }
+            InstKind::Identity(op) => {
+                write!(w, "id ")?;
+                self.write_operand(w, op)?;
+            }
         }
         writeln!(w)
     }
