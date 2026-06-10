@@ -6195,6 +6195,17 @@ pub(crate) struct LocalInfo {
     /// True after the binding's value has been consumed. Drop emission at
     /// fn-end skips moved locals.
     pub(crate) moved: bool,
+    /// True if the binding never owned its heap value — it aliases a
+    /// reference whose canonical owner lives elsewhere: non-Copy
+    /// params (caller owns), closure captures (env owns), for-of
+    /// bindings (the iterated container / iterator step owns),
+    /// alias-init lets (`let v = o.f` / cross-scope `let n = s` —
+    /// source owns). Distinct from `moved`: an owned local becomes
+    /// `moved: true` when consumed, but `borrowed` is set at birth
+    /// and never changes. `Stmt::Return` uses it to retain (+1) a
+    /// returned borrow so the caller receives the owned reference
+    /// the call-result convention promises.
+    pub(crate) borrowed: bool,
     /// Lexical scope depth this binding was declared at. 0 = fn-root,
     /// each enclosing `Block` increments. Used by M1.3 to (a) drop
     /// inner-block locals at the closing `}` and (b) prevent cross-
@@ -7163,6 +7174,7 @@ fn lower_fn(
                 slot,
                 ty,
                 moved: borrows_caller,
+                borrowed: borrows_caller,
                 scope_depth: 0,
             },
         );
@@ -7270,6 +7282,7 @@ fn lower_fn(
                     // (the env block holds the canonical pointer; freeing
                     // the env later cleans up).
                     moved: true,
+                    borrowed: true,
                     scope_depth: 0,
                 },
             );
@@ -10186,6 +10199,7 @@ impl<'a> LowerCtx<'a> {
                             slot,
                             ty: slot_ty_for_parse,
                             moved: false,
+                            borrowed: false,
                             scope_depth: cur_depth,
                         },
                     );
@@ -10250,6 +10264,7 @@ impl<'a> LowerCtx<'a> {
                             slot,
                             ty: slot_ty_for_parse,
                             moved: false,
+                            borrowed: false,
                             scope_depth: cur_depth,
                         },
                     );
@@ -10389,6 +10404,7 @@ impl<'a> LowerCtx<'a> {
                             slot,
                             ty: slot_ty,
                             moved: false,
+                            borrowed: false,
                             scope_depth: cur_depth,
                         },
                     );
@@ -10491,6 +10507,7 @@ impl<'a> LowerCtx<'a> {
                             slot,
                             ty,
                             moved: false,
+                            borrowed: false,
                             scope_depth: cur_depth,
                         },
                     );
@@ -10760,6 +10777,7 @@ impl<'a> LowerCtx<'a> {
                         // moved so the outer scope's drop walk skips
                         // it (the env is the canonical owner).
                         moved: is_alias_init || escape_captured,
+                        borrowed: is_alias_init,
                         scope_depth: cur_depth,
                     },
                 );
@@ -10831,6 +10849,7 @@ impl<'a> LowerCtx<'a> {
                             slot: v_slot,
                             ty: Type::Substr,
                             moved: false,
+                            borrowed: false,
                             scope_depth: cur_depth,
                         },
                     );
@@ -11049,6 +11068,7 @@ impl<'a> LowerCtx<'a> {
                             slot: i_slot,
                             ty: Type::I64,
                             moved: false,
+                            borrowed: false,
                             scope_depth: cur_depth,
                         },
                     );
@@ -11139,6 +11159,7 @@ impl<'a> LowerCtx<'a> {
                             // subsequent reads. Mirrors the LetDecl
                             // is_alias_init rule for Expr::Index init.
                             moved: true,
+                            borrowed: true,
                             scope_depth: cur_depth,
                         },
                     );
@@ -12036,6 +12057,7 @@ impl<'a> LowerCtx<'a> {
                                 // (return e / throw e) flip moved=true via
                                 // the standard machinery.
                                 moved: false,
+                                borrowed: false,
                                 scope_depth: self.scope_stack.len() - 1,
                             },
                         );
@@ -12564,6 +12586,31 @@ impl<'a> LowerCtx<'a> {
             Stmt::Return(maybe) => {
                 let ret_operand = maybe.map(|eid| {
                     let v = self.lower_expr(eid);
+                    // Returning a borrowed binding (`return s` where s
+                    // is a non-Copy param / for-of binding / capture /
+                    // alias-init let) forwards a +0 reference whose
+                    // canonical owner is elsewhere — but the call-result
+                    // convention hands the caller a +1 owned reference
+                    // (the caller emits a scope-end drop for it). Retain
+                    // at the return boundary so the forwarded borrow
+                    // becomes that +1; without this the caller's drop
+                    // releases the owner's reference and the next drop /
+                    // read is a double-free / use-after-free (observed:
+                    // block-scoped arg freed at `}` while the returned
+                    // alias was still live — the str's pool block got
+                    // recycled and the alias printed foreign bytes).
+                    // Mirrors Swift ARC's +0-parameter / +1-return
+                    // ownership convention.
+                    let needs_retain = if let Expr::Ident(name) = self.ast.get_expr(eid) {
+                        self.locals
+                            .get(name)
+                            .is_some_and(|info| info.borrowed && info.ty.is_refcounted())
+                    } else {
+                        false
+                    };
+                    if needs_retain {
+                        self.emit_rc_inc(v.clone());
+                    }
                     // Mark every non-Copy local touched by the return
                     // expression as moved. Without this, `return helper(f)`
                     // (where helper returns f's pointer) would drop f
@@ -26410,6 +26457,7 @@ impl<'a> LowerCtx<'a> {
                     slot: i_slot,
                     ty: Type::I64,
                     moved: false,
+                    borrowed: false,
                     scope_depth: cur_depth,
                 },
             );
@@ -26499,6 +26547,7 @@ impl<'a> LowerCtx<'a> {
                     // substr_create returns fresh rc=1; the per-iter
                     // drop walk below dec's it on body close.
                     moved: false,
+                    borrowed: false,
                     scope_depth: cur_depth,
                 },
             );
@@ -26806,6 +26855,7 @@ impl<'a> LowerCtx<'a> {
                     // borrowed view into step.value — step owns the
                     // refcount; per-iter drop on v would double-dec.
                     moved: true,
+                    borrowed: true,
                     scope_depth: cur_depth,
                 },
             );
@@ -27073,6 +27123,7 @@ impl<'a> LowerCtx<'a> {
                     slot: v_slot,
                     ty: var_ty,
                     moved: false,
+                    borrowed: false,
                     scope_depth: cur_depth,
                 },
             );
