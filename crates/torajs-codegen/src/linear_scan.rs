@@ -332,7 +332,20 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
             .map(|vi| &vi.ty)
             .expect("ValueId out of bounds");
         let is_fp = matches!(ty, Type::F64);
-        let crossing = crosses_call(interval, &call_sites);
+        // Params def at function ENTRY — before inst slot 0 — so a
+        // call at p == interval.start still clobbers their
+        // caller-saved arg register. `crosses_call`'s `p == start`
+        // exemption is only sound for the call's own result; for a
+        // param it silently hands out a clobbered arg reg (post-
+        // inline/slot-forward SSA exposed this: a param consumed
+        // after a leading call read garbage from x1).
+        let crossing = if param_arg_reg.contains_key(&vid) {
+            call_sites
+                .iter()
+                .any(|&p| interval.start <= p && p < interval.end)
+        } else {
+            crosses_call(interval, &call_sites)
+        };
 
         // Params first (they own a fixed AAPCS64 arg register on
         // entry, even when also the ret value — matching the prior
@@ -666,6 +679,66 @@ mod tests {
         assert_eq!(alloc.of(v1), Reg::Gpr(Gpr::X13));
         assert_eq!(alloc.of(v2), Reg::Gpr(Gpr::X0));
         assert_eq!(alloc.used_callee_gpr_mask, 1 << Gpr::X19.idx());
+    }
+
+    /// Param consumed AFTER a call at inst slot 0 (the post-inline /
+    /// slot-forward closure shape: `%arr = call alloc; store %param,
+    /// %arr +24`). The param's interval is [0, 2] with a call at
+    /// p == 0 == start — `crosses_call`'s start exemption must NOT
+    /// apply to params (they def at entry, before the call), so the
+    /// param must be relocated off its clobbered arg register with a
+    /// matching entry move.
+    #[test]
+    fn ls_param_crossing_leading_call_relocated() {
+        let p0 = ValueId(0); // param, read back after the call
+        let v1 = ValueId(1); // the call's own result
+        let f0 = FuncId(0);
+        let func = Function {
+            name: "t".into(),
+            params: vec![p0],
+            ret: Type::Void,
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![
+                    Inst {
+                        result: Some(v1),
+                        kind: InstKind::Call(f0, Vec::new()),
+                        origin: None,
+                    },
+                    Inst {
+                        result: None,
+                        kind: InstKind::Store(Operand::Value(p0), Operand::Value(v1), 24),
+                        origin: None,
+                    },
+                ],
+                term: Terminator::Ret(None),
+            }],
+            values: vec![
+                ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                },
+                ValueInfo {
+                    ty: Type::Ptr,
+                    name: None,
+                },
+            ],
+            current_origin: None,
+        };
+        let alloc = allocate_linear_scan(&func);
+        let preg = alloc.of(p0);
+        assert_ne!(
+            preg,
+            Reg::Gpr(Gpr::X0),
+            "param crossing a leading call must leave its arg register"
+        );
+        assert!(
+            alloc
+                .param_entry_moves
+                .iter()
+                .any(|&(from, to)| from == Reg::Gpr(Gpr::X0) && to == preg),
+            "entry move from X0 to the relocated register must exist"
+        );
     }
 
     /// FPR + GPR separate pools — fp value gets V19 (first FP
