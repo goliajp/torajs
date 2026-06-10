@@ -31,6 +31,7 @@ pub mod phi_promote;
 pub mod rc_peephole;
 pub mod rewrite;
 pub mod scope_map;
+pub mod sext_elide;
 pub mod slot_forward;
 
 use torajs_core::ssa::{Function, Module};
@@ -160,6 +161,18 @@ pub fn transform_module(mut module: Module) -> Module {
         let phi_stats = phi_promote::promote_phi_slots(&mut module);
         if std::env::var("TORAJS_MEM2REG_PHI_STATS").as_deref() == Ok("1") {
             eprintln!("torajs-mem2reg-phi-stats: {phi_stats:?}");
+        }
+    }
+    // Redundant ToInt32 sext-pair elimination — after phi_promote so
+    // it sees the final canonical shape (loop cells as multi-def Copy,
+    // conservatively unknown), before rc_peephole / codegen. Transposes
+    // operand-side `shl 32`+`ashr 32` pairs on And/Or/Xor into one
+    // result-side pair and collapses pairs over provably-sext-32
+    // sources. `TORAJS_SEXT_ELIDE_OFF=1` skips (bisect gate).
+    if std::env::var("TORAJS_SEXT_ELIDE_OFF").as_deref() != Ok("1") {
+        let sx_stats = sext_elide::elide_sext_pairs(&mut module);
+        if std::env::var("TORAJS_SEXT_ELIDE_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-sext-elide-stats: {sx_stats:?}");
         }
     }
     // TORAJS_SSA_DUMP=1 — pretty-print the post-egraph pre-peephole
