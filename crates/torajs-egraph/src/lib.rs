@@ -29,6 +29,7 @@ pub mod optimize;
 pub mod rc_peephole;
 pub mod rewrite;
 pub mod scope_map;
+pub mod slot_forward;
 
 use torajs_core::ssa::{Function, Module};
 
@@ -120,6 +121,17 @@ pub fn transform_module(mut module: Module) -> Module {
             if std::env::var("TORAJS_INLINER_STATS").as_deref() == Ok("1") {
                 eprintln!("torajs-inliner-stats-round2: {round2:?}");
             }
+        }
+    }
+    // Block-local store→load forwarding — clears the alloca+store+load
+    // param round-trips the inliner splices into hot loops (mem2reg's
+    // degenerate in-block case). After inlining/devirt (the food),
+    // before the egraph pass (forwarded constants feed const-fold /
+    // GVN). `TORAJS_SLOTFWD_OFF=1` skips (bisect gate).
+    if std::env::var("TORAJS_SLOTFWD_OFF").as_deref() != Ok("1") {
+        let fwd_stats = slot_forward::forward_slot_loads(&mut module);
+        if std::env::var("TORAJS_SLOTFWD_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-slotfwd-stats: {fwd_stats:?}");
         }
     }
     for func in module.funcs.iter_mut() {

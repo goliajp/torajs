@@ -83,6 +83,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "../torajs-egraph/src/rewrite/self_fold.rs",
     "../torajs-egraph/src/rewrite/strength_reduction.rs",
     "../torajs-egraph/src/scope_map.rs",
+    "../torajs-egraph/src/slot_forward.rs",
 ];
 
 /// Enumerate every Layer-1+ Rust sub-crate that contributes
