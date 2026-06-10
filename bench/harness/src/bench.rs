@@ -81,7 +81,7 @@ pub fn run_one(
     workspace: &Path,
     cached_compile_ms: Option<f64>,
 ) -> Result<RunOutcome> {
-    let src_path = case.dir.join(&runner.src_filename);
+    let src_path = crate::runner::resolve_src(&case.dir, &runner.src_filename);
     if !src_path.exists() {
         return Ok(RunOutcome::skip(
             &case.name,
@@ -253,7 +253,7 @@ pub fn artifact_only(
     work_dir: &Path,
     workspace: &Path,
 ) -> Result<RunOutcome> {
-    let src_path = case.dir.join(&runner.src_filename);
+    let src_path = crate::runner::resolve_src(&case.dir, &runner.src_filename);
     let mut outcome = RunOutcome {
         case: case.name.clone(),
         runtime: runner.name.clone(),

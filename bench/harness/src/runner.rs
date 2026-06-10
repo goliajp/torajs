@@ -44,6 +44,25 @@ impl Runner {
     }
 }
 
+/// Resolve the source file for a (case, runner) pair. The runner's
+/// declared `src_filename` acts as a per-case override: torajs runners
+/// declare `main.tora.ts`, and a case that needs a tora-specific
+/// variant carries one. A case without the variant file runs the
+/// comparator-shared `main.ts` — the same program every other runtime
+/// executes (L3a-8: variants are the exception, not the default).
+/// The fallback is gated on the `.tora.ts` suffix so non-TS runners
+/// (`main.go`, `main.rs`, ...) never silently pick up a TS source.
+pub fn resolve_src(case_dir: &Path, src_filename: &str) -> std::path::PathBuf {
+    let p = case_dir.join(src_filename);
+    if !p.exists() && src_filename.ends_with(".tora.ts") {
+        let shared = case_dir.join("main.ts");
+        if shared.exists() {
+            return shared;
+        }
+    }
+    p
+}
+
 pub fn load_all(runners_dir: &Path) -> Result<Vec<Runner>> {
     if !runners_dir.exists() {
         anyhow::bail!("runners dir does not exist: {}", runners_dir.display());
