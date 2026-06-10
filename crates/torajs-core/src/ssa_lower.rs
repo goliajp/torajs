@@ -14012,6 +14012,12 @@ impl<'a> LowerCtx<'a> {
                                 && !(slot_ty == Type::I64 && v_ty == Type::I32)
                                 && !(slot_ty == Type::I32 && v_ty == Type::I64)
                                 && !(slot_ty == Type::Ptr || v_ty == Type::Ptr)
+                                // Any → numeric global narrows via
+                                // ToNumber, the global-arm twin of the
+                                // local path's P7.2b-2 (`catch (e) {
+                                // count = e }` where count promoted).
+                                && !(matches!(slot_ty, Type::I64 | Type::F64)
+                                    && v_ty == Type::Any)
                             {
                                 panic!(
                                     "ssa-lower: assignment to global `{name}` mismatch — slot is {slot_ty:?} but value is {v_ty:?}; use `>>` for integer divide or annotate the slot as the appropriate numeric width",
@@ -14019,6 +14025,9 @@ impl<'a> LowerCtx<'a> {
                             }
                             let v = if slot_ty == Type::F64 && v_ty == Type::I64 {
                                 self.coerce_to_f64(v)
+                            } else if matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any
+                            {
+                                self.coerce_any_to_number(v, slot_ty)
                             } else {
                                 v
                             };
@@ -14116,6 +14125,12 @@ impl<'a> LowerCtx<'a> {
                             // Stmt::Return arm.
                             && !(matches!(snapshot.ty, Type::I64 | Type::F64)
                                 && v_ty == Type::Any)
+                            // Any → Str slot is coercible too: the
+                            // catch-param store-out shape
+                            // (`let saved = ""; ... catch (e: any)
+                            // { saved = e }`) is legal TS — any
+                            // assigns into every annotation.
+                            && !(snapshot.ty == Type::Str && v_ty == Type::Any)
                         {
                             // i64-into-f64 slot is auto-coerced below the
                             // existing LetDecl shape; everything else is a
@@ -14144,6 +14159,18 @@ impl<'a> LowerCtx<'a> {
                             // unboxes via ToNumber (shared helper with
                             // Stmt::Return so the two sinks can't drift).
                             self.coerce_any_to_number(v, snapshot.ty)
+                        } else if snapshot.ty == Type::Str && v_ty == Type::Any {
+                            // Any into a Str slot routes through the
+                            // runtime's tag-dispatched ToString: a
+                            // Str-tagged box rc-incs and returns the
+                            // existing pointer (a true unbox — the
+                            // dominant `saved = e` catch shape where
+                            // the thrown value was a string), other
+                            // tags produce their string rendering.
+                            // Either way a fresh-owned +1 Str lands in
+                            // the slot, matching the drop-old/store
+                            // contract below.
+                            self.coerce_to_str(v, Type::Any)
                         } else {
                             v
                         };
