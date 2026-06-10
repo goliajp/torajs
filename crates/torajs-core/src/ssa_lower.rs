@@ -11881,8 +11881,28 @@ impl<'a> LowerCtx<'a> {
                         }
                         _ if v_ty.is_refcounted() => {
                             // ANY_HEAP=4. Ownership transfers to the throw
-                            // slot; no rc_inc here (consume_all marked the
-                            // source binding moved so end-of-fn drop skips).
+                            // slot; owned sources need no rc_inc here
+                            // (consume_all marked the source binding moved
+                            // so end-of-fn drop skips). But a BORROWED
+                            // source (non-Copy param / capture / alias-init
+                            // let) forwards a +0 reference whose canonical
+                            // owner keeps its stake — the catch binding
+                            // owns what it takes (M4.3) and drops it at
+                            // catch-scope close, so without a retain that
+                            // drop releases the owner's reference and the
+                            // owner's later drop / read double-frees.
+                            // Retain at the throw boundary so throw_value
+                            // carries its own +1 — the throw twin of
+                            // Stmt::Return's retain-at-return (Swift ARC's
+                            // +0-parameter / +1-result convention).
+                            let needs_retain = if let Expr::Ident(name) = self.ast.get_expr(*eid) {
+                                self.locals.get(name).is_some_and(|info| info.borrowed)
+                            } else {
+                                false
+                            };
+                            if needs_retain {
+                                self.emit_rc_inc(v.clone());
+                            }
                             (Operand::ConstI64(4), v)
                         }
                         _ => {
