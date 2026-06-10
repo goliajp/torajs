@@ -215,6 +215,7 @@ fn extend_intervals_loop_aware(func: &Function, out: &mut HashMap<u32, Interval>
     }
 
     // Index-aligned bookkeeping over `func.blocks`.
+    let mut block_start_idx: Vec<u32> = vec![0; n];
     let mut block_end_idx: Vec<u32> = vec![0; n];
     let mut block_uses: Vec<HashSet<u32>> = vec![HashSet::new(); n];
     let mut block_defs: Vec<HashSet<u32>> = vec![HashSet::new(); n];
@@ -231,6 +232,7 @@ fn extend_intervals_loop_aware(func: &Function, out: &mut HashMap<u32, Interval>
     // global numbering as `compute_intervals`.
     let mut cursor: u32 = 0;
     for (i, block) in func.blocks.iter().enumerate() {
+        block_start_idx[i] = cursor;
         for inst in &block.insts {
             visit_inst_operands(&inst.kind, |v| {
                 if !block_defs[i].contains(&v.0) {
@@ -305,14 +307,27 @@ fn extend_intervals_loop_aware(func: &Function, out: &mut HashMap<u32, Interval>
 
     // Extend every value's end to the last block where it stays
     // live (live_in covers "used inside this block from before",
-    // live_out covers "passes through this block to a successor").
+    // live_out covers "passes through this block to a successor"),
+    // and pull its start back to the first block where it is
+    // live-in. The pull-back matters when block layout order runs
+    // against the CFG (a `continue`-arm block laid out AFTER the
+    // loop latch that reads its def): the use's linear index is then
+    // SMALLER than the def's, and an interval keyed on the def index
+    // alone would leave the use uncovered — the allocator could hand
+    // the register to someone else right over it. First hit by
+    // phi_promote's Copy defs (slot round-trips never produced
+    // cross-block uses before), but the property is generic.
     for b in 0..n {
+        let start = block_start_idx[b];
         let end = block_end_idx[b];
         for v in live_in[b].iter().chain(live_out[b].iter()) {
-            if let Some(it) = out.get_mut(v)
-                && end > it.end
-            {
-                it.end = end;
+            if let Some(it) = out.get_mut(v) {
+                if end > it.end {
+                    it.end = end;
+                }
+                if live_in[b].contains(v) && start < it.start {
+                    it.start = start;
+                }
             }
         }
     }
@@ -538,6 +553,64 @@ mod tests {
             "back-edge keeps %0 live through bb2's end (got end={})",
             iv.end
         );
+    }
+
+    /// Layout order against the CFG: entry jumps to bb2 (laid out
+    /// last), which defines %0 and branches to bb1 (laid out FIRST),
+    /// which uses it. The use's linear index is smaller than the
+    /// def's — the interval must pull its start back to bb1's block
+    /// start or the allocator hands %0's register away over the use.
+    /// (The shape phi_promote's continue-arm Copy defs produce.)
+    #[test]
+    fn layout_reversed_cross_block_use_pulls_start_back() {
+        let v0 = ValueId(0);
+        let v1 = ValueId(1);
+        let mk = |ty: Type| ValueInfo { ty, name: None };
+        let func = Function {
+            name: "revuse".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values: vec![mk(Type::I64), mk(Type::I64)],
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: Vec::new(),
+                    term: Terminator::Br(BlockId(2)),
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![Inst {
+                        result: Some(v1),
+                        kind: InstKind::BinOp(BinOp::Add, Operand::Value(v0), Operand::ConstI64(1)),
+                        origin: None,
+                    }],
+                    term: Terminator::Ret(Some(Operand::Value(v1))),
+                },
+                Block {
+                    id: BlockId(2),
+                    insts: vec![Inst {
+                        result: Some(v0),
+                        kind: InstKind::BinOp(
+                            BinOp::Add,
+                            Operand::ConstI64(2),
+                            Operand::ConstI64(3),
+                        ),
+                        origin: None,
+                    }],
+                    term: Terminator::Br(BlockId(1)),
+                },
+            ],
+            current_origin: None,
+        };
+        // linear indices: bb0 term = 0; bb1 add = 1, ret = 2; bb2 add = 3, br = 4.
+        let ivs = compute_intervals(&func);
+        let iv = ivs[&0];
+        assert!(
+            iv.start <= 1,
+            "start must cover bb1's use at idx 1 (got start={})",
+            iv.start
+        );
+        assert!(iv.end >= 3, "end must cover the def (got end={})", iv.end);
     }
 
     /// `fn dead(): void { _ = 1 + 2; ret }` — v0 defined at slot 0,
