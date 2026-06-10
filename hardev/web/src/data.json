@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-10T21:31:08.419Z",
+  "generatedAt": "2026-06-10T21:59:41.639Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -10,26 +10,26 @@
     "sourceMtime": "2026-06-10T02:48:22.109Z"
   },
   "test262": {
-    "ranAt": "2026-06-03T22:49:10Z",
-    "headSha": "2707b50",
-    "elapsedSec": 1232.97,
+    "ranAt": "2026-06-10T21:55:58Z",
+    "headSha": "8c1123b",
+    "elapsedSec": 1119.13,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 3483,
-    "bug": 280,
-    "incompatible": 24551,
+    "pass": 3527,
+    "bug": 1419,
+    "incompatible": 23368,
     "bunSkip": 24860,
     "harnessError": 0,
     "inScope": 28314,
-    "trAccepted": 3763,
-    "passRateInScope": 12.3,
-    "passRateTrAccepted": 92.56
+    "trAccepted": 4946,
+    "passRateInScope": 12.46,
+    "passRateTrAccepted": 71.31
   },
   "torajs": {
-    "commit": "8c1123b",
-    "commitSubject": "chore(bench): record ccbba59 r2 timed run - ann-width W1 verdict",
+    "commit": "704ee79",
+    "commitSubject": "chore(hardev/web): refresh dashboard snapshot — HEAD 8c1123b (L3a item 11 W1 ann-width close: num_width module-wide slot inference, gate 744/0/4, bench 0-regression by construction)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,10 @@
   },
   "commits": [
     {
+      "hash": "704ee79",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 8c1123b (L3a item 11 W1 ann-width close: num_width module-wide slot inference, gate 744/0/4, bench 0-regression by construction)"
+    },
+    {
       "hash": "8c1123b",
       "subject": "chore(bench): record ccbba59 r2 timed run - ann-width W1 verdict"
     },
@@ -658,31 +662,38 @@
     {
       "hash": "411c073",
       "subject": "chore(bench): record fae853d 3-run — item-8 shift ToInt32 verdict"
-    },
-    {
-      "hash": "fae853d",
-      "subject": "feat(bench): per-case variant fallback — tora runners run shared main.ts when no main.tora.ts; drop collatz variant"
     }
   ],
-  "headSha": "8c1123b",
+  "headSha": "704ee79",
   "autorun": {
-    "total": 114,
+    "total": 115,
     "baselineTarget": 10,
-    "bySelf": 112,
+    "bySelf": 113,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781111512-013b",
-      "at": "2026-06-10T17:11:52Z",
-      "ts": 1781111512,
+      "rotationId": "r-1781127145-62a7",
+      "at": "2026-06-10T21:32:25Z",
+      "ts": 1781127145,
       "trigger": "self",
-      "prevHead": "dde9b5a",
-      "handoffSha": "sha256:b6a39c90ec448b347f76f94cbc2dc7883c8f709249295fa43c37f66a964385a6",
-      "handoffAgeSec": 8,
+      "prevHead": "704ee79",
+      "handoffSha": "sha256:f3e2b1eac2a500576ca4cfb3f896486419229e66e974c160aecc7d5e455b59f6",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781127145-62a7",
+        "at": "2026-06-10T21:32:25Z",
+        "ts": 1781127145,
+        "trigger": "self",
+        "prevHead": "704ee79",
+        "handoffSha": "sha256:f3e2b1eac2a500576ca4cfb3f896486419229e66e974c160aecc7d5e455b59f6",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781111512-013b",
         "at": "2026-06-10T17:11:52Z",
@@ -779,17 +790,6 @@
         "prevHead": "2ff9f25",
         "handoffSha": "sha256:548e80e78b746d357fb48c60a8952ffcd61edd14129d530eed76ec1a874bb594",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781068278-5ebf",
-        "at": "2026-06-10T05:11:18Z",
-        "ts": 1781068278,
-        "trigger": "self",
-        "prevHead": "0385557",
-        "handoffSha": "sha256:4b46c6ab29c9262f1f4f7ae155b86658d527f9304f75657ecc6cdcaa19f52c1d",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
