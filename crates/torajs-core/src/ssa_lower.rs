@@ -14924,13 +14924,16 @@ impl<'a> LowerCtx<'a> {
                             );
                             return Operand::Value(r);
                         }
-                        // `~x` is `x ^ -1` for integer types — flips
-                        // every bit. JS spec coerces to int32 first; tr
-                        // works in i64 land but the result agrees on
-                        // all values that fit in int32.
+                        // L3a-8 — `~x` is `ToInt32(x) ^ -1` per JS spec
+                        // §13.5.6: normalize to int32 first so
+                        // `~4294967295` gives 0 like v8 / jsc. The xor
+                        // of a sign-extended-32 value with -1 stays
+                        // sign-extended-32 — no post-normalization.
+                        let vi = self.coerce_f64_to_i64_for_bitwise(v);
+                        let v32 = self.emit_to_int32(vi);
                         let r = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(SsaBinOp::Xor, v, Operand::ConstI64(-1)),
+                            InstKind::BinOp(SsaBinOp::Xor, v32, Operand::ConstI64(-1)),
                             Type::I64,
                             None,
                         );
@@ -24433,6 +24436,85 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// JS spec §7.1.6 ToInt32 normalization on tora's i64 value model:
+    /// sign-extend the operand's low 32 bits (`shl 32` + `ashr 32` —
+    /// LLVM folds the pair to a single sxtw on arm64). Bitwise/shift
+    /// operators apply this to each operand (and to the Shl result,
+    /// which can carry past bit 31) so `1 << 31` wraps negative and
+    /// `4294967296 | 0` truncates to 0 exactly like v8 / jsc.
+    fn emit_to_int32(&mut self, op: Operand) -> Operand {
+        match op {
+            Operand::ConstI64(n) => Operand::ConstI64(n as i32 as i64),
+            _ => {
+                let hi = self.bin(SsaBinOp::Shl, op, Operand::ConstI64(32), Type::I64);
+                self.bin(SsaBinOp::AShr, hi, Operand::ConstI64(32), Type::I64)
+            }
+        }
+    }
+
+    /// JS spec §13.9 — shift counts take `ToUint32(b) & 31`, which is
+    /// exactly the low 5 bits of the i64 operand (two's complement
+    /// agrees for negative counts: `-3 & 31 == 29 == ToUint32(-3) & 31`).
+    fn emit_shift_count(&mut self, op: Operand) -> Operand {
+        match op {
+            Operand::ConstI64(n) => Operand::ConstI64(n & 31),
+            _ => self.bin(SsaBinOp::And, op, Operand::ConstI64(31), Type::I64),
+        }
+    }
+
+    /// Shared int32-semantics lowering for the six bitwise/shift
+    /// operators on Number (the all-i64 and the mixed-f64 binop paths
+    /// both land here; f64 operands first truncate via
+    /// `coerce_f64_to_i64_for_bitwise`). Per JS spec §13.9 / §13.12 each
+    /// operand is ToInt32-normalized (ToUint32 for `>>>`), the op runs
+    /// at 32-bit width, and the result sign-extends back — emitted as
+    /// explicit i64 SSA insts so every downstream pass (egraph
+    /// const-fold included) stays a plain i64-semantics transform.
+    fn lower_bitwise_int32(&mut self, op: AstBinOp, a: Operand, b: Operand) -> Operand {
+        let ai = self.coerce_f64_to_i64_for_bitwise(a);
+        let bi = self.coerce_f64_to_i64_for_bitwise(b);
+        match op {
+            // And/Or/Xor of two sign-extended-32 values is itself
+            // sign-extended-32 — no post-normalization needed.
+            AstBinOp::BitAnd => {
+                let a32 = self.emit_to_int32(ai);
+                let b32 = self.emit_to_int32(bi);
+                self.bin(SsaBinOp::And, a32, b32, Type::I64)
+            }
+            AstBinOp::BitOr => {
+                let a32 = self.emit_to_int32(ai);
+                let b32 = self.emit_to_int32(bi);
+                self.bin(SsaBinOp::Or, a32, b32, Type::I64)
+            }
+            AstBinOp::BitXor => {
+                let a32 = self.emit_to_int32(ai);
+                let b32 = self.emit_to_int32(bi);
+                self.bin(SsaBinOp::Xor, a32, b32, Type::I64)
+            }
+            // `a << b` can carry past bit 31 — re-normalize the result.
+            AstBinOp::Shl => {
+                let a32 = self.emit_to_int32(ai);
+                let cnt = self.emit_shift_count(bi);
+                let r = self.bin(SsaBinOp::Shl, a32, cnt, Type::I64);
+                self.emit_to_int32(r)
+            }
+            // ashr of a sign-extended-32 value stays sign-extended-32.
+            AstBinOp::Shr => {
+                let a32 = self.emit_to_int32(ai);
+                let cnt = self.emit_shift_count(bi);
+                self.bin(SsaBinOp::AShr, a32, cnt, Type::I64)
+            }
+            // `>>>` is ToUint32: zero-extend the low 32 bits, then
+            // logical-shift — result is in [0, 2^32), non-negative.
+            AstBinOp::UShr => {
+                let mask32 = self.bin(SsaBinOp::And, ai, Operand::ConstI64(0xFFFF_FFFF), Type::I64);
+                let cnt = self.emit_shift_count(bi);
+                self.bin(SsaBinOp::LShr, mask32, cnt, Type::I64)
+            }
+            other => unreachable!("lower_bitwise_int32: non-bitwise op {other:?}"),
+        }
+    }
+
     /// Promote an i64 operand to f64. Constants are rewritten in place
     /// (cheaper than emitting a sitofp instruction LLVM would constant-fold
     /// anyway). Value operands emit an explicit InstKind::SiToFp.
@@ -25503,12 +25585,12 @@ impl<'a> LowerCtx<'a> {
         let is_float = force_float || either_float;
 
         if is_float {
-            // V3-18 m1.h.40 — JS spec §7.1.6 ToInt32 / §13.12.x:
-            // bitwise ops on Number first ToInt32 each operand
-            // (truncate towards zero, mask to 32 bits). For tora's
-            // i64 model we use FpToSi (truncate to i64) which
-            // matches the spec for finite values in the i32 range
-            // — the dominant test262 case.
+            // V3-18 m1.h.40 / L3a-8 — JS spec §7.1.6 ToInt32 / §13.12.x:
+            // bitwise ops on Number first ToInt32 each operand. The
+            // shared int32-semantics helper truncates f64 via FpToSi
+            // then sign-extends the low 32 bits (NaN / out-of-i64-range
+            // land as poison — same as the integer bitwise idioms v8 /
+            // jsc compile to).
             //
             // V3-18 m1.h.41 — Mod with f64 operands maps to
             // LLVM frem (IEEE fmod-shaped), matching JS spec
@@ -25522,17 +25604,7 @@ impl<'a> LowerCtx<'a> {
                     | AstBinOp::Shr
                     | AstBinOp::UShr
             ) {
-                let ai = self.coerce_f64_to_i64_for_bitwise(a);
-                let bi = self.coerce_f64_to_i64_for_bitwise(b);
-                return match op {
-                    AstBinOp::BitAnd => self.bin(SsaBinOp::And, ai, bi, Type::I64),
-                    AstBinOp::BitOr => self.bin(SsaBinOp::Or, ai, bi, Type::I64),
-                    AstBinOp::BitXor => self.bin(SsaBinOp::Xor, ai, bi, Type::I64),
-                    AstBinOp::Shl => self.bin(SsaBinOp::Shl, ai, bi, Type::I64),
-                    AstBinOp::Shr => self.bin(SsaBinOp::AShr, ai, bi, Type::I64),
-                    AstBinOp::UShr => self.bin(SsaBinOp::LShr, ai, bi, Type::I64),
-                    _ => unreachable!(),
-                };
+                return self.lower_bitwise_int32(op, a, b);
             }
             let af = self.coerce_to_f64(a);
             let bf = self.coerce_to_f64(b);
@@ -25597,22 +25669,16 @@ impl<'a> LowerCtx<'a> {
                 }
                 self.bin(SsaBinOp::SRem, a, b, Type::I64)
             }
-            AstBinOp::BitAnd => self.bin(SsaBinOp::And, a, b, Type::I64),
-            AstBinOp::BitOr => self.bin(SsaBinOp::Or, a, b, Type::I64),
-            AstBinOp::BitXor => self.bin(SsaBinOp::Xor, a, b, Type::I64),
-            AstBinOp::Shl => self.bin(SsaBinOp::Shl, a, b, Type::I64),
-            AstBinOp::Shr => self.bin(SsaBinOp::AShr, a, b, Type::I64),
-            AstBinOp::UShr => {
-                // JS spec: `a >>> b` is `ToUint32(a) >>> (ToUint32(b) & 0x1F)`.
-                // We're on i64, so first mask `a` to its lower 32 bits
-                // (turning a negative i64 like -1 into 0xFFFF_FFFF) and
-                // mask `b` to its bottom 5 bits — then logical-shift.
-                // The result is always non-negative ≤ 2^32-1, fitting
-                // back into i64 directly.
-                let mask32 = self.bin(SsaBinOp::And, a, Operand::ConstI64(0xFFFF_FFFF), Type::I64);
-                let masked_shift = self.bin(SsaBinOp::And, b, Operand::ConstI64(0x1F), Type::I64);
-                self.bin(SsaBinOp::LShr, mask32, masked_shift, Type::I64)
-            }
+            // L3a-8 — JS spec §13.9 / §13.12: bitwise/shift on Number is
+            // int32-width even when both operands are integral i64
+            // (`1 << 31` wraps negative, `4294967296 | 0` is 0). All six
+            // operators share the ToInt32-normalize helper.
+            AstBinOp::BitAnd
+            | AstBinOp::BitOr
+            | AstBinOp::BitXor
+            | AstBinOp::Shl
+            | AstBinOp::Shr
+            | AstBinOp::UShr => self.lower_bitwise_int32(op, a, b),
             AstBinOp::Lt => self.cmp(IPred::Slt, a, b),
             AstBinOp::Gt => self.cmp(IPred::Sgt, a, b),
             AstBinOp::Le => self.cmp(IPred::Sle, a, b),
