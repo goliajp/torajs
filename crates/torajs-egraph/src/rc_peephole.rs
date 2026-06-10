@@ -35,10 +35,12 @@
 //!
 //! * inc and drop must sit in the **same block**.
 //! * every instruction between them must be rc-transparent: pure
-//!   (`classify_pure`), an `Alloca`, or a `Load`/`Store` whose
-//!   address is a tracked stack slot. Anything that could dec/free
-//!   the object or observe its heap header (calls, heap loads, heap
-//!   stores) closes the window.
+//!   (`classify_pure`), an `Alloca`, a `Load`/`Store` whose
+//!   address is a tracked stack slot, or a call to a read-only
+//!   print intrinsic (`READONLY_INTRINSICS` — LLVM ObjCARC's
+//!   `CanAlterRefCount == false` call class). Anything that could
+//!   dec/free the object or observe its refcount (other calls,
+//!   heap loads, heap stores) closes the window.
 //! * only the inc-before-drop direction is elided; drop-before-inc
 //!   would let the object die mid-gap.
 //! * both insts must be result-less (`append_void` shape) so removal
@@ -67,6 +69,19 @@ const DROP_INTRINSICS: [&str; 4] = [
     "__torajs_substr_drop",
     "__torajs_arr_drop",
     "__torajs_arr_drop_any",
+];
+
+/// Runtime intrinsics that provably cannot change any refcount,
+/// free any object, or read a refcount field: they only read
+/// payload bytes plus header length/encoding bits and write to
+/// stdio (verified against `torajs-str/src/print.rs`). A call to
+/// one of these is window-transparent: nothing inside a transparent
+/// window can decrement a count, so every object alive at the inc
+/// stays alive across the whole window even with the pair removed.
+const READONLY_INTRINSICS: [&str; 3] = [
+    "__torajs_str_print",
+    "__torajs_str_print_err",
+    "__torajs_substr_print",
 ];
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +115,10 @@ pub fn elide_rc_pairs(module: &mut Module) -> RcPeepholeStats {
     if drop_fids.is_empty() {
         return stats;
     }
+    let readonly_fids: HashSet<u32> = READONLY_INTRINSICS
+        .iter()
+        .filter_map(|name| find_func(module, name))
+        .collect();
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
             continue;
@@ -107,7 +126,13 @@ pub fn elide_rc_pairs(module: &mut Module) -> RcPeepholeStats {
         let slots = collect_unescaped_slots(func);
         for block in func.blocks.iter_mut() {
             loop {
-                let removed = elide_in_insts(&mut block.insts, inc_fid, &drop_fids, &slots);
+                let removed = elide_in_insts(
+                    &mut block.insts,
+                    inc_fid,
+                    &drop_fids,
+                    &readonly_fids,
+                    &slots,
+                );
                 if removed == 0 {
                     break;
                 }
@@ -242,6 +267,7 @@ fn elide_in_insts(
     insts: &mut Vec<Inst>,
     inc_fid: u32,
     drop_fids: &HashSet<u32>,
+    readonly_fids: &HashSet<u32>,
     slots: &HashSet<ValueId>,
 ) -> u32 {
     // pass 1 — linear walk assigning each value loaded from a tracked
@@ -290,7 +316,7 @@ fn elide_in_insts(
                 // could free shared state — stop the window
                 break;
             }
-            if !rc_transparent(&inst.kind, slots) {
+            if !rc_transparent(&inst.kind, readonly_fids, slots) {
                 break;
             }
         }
@@ -310,10 +336,11 @@ fn elide_in_insts(
 
 /// Can `kind` sit between a paired inc and drop without invalidating
 /// the elision? True only for instructions that provably cannot
-/// change any refcount, free any object, or observe a heap header:
-/// pure ops, stack-slot allocation, and loads/stores whose address is
-/// a tracked (non-escaped) stack slot.
-fn rc_transparent(kind: &InstKind, slots: &HashSet<ValueId>) -> bool {
+/// change any refcount, free any object, or read a refcount field:
+/// pure ops, stack-slot allocation, loads/stores whose address is a
+/// tracked (non-escaped) stack slot, and calls to the read-only
+/// print intrinsics.
+fn rc_transparent(kind: &InstKind, readonly_fids: &HashSet<u32>, slots: &HashSet<ValueId>) -> bool {
     if classify_pure(kind) {
         return true;
     }
@@ -327,6 +354,8 @@ fn rc_transparent(kind: &InstKind, slots: &HashSet<ValueId>) -> bool {
         // Not in classify_pure because its multi-def shape must never
         // be GVN-deduplicated.
         InstKind::Copy(_, _) => true,
+        // rc-neutral readonly runtime call (READONLY_INTRINSICS)
+        InstKind::Call(fid, _) => readonly_fids.contains(&fid.0),
         _ => false,
     }
 }
@@ -421,6 +450,26 @@ mod tests {
 
     const INC: FuncId = FuncId(0);
     const DROP: FuncId = FuncId(1);
+    const PRINT: FuncId = FuncId(3);
+    const OTHER: FuncId = FuncId(4);
+
+    /// Like `module_with_body` but with two extra declarations:
+    /// funcs[3] = a readonly print intrinsic (window-transparent),
+    /// funcs[4] = an arbitrary non-whitelisted runtime call.
+    fn module_with_calls(insts: Vec<Inst>, n_values: usize) -> Module {
+        let mut m = module_with_body(insts, n_values);
+        m.funcs.push(declaration("__torajs_str_print"));
+        m.funcs
+            .push(declaration("__torajs_microtask_run_until_idle"));
+        m
+    }
+
+    fn print_str(v: u32) -> Inst {
+        void_inst(InstKind::Call(PRINT, vec![Operand::Value(ValueId(v))]))
+    }
+    fn other_call() -> Inst {
+        void_inst(InstKind::Call(OTHER, vec![]))
+    }
 
     fn inc(v: u32) -> Inst {
         void_inst(InstKind::Call(INC, vec![Operand::Value(ValueId(v))]))
@@ -531,6 +580,45 @@ mod tests {
         let stats = elide_rc_pairs(&mut m);
         assert_eq!(stats.pairs_elided, 2);
         assert!(body_insts(&m).is_empty());
+    }
+
+    #[test]
+    fn pair_across_readonly_print_elided() {
+        let mut m = module_with_calls(vec![inc(0), print_str(0), drop_str(0)], 1);
+        let stats = elide_rc_pairs(&mut m);
+        assert_eq!(stats.pairs_elided, 1);
+        assert_eq!(body_insts(&m).len(), 1);
+    }
+
+    #[test]
+    fn alias_double_copy_shape_collapses_to_fixpoint() {
+        // alias-002 shape: `const t = s; const u = s;` + three logs —
+        // 2 incs, 3 same-pointer prints, 3 drops. Both pairs elide
+        // across the readonly prints, leaving prints + final drop.
+        let mut m = module_with_calls(
+            vec![
+                inc(0),
+                inc(0),
+                print_str(0),
+                print_str(0),
+                print_str(0),
+                drop_str(0),
+                drop_str(0),
+                drop_str(0),
+            ],
+            1,
+        );
+        let stats = elide_rc_pairs(&mut m);
+        assert_eq!(stats.pairs_elided, 2);
+        assert_eq!(body_insts(&m).len(), 4);
+    }
+
+    #[test]
+    fn non_whitelisted_call_still_closes_window() {
+        let mut m = module_with_calls(vec![inc(0), other_call(), drop_str(0)], 1);
+        let stats = elide_rc_pairs(&mut m);
+        assert_eq!(stats.pairs_elided, 0);
+        assert_eq!(body_insts(&m).len(), 3);
     }
 
     #[test]
