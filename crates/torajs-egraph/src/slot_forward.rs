@@ -64,8 +64,10 @@ pub fn forward_slot_loads(module: &mut Module) -> SlotForwardStats {
 
 /// Chase a replacement chain to its final operand (load-of-load
 /// shapes resolve transitively; cycles are impossible because each
-/// link strictly precedes its load in program order).
-fn resolve(op: &Operand, replace: &HashMap<ValueId, Operand>) -> Operand {
+/// link strictly precedes its load in program order). Shared with
+/// `mem2reg`, whose cross-block chains are acyclic for the same
+/// execution-order reason.
+pub(crate) fn resolve(op: &Operand, replace: &HashMap<ValueId, Operand>) -> Operand {
     let mut cur = *op;
     while let Operand::Value(v) = cur {
         match replace.get(&v) {
@@ -155,8 +157,8 @@ fn forward_in_function(func: &mut Function, stats: &mut SlotForwardStats) {
 /// Rewrite every value operand of `kind` through the replacement map.
 /// Mirrors `rc_peephole::visit_value_operands`'s coverage but mutably;
 /// kept exhaustive over operand-carrying variants via the catch-all
-/// helpers below.
-fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, Operand>) {
+/// helpers below. Shared with `mem2reg`.
+pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, Operand>) {
     let r = |op: &mut Operand| *op = resolve(op, replace);
     match kind {
         InstKind::BinOp(_, a, b) | InstKind::ICmp(_, a, b) | InstKind::FCmp(_, a, b) => {

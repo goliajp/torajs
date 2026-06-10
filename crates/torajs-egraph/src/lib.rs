@@ -25,6 +25,7 @@ pub mod egraph;
 pub mod elaborate;
 pub mod inliner;
 pub mod loop_analysis;
+pub mod mem2reg;
 pub mod optimize;
 pub mod rc_peephole;
 pub mod rewrite;
@@ -132,6 +133,17 @@ pub fn transform_module(mut module: Module) -> Module {
         let fwd_stats = slot_forward::forward_slot_loads(&mut module);
         if std::env::var("TORAJS_SLOTFWD_STATS").as_deref() == Ok("1") {
             eprintln!("torajs-slotfwd-stats: {fwd_stats:?}");
+        }
+    }
+    // Cross-block single-def-block slot promotion — the dominance
+    // fast path of LLVM mem2reg (param spills whose loads live in
+    // branch arms). After slot_forward (in-block round-trips already
+    // cleared, slots possibly DSE'd), before the egraph pass.
+    // `TORAJS_MEM2REG_OFF=1` skips (bisect gate).
+    if std::env::var("TORAJS_MEM2REG_OFF").as_deref() != Ok("1") {
+        let m2r_stats = mem2reg::promote_slots(&mut module);
+        if std::env::var("TORAJS_MEM2REG_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-mem2reg-stats: {m2r_stats:?}");
         }
     }
     for func in module.funcs.iter_mut() {
