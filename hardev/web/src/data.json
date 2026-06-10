@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-09T17:26:44.822Z",
+  "generatedAt": "2026-06-10T01:37:37.300Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 700,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "0d5a8b0",
-    "commitSubject": "feat(#9): retire ssa_inkwell + inkwell dep — production swap atomic",
+    "commit": "dbcc923",
+    "commitSubject": "feat(P-OPT Cluster E Phase 2.0c-A2): lift AllocaInBody guard, renumber post-splice BlockIds to restore the BlockId.0 == position invariant",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,73 +616,84 @@
   },
   "commits": [
     {
-      "hash": "0d5a8b0",
-      "subject": "feat(#9): retire ssa_inkwell + inkwell dep — production swap atomic"
+      "hash": "dbcc923",
+      "subject": "feat(P-OPT Cluster E Phase 2.0c-A2): lift AllocaInBody guard, renumber post-splice BlockIds to restore the BlockId.0 == position invariant"
     },
     {
-      "hash": "9747cbe",
-      "subject": "chore: dashboard snapshot @ e9af243 — P-OPT Phase 2 chunk 13 LICM proper P95 audit"
+      "hash": "96a1a04",
+      "subject": "fix(P-OPT Cluster E Phase 2.0c-A1): inliner inserts blocks in control-flow order, fixing live-interval reversal that broke regalloc"
     },
     {
-      "hash": "e9af243",
-      "subject": "chore(bench): mini --self 3-run at 30e92e6 — Phase 2 chunk 13 LICM proper P95 audit"
+      "hash": "6ae9375",
+      "subject": "Revert \"feat(P-OPT Cluster E Phase 2.0b): lift AllocaInBody guard, keep RC guard\""
     },
     {
-      "hash": "6112934",
-      "subject": "chore: dashboard snapshot @ 30e92e6 — P-OPT Phase 2 chunk 13 LICM proper"
+      "hash": "cf082a2",
+      "subject": "feat(P-OPT Cluster E Phase 2.0b): lift AllocaInBody guard, keep RC guard"
     },
     {
-      "hash": "30e92e6",
-      "subject": "feat(egraph): LICM proper — P-OPT Phase 2 chunk 13 loop-invariant hoist"
+      "hash": "274dda1",
+      "subject": "fix(P-OPT Cluster E Phase 2.0a v2): RC + Alloca guards in splice/splice2"
     },
     {
-      "hash": "94d85d6",
-      "subject": "chore: dashboard snapshot @ fd2588b — P-OPT Phase 2 chunk 12 dom-nested DFS walk"
+      "hash": "16e07d8",
+      "subject": "Reapply \"feat(P-OPT Cluster E Phase 2.0a): multi-block leaf splice + emit fallback\""
     },
     {
-      "hash": "fd2588b",
-      "subject": "feat(egraph): dom-nested DFS walk in optimize — P-OPT Phase 2 chunk 12 scope-stack upgrade"
+      "hash": "eb2896a",
+      "subject": "Revert \"feat(P-OPT Cluster E Phase 2.0a): multi-block leaf splice + emit fallback\""
     },
     {
-      "hash": "5c4ae5b",
-      "subject": "chore: dashboard snapshot @ f94bd74 — P-OPT Phase 2 chunk 11c integer BinOp const-fold"
+      "hash": "a67fd13",
+      "subject": "feat(P-OPT Cluster E Phase 2.0a): multi-block leaf splice + emit fallback"
     },
     {
-      "hash": "f94bd74",
-      "subject": "test(egraph): use Value+Value in 2 more gvn tests to avoid const_fold"
+      "hash": "fd651f0",
+      "subject": "feat(P-OPT Cluster E Phase 1.0b): wire inliner into transform_module"
     },
     {
-      "hash": "0a36e42",
-      "subject": "test(egraph): use Value+Value in gvn dedup test to avoid const_fold"
+      "hash": "e8f7eac",
+      "subject": "refactor(P-OPT Cluster E): split inliner.rs into mod.rs + splice.rs"
     },
     {
-      "hash": "12675f7",
-      "subject": "feat(egraph): integer binop const fold — P-OPT Phase 2 chunk 11c"
+      "hash": "9ad5c97",
+      "subject": "feat(P-OPT Cluster E Phase 1.0a): splice mutation API for single-block leaf"
     },
     {
-      "hash": "3b4d682",
-      "subject": "chore: dashboard snapshot @ d46d621 — P-OPT Phase 2 chunk 11b SubNegate + Neg variant"
+      "hash": "817ae52",
+      "subject": "feat(P-OPT Cluster E Phase 0): inliner scaffold — cost-benefit framework"
     }
   ],
-  "headSha": "0d5a8b0",
+  "headSha": "dbcc923",
   "autorun": {
-    "total": 101,
+    "total": 102,
     "baselineTarget": 10,
-    "bySelf": 99,
+    "bySelf": 100,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781021456-0cb3",
-      "at": "2026-06-09T16:10:56Z",
-      "ts": 1781021456,
+      "rotationId": "r-1781026142-5b17",
+      "at": "2026-06-09T17:29:02Z",
+      "ts": 1781026142,
       "trigger": "self",
-      "prevHead": "9747cbe",
-      "handoffSha": "sha256:43dd42cc38c0b0d3f690c08be5a7d9d70a0f7a926b2c2022cd4538351a9d51e3",
-      "handoffAgeSec": 6,
+      "prevHead": "07912d3",
+      "handoffSha": "sha256:81f120ba95ecc06506292533a843d06eaa09607218887aae1a0adaf52afedc76",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781026142-5b17",
+        "at": "2026-06-09T17:29:02Z",
+        "ts": 1781026142,
+        "trigger": "self",
+        "prevHead": "07912d3",
+        "handoffSha": "sha256:81f120ba95ecc06506292533a843d06eaa09607218887aae1a0adaf52afedc76",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781021456-0cb3",
         "at": "2026-06-09T16:10:56Z",
@@ -779,17 +790,6 @@
         "prevHead": "02ab278",
         "handoffSha": "sha256:232f9d111ab0c68f7ed5bd3bffeedd87611a659a6f704de941186e76c38224e0",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780983230-03c2",
-        "at": "2026-06-09T05:33:50Z",
-        "ts": 1780983230,
-        "trigger": "self",
-        "prevHead": "2ffd164",
-        "handoffSha": "sha256:ed91052a66d3a09cfda9fbc42b4f844e83d2cc8e96e79e5b03e79ee299ff1b70",
-        "handoffAgeSec": 45,
         "conformanceBefore": null,
         "commitsInSession": null
       }
