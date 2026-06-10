@@ -159,7 +159,11 @@ pub(crate) fn rewrite_def(d: &InstKind) -> InstKind {
         InstKind::BinOp(BinOp::FAdd, a, b) => InstKind::BinOp(BinOp::Add, int_op(a), int_op(b)),
         InstKind::BinOp(BinOp::FSub, a, b) => InstKind::BinOp(BinOp::Sub, int_op(a), int_op(b)),
         InstKind::BinOp(BinOp::FMul, a, b) => InstKind::BinOp(BinOp::Mul, int_op(a), int_op(b)),
-        InstKind::Copy(Type::F64, a) => InstKind::Copy(Type::I64, *a),
+        // int_op matters on the const arms: a GVN-folded integer
+        // ConstF64 operand must become ConstI64 (the baseline tier's
+        // GPR materialization rejects f64 constants)
+        InstKind::Copy(Type::F64, a) => InstKind::Copy(Type::I64, int_op(a)),
+        InstKind::Identity(a) => InstKind::Identity(int_op(a)),
         other => other.clone(),
     }
 }

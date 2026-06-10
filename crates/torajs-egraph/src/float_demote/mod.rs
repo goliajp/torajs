@@ -518,6 +518,22 @@ mod tests {
     }
 
     #[test]
+    fn folded_const_entry_rewrites_to_int_const() {
+        // a GVN-folded f64 const entry (Copy(F64, ConstF64)) must
+        // rewrite its operand to ConstI64 — the baseline tier's GPR
+        // materialization rejects f64 constants (param-width-widen-001
+        // jit regression, steps(1) const call site).
+        let mut f = halve_loop();
+        f.blocks[0].insts[1].kind = InstKind::Copy(Type::F64, cf(100000.0));
+        let (m, stats) = run(f);
+        assert_eq!(stats.values_demoted, 4);
+        assert!(matches!(
+            m.funcs[0].blocks[0].insts[1].kind,
+            InstKind::Copy(Type::I64, Operand::ConstI64(100000))
+        ));
+    }
+
+    #[test]
     fn growth_loop_with_escaping_ret_stays_f64() {
         // collatz odd arm with the SCC cell returned after the loop:
         // the guarded fmul/fadd would need versioning, but the ret
