@@ -79,14 +79,14 @@ pub struct InlineBudget {
     /// shape) lets a self-call site inline its own body once: the
     /// emit pass is one-shot over the sites captured before
     /// splicing and self-sites splice from a pre-splice snapshot,
-    /// so depth is naturally bounded. Measured on mini (2026-06-10,
-    /// 3-run medians): depth 1 regressed fib40 +8.3% (the multi-ret
-    /// join slot's store/load stays in the hot path — no
-    /// mem2reg/SROA exists yet to promote it) while ackermann only
-    /// gained a further -4% over what the NotLeaf + multi-ret
-    /// lifts already delivered at depth 0. Default stays 0 until
-    /// join-slot promotion lands; values > 1 are reserved (an
-    /// iterative emit pass would be needed to honor them).
+    /// so depth is naturally bounded. History: depth 1 first
+    /// regressed fib40 +8.3% on mini (2026-06-10, 3-run medians)
+    /// because the multi-ret join slot's store/load stayed in the
+    /// hot path with no promotion pass to clear it — default went
+    /// back to 0 pending mem2reg. With slot_forward + mem2reg +
+    /// phi_promote landed the join slot dissolves into φ copies,
+    /// unlocking depth 1 as the default. Values > 1 are reserved
+    /// (an iterative emit pass would be needed to honor them).
     pub max_recursion_depth: u32,
 }
 
@@ -95,7 +95,7 @@ impl Default for InlineBudget {
         Self {
             callee_cost_ceiling: Cost::new(225),
             caller_total_budget: Cost::new(675),
-            max_recursion_depth: 0,
+            max_recursion_depth: 1,
         }
     }
 }
