@@ -62,7 +62,9 @@ pub use cast::{
 };
 pub use cmp::{emit_fcmp, emit_icmp};
 pub use mem::{emit_alloca, emit_load, emit_load_dyn, emit_store, emit_store_dyn};
-pub use operand::{materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr};
+pub use operand::{
+    emit_copy, materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr,
+};
 pub use refs::{emit_fn_addr, emit_global_ref, emit_static_str_ref, emit_string_ref};
 
 /// Operand scratch GPRs — sub-modules use these to materialize int
@@ -277,6 +279,7 @@ fn emit_inst(
              drop it via set_opt_value before this point"
         ),
         InstKind::Neg(op) => emit_neg(bytes, inst, op, alloc),
+        InstKind::Copy(ty, op) => emit_copy(bytes, inst, *ty, op, alloc),
     }
 }
 

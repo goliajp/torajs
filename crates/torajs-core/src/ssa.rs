@@ -423,6 +423,17 @@ pub enum InstKind {
     /// `neg Xd, Xn` is the `sub Xd, XZR, Xn` alias (ARM ARM C7.2.273);
     /// LLVM: `sub i64 0, %x`. i64 only — FP Neg deferred.
     Neg(Operand),
+    /// `%v = copy <ty> <op>` — register-level move, the destruction
+    /// product of mem2reg's φ placement (LLVM PHIElimination's mov
+    /// shape). Emitted at predecessor-block ends so a φ-merged value
+    /// has one home; the SAME result ValueId may be defined by several
+    /// `Copy`s on different predecessors — the one deliberate non-SSA
+    /// shape in the IR, introduced only after the egraph pass (GVN /
+    /// elaborate never see it) and consumed by codegen, whose liveness
+    /// merges multi-def intervals (`entry().or_insert` + CFG fix-point)
+    /// exactly like a classic virtual register. `ty` picks the GPR vs
+    /// FPR move at emit.
+    Copy(Type, Operand),
 }
 
 #[derive(Debug, Clone)]

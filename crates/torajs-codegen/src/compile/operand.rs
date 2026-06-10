@@ -138,9 +138,107 @@ pub fn materialize_const_i64(bytes: &mut Vec<u8>, dst: Gpr, value: i64) {
     }
 }
 
+/// `%v = copy <ty> <op>` — materialize the source and move it into
+/// the result's assigned home. mem2reg's φ destruction emits several
+/// `Copy`s defining the SAME result ValueId on different predecessor
+/// blocks; liveness merges those defs into one interval, so they all
+/// resolve to one home here and the move semantics are exactly a
+/// virtual-register write (LLVM PHIElimination's mov shape). `ty`
+/// picks the register class: `F64` rides the FPR path, everything
+/// else (i64 / ptr-shaped handles) the GPR path.
+pub fn emit_copy(
+    bytes: &mut Vec<u8>,
+    inst: &torajs_core::ssa::Inst,
+    ty: torajs_core::ssa::Type,
+    op: &Operand,
+    alloc: &Assignment,
+) {
+    use super::{
+        FP_SCRATCH_LHS, FP_SCRATCH_RESULT, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR,
+        write_def_spill_fpr, write_def_spill_gpr,
+    };
+    use crate::enc::fmov_d_to_d;
+    use crate::enc::mov_x_reg;
+    let result_vid = inst.result.expect("Copy must have a result ValueId");
+    if matches!(ty, torajs_core::ssa::Type::F64) {
+        let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
+        let src = materialize_operand_fpr(bytes, op, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+        if src != dst {
+            write_u32(bytes, fmov_d_to_d(dst, src));
+        }
+        write_def_spill_fpr(bytes, spill_off, dst);
+    } else {
+        let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+        let src = materialize_operand_gpr(bytes, op, OP_SCRATCH_LHS, alloc);
+        if src != dst {
+            write_u32(bytes, mov_x_reg(dst, src));
+        }
+        write_def_spill_gpr(bytes, spill_off, dst);
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::super::compile_function;
     use super::*;
+    use crate::enc;
+    use torajs_core::ssa::{
+        Block, BlockId, Function, Inst, InstKind, Terminator, Type, ValueId, ValueInfo,
+    };
+
+    fn copy_ret_fixture(ty: Type, op: Operand) -> Function {
+        let v0 = ValueId(0);
+        Function {
+            name: "copy_fix".into(),
+            params: Vec::new(),
+            ret: ty,
+            values: vec![ValueInfo { ty, name: None }],
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![Inst {
+                    result: Some(v0),
+                    kind: InstKind::Copy(ty, op),
+                    origin: None,
+                }],
+                term: Terminator::Ret(Some(Operand::Value(v0))),
+            }],
+            current_origin: None,
+        }
+    }
+
+    #[test]
+    fn copy_const_i64_emits_movz_then_mov() {
+        // %0 = copy i64 #5; ret %0 → MOVZ x9,#5 / MOV x0,x9 / RET
+        let compiled = compile_function(&copy_ret_fixture(Type::I64, Operand::ConstI64(5)));
+        let expected: Vec<u8> = [
+            enc::movz_imm(Gpr::X9, 5, 0),
+            enc::mov_x_reg(Gpr::X0, Gpr::X9),
+            enc::ret(Gpr::X30),
+        ]
+        .iter()
+        .flat_map(|w| w.to_le_bytes())
+        .collect();
+        assert_eq!(compiled.bytes, expected);
+    }
+
+    #[test]
+    fn copy_const_f64_rides_fpr_path() {
+        // %0 = copy f64 #1.5; ret %0 — 1.5 bits = 0x3FF8 << 48:
+        // MOVZ x9,#0 / MOVK x9,#0x3FF8,lsl#48 / FMOV d16,x9 /
+        // FMOV d0,d16 / RET
+        let compiled = compile_function(&copy_ret_fixture(Type::F64, Operand::ConstF64(1.5)));
+        let expected: Vec<u8> = [
+            enc::movz_imm(Gpr::X9, 0, 0),
+            enc::movk_imm(Gpr::X9, 0x3FF8, 3),
+            enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
+            enc::fmov_d_to_d(Fpr::V0, Fpr::V16),
+            enc::ret(Gpr::X30),
+        ]
+        .iter()
+        .flat_map(|w| w.to_le_bytes())
+        .collect();
+        assert_eq!(compiled.bytes, expected);
+    }
 
     #[test]
     fn const_zero_emits_single_movz() {

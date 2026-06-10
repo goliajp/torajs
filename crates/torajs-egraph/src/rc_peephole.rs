@@ -223,7 +223,8 @@ pub(crate) fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) 
         | InstKind::PtrToInt(o)
         | InstKind::TruncI64ToBool(o)
         | InstKind::Identity(o)
-        | InstKind::Neg(o) => v(o),
+        | InstKind::Neg(o)
+        | InstKind::Copy(_, o) => v(o),
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)
         | InstKind::StringRef(_)
@@ -321,6 +322,11 @@ fn rc_transparent(kind: &InstKind, slots: &HashSet<ValueId>) -> bool {
         InstKind::Load(_, Operand::Value(p), _) | InstKind::Store(_, Operand::Value(p), _) => {
             slots.contains(p)
         }
+        // register-level move (mem2reg φ destruction product) — pure
+        // bit-move, provably cannot touch a refcount or heap header.
+        // Not in classify_pure because its multi-def shape must never
+        // be GVN-deduplicated.
+        InstKind::Copy(_, _) => true,
         _ => false,
     }
 }

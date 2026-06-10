@@ -343,6 +343,7 @@ fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         }
         InstKind::PtrToInt(a) | InstKind::IntToPtr(a) => visit(a),
         InstKind::Neg(a) => visit(a),
+        InstKind::Copy(_, a) => visit(a),
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => {}
         InstKind::Load(_, ptr, _) => visit(ptr),
         InstKind::Store(val, ptr, _) => {
@@ -463,6 +464,80 @@ mod tests {
         };
         let ivs = compute_intervals(&func);
         assert_eq!(ivs[&0], Interval { start: 0, end: 0 });
+    }
+
+    /// mem2reg φ-destruction contract — the SAME ValueId defined by
+    /// `Copy` on two predecessors (entry + back-edge) must merge into
+    /// ONE interval that covers from the first def through the
+    /// back-edge block's end, so regalloc gives every def the same
+    /// home:
+    ///   bb0: %0 = copy i64 #5        ; idx 0  (entry def)
+    ///        br bb1                   ; idx 1
+    ///   bb1: %1 = add %0, 1          ; idx 2  (use)
+    ///        cond_br %1, bb2, bb3     ; idx 3
+    ///   bb2: %0 = copy i64 %1        ; idx 4  (back-edge re-def)
+    ///        br bb1                   ; idx 5
+    ///   bb3: ret                      ; idx 6
+    /// %0 ∈ live_in(bb1) and bb2 → bb1, so live_out(bb2) holds %0 and
+    /// the CFG fix-point extends its end through bb2 (≥ idx 5).
+    #[test]
+    fn copy_multi_def_merges_into_one_interval() {
+        let v0 = ValueId(0);
+        let v1 = ValueId(1);
+        let mk = |ty: Type| ValueInfo { ty, name: None };
+        let func = Function {
+            name: "loopcopy".into(),
+            params: Vec::new(),
+            ret: Type::Void,
+            values: vec![mk(Type::I64), mk(Type::I64)],
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: vec![Inst {
+                        result: Some(v0),
+                        kind: InstKind::Copy(Type::I64, Operand::ConstI64(5)),
+                        origin: None,
+                    }],
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![Inst {
+                        result: Some(v1),
+                        kind: InstKind::BinOp(BinOp::Add, Operand::Value(v0), Operand::ConstI64(1)),
+                        origin: None,
+                    }],
+                    term: Terminator::CondBr {
+                        cond: Operand::Value(v1),
+                        then_blk: BlockId(2),
+                        else_blk: BlockId(3),
+                    },
+                },
+                Block {
+                    id: BlockId(2),
+                    insts: vec![Inst {
+                        result: Some(v0),
+                        kind: InstKind::Copy(Type::I64, Operand::Value(v1)),
+                        origin: None,
+                    }],
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(3),
+                    insts: Vec::new(),
+                    term: Terminator::Ret(None),
+                },
+            ],
+            current_origin: None,
+        };
+        let ivs = compute_intervals(&func);
+        let iv = ivs[&0];
+        assert_eq!(iv.start, 0, "first def wins the interval start");
+        assert!(
+            iv.end >= 5,
+            "back-edge keeps %0 live through bb2's end (got end={})",
+            iv.end
+        );
     }
 
     /// `fn dead(): void { _ = 1 + 2; ret }` — v0 defined at slot 0,

@@ -60,5 +60,10 @@ pub(super) fn rewrite_inst_kind(kind: &InstKind, map: &HashMap<ValueId, Operand>
         InstKind::FnAddr(fid) => InstKind::FnAddr(*fid),
         InstKind::Identity(o) => InstKind::Identity(r(o)),
         InstKind::Neg(o) => InstKind::Neg(r(o)),
+        InstKind::Copy(_, _) => unreachable!(
+            "InstKind::Copy reached the inliner — mem2reg's φ destruction \
+             introduces Copy only after the egraph pass, which runs after \
+             all inline rounds"
+        ),
     }
 }
