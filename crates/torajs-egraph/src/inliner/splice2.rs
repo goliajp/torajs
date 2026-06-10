@@ -122,9 +122,13 @@ pub fn inline_multi_block_leaf(
             ) {
                 return Err(SpliceMultiError::NotLeaf);
             }
-            if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_)) {
-                return Err(SpliceMultiError::AllocaInBody);
-            }
+            // Phase 2.0c-A2: AllocaInBody guard lifted. The Phase
+            // 2.0c-A1 (96a1a04) splice now inserts callee blocks in
+            // control-flow order via `Vec::splice`, so cloned Allocas
+            // in inlined callees go through the same per-function
+            // alloca scan as any user-written stack slot. The
+            // `AllocaInBody` enum variant is kept as unreachable
+            // surface (future frame-size budget guard).
         }
         match &blk.term {
             Terminator::Br(_) | Terminator::CondBr { .. } => {}
@@ -300,6 +304,41 @@ pub fn inline_multi_block_leaf(
 
     let insert_at = caller_blk_idx + 1;
     caller.blocks.splice(insert_at..insert_at, new_blocks);
+
+    // ---- 7. Renumber every block's `BlockId.0` so it equals its
+    // physical position in `caller.blocks` (== Vec index), then
+    // rewrite every terminator's BlockId references through the
+    // resulting remap. The rest of the egraph/codegen pipeline
+    // (`elaborate.rs`, `dominator.rs`, `egraph.rs::available_block`,
+    // `optimize.rs`) indexes `func.blocks` directly by `BlockId.0
+    // as usize` — `bid.0 as usize` and `func.blocks[bid.0 as usize]`
+    // are scattered across every downstream pass. The inliner
+    // therefore MUST re-establish the `BlockId.0 == position`
+    // invariant after splicing; otherwise the dominator tree visits
+    // wrong blocks and the elaborator skips Identity nodes that
+    // codegen liveness then rejects with `unreachable!()`.
+    let n = caller.blocks.len();
+    let mut block_remap: HashMap<BlockId, BlockId> = HashMap::with_capacity(n);
+    for (pos, blk) in caller.blocks.iter().enumerate() {
+        block_remap.insert(blk.id, BlockId(pos as u32));
+    }
+    for blk in caller.blocks.iter_mut() {
+        blk.id = block_remap[&blk.id];
+        blk.term = match std::mem::replace(&mut blk.term, Terminator::Unreachable) {
+            Terminator::Br(target) => Terminator::Br(block_remap[&target]),
+            Terminator::CondBr {
+                cond,
+                then_blk,
+                else_blk,
+            } => Terminator::CondBr {
+                cond,
+                then_blk: block_remap[&then_blk],
+                else_blk: block_remap[&else_blk],
+            },
+            Terminator::Ret(opt) => Terminator::Ret(opt),
+            Terminator::Unreachable => Terminator::Unreachable,
+        };
+    }
 
     Ok(())
 }
@@ -700,10 +739,7 @@ mod tests {
                     id: BlockId(0),
                     insts: vec![val_inst(
                         ValueId(0),
-                        InstKind::Call(
-                            FuncId(1),
-                            vec![Operand::ConstI64(7), Operand::ConstI64(3)],
-                        ),
+                        InstKind::Call(FuncId(1), vec![Operand::ConstI64(7), Operand::ConstI64(3)]),
                     )],
                     term: Terminator::Br(BlockId(1)),
                 },
@@ -732,35 +768,37 @@ mod tests {
 
         // Layout after fix: bb0 (modified) at [0]; 3 cloned callee
         // blocks at [1..4]; continuation at [4]; original bb1
-        // (cleanup) at [5]. Total = 6 blocks.
+        // (cleanup) at [5]. Total = 6 blocks. Post-splice renumber
+        // assigns `BlockId.0 == position` to every block so the
+        // downstream egraph/codegen passes that index `func.blocks`
+        // by `BlockId.0` keep working.
         assert_eq!(caller.blocks.len(), 6, "expected 6 blocks post-splice");
 
-        // First block is still the modified original bb0 — has Br
-        // terminator pointing at the (remapped) callee entry.
-        assert_eq!(caller.blocks[0].id, BlockId(0));
-        assert!(matches!(&caller.blocks[0].term, Terminator::Br(_)));
-
-        // The LAST block is the original caller bb1 — NOT the
-        // continuation (which is the regression assertion: pre-fix,
-        // bb1 stayed at idx 1 and the continuation got pushed to
-        // the end, reversing live intervals).
-        assert_eq!(
-            caller.blocks[5].id,
-            BlockId(1),
-            "original caller bb1 must remain after callee blocks + continuation",
-        );
-        // bb1 retains its original Ret terminator.
-        match &caller.blocks[5].term {
-            Terminator::Ret(Some(Operand::Value(v))) if *v == ValueId(0) => {}
-            other => panic!("expected original bb1 Ret intact, got {:?}", other),
+        // Every block's BlockId equals its physical position.
+        for (pos, b) in caller.blocks.iter().enumerate() {
+            assert_eq!(
+                b.id,
+                BlockId(pos as u32),
+                "BlockId.0 == position invariant must hold at pos {pos}",
+            );
         }
 
-        // The continuation (block[4]) holds the caller's original
-        // bb0 terminator (Br to BlockId(1)) — that's what the splice
-        // moved out of bb0 so the cleanup path still flows through.
-        assert!(matches!(
-            &caller.blocks[4].term,
-            Terminator::Br(BlockId(1))
-        ));
+        // First block is still the modified original bb0 — has Br
+        // terminator pointing at the (remapped) callee entry (= pos 1).
+        assert!(matches!(&caller.blocks[0].term, Terminator::Br(BlockId(1))));
+
+        // The LAST block must hold the cleanup Ret (the original
+        // caller bb1's terminator). This is the regression
+        // assertion: pre-fix, bb1 stayed at idx 1 and the
+        // continuation got pushed to the end, reversing live
+        // intervals.
+        match &caller.blocks[5].term {
+            Terminator::Ret(Some(Operand::Value(v))) if *v == ValueId(0) => {}
+            other => panic!("expected cleanup Ret at last position, got {:?}", other),
+        }
+
+        // The continuation (block[4]) holds the caller bb0's original
+        // terminator (Br to the original bb1, now at pos 5).
+        assert!(matches!(&caller.blocks[4].term, Terminator::Br(BlockId(5))));
     }
 }

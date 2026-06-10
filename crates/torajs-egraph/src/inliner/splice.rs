@@ -118,9 +118,13 @@ pub fn inline_single_block_leaf(
         ) {
             return Err(SpliceError::NotLeaf);
         }
-        if matches!(inst.kind, InstKind::Alloca(_) | InstKind::AllocaBytes(_)) {
-            return Err(SpliceError::AllocaInBody);
-        }
+        // Phase 2.0c-A2: AllocaInBody guard lifted. Single-block
+        // splice does not split the caller block, so cloned Allocas
+        // land in the caller's existing block with fresh ValueIds and
+        // are picked up by codegen's per-function alloca scan exactly
+        // as if the user had written them inline. The `AllocaInBody`
+        // enum variant is kept as unreachable surface for future use
+        // (frame-size budget guard, lifetime analysis).
     }
     let ret_operand = match &callee_blk.term {
         Terminator::Ret(opt) => opt.clone(),
