@@ -27,6 +27,7 @@ pub mod inliner;
 pub mod loop_analysis;
 pub mod mem2reg;
 pub mod optimize;
+pub mod phi_promote;
 pub mod rc_peephole;
 pub mod rewrite;
 pub mod scope_map;
@@ -149,6 +150,17 @@ pub fn transform_module(mut module: Module) -> Module {
     for func in module.funcs.iter_mut() {
         let new_func = EgraphPass::new(func).run();
         *func = new_func;
+    }
+    // Full mem2reg φ promotion — loop-carried / join-slot cells the
+    // earlier passes left behind. AFTER the egraph pass (GVN /
+    // elaborate never see the multi-def Copy it emits), before
+    // rc_peephole (which treats Copy as rc-transparent).
+    // `TORAJS_MEM2REG_PHI_OFF=1` skips (bisect gate).
+    if std::env::var("TORAJS_MEM2REG_PHI_OFF").as_deref() != Ok("1") {
+        let phi_stats = phi_promote::promote_phi_slots(&mut module);
+        if std::env::var("TORAJS_MEM2REG_PHI_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-mem2reg-phi-stats: {phi_stats:?}");
+        }
     }
     // TORAJS_SSA_DUMP=1 — pretty-print the post-egraph pre-peephole
     // SSA to stdout. Debug surface for attributing which pass shaped
