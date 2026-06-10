@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-10T09:32:20.892Z",
+  "generatedAt": "2026-06-10T11:29:33.217Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "c1820ad",
-    "commitSubject": "chore(bench): record 316e329 + e079b3b 3-run results (devirt regression attribution + final verdict)",
+    "commit": "9027997",
+    "commitSubject": "chore(bench): record 7fd2403 3-run + 628bf9b results — item-5 mem2reg close verdict",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,34 @@
   },
   "commits": [
     {
+      "hash": "9027997",
+      "subject": "chore(bench): record 7fd2403 3-run + 628bf9b results — item-5 mem2reg close verdict"
+    },
+    {
+      "hash": "7fd2403",
+      "subject": "perf(egraph): default self-inline depth back to 1 — join slots now promote"
+    },
+    {
+      "hash": "4585a30",
+      "subject": "fix(codegen): liveness interval must cover uses laid out before their def"
+    },
+    {
+      "hash": "99055f8",
+      "subject": "perf(egraph): full mem2reg — phi placement promotion of loop-carried slots"
+    },
+    {
+      "hash": "e05e16d",
+      "subject": "feat(ssa): InstKind::Copy variant — register move for mem2reg phi destruction"
+    },
+    {
+      "hash": "628bf9b",
+      "subject": "perf(egraph): cross-block single-def-block slot promotion (mem2reg fast path)"
+    },
+    {
+      "hash": "c158ba3",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD c1820ad (L3a perf polish item 3 close: devirt + slot-forward + 2 latent-bug fixes)"
+    },
+    {
       "hash": "c1820ad",
       "subject": "chore(bench): record 316e329 + e079b3b 3-run results (devirt regression attribution + final verdict)"
     },
@@ -634,55 +662,38 @@
     {
       "hash": "316e329",
       "subject": "perf(egraph): indirect-call promotion — devirt closure env + fn-pointer slot call_indirect"
-    },
-    {
-      "hash": "316d8e7",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 5d4783c (L3a perf polish items 1+2 close: rc elide peephole + phase 2.1 inliner)"
-    },
-    {
-      "hash": "5d4783c",
-      "subject": "chore(bench): record e87c53a 3-run results (phase 2.1 close: fib40 neutral, prime_count -5.6%)"
-    },
-    {
-      "hash": "1206521",
-      "subject": "chore(bench): record e224814 3-run results (self-inline fib40 regression attribution evidence)"
-    },
-    {
-      "hash": "e87c53a",
-      "subject": "perf(egraph): default max_recursion_depth back to 0 — self-inline regresses fib40 +8.3%"
-    },
-    {
-      "hash": "29afb29",
-      "subject": "chore(bench): record a64915e 3-run results (rc-peephole 0-regression baseline)"
-    },
-    {
-      "hash": "e224814",
-      "subject": "perf(egraph): phase 2.1 inliner — non-leaf inlining, bounded self-recursion, multi-ret stack-slot join"
-    },
-    {
-      "hash": "a64915e",
-      "subject": "perf(egraph): rc elide peephole — remove same-pointer retain/release pairs"
     }
   ],
-  "headSha": "c1820ad",
+  "headSha": "9027997",
   "autorun": {
-    "total": 107,
+    "total": 108,
     "baselineTarget": 10,
-    "bySelf": 105,
+    "bySelf": 106,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781078144-2682",
-      "at": "2026-06-10T07:55:44Z",
-      "ts": 1781078144,
+      "rotationId": "r-1781084022-7976",
+      "at": "2026-06-10T09:33:42Z",
+      "ts": 1781084022,
       "trigger": "self",
-      "prevHead": "316d8e7",
-      "handoffSha": "sha256:cbb8470ae47cb6f3dc58902e6c8ee5efa05acdc04c267ef5e475b1c397cd5880",
-      "handoffAgeSec": 20,
+      "prevHead": "c158ba3",
+      "handoffSha": "sha256:9769d45615a6a9b2307d565db7c9195fc434bbd944c39419d9d4a2c14a266995",
+      "handoffAgeSec": 14,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781084022-7976",
+        "at": "2026-06-10T09:33:42Z",
+        "ts": 1781084022,
+        "trigger": "self",
+        "prevHead": "c158ba3",
+        "handoffSha": "sha256:9769d45615a6a9b2307d565db7c9195fc434bbd944c39419d9d4a2c14a266995",
+        "handoffAgeSec": 14,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781078144-2682",
         "at": "2026-06-10T07:55:44Z",
@@ -779,17 +790,6 @@
         "prevHead": "94d85d6",
         "handoffSha": "sha256:912e647aab3b9c0d258242510d14a59394b6b5d9f2cca3981a08e6e7aa0b0630",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781014689-2069",
-        "at": "2026-06-09T14:18:09Z",
-        "ts": 1781014689,
-        "trigger": "self",
-        "prevHead": "5c4ae5b",
-        "handoffSha": "sha256:de5f1f60361b37987bf9f0c9c652168040e137af02c3dd3b266c2e109edd93fe",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
