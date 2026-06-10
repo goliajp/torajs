@@ -72,14 +72,20 @@ pub struct InlineBudget {
     /// `would_inline` decisions sum past this, further sites for the
     /// same caller are skipped with `SkipReason::CallerBudgetExhausted`.
     pub caller_total_budget: Cost,
-    /// Maximum recursion depth allowed via inlining. `0` rejects
-    /// every direct self-recursive call site with
-    /// `SkipReason::Recursion`. `1` (the Phase 2.1 default, the
-    /// GCC `max-inline-recursive-depth` shape) lets a self-call
-    /// site inline its own body once — the emit pass is one-shot
-    /// over the sites captured before splicing, so the recursive
-    /// calls cloned in by the splice are never themselves inlined
-    /// within the same compile. Values > 1 are reserved (an
+    /// Maximum recursion depth allowed via inlining. `0` (default)
+    /// rejects every direct self-recursive call site with
+    /// `SkipReason::Recursion` — matching LLVM, which never inlines
+    /// self-recursion. `1` (the GCC `max-inline-recursive-depth`
+    /// shape) lets a self-call site inline its own body once: the
+    /// emit pass is one-shot over the sites captured before
+    /// splicing and self-sites splice from a pre-splice snapshot,
+    /// so depth is naturally bounded. Measured on mini (2026-06-10,
+    /// 3-run medians): depth 1 regressed fib40 +8.3% (the multi-ret
+    /// join slot's store/load stays in the hot path — no
+    /// mem2reg/SROA exists yet to promote it) while ackermann only
+    /// gained a further -4% over what the NotLeaf + multi-ret
+    /// lifts already delivered at depth 0. Default stays 0 until
+    /// join-slot promotion lands; values > 1 are reserved (an
     /// iterative emit pass would be needed to honor them).
     pub max_recursion_depth: u32,
 }
@@ -89,7 +95,7 @@ impl Default for InlineBudget {
         Self {
             callee_cost_ceiling: Cost::new(225),
             caller_total_budget: Cost::new(675),
-            max_recursion_depth: 1,
+            max_recursion_depth: 0,
         }
     }
 }
@@ -680,7 +686,11 @@ mod tests {
     #[test]
     fn self_recursive_sites_inline_one_level_from_snapshot() {
         let mut m = module_of(vec![fib_like()]);
-        let stats = inline_module(&mut m);
+        let budget = InlineBudget {
+            max_recursion_depth: 1,
+            ..InlineBudget::default()
+        };
+        let stats = inline_module_with_budget(&mut m, budget);
         assert_eq!(stats.candidates, 2);
         assert_eq!(stats.would_inline, 2);
         assert_eq!(stats.inlined, 2, "both self-sites splice at depth 1");
@@ -711,7 +721,12 @@ mod tests {
         b.blocks[0].term = Terminator::Ret(None);
         let a = caller("a", vec![void_inst(InstKind::Call(FuncId(0), vec![]))]);
         let mut m = module_of(vec![b, a]);
-        let stats = inline_module(&mut m);
+        // depth 1 so b's self-site fires and grows b within the pass
+        let budget = InlineBudget {
+            max_recursion_depth: 1,
+            ..InlineBudget::default()
+        };
+        let stats = inline_module_with_budget(&mut m, budget);
         assert_eq!(
             stats.skipped_live_cost, 1,
             "a's site must hit the live-cost guard"

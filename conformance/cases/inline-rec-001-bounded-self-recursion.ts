@@ -1,8 +1,8 @@
-// Phase 2.1 inliner: bounded self-recursion inline (depth 1) +
-// multi-ret stack-slot join + nested-call clone-through. fib has two
-// self-call sites and two value-bearing returns; min2 has two
-// value-bearing returns joined through the slot path; wrap calls a
-// non-leaf callee.
+// Phase 2.1 inliner: non-leaf inlining + multi-ret stack-slot join.
+// fib's body (two self-calls, two value-bearing returns) inlines into
+// main as a non-leaf multi-ret callee — the cloned self-calls stay as
+// calls (self-recursion itself is not inlined at the default depth 0);
+// min2 exercises the slot join; wrap calls a non-leaf callee.
 function fib(n: number): number {
   if (n < 2) return n;
   return fib(n - 1) + fib(n - 2);
