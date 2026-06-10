@@ -175,6 +175,7 @@ pub mod formatter;
 pub mod lexer;
 pub mod linter;
 pub mod modules;
+pub mod num_width;
 pub mod parser;
 pub mod short_str_encode;
 pub mod ssa;

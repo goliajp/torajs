@@ -1,0 +1,346 @@
+//! Constraint collection — statement / expression walks that turn the
+//! module AST into seeds (statically-f64 writes) and edges (slot-to-
+//! slot value flow) for the fixpoint in `mod.rs`.
+
+use super::{Analysis, Scope, SlotKey, W};
+use crate::ast::{Expr, ExprId, Stmt};
+use std::collections::HashSet;
+
+pub(super) fn collect_let_names_fn(stmt: &Stmt) -> HashSet<String> {
+    let mut s = HashSet::new();
+    if let Stmt::FnDecl { body, .. } = stmt {
+        for b in body {
+            collect_let_names(b, &mut s);
+        }
+    }
+    s
+}
+
+/// Flat (block-insensitive) collection of every `let` name in a fn
+/// body. Nested FnDecls are their own scope and excluded.
+pub(super) fn collect_let_names(s: &Stmt, out: &mut HashSet<String>) {
+    match s {
+        Stmt::LetDecl { name, .. } => {
+            out.insert(name.clone());
+        }
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            collect_let_names(then_branch, out);
+            if let Some(eb) = else_branch {
+                collect_let_names(eb, out);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => collect_let_names(body, out),
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init {
+                collect_let_names(i, out);
+            }
+            collect_let_names(body, out);
+        }
+        Stmt::ForOf { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
+            collect_let_names(body, out)
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for c in cases {
+                for cs in &c.body {
+                    collect_let_names(cs, out);
+                }
+            }
+            if let Some(d) = default {
+                for ds in d {
+                    collect_let_names(ds, out);
+                }
+            }
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            for bs in body {
+                collect_let_names(bs, out);
+            }
+            for cs in catch_body {
+                collect_let_names(cs, out);
+            }
+            if let Some(fb) = finally_body {
+                for fs in fb {
+                    collect_let_names(fs, out);
+                }
+            }
+        }
+        Stmt::Block(v) | Stmt::Multi(v) => {
+            for bs in v {
+                collect_let_names(bs, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+impl<'a> Analysis<'a> {
+    pub(super) fn walk_stmt(&mut self, s: &Stmt, scope: &Scope) {
+        match s {
+            Stmt::LetDecl { name, init, .. } => {
+                let w = self.width_of(*init, scope);
+                let key = if scope.fn_name.is_empty() {
+                    SlotKey::Global(name.clone())
+                } else {
+                    SlotKey::Local(scope.fn_name.to_string(), name.clone())
+                };
+                self.add_constraint(key, w);
+                self.walk_expr(*init, scope);
+            }
+            Stmt::Return(maybe) => {
+                if let Some(e) = maybe {
+                    if !scope.fn_name.is_empty() {
+                        let w = self.width_of(*e, scope);
+                        self.add_constraint(SlotKey::Ret(scope.fn_name.to_string()), w);
+                    }
+                    self.walk_expr(*e, scope);
+                }
+            }
+            Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => self.walk_expr(*e, scope),
+            Stmt::YieldInto { value, .. } => self.walk_expr(*value, scope),
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.walk_expr(*cond, scope);
+                self.walk_stmt(then_branch, scope);
+                if let Some(eb) = else_branch {
+                    self.walk_stmt(eb, scope);
+                }
+            }
+            Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
+                self.walk_expr(*cond, scope);
+                self.walk_stmt(body, scope);
+            }
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                if let Some(i) = init {
+                    self.walk_stmt(i, scope);
+                }
+                if let Some(c) = cond {
+                    self.walk_expr(*c, scope);
+                }
+                if let Some(st) = step {
+                    self.walk_expr(*st, scope);
+                }
+                self.walk_stmt(body, scope);
+            }
+            Stmt::ForOf {
+                elem_expr, body, ..
+            } => {
+                self.walk_expr(*elem_expr, scope);
+                self.walk_stmt(body, scope);
+            }
+            Stmt::ForOfSplitIter {
+                parent, sep, body, ..
+            } => {
+                self.walk_expr(*parent, scope);
+                self.walk_expr(*sep, scope);
+                self.walk_stmt(body, scope);
+            }
+            Stmt::Switch {
+                scrutinee,
+                cases,
+                default,
+            } => {
+                self.walk_expr(*scrutinee, scope);
+                for c in cases {
+                    self.walk_expr(c.value, scope);
+                    for cs in &c.body {
+                        self.walk_stmt(cs, scope);
+                    }
+                }
+                if let Some(d) = default {
+                    for ds in d {
+                        self.walk_stmt(ds, scope);
+                    }
+                }
+            }
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                for bs in body {
+                    self.walk_stmt(bs, scope);
+                }
+                for cs in catch_body {
+                    self.walk_stmt(cs, scope);
+                }
+                if let Some(fb) = finally_body {
+                    for fs in fb {
+                        self.walk_stmt(fs, scope);
+                    }
+                }
+            }
+            Stmt::Block(v) | Stmt::Multi(v) => {
+                for bs in v {
+                    self.walk_stmt(bs, scope);
+                }
+            }
+            Stmt::ExportDecl {
+                inner,
+                default_expr,
+                ..
+            } => {
+                if let Some(i) = inner {
+                    self.walk_stmt(i, scope);
+                }
+                if let Some(de) = default_expr {
+                    self.walk_expr(*de, scope);
+                }
+            }
+            // Nested FnDecl (pre-desugar shape) — own scope, walked
+            // when iterating ast.stmts only if top-level; nested ones
+            // are rare pre-lift and their writes go through capture
+            // machinery the lowerer rejects separately.
+            _ => {}
+        }
+    }
+
+    /// Recurse into an expression collecting Assign / Call constraint
+    /// edges at every nesting depth. Clones the node up front — the
+    /// `&mut self` recursion can't hold a borrow into `self.ast`.
+    pub(super) fn walk_expr(&mut self, eid: ExprId, scope: &Scope) {
+        let e = self.ast.get_expr(eid).clone();
+        match &e {
+            Expr::Assign { target, value } => {
+                if let Expr::Ident(n) = self.ast.get_expr(*target) {
+                    let w = self.width_of(*value, scope);
+                    self.assign_to_name(&n.clone(), w, scope);
+                }
+                self.walk_expr(*target, scope);
+                self.walk_expr(*value, scope);
+            }
+            Expr::Call { callee, args } => {
+                let callee_name: Option<String> = self.retargets.get(&eid).cloned().or_else(|| {
+                    match self.ast.get_expr(*callee) {
+                        Expr::Ident(n) => Some(n.clone()),
+                        _ => None,
+                    }
+                });
+                if let Some(fname) = callee_name
+                    && let Some(pnames) = self.fn_params.get(&fname).cloned()
+                {
+                    for (i, arg) in args.iter().enumerate() {
+                        if let Some(pname) = pnames.get(i) {
+                            let w = self.width_of(*arg, scope);
+                            self.add_constraint(SlotKey::Param(fname.clone(), pname.clone()), w);
+                        }
+                    }
+                }
+                self.walk_expr(*callee, scope);
+                for a in args {
+                    self.walk_expr(*a, scope);
+                }
+            }
+            Expr::BinOp { left, right, .. }
+            | Expr::Sequence { left, right }
+            | Expr::Nullish {
+                lhs: left,
+                rhs: right,
+            } => {
+                self.walk_expr(*left, scope);
+                self.walk_expr(*right, scope);
+            }
+            Expr::Unary { expr, .. }
+            | Expr::TypeOf { expr }
+            | Expr::Spread { expr }
+            | Expr::InstanceOf { expr, .. }
+            | Expr::As { expr, .. } => self.walk_expr(*expr, scope),
+            Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj, scope),
+            Expr::Index { obj, index } => {
+                self.walk_expr(*obj, scope);
+                self.walk_expr(*index, scope);
+            }
+            Expr::Array(elems) => {
+                for e in elems {
+                    self.walk_expr(*e, scope);
+                }
+            }
+            Expr::ObjectLit { fields } => {
+                for (_, e) in fields {
+                    self.walk_expr(*e, scope);
+                }
+            }
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.walk_expr(*cond, scope);
+                self.walk_expr(*then_branch, scope);
+                self.walk_expr(*else_branch, scope);
+            }
+            Expr::New { args, .. } | Expr::Super { args } => {
+                for a in args {
+                    self.walk_expr(*a, scope);
+                }
+            }
+            Expr::PostIncr { target, .. } => self.walk_expr(*target, scope),
+            Expr::ArrowFn { params, body, .. } => {
+                // Pre-lift arrow (rare at this stage): walk its body
+                // under an extended scope so writes to outer slots
+                // still register; its own params shadow.
+                let inner = Scope {
+                    fn_name: scope.fn_name,
+                    params: scope
+                        .params
+                        .iter()
+                        .cloned()
+                        .chain(params.iter().map(|p| p.name.clone()))
+                        .collect(),
+                    locals: scope.locals.clone(),
+                };
+                for s in body {
+                    self.walk_stmt(s, &inner);
+                }
+            }
+            // Closure construction sites carry no inline body (the
+            // lifted `__closure_N` FnDecl walks as a top-level stmt).
+            _ => {}
+        }
+    }
+
+    /// Constraint for a write to name `n` from inside `scope`. In
+    /// synthetic closure bodies an unresolvable name is a captured
+    /// outer binding whose defining scope is gone post-lift —
+    /// broadcast to every same-named slot (conservative, F64-ward).
+    pub(super) fn assign_to_name(&mut self, n: &str, w: W, scope: &Scope) {
+        if let Some(key) = self.resolve(n, scope) {
+            self.add_constraint(key, w);
+        } else if scope.fn_name.starts_with("__")
+            && let Some(keys) = self.by_name.get(n).cloned()
+        {
+            match w {
+                W::F64 => {
+                    for k in keys {
+                        self.seeds.push(k);
+                    }
+                }
+                W::Num(deps) => {
+                    for d in &deps {
+                        for k in &keys {
+                            self.edges.entry(d.clone()).or_default().push(k.clone());
+                        }
+                    }
+                }
+                W::NotNum => {}
+            }
+        }
+    }
+}

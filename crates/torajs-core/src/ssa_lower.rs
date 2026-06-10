@@ -25,7 +25,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{self, Ast, BinOp as AstBinOp, Expr, ExprId, Param, Stmt, UnaryOp as AstUnaryOp};
+use crate::ast::{self, Ast, BinOp as AstBinOp, Expr, ExprId, Param, Stmt};
 use crate::check::{self as check_mod, GenericCallSites, type_to_ann};
 use crate::short_str_encode::encode_short_str_literal;
 use crate::ssa::{
@@ -98,26 +98,6 @@ const CLOSURE_CAP_BASE_OFF: u64 = 32;
 /// `Expr::Call` arm rewrites the callee to point at the specialized fn.
 type CallRetargets = HashMap<ExprId, String>;
 
-/// Compile-time numeric width hint for a generic type-arg position.
-/// `Number` at the typecheck layer collapses i64 and f64 into one type;
-/// at SSA the two are distinct shapes. The monomorphizer reads this
-/// hint to decide whether `T = Number` should specialize as `i64`
-/// (default) or `f64` (e.g. when an arg is `Math.abs(...)` whose
-/// intrinsic returns f64).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NumWidth {
-    /// No information — fall back to the default ("number" → I64) so
-    /// integer-heavy generics keep their i64 specialization.
-    Unknown,
-    /// One or more arg expressions at this type-arg position lower to
-    /// f64 (Math.* calls, `/` results, decimal literals, etc.).
-    F64,
-}
-
-/// Walk an expression and return F64 if it statically lowers to f64.
-/// Conservative: returns Unknown for any shape we can't classify
-/// purely from the AST (Idents, member accesses on user objects, etc.)
-/// so we don't accidentally widen integer-shaped generics.
 /// V3-18 m2.b — per-namespace known-own-property table for the
 /// hasOwnProperty / propertyIsEnumerable subset stub. Only literal-
 /// string keys land in this lookup; runtime keys default to `false`.
@@ -268,36 +248,6 @@ fn ns_has_own_property(ns: &str, key: &str) -> bool {
             matches!(key, "prototype" | "length" | "name")
         }
         _ => false,
-    }
-}
-
-pub(crate) fn infer_arg_width(ast: &Ast, eid: ExprId) -> NumWidth {
-    match ast.get_expr(eid) {
-        // Genuinely fractional, OR magnitude past i64 range (e.g. `1e21`)
-        // — both must promote to f64 since `n as i64` would saturate.
-        Expr::Number(n) if n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 => NumWidth::F64,
-        Expr::BinOp {
-            op: AstBinOp::Div, ..
-        } => NumWidth::F64,
-        Expr::Unary {
-            op: AstUnaryOp::Neg,
-            expr,
-        } => infer_arg_width(ast, *expr),
-        Expr::Call { callee, .. } => {
-            // Math.* methods all return f64 (libm-shaped intrinsics).
-            // String.fromCharCode and Number.parseInt return non-Number
-            // types so we don't need width inference for them — only
-            // the Number-returning subset matters here.
-            if let Expr::Member { obj, name } = ast.get_expr(*callee)
-                && let Expr::Ident(ns) = ast.get_expr(*obj)
-                && ns == "Math"
-            {
-                let _ = name;
-                return NumWidth::F64;
-            }
-            NumWidth::Unknown
-        }
-        _ => NumWidth::Unknown,
     }
 }
 
@@ -535,58 +485,6 @@ fn substitute_in_stmt(stmt: &mut Stmt, subst: &[(String, String)]) {
 ///   - `call_retargets`: per-call-site mapping `ExprId → mono_name` so
 ///     the lowerer can rewrite each generic call's callee
 ///   - `generic_fn_names`: original generic-fn names (for pass 1 to skip)
-/// For each entry in a generic fn's `type_params`, walk the call site's
-/// argument expressions at the positions whose param annotation names
-/// that type-param. Return F64 if any of those args statically lowers to
-/// f64; otherwise Unknown (defaults to i64 mono). Only consults the AST
-/// — no SSA-side info — so the result is callable from
-/// `monomorphize_generics` before any SSA pass runs.
-fn compute_typevar_widths(
-    ast: &Ast,
-    call_eid: ExprId,
-    callee_name: &str,
-    type_args: &[check_mod::Type],
-    generics: &HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>,
-) -> Vec<NumWidth> {
-    let arg_eids: Vec<ExprId> = match ast.get_expr(call_eid) {
-        Expr::Call { args, .. } => args.clone(),
-        _ => Vec::new(),
-    };
-    let Some((tp_names, gen_params, _, _)) = generics.get(callee_name) else {
-        return vec![NumWidth::Unknown; type_args.len()];
-    };
-    tp_names
-        .iter()
-        .enumerate()
-        .map(|(_tp_idx, tp_name)| {
-            // Only interesting if this type-arg resolved to Number.
-            // Any other type collapses to Unknown — we only widen Number
-            // generics to f64.
-            let mut acc = NumWidth::Unknown;
-            for (pi, p) in gen_params.iter().enumerate() {
-                let Some(ann) = &p.type_ann else { continue };
-                // Lightweight match — bare `T` is the common case (Type
-                // checker substitutes nested forms like `T[]` to a
-                // concrete element type during instantiation, so the
-                // monomorphizer rarely sees compound TypeVar anns at
-                // call sites worth inspecting). If the param ann is
-                // exactly the type-param name, the corresponding arg
-                // contributes to this T's width.
-                if ann == tp_name
-                    && let Some(arg_eid) = arg_eids.get(pi)
-                {
-                    let w = infer_arg_width(ast, *arg_eid);
-                    if matches!(w, NumWidth::F64) {
-                        acc = NumWidth::F64;
-                        break;
-                    }
-                }
-            }
-            acc
-        })
-        .collect()
-}
-
 fn monomorphize_generics(
     ast: &mut Ast,
     generic_call_sites: &GenericCallSites,
@@ -640,13 +538,15 @@ fn monomorphize_generics(
         // keep the default "number" → I64. This lets one generic fn
         // serve both `check<T=Number>(1, 2)` (I64 mono) and
         // `check<T=Number>(Math.abs(-1), 1)` (F64 mono) cleanly.
-        let widths: Vec<NumWidth> =
-            compute_typevar_widths(ast, *eid, callee_name, type_args, &generics);
+        let widths: Vec<crate::num_width::NumWidth> =
+            crate::num_width::compute_typevar_widths(ast, *eid, callee_name, type_args, &generics);
         let arg_anns: Vec<String> = type_args
             .iter()
             .zip(widths.iter())
             .map(|(ty, w)| {
-                if matches!(ty, check_mod::Type::Number) && matches!(w, NumWidth::F64) {
+                if matches!(ty, check_mod::Type::Number)
+                    && matches!(w, crate::num_width::NumWidth::F64)
+                {
                     "f64".into()
                 } else {
                     type_to_ann(ty)
@@ -1526,6 +1426,12 @@ fn lower_inner(
         monomorphize_generics(&mut owned_ast, generic_call_sites);
     owned_ast.stmts.extend(mono_decls);
     let ast: &Ast = &owned_ast;
+
+    // W1 (ann-width RFC) — module-wide number-slot width inference.
+    // Single ground truth for every `: number` (or un-annotated
+    // number) slot's I64-vs-F64 representation; consumers below gate
+    // on the annotation and the `__` synthetic-fn exclusion.
+    let num_f64_slots = crate::num_width::f64_slots(ast, &call_retargets);
 
     let mut module = Module::default();
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();
@@ -4800,20 +4706,28 @@ fn lower_inner(
                     &generic_struct_decls,
                     &mut struct_layouts,
                 );
-                // L3a-8 — `: number` parses to the I64 default; a body
-                // assignment with a statically-f64 RHS (`n = n / 2`)
-                // widens the param to F64 here so call sites coerce
-                // i64 args via SiToFp. Shared ast_refs ground truth
-                // with the body-lowering param_setup — the two sites
-                // must not drift (K.3 lesson).
+                // W1 (ann-width RFC) — `: number` parses to the I64
+                // default; the module-wide width inference decides
+                // whether any statically-possible f64 value reaches
+                // this param (body assignment, call-site arg, slot
+                // propagation). Widening here makes call sites coerce
+                // i64 args via SiToFp. Same num_width ground truth as
+                // the body-lowering param_setup — the two sites must
+                // not drift (K.3 lesson). Synthetic fns keep their ABI
+                // surfaces untouched.
                 if pty == Type::I64
-                    && crate::ast_refs::fn_param_widens_to_f64(ast, name, body, &p.name)
+                    && p.type_ann.as_deref() == Some("number")
+                    && !name.starts_with("__")
+                    && num_f64_slots.contains(&crate::num_width::SlotKey::Param(
+                        name.clone(),
+                        p.name.clone(),
+                    ))
                 {
                     pty = Type::F64;
                 }
                 param_tys.push(pty);
             }
-            let ret_ty = effective_ret_ty(
+            let mut ret_ty = effective_ret_ty(
                 parse_type(
                     return_type.as_deref(),
                     &aliases,
@@ -4825,6 +4739,17 @@ fn lower_inner(
                 ast,
                 body,
             );
+            // W1 — `(): number` ret slot widens when any return
+            // expression is f64-possible; without this the return
+            // site narrowed f64 results through FpToSi (R1: `return
+            // 0.5` printed 0, silent wrong).
+            if ret_ty == Type::I64
+                && return_type.as_deref() == Some("number")
+                && !name.starts_with("__")
+                && num_f64_slots.contains(&crate::num_width::SlotKey::Ret(name.clone()))
+            {
+                ret_ty = Type::F64;
+            }
             let fid = FuncId(module.funcs.len() as u32);
             fn_table.insert(name.clone(), fid);
             // Intern this user fn's signature — needed for `let f = name`
@@ -5327,6 +5252,7 @@ fn lower_inner(
         &mut fn_sigs,
         &generic_struct_decls,
         &mut struct_layouts,
+        &num_f64_slots,
     );
     let mut data_globals_out: Vec<ssa::DataGlobal> = globals
         .iter()
@@ -5375,6 +5301,7 @@ fn lower_inner(
                 &globals,
                 expr_types,
                 arity_pad_count,
+                &num_f64_slots,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -5411,6 +5338,7 @@ fn lower_inner(
             &globals,
             expr_types,
             arity_pad_count,
+            &num_f64_slots,
         );
         for s in new_strings {
             module.strings.push(s);
@@ -5457,6 +5385,7 @@ fn lower_inner(
                 &globals,
                 expr_types,
                 arity_pad_count,
+                &num_f64_slots,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -6201,6 +6130,7 @@ fn synthesize_main(
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
+    num_f64_slots: &std::collections::HashSet<crate::num_width::SlotKey>,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
@@ -6216,6 +6146,7 @@ fn synthesize_main(
             aliases,
             expr_types,
             arity_pad_count,
+            num_f64_slots,
             arr_layouts,
             fn_sigs,
             struct_layouts,
@@ -6925,8 +6856,9 @@ fn lower_fn(
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
+    num_f64_slots: &std::collections::HashSet<crate::num_width::SlotKey>,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
-    let ret_ty = effective_ret_ty(
+    let mut ret_ty = effective_ret_ty(
         parse_type(
             return_type,
             aliases,
@@ -6938,6 +6870,15 @@ fn lower_fn(
         ast,
         body,
     );
+    // W1 — mirror of the signature-collection ret widen; the two
+    // sites must not drift (K.3 lesson).
+    if ret_ty == Type::I64
+        && return_type == Some("number")
+        && !name.starts_with("__")
+        && num_f64_slots.contains(&crate::num_width::SlotKey::Ret(name.to_string()))
+    {
+        ret_ty = Type::F64;
+    }
     let mut f = ssa::Function::new(name, ret_ty);
 
     // Capture param SSA values + types BEFORE creating the entry block; we'll
@@ -6955,11 +6896,19 @@ fn lower_fn(
             generic_struct_decls,
             struct_layouts,
         );
-        // L3a-8 — mirror of the signature-collection widen: a
-        // statically-f64 body assignment widens the I64-default
-        // `number` param so the slot accepts the F64 store. Same
-        // ast_refs ground truth as the sig site — must not drift.
-        if pty == Type::I64 && crate::ast_refs::fn_param_widens_to_f64(ast, name, body, &p.name) {
+        // W1 — mirror of the signature-collection param widen: the
+        // module-wide inference decides whether any f64-possible
+        // value reaches this param (body assignment, call-site arg,
+        // slot propagation). Same num_width ground truth as the sig
+        // site — the two must not drift (K.3 lesson).
+        if pty == Type::I64
+            && p.type_ann.as_deref() == Some("number")
+            && !name.starts_with("__")
+            && num_f64_slots.contains(&crate::num_width::SlotKey::Param(
+                name.to_string(),
+                p.name.clone(),
+            ))
+        {
             pty = Type::F64;
         }
         let pid = f.add_param(pty, &p.name);
@@ -6982,6 +6931,7 @@ fn lower_fn(
         aliases,
         expr_types,
         arity_pad_count,
+        num_f64_slots,
         arr_layouts,
         fn_sigs,
         struct_layouts,
@@ -7299,6 +7249,11 @@ pub(crate) struct LowerCtx<'a> {
     /// Type::Any). Empty when constructed via the legacy lower(...)
     /// entry — those programs keep strict arity.
     arity_pad_count: &'a HashMap<ExprId, usize>,
+    /// W1 (ann-width RFC) — module-wide F64-poisoned number-slot set
+    /// from `num_width::f64_slots`. Consulted at the let-decl site so
+    /// a `: number` (or un-annotated) binding whose reaching values
+    /// include a statically-possible f64 takes the F64 slot.
+    num_f64_slots: &'a std::collections::HashSet<crate::num_width::SlotKey>,
     /// Mutable view of the lowering-phase Array element-type interner.
     /// Let-decl annotations encountered during body lowering may
     /// introduce new `T[]` instantiations; they intern lazily here.
@@ -7536,6 +7491,17 @@ pub(crate) struct LowerCtx<'a> {
 }
 
 impl<'a> LowerCtx<'a> {
+    /// W1 — the num_width SlotKey for a let binding in the current fn.
+    /// Top-level bindings key as Global regardless of whether Pass 1.5
+    /// promoted them (the analysis keys every top-level let that way).
+    fn num_width_local_key(&self, name: &str) -> crate::num_width::SlotKey {
+        if self.is_main_fn {
+            crate::num_width::SlotKey::Global(name.to_string())
+        } else {
+            crate::num_width::SlotKey::Local(self.f.name.clone(), name.to_string())
+        }
+    }
+
     /// True iff the current block hasn't been terminated yet (still has the
     /// default `Unreachable` placeholder). Used after lowering a sub-statement
     /// to decide whether we still need to emit a fall-through Br.
@@ -10469,14 +10435,18 @@ impl<'a> LowerCtx<'a> {
                         self.generic_struct_decls,
                         self.struct_layouts,
                     );
-                    // `: number` parses to the I64 default, so a
-                    // genuinely-fractional initializer must widen the
-                    // slot to F64 — same rule as the K.3 global path.
+                    // W1 — `: number` parses to the I64 default; the
+                    // module-wide inference widens the slot when any
+                    // reaching value (initializer OR a later
+                    // assignment anywhere in the fn) is f64-possible.
                     // Without it `let x: number = 0.5` truncated the
                     // init to the i64 slot (printed 0, silent wrong)
-                    // and any later f64 assignment hit the width-
-                    // mismatch reject.
-                    if parsed == Type::I64 && infer_arg_width(self.ast, *init) == NumWidth::F64 {
+                    // and `let acc: number = 0; acc = acc + 0.5` hit
+                    // the width-mismatch reject (repro R2).
+                    if parsed == Type::I64
+                        && type_ann.as_deref() == Some("number")
+                        && self.num_f64_slots.contains(&self.num_width_local_key(name))
+                    {
                         Type::F64
                     } else {
                         parsed
@@ -10652,9 +10622,23 @@ impl<'a> LowerCtx<'a> {
                 // No-annotation inference: promote ty to the lowered
                 // operand's type. Done here so the alloca below uses
                 // the right slot type.
-                if type_ann.is_none() {
+                let init_val = if type_ann.is_none() {
                     ty = self.operand_ty(&init_val);
-                }
+                    // W1 — un-annotated number binding whose later
+                    // assignments include an f64-possible value (repro
+                    // S6: `let acc = 0; acc = acc + 0.5`) takes the
+                    // F64 slot up front; the init coerces to match.
+                    if ty == Type::I64
+                        && self.num_f64_slots.contains(&self.num_width_local_key(name))
+                    {
+                        ty = Type::F64;
+                        self.coerce_to_f64(init_val)
+                    } else {
+                        init_val
+                    }
+                } else {
+                    init_val
+                };
                 // Substr widening: at the TS surface a Substr IS a
                 // string, but at the SSA layer Str (owned) and Substr
                 // (view) take different code paths. If the user wrote

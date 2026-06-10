@@ -23,12 +23,13 @@
 //!     mutation through method calls (`xs.push(v)`) would need
 //!     writeback to the slot (K.6, not yet landed).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, Expr, Stmt};
 use crate::ast_refs::GlobalSlotShape;
+use crate::num_width::SlotKey;
 use crate::ssa::Type;
-use crate::ssa_lower::{NumWidth, infer_arg_width, parse_type};
+use crate::ssa_lower::parse_type;
 
 fn slot_shape_to_type(shape: GlobalSlotShape) -> Type {
     match shape {
@@ -47,6 +48,7 @@ pub(crate) fn collect_toplevel_globals(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    num_f64_slots: &HashSet<SlotKey>,
 ) -> HashMap<String, Type> {
     let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
     let mut globals: HashMap<String, Type> = HashMap::new();
@@ -77,17 +79,26 @@ pub(crate) fn collect_toplevel_globals(
                 continue;
             }
             // K.3b — slot type. With an annotation, parse it; "number"
-            // parses to the I64 default, so a genuinely-fractional /
-            // out-of-i64-range initializer must widen the slot to F64
-            // (storing f64 bits in an i64 slot reinterprets the
-            // payload as a garbage integer on every read). Without an
-            // annotation, promote only behind the ast_refs gate —
-            // a named-fn body must reference the binding (named fns
-            // have no capture machinery) and no closure may capture it
-            // (captures copy through __env from the main-fn local; a
-            // slot would split the binding into two disagreeing
-            // homes). Shapes the shared inference can't resolve keep
-            // the K.1 main-local behavior.
+            // parses to the I64 default and W1's module-wide width
+            // inference widens to F64 when any reaching value
+            // (initializer OR a later assignment, including from a
+            // named-fn body) is f64-possible — storing f64 bits in an
+            // i64 slot reinterprets the payload as a garbage integer
+            // on every read. Without an annotation, promote only
+            // behind the ast_refs gate — a named-fn body must
+            // reference the binding (named fns have no capture
+            // machinery) and no closure may capture it (captures copy
+            // through __env from the main-fn local; a slot would
+            // split the binding into two disagreeing homes). Shapes
+            // the shared inference can't resolve keep the K.1
+            // main-local behavior.
+            let widened = |parsed: Type| {
+                if parsed == Type::I64 && num_f64_slots.contains(&SlotKey::Global(name.clone())) {
+                    Type::F64
+                } else {
+                    parsed
+                }
+            };
             let ty = match type_ann {
                 Some(ann) => {
                     let parsed = parse_type(
@@ -98,8 +109,8 @@ pub(crate) fn collect_toplevel_globals(
                         generic_struct_decls,
                         struct_layouts,
                     );
-                    if parsed == Type::I64 && infer_arg_width(ast, *init) == NumWidth::F64 {
-                        Type::F64
+                    if ann == "number" {
+                        widened(parsed)
                     } else {
                         parsed
                     }
@@ -111,7 +122,7 @@ pub(crate) fn collect_toplevel_globals(
                         continue;
                     }
                     match crate::ast_refs::infer_toplevel_slot_shape(ast, *init) {
-                        Some(shape) => slot_shape_to_type(shape),
+                        Some(shape) => widened(slot_shape_to_type(shape)),
                         None => continue,
                     }
                 }
