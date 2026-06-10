@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-10T11:29:33.217Z",
+  "generatedAt": "2026-06-10T12:38:20.054Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "9027997",
-    "commitSubject": "chore(bench): record 7fd2403 3-run + 628bf9b results — item-5 mem2reg close verdict",
+    "commit": "425039a",
+    "commitSubject": "chore(bench): record ea062b2 3-run — item-6 global localize verdict",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,18 @@
   },
   "commits": [
     {
+      "hash": "425039a",
+      "subject": "chore(bench): record ea062b2 3-run — item-6 global localize verdict"
+    },
+    {
+      "hash": "ea062b2",
+      "subject": "perf(ssa): localize main-only annotated top-level lets — no data-global slot"
+    },
+    {
+      "hash": "c98aa8f",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 9027997 (L3a item 5 full mem2reg close: slot promotion family + self-inline depth 1, fib40 -38.6%)"
+    },
+    {
       "hash": "9027997",
       "subject": "chore(bench): record 7fd2403 3-run + 628bf9b results — item-5 mem2reg close verdict"
     },
@@ -650,39 +662,38 @@
     {
       "hash": "e079b3b",
       "subject": "fix(codegen): param crossing a call at inst slot 0 must leave its arg register"
-    },
-    {
-      "hash": "7ffdea4",
-      "subject": "fix(egraph): gvn union must keep the earlier-defined value as class leader"
-    },
-    {
-      "hash": "899ac79",
-      "subject": "perf(egraph): block-local store-to-load forwarding over non-escaped slots"
-    },
-    {
-      "hash": "316e329",
-      "subject": "perf(egraph): indirect-call promotion — devirt closure env + fn-pointer slot call_indirect"
     }
   ],
-  "headSha": "9027997",
+  "headSha": "425039a",
   "autorun": {
-    "total": 108,
+    "total": 109,
     "baselineTarget": 10,
-    "bySelf": 106,
+    "bySelf": 107,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781084022-7976",
-      "at": "2026-06-10T09:33:42Z",
-      "ts": 1781084022,
+      "rotationId": "r-1781091056-033c",
+      "at": "2026-06-10T11:30:56Z",
+      "ts": 1781091056,
       "trigger": "self",
-      "prevHead": "c158ba3",
-      "handoffSha": "sha256:9769d45615a6a9b2307d565db7c9195fc434bbd944c39419d9d4a2c14a266995",
-      "handoffAgeSec": 14,
+      "prevHead": "c98aa8f",
+      "handoffSha": "sha256:6aa90fcae348d1896dbee71be2edb75dc5bda1f0857ef68e1ea4fb1e960ac6f1",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781091056-033c",
+        "at": "2026-06-10T11:30:56Z",
+        "ts": 1781091056,
+        "trigger": "self",
+        "prevHead": "c98aa8f",
+        "handoffSha": "sha256:6aa90fcae348d1896dbee71be2edb75dc5bda1f0857ef68e1ea4fb1e960ac6f1",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781084022-7976",
         "at": "2026-06-10T09:33:42Z",
@@ -779,17 +790,6 @@
         "prevHead": "6112934",
         "handoffSha": "sha256:632d779d230bbda3e8fc44720077df8dc8ae2914fe4368a14c2072979941b5e9",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781018476-55ab",
-        "at": "2026-06-09T15:21:16Z",
-        "ts": 1781018476,
-        "trigger": "self",
-        "prevHead": "94d85d6",
-        "handoffSha": "sha256:912e647aab3b9c0d258242510d14a59394b6b5d9f2cca3981a08e6e7aa0b0630",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
