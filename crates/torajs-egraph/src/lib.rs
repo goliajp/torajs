@@ -25,6 +25,7 @@ pub mod elaborate;
 pub mod inliner;
 pub mod loop_analysis;
 pub mod optimize;
+pub mod rc_peephole;
 pub mod rewrite;
 pub mod scope_map;
 
@@ -107,6 +108,22 @@ pub fn transform_module(mut module: Module) -> Module {
     for func in module.funcs.iter_mut() {
         let new_func = EgraphPass::new(func).run();
         *func = new_func;
+    }
+    // TORAJS_SSA_DUMP=1 — pretty-print the post-egraph pre-peephole
+    // SSA to stdout. Debug surface for attributing which pass shaped
+    // a given inst stream (mirrors TORAJS_INLINER_STATS).
+    if std::env::var("TORAJS_SSA_DUMP").as_deref() == Ok("1") {
+        module.print();
+    }
+    // RC elide peephole — after the egraph pass so pure-inst dedup /
+    // identity collapse has already tightened the windows between
+    // retain/release pairs. `TORAJS_RC_PEEPHOLE_OFF=1` skips (bisect
+    // gate, mirrors TORAJS_INLINER_OFF).
+    if std::env::var("TORAJS_RC_PEEPHOLE_OFF").as_deref() != Ok("1") {
+        let rc_stats = rc_peephole::elide_rc_pairs(&mut module);
+        if std::env::var("TORAJS_RC_PEEPHOLE_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-rc-peephole-stats: {rc_stats:?}");
+        }
     }
     module
 }

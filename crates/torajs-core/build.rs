@@ -35,6 +35,11 @@ use std::path::PathBuf;
 /// lexer/ast/modules affect codegen output. Adding e.g. formatter.rs
 /// here would invalidate the cache on cosmetic source-formatting changes
 /// (no effect on emitted .o), wasting cache hits.
+///
+/// torajs-egraph sources are in here too: the mid-end (inliner +
+/// egraph + rc peephole) rewrites the SSA between ssa_lower and
+/// codegen, so any edit there changes emitted `.o` bytes just like an
+/// ssa_lower edit. Paths are relative to this crate's manifest dir.
 const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower.rs",
     "src/ast_refs.rs",
@@ -55,6 +60,27 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     // staticlibs the user binary links. Adding / removing entries
     // changes linkage; must invalidate cache.
     "src/lib.rs",
+    // torajs-egraph mid-end (SSA → SSA between lower and codegen)
+    "../torajs-egraph/src/lib.rs",
+    "../torajs-egraph/src/cost.rs",
+    "../torajs-egraph/src/dominator.rs",
+    "../torajs-egraph/src/egraph.rs",
+    "../torajs-egraph/src/elaborate.rs",
+    "../torajs-egraph/src/inliner/mod.rs",
+    "../torajs-egraph/src/inliner/rewrite.rs",
+    "../torajs-egraph/src/inliner/splice.rs",
+    "../torajs-egraph/src/inliner/splice2.rs",
+    "../torajs-egraph/src/loop_analysis.rs",
+    "../torajs-egraph/src/optimize.rs",
+    "../torajs-egraph/src/rc_peephole.rs",
+    "../torajs-egraph/src/rewrite/mod.rs",
+    "../torajs-egraph/src/rewrite/arith_identity.rs",
+    "../torajs-egraph/src/rewrite/bitwise_identity.rs",
+    "../torajs-egraph/src/rewrite/canon.rs",
+    "../torajs-egraph/src/rewrite/const_fold.rs",
+    "../torajs-egraph/src/rewrite/self_fold.rs",
+    "../torajs-egraph/src/rewrite/strength_reduction.rs",
+    "../torajs-egraph/src/scope_map.rs",
 ];
 
 /// Enumerate every Layer-1+ Rust sub-crate that contributes
