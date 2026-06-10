@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-10T02:54:54.154Z",
+  "generatedAt": "2026-06-10T05:10:06.810Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "be72688",
-    "commitSubject": "chore(bench): record post-inliner 3-run baseline with artifact_sha256",
+    "commit": "972e4cf",
+    "commitSubject": "fix(ssa_lower): coerce Any into Str/numeric slots at assign sites instead of panicking",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,26 @@
   },
   "commits": [
     {
+      "hash": "972e4cf",
+      "subject": "fix(ssa_lower): coerce Any into Str/numeric slots at assign sites instead of panicking"
+    },
+    {
+      "hash": "5043eaa",
+      "subject": "fix(core): gate un-annotated global promotion behind shared named-fn-ref analysis"
+    },
+    {
+      "hash": "7104b05",
+      "subject": "fix(ssa_lower): K.3b infer un-annotated top-level let slot types; widen number ann on fractional init"
+    },
+    {
+      "hash": "5b142f0",
+      "subject": "chore: commit Cargo.lock for bench-harness torajs-link dep + backfill 06-09 bench jsons"
+    },
+    {
+      "hash": "106d777",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD be72688 (retain-at-return fix + Phase 2.0c-B close)"
+    },
+    {
       "hash": "be72688",
       "subject": "chore(bench): record post-inliner 3-run baseline with artifact_sha256"
     },
@@ -642,47 +662,38 @@
     {
       "hash": "dbcc923",
       "subject": "feat(P-OPT Cluster E Phase 2.0c-A2): lift AllocaInBody guard, renumber post-splice BlockIds to restore the BlockId.0 == position invariant"
-    },
-    {
-      "hash": "96a1a04",
-      "subject": "fix(P-OPT Cluster E Phase 2.0c-A1): inliner inserts blocks in control-flow order, fixing live-interval reversal that broke regalloc"
-    },
-    {
-      "hash": "6ae9375",
-      "subject": "Revert \"feat(P-OPT Cluster E Phase 2.0b): lift AllocaInBody guard, keep RC guard\""
-    },
-    {
-      "hash": "cf082a2",
-      "subject": "feat(P-OPT Cluster E Phase 2.0b): lift AllocaInBody guard, keep RC guard"
-    },
-    {
-      "hash": "274dda1",
-      "subject": "fix(P-OPT Cluster E Phase 2.0a v2): RC + Alloca guards in splice/splice2"
-    },
-    {
-      "hash": "16e07d8",
-      "subject": "Reapply \"feat(P-OPT Cluster E Phase 2.0a): multi-block leaf splice + emit fallback\""
     }
   ],
-  "headSha": "be72688",
+  "headSha": "972e4cf",
   "autorun": {
-    "total": 103,
+    "total": 104,
     "baselineTarget": 10,
-    "bySelf": 101,
+    "bySelf": 102,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781055488-6c40",
-      "at": "2026-06-10T01:38:08Z",
-      "ts": 1781055488,
+      "rotationId": "r-1781060143-6a52",
+      "at": "2026-06-10T02:55:43Z",
+      "ts": 1781060143,
       "trigger": "self",
-      "prevHead": "65ca89f",
-      "handoffSha": "sha256:9623344d320e5aa98c66329e5f2f42a886e28677101c59c9c9387a1fe6d35f65",
-      "handoffAgeSec": 39,
+      "prevHead": "106d777",
+      "handoffSha": "sha256:3e91367d0f4ee01ebfd6231941bbe4944c0a1743baa03e880a27e4c358b38d10",
+      "handoffAgeSec": 25,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781060143-6a52",
+        "at": "2026-06-10T02:55:43Z",
+        "ts": 1781060143,
+        "trigger": "self",
+        "prevHead": "106d777",
+        "handoffSha": "sha256:3e91367d0f4ee01ebfd6231941bbe4944c0a1743baa03e880a27e4c358b38d10",
+        "handoffAgeSec": 25,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781055488-6c40",
         "at": "2026-06-10T01:38:08Z",
@@ -779,17 +790,6 @@
         "prevHead": "a508440",
         "handoffSha": "sha256:04447c8493e786984973a92dfdb1cabbb7312562f9aafda469074a208c062694",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780995091-3199",
-        "at": "2026-06-09T08:51:31Z",
-        "ts": 1780995091,
-        "trigger": "self",
-        "prevHead": "12aeebb",
-        "handoffSha": "sha256:189a02136be59e845ce5c5862f0a9be5214d15d64cfb3f2f849a207fff033a6e",
-        "handoffAgeSec": 60,
         "conformanceBefore": null,
         "commitsInSession": null
       }
