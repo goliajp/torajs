@@ -1,29 +1,36 @@
 //! Float demotion — representation selection for integer-valued f64
-//! flows (RFC 20260611-int-range-float-demotion phase 1b-i; the AOT
-//! analogue of TurboFan simplified lowering's int representation
-//! choice). Consumes the interval analysis: an f64 value with a fact
-//! is integer-valued, and a fact bounded inside ±2^53 means every op
-//! that produced it was exact — the i64 computation produces the
-//! bit-identical trajectory.
+//! flows (RFC 20260611-int-range-float-demotion phases 1b-i/1b-ii;
+//! the AOT analogue of TurboFan simplified lowering's int
+//! representation choice, with explicit guards + loop versioning
+//! standing in for deopt). Consumes the interval analysis: an f64
+//! value with a fact is integer-valued, and a fact bounded inside
+//! ±2^53 means every op that produced it was exact — the i64
+//! computation produces the bit-identical trajectory.
 //!
-//! Demotion set: the largest set of f64 values where every def is a
-//! rewritable shape over in-set / integer-const operands:
+//! Demotion set: the largest set of f64 values where every def either
+//! rewrites exactly or accepts a runtime guard (`fit` holds the
+//! per-def judgments, `guard` the window math):
 //!
 //! * `sitofp x` with `x`'s fact inside ±2^53 (conversion exact) —
-//!   becomes `copy x`
+//!   becomes `copy x`; an unbounded `x` takes an entry guard on the
+//!   hosting region's entry edge (phase 1b-ii)
 //! * `frem a, C` (C ≠ 0 integer const, a in set) — `srem` (truncated
 //!   remainder, dividend-sign: identical to fmod on integers)
 //! * `fdiv a, 2` whose result carries a fact — the interval transfer
 //!   only proves fdiv under the frem-parity branch (even dividend ⇒
 //!   exact) — becomes `sdiv`
 //! * `fadd`/`fsub`/`fmul` whose result fact is finite (clamp53 left
-//!   bounds < 2^53 ⇒ no rounding) — integer add/sub/mul
+//!   bounds < 2^53 ⇒ no rounding) — integer add/sub/mul; a growth
+//!   site (bound widened to a sentinel — the collatz `3n+1` shape)
+//!   over an in-set value and an integer constant takes a
+//!   per-iteration window check + side exit instead (phase 1b-ii,
+//!   planned by `plan`, installed by `apply`)
 //! * `copy` of an in-set value (loop cells: every def must qualify)
 //!
-//! Values failing any def (growth ops whose bound widened to a
-//! sentinel — the collatz `3n+1` shape — or non-integer entries) drop
-//! out and the removal propagates; phase 1b-ii adds runtime guards +
-//! loop versioning to win those back.
+//! Values failing every path drop out and the removal propagates;
+//! guarded values whose sites cannot be hosted by a versionable
+//! region (no natural loop, escaping uses, multi-entry) are evicted
+//! the same way — the pass never fires partially.
 //!
 //! Uses are patched in place: an `fcmp` whose operands are all in-set
 //! or integer consts becomes the matching `icmp` (the set is NaN-free
@@ -31,30 +38,32 @@
 //! `sitofp` bridge inserted before it. A bridged value must be
 //! provably never `-0.0` (i64 has no negative zero, so the bridge
 //! would launder `-0` into `+0` — observable through `1/x` or
-//! `Object.is` downstream): `sitofp` never produces `-0`, `frem`
-//! keeps the dividend's sign (needs a non-negative dividend), IEEE
-//! add/sub only yield `-0` from two `-0`-shaped inputs, and `fmul`
-//! demands sign-clean non-negative operands. A value needing a
-//! bridge without the `-0`-free proof leaves the set (and the
-//! removal re-propagates) before anything is mutated.
+//! `Object.is` downstream); a value needing a bridge without the
+//! `-0`-free proof leaves the set before anything is mutated.
 //!
 //! Runs between the interval analysis and sext_elide — demoted values
 //! keep their ValueId and fact, so in-i32-range demoted cells seed
 //! sext_elide for free. `TORAJS_FLOAT_DEMOTE_OFF=1` skips,
 //! `TORAJS_FLOAT_DEMOTE_STATS=1` dumps counters.
 
+mod apply;
+mod cfg;
+mod fit;
+mod guard;
+mod plan;
+
 use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    BinOp, FPred, Function, IPred, Inst, InstKind, Module, Operand, Terminator, Type, ValueId,
-    ValueInfo,
+    BlockId, Function, Inst, InstKind, Module, Operand, Terminator, Type, ValueId, ValueInfo,
 };
 
-use crate::interval::transfer::{NEG_INF, NumFact, POS_INF, op_const_int};
+use crate::interval::transfer::NumFact;
 use crate::rc_peephole::visit_value_operands;
 use crate::slot_forward::rewrite_operands;
 
-const F64_EXACT: i128 = 1i128 << 53;
+use fit::Fit;
+use guard::{GuardCheck, GuardSite};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct FloatDemoteStats {
@@ -64,6 +73,12 @@ pub struct FloatDemoteStats {
     pub fcmp_converted: u32,
     /// sitofp bridges inserted at out-of-set f64 uses.
     pub bridges_inserted: u32,
+    /// regions cloned into fast/slow versions (1b-ii).
+    pub loops_versioned: u32,
+    /// per-iteration growth checks inserted (1b-ii).
+    pub guards_inserted: u32,
+    /// entry-edge checks inserted (1b-ii).
+    pub entry_guards: u32,
 }
 
 pub fn demote_floats(module: &mut Module, facts: &[HashMap<ValueId, NumFact>]) -> FloatDemoteStats {
@@ -78,43 +93,36 @@ pub fn demote_floats(module: &mut Module, facts: &[HashMap<ValueId, NumFact>]) -
     stats
 }
 
-/// A fact whose every producing op was exact in f64 (clamp53 would
-/// have widened a rounding bound to a sentinel).
-fn exact(f: &NumFact) -> bool {
-    f.lo > -F64_EXACT && f.hi < F64_EXACT && f.lo > NEG_INF && f.hi < POS_INF
-}
-
-fn fpred_to_ipred(p: FPred) -> IPred {
-    match p {
-        FPred::Oeq => IPred::Eq,
-        FPred::One | FPred::Une => IPred::Ne,
-        FPred::Olt => IPred::Slt,
-        FPred::Ogt => IPred::Sgt,
-        FPred::Ole => IPred::Sle,
-        FPred::Oge => IPred::Sge,
-    }
-}
-
-/// Operand qualifies as an in-set value or an integer constant.
-fn op_ok(op: &Operand, set: &HashSet<ValueId>) -> bool {
-    match op {
-        Operand::Value(v) => set.contains(v),
-        _ => op_const_int(op).is_some(),
-    }
-}
-
-/// An fcmp convertible to icmp: at least one demoted operand, every
-/// operand demoted or an integer constant.
-fn fcmp_convertible(a: &Operand, b: &Operand, set: &HashSet<ValueId>) -> bool {
-    let in_set = |op: &Operand| matches!(op, Operand::Value(v) if set.contains(v));
-    (in_set(a) || in_set(b)) && op_ok(a, set) && op_ok(b, set)
-}
-
 fn demote_in_function(
     func: &mut Function,
     facts: &HashMap<ValueId, NumFact>,
     stats: &mut FloatDemoteStats,
 ) {
+    let Some((set, plans)) = compute_demote_set(func, facts) else {
+        return;
+    };
+    // clone the slow (f64) regions before any mutation
+    let clones: Vec<apply::RegionClone> = plans
+        .iter()
+        .map(|p| apply::clone_region(func, p, &set))
+        .collect();
+    let track: HashSet<(BlockId, usize)> = plans.iter().flat_map(|p| p.growth_keys()).collect();
+    let fast_pos = mutate_function(func, &set, &track, stats);
+    for (plan, clone) in plans.iter().zip(&clones) {
+        let (g, eg) = apply::install_guards(func, plan, clone, &set, &fast_pos);
+        stats.guards_inserted += g;
+        stats.entry_guards += eg;
+    }
+    stats.loops_versioned += plans.len() as u32;
+    stats.values_demoted += set.len() as u32;
+}
+
+/// The demotion set plus the versioning plans its guarded defs need.
+/// `None` = nothing demotes in this function.
+fn compute_demote_set(
+    func: &Function,
+    facts: &HashMap<ValueId, NumFact>,
+) -> Option<(HashSet<ValueId>, Vec<plan::RegionPlan>)> {
     // def sites per value (loop cells have several).
     let mut defs: HashMap<ValueId, Vec<InstKind>> = HashMap::new();
     for block in &func.blocks {
@@ -126,20 +134,24 @@ fn demote_in_function(
     }
 
     // candidate set: integer-valued f64 values, shrunk until every
-    // def is rewritable AND every bridged escape is -0-free.
+    // def fits AND every bridged escape is -0-free AND every guarded
+    // def is hosted by a versionable region.
     let mut set: HashSet<ValueId> = facts
         .keys()
         .filter(|v| func.values[v.0 as usize].ty == Type::F64)
         .copied()
         .collect();
     loop {
-        // def-rewritability fixpoint (greatest: shrink from the full
-        // candidate set so loop cells can certify through themselves)
+        // def-fit fixpoint (greatest: shrink from the full candidate
+        // set so loop cells can certify through themselves)
         loop {
             let snapshot = set.clone();
             set.retain(|v| {
                 defs.get(v).is_some_and(|dl| {
-                    !dl.is_empty() && dl.iter().all(|d| def_rewritable(d, v, facts, &snapshot))
+                    !dl.is_empty()
+                        && dl
+                            .iter()
+                            .all(|d| fit::def_fit(d, v, facts, &snapshot) != Fit::No)
                 })
             });
             if set.len() == snapshot.len() {
@@ -147,7 +159,7 @@ fn demote_in_function(
             }
         }
         if set.is_empty() {
-            return;
+            return None;
         }
         // -0-free closure — coinductive (greatest fixpoint): assume
         // every in-set value clean, evict anything whose def could
@@ -157,7 +169,11 @@ fn demote_in_function(
         let mut nz: HashSet<ValueId> = set.clone();
         loop {
             let snapshot = nz.clone();
-            nz.retain(|v| defs[v].iter().all(|d| def_no_neg_zero(d, facts, &snapshot)));
+            nz.retain(|v| {
+                defs[v]
+                    .iter()
+                    .all(|d| fit::def_no_neg_zero(d, facts, &snapshot))
+            });
             if nz.len() == snapshot.len() {
                 break;
             }
@@ -181,7 +197,7 @@ fn demote_in_function(
                     continue;
                 }
                 if let InstKind::FCmp(_, a, b) = &inst.kind {
-                    if fcmp_convertible(a, b, &set) {
+                    if fit::fcmp_convertible(a, b, &set) {
                         for op in [a, b] {
                             if let Operand::Value(v) = op {
                                 useful.insert(*v);
@@ -207,19 +223,80 @@ fn demote_in_function(
                 bad.insert(*v);
             }
         }
-        if bad.is_empty() {
-            break;
+        if !bad.is_empty() {
+            for v in bad {
+                set.remove(&v);
+            }
+            continue;
         }
-        for v in bad {
-            set.remove(&v);
+        // guarded defs need a hosting region (1b-ii)
+        let (growth, entries) = collect_guard_sites(func, &set, facts);
+        if growth.is_empty() && entries.is_empty() {
+            return Some((set, Vec::new()));
+        }
+        match plan::plan_regions(func, &set, growth, entries) {
+            Ok(plans) => return Some((set, plans)),
+            Err(evict) => {
+                for v in evict {
+                    set.remove(&v);
+                }
+            }
         }
     }
+}
 
-    // mutate: split the borrow so bridge insertion can push values.
-    // Single walk — every inst takes exactly one of three branches
-    // (demoted def rewrite / fcmp→icmp conversion / bridge insertion),
-    // so a freshly converted icmp's i64 operands are never mistaken
-    // for f64 uses needing a bridge.
+/// The non-exact (guarded) def sites of the final set, split into
+/// growth sites and sitofp entries.
+#[expect(clippy::type_complexity, reason = "internal plumbing tuple")]
+fn collect_guard_sites(
+    func: &Function,
+    set: &HashSet<ValueId>,
+    facts: &HashMap<ValueId, NumFact>,
+) -> (Vec<GuardSite>, Vec<(BlockId, ValueId, Vec<GuardCheck>)>) {
+    let mut growth: Vec<GuardSite> = Vec::new();
+    let mut entries: Vec<(BlockId, ValueId, Vec<GuardCheck>)> = Vec::new();
+    for block in &func.blocks {
+        for (i, inst) in block.insts.iter().enumerate() {
+            let Some(r) = inst.result else { continue };
+            if !set.contains(&r) || fit::def_exact(&inst.kind, &r, facts, set) {
+                continue;
+            }
+            match &inst.kind {
+                InstKind::SiToFp(x) => {
+                    if let Some(checks) = guard::entry_checks(x, facts) {
+                        entries.push((block.id, r, checks));
+                    }
+                }
+                _ => {
+                    if let Some(checks) = guard::growth_checks(&inst.kind, facts) {
+                        growth.push(GuardSite {
+                            block: block.id,
+                            inst_idx: i,
+                            result: r,
+                            checks,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    (growth, entries)
+}
+
+/// Rewrite the function in place. Single walk — every inst takes
+/// exactly one of three branches (demoted def rewrite / fcmp→icmp
+/// conversion / bridge insertion), so a freshly converted icmp's i64
+/// operands are never mistaken for f64 uses needing a bridge. The
+/// cloned slow blocks reference only fresh / shared / external ids,
+/// none in the set, so the walk leaves them untouched. Returns the
+/// post-mutation positions of the tracked (guarded) defs.
+fn mutate_function(
+    func: &mut Function,
+    set: &HashSet<ValueId>,
+    track: &HashSet<(BlockId, usize)>,
+    stats: &mut FloatDemoteStats,
+) -> HashMap<(BlockId, usize), usize> {
+    let mut fast_pos: HashMap<(BlockId, usize), usize> = HashMap::new();
     let Function {
         blocks,
         values,
@@ -229,15 +306,19 @@ fn demote_in_function(
     for block in blocks.iter_mut() {
         let old = std::mem::take(&mut block.insts);
         let mut out: Vec<Inst> = Vec::with_capacity(old.len());
-        for mut inst in old {
+        for (i, mut inst) in old.into_iter().enumerate() {
             if inst.result.is_some_and(|r| set.contains(&r)) {
-                inst.kind = rewrite_def(&inst.kind);
+                if track.contains(&(block.id, i)) {
+                    fast_pos.insert((block.id, i), out.len());
+                }
+                inst.kind = fit::rewrite_def(&inst.kind);
                 out.push(inst);
                 continue;
             }
             if let InstKind::FCmp(p, a, b) = &inst.kind {
-                if fcmp_convertible(a, b, &set) {
-                    inst.kind = InstKind::ICmp(fpred_to_ipred(*p), int_op(a), int_op(b));
+                if fit::fcmp_convertible(a, b, set) {
+                    inst.kind =
+                        InstKind::ICmp(fit::fpred_to_ipred(*p), fit::int_op(a), fit::int_op(b));
                     stats.fcmp_converted += 1;
                     out.push(inst);
                     continue;
@@ -278,97 +359,13 @@ fn demote_in_function(
         block.insts = out;
     }
 
-    for v in &set {
+    for v in set {
         values[v.0 as usize].ty = Type::I64;
     }
-    stats.values_demoted += set.len() as u32;
+    fast_pos
 }
 
-/// One def site is rewritable to an exact i64 equivalent.
-fn def_rewritable(
-    d: &InstKind,
-    v: &ValueId,
-    facts: &HashMap<ValueId, NumFact>,
-    set: &HashSet<ValueId>,
-) -> bool {
-    match d {
-        InstKind::SiToFp(x) => match x {
-            Operand::Value(xv) => facts.get(xv).is_some_and(exact),
-            _ => op_const_int(x).is_some(),
-        },
-        InstKind::BinOp(BinOp::FRem, a, b) => {
-            op_ok(a, set) && op_const_int(b).is_some_and(|c| c != 0)
-        }
-        // the interval transfer only assigns an fdiv result a fact
-        // under the frem-parity guard — its presence IS the evenness
-        // certificate; exactness needs no bound check (halving).
-        InstKind::BinOp(BinOp::FDiv, a, b) => {
-            op_ok(a, set) && op_const_int(b) == Some(2) && facts.contains_key(v)
-        }
-        InstKind::BinOp(BinOp::FAdd | BinOp::FSub | BinOp::FMul, a, b) => {
-            op_ok(a, set) && op_ok(b, set) && facts.get(v).is_some_and(exact)
-        }
-        InstKind::Copy(Type::F64, a) | InstKind::Identity(a) => op_ok(a, set),
-        _ => false,
-    }
-}
-
-/// One def site provably never produces -0.0 given `nz` operands.
-fn def_no_neg_zero(d: &InstKind, facts: &HashMap<ValueId, NumFact>, nz: &HashSet<ValueId>) -> bool {
-    let op_nz = |op: &Operand| match op {
-        Operand::Value(v) => nz.contains(v),
-        Operand::ConstF64(f) => !(*f == 0.0 && f.is_sign_negative()),
-        _ => op_const_int(op).is_some(),
-    };
-    let nonneg = |op: &Operand| match op {
-        Operand::Value(v) => facts.get(v).is_some_and(|f| f.lo >= 0),
-        _ => op_const_int(op).is_some_and(|c| c >= 0),
-    };
-    match d {
-        // integer-to-float conversion never yields -0
-        InstKind::SiToFp(_) => true,
-        // fmod keeps the dividend's sign: non-negative -0-free
-        // dividend ⇒ result in [+0, C)
-        InstKind::BinOp(BinOp::FRem, a, _) => op_nz(a) && nonneg(a),
-        // halving a -0-free value: only ±0 halves to ±0, and the
-        // input zero is +0
-        InstKind::BinOp(BinOp::FDiv, a, _) => op_nz(a),
-        // x + y / x − y yields -0 only when both inputs are -0-shaped
-        InstKind::BinOp(BinOp::FAdd | BinOp::FSub, a, b) => op_nz(a) && op_nz(b),
-        // a*b yields -0 from a ±0 with a negative cofactor: demand
-        // sign-clean non-negative -0-free operands
-        InstKind::BinOp(BinOp::FMul, a, b) => op_nz(a) && op_nz(b) && nonneg(a) && nonneg(b),
-        InstKind::Copy(_, a) | InstKind::Identity(a) => op_nz(a),
-        _ => false,
-    }
-}
-
-/// The i64 form of a demoted def site.
-fn rewrite_def(d: &InstKind) -> InstKind {
-    match d {
-        InstKind::SiToFp(x) => InstKind::Copy(Type::I64, int_op(x)),
-        InstKind::BinOp(BinOp::FRem, a, b) => InstKind::BinOp(BinOp::SRem, int_op(a), int_op(b)),
-        InstKind::BinOp(BinOp::FDiv, a, b) => InstKind::BinOp(BinOp::SDiv, int_op(a), int_op(b)),
-        InstKind::BinOp(BinOp::FAdd, a, b) => InstKind::BinOp(BinOp::Add, int_op(a), int_op(b)),
-        InstKind::BinOp(BinOp::FSub, a, b) => InstKind::BinOp(BinOp::Sub, int_op(a), int_op(b)),
-        InstKind::BinOp(BinOp::FMul, a, b) => InstKind::BinOp(BinOp::Mul, int_op(a), int_op(b)),
-        InstKind::Copy(Type::F64, a) => InstKind::Copy(Type::I64, *a),
-        other => other.clone(),
-    }
-}
-
-/// Integer-const form of an operand (values pass through unchanged).
-fn int_op(op: &Operand) -> Operand {
-    match op {
-        Operand::Value(_) => *op,
-        other => match op_const_int(other) {
-            Some(c) => Operand::ConstI64(c as i64),
-            None => *other,
-        },
-    }
-}
-
-fn push_value(values: &mut Vec<ValueInfo>, ty: Type) -> ValueId {
+pub(crate) fn push_value(values: &mut Vec<ValueInfo>, ty: Type) -> ValueId {
     let id = ValueId(values.len() as u32);
     values.push(ValueInfo { ty, name: None });
     id
@@ -378,7 +375,7 @@ fn push_value(values: &mut Vec<ValueInfo>, ty: Type) -> ValueId {
 mod tests {
     use super::*;
     use crate::interval;
-    use torajs_core::ssa::{Block, BlockId, Module};
+    use torajs_core::ssa::{BinOp, Block, BlockId, FPred, IPred, Module};
 
     fn inst(result: u32, kind: InstKind) -> Inst {
         Inst {
@@ -390,6 +387,10 @@ mod tests {
 
     fn v(id: u32) -> Operand {
         Operand::Value(ValueId(id))
+    }
+
+    fn c(n: i64) -> Operand {
+        Operand::ConstI64(n)
     }
 
     fn cf(x: f64) -> Operand {
@@ -484,6 +485,7 @@ mod tests {
         assert_eq!(stats.values_demoted, 4);
         assert_eq!(stats.fcmp_converted, 1);
         assert_eq!(stats.bridges_inserted, 1);
+        assert_eq!(stats.loops_versioned, 0);
         let f = &m.funcs[0];
         assert!(matches!(
             f.blocks[1].insts[0].kind,
@@ -516,9 +518,12 @@ mod tests {
     }
 
     #[test]
-    fn growth_loop_stays_f64() {
-        // collatz odd arm: n = 3n + 1 — the fmul/fadd bounds widen to
-        // a sentinel, so nothing may demote (phase 1b-ii territory).
+    fn growth_loop_with_escaping_ret_stays_f64() {
+        // collatz odd arm with the SCC cell returned after the loop:
+        // the guarded fmul/fadd would need versioning, but the ret
+        // use escapes any hostable region, so the guarded defs evict
+        // and the whole chain collapses back to f64 (a 1b-ii
+        // feasibility eviction, not a 1b-i bound failure).
         let f = func(
             Type::F64,
             vec![
@@ -643,5 +648,222 @@ mod tests {
         );
         assert_eq!(f0.values[1].ty, Type::F64);
         assert_eq!(f0.values[2].ty, Type::F64);
+    }
+
+    /// canonical collatz: the count cell exits the loop, the f64 SCC
+    /// does not. The full closure demotes with two growth guards + a
+    /// versioned slow loop (1b-ii).
+    fn collatz_loop() -> Function {
+        func(
+            Type::I64,
+            vec![
+                Type::I64,  // %0 x init
+                Type::F64,  // %1 sitofp
+                Type::F64,  // %2 n cell
+                Type::Bool, // %3 fcmp une
+                Type::F64,  // %4 frem
+                Type::Bool, // %5 fcmp oeq
+                Type::I64,  // %6 count cell
+                Type::F64,  // %7 fdiv
+                Type::F64,  // %8 fmul
+                Type::F64,  // %9 fadd
+                Type::I64,  // %10 count add
+            ],
+            vec![
+                block(
+                    0,
+                    vec![
+                        inst(0, InstKind::Copy(Type::I64, c(1000000))),
+                        inst(6, InstKind::Copy(Type::I64, c(0))),
+                    ],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(
+                    1,
+                    vec![inst(1, InstKind::SiToFp(v(0)))],
+                    Terminator::Br(BlockId(2)),
+                ),
+                block(
+                    2,
+                    vec![inst(2, InstKind::Copy(Type::F64, v(1)))],
+                    Terminator::Br(BlockId(3)),
+                ),
+                block(
+                    3,
+                    vec![inst(3, InstKind::FCmp(FPred::Une, v(2), cf(1.0)))],
+                    Terminator::CondBr {
+                        cond: v(3),
+                        then_blk: BlockId(4),
+                        else_blk: BlockId(8),
+                    },
+                ),
+                block(
+                    4,
+                    vec![
+                        inst(4, InstKind::BinOp(BinOp::FRem, v(2), cf(2.0))),
+                        inst(5, InstKind::FCmp(FPred::Oeq, v(4), cf(0.0))),
+                    ],
+                    Terminator::CondBr {
+                        cond: v(5),
+                        then_blk: BlockId(5),
+                        else_blk: BlockId(6),
+                    },
+                ),
+                block(
+                    5,
+                    vec![
+                        inst(7, InstKind::BinOp(BinOp::FDiv, v(2), cf(2.0))),
+                        inst(2, InstKind::Copy(Type::F64, v(7))),
+                    ],
+                    Terminator::Br(BlockId(7)),
+                ),
+                block(
+                    6,
+                    vec![
+                        inst(8, InstKind::BinOp(BinOp::FMul, cf(3.0), v(2))),
+                        inst(9, InstKind::BinOp(BinOp::FAdd, v(8), cf(1.0))),
+                        inst(2, InstKind::Copy(Type::F64, v(9))),
+                    ],
+                    Terminator::Br(BlockId(7)),
+                ),
+                block(
+                    7,
+                    vec![
+                        inst(10, InstKind::BinOp(BinOp::Add, v(6), c(1))),
+                        inst(6, InstKind::Copy(Type::I64, v(10))),
+                    ],
+                    Terminator::Br(BlockId(3)),
+                ),
+                block(8, vec![], Terminator::Ret(Some(v(6)))),
+            ],
+        )
+    }
+
+    #[test]
+    fn collatz_versions_with_growth_guards() {
+        let (m, stats) = run(collatz_loop());
+        // %1, %2, %4, %7, %8, %9 demote; both fcmps convert; the 3n
+        // and +1 sites each take one upper-bound guard; the region
+        // clones once; the count cell needs no bridge.
+        assert_eq!(stats.values_demoted, 6);
+        assert_eq!(stats.fcmp_converted, 2);
+        assert_eq!(stats.bridges_inserted, 0);
+        assert_eq!(stats.loops_versioned, 1);
+        assert_eq!(stats.guards_inserted, 2);
+        assert_eq!(stats.entry_guards, 0);
+
+        let f = &m.funcs[0];
+        // fast path rewrote the loop ops to integer forms
+        assert!(matches!(
+            f.blocks[4].insts[0].kind,
+            InstKind::BinOp(BinOp::SRem, _, Operand::ConstI64(2))
+        ));
+        assert!(matches!(
+            f.blocks[5].insts[0].kind,
+            InstKind::BinOp(BinOp::SDiv, _, Operand::ConstI64(2))
+        ));
+        // the fmul guard checks n > (2^53-1)/3 (lower side proven by
+        // the non-negative fact)
+        let has_mul_guard = f.blocks.iter().any(|b| {
+            b.insts.iter().any(|i| {
+                matches!(
+                    i.kind,
+                    InstKind::ICmp(IPred::Sgt, _, Operand::ConstI64(3_002_399_751_580_330))
+                )
+            })
+        });
+        assert!(has_mul_guard, "missing 3n window check");
+        // the slow clone preserves an frem
+        let frem_count = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.insts)
+            .filter(|i| matches!(i.kind, InstKind::BinOp(BinOp::FRem, _, _)))
+            .count();
+        assert_eq!(frem_count, 1, "slow clone keeps the f64 frem");
+        // a side exit bridges the n cell back to f64
+        let has_writeback = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.insts)
+            .any(|i| matches!(i.kind, InstKind::SiToFp(Operand::Value(ValueId(2)))));
+        assert!(has_writeback, "side exit writes the n cell back");
+        // demoted cell is i64-typed now
+        assert_eq!(f.values[2].ty, Type::I64);
+    }
+
+    #[test]
+    fn unbounded_entry_takes_entry_guard() {
+        // halve loop fed by a param-shaped unbounded i64: the sitofp
+        // can't prove |x| ≤ 2^53 statically, so the region takes a
+        // two-sided entry guard into the preserved f64 loop.
+        let mut f = func(
+            Type::Void,
+            vec![
+                Type::I64,  // %0 param
+                Type::F64,  // %1 sitofp
+                Type::F64,  // %2 n cell
+                Type::F64,  // %3 frem
+                Type::Bool, // %4 fcmp
+                Type::F64,  // %5 fdiv
+            ],
+            vec![
+                block(0, vec![], Terminator::Br(BlockId(1))),
+                block(
+                    1,
+                    vec![
+                        inst(1, InstKind::SiToFp(v(0))),
+                        inst(2, InstKind::Copy(Type::F64, v(1))),
+                    ],
+                    Terminator::Br(BlockId(2)),
+                ),
+                block(
+                    2,
+                    vec![
+                        inst(3, InstKind::BinOp(BinOp::FRem, v(2), cf(2.0))),
+                        inst(4, InstKind::FCmp(FPred::Oeq, v(3), cf(0.0))),
+                    ],
+                    Terminator::CondBr {
+                        cond: v(4),
+                        then_blk: BlockId(3),
+                        else_blk: BlockId(4),
+                    },
+                ),
+                block(
+                    3,
+                    vec![
+                        inst(5, InstKind::BinOp(BinOp::FDiv, v(2), cf(2.0))),
+                        inst(2, InstKind::Copy(Type::F64, v(5))),
+                    ],
+                    Terminator::Br(BlockId(2)),
+                ),
+                block(4, vec![], Terminator::Ret(None)),
+            ],
+        );
+        f.params = vec![ValueId(0)];
+        let (m, stats) = run(f);
+        assert_eq!(stats.values_demoted, 4);
+        assert_eq!(stats.loops_versioned, 1);
+        assert_eq!(stats.guards_inserted, 0);
+        assert_eq!(stats.entry_guards, 2);
+        // bb0 re-routes through the check chain, not into bb1
+        let f0 = &m.funcs[0];
+        let Terminator::Br(t) = f0.blocks[0].term else {
+            panic!("entry must stay a Br");
+        };
+        assert_ne!(t, BlockId(1), "entry edge re-routed through guard");
+        // the chain checks both sides of ±2^53
+        let bound = 1i64 << 53;
+        let has_upper = f0.blocks.iter().any(|b| {
+            b.insts.iter().any(
+                |i| matches!(i.kind, InstKind::ICmp(IPred::Sgt, _, Operand::ConstI64(k)) if k == bound),
+            )
+        });
+        let has_lower = f0.blocks.iter().any(|b| {
+            b.insts.iter().any(
+                |i| matches!(i.kind, InstKind::ICmp(IPred::Slt, _, Operand::ConstI64(k)) if k == -bound),
+            )
+        });
+        assert!(has_upper && has_lower, "two-sided entry guard");
     }
 }

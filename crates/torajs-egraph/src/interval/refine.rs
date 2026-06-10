@@ -89,8 +89,10 @@ impl Constraints {
 
     /// Constraints valid at `b`'s entry, inherited down the idom
     /// chain. A constraint from a chain block is dropped when its
-    /// value is re-defined in any strictly lower chain block (the
-    /// refined fact no longer describes the current cell contents).
+    /// value is re-defined in a strictly lower chain block — `b`'s
+    /// own defs do not kill (they sit after the entry; block-local
+    /// evaluation kills at the cell's def site, so a tail
+    /// `i = i + 1` still reads its loop bound at the increment).
     pub fn inherited(
         &self,
         b: BlockId,
@@ -106,8 +108,11 @@ impl Constraints {
                     out.push(*c);
                 }
             }
-            // defs inside `cur` kill constraints inherited from above
-            killed.extend(block_defs[cur.0 as usize].iter().copied());
+            // defs inside a strictly lower chain block kill
+            // constraints inherited from above
+            if cur != b {
+                killed.extend(block_defs[cur.0 as usize].iter().copied());
+            }
             match dom.immediate_dominator(cur) {
                 Some(p) if p != cur => cur = p,
                 _ => break,

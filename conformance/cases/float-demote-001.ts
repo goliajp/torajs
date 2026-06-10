@@ -38,8 +38,9 @@ function halfChain(): void {
 }
 halfChain();
 
-// f64 domain, must NOT fire: growth loop whose bound is unprovable
-// (collatz) — stays f64, trajectory matches bun bit for bit.
+// growth loop whose bound is unprovable (collatz) — 1b-ii versions
+// the loop (i64 fast path + 53-bit growth guards + preserved f64
+// slow path); the trajectory must match bun bit for bit either way.
 function steps(n: number): number {
   let count: number = 0;
   while (n !== 1) {
