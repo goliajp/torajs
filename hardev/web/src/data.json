@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-10T17:10:12.747Z",
+  "generatedAt": "2026-06-10T21:31:08.419Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "e6900cf",
-    "commitSubject": "chore(bench): record 6d8893e 3-run - item-10 phase-1a interval verdict",
+    "commit": "8c1123b",
+    "commitSubject": "chore(bench): record ccbba59 r2 timed run - ann-width W1 verdict",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,18 @@
   },
   "commits": [
     {
+      "hash": "8c1123b",
+      "subject": "chore(bench): record ccbba59 r2 timed run - ann-width W1 verdict"
+    },
+    {
+      "hash": "ccbba59",
+      "subject": "feat(core): module-wide number-slot width inference - ann-width W1"
+    },
+    {
+      "hash": "dde9b5a",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD e6900cf (L3a item 10 phase 1a+1b-i: interval analysis + float demotion, gates 741/742 zero-regression, popcount -4.2%)"
+    },
+    {
       "hash": "e6900cf",
       "subject": "chore(bench): record 6d8893e 3-run - item-10 phase-1a interval verdict"
     },
@@ -650,39 +662,38 @@
     {
       "hash": "fae853d",
       "subject": "feat(bench): per-case variant fallback — tora runners run shared main.ts when no main.tora.ts; drop collatz variant"
-    },
-    {
-      "hash": "1c5c76f",
-      "subject": "feat(ssa): widen annotated-number param to f64 on statically-f64 body assignment"
-    },
-    {
-      "hash": "86f7bc8",
-      "subject": "fix(ssa): bitwise/shift operators align to JS int32 semantics"
-    },
-    {
-      "hash": "d44c870",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 098c803 (L3a item 7 rc_peephole readonly-window close: alias pairs elided, 0 regressions)"
     }
   ],
-  "headSha": "e6900cf",
+  "headSha": "8c1123b",
   "autorun": {
-    "total": 113,
+    "total": 114,
     "baselineTarget": 10,
-    "bySelf": 111,
+    "bySelf": 112,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781104149-0308",
-      "at": "2026-06-10T15:09:09Z",
-      "ts": 1781104149,
+      "rotationId": "r-1781111512-013b",
+      "at": "2026-06-10T17:11:52Z",
+      "ts": 1781111512,
       "trigger": "self",
-      "prevHead": "a1a84b0",
-      "handoffSha": "sha256:40ff30ec75fc44b56d5a356b414642cf03f2410501bf31b76151a5628f7d0e90",
-      "handoffAgeSec": 37,
+      "prevHead": "dde9b5a",
+      "handoffSha": "sha256:b6a39c90ec448b347f76f94cbc2dc7883c8f709249295fa43c37f66a964385a6",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781111512-013b",
+        "at": "2026-06-10T17:11:52Z",
+        "ts": 1781111512,
+        "trigger": "self",
+        "prevHead": "dde9b5a",
+        "handoffSha": "sha256:b6a39c90ec448b347f76f94cbc2dc7883c8f709249295fa43c37f66a964385a6",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781104149-0308",
         "at": "2026-06-10T15:09:09Z",
@@ -779,17 +790,6 @@
         "prevHead": "0385557",
         "handoffSha": "sha256:4b46c6ab29c9262f1f4f7ae155b86658d527f9304f75657ecc6cdcaa19f52c1d",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781060143-6a52",
-        "at": "2026-06-10T02:55:43Z",
-        "ts": 1781060143,
-        "trigger": "self",
-        "prevHead": "106d777",
-        "handoffSha": "sha256:3e91367d0f4ee01ebfd6231941bbe4944c0a1743baa03e880a27e4c358b38d10",
-        "handoffAgeSec": 25,
         "conformanceBefore": null,
         "commitsInSession": null
       }
