@@ -62,20 +62,14 @@ pub enum SpliceMultiError {
     /// Ret-shape mismatch (value-bearing Ret without `result_value`,
     /// or `result_value` set but only void Rets).
     RetShapeMismatch,
-    /// Callee uses refcounted SSA types in its signature (params or
-    /// return type) or any of its non-parameter values.
-    ///
-    /// torajs's refcounted types (`Str` / `Substr` / `Arr` / `Obj` /
-    /// `Closure` / `Promise` / `Map` / `Set` / etc.) participate in
-    /// caller-side `__torajs_rc_inc` / `__torajs_rc_dec` calling-
-    /// convention that ssa_lower emits around the original `Call`
-    /// instruction. Splicing the callee body into the caller without
-    /// rebalancing those calls causes double-drops or use-after-free
-    /// at runtime (observed as SIGSEGV / SIGBUS on the
-    /// parser-optional-param / restparam / spread conformance
-    /// fixtures during the first Phase 2.0a ship). Until the splice
-    /// becomes RC-aware (Phase 2.0c+), this guard restricts inlining
-    /// to value-shaped callees (number / bool / void).
+    /// Historical (Phase 2.0a–2.0c-A): callee used refcounted SSA
+    /// types (`Str` / `Substr` / `Arr` / `Obj` / `Closure` / ...).
+    /// Lifted in Phase 2.0c-B — the guard's premise (caller-side
+    /// rc_inc/rc_dec emitted around the `Call` inst that splicing
+    /// would unbalance) was verified false against the actual SSA;
+    /// see the rationale comment at the former guard site in
+    /// `inline_multi_block_leaf`. Kept as unreachable surface
+    /// (mirrors `AllocaInBody`).
     RefcountedTypeNotSupported,
     /// Callee body contains an `Alloca` or `AllocaBytes` instruction.
     /// These materialise stack slots in the callee's frame; cloning
@@ -148,29 +142,24 @@ pub fn inline_multi_block_leaf(
     if (value_ret_count == 1) != result_value.is_some() {
         return Err(SpliceMultiError::RetShapeMismatch);
     }
-    // ---- 1b. Refcounted-type guard. ssa_lower emits rc_inc/rc_dec
-    // calls around the original call site for refcounted types
-    // (Str / Arr / Obj / Closure / Promise / Map / Set / ...);
-    // splicing without rebalancing those calls causes double-drops
-    // or use-after-free. Until the splice becomes RC-aware, restrict
-    // inlining to value-shaped callees.
-    if callee.ret.is_refcounted() {
-        return Err(SpliceMultiError::RefcountedTypeNotSupported);
-    }
-    for param_id in &callee.params {
-        let ty = &callee.values[param_id.0 as usize].ty;
-        if ty.is_refcounted() {
-            return Err(SpliceMultiError::RefcountedTypeNotSupported);
-        }
-    }
-    for (i, vi) in callee.values.iter().enumerate() {
-        if callee.params.iter().any(|p| p.0 as usize == i) {
-            continue;
-        }
-        if vi.ty.is_refcounted() {
-            return Err(SpliceMultiError::RefcountedTypeNotSupported);
-        }
-    }
+    // Phase 2.0c-B: RefcountedTypeNotSupported guard lifted. The
+    // guard's premise ("ssa_lower emits rc_inc/rc_dec around the
+    // original call site; splicing unbalances them") was verified
+    // FALSE against the actual SSA: ssa_lower emits NO per-call
+    // rc traffic on the caller side. The ownership convention is
+    // borrow-param / owned-ret — args pass at +0 (callee never
+    // drops params; LocalInfo.borrowed), the returned value carries
+    // +1 (fresh allocation, or a retain at the return boundary for
+    // borrowed bindings since the retain-at-return fix). Every rc
+    // operation lives INSIDE the callee body, so the block splice
+    // transplants them verbatim and stays semantics-preserving.
+    // The SIGSEGVs that motivated the guard during the first Phase
+    // 2.0a ship were root-caused later to two since-fixed inliner
+    // bugs: blocks appended out of control-flow order (96a1a04,
+    // reversed live intervals → regalloc clobber) and the broken
+    // `BlockId.0 == position` invariant (dbcc923, elaborate/domtree
+    // indexing visited wrong blocks). The enum variant is kept as
+    // unreachable surface (mirrors `AllocaInBody`).
 
     // ---- 2. Allocate BlockIds: one per callee block + one
     // continuation. Caller's existing BlockIds are untouched so any
@@ -367,6 +356,21 @@ mod tests {
         }
     }
 
+    fn blk(id: u32, insts: Vec<Inst>, term: Terminator) -> Block {
+        Block {
+            id: BlockId(id),
+            insts,
+            term,
+        }
+    }
+
+    fn val(ty: Type, name: &str) -> ValueInfo {
+        ValueInfo {
+            ty,
+            name: Some(name.into()),
+        }
+    }
+
     /// Build a two-block void callee: entry → exit, exit returns void.
     fn two_block_void() -> Function {
         Function {
@@ -374,16 +378,8 @@ mod tests {
             params: vec![],
             ret: Type::Void,
             blocks: vec![
-                Block {
-                    id: BlockId(0),
-                    insts: vec![],
-                    term: Terminator::Br(BlockId(1)),
-                },
-                Block {
-                    id: BlockId(1),
-                    insts: vec![],
-                    term: Terminator::Ret(None),
-                },
+                blk(0, vec![], Terminator::Br(BlockId(1))),
+                blk(1, vec![], Terminator::Ret(None)),
             ],
             values: vec![],
             current_origin: None,
@@ -401,14 +397,10 @@ mod tests {
             params: vec![ValueId(0), ValueId(1)],
             ret: Type::I64,
             blocks: vec![
-                Block {
-                    id: BlockId(0),
-                    insts: vec![],
-                    term: Terminator::Br(BlockId(1)),
-                },
-                Block {
-                    id: BlockId(1),
-                    insts: vec![val_inst(
+                blk(0, vec![], Terminator::Br(BlockId(1))),
+                blk(
+                    1,
+                    vec![val_inst(
                         ValueId(2),
                         InstKind::BinOp(
                             torajs_core::ssa::BinOp::Add,
@@ -416,27 +408,14 @@ mod tests {
                             Operand::Value(ValueId(1)),
                         ),
                     )],
-                    term: Terminator::Br(BlockId(2)),
-                },
-                Block {
-                    id: BlockId(2),
-                    insts: vec![],
-                    term: Terminator::Ret(Some(Operand::Value(ValueId(2)))),
-                },
+                    Terminator::Br(BlockId(2)),
+                ),
+                blk(2, vec![], Terminator::Ret(Some(Operand::Value(ValueId(2))))),
             ],
             values: vec![
-                ValueInfo {
-                    ty: Type::I64,
-                    name: Some("a".into()),
-                },
-                ValueInfo {
-                    ty: Type::I64,
-                    name: Some("b".into()),
-                },
-                ValueInfo {
-                    ty: Type::I64,
-                    name: Some("sum".into()),
-                },
+                val(Type::I64, "a"),
+                val(Type::I64, "b"),
+                val(Type::I64, "sum"),
             ],
             current_origin: None,
         }
@@ -451,9 +430,9 @@ mod tests {
             params: vec![ValueId(0), ValueId(1)],
             ret: Type::I64,
             blocks: vec![
-                Block {
-                    id: BlockId(0),
-                    insts: vec![val_inst(
+                blk(
+                    0,
+                    vec![val_inst(
                         ValueId(2),
                         InstKind::ICmp(
                             IPred::Slt,
@@ -461,36 +440,19 @@ mod tests {
                             Operand::Value(ValueId(1)),
                         ),
                     )],
-                    term: Terminator::CondBr {
+                    Terminator::CondBr {
                         cond: Operand::Value(ValueId(2)),
                         then_blk: BlockId(1),
                         else_blk: BlockId(2),
                     },
-                },
-                Block {
-                    id: BlockId(1),
-                    insts: vec![],
-                    term: Terminator::Ret(Some(Operand::Value(ValueId(0)))),
-                },
-                Block {
-                    id: BlockId(2),
-                    insts: vec![],
-                    term: Terminator::Ret(Some(Operand::Value(ValueId(1)))),
-                },
+                ),
+                blk(1, vec![], Terminator::Ret(Some(Operand::Value(ValueId(0))))),
+                blk(2, vec![], Terminator::Ret(Some(Operand::Value(ValueId(1))))),
             ],
             values: vec![
-                ValueInfo {
-                    ty: Type::I64,
-                    name: Some("a".into()),
-                },
-                ValueInfo {
-                    ty: Type::I64,
-                    name: Some("b".into()),
-                },
-                ValueInfo {
-                    ty: Type::Bool,
-                    name: Some("lt".into()),
-                },
+                val(Type::I64, "a"),
+                val(Type::I64, "b"),
+                val(Type::Bool, "lt"),
             ],
             current_origin: None,
         }
@@ -800,5 +762,61 @@ mod tests {
         // The continuation (block[4]) holds the caller bb0's original
         // terminator (Br to the original bb1, now at pos 5).
         assert!(matches!(&caller.blocks[4].term, Terminator::Br(BlockId(5))));
+    }
+
+    /// Phase 2.0c-B — refcounted multi-block callees splice. A
+    /// Str-typed two-block passthrough was rejected with
+    /// `RefcountedTypeNotSupported` before the guard lift.
+    #[test]
+    fn refcounted_multi_block_callee_splices_after_guard_lift() {
+        let callee = Function {
+            name: "id_str2".into(),
+            params: vec![ValueId(0)],
+            ret: Type::Str,
+            blocks: vec![
+                blk(0, vec![], Terminator::Br(BlockId(1))),
+                blk(1, vec![], Terminator::Ret(Some(Operand::Value(ValueId(0))))),
+            ],
+            values: vec![val(Type::Str, "s")],
+            current_origin: None,
+        };
+        let mut caller = Function {
+            name: "main".into(),
+            params: vec![ValueId(0)],
+            ret: Type::Str,
+            blocks: vec![blk(
+                0,
+                vec![val_inst(
+                    ValueId(1),
+                    InstKind::Call(FuncId(1), vec![Operand::Value(ValueId(0))]),
+                )],
+                Terminator::Ret(Some(Operand::Value(ValueId(1)))),
+            )],
+            values: vec![val(Type::Str, "arg"), val(Type::Str, "r")],
+            current_origin: None,
+        };
+        let res = inline_multi_block_leaf(
+            &mut caller,
+            0,
+            0,
+            &callee,
+            &[Operand::Value(ValueId(0))],
+            Some(ValueId(1)),
+        );
+        assert!(res.is_ok(), "refcounted callee must splice: {:?}", res);
+        // caller bb0 + 2 callee blocks + continuation = 4 blocks,
+        // BlockId.0 == position invariant restored by the renumber.
+        assert_eq!(caller.blocks.len(), 4);
+        for (pos, b) in caller.blocks.iter().enumerate() {
+            assert_eq!(b.id, BlockId(pos as u32));
+        }
+        assert!(
+            caller
+                .blocks
+                .iter()
+                .flat_map(|b| b.insts.iter())
+                .any(|i| matches!(i.kind, InstKind::Identity(_)) && i.result == Some(ValueId(1))),
+            "ret value must bind through an Identity"
+        );
     }
 }

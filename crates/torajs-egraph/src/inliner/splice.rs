@@ -59,11 +59,10 @@ pub enum SpliceError {
     /// site result slot: `Ret(Some(_))` without `result_value` (or
     /// the reverse) means the inliner cannot bind the produced value.
     RetShapeMismatch,
-    /// Callee uses refcounted SSA types in its signature or non-
-    /// parameter values. See `splice2::SpliceMultiError::
-    /// RefcountedTypeNotSupported` for the RC-aware-splice rationale —
-    /// Phase 1.0a inherits the same guard so a future change to its
-    /// fire conditions doesn't introduce double-drop bugs.
+    /// Historical (Phase 2.0a–2.0c-A): callee used refcounted SSA
+    /// types. Lifted in Phase 2.0c-B — see `splice2::SpliceMultiError
+    /// ::RefcountedTypeNotSupported` for why the guard's premise was
+    /// wrong. Kept as unreachable surface (mirrors `AllocaInBody`).
     RefcountedTypeNotSupported,
     /// Callee body contains an `Alloca` / `AllocaBytes`. See the
     /// matching variant in `splice2::SpliceMultiError`.
@@ -148,23 +147,8 @@ pub fn inline_single_block_leaf(
     ) {
         return Err(SpliceError::NotCallSite);
     }
-    // ---- 1b. Refcounted-type guard (matches splice2).
-    if callee.ret.is_refcounted() {
-        return Err(SpliceError::RefcountedTypeNotSupported);
-    }
-    for param_id in &callee.params {
-        if callee.values[param_id.0 as usize].ty.is_refcounted() {
-            return Err(SpliceError::RefcountedTypeNotSupported);
-        }
-    }
-    for (i, vi) in callee.values.iter().enumerate() {
-        if callee.params.iter().any(|p| p.0 as usize == i) {
-            continue;
-        }
-        if vi.ty.is_refcounted() {
-            return Err(SpliceError::RefcountedTypeNotSupported);
-        }
-    }
+    // Phase 2.0c-B: RefcountedTypeNotSupported guard lifted (matches
+    // splice2 — see the rationale comment there).
 
     // ---- 2. Build callee-ValueId → caller-Operand mapping.
     //
@@ -595,6 +579,74 @@ mod tests {
                 InstKind::BinOp(BinOp::Sub, Operand::Value(v), _) if v == ValueId(1)
             ),
             "post inst preserved at end, still consumes ValueId(1)"
+        );
+    }
+
+    /// Phase 2.0c-B — refcounted callees splice. A Str-typed
+    /// passthrough was rejected with `RefcountedTypeNotSupported`
+    /// before the guard lift; the splice is type-agnostic (every rc
+    /// operation lives inside the callee body and transplants
+    /// verbatim), so it must now inline.
+    #[test]
+    fn refcounted_callee_splices_after_guard_lift() {
+        let callee = Function {
+            name: "id_str".into(),
+            params: vec![ValueId(0)],
+            ret: Type::Str,
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![],
+                term: Terminator::Ret(Some(Operand::Value(ValueId(0)))),
+            }],
+            values: vec![ValueInfo {
+                ty: Type::Str,
+                name: Some("s".into()),
+            }],
+            current_origin: None,
+        };
+        let mut caller = Function {
+            name: "main".into(),
+            params: vec![ValueId(0)],
+            ret: Type::Str,
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![val_inst(
+                    ValueId(1),
+                    InstKind::Call(FuncId(1), vec![Operand::Value(ValueId(0))]),
+                )],
+                term: Terminator::Ret(Some(Operand::Value(ValueId(1)))),
+            }],
+            values: vec![
+                ValueInfo {
+                    ty: Type::Str,
+                    name: Some("arg".into()),
+                },
+                ValueInfo {
+                    ty: Type::Str,
+                    name: Some("r".into()),
+                },
+            ],
+            current_origin: None,
+        };
+        let res = inline_single_block_leaf(
+            &mut caller,
+            0,
+            0,
+            &callee,
+            &[Operand::Value(ValueId(0))],
+            Some(ValueId(1)),
+        );
+        assert!(
+            res.is_ok(),
+            "refcounted callee must splice after guard lift: {:?}",
+            res
+        );
+        assert!(
+            caller.blocks[0]
+                .insts
+                .iter()
+                .any(|i| matches!(i.kind, InstKind::Identity(_)) && i.result == Some(ValueId(1))),
+            "call must be replaced by an Identity binding the result"
         );
     }
 }
