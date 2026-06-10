@@ -4792,14 +4792,26 @@ fn lower_inner(
             }
             let mut param_tys = Vec::with_capacity(params.len());
             for p in params {
-                param_tys.push(parse_type(
+                let mut pty = parse_type(
                     p.type_ann.as_deref(),
                     &aliases,
                     &mut arr_layouts,
                     &mut fn_sigs,
                     &generic_struct_decls,
                     &mut struct_layouts,
-                ));
+                );
+                // L3a-8 — `: number` parses to the I64 default; a body
+                // assignment with a statically-f64 RHS (`n = n / 2`)
+                // widens the param to F64 here so call sites coerce
+                // i64 args via SiToFp. Shared ast_refs ground truth
+                // with the body-lowering param_setup — the two sites
+                // must not drift (K.3 lesson).
+                if pty == Type::I64
+                    && crate::ast_refs::fn_param_widens_to_f64(ast, name, body, &p.name)
+                {
+                    pty = Type::F64;
+                }
+                param_tys.push(pty);
             }
             let ret_ty = effective_ret_ty(
                 parse_type(
@@ -6935,7 +6947,7 @@ fn lower_fn(
     // SSA-arg values).
     let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
     for p in params {
-        let pty = parse_type(
+        let mut pty = parse_type(
             p.type_ann.as_deref(),
             aliases,
             arr_layouts,
@@ -6943,6 +6955,13 @@ fn lower_fn(
             generic_struct_decls,
             struct_layouts,
         );
+        // L3a-8 — mirror of the signature-collection widen: a
+        // statically-f64 body assignment widens the I64-default
+        // `number` param so the slot accepts the F64 store. Same
+        // ast_refs ground truth as the sig site — must not drift.
+        if pty == Type::I64 && crate::ast_refs::fn_param_widens_to_f64(ast, name, body, &p.name) {
+            pty = Type::F64;
+        }
         let pid = f.add_param(pty, &p.name);
         param_setup.push((p.name.clone(), pid, pty));
     }
