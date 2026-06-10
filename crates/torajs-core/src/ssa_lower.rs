@@ -10698,8 +10698,34 @@ impl<'a> LowerCtx<'a> {
                 // Skip consume for alias-init: the source binding stays
                 // the owner (cross-scope case) or there's no Ident source
                 // to mark moved (Member / Index / literal init).
+                //
+                // Same-scope `let t = s` of a refcounted local SHARES
+                // ownership instead of transferring it (CPython incref /
+                // Swift ARC strong-assignment retain): inc at the binding
+                // site so both bindings hold independent stakes and each
+                // drops its own at scope close. This is what makes
+                // `let t = s; return s` / `let u = s` / `s = "new"` all
+                // legal afterwards — no affine transfer leaks into the TS
+                // surface. Excluded: box-to-any inits (slot ty Any, init
+                // concrete) keep the consume path — the box has its own
+                // inner-retain contract and an extra inc here would leak.
                 if !is_alias_init {
-                    self.consume_if_ident(*init);
+                    let pre_ty = self.operand_ty(&init_val);
+                    let shares = if let Expr::Ident(src) = self.ast.get_expr(*init) {
+                        // Locals only — a global / fn-name ident keeps
+                        // the consume path (no-op) and its existing
+                        // ownership story untouched.
+                        self.locals.contains_key(src)
+                            && pre_ty.is_refcounted()
+                            && !(ty == Type::Any && pre_ty != Type::Any)
+                    } else {
+                        false
+                    };
+                    if shares {
+                        self.emit_rc_inc(init_val.clone());
+                    } else {
+                        self.consume_if_ident(*init);
+                    }
                 }
                 // Coerce init to the declared slot type if needed.
                 // Currently only i64 → f64 promotion shows up (literals like

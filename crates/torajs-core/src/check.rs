@@ -962,10 +962,18 @@ struct LocalInfo {
     ty: Type,
     mutable: bool,
     /// Affine ownership flag. False until the binding's value is consumed
-    /// (let-rhs, assign-rhs, non-Copy call-arg, return). After move, any
-    /// further read of this binding is a type error. Copy-typed bindings
-    /// never get marked.
+    /// (assign-rhs, non-Copy call-arg, struct-field write, return, throw).
+    /// Reads of a moved binding still succeed (TS-shape); only a SECOND
+    /// transfer errors. Copy-typed bindings never get marked.
     moved: bool,
+    /// Alias flag — this binding borrows a heap owned elsewhere
+    /// (Member / Index / cross-scope Ident init). Borrowed bindings
+    /// can't be transferred at mid-scope sites (assign-rhs, call-arg,
+    /// field write — ssa_lower has no retain contract there yet), but
+    /// CAN escape via return / throw: the binding dies with the scope
+    /// and ssa_lower retains at the boundary (retain-at-return /
+    /// retain-at-throw) so the escaping reference carries its own +1.
+    borrowed: bool,
     /// M-OO.5 — when this binding's declared type annotation matches a
     /// class name (`let c: Counter = ...`), record the class name so
     /// `c.member` accesses can look up the visibility entry in
@@ -2222,6 +2230,12 @@ impl Checker {
                 if info.ty.is_copy() {
                     return;
                 }
+                if info.borrowed {
+                    self.errors.push_err(format!(
+                        "cannot transfer `{name}` — it aliases a value owned elsewhere; transfer from the owning binding instead"
+                    ));
+                    return;
+                }
                 if info.moved {
                     self.errors.push_err(format!(
                         "cannot transfer `{name}` — value was already aliased or moved earlier; transfer from the most recent binding instead"
@@ -2233,6 +2247,23 @@ impl Checker {
         }
     }
 
+    /// Transfer at a scope-exit boundary (return / throw). Unlike the
+    /// mid-scope `consume`, a borrowed alias is legal here: the binding
+    /// dies with the scope and ssa_lower retains at the boundary
+    /// (retain-at-return / retain-at-throw), so the escaping reference
+    /// carries its own +1 while the canonical owner keeps its stake.
+    /// Owned bindings still consume — their stake transfers out.
+    fn consume_escape(&mut self, ast: &Ast, eid: ExprId) {
+        if let Expr::Ident(name) = ast.get_expr(eid)
+            && let Some(info) = self.lookup(name)
+            && info.borrowed
+            && !info.ty.is_copy()
+        {
+            return;
+        }
+        self.consume(ast, eid);
+    }
+
     /// Decide whether a let-bound or struct-field's init expression
     /// produces a fresh-owned value or aliases an existing one. Member
     /// and Index reads (`obj.field`, `arr[i]`) yield aliases — the heap
@@ -2240,8 +2271,9 @@ impl Checker {
     /// for shared-read access. M1.3 extends this to cross-scope Ident
     /// init: when `s` lives in an outer scope, `let n = s` becomes an
     /// alias (otherwise transferring would dangle the outer reference
-    /// when the inner block's drop fires). Same-scope Ident init is
-    /// still a transfer — handled by `consume` at the let-decl site.
+    /// when the inner block's drop fires). Same-scope Ident init is a
+    /// SHARE — ssa_lower retains at the binding site so both bindings
+    /// own independent stakes; neither is an alias nor consumed.
     /// Fresh-value init (literal, Call return, BinOp, ObjectLit, Array)
     /// produces a new owner; not an alias.
     fn classify_init_alias(&self, ast: &Ast, eid: ExprId) -> bool {
@@ -2505,11 +2537,13 @@ impl Checker {
                 }
                 // Throw consumes a non-Copy value (its heap is now
                 // owned by the catch site, which is responsible for
-                // dropping after the bind / re-throwing).
+                // dropping after the bind / re-throwing). Borrowed
+                // aliases may escape here — retain-at-throw gives the
+                // catch its own +1.
                 if let Ok(t) = t_result
                     && !t.is_copy()
                 {
-                    self.consume(ast, *eid);
+                    self.consume_escape(ast, *eid);
                 }
             }
             Stmt::Try {
@@ -2558,6 +2592,7 @@ impl Checker {
                             ty: e_ty,
                             mutable: true,
                             moved: false,
+                            borrowed: false,
                             declared_class: None,
                         },
                     );
@@ -2607,6 +2642,7 @@ impl Checker {
                         ty: Type::String,
                         mutable: false,
                         moved: false,
+                        borrowed: false,
                         declared_class: None,
                     },
                 );
@@ -2643,6 +2679,7 @@ impl Checker {
                         ty: Type::Number,
                         mutable: true,
                         moved: false,
+                        borrowed: false,
                         declared_class: None,
                     },
                 );
@@ -2695,6 +2732,7 @@ impl Checker {
                         ty: var_ty,
                         mutable: false,
                         moved: false,
+                        borrowed: false,
                         declared_class: None,
                     },
                 );
@@ -2792,13 +2830,12 @@ impl Checker {
                         ann_ty
                     }
                 };
-                // Member / Index init aliases obj's field — the new binding
-                // doesn't own its heap, just borrows the obj's. Mark `moved`
-                // so end-of-scope drop emission skips it (the obj's drop
-                // walk handles the field's heap). For all other init shapes
-                // (Ident, Call, BinOp, literal, ObjectLit), the new binding
-                // owns: either it took transfer from a source (Ident → see
-                // `consume` below), or the value is fresh.
+                // Member / Index / cross-scope Ident init aliases a heap
+                // owned elsewhere — mark `borrowed` so transfer sites
+                // reject mid-scope moves while return/throw escapes stay
+                // legal (retain-at-boundary). Same-scope Ident init
+                // shares (ssa_lower retains); all other init shapes
+                // (Call, BinOp, literal, ObjectLit) are fresh-owned.
                 let is_alias_init = self.classify_init_alias(ast, *init);
                 // M-OO.5 — when the declared annotation names a known
                 // class, propagate that nominal info to the binding so
@@ -2820,20 +2857,22 @@ impl Checker {
                     LocalInfo {
                         ty: final_ty,
                         mutable: *mutable,
-                        moved: is_alias_init,
+                        moved: false,
+                        borrowed: is_alias_init,
                         declared_class,
                     },
                 ) {
                     self.errors.push_err(e);
                 }
-                // Transfer ownership from the rhs only on owner-init
-                // (alias-init keeps the source as owner). M1.3: this
-                // catches the cross-scope Ident case — `let n = s` where
-                // s is in an outer scope skips the consume so s remains
-                // the owner; the alias n's slot drops as a no-op.
-                if !is_alias_init {
-                    self.consume(ast, *init);
-                }
+                // let-rhs is NOT a transfer site: a same-scope
+                // `let t = s` SHARES ownership (ssa_lower retains at the
+                // binding site — CPython incref / Swift strong-assignment
+                // semantics), so `s` stays fully usable afterwards:
+                // `return s`, `let u = s`, `s = "new"` are all legal.
+                // Alias-init (Member / Index / cross-scope Ident) keeps
+                // the source as owner with the binding marked borrowed.
+                // Non-Ident inits produce fresh-owned values — nothing
+                // to consume either way.
             }
             Stmt::FnDecl {
                 name, params, body, ..
@@ -2896,6 +2935,7 @@ impl Checker {
                             ty: ty.clone(),
                             mutable: true,
                             moved: false,
+                            borrowed: false,
                             declared_class,
                         },
                     ) {
@@ -2951,10 +2991,12 @@ impl Checker {
                     ));
                 }
                 // Returning a non-Copy ident moves it out to the caller.
+                // Borrowed aliases may escape here — retain-at-return
+                // gives the caller its own +1.
                 if let Some(eid) = maybe_expr
                     && !expected.is_copy()
                 {
-                    self.consume(ast, *eid);
+                    self.consume_escape(ast, *eid);
                 }
             }
             // M5.1 — desugar_classes runs before check, so by the time we
@@ -7196,6 +7238,7 @@ impl Checker {
                             ty: ty.clone(),
                             mutable: true,
                             moved: false,
+                            borrowed: false,
                             declared_class: None,
                         },
                     ) {
@@ -7264,6 +7307,7 @@ impl Checker {
                                 ty: cap_ty.clone(),
                                 mutable: true,
                                 moved: false,
+                                borrowed: false,
                                 declared_class: None,
                             },
                         );
@@ -7275,6 +7319,7 @@ impl Checker {
                                 ty: ty.clone(),
                                 mutable: true,
                                 moved: false,
+                                borrowed: false,
                                 declared_class: None,
                             },
                         );
@@ -7769,24 +7814,16 @@ mod tests {
     }
 
     #[test]
-    fn re_transfer_of_aliased_binding_errors() {
-        // Multi-rooted ownership can't be statically resolved without a
-        // runtime mechanism (refcount / GC). Rejecting at compile-time:
-        // after `let b = a`, transferring `a` again into `c` is the
-        // ambiguous case. User restructures to transfer from `b` instead.
+    fn same_scope_copies_are_legal() {
+        // Same-scope `let b = a` SHARES ownership (ssa_lower retains at
+        // the binding site), so any number of copies is legal TS — no
+        // affine transfer rule leaks into the surface.
         let src = r#"
             let a: string = "x";
             let b: string = a;
             let c: string = a;
         "#;
-        let r = check_src(src);
-        assert!(
-            r.as_ref()
-                .err()
-                .map(|s| s.contains("cannot transfer"))
-                .unwrap_or(false),
-            "expected transfer-after-aliased error, got {r:?}"
-        );
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
     }
 
     #[test]
@@ -7853,23 +7890,16 @@ mod tests {
     }
 
     #[test]
-    fn struct_re_transfer_errors() {
-        // Multi-rooted struct: `let q = p; let r = p` would alias p twice
-        // AND claim two owners — rejected.
+    fn struct_same_scope_copies_are_legal() {
+        // Same-scope struct copies share ownership like any other
+        // refcounted value — `let q = p; let r = p` is legal TS.
         let src = r#"
             type Point = { x: number, y: number };
             let p: Point = { x: 3, y: 4 };
             let q: Point = p;
             let r: Point = p;
         "#;
-        let r = check_src(src);
-        assert!(
-            r.as_ref()
-                .err()
-                .map(|s| s.contains("cannot transfer"))
-                .unwrap_or(false),
-            "expected transfer-after-aliased error, got {r:?}"
-        );
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
     }
 
     #[test]
@@ -8155,13 +8185,31 @@ mod tests {
     }
 
     #[test]
-    fn same_scope_let_is_still_transfer() {
-        // Same-scope `let n = s` is a transfer (current behavior); a
-        // subsequent transfer of s errors. This pins the rule edge.
+    fn same_scope_let_shares_and_source_stays_usable() {
+        // Same-scope `let n = s` shares; s remains fully usable for
+        // further copies and reads afterwards.
         let src = r#"
             let s: string = "x";
             let n: string = s;
             let m: string = s;
+            let len: number = s.length;
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn borrowed_alias_mid_scope_transfer_errors() {
+        // A Member-init binding borrows obj's field heap. Assigning it
+        // into another slot is a mid-scope transfer of a borrowed
+        // reference — ssa_lower has no retain contract at assign-rhs
+        // yet, so check rejects it (escape via return/throw stays
+        // legal — see consume_escape).
+        let src = r#"
+            type Named = { name: string };
+            let o: Named = { name: "n" };
+            let n: string = o.name;
+            let x: string = "y";
+            x = n;
         "#;
         let r = check_src(src);
         assert!(
@@ -8169,7 +8217,7 @@ mod tests {
                 .err()
                 .map(|s| s.contains("cannot transfer"))
                 .unwrap_or(false),
-            "expected re-transfer error, got {r:?}"
+            "expected borrowed-transfer error, got {r:?}"
         );
     }
 
