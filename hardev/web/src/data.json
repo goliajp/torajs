@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-10T01:37:37.300Z",
+  "generatedAt": "2026-06-10T02:54:54.154Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 700,
-    "fail": 23,
+    "pass": 724,
+    "fail": 0,
     "skip": 4,
-    "raw": "700/23/4",
-    "source": "/tmp/torajs-conformance-9a1.log",
-    "sourceMtime": "2026-06-09T06:15:29.698Z"
+    "raw": "724/0/4",
+    "source": "/tmp/torajs-conformance-acbc5f6.log",
+    "sourceMtime": "2026-06-10T02:48:22.109Z"
   },
   "test262": {
     "ranAt": "2026-06-03T22:49:10Z",
@@ -28,17 +28,17 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "dbcc923",
-    "commitSubject": "feat(P-OPT Cluster E Phase 2.0c-A2): lift AllocaInBody guard, renumber post-splice BlockIds to restore the BlockId.0 == position invariant",
+    "commit": "be72688",
+    "commitSubject": "chore(bench): record post-inliner 3-run baseline with artifact_sha256",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 700,
-      "fail": 23,
+      "pass": 724,
+      "fail": 0,
       "skip": 4,
-      "raw": "700/23/4",
-      "source": "/tmp/torajs-conformance-9a1.log",
-      "sourceMtime": "2026-06-09T06:15:29.698Z"
+      "raw": "724/0/4",
+      "source": "/tmp/torajs-conformance-acbc5f6.log",
+      "sourceMtime": "2026-06-10T02:48:22.109Z"
     }
   },
   "roadmap": [
@@ -616,6 +616,30 @@
   },
   "commits": [
     {
+      "hash": "be72688",
+      "subject": "chore(bench): record post-inliner 3-run baseline with artifact_sha256"
+    },
+    {
+      "hash": "acbc5f6",
+      "subject": "feat(P-OPT Cluster E): TORAJS_INLINER_STATS=1 dumps per-compile inliner decision counters"
+    },
+    {
+      "hash": "af92e69",
+      "subject": "fix(bench-harness): artifact gate compares content hash, not size — size-equality is not code-equality"
+    },
+    {
+      "hash": "269253d",
+      "subject": "feat(P-OPT Cluster E Phase 2.0c-B): lift RefcountedTypeNotSupported guard — splice is RC-semantics-preserving"
+    },
+    {
+      "hash": "eb4a420",
+      "subject": "fix(ssa_lower): retain borrowed bindings at return so callers own the +1 they drop"
+    },
+    {
+      "hash": "65ca89f",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD dbcc923 (Phase 2.0c-A close)"
+    },
+    {
       "hash": "dbcc923",
       "subject": "feat(P-OPT Cluster E Phase 2.0c-A2): lift AllocaInBody guard, renumber post-splice BlockIds to restore the BlockId.0 == position invariant"
     },
@@ -638,51 +662,38 @@
     {
       "hash": "16e07d8",
       "subject": "Reapply \"feat(P-OPT Cluster E Phase 2.0a): multi-block leaf splice + emit fallback\""
-    },
-    {
-      "hash": "eb2896a",
-      "subject": "Revert \"feat(P-OPT Cluster E Phase 2.0a): multi-block leaf splice + emit fallback\""
-    },
-    {
-      "hash": "a67fd13",
-      "subject": "feat(P-OPT Cluster E Phase 2.0a): multi-block leaf splice + emit fallback"
-    },
-    {
-      "hash": "fd651f0",
-      "subject": "feat(P-OPT Cluster E Phase 1.0b): wire inliner into transform_module"
-    },
-    {
-      "hash": "e8f7eac",
-      "subject": "refactor(P-OPT Cluster E): split inliner.rs into mod.rs + splice.rs"
-    },
-    {
-      "hash": "9ad5c97",
-      "subject": "feat(P-OPT Cluster E Phase 1.0a): splice mutation API for single-block leaf"
-    },
-    {
-      "hash": "817ae52",
-      "subject": "feat(P-OPT Cluster E Phase 0): inliner scaffold — cost-benefit framework"
     }
   ],
-  "headSha": "dbcc923",
+  "headSha": "be72688",
   "autorun": {
-    "total": 102,
+    "total": 103,
     "baselineTarget": 10,
-    "bySelf": 100,
+    "bySelf": 101,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781026142-5b17",
-      "at": "2026-06-09T17:29:02Z",
-      "ts": 1781026142,
+      "rotationId": "r-1781055488-6c40",
+      "at": "2026-06-10T01:38:08Z",
+      "ts": 1781055488,
       "trigger": "self",
-      "prevHead": "07912d3",
-      "handoffSha": "sha256:81f120ba95ecc06506292533a843d06eaa09607218887aae1a0adaf52afedc76",
-      "handoffAgeSec": 5,
+      "prevHead": "65ca89f",
+      "handoffSha": "sha256:9623344d320e5aa98c66329e5f2f42a886e28677101c59c9c9387a1fe6d35f65",
+      "handoffAgeSec": 39,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781055488-6c40",
+        "at": "2026-06-10T01:38:08Z",
+        "ts": 1781055488,
+        "trigger": "self",
+        "prevHead": "65ca89f",
+        "handoffSha": "sha256:9623344d320e5aa98c66329e5f2f42a886e28677101c59c9c9387a1fe6d35f65",
+        "handoffAgeSec": 39,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781026142-5b17",
         "at": "2026-06-09T17:29:02Z",
@@ -779,17 +790,6 @@
         "prevHead": "12aeebb",
         "handoffSha": "sha256:189a02136be59e845ce5c5862f0a9be5214d15d64cfb3f2f849a207fff033a6e",
         "handoffAgeSec": 60,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1780993877-7ac7",
-        "at": "2026-06-09T08:31:17Z",
-        "ts": 1780993877,
-        "trigger": "self",
-        "prevHead": "02ab278",
-        "handoffSha": "sha256:232f9d111ab0c68f7ed5bd3bffeedd87611a659a6f704de941186e76c38224e0",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
