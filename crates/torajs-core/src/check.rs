@@ -1643,6 +1643,7 @@ impl Checker {
         // path emits the literal inline at every reference; non-literal
         // initializers stay scoped to the implicit main fn (they alloca
         // there and aren't visible from named-fn bodies).
+        let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
         for stmt in &ast.stmts {
             if let Stmt::LetDecl {
                 name,
@@ -1666,6 +1667,30 @@ impl Checker {
                 // accept whatever resolves cleanly.
                 let ann_ty = match (lit_ty.clone(), type_ann) {
                     (None, Some(ann)) => resolve_type_ann(ann, &c.aliases),
+                    // K.3b — un-annotated non-literal init (`let y =
+                    // g()`): register exactly what ssa_lower's Pass
+                    // 1.5 will promote, via the shared ast_refs gate +
+                    // slot-shape inference. Anything looser here lets
+                    // programs typecheck whose lowering still aborts
+                    // with `unknown ident`; anything tighter brings
+                    // back the bogus `unknown identifier` on legal
+                    // named-fn reads of call-init globals.
+                    (None, None) => {
+                        if binding_refs.named_fn_refs.contains(name)
+                            && !binding_refs.closure_captured.contains(name)
+                        {
+                            crate::ast_refs::infer_toplevel_slot_shape(ast, *init).map(
+                                |s| match s {
+                                    crate::ast_refs::GlobalSlotShape::I64
+                                    | crate::ast_refs::GlobalSlotShape::F64 => Type::Number,
+                                    crate::ast_refs::GlobalSlotShape::Str => Type::String,
+                                    crate::ast_refs::GlobalSlotShape::Bool => Type::Boolean,
+                                },
+                            )
+                        } else {
+                            None
+                        }
+                    }
                     _ => lit_ty,
                 };
                 if let Some(ty) = ann_ty

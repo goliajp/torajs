@@ -301,35 +301,15 @@ fn infer_arg_width(ast: &Ast, eid: ExprId) -> NumWidth {
     }
 }
 
-/// K.3b — recover a top-level `let`/`const` slot type when the
-/// declaration carries no annotation. Literal shapes resolve directly;
-/// everything else consults the checker's per-expr type map. Number
-/// width comes from `infer_arg_width`, matching the "number" → I64
-/// monomorphization default. Returns None for shapes the data-global
-/// path doesn't support yet — the binding then stays a main-fn local
-/// exactly as before.
-fn infer_global_slot_type(
-    ast: &Ast,
-    init: ExprId,
-    expr_types: &HashMap<ExprId, crate::check::Type>,
-) -> Option<Type> {
-    let number_width = |eid: ExprId| {
-        if infer_arg_width(ast, eid) == NumWidth::F64 {
-            Type::F64
-        } else {
-            Type::I64
-        }
-    };
-    match ast.get_expr(init) {
-        Expr::Number(_) => Some(number_width(init)),
-        Expr::String(_) => Some(Type::Str),
-        Expr::Bool(_) => Some(Type::Bool),
-        _ => match expr_types.get(&init)? {
-            crate::check::Type::Number => Some(number_width(init)),
-            crate::check::Type::String => Some(Type::Str),
-            crate::check::Type::Boolean => Some(Type::Bool),
-            _ => None,
-        },
+/// K.3b — map the shared slot-shape inference (crate::ast_refs) onto
+/// SSA types. The shape logic itself lives in ast_refs so check.rs
+/// registers exactly the bindings this pass promotes.
+fn slot_shape_to_type(shape: crate::ast_refs::GlobalSlotShape) -> Type {
+    match shape {
+        crate::ast_refs::GlobalSlotShape::I64 => Type::I64,
+        crate::ast_refs::GlobalSlotShape::F64 => Type::F64,
+        crate::ast_refs::GlobalSlotShape::Str => Type::Str,
+        crate::ast_refs::GlobalSlotShape::Bool => Type::Bool,
     }
 }
 
@@ -5352,6 +5332,7 @@ fn lower_inner(
     //   - refcount-typed annotations (Str / Arr / Obj / Closure) — those
     //     need an exit-time drop hook that doesn't yet exist; revisit
     //     in a follow-up phase.
+    let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
     let mut globals: HashMap<String, Type> = HashMap::new();
     for stmt in &ast.stmts {
         if let Stmt::LetDecl {
@@ -5384,9 +5365,13 @@ fn lower_inner(
             // out-of-i64-range initializer must widen the slot to F64
             // (storing f64 bits in an i64 slot reinterprets the
             // payload as a garbage integer on every read). Without an
-            // annotation, recover the type from the literal shape or
-            // the checker's per-expr type map; shapes neither resolves
-            // keep the K.1 main-local behavior.
+            // annotation, promote only behind the ast_refs gate —
+            // a named-fn body must reference the binding (named fns
+            // have no capture machinery) and no closure may capture it
+            // (captures copy through __env from the main-fn local; a
+            // slot would split the binding into two disagreeing
+            // homes). Shapes the shared inference can't resolve keep
+            // the K.1 main-local behavior.
             let ty = match type_ann {
                 Some(ann) => {
                     let parsed = parse_type(
@@ -5403,10 +5388,17 @@ fn lower_inner(
                         parsed
                     }
                 }
-                None => match infer_global_slot_type(ast, *init, expr_types) {
-                    Some(t) => t,
-                    None => continue,
-                },
+                None => {
+                    if !binding_refs.named_fn_refs.contains(name)
+                        || binding_refs.closure_captured.contains(name)
+                    {
+                        continue;
+                    }
+                    match crate::ast_refs::infer_toplevel_slot_shape(ast, *init) {
+                        Some(shape) => slot_shape_to_type(shape),
+                        None => continue,
+                    }
+                }
             };
             // K.3 — primitive Copy types (no lifetime concerns).
             // K.4 — refcount Str (drop on program exit).
