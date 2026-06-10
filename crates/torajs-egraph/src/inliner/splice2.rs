@@ -207,7 +207,39 @@ pub fn inline_multi_block_leaf(
         Terminator::Br(callee_entry_remapped),
     );
 
-    // ---- 5. Clone each callee block into caller.blocks.
+    // ---- 5. Clone each callee block + the continuation into a
+    // staging Vec. We INSERT them immediately after `caller_blk_idx`
+    // (not push to the end of `caller.blocks`) so the new blocks'
+    // physical position matches control-flow order.
+    //
+    // Why this matters — codegen liveness invariant:
+    // `liveness::compute_intervals` walks `func.blocks` in physical
+    // order and numbers every inst with a monotonically increasing
+    // `idx`. A value's interval `[start, end]` is derived from these
+    // indices and `Sweep` uses `Interval::overlaps` (which assumes
+    // `start <= end`) to decide whether two values may share a
+    // register.
+    //
+    // If the cloned callee blocks + continuation are pushed to the
+    // end of `caller.blocks`, but the caller's original successor
+    // blocks (e.g. `bb1` holding refcount-dec for an object whose
+    // pointer is defined in the continuation block) stay at their
+    // pre-splice early physical positions, the value defined in the
+    // continuation block ends up with `start > end` (interval
+    // reversed). `overlaps` then misjudges its lifetime against any
+    // value defined in `bb1` and the linear-scan allocator hands
+    // both the same register — clobbering the object pointer with the
+    // decremented refcount and SIGSEGV'ing on the next `str rc,
+    // [obj_ptr]` (observed on parser-optional-param-implicit-null-001
+    // when Phase 2.0b lifted `AllocaInBody` and the inliner started
+    // firing on multi-block callees like `function f(x?: number)`).
+    //
+    // Inserting in-place keeps the relationship "def block precedes
+    // use block in physical order" intact, matching LLVM
+    // `Transforms/Utils/InlineFunction.cpp` and Go `cmd/compile/
+    // internal/inline/inl.go` which both clone into the caller right
+    // at the call site rather than at the function's end.
+    let mut new_blocks: Vec<Block> = Vec::with_capacity(callee.blocks.len() + 1);
     for blk in &callee.blocks {
         let new_id = block_map[&blk.id];
         let mut new_insts: Vec<Inst> = Vec::with_capacity(blk.insts.len() + 1);
@@ -249,20 +281,25 @@ pub fn inline_multi_block_leaf(
             }
             Terminator::Unreachable => Terminator::Unreachable,
         };
-        caller.blocks.push(Block {
+        new_blocks.push(Block {
             id: new_id,
             insts: new_insts,
             term: new_term,
         });
     }
 
-    // ---- 6. Push continuation block holding post-call insts + the
-    // caller's original terminator.
-    caller.blocks.push(Block {
+    // ---- 6. Continuation block holding post-call insts + the
+    // caller's original terminator. Appended to the staging Vec so it
+    // sits between the callee blocks and the caller's original
+    // successor blocks in physical order.
+    new_blocks.push(Block {
         id: continuation_block_id,
         insts: post_insts,
         term: original_term,
     });
+
+    let insert_at = caller_blk_idx + 1;
+    caller.blocks.splice(insert_at..insert_at, new_blocks);
 
     Ok(())
 }
@@ -631,5 +668,99 @@ mod tests {
             ),
             Err(SpliceMultiError::ArityMismatch)
         );
+    }
+
+    /// Physical-block-order invariant — the regression test for the
+    /// SIGSEGV observed on parser-optional-param-implicit-null-001
+    /// during Phase 2.0b ship: a caller with multiple blocks
+    /// (modelling main bb0 holding the call site followed by bb1 /
+    /// bb2 holding refcount-dec cleanup that references a value
+    /// defined inside the post-call portion of bb0) must end up with
+    /// the cloned callee blocks + continuation block inserted
+    /// IMMEDIATELY AFTER the caller block containing the call site,
+    /// NOT appended to the end of `caller.blocks`. Appending breaks
+    /// `liveness::compute_intervals` because the post-call continuation
+    /// would land at a later physical index than the caller's original
+    /// successor blocks, producing reversed intervals (start > end)
+    /// that `Interval::overlaps` misjudges. The fix splices the new
+    /// blocks at `caller_blk_idx + 1`.
+    #[test]
+    fn cloned_blocks_insert_after_caller_block_not_at_end() {
+        // Caller shape: bb0 holds the call site and an unconditional
+        // br to bb1; bb1 is a no-op block returning. The original
+        // bb1 must remain AFTER all cloned callee blocks and the
+        // continuation in the post-splice physical order.
+        let callee = straight_line_3block_add();
+        let mut caller = Function {
+            name: "main_with_cleanup".into(),
+            params: vec![],
+            ret: Type::I64,
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: vec![val_inst(
+                        ValueId(0),
+                        InstKind::Call(
+                            FuncId(1),
+                            vec![Operand::ConstI64(7), Operand::ConstI64(3)],
+                        ),
+                    )],
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![],
+                    term: Terminator::Ret(Some(Operand::Value(ValueId(0)))),
+                },
+            ],
+            values: vec![ValueInfo {
+                ty: Type::I64,
+                name: Some("r".into()),
+            }],
+            current_origin: None,
+        };
+
+        let res = inline_multi_block_leaf(
+            &mut caller,
+            0,
+            0,
+            &callee,
+            &[Operand::ConstI64(7), Operand::ConstI64(3)],
+            Some(ValueId(0)),
+        );
+        assert!(res.is_ok(), "multi-bb caller splice must succeed");
+
+        // Layout after fix: bb0 (modified) at [0]; 3 cloned callee
+        // blocks at [1..4]; continuation at [4]; original bb1
+        // (cleanup) at [5]. Total = 6 blocks.
+        assert_eq!(caller.blocks.len(), 6, "expected 6 blocks post-splice");
+
+        // First block is still the modified original bb0 — has Br
+        // terminator pointing at the (remapped) callee entry.
+        assert_eq!(caller.blocks[0].id, BlockId(0));
+        assert!(matches!(&caller.blocks[0].term, Terminator::Br(_)));
+
+        // The LAST block is the original caller bb1 — NOT the
+        // continuation (which is the regression assertion: pre-fix,
+        // bb1 stayed at idx 1 and the continuation got pushed to
+        // the end, reversing live intervals).
+        assert_eq!(
+            caller.blocks[5].id,
+            BlockId(1),
+            "original caller bb1 must remain after callee blocks + continuation",
+        );
+        // bb1 retains its original Ret terminator.
+        match &caller.blocks[5].term {
+            Terminator::Ret(Some(Operand::Value(v))) if *v == ValueId(0) => {}
+            other => panic!("expected original bb1 Ret intact, got {:?}", other),
+        }
+
+        // The continuation (block[4]) holds the caller's original
+        // bb0 terminator (Br to BlockId(1)) — that's what the splice
+        // moved out of bb0 so the cleanup path still flows through.
+        assert!(matches!(
+            &caller.blocks[4].term,
+            Terminator::Br(BlockId(1))
+        ));
     }
 }
