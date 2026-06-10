@@ -72,6 +72,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "../torajs-egraph/src/inliner/rewrite.rs",
     "../torajs-egraph/src/inliner/splice.rs",
     "../torajs-egraph/src/inliner/splice2.rs",
+    "../torajs-egraph/src/float_demote.rs",
     "../torajs-egraph/src/inliner/splice2_emit.rs",
     "../torajs-egraph/src/interval/mod.rs",
     "../torajs-egraph/src/interval/refine.rs",

@@ -23,6 +23,7 @@ pub mod devirt;
 pub mod dominator;
 pub mod egraph;
 pub mod elaborate;
+pub mod float_demote;
 pub mod inliner;
 pub mod interval;
 pub mod loop_analysis;
@@ -168,30 +169,45 @@ pub fn transform_module(mut module: Module) -> Module {
     }
     // Integer range analysis (analysis-only, RFC 20260611) — interval
     // lattice with branch refinement + loop widening over the post-φ
-    // canonical shape. Seeds sext_elide R2 with loop cells provably
-    // inside i32 range (the popcount residual-pair case); phase 1b
-    // float demotion consumes the same facts.
-    // `TORAJS_INTERVAL_OFF=1` skips (bisect gate).
-    let sext_seeds: Vec<HashSet<ValueId>> =
-        if std::env::var("TORAJS_INTERVAL_OFF").as_deref() != Ok("1") {
-            let facts = interval::analyze_module(&module);
-            if std::env::var("TORAJS_INTERVAL_STATS").as_deref() == Ok("1") {
-                for (func, fm) in module.funcs.iter().zip(&facts) {
-                    if !func.is_declaration() {
-                        let st = interval::stats_for(fm, func);
-                        eprintln!("torajs-interval-stats: {} {st:?}", func.name);
-                    }
+    // canonical shape. Feeds float demotion below and seeds sext_elide
+    // R2 with loop cells provably inside i32 range (the popcount
+    // residual-pair case). `TORAJS_INTERVAL_OFF=1` skips (bisect gate).
+    let interval_facts = (std::env::var("TORAJS_INTERVAL_OFF").as_deref() != Ok("1")).then(|| {
+        let facts = interval::analyze_module(&module);
+        if std::env::var("TORAJS_INTERVAL_STATS").as_deref() == Ok("1") {
+            for (func, fm) in module.funcs.iter().zip(&facts) {
+                if !func.is_declaration() {
+                    let st = interval::stats_for(fm, func);
+                    eprintln!("torajs-interval-stats: {} {st:?}", func.name);
                 }
             }
+        }
+        facts
+    });
+    // Float demotion (RFC 20260611 phase 1b-i) — integer-valued f64
+    // closures whose every op is provably exact rewrite to i64 in
+    // place (frem→srem kills the per-iteration fmod libcall). Facts
+    // stay valid across the rewrite (values keep their id and bounds),
+    // so demoted in-i32-range cells seed sext_elide below for free.
+    // `TORAJS_FLOAT_DEMOTE_OFF=1` skips (bisect gate).
+    if let Some(facts) = &interval_facts {
+        if std::env::var("TORAJS_FLOAT_DEMOTE_OFF").as_deref() != Ok("1") {
+            let fd_stats = float_demote::demote_floats(&mut module, facts);
+            if std::env::var("TORAJS_FLOAT_DEMOTE_STATS").as_deref() == Ok("1") {
+                eprintln!("torajs-float-demote-stats: {fd_stats:?}");
+            }
+        }
+    }
+    let sext_seeds: Vec<HashSet<ValueId>> = interval_facts
+        .map(|facts| {
             module
                 .funcs
                 .iter()
                 .zip(&facts)
                 .map(|(func, fm)| interval::sext32_set(fm, func))
                 .collect()
-        } else {
-            Vec::new()
-        };
+        })
+        .unwrap_or_default();
     // Redundant ToInt32 sext-pair elimination — after phi_promote so
     // it sees the final canonical shape (loop cells as multi-def Copy,
     // unknown to its own one-pass lattice but seedable from the
