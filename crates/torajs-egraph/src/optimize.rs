@@ -204,7 +204,13 @@ fn process_inst(
     }
     let key: GvnKey = (result_ty, rewritten_kind);
     if let Some(&existing) = egraph.gvn().get(&key) {
-        egraph.union(result, existing);
+        // directed: `existing` was inserted earlier in the domtree
+        // walk (its def dominates this inst) — it must stay the class
+        // leader. Plain by-id union can elect this later-defined
+        // `result` as leader and rewrite earlier uses into a
+        // use-before-def (post-inline ValueIds don't track program
+        // order).
+        egraph.union_into(result, existing);
         stats.gvn_hits += 1;
     } else {
         egraph.gvn_mut().insert(key, result);

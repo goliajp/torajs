@@ -183,6 +183,31 @@ impl Egraph {
         true
     }
 
+    /// Union with an explicit representative: `root` stays the class
+    /// leader, `child` joins it. The GVN dedup path MUST use this —
+    /// its `existing` value was inserted earlier in the domtree walk,
+    /// so its def dominates the current inst, while plain by-id
+    /// `union` can elect a later-defined value as leader (the inliner
+    /// reverse-splices call sites, so ValueId order no longer tracks
+    /// program order) and canonicalise earlier uses into a
+    /// use-before-def. Same e-class size cap as `union`.
+    pub fn union_into(&mut self, child: ValueId, root: ValueId) -> bool {
+        let rc = self.find(child);
+        let rr = self.find(root);
+        if rc == rr {
+            return false;
+        }
+        let size_c = self.eclass_size_or_one(rc);
+        let size_r = self.eclass_size_or_one(rr);
+        if size_c as u16 + size_r as u16 > ECLASS_ENODE_LIMIT as u16 {
+            return false; // refuse — keep extraction cost bounded
+        }
+        self.leader[rc.0 as usize] = rr;
+        self.eclass_size.insert(rr, size_c + size_r);
+        self.eclass_size.remove(&rc);
+        true
+    }
+
     /// E-class size for the class containing `v`. Singleton = 1.
     pub fn eclass_size(&mut self, v: ValueId) -> u8 {
         let r = self.find(v);
@@ -297,6 +322,24 @@ mod tests {
         assert!(!eg.union(ValueId(0), ValueId(1)));
         // Distinct classes still distinct.
         assert!(!eg.equiv(ValueId(0), ValueId(2)));
+    }
+
+    #[test]
+    fn union_into_keeps_explicit_root() {
+        // the GVN-order contract: `existing` (earlier in the domtree
+        // walk) stays leader even when the joining value has a
+        // smaller id — by-id union would invert this and create
+        // use-before-def canonicalisations post-inline.
+        let mut eg = Egraph::new(30);
+        assert!(eg.union_into(ValueId(5), ValueId(20)));
+        assert_eq!(eg.find(ValueId(5)), ValueId(20));
+        assert_eq!(eg.find(ValueId(20)), ValueId(20));
+        // joining into an existing class keeps the same root
+        assert!(eg.union_into(ValueId(3), ValueId(5)));
+        assert_eq!(eg.find(ValueId(3)), ValueId(20));
+        assert_eq!(eg.eclass_size(ValueId(20)), 3);
+        // no-op on already-equivalent values
+        assert!(!eg.union_into(ValueId(3), ValueId(20)));
     }
 
     #[test]
