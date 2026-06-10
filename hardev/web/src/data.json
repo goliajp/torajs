@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-10T07:54:15.447Z",
+  "generatedAt": "2026-06-10T09:32:20.892Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "5d4783c",
-    "commitSubject": "chore(bench): record e87c53a 3-run results (phase 2.1 close: fib40 neutral, prime_count -5.6%)",
+    "commit": "c1820ad",
+    "commitSubject": "chore(bench): record 316e329 + e079b3b 3-run results (devirt regression attribution + final verdict)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,30 @@
   },
   "commits": [
     {
+      "hash": "c1820ad",
+      "subject": "chore(bench): record 316e329 + e079b3b 3-run results (devirt regression attribution + final verdict)"
+    },
+    {
+      "hash": "e079b3b",
+      "subject": "fix(codegen): param crossing a call at inst slot 0 must leave its arg register"
+    },
+    {
+      "hash": "7ffdea4",
+      "subject": "fix(egraph): gvn union must keep the earlier-defined value as class leader"
+    },
+    {
+      "hash": "899ac79",
+      "subject": "perf(egraph): block-local store-to-load forwarding over non-escaped slots"
+    },
+    {
+      "hash": "316e329",
+      "subject": "perf(egraph): indirect-call promotion — devirt closure env + fn-pointer slot call_indirect"
+    },
+    {
+      "hash": "316d8e7",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 5d4783c (L3a perf polish items 1+2 close: rc elide peephole + phase 2.1 inliner)"
+    },
+    {
       "hash": "5d4783c",
       "subject": "chore(bench): record e87c53a 3-run results (phase 2.1 close: fib40 neutral, prime_count -5.6%)"
     },
@@ -638,51 +662,38 @@
     {
       "hash": "a64915e",
       "subject": "perf(egraph): rc elide peephole — remove same-pointer retain/release pairs"
-    },
-    {
-      "hash": "2ff9f25",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 588b890 (RC-correctness cluster close: retain-at-throw + share-on-alias)"
-    },
-    {
-      "hash": "588b890",
-      "subject": "fix(core): share ownership on same-scope let copies; allow borrowed aliases to escape via return/throw"
-    },
-    {
-      "hash": "17fa05c",
-      "subject": "fix(ssa_lower): retain at throw boundary for borrowed refcounted sources"
-    },
-    {
-      "hash": "0385557",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 972e4cf (RC-correctness cluster items 1+2 close)"
-    },
-    {
-      "hash": "972e4cf",
-      "subject": "fix(ssa_lower): coerce Any into Str/numeric slots at assign sites instead of panicking"
-    },
-    {
-      "hash": "5043eaa",
-      "subject": "fix(core): gate un-annotated global promotion behind shared named-fn-ref analysis"
     }
   ],
-  "headSha": "5d4783c",
+  "headSha": "c1820ad",
   "autorun": {
-    "total": 106,
+    "total": 107,
     "baselineTarget": 10,
-    "bySelf": 104,
+    "bySelf": 105,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781070653-1614",
-      "at": "2026-06-10T05:50:53Z",
-      "ts": 1781070653,
+      "rotationId": "r-1781078144-2682",
+      "at": "2026-06-10T07:55:44Z",
+      "ts": 1781078144,
       "trigger": "self",
-      "prevHead": "2ff9f25",
-      "handoffSha": "sha256:548e80e78b746d357fb48c60a8952ffcd61edd14129d530eed76ec1a874bb594",
-      "handoffAgeSec": 5,
+      "prevHead": "316d8e7",
+      "handoffSha": "sha256:cbb8470ae47cb6f3dc58902e6c8ee5efa05acdc04c267ef5e475b1c397cd5880",
+      "handoffAgeSec": 20,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781078144-2682",
+        "at": "2026-06-10T07:55:44Z",
+        "ts": 1781078144,
+        "trigger": "self",
+        "prevHead": "316d8e7",
+        "handoffSha": "sha256:cbb8470ae47cb6f3dc58902e6c8ee5efa05acdc04c267ef5e475b1c397cd5880",
+        "handoffAgeSec": 20,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781070653-1614",
         "at": "2026-06-10T05:50:53Z",
@@ -779,17 +790,6 @@
         "prevHead": "5c4ae5b",
         "handoffSha": "sha256:de5f1f60361b37987bf9f0c9c652168040e137af02c3dd3b266c2e109edd93fe",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781008103-4ad6",
-        "at": "2026-06-09T12:28:23Z",
-        "ts": 1781008103,
-        "trigger": "self",
-        "prevHead": "3b4d682",
-        "handoffSha": "sha256:e35b48821eee4a1c2a6c53151f831c52883aeaa54dfd6256a6f9434a9b229288",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
