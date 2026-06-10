@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-10T15:07:07.418Z",
+  "generatedAt": "2026-06-10T17:10:12.747Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "7dcd6c5",
-    "commitSubject": "chore(bench): record 0757d2e 3-run — item-9 sext elide verdict",
+    "commit": "e6900cf",
+    "commitSubject": "chore(bench): record 6d8893e 3-run - item-10 phase-1a interval verdict",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,22 @@
   },
   "commits": [
     {
+      "hash": "e6900cf",
+      "subject": "chore(bench): record 6d8893e 3-run - item-10 phase-1a interval verdict"
+    },
+    {
+      "hash": "52a19aa",
+      "subject": "feat(egraph): float demotion pass - integer-valued f64 closures rewrite to i64"
+    },
+    {
+      "hash": "6d8893e",
+      "subject": "feat(egraph): integer interval analysis - branch-refined range facts seed sext_elide"
+    },
+    {
+      "hash": "a1a84b0",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 7dcd6c5 (L3a item 9 sext-pair elimination close: popcount -7.3%, gate 740/0/4)"
+    },
+    {
       "hash": "7dcd6c5",
       "subject": "chore(bench): record 0757d2e 3-run — item-9 sext elide verdict"
     },
@@ -646,43 +662,38 @@
     {
       "hash": "d44c870",
       "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 098c803 (L3a item 7 rc_peephole readonly-window close: alias pairs elided, 0 regressions)"
-    },
-    {
-      "hash": "098c803",
-      "subject": "chore(bench): record d51af99 3-run — item-7 rc_peephole readonly-window verdict"
-    },
-    {
-      "hash": "d51af99",
-      "subject": "perf(ssa): rc_peephole readonly-print window transparency — alias retain/release pairs elide"
-    },
-    {
-      "hash": "56095be",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 425039a (L3a item 6 global localize close: array-sum -65.1%, 0 regressions)"
-    },
-    {
-      "hash": "425039a",
-      "subject": "chore(bench): record ea062b2 3-run — item-6 global localize verdict"
     }
   ],
-  "headSha": "7dcd6c5",
+  "headSha": "e6900cf",
   "autorun": {
-    "total": 112,
+    "total": 113,
     "baselineTarget": 10,
-    "bySelf": 110,
+    "bySelf": 111,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781101269-3c17",
-      "at": "2026-06-10T14:21:09Z",
-      "ts": 1781101269,
+      "rotationId": "r-1781104149-0308",
+      "at": "2026-06-10T15:09:09Z",
+      "ts": 1781104149,
       "trigger": "self",
-      "prevHead": "6cbdac1",
-      "handoffSha": "sha256:c2f5b67ff482d17e1e102957bc98bb68b8d83fb49000a1988965244650f0f3ac",
-      "handoffAgeSec": 14,
+      "prevHead": "a1a84b0",
+      "handoffSha": "sha256:40ff30ec75fc44b56d5a356b414642cf03f2410501bf31b76151a5628f7d0e90",
+      "handoffAgeSec": 37,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781104149-0308",
+        "at": "2026-06-10T15:09:09Z",
+        "ts": 1781104149,
+        "trigger": "self",
+        "prevHead": "a1a84b0",
+        "handoffSha": "sha256:40ff30ec75fc44b56d5a356b414642cf03f2410501bf31b76151a5628f7d0e90",
+        "handoffAgeSec": 37,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781101269-3c17",
         "at": "2026-06-10T14:21:09Z",
@@ -779,17 +790,6 @@
         "prevHead": "106d777",
         "handoffSha": "sha256:3e91367d0f4ee01ebfd6231941bbe4944c0a1743baa03e880a27e4c358b38d10",
         "handoffAgeSec": 25,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781055488-6c40",
-        "at": "2026-06-10T01:38:08Z",
-        "ts": 1781055488,
-        "trigger": "self",
-        "prevHead": "65ca89f",
-        "handoffSha": "sha256:9623344d320e5aa98c66329e5f2f42a886e28677101c59c9c9387a1fe6d35f65",
-        "handoffAgeSec": 39,
         "conformanceBefore": null,
         "commitsInSession": null
       }
