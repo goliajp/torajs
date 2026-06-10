@@ -8,20 +8,26 @@
 //! Methodology (empirically established 2026-05-19 on torajs; see
 //! `hardev/environment.md` §4b and `hardev/metrics.md`):
 //!
-//! - **artifact_bytes is the only trustworthy regression signal** — it
-//!   is deterministic (same `tr` + same source ⇒ byte-identical
-//!   native binary). It is the **HARD GATE**: any per-case
-//!   artifact_bytes change is a regression suspect and makes the
+//! - **artifact content (SHA-256) is the only trustworthy regression
+//!   signal** — it is deterministic (same `tr` + same source ⇒
+//!   byte-identical native binary). It is the **HARD GATE**: any
+//!   per-case content change is a regression suspect and makes the
 //!   command exit non-zero, unless explicitly justified with
 //!   `--allow-artifact-delta case:runtime` (e.g. an intended runtime
-//!   relink, or known float linker-padding nondeterminism).
+//!   relink, or known float linker-padding nondeterminism). The gate
+//!   compares `artifact_sha256` when both sides carry it and falls
+//!   back to `artifact_bytes` (size) with a loud warning for pre-hash
+//!   result files — size-equality is NOT code-equality (Mach-O 16 KiB
+//!   segment alignment absorbs small text deltas; the size-only gate
+//!   silently skipped timed runs across the Cluster E inliner firing
+//!   on 8 cases).
 //!
 //! - **run_ms is never a hard gate.** On a loaded / cross-day mac it
 //!   swings ±15 % systematically and up to +200 % single-point. A
 //!   run_ms delta is only even *classified* as a possible regression
-//!   when the SAME case's artifact_bytes ALSO changed (machine code
+//!   when the SAME case's artifact content ALSO changed (machine code
 //!   actually differs, so a perf delta is physically plausible). If
-//!   artifact_bytes is identical, a run_ms delta is noise **by
+//!   the content is identical, a run_ms delta is noise **by
 //!   construction** (identical machine code = identical performance)
 //!   and is reported as informational only.
 
@@ -42,6 +48,12 @@ struct Row {
     status: String,
     run_ms: Option<f64>,
     artifact_bytes: Option<u64>,
+    // absent in result files written before the content-hash fix;
+    // serde fills None and the comparison falls back to size with a
+    // loud warning (size-equality is NOT code-equality — Mach-O
+    // 16 KiB segment alignment absorbs small text deltas)
+    #[serde(default)]
+    artifact_sha256: Option<String>,
 }
 
 fn load(path: &str) -> Result<BTreeMap<(String, String), Row>> {
@@ -54,13 +66,15 @@ fn load(path: &str) -> Result<BTreeMap<(String, String), Row>> {
         .collect())
 }
 
-/// hardev bench B2b — baseline artifact_bytes keyed by (case, runtime),
-/// for the `--vs` artifact-precheck. Reuses the same parser as
-/// `bench compare`; does not expose `Row`.
-pub fn load_artifacts(path: &str) -> Result<BTreeMap<(String, String), Option<u64>>> {
+/// hardev bench B2b — baseline artifact content hashes keyed by
+/// (case, runtime), for the `--vs` artifact-precheck. Reuses the same
+/// parser as `bench compare`; does not expose `Row`. Rows from
+/// pre-hash result files yield `None` (precheck treats them as
+/// unknown and forces the timed run).
+pub fn load_artifacts(path: &str) -> Result<BTreeMap<(String, String), Option<String>>> {
     Ok(load(path)?
         .into_iter()
-        .map(|(k, r)| (k, r.artifact_bytes))
+        .map(|(k, r)| (k, r.artifact_sha256))
         .collect())
 }
 
@@ -101,6 +115,7 @@ pub fn compare(args: &[String]) -> Result<bool> {
     let cur = load(&positional[1])?;
 
     let mut artifact_same = 0usize;
+    let mut size_only_fallback = 0usize;
     // (case, runtime, base_bytes, cur_bytes, justified)
     let mut artifact_delta: Vec<(String, String, u64, u64, bool)> = Vec::new();
     // (case, runtime, base_ms, cur_ms) — only where artifact ALSO changed
@@ -119,7 +134,20 @@ pub fn compare(args: &[String]) -> Result<bool> {
         let (Some(ba), Some(ca)) = (b.artifact_bytes, c.artifact_bytes) else {
             continue;
         };
-        if ba == ca {
+        // Content hash is the real "machine code unchanged" signal;
+        // size-equality is necessary but NOT sufficient (Mach-O
+        // 16 KiB segment alignment absorbs small text deltas). Fall
+        // back to size only when either file predates the hash field,
+        // and count those rows so the verdict can disclose the
+        // weaker comparison.
+        let identical = match (&b.artifact_sha256, &c.artifact_sha256) {
+            (Some(bh), Some(ch)) => bh == ch,
+            _ => {
+                size_only_fallback += 1;
+                ba == ca
+            }
+        };
+        if identical {
             artifact_same += 1;
             if b.run_ms.is_some() && c.run_ms.is_some() {
                 // identical machine code ⇒ any run delta is noise.
@@ -141,18 +169,29 @@ pub fn compare(args: &[String]) -> Result<bool> {
     println!("  baseline: {}", positional[0]);
     println!("  current:  {}", positional[1]);
     println!();
-    println!("artifact_bytes — HARD GATE (the only deterministic signal):");
+    println!("artifact content — HARD GATE (the only deterministic signal):");
     println!("  identical: {artifact_same}");
+    if size_only_fallback > 0 {
+        println!(
+            "  ⚠ {size_only_fallback} row(s) compared by SIZE ONLY (no artifact_sha256 \
+             in one side — pre-hash result file). Size-equality does not prove \
+             code-equality; re-record the baseline to restore the hash gate."
+        );
+    }
     if artifact_delta.is_empty() {
         println!("  delta:     0  ✓");
     } else {
         println!("  delta:     {}:", artifact_delta.len());
         for (case, rt, ba, ca, j) in &artifact_delta {
             let mark = if *j { "justified" } else { "‼ UNJUSTIFIED" };
-            println!(
-                "    {case} × {rt}: {ba} → {ca} ({:+}) [{mark}]",
-                *ca as i64 - *ba as i64
-            );
+            if ba == ca {
+                println!("    {case} × {rt}: size unchanged ({ba}), content hash differs [{mark}]");
+            } else {
+                println!(
+                    "    {case} × {rt}: {ba} → {ca} ({:+}) [{mark}]",
+                    *ca as i64 - *ba as i64
+                );
+            }
         }
     }
     println!();
@@ -173,11 +212,11 @@ pub fn compare(args: &[String]) -> Result<bool> {
 
     let unjustified = artifact_delta.iter().filter(|x| !x.4).count();
     if unjustified == 0 {
-        println!("VERDICT: PASS — 0 unjustified artifact_bytes regressions");
+        println!("VERDICT: PASS — 0 unjustified artifact content regressions");
         Ok(true)
     } else {
         println!(
-            "VERDICT: FAIL — {unjustified} unjustified artifact_bytes change(s). \
+            "VERDICT: FAIL — {unjustified} unjustified artifact content change(s). \
              Investigate, or justify intended ones with \
              --allow-artifact-delta case:runtime[,…]"
         );

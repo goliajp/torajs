@@ -185,6 +185,20 @@ pub fn aggregate(outcomes: Vec<RunOutcome>) -> RunOutcome {
         median(&af).map(|m| m.round() as u64)
     };
 
+    // artifact_sha256: keep only when every pass produced the same
+    // digest — a per-pass hash divergence means linker
+    // nondeterminism, and publishing any single pass's digest would
+    // make the next --vs precheck flag a phantom change.
+    let hashes: Vec<&String> = outcomes
+        .iter()
+        .filter_map(|o| o.artifact_sha256.as_ref())
+        .collect();
+    base.artifact_sha256 = if !hashes.is_empty() && hashes.iter().all(|h| *h == hashes[0]) {
+        Some(hashes[0].clone())
+    } else {
+        None
+    };
+
     // surface the first error if the aggregate failed; clear it otherwise
     base.error = if base.status == Status::Failed {
         outcomes.iter().find_map(|o| o.error.clone())

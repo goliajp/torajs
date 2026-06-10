@@ -18,8 +18,30 @@ pub struct RunOutcome {
     /// Size in bytes of the compiled artifact, for runners that produce one.
     /// `None` for interpreted runners (bun/node/python; tr-interp).
     pub artifact_bytes: Option<u64>,
+    /// SHA-256 (hex) of the compiled artifact's contents. The actual
+    /// "machine code unchanged" signal: equal size does NOT imply
+    /// equal code — Mach-O 16 KiB segment alignment absorbs small
+    /// text-section deltas, so a size-only comparison reports
+    /// "identical" across real codegen changes (observed: the Cluster
+    /// E inliner firing on 8 bench cases with every artifact size
+    /// unchanged). `None` for interpreted runners and for result
+    /// files written before this field existed.
+    pub artifact_sha256: Option<String>,
     pub stdout_match: Option<bool>,
     pub error: Option<String>,
+}
+
+/// Hex-encoded SHA-256 of a file's contents, via the in-house
+/// `torajs_link::sha256` (the codesign digest — no external dep).
+fn file_sha256_hex(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    let digest = torajs_link::sha256::sha256(&bytes);
+    let mut hex = String::with_capacity(64);
+    for b in digest {
+        use std::fmt::Write;
+        let _ = write!(hex, "{b:02x}");
+    }
+    Some(hex)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -41,6 +63,7 @@ impl RunOutcome {
             run_ms: None,
             run_stddev_ms: None,
             artifact_bytes: None,
+            artifact_sha256: None,
             stdout_match: None,
             error: Some(reason),
         }
@@ -95,6 +118,7 @@ pub fn run_one(
         run_ms: None,
         run_stddev_ms: None,
         artifact_bytes: None,
+        artifact_sha256: None,
         stdout_match: None,
         error: None,
     };
@@ -155,6 +179,7 @@ pub fn run_one(
         // Compile produced an artifact at {out}; capture its byte size.
         if let Ok(meta) = std::fs::metadata(&out_path) {
             outcome.artifact_bytes = Some(meta.len());
+            outcome.artifact_sha256 = file_sha256_hex(&out_path);
         }
         // CRITICAL — clean up `bun build --compile`'s scratch cache
         // files (`.HEX-NNNN.bun-build`). They land in cwd regardless
@@ -238,6 +263,7 @@ pub fn artifact_only(
         run_ms: None,
         run_stddev_ms: None,
         artifact_bytes: None,
+        artifact_sha256: None,
         stdout_match: None,
         error: None,
     };
@@ -280,6 +306,7 @@ pub fn artifact_only(
     }
     if let Ok(meta) = std::fs::metadata(&out_path) {
         outcome.artifact_bytes = Some(meta.len());
+        outcome.artifact_sha256 = file_sha256_hex(&out_path);
     }
     Ok(outcome)
 }

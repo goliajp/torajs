@@ -8,3 +8,7 @@ anyhow = "1.0.102"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 toml = "1.1.2"
+# in-house SHA-256 (the codesign digest) for artifact content hashing —
+# size-only artifact comparison is blind to code changes absorbed by
+# Mach-O 16 KiB segment alignment
+torajs-link = { path = "../../crates/torajs-link" }

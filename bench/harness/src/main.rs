@@ -303,12 +303,21 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     std::fs::create_dir_all(&work_dir).context("creating work_dir")?;
 
     // hardev bench B2b — artifact-precheck. If every selected case's
-    // torajs artifact_bytes is byte-identical to the baseline, the
-    // machine code is unchanged ⇒ no perf regression is physically
-    // possible ⇒ skip the (minutes-long) timed runs entirely
-    // (seconds). The instant ANY artifact differs / is unknown we
-    // fall through to the full timed measurement, so coverage is
-    // never reduced (first hard rule). Safe by construction.
+    // torajs artifact content hash (SHA-256) is identical to the
+    // baseline, the machine code is unchanged ⇒ no perf regression is
+    // physically possible ⇒ skip the (minutes-long) timed runs
+    // entirely (seconds). The instant ANY artifact differs / is
+    // unknown we fall through to the full timed measurement, so
+    // coverage is never reduced (first hard rule).
+    //
+    // The comparison MUST be on content hash, never on size alone:
+    // Mach-O 16 KiB segment alignment absorbs small text-section
+    // deltas, so equal size does NOT imply equal code (a size-only
+    // precheck silently skipped timed runs across the Cluster E
+    // inliner firing on 8 cases). Baselines written before
+    // artifact_sha256 existed have no hash → those cases count as
+    // unknown and force the timed run (re-record the baseline to
+    // re-enable the fast path).
     if let Some(base_path) = &vs_baseline {
         let Some(tr_runner) = runners.iter().find(|r| r.name == "torajs") else {
             anyhow::bail!(
@@ -318,25 +327,24 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
         };
         let base = compare::load_artifacts(base_path)?;
         let mut identical = 0usize;
-        let mut changed: Vec<(String, u64, u64)> = Vec::new();
+        let mut changed: Vec<String> = Vec::new();
         let mut unknown: Vec<String> = Vec::new();
         for c in &cases {
             let cur = bench::artifact_only(c, tr_runner, &work_dir, workspace)?;
-            match (
-                cur.artifact_bytes,
-                base.get(&(c.name.clone(), "torajs".to_string()))
-                    .copied()
-                    .flatten(),
-            ) {
-                (Some(cb), Some(bb)) if cb == bb => identical += 1,
-                (Some(cb), Some(bb)) => changed.push((c.name.clone(), bb, cb)),
+            let base_hash = base
+                .get(&(c.name.clone(), "torajs".to_string()))
+                .cloned()
+                .flatten();
+            match (cur.artifact_sha256, base_hash) {
+                (Some(ch), Some(bh)) if ch == bh => identical += 1,
+                (Some(_), Some(_)) => changed.push(c.name.clone()),
                 _ => unknown.push(c.name.clone()),
             }
         }
         if changed.is_empty() && unknown.is_empty() && identical > 0 {
             println!(
                 "hardev B2b artifact-precheck: all {identical} torajs artifact(s) \
-                 byte-identical to {base_path}\n  → machine code unchanged → \
+                 content-hash-identical to {base_path}\n  → machine code unchanged → \
                  0 perf regression by construction → timed runs SKIPPED."
             );
             let _ = std::fs::remove_dir_all(&work_dir);
@@ -349,14 +357,14 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
             changed.len(),
             unknown.len()
         );
-        for (case, bb, cb) in &changed {
-            eprintln!(
-                "    changed: {case}  {bb} → {cb} ({:+})",
-                *cb as i64 - *bb as i64
-            );
+        for case in &changed {
+            eprintln!("    changed: {case} (content hash differs)");
         }
         for case in &unknown {
-            eprintln!("    unknown: {case} (not in baseline or compile skipped/failed)");
+            eprintln!(
+                "    unknown: {case} (no hash in baseline / not in baseline / \
+                 compile skipped or failed)"
+            );
         }
     }
 
