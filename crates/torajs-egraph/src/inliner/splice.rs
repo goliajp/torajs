@@ -46,10 +46,10 @@ pub enum SpliceError {
     /// `callee.blocks.len() != 1`. Phase 1 narrow scope; multi-block
     /// inlining (block-split + Φ-node handling) arrives in Phase 2.
     NotSingleBlock,
-    /// Callee body contains `Call` or `CallIndirect`. Not a leaf.
-    /// Phase 0's `would_inline` predicate implicitly filters these out
-    /// via the cost-budget; the runtime check here makes the contract
-    /// explicit for direct API callers (tests, future drivers).
+    /// Historical (Phase 1.0a–2.0c): callee body contained a nested
+    /// `Call` / `CallIndirect`. Lifted in Phase 2.1 — nested calls
+    /// clone verbatim. Kept as unreachable surface (mirrors
+    /// `AllocaInBody`).
     NotLeaf,
     /// Callee terminator is not `Ret(_)`. Phase 2+ handles inlined
     /// callees whose CFG re-joins the caller via a return-block
@@ -110,21 +110,15 @@ pub fn inline_single_block_leaf(
         return Err(SpliceError::NotSingleBlock);
     }
     let callee_blk = &callee.blocks[0];
-    for inst in &callee_blk.insts {
-        if matches!(
-            inst.kind,
-            InstKind::Call(_, _) | InstKind::CallIndirect(_, _, _)
-        ) {
-            return Err(SpliceError::NotLeaf);
-        }
-        // Phase 2.0c-A2: AllocaInBody guard lifted. Single-block
-        // splice does not split the caller block, so cloned Allocas
-        // land in the caller's existing block with fresh ValueIds and
-        // are picked up by codegen's per-function alloca scan exactly
-        // as if the user had written them inline. The `AllocaInBody`
-        // enum variant is kept as unreachable surface for future use
-        // (frame-size budget guard, lifetime analysis).
-    }
+    // Phase 2.1: NotLeaf guard lifted (see splice2.rs rationale) —
+    // nested `Call` / `CallIndirect` insts clone verbatim with their
+    // operands remapped; FuncId / SigId are module-level. Phase
+    // 2.0c-A2: AllocaInBody guard lifted. Single-block splice does
+    // not split the caller block, so cloned Allocas land in the
+    // caller's existing block with fresh ValueIds and are picked up
+    // by codegen's per-function alloca scan exactly as if the user
+    // had written them inline. Both enum variants are kept as
+    // unreachable surface.
     let ret_operand = match &callee_blk.term {
         Terminator::Ret(opt) => opt.clone(),
         _ => return Err(SpliceError::NotRetTerminator),
@@ -386,7 +380,9 @@ mod tests {
     }
 
     #[test]
-    fn splice_rejects_non_leaf_callee() {
+    fn splice_clones_nested_call_through() {
+        // Phase 2.1: a non-leaf callee inlines fine — its nested call
+        // is cloned verbatim into the caller body.
         let non_leaf = Function {
             name: "calls_other".into(),
             params: vec![],
@@ -401,7 +397,12 @@ mod tests {
         };
         let mut caller = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
         let res = inline_single_block_leaf(&mut caller, 0, 0, &non_leaf, &[], None);
-        assert_eq!(res, Err(SpliceError::NotLeaf));
+        assert_eq!(res, Ok(()));
+        assert_eq!(caller.blocks[0].insts.len(), 1);
+        assert!(
+            matches!(caller.blocks[0].insts[0].kind, InstKind::Call(FuncId(2), _)),
+            "nested call must survive the splice with its callee FuncId intact"
+        );
     }
 
     #[test]

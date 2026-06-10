@@ -48,6 +48,7 @@
 mod rewrite;
 mod splice;
 mod splice2;
+mod splice2_emit;
 
 use crate::cost::{Cost, cost_of_kind};
 use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, ValueId};
@@ -71,11 +72,15 @@ pub struct InlineBudget {
     /// `would_inline` decisions sum past this, further sites for the
     /// same caller are skipped with `SkipReason::CallerBudgetExhausted`.
     pub caller_total_budget: Cost,
-    /// Maximum recursion depth allowed via inlining. Phase 0 default is
-    /// `0` — direct self-recursive call sites are always rejected with
-    /// `SkipReason::Recursion`. A non-zero value reserves API surface
-    /// for Phase 2+ bounded recursive inlining; the call-graph cycle
-    /// detector that pairs with it is not in this commit.
+    /// Maximum recursion depth allowed via inlining. `0` rejects
+    /// every direct self-recursive call site with
+    /// `SkipReason::Recursion`. `1` (the Phase 2.1 default, the
+    /// GCC `max-inline-recursive-depth` shape) lets a self-call
+    /// site inline its own body once — the emit pass is one-shot
+    /// over the sites captured before splicing, so the recursive
+    /// calls cloned in by the splice are never themselves inlined
+    /// within the same compile. Values > 1 are reserved (an
+    /// iterative emit pass would be needed to honor them).
     pub max_recursion_depth: u32,
 }
 
@@ -84,7 +89,7 @@ impl Default for InlineBudget {
         Self {
             callee_cost_ceiling: Cost::new(225),
             caller_total_budget: Cost::new(675),
-            max_recursion_depth: 0,
+            max_recursion_depth: 1,
         }
     }
 }
@@ -171,6 +176,12 @@ pub struct InlinerStats {
     /// `candidates` because at Phase 0 they are categorically out of
     /// scope rather than a per-site cost-benefit miss.
     pub skipped_indirect: u32,
+    /// Sites approved by the classifier but skipped at emit because
+    /// the callee's live body cost exceeded the ceiling by then — an
+    /// earlier splice in the same pass (self-inline, or a callee
+    /// processed earlier as a caller) grew it past the precomputed
+    /// cost the classifier saw. Phase 2.1 stale-cost guard.
+    pub skipped_live_cost: u32,
 }
 
 /// Sum `cost_of_kind` over every instruction in every block of `func`.
@@ -353,8 +364,39 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
         // Reverse-sort so deeper sites splice first; lower-index
         // targets keep their captured `site_idx` valid.
         targets.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+        // Self-recursive sites splice from a snapshot taken before any
+        // splice in this caller fires, so every recursive site inlines
+        // the ORIGINAL body (the GCC recursive-inlining shape). Without
+        // this, the second self-site would clone a body already grown
+        // by the first splice — compounding growth within one pass.
+        let self_snapshot: Option<Function> = if targets
+            .iter()
+            .any(|(_, _, cid, _, _)| cid.0 as usize == caller_idx)
+        {
+            Some(module.funcs[caller_idx].clone())
+        } else {
+            None
+        };
         for (blk_idx, site_idx, callee_id, args, result_value) in targets {
-            let callee_clone = module.funcs[callee_id.0 as usize].clone();
+            let callee_clone;
+            let callee_ref: &Function = if callee_id.0 as usize == caller_idx {
+                self_snapshot
+                    .as_ref()
+                    .expect("snapshot taken when any self target exists")
+            } else {
+                callee_clone = module.funcs[callee_id.0 as usize].clone();
+                &callee_clone
+            };
+            // Stale-cost guard: the classifier priced this callee from
+            // the costs precomputed at pass start, but a splice that
+            // already fired in this same pass (a callee processed
+            // earlier as a caller) may have grown the body since.
+            // Re-price the live clone and skip rather than splice an
+            // oversized body.
+            if callee_body_cost(callee_ref) > budget.callee_cost_ceiling {
+                stats.skipped_live_cost += 1;
+                continue;
+            }
             let caller = &mut module.funcs[caller_idx];
             // Phase 1.0a fast path: single-block leaf. If the callee's
             // shape is outside that envelope (multi-block / branchy
@@ -363,7 +405,7 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
                 caller,
                 blk_idx,
                 site_idx,
-                &callee_clone,
+                callee_ref,
                 &args,
                 result_value,
             ) {
@@ -376,7 +418,7 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
                         caller,
                         blk_idx,
                         site_idx,
-                        &callee_clone,
+                        callee_ref,
                         &args,
                         result_value,
                     )
@@ -540,13 +582,150 @@ mod tests {
     }
 
     #[test]
-    fn self_recursive_call_is_rejected_at_default_depth_zero() {
+    fn self_recursive_call_is_rejected_at_depth_zero() {
         let main = caller("main", vec![void_inst(InstKind::Call(FuncId(0), vec![]))]);
         let mut m = module_of(vec![main]);
-        let stats = inline_module(&mut m);
+        let budget = InlineBudget {
+            max_recursion_depth: 0,
+            ..InlineBudget::default()
+        };
+        let stats = inline_module_with_budget(&mut m, budget);
         assert_eq!(stats.candidates, 1);
         assert_eq!(stats.skipped_recursion, 1);
         assert_eq!(stats.would_inline, 0);
+    }
+
+    /// fib-shaped self-recursive callee: 2 self-call sites, 2
+    /// value-bearing rets. At the Phase 2.1 default
+    /// (`max_recursion_depth: 1`) both sites inline ONE level — each
+    /// splice clones the ORIGINAL 2-site body (taken from the
+    /// pre-splice snapshot), so the result holds exactly 4 recursive
+    /// call sites. A compounding clone (snapshot bug) would yield 6.
+    fn fib_like() -> Function {
+        Function {
+            name: "fib".into(),
+            params: vec![ValueId(0)],
+            ret: Type::I64,
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: vec![val_inst(
+                        ValueId(1),
+                        InstKind::ICmp(
+                            torajs_core::ssa::IPred::Slt,
+                            Operand::Value(ValueId(0)),
+                            Operand::ConstI64(2),
+                        ),
+                    )],
+                    term: Terminator::CondBr {
+                        cond: Operand::Value(ValueId(1)),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![],
+                    term: Terminator::Ret(Some(Operand::Value(ValueId(0)))),
+                },
+                Block {
+                    id: BlockId(2),
+                    insts: vec![
+                        val_inst(
+                            ValueId(2),
+                            InstKind::Call(FuncId(0), vec![Operand::Value(ValueId(0))]),
+                        ),
+                        val_inst(
+                            ValueId(3),
+                            InstKind::Call(FuncId(0), vec![Operand::Value(ValueId(0))]),
+                        ),
+                        val_inst(
+                            ValueId(4),
+                            InstKind::BinOp(
+                                BinOp::Add,
+                                Operand::Value(ValueId(2)),
+                                Operand::Value(ValueId(3)),
+                            ),
+                        ),
+                    ],
+                    term: Terminator::Ret(Some(Operand::Value(ValueId(4)))),
+                },
+            ],
+            values: vec![
+                ValueInfo {
+                    ty: Type::I64,
+                    name: Some("n".into()),
+                },
+                ValueInfo {
+                    ty: Type::Bool,
+                    name: None,
+                },
+                ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                },
+                ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                },
+                ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                },
+            ],
+            current_origin: None,
+        }
+    }
+
+    #[test]
+    fn self_recursive_sites_inline_one_level_from_snapshot() {
+        let mut m = module_of(vec![fib_like()]);
+        let stats = inline_module(&mut m);
+        assert_eq!(stats.candidates, 2);
+        assert_eq!(stats.would_inline, 2);
+        assert_eq!(stats.inlined, 2, "both self-sites splice at depth 1");
+        let recursive_sites: usize = m.funcs[0]
+            .blocks
+            .iter()
+            .flat_map(|b| &b.insts)
+            .filter(|i| matches!(i.kind, InstKind::Call(FuncId(0), _)))
+            .count();
+        assert_eq!(
+            recursive_sites, 4,
+            "each of the 2 sites clones the ORIGINAL 2-site body (snapshot); \
+             6 would mean the second splice cloned the already-grown body"
+        );
+    }
+
+    #[test]
+    fn stale_cost_guard_skips_callee_grown_within_pass() {
+        // funcs[0] = b: 150 ALU + 1 self-call (cost 152 ≤ 225). As a
+        // caller it self-inlines first and roughly doubles. funcs[1] =
+        // a: calls b — the classifier approved the site against b's
+        // precomputed cost, but the emit-side live re-price sees the
+        // grown body and must skip.
+        let mut b = alu_body("b", 150);
+        b.blocks[0]
+            .insts
+            .push(void_inst(InstKind::Call(FuncId(0), vec![])));
+        b.blocks[0].term = Terminator::Ret(None);
+        let a = caller("a", vec![void_inst(InstKind::Call(FuncId(0), vec![]))]);
+        let mut m = module_of(vec![b, a]);
+        let stats = inline_module(&mut m);
+        assert_eq!(
+            stats.skipped_live_cost, 1,
+            "a's site must hit the live-cost guard"
+        );
+        let b_cost = callee_body_cost(&m.funcs[0]);
+        assert!(
+            b_cost > Cost::new(225),
+            "precondition: b must have grown past the ceiling (got {b_cost:?})"
+        );
+        // a's body is untouched — its call to b survives
+        assert!(matches!(
+            m.funcs[1].blocks[0].insts[0].kind,
+            InstKind::Call(FuncId(0), _)
+        ));
     }
 
     #[test]
