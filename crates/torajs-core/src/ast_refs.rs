@@ -22,9 +22,13 @@ use std::collections::HashSet;
 
 pub struct ToplevelBindingRefs {
     /// Names referenced anywhere inside a named (non-lifted) fn body.
-    /// Over-approximate: fn-local shadows count too, which is safe —
-    /// a needlessly promoted slot is shadowed by the local at lower
-    /// time, while a missed name just keeps today's behavior.
+    /// Over-approximate: fn-local `let` shadows count too, which is
+    /// safe — a needlessly promoted slot is shadowed by the local at
+    /// lower time, while a missed name just keeps today's behavior.
+    /// Param shadows do NOT count: a param name covers the whole fn
+    /// body (fn scope), so an ident spelled like the param can never
+    /// resolve to the top-level binding — excluding it is exact, and
+    /// keeps a same-named top-level binding localizable.
     pub named_fn_refs: HashSet<String>,
     /// Names captured by any closure (flat scan over `Expr::Closure`
     /// capture lists, which `lift_arrow_fns` computed with proper
@@ -41,8 +45,9 @@ pub fn toplevel_binding_refs(ast: &Ast) -> ToplevelBindingRefs {
             if params.first().is_some_and(|p| p.name == "__env") {
                 continue;
             }
+            let shadow: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
             for s in body {
-                idents_in_stmt(ast, s, &mut named_fn_refs);
+                idents_in_stmt(ast, s, &shadow, &mut named_fn_refs);
             }
         }
     }
@@ -116,40 +121,40 @@ pub fn infer_toplevel_slot_shape(ast: &Ast, init: ExprId) -> Option<GlobalSlotSh
     }
 }
 
-fn idents_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
+fn idents_in_stmt(ast: &Ast, s: &Stmt, shadow: &HashSet<String>, out: &mut HashSet<String>) {
     match s {
-        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => idents_in_expr(ast, *e, out),
-        Stmt::LetDecl { init, .. } => idents_in_expr(ast, *init, out),
+        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => idents_in_expr(ast, *e, shadow, out),
+        Stmt::LetDecl { init, .. } => idents_in_expr(ast, *init, shadow, out),
         Stmt::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            idents_in_expr(ast, *cond, out);
-            idents_in_stmt(ast, then_branch, out);
+            idents_in_expr(ast, *cond, shadow, out);
+            idents_in_stmt(ast, then_branch, shadow, out);
             if let Some(eb) = else_branch {
-                idents_in_stmt(ast, eb, out);
+                idents_in_stmt(ast, eb, shadow, out);
             }
         }
         Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
-            idents_in_expr(ast, *cond, out);
-            idents_in_stmt(ast, body, out);
+            idents_in_expr(ast, *cond, shadow, out);
+            idents_in_stmt(ast, body, shadow, out);
         }
         Stmt::Switch {
             scrutinee,
             cases,
             default,
         } => {
-            idents_in_expr(ast, *scrutinee, out);
+            idents_in_expr(ast, *scrutinee, shadow, out);
             for c in cases {
-                idents_in_expr(ast, c.value, out);
+                idents_in_expr(ast, c.value, shadow, out);
                 for cs in &c.body {
-                    idents_in_stmt(ast, cs, out);
+                    idents_in_stmt(ast, cs, shadow, out);
                 }
             }
             if let Some(d) = default {
                 for ds in d {
-                    idents_in_stmt(ast, ds, out);
+                    idents_in_stmt(ast, ds, shadow, out);
                 }
             }
         }
@@ -160,22 +165,22 @@ fn idents_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
             body,
         } => {
             if let Some(i) = init {
-                idents_in_stmt(ast, i, out);
+                idents_in_stmt(ast, i, shadow, out);
             }
             if let Some(c) = cond {
-                idents_in_expr(ast, *c, out);
+                idents_in_expr(ast, *c, shadow, out);
             }
             if let Some(st) = step {
-                idents_in_expr(ast, *st, out);
+                idents_in_expr(ast, *st, shadow, out);
             }
-            idents_in_stmt(ast, body, out);
+            idents_in_stmt(ast, body, shadow, out);
         }
         Stmt::ForOfSplitIter {
             parent, sep, body, ..
         } => {
-            idents_in_expr(ast, *parent, out);
-            idents_in_expr(ast, *sep, out);
-            idents_in_stmt(ast, body, out);
+            idents_in_expr(ast, *parent, shadow, out);
+            idents_in_expr(ast, *sep, shadow, out);
+            idents_in_stmt(ast, body, shadow, out);
         }
         Stmt::ForOf {
             src_ident,
@@ -183,9 +188,11 @@ fn idents_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
             body,
             ..
         } => {
-            out.insert(src_ident.clone());
-            idents_in_expr(ast, *elem_expr, out);
-            idents_in_stmt(ast, body, out);
+            if !shadow.contains(src_ident) {
+                out.insert(src_ident.clone());
+            }
+            idents_in_expr(ast, *elem_expr, shadow, out);
+            idents_in_stmt(ast, body, shadow, out);
         }
         Stmt::Try {
             body,
@@ -194,43 +201,51 @@ fn idents_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
             ..
         } => {
             for bs in body {
-                idents_in_stmt(ast, bs, out);
+                idents_in_stmt(ast, bs, shadow, out);
             }
             for cs in catch_body {
-                idents_in_stmt(ast, cs, out);
+                idents_in_stmt(ast, cs, shadow, out);
             }
             if let Some(fb) = finally_body {
                 for fs in fb {
-                    idents_in_stmt(ast, fs, out);
+                    idents_in_stmt(ast, fs, shadow, out);
                 }
             }
         }
         Stmt::Block(v) | Stmt::Multi(v) => {
             for bs in v {
-                idents_in_stmt(ast, bs, out);
+                idents_in_stmt(ast, bs, shadow, out);
             }
         }
-        Stmt::FnDecl { body, .. } => {
+        Stmt::FnDecl { params, body, .. } => {
+            // nested fn (pre-desugar shape): its params shadow on top
+            // of the enclosing fn's — an ident matching either set
+            // can't resolve to a top-level binding from in here
+            let inner: HashSet<String> = shadow
+                .iter()
+                .cloned()
+                .chain(params.iter().map(|p| p.name.clone()))
+                .collect();
             for bs in body {
-                idents_in_stmt(ast, bs, out);
+                idents_in_stmt(ast, bs, &inner, out);
             }
         }
         Stmt::Return(maybe) => {
             if let Some(e) = maybe {
-                idents_in_expr(ast, *e, out);
+                idents_in_expr(ast, *e, shadow, out);
             }
         }
-        Stmt::YieldInto { value, .. } => idents_in_expr(ast, *value, out),
+        Stmt::YieldInto { value, .. } => idents_in_expr(ast, *value, shadow, out),
         Stmt::ExportDecl {
             inner,
             default_expr,
             ..
         } => {
             if let Some(i) = inner {
-                idents_in_stmt(ast, i, out);
+                idents_in_stmt(ast, i, shadow, out);
             }
             if let Some(de) = default_expr {
-                idents_in_expr(ast, *de, out);
+                idents_in_expr(ast, *de, shadow, out);
             }
         }
         // No expressions inside (Break / Continue / TypeDecl /
@@ -241,53 +256,63 @@ fn idents_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
     }
 }
 
-fn idents_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSet<String>) {
+fn idents_in_expr(ast: &Ast, eid: ExprId, shadow: &HashSet<String>, out: &mut HashSet<String>) {
     match ast.get_expr(eid) {
         Expr::Ident(n) => {
-            out.insert(n.clone());
+            if !shadow.contains(n) {
+                out.insert(n.clone());
+            }
         }
         Expr::Call { callee, args } => {
-            idents_in_expr(ast, *callee, out);
+            idents_in_expr(ast, *callee, shadow, out);
             for a in args {
-                idents_in_expr(ast, *a, out);
+                idents_in_expr(ast, *a, shadow, out);
             }
         }
         Expr::BinOp { left, right, .. } => {
-            idents_in_expr(ast, *left, out);
-            idents_in_expr(ast, *right, out);
+            idents_in_expr(ast, *left, shadow, out);
+            idents_in_expr(ast, *right, shadow, out);
         }
         Expr::Unary { expr, .. }
         | Expr::TypeOf { expr }
         | Expr::Spread { expr }
         | Expr::InstanceOf { expr, .. }
-        | Expr::As { expr, .. } => idents_in_expr(ast, *expr, out),
-        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => idents_in_expr(ast, *obj, out),
+        | Expr::As { expr, .. } => idents_in_expr(ast, *expr, shadow, out),
+        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
+            idents_in_expr(ast, *obj, shadow, out)
+        }
         Expr::Assign { target, value } => {
-            idents_in_expr(ast, *target, out);
-            idents_in_expr(ast, *value, out);
+            idents_in_expr(ast, *target, shadow, out);
+            idents_in_expr(ast, *value, shadow, out);
         }
         Expr::Index { obj, index } => {
-            idents_in_expr(ast, *obj, out);
-            idents_in_expr(ast, *index, out);
+            idents_in_expr(ast, *obj, shadow, out);
+            idents_in_expr(ast, *index, shadow, out);
         }
         Expr::Array(elems) => {
             for e in elems {
-                idents_in_expr(ast, *e, out);
+                idents_in_expr(ast, *e, shadow, out);
             }
         }
         Expr::ObjectLit { fields } => {
             for (_, e) in fields {
-                idents_in_expr(ast, *e, out);
+                idents_in_expr(ast, *e, shadow, out);
             }
         }
-        Expr::ArrowFn { body, .. } => {
+        Expr::ArrowFn { params, body, .. } => {
+            // arrow params shadow on top of the enclosing fn's
+            let inner: HashSet<String> = shadow
+                .iter()
+                .cloned()
+                .chain(params.iter().map(|p| p.name.clone()))
+                .collect();
             for s in body {
-                idents_in_stmt(ast, s, out);
+                idents_in_stmt(ast, s, &inner, out);
             }
         }
         Expr::New { args, .. } | Expr::Super { args } => {
             for a in args {
-                idents_in_expr(ast, *a, out);
+                idents_in_expr(ast, *a, shadow, out);
             }
         }
         Expr::Ternary {
@@ -295,19 +320,19 @@ fn idents_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSet<String>) {
             then_branch,
             else_branch,
         } => {
-            idents_in_expr(ast, *cond, out);
-            idents_in_expr(ast, *then_branch, out);
-            idents_in_expr(ast, *else_branch, out);
+            idents_in_expr(ast, *cond, shadow, out);
+            idents_in_expr(ast, *then_branch, shadow, out);
+            idents_in_expr(ast, *else_branch, shadow, out);
         }
         Expr::Sequence { left, right }
         | Expr::Nullish {
             lhs: left,
             rhs: right,
         } => {
-            idents_in_expr(ast, *left, out);
-            idents_in_expr(ast, *right, out);
+            idents_in_expr(ast, *left, shadow, out);
+            idents_in_expr(ast, *right, shadow, out);
         }
-        Expr::PostIncr { target, .. } => idents_in_expr(ast, *target, out),
+        Expr::PostIncr { target, .. } => idents_in_expr(ast, *target, shadow, out),
         // Closure captures are collected by the flat Expr::Closure
         // scan in toplevel_binding_refs; the lifted body is a
         // top-level FnDecl that the named-fn loop already skips.

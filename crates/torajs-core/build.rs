@@ -44,6 +44,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower.rs",
     "src/ast_refs.rs",
     "src/ssa_lower_substr_trim_into.rs",
+    "src/ssa_lower_toplevel_globals.rs",
     "src/ssa_lower_while_push_fast.rs",
     "src/ssa_lower_push_loop_detect.rs",
     "src/ssa_lower_body_returns_closure.rs",
