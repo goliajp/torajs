@@ -86,8 +86,8 @@ pub(crate) const ARR_DATA_OFF: u64 = 24;
 /// `__torajs_obj_alloc` stays the underlying allocator (plain malloc);
 /// the lowerer writes the universal header at the closure construction
 /// site via `emit_obj_header_init` adapted for type_tag=CLOSURE.
-const CLOSURE_FN_ADDR_OFF: u64 = 8;
-const CLOSURE_DROP_FN_OFF: u64 = 16;
+pub const CLOSURE_FN_ADDR_OFF: u64 = 8;
+pub const CLOSURE_DROP_FN_OFF: u64 = 16;
 const CLOSURE_PROPS_OFF: u64 = 24;
 const CLOSURE_CAP_BASE_OFF: u64 = 32;
 

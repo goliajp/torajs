@@ -63,6 +63,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     // torajs-egraph mid-end (SSA → SSA between lower and codegen)
     "../torajs-egraph/src/lib.rs",
     "../torajs-egraph/src/cost.rs",
+    "../torajs-egraph/src/devirt.rs",
     "../torajs-egraph/src/dominator.rs",
     "../torajs-egraph/src/egraph.rs",
     "../torajs-egraph/src/elaborate.rs",
@@ -70,6 +71,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "../torajs-egraph/src/inliner/rewrite.rs",
     "../torajs-egraph/src/inliner/splice.rs",
     "../torajs-egraph/src/inliner/splice2.rs",
+    "../torajs-egraph/src/inliner/splice2_emit.rs",
     "../torajs-egraph/src/loop_analysis.rs",
     "../torajs-egraph/src/optimize.rs",
     "../torajs-egraph/src/rc_peephole.rs",

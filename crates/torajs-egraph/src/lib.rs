@@ -19,6 +19,7 @@
 //! rule cluster.
 
 pub mod cost;
+pub mod devirt;
 pub mod dominator;
 pub mod egraph;
 pub mod elaborate;
@@ -104,6 +105,22 @@ pub fn transform_module(mut module: Module) -> Module {
     // bucket holds the production call sites a given corpus exposes).
     if std::env::var("TORAJS_INLINER_STATS").as_deref() == Ok("1") {
         eprintln!("torajs-inliner-stats: {inliner_stats:?}");
+    }
+    // Indirect-call promotion — after the first inliner round (which
+    // exposes fn-pointer slots by splicing fn-typed params into
+    // callers), before a second round that inlines the promoted
+    // direct calls. `TORAJS_DEVIRT_OFF=1` skips (bisect gate).
+    if std::env::var("TORAJS_DEVIRT_OFF").as_deref() != Ok("1") {
+        let devirt_stats = devirt::devirtualize_module(&mut module);
+        if std::env::var("TORAJS_DEVIRT_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-devirt-stats: {devirt_stats:?}");
+        }
+        if devirt_stats.rewritten > 0 {
+            let round2 = inliner::inline_module(&mut module);
+            if std::env::var("TORAJS_INLINER_STATS").as_deref() == Ok("1") {
+                eprintln!("torajs-inliner-stats-round2: {round2:?}");
+            }
+        }
     }
     for func in module.funcs.iter_mut() {
         let new_func = EgraphPass::new(func).run();

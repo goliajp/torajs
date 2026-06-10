@@ -132,7 +132,7 @@ fn find_func(module: &Module, name: &str) -> Option<u32> {
 /// value, returned, branched on, dynamic addressing) escapes it —
 /// after that, stores through unknown pointers could alias it and the
 /// block-local store-generation counting below would be unsound.
-fn collect_unescaped_slots(func: &Function) -> HashSet<ValueId> {
+pub(crate) fn collect_unescaped_slots(func: &Function) -> HashSet<ValueId> {
     let mut slots: HashSet<ValueId> = HashSet::new();
     for block in &func.blocks {
         for inst in &block.insts {
@@ -183,7 +183,7 @@ fn collect_unescaped_slots(func: &Function) -> HashSet<ValueId> {
 /// exhaustive operand enumeration of `inliner/rewrite.rs`; `Load` /
 /// `Store` callers special-case their address positions before
 /// reaching this.
-fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
+pub(crate) fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
     let mut v = |op: &Operand| {
         if let Operand::Value(x) = op {
             f(*x);
