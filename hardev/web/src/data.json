@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-10T05:10:06.810Z",
+  "generatedAt": "2026-06-10T05:50:05.158Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "972e4cf",
-    "commitSubject": "fix(ssa_lower): coerce Any into Str/numeric slots at assign sites instead of panicking",
+    "commit": "588b890",
+    "commitSubject": "fix(core): share ownership on same-scope let copies; allow borrowed aliases to escape via return/throw",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,18 @@
   },
   "commits": [
     {
+      "hash": "588b890",
+      "subject": "fix(core): share ownership on same-scope let copies; allow borrowed aliases to escape via return/throw"
+    },
+    {
+      "hash": "17fa05c",
+      "subject": "fix(ssa_lower): retain at throw boundary for borrowed refcounted sources"
+    },
+    {
+      "hash": "0385557",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 972e4cf (RC-correctness cluster items 1+2 close)"
+    },
+    {
       "hash": "972e4cf",
       "subject": "fix(ssa_lower): coerce Any into Str/numeric slots at assign sites instead of panicking"
     },
@@ -650,39 +662,38 @@
     {
       "hash": "269253d",
       "subject": "feat(P-OPT Cluster E Phase 2.0c-B): lift RefcountedTypeNotSupported guard — splice is RC-semantics-preserving"
-    },
-    {
-      "hash": "eb4a420",
-      "subject": "fix(ssa_lower): retain borrowed bindings at return so callers own the +1 they drop"
-    },
-    {
-      "hash": "65ca89f",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD dbcc923 (Phase 2.0c-A close)"
-    },
-    {
-      "hash": "dbcc923",
-      "subject": "feat(P-OPT Cluster E Phase 2.0c-A2): lift AllocaInBody guard, renumber post-splice BlockIds to restore the BlockId.0 == position invariant"
     }
   ],
-  "headSha": "972e4cf",
+  "headSha": "588b890",
   "autorun": {
-    "total": 104,
+    "total": 105,
     "baselineTarget": 10,
-    "bySelf": 102,
+    "bySelf": 103,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781060143-6a52",
-      "at": "2026-06-10T02:55:43Z",
-      "ts": 1781060143,
+      "rotationId": "r-1781068278-5ebf",
+      "at": "2026-06-10T05:11:18Z",
+      "ts": 1781068278,
       "trigger": "self",
-      "prevHead": "106d777",
-      "handoffSha": "sha256:3e91367d0f4ee01ebfd6231941bbe4944c0a1743baa03e880a27e4c358b38d10",
-      "handoffAgeSec": 25,
+      "prevHead": "0385557",
+      "handoffSha": "sha256:4b46c6ab29c9262f1f4f7ae155b86658d527f9304f75657ecc6cdcaa19f52c1d",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781068278-5ebf",
+        "at": "2026-06-10T05:11:18Z",
+        "ts": 1781068278,
+        "trigger": "self",
+        "prevHead": "0385557",
+        "handoffSha": "sha256:4b46c6ab29c9262f1f4f7ae155b86658d527f9304f75657ecc6cdcaa19f52c1d",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781060143-6a52",
         "at": "2026-06-10T02:55:43Z",
@@ -779,17 +790,6 @@
         "prevHead": "a051929",
         "handoffSha": "sha256:33eb1b315de6c6dedbcc9fea85ebaf0d8b3e95c7d21bb2e2bb010e1c1bf5ed21",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781000206-6535",
-        "at": "2026-06-09T10:16:46Z",
-        "ts": 1781000206,
-        "trigger": "self",
-        "prevHead": "a508440",
-        "handoffSha": "sha256:04447c8493e786984973a92dfdb1cabbb7312562f9aafda469074a208c062694",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
