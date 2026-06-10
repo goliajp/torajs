@@ -20,10 +20,13 @@
 //!   a conservative single-forward-pass lattice: ConstI64 in i32
 //!   range, results of sext pairs, and/or/xor of two sext-32 values,
 //!   ashr of a sext-32 value, single-def Copy/Identity of a sext-32
-//!   value. No fixpoint: loop-carried (multi-def Copy) values stay
-//!   unknown. Shapes that can leave i32 range and *need* the wrap
-//!   (add/sub results — `ToInt32(INT32_MIN - 1)` must wrap) are never
-//!   in the lattice.
+//!   value. No fixpoint of its own: loop-carried (multi-def Copy)
+//!   values stay unknown unless the interval analysis (`interval`
+//!   module, RFC 20260611) seeded them as provably in-i32-range.
+//!   Shapes that can leave i32 range and *need* the wrap (add/sub
+//!   results — `ToInt32(INT32_MIN - 1)` must wrap) are never in this
+//!   pass's own lattice (the interval seed proves range, which is
+//!   strictly stronger).
 //!
 //! Runs after `phi_promote` (final canonical shape, right before the
 //! SSA dump / rc_peephole). Orphaned shift insts left by either
@@ -50,14 +53,19 @@ pub struct SextElideStats {
     pub dead_shifts_removed: u32,
 }
 
-/// Run sext-pair elimination over every function body.
-pub fn elide_sext_pairs(module: &mut Module) -> SextElideStats {
+/// Run sext-pair elimination over every function body. `seeds` is
+/// index-aligned with `module.funcs` (empty slice = no seeds): extra
+/// sext-32 facts from the interval analysis, which can certify
+/// loop-carried cells this pass's own one-pass lattice must treat as
+/// unknown.
+pub fn elide_sext_pairs(module: &mut Module, seeds: &[HashSet<ValueId>]) -> SextElideStats {
     let mut stats = SextElideStats::default();
-    for func in module.funcs.iter_mut() {
+    let empty = HashSet::new();
+    for (fi, func) in module.funcs.iter_mut().enumerate() {
         if func.is_declaration() {
             continue;
         }
-        elide_in_function(func, &mut stats);
+        elide_in_function(func, seeds.get(fi).unwrap_or(&empty), &mut stats);
     }
     stats
 }
@@ -93,9 +101,10 @@ fn push_i64_value(values: &mut Vec<ValueInfo>) -> ValueId {
     id
 }
 
-fn elide_in_function(func: &mut Function, stats: &mut SextElideStats) {
+fn elide_in_function(func: &mut Function, seed: &HashSet<ValueId>, stats: &mut SextElideStats) {
     // def summaries for single-def values; multi-def values (post-φ
-    // Copy cells) are excluded from the map and conservatively unknown.
+    // Copy cells) are excluded from the map and conservatively unknown
+    // unless the interval analysis seeded them as provably sext-32.
     let mut defs: HashMap<ValueId, InstKind> = HashMap::new();
     let mut multi: HashSet<ValueId> = HashSet::new();
     for block in &func.blocks {
@@ -111,7 +120,7 @@ fn elide_in_function(func: &mut Function, stats: &mut SextElideStats) {
         defs.remove(v);
     }
 
-    let mut facts: HashSet<ValueId> = HashSet::new();
+    let mut facts: HashSet<ValueId> = seed.clone();
     let mut replace: HashMap<ValueId, Operand> = HashMap::new();
 
     for bi in 0..func.blocks.len() {
@@ -148,15 +157,20 @@ fn elide_in_function(func: &mut Function, stats: &mut SextElideStats) {
             }
             // R1 — transpose operand-side pairs into one result-side pair.
             if let InstKind::BinOp(bop @ (BinOp::And | BinOp::Or | BinOp::Xor), a, b) = inst.kind {
-                // qualifying operand → (operand to use, had its own pair)
+                // qualifying operand → (operand to use, had its own pair).
+                // Resolve through R2's replacements first: an operand
+                // whose pair already elided is its raw (sext-32) source,
+                // so it must qualify pair-free — re-transposing it would
+                // recreate the pair R2 just removed.
                 let qualify = |op: &Operand| -> Option<(Operand, bool)> {
+                    let op = resolve(op, &replace);
                     if let Operand::Value(v) = op {
-                        if let Some(src) = sxpair_src(*v, &defs) {
+                        if let Some(src) = sxpair_src(v, &defs) {
                             return Some((src, true));
                         }
                     }
-                    if op_sext32(op, &facts) {
-                        return Some((*op, false));
+                    if op_sext32(&op, &facts) {
+                        return Some((op, false));
                     }
                     None
                 };
@@ -352,7 +366,7 @@ mod tests {
             val(6, binop(BinOp::And, v(3), v(5)), &mut vals),
         ];
         let mut m = module_one_block(insts, vals, Terminator::Ret(Some(v(6))));
-        let stats = elide_sext_pairs(&mut m);
+        let stats = elide_sext_pairs(&mut m, &[]);
         assert_eq!(stats.transposed, 1);
         assert_eq!(stats.pairs_elided, 0);
         assert_eq!(stats.dead_shifts_removed, 4);
@@ -380,7 +394,7 @@ mod tests {
             val(3, binop(BinOp::Xor, v(2), c(-1)), &mut vals),
         ];
         let mut m = module_one_block(insts, vals, Terminator::Ret(Some(v(3))));
-        let stats = elide_sext_pairs(&mut m);
+        let stats = elide_sext_pairs(&mut m, &[]);
         assert_eq!(stats.transposed, 1);
         assert_eq!(stats.dead_shifts_removed, 2);
         let InstKind::BinOp(BinOp::Xor, a, b) = &body(&m)[1].kind else {
@@ -401,7 +415,7 @@ mod tests {
             val(3, binop(BinOp::And, v(2), c(1_i64 << 31)), &mut vals),
         ];
         let mut m = module_one_block(insts, vals, Terminator::Ret(Some(v(3))));
-        let stats = elide_sext_pairs(&mut m);
+        let stats = elide_sext_pairs(&mut m, &[]);
         assert_eq!(stats, SextElideStats::default());
         assert_eq!(body(&m).len(), 4);
     }
@@ -419,7 +433,7 @@ mod tests {
             val(4, binop(BinOp::AShr, v(3), c(32)), &mut vals),
         ];
         let mut m = module_one_block(insts, vals, Terminator::Ret(Some(v(4))));
-        let stats = elide_sext_pairs(&mut m);
+        let stats = elide_sext_pairs(&mut m, &[]);
         assert_eq!(stats.pairs_elided, 1);
         assert_eq!(stats.dead_shifts_removed, 1);
         assert_eq!(body(&m).len(), 3);
@@ -443,7 +457,7 @@ mod tests {
             val(5, binop(BinOp::AShr, v(4), c(32)), &mut vals),
         ];
         let mut m = module_one_block(insts, vals, Terminator::Ret(Some(v(5))));
-        let stats = elide_sext_pairs(&mut m);
+        let stats = elide_sext_pairs(&mut m, &[]);
         assert_eq!(stats.pairs_elided, 1);
         assert!(matches!(
             m.funcs[0].blocks[0].term,
@@ -469,7 +483,7 @@ mod tests {
             val(8, binop(BinOp::AShr, v(7), c(32)), &mut vals),
         ];
         let mut m = module_one_block(insts, vals, Terminator::Ret(Some(v(8))));
-        let stats = elide_sext_pairs(&mut m);
+        let stats = elide_sext_pairs(&mut m, &[]);
         assert_eq!(stats.transposed, 1);
         assert_eq!(stats.pairs_elided, 1);
         // add, sub, and, shl, ashr(%6) — %7/%8's pair gone, ret %6.
@@ -552,8 +566,86 @@ mod tests {
             funcs: vec![f],
             ..Default::default()
         };
-        let stats = elide_sext_pairs(&mut m);
+        let stats = elide_sext_pairs(&mut m, &[]);
         assert_eq!(stats, SextElideStats::default());
         assert_eq!(m.funcs[0].blocks[1].insts.len(), 3);
+    }
+
+    #[test]
+    fn seeded_multi_def_cell_elides_pair() {
+        // same shape as multi_def_copy_stays_unknown, but the interval
+        // analysis certified the cell — its pair collapses.
+        let vals = vec![
+            ValueInfo {
+                ty: Type::I64,
+                name: None,
+            };
+            4
+        ];
+        let f = Function {
+            name: "main".into(),
+            params: vec![],
+            ret: Type::I64,
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: vec![
+                        Inst {
+                            result: Some(ValueId(0)),
+                            kind: binop(BinOp::Add, c(1), c(2)),
+                            origin: None,
+                        },
+                        Inst {
+                            result: Some(ValueId(1)),
+                            kind: InstKind::Copy(Type::I64, v(0)),
+                            origin: None,
+                        },
+                    ],
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![
+                        Inst {
+                            result: Some(ValueId(2)),
+                            kind: binop(BinOp::Shl, v(1), c(32)),
+                            origin: None,
+                        },
+                        Inst {
+                            result: Some(ValueId(3)),
+                            kind: binop(BinOp::AShr, v(2), c(32)),
+                            origin: None,
+                        },
+                        Inst {
+                            result: Some(ValueId(1)),
+                            kind: InstKind::Copy(Type::I64, v(3)),
+                            origin: None,
+                        },
+                    ],
+                    term: Terminator::Ret(Some(v(3))),
+                },
+            ],
+            values: vals,
+            current_origin: None,
+        };
+        let mut m = Module {
+            funcs: vec![f],
+            ..Default::default()
+        };
+        let seed: HashSet<ValueId> = [ValueId(1)].into_iter().collect();
+        let stats = elide_sext_pairs(&mut m, &[seed]);
+        assert_eq!(stats.pairs_elided, 1);
+        assert_eq!(stats.dead_shifts_removed, 1);
+        // the pair is gone; the cell's loop def now copies the cell's
+        // own source directly and the ret follows the replacement.
+        assert_eq!(m.funcs[0].blocks[1].insts.len(), 1);
+        assert!(matches!(
+            m.funcs[0].blocks[1].insts[0].kind,
+            InstKind::Copy(Type::I64, Operand::Value(ValueId(1)))
+        ));
+        assert!(matches!(
+            m.funcs[0].blocks[1].term,
+            Terminator::Ret(Some(Operand::Value(ValueId(1))))
+        ));
     }
 }

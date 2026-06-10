@@ -24,6 +24,7 @@ pub mod dominator;
 pub mod egraph;
 pub mod elaborate;
 pub mod inliner;
+pub mod interval;
 pub mod loop_analysis;
 pub mod mem2reg;
 pub mod optimize;
@@ -34,7 +35,9 @@ pub mod scope_map;
 pub mod sext_elide;
 pub mod slot_forward;
 
-use torajs_core::ssa::{Function, Module};
+use std::collections::HashSet;
+
+use torajs_core::ssa::{Function, Module, ValueId};
 
 use crate::dominator::DominatorTree;
 use crate::egraph::Egraph;
@@ -163,14 +166,41 @@ pub fn transform_module(mut module: Module) -> Module {
             eprintln!("torajs-mem2reg-phi-stats: {phi_stats:?}");
         }
     }
+    // Integer range analysis (analysis-only, RFC 20260611) — interval
+    // lattice with branch refinement + loop widening over the post-φ
+    // canonical shape. Seeds sext_elide R2 with loop cells provably
+    // inside i32 range (the popcount residual-pair case); phase 1b
+    // float demotion consumes the same facts.
+    // `TORAJS_INTERVAL_OFF=1` skips (bisect gate).
+    let sext_seeds: Vec<HashSet<ValueId>> =
+        if std::env::var("TORAJS_INTERVAL_OFF").as_deref() != Ok("1") {
+            let facts = interval::analyze_module(&module);
+            if std::env::var("TORAJS_INTERVAL_STATS").as_deref() == Ok("1") {
+                for (func, fm) in module.funcs.iter().zip(&facts) {
+                    if !func.is_declaration() {
+                        let st = interval::stats_for(fm, func);
+                        eprintln!("torajs-interval-stats: {} {st:?}", func.name);
+                    }
+                }
+            }
+            module
+                .funcs
+                .iter()
+                .zip(&facts)
+                .map(|(func, fm)| interval::sext32_set(fm, func))
+                .collect()
+        } else {
+            Vec::new()
+        };
     // Redundant ToInt32 sext-pair elimination — after phi_promote so
     // it sees the final canonical shape (loop cells as multi-def Copy,
-    // conservatively unknown), before rc_peephole / codegen. Transposes
-    // operand-side `shl 32`+`ashr 32` pairs on And/Or/Xor into one
-    // result-side pair and collapses pairs over provably-sext-32
-    // sources. `TORAJS_SEXT_ELIDE_OFF=1` skips (bisect gate).
+    // unknown to its own one-pass lattice but seedable from the
+    // interval analysis above), before rc_peephole / codegen.
+    // Transposes operand-side `shl 32`+`ashr 32` pairs on And/Or/Xor
+    // into one result-side pair and collapses pairs over provably-
+    // sext-32 sources. `TORAJS_SEXT_ELIDE_OFF=1` skips (bisect gate).
     if std::env::var("TORAJS_SEXT_ELIDE_OFF").as_deref() != Ok("1") {
-        let sx_stats = sext_elide::elide_sext_pairs(&mut module);
+        let sx_stats = sext_elide::elide_sext_pairs(&mut module, &sext_seeds);
         if std::env::var("TORAJS_SEXT_ELIDE_STATS").as_deref() == Ok("1") {
             eprintln!("torajs-sext-elide-stats: {sx_stats:?}");
         }
