@@ -301,6 +301,38 @@ fn infer_arg_width(ast: &Ast, eid: ExprId) -> NumWidth {
     }
 }
 
+/// K.3b — recover a top-level `let`/`const` slot type when the
+/// declaration carries no annotation. Literal shapes resolve directly;
+/// everything else consults the checker's per-expr type map. Number
+/// width comes from `infer_arg_width`, matching the "number" → I64
+/// monomorphization default. Returns None for shapes the data-global
+/// path doesn't support yet — the binding then stays a main-fn local
+/// exactly as before.
+fn infer_global_slot_type(
+    ast: &Ast,
+    init: ExprId,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
+) -> Option<Type> {
+    let number_width = |eid: ExprId| {
+        if infer_arg_width(ast, eid) == NumWidth::F64 {
+            Type::F64
+        } else {
+            Type::I64
+        }
+    };
+    match ast.get_expr(init) {
+        Expr::Number(_) => Some(number_width(init)),
+        Expr::String(_) => Some(Type::Str),
+        Expr::Bool(_) => Some(Type::Bool),
+        _ => match expr_types.get(&init)? {
+            crate::check::Type::Number => Some(number_width(init)),
+            crate::check::Type::String => Some(Type::Str),
+            crate::check::Type::Boolean => Some(Type::Bool),
+            _ => None,
+        },
+    }
+}
+
 /// P9.5-A1.1 — count capture groups in a regex literal pattern. Used at
 /// ssa-lower time by the `s.replace(re, fn)` dispatch to determine the
 /// callback's expected arity (one match arg + N capture args). Mirrors
@@ -5347,15 +5379,35 @@ fn lower_inner(
             if init_is_inline_literal && !*mutable {
                 continue;
             }
-            let Some(ann) = type_ann else { continue };
-            let ty = parse_type(
-                Some(ann),
-                &aliases,
-                &mut arr_layouts,
-                &mut fn_sigs,
-                &generic_struct_decls,
-                &mut struct_layouts,
-            );
+            // K.3b — slot type. With an annotation, parse it; "number"
+            // parses to the I64 default, so a genuinely-fractional /
+            // out-of-i64-range initializer must widen the slot to F64
+            // (storing f64 bits in an i64 slot reinterprets the
+            // payload as a garbage integer on every read). Without an
+            // annotation, recover the type from the literal shape or
+            // the checker's per-expr type map; shapes neither resolves
+            // keep the K.1 main-local behavior.
+            let ty = match type_ann {
+                Some(ann) => {
+                    let parsed = parse_type(
+                        Some(ann),
+                        &aliases,
+                        &mut arr_layouts,
+                        &mut fn_sigs,
+                        &generic_struct_decls,
+                        &mut struct_layouts,
+                    );
+                    if parsed == Type::I64 && infer_arg_width(ast, *init) == NumWidth::F64 {
+                        Type::F64
+                    } else {
+                        parsed
+                    }
+                }
+                None => match infer_global_slot_type(ast, *init, expr_types) {
+                    Some(t) => t,
+                    None => continue,
+                },
+            };
             // K.3 — primitive Copy types (no lifetime concerns).
             // K.4 — refcount Str (drop on program exit).
             // K.6 — refcount Arr / Obj (same drop machinery as Str —
