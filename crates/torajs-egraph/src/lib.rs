@@ -97,7 +97,13 @@ pub fn transform_module(mut module: Module) -> Module {
     if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
         return module;
     }
-    let _inliner_stats = inliner::inline_module(&mut module);
+    let inliner_stats = inliner::inline_module(&mut module);
+    // TORAJS_INLINER_STATS=1 — dump per-compile inliner decision
+    // counters to stderr for fire-rate attribution (which SkipReason
+    // bucket holds the production call sites a given corpus exposes).
+    if std::env::var("TORAJS_INLINER_STATS").as_deref() == Ok("1") {
+        eprintln!("torajs-inliner-stats: {inliner_stats:?}");
+    }
     for func in module.funcs.iter_mut() {
         let new_func = EgraphPass::new(func).run();
         *func = new_func;
