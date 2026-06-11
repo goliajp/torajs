@@ -18,8 +18,8 @@
 //!   actually says "return the original" but the C subset writes
 //!   spaces; we preserve that for byte-equivalent ABI.
 //!
-//! IR-side surface (declared in `ssa_lower::lower`, alloc-noalias
-//! whitelisted in `ssa_inkwell::is_alloc_intrinsic`):
+//! IR-side surface (declared in `ssa_lower::lower`, alloc intrinsics
+//! (noalias-whitelisted on the LLVM-era backend):
 //! - `__torajs_str_pad_start(s, target_len: i64, pad) -> Str`
 //! - `__torajs_str_pad_end(s, target_len: i64, pad) -> Str`
 

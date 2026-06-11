@@ -39,9 +39,9 @@
 //!
 //! [`ops::__torajs_split_iter_init`] / `_drop` initialize a
 //! caller-provided 48-byte stack struct holding `(parent, sep,
-//! pos, exhausted)`. `__torajs_split_iter_next` is still LLVM-IR
-//! emitted in `ssa_inkwell::define_split_iter_next` (consolidates
-//! into Rust in P3.1-g).
+//! pos, exhausted)`. `__torajs_split_iter_next` was LLVM-IR
+//! emitted (`define_split_iter_next`) until the P3.1-g
+//! consolidation into Rust ([`ops`]).
 
 pub mod ops;
 pub mod pool;

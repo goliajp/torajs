@@ -5,8 +5,8 @@
 //! `f64::X(self, other)` methods. Rust stdlib delegates to libm at
 //! the same call site the IR-emitted versions used (the
 //! `define_math_unary` / `define_math_binary` builders in
-//! `ssa_inkwell` emitted single libm calls; both helpers + their
-//! 27 dispatch arms deleted at P3.2-b ship 2026-05-23).
+//! the LLVM-era backend emitted single libm calls; both helpers +
+//! their 27 dispatch arms deleted at P3.2-b ship 2026-05-23).
 //!
 //! ## libm-equivalent symbol map
 //!

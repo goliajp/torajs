@@ -128,7 +128,8 @@ fn align_up_with_header(raw: usize, align: usize) -> usize {
 // **not** declared here. Rust emits the `__rust_alloc_*` shim
 // inside every staticlib that holds the marker; declaring it in
 // mmalloc alongside the default fallback in `torajs-panic-runtime`
-// (which is `force_load`-first per `ssa_inkwell/link.rs`) collides
+// (which the LLVM-era link step force-loaded first; torajs-link
+// resolves it through the archive worklist now) collides
 // at user-binary link time. The single-marker site is
 // `torajs-panic-runtime` active mode — it `extern "C"`-routes the
 // shim to `__torajs_libc_malloc / _free / _realloc` exported here,

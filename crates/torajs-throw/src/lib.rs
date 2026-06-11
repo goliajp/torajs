@@ -180,9 +180,9 @@ static THROW_VALUE: AtomicI64 = AtomicI64::new(0);
 /// # Safety
 ///
 /// No Rust-side invariants — `tag` and `value` are opaque i64s.
-/// The caller (ssa_lower-emitted code, C cross-TU wrappers like
-/// any of runtime_promise.c's `__torajs_throw_set(...)` call sites)
-/// chose the encoding.
+/// The caller (ssa_lower-emitted code, cross-TU callers like
+/// torajs-promise's `__torajs_throw_set(...)` sites) chose the
+/// encoding.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_set(tag: i64, value: i64) {
     // Order matters at LLVM-IR level (other paths peek tag+value
@@ -294,8 +294,8 @@ unsafe fn throw_native(slot: i64, msg: *const c_char) {
     unsafe { __torajs_throw_set(ANY_TAG_HEAP, err as i64) };
 }
 
-/// Cross-TU wrapper: `runtime_bigint.c` / `runtime_regex.c` / etc.
-/// call this to raise a catchable `RangeError` (div-by-zero,
+/// Cross-TU wrapper: torajs-bigint / torajs-regex / etc. call
+/// this to raise a catchable `RangeError` (div-by-zero,
 /// negative exponent, shift-too-large, `s.matchAll(re)` without
 /// `g` flag, ...). The ssa_lower-side `emit_throw_check` after the
 /// call propagates to the user's try/catch.
@@ -311,7 +311,7 @@ pub unsafe extern "C" fn __torajs_throw_range_error(msg: *const c_char) {
 }
 
 /// Cross-TU wrapper for `TypeError`. Parallel to
-/// [`__torajs_throw_range_error`]; used by `runtime_regex.c` and
+/// [`__torajs_throw_range_error`]; used by torajs-regex and
 /// any future cross-TU caller raising a catchable TypeError.
 ///
 /// # Safety

@@ -40,8 +40,8 @@ pub struct Module {
     /// from named-fn bodies lower to `GlobalRef(name)` + `Load(ty, ...)`;
     /// writes lower to `GlobalRef(name)` + `Store(value, ...)`.
     pub data_globals: Vec<DataGlobal>,
-    /// T-24 — per-class virtual-method tables. ssa_inkwell emits each
-    /// as a `[N x ptr]` LLVM constant global named `__vtable_<C>`,
+    /// T-24 — per-class virtual-method tables. torajs-link
+    /// materializes each as a pointer-array global named `__vtable_<C>`,
     /// where slot[i] = the FuncId of `__cm_<best-owner-of-method[i]>__M`
     /// (or None if class C's MRO has no impl of method[i] — that slot
     /// becomes a null ptr that should never be loaded for this class).
@@ -53,8 +53,8 @@ pub struct Module {
     /// collector's mark/scan/collect walks. Indexed by `class_tag - 1`
     /// (tag 0 reserved for "not a class"); each entry lists the byte
     /// offsets within the obj where refcounted heap-pointer fields
-    /// live. ssa_inkwell emits this as a runtime global so
-    /// `runtime_cycle.c`'s visit_obj_children can drive a generic
+    /// live. torajs-link materializes this as a runtime global so
+    /// torajs-cycle's visit_obj_children can drive a generic
     /// trial-deletion descent without needing per-class generated
     /// fns. Empty array => no class declared in the program (cycle
     /// collection is a no-op).
@@ -251,8 +251,8 @@ mod string_literal_tests {
 
 #[derive(Debug, Clone)]
 pub struct ClassLayoutMeta {
-    /// Class name (informational; ssa_inkwell could use it to name
-    /// a per-class debug symbol, but the runtime indexes by tag).
+    /// Class name (informational; useful for naming a per-class
+    /// debug symbol, but the runtime indexes by tag).
     pub class_name: String,
     /// Byte offsets within an instance where refcounted heap-pointer
     /// fields live (already includes OBJ_HEADER_SIZE = 24). Used by

@@ -1,7 +1,9 @@
 //! macOS libSystem-resolved dyld symbol whitelist for the #9 SD substrate.
 //!
-//! Production `tr` binaries (currently emitted by `ssa_inkwell` →
-//! LLVM → host `ld`) link a single `LC_LOAD_DYLIB` against
+//! Production `tr` binaries (emitted by torajs-codegen →
+//! torajs-obj → torajs-link since the #9 swap; this whitelist was
+//! derived against the LLVM-era pipeline) link a single
+//! `LC_LOAD_DYLIB` against
 //! `/usr/lib/libSystem.B.dylib` and let dyld resolve these symbols at
 //! exec time. The #9 self-research swap path needs the same dyld
 //! substrate; this module is its data layer.
@@ -36,11 +38,9 @@
 //!   residual `UnresolvedExterns` so SD-1+ knows what to add next.
 //!
 //! - **`_print_bool` / `_print_f64` / `_print_i64`** — toolchain
-//!   helper functions currently emitted directly into the final
-//!   binary by `ssa_inkwell::compile`'s LLVM IR pipeline (see
-//!   `crates/torajs-core/src/ssa_inkwell.rs::define_print_*`). SD-4
-//!   (atomic swap to torajs-codegen) must re-emit them as part of the
-//!   replacement pipeline (or move them to a staticlib); they are not
+//!   helper functions, since ported out of the LLVM-era
+//!   `ssa_inkwell::builders` into the `torajs-print` staticlib and
+//!   resolved at link time like every other Layer-1 symbol; they are not
 //!   dyld symbols.
 
 use std::collections::BTreeSet;
@@ -405,9 +405,8 @@ mod tests {
 
     #[test]
     fn toolchain_helpers_are_not_libsystem_resolved() {
-        // `_print_bool` / `_print_f64` / `_print_i64` are emitted by
-        // ssa_inkwell's LLVM IR pipeline today; SD-4 must re-emit
-        // them through torajs-codegen. They are NOT dyld symbols.
+        // `_print_bool` / `_print_f64` / `_print_i64` live in the
+        // `torajs-print` staticlib. They are NOT dyld symbols.
         for sym in &["_print_bool", "_print_f64", "_print_i64"] {
             assert!(
                 !is_libsystem_resolved(sym),

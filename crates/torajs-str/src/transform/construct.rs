@@ -35,7 +35,7 @@
 //!   after the call propagates.
 //!
 //! IR-side surface (declared in `ssa_lower::lower`, intrinsic
-//! noalias-whitelisted in `ssa_inkwell::is_alloc_intrinsic`):
+//! noalias-whitelisted on the LLVM-era backend):
 //! `__torajs_str_repeat` · `_char_at` · `_at` · `_from_char_code`
 //! · `_from_code_point` · `_substring` · `_substr`.
 

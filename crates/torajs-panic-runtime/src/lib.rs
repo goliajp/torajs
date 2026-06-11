@@ -57,10 +57,9 @@
 //!
 //! `crates/torajs-core/build.rs` enumerates this crate in `STATICLIBS`,
 //! `crates/torajs-core/src/lib.rs` embeds the `.a` bytes via
-//! `include_bytes!`, and `crates/torajs-core/src/ssa_inkwell/link.rs`
-//! drops the bytes to a temp `.a` per `tr build` and force-loads it
-//! before every other staticlib via `-Wl,-force_load,<path>`. Helper
-//! logic in `ssa_inkwell/panic_runtime_link.rs`.
+//! `include_bytes!`, and `torajs-link` merges the archive into every
+//! `tr build` user binary (the LLVM-era pipeline force-loaded it
+//! before every other staticlib via `-Wl,-force_load,<path>`).
 
 #![cfg_attr(torajs_panic_runtime_active, no_std)]
 #![cfg_attr(
@@ -183,8 +182,9 @@ mod active {
     // v0.7-A5 step 16-d — `#[global_allocator]` single-marker site
     // ===========================================================
     //
-    // Why panic-runtime: this staticlib is `-Wl,-force_load`-first
-    // per `ssa_inkwell/link.rs`, so the `__rust_alloc_*` shim
+    // Why panic-runtime: this staticlib resolves first (LLVM-era:
+    // `-Wl,-force_load`-first; in-house linker: archive worklist
+    // order), so the `__rust_alloc_*` shim
     // emitted by `#[global_allocator]` resolves before any sibling
     // staticlib's fallback shim (libtorajs_mmalloc, etc.). Single
     // marker site eliminates the duplicate-symbol class.

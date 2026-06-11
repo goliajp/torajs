@@ -1,5 +1,5 @@
 //! Pool-aware Str alloc / free + the extern "C" wrappers that
-//! ssa_inkwell IR + remaining C-side runtime helpers call into.
+//! toolchain-emitted code calls into.
 //!
 //! ## Why libc malloc / free directly
 //!
@@ -25,8 +25,8 @@
 //! [`StrBlock::as_bytes_mut`] / [`StrBlock::write_payload`] let
 //! the caller fill the bytes; [`StrBlock::into_raw`] hands the
 //! pointer back out across the FFI boundary. The `Drop` impl is
-//! intentionally absent — once a block is exposed to ssa_inkwell
-//! IR or C-side helpers, ownership tracking moves into the
+//! intentionally absent — once a block crosses the FFI boundary,
+//! ownership tracking moves into the
 //! per-language ABI (refcount on the heap header).
 //!
 //! ## P11.1-S1 layout (vs pre-S1 byte-Str)
@@ -72,8 +72,8 @@ unsafe extern "C" {
 /// boundary via [`StrBlock::into_raw`].
 ///
 /// Transparent newtype around `NonNull<u8>` so the layout matches
-/// the C-side `uint8_t *` pointer that ssa_inkwell-emitted GEPs
-/// + runtime_str.c macros operate on. A `StrBlock` value carries
+/// the raw byte pointer that toolchain-emitted accesses operate
+/// on. A `StrBlock` value carries
 /// no separate runtime overhead.
 ///
 /// **Not `Copy` / `Clone` by design.** Each `StrBlock` represents a

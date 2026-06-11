@@ -33,9 +33,9 @@ const ENTRY_SYM: &str = "_main";
 
 /// Renamed user-main sym — the `__torajs_main_entry` wrapper below
 /// occupies the real `_main` symbol so it can run argv-init before
-/// jumping to the user main body. Mirrors `ssa_inkwell::lower.rs`
-/// inserting a `__torajs_argv_init(argc, argv, envp)` call at the
-/// top of `main`'s entry block.
+/// jumping to the user main body. Mirrors the LLVM-era
+/// `ssa_inkwell::lower.rs` inserting a `__torajs_argv_init(argc,
+/// argv, envp)` call at the top of `main`'s entry block.
 const USER_MAIN_SYM: &str = "_main_user";
 
 pub(crate) fn run(args: &[String]) -> ExitCode {
@@ -441,7 +441,7 @@ fn synthesize_main_argv_wrapper() -> CompiledFunction {
 }
 
 /// SD-4c-prereq swap-2d — `__torajs_obj_drop_sized(user_ptr, size) -> void`.
-/// ssa_inkwell's `obj_builders::define_obj_drop_sized` inlines a TLAB
+/// The LLVM-era `obj_builders::define_obj_drop_sized` inlined a TLAB
 /// fast path mirroring `define_obj_alloc`'s TLAB pop. The new pipeline
 /// has no LLVM-IR emit backend; emit the intrinsic directly as a
 /// hand-rolled CompiledFunction that tail-calls `___torajs_libc_free`
@@ -473,7 +473,7 @@ fn synthesize_obj_drop_sized() -> CompiledFunction {
 }
 
 /// SD-4c-prereq swap-2h — `__torajs_obj_alloc(size) -> ptr`.
-/// ssa_inkwell's `obj_builders::define_obj_alloc` inlines a TLAB
+/// The LLVM-era `obj_builders::define_obj_alloc` inlined a TLAB
 /// fast path (size-class bucket → TLAB.pop → return slot+16) with a
 /// fallback to `___torajs_libc_malloc(size)`. The new pipeline has no
 /// LLVM-IR emit backend; emit the intrinsic directly as a hand-rolled

@@ -69,9 +69,8 @@ unsafe extern "C" {
 // Layout constants
 // ============================================================
 
-/// Total bytes for one Substr struct. ssa_inkwell GEPs against this
-/// constant when allocating views; the runtime_str.c macro
-/// `__TORAJS_SUBSTR_SIZE` mirrors it.
+/// Total bytes for one Substr struct. Toolchain-emitted view
+/// allocations bake in this constant.
 pub const SUBSTR_SIZE: usize = 32;
 
 /// Byte offset of the `len` u64 field (mirrors `__TORAJS_SUBSTR_LEN`).

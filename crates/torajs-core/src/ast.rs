@@ -10859,7 +10859,7 @@ impl Ast {
     /// Build the newline offset table once. Idempotent. Call this
     /// after setting `self.source`; subsequent `byte_to_line_col`
     /// lookups become `&self`-only and can be invoked from
-    /// borrow-restricted contexts (ssa_inkwell, etc).
+    /// borrow-restricted contexts (codegen, etc).
     pub fn warm_newline_cache(&mut self) {
         if !self.newline_offsets.is_empty() || self.source.is_empty() {
             return;

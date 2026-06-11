@@ -1,7 +1,9 @@
 //! SD-4c-prereq+e1 — layout pass for user-binary string literals.
 //!
 //! `ssa::Module.strings` materialized as `__TEXT,__cstring` payload
-//! lined up byte-for-byte with `ssa_inkwell::globals::emit_static_str_global`:
+//! lined up byte-for-byte with the LLVM-era
+//! `ssa_inkwell::globals::emit_static_str_global` ABI (canonical
+//! layout here since the swap; the rc/str runtime consumes it):
 //!
 //! ```text
 //!   [u64 header] [u32 length] [u32 _pad] [N x i8 bytes]
@@ -21,12 +23,12 @@
 
 use crate::exec::{UserStringEntry, UserStringKind};
 
-/// Mirror of `ssa_inkwell::globals::STATIC_LITERAL_FLAG`. The
+/// Static-literal header flag bit (LLVM-era ABI value). The
 /// runtime's `__torajs_rc_inc / dec / __torajs_str_free` short-circuit
 /// when this bit is set so the rodata Str object is never written to.
 pub const STATIC_LITERAL_FLAG: u16 = 4;
 
-/// Mirror of `ssa_inkwell::globals::STR_IS_LATIN1_FLAG`. Drives the
+/// Latin-1 header flag bit (LLVM-era ABI value). Drives the
 /// runtime's per-code-unit byte stride (Latin-1 = 1 byte / unit,
 /// UTF-16 = 2 LE bytes / unit).
 pub const STR_FLAG_IS_LATIN1: u16 = 2;
@@ -321,11 +323,10 @@ mod tests {
     }
 
     #[test]
-    fn flags_constants_match_ssa_inkwell_globals() {
-        // Independent ground-truth check vs
-        // ssa_inkwell::globals::STATIC_LITERAL_FLAG (= 4) and
-        // STR_IS_LATIN1_FLAG (= 2). Any drift between this module
-        // and the inkwell emit path would silently desync the
+    fn flags_constants_match_runtime_header_bits() {
+        // Independent ground-truth check: STATIC_LITERAL_FLAG = 4,
+        // STR_IS_LATIN1_FLAG = 2 — the header-bit values the rc/str
+        // runtime short-circuits on. Any drift would silently desync the
         // runtime Str header → string-deref UB.
         assert_eq!(STATIC_LITERAL_FLAG, 4);
         assert_eq!(STR_FLAG_IS_LATIN1, 2);

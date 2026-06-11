@@ -48,9 +48,8 @@
 //! ## ABI invariants (must not change)
 //!
 //! - `STR_HDR_SIZE` = 16, `STR_LEN_OFF` = 8, `STR_DATA_OFF` = 16.
-//!   `ssa_inkwell` emits const-offset GEPs at every Str access
-//!   site; the runtime_str.c macros (`__TORAJS_STR_LEN(p)`,
-//!   `__TORAJS_STR_DATA(p)`, etc.) mirror these offsets. Drift
+//!   the toolchain emit layer (torajs-codegen) bakes these
+//!   const offsets into every Str access site. Drift
 //!   silently corrupts every Str load / store in the runtime.
 //! - [`layout::packed_header_init`] = `1 | (Tag::Str as u64) << 32`
 //!   — a single 8-byte store sets `refcount=1, type_tag=0 (Str),

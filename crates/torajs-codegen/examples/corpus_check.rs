@@ -2,10 +2,9 @@
 //! Functions through `torajs_codegen::compile_function` and tally
 //! the per-fixture outcome (OK / pipeline-failed / codegen-panicked).
 //!
-//! The point is *gap discovery*: torajs-codegen is still isolated
-//! (ssa_inkwell is the production path), so every compile failure
-//! is a concrete InstKind shape / SSA pattern the new backend has
-//! to handle before the S6 cut-over can flip the dispatch.
+//! Written for *gap discovery* while torajs-codegen was still
+//! isolated behind the LLVM production path; since the cut-over it
+//! doubles as a fast per-fixture compile smoke over the corpus.
 //!
 //! ## Why fork-per-fixture
 //!

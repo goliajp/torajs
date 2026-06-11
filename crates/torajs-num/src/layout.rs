@@ -4,8 +4,8 @@
 //! dependencies (Layer-N → Layer-(N-1) only).
 //!
 //! The duplication cost is two `pub const` lines. These offsets
-//! are ABI invariants pinned by `ssa_inkwell`-emitted GEPs at every
-//! Str access site (see `torajs-str/src/layout.rs` for the full
+//! are ABI invariants baked into every toolchain-emitted Str
+//! access site (see `torajs-str/src/layout.rs` for the full
 //! invariant table). Drift between this file and torajs-str silently
 //! corrupts every Number→Str path that reads Str input args.
 //!

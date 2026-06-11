@@ -13,7 +13,7 @@
 //! every other `_torajs_*` extern, with zero special-casing in
 //! the codegen.
 //!
-//! Symbol ABI (matches the ssa_inkwell-emit names exactly so the
+//! Symbol ABI (matches the LLVM-era emit names exactly so the
 //! SSA-lower `call print_*` sites resolve unchanged):
 //!
 //! - `_print_bool(b: bool)` — writes `"true\n"` or `"false\n"`

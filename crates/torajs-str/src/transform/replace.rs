@@ -20,8 +20,8 @@
 //!   scan resumes at `i + needle.len()` (standard JS behavior).
 //!
 //! IR-side surface: `__torajs_str_replace` · `__torajs_str_replace_all`,
-//! both `(Str, Str, Str) -> Str`; alloc-noalias-whitelisted in
-//! `ssa_inkwell::is_alloc_intrinsic`.
+//! both `(Str, Str, Str) -> Str`; alloc-noalias-whitelisted on
+//! the LLVM-era backend.
 
 use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};

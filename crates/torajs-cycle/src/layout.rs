@@ -22,8 +22,8 @@
 //!
 //! ## class_layouts table (codegen-emitted)
 //!
-//! `ssa_inkwell::compile_module` emits a `__torajs_class_layouts`
-//! global (LLVM array of `{ u32 n_children, ptr child_offsets }`) +
+//! torajs-link emits a `__torajs_class_layouts`
+//! global (array of `{ u32 n_children, ptr child_offsets }`) +
 //! a `__torajs_n_class_layouts` u32 holding the table length. The
 //! cycle collector indexes the table by `class_tag - 1` (read from
 //! the obj header's `+8` slot) to find child-pointer field offsets.
@@ -94,7 +94,7 @@ pub struct ClassLayout {
 unsafe impl Sync for ClassLayout {}
 
 // `__torajs_class_layouts` / `__torajs_n_class_layouts` are emitted
-// by ssa_inkwell::compile_module() into every `tr build` user binary.
+// by torajs-link into every `tr build` user binary.
 // At cargo test time they don't exist — we stub them with empty
 // definitions so the test binary links. Marking the cfg(test) versions
 // `#[no_mangle]` makes them claim the symbol; at `tr build` link the

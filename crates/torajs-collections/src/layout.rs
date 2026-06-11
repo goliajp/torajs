@@ -1,10 +1,10 @@
 //! Map / Set heap-block layout constants + struct shapes.
 //!
-//! Mirrors `runtime_map.c`'s layout 1:1 (same separately-compiled
-//! contract pattern torajs-arr / torajs-dynobj use for shared headers).
-//! `#[repr(C)]` on the structs guarantees ABI-compat with the existing
-//! C-side definitions (still present in runtime_map.c during the
-//! progressive P4.3 port; collapse at P4.3-i closer).
+//! Layout carried over 1:1 from the pre-rewrite `runtime_map.c`
+//! (same separately-compiled contract pattern torajs-arr /
+//! torajs-dynobj use for shared headers). `#[repr(C)]` on the
+//! structs guaranteed ABI-compat with the C side during the
+//! progressive P4.3 port (C side deleted at the P4.3-i closer).
 //!
 //! ```text
 //! Map struct (64 bytes, 8-byte aligned):
@@ -41,7 +41,7 @@
 use core::ffi::c_void;
 
 /// `type_tag` value for Map/Set heap blocks (matches
-/// `torajs_rc::Tag::Map` = 15 and `runtime_map.c::__TORAJS_TAG_MAP`).
+/// `torajs_rc::Tag::Map` = 15; pre-rewrite `__TORAJS_TAG_MAP`).
 /// Set wears the same tag — Set vs Map distinction is SSA-side only.
 pub const TAG_MAP: u16 = 15;
 

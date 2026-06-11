@@ -26,7 +26,7 @@ use crate::sign::{adhoc_codesign_blob_size, build_adhoc_codesign_blob};
 
 // ---- Public API ----
 
-/// Two link-emitted user-string flavours (mirrors `ssa_inkwell::globals`):
+/// Two link-emitted user-string flavours (LLVM-era `ssa_inkwell::globals` ABI):
 /// `StaticStr` = full rodata Str header+payload, `RawBytes` = payload-only
 /// (runtime `__torajs_str_alloc` consumes it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,8 +84,8 @@ pub struct LinkConfig {
     /// `slot_syms[i] = Some(name)` writes vaddr-of-`name`; `None` → 0.
     pub vtable_globals: Vec<UserVtableEntry>,
     /// SD-4c-prereq+e8 — per-class `child_offsets` for the cycle
-    /// collector (T-26.C); materializes ssa_inkwell's
-    /// `__torajs_class_layouts` + `__torajs_n_class_layouts` pair.
+    /// collector (T-26.C); materializes the `__torajs_class_layouts`
+    /// + `__torajs_n_class_layouts` pair (LLVM-era ABI).
     /// Empty default keeps pre-e8 callers byte-identical.
     pub class_layouts: Vec<UserClassLayoutEntry>,
     /// e8-2c — `true` emits the 4-byte count global + registers both

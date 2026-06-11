@@ -5,7 +5,7 @@
 //! producing one contiguous byte buffer ready to splice into
 //! the `__TEXT,__cstring` region the user-strings layout pass
 //! placed. See [`crate::user_strings_layout`] for the byte ABI
-//! reference vs `ssa_inkwell::globals::emit_static_str_global`.
+//! reference (LLVM-era `emit_static_str_global` layout).
 //!
 //! Also: `apply_user_string_overrides` registers each entry's
 //! `sym → vaddr` into the effective sym table the linker's

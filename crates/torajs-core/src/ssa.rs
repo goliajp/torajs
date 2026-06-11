@@ -442,9 +442,9 @@ pub struct Inst {
     pub kind: InstKind,
     /// v0.3 #4 D-3 — AST ExprId this instruction was lowered from
     /// (or None for synthetic insts emitted between lower_expr
-    /// calls). ssa_inkwell looks this up to attach a DILocation
-    /// derived from `ast.expr_spans[origin]` so DWARF backtraces
-    /// resolve to the right `.ts:line:col`.
+    /// calls). Debug-info emission derives the `.ts:line:col` from
+    /// `ast.expr_spans[origin]` through this so DWARF backtraces
+    /// resolve to the right source position.
     pub origin: Option<crate::ast::ExprId>,
 }
 

@@ -24,12 +24,12 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 # 0 Cargo deps — libcurl is an OS-level system library (same as
 # libc; not a Cargo dep). Bindings declared inline via
-# `extern "C" { #[link(name = "curl")] ... }` — matches what C
-# already does (runtime_fetch.c just `#include <curl/curl.h>`).
+# `extern "C" { #[link(name = "curl")] ... }` — same shape the
+# pre-rewrite `runtime_fetch.c` used (`#include <curl/curl.h>`).
 # Cross-tier extern calls (str_alloc_pooled, rc_dec,
 # value_drop_heap) resolved at `tr build` link time against
-# libtorajs_str.a + libtorajs_rc.a + runtime_str.c — same pattern
-# as the other Layer-3 sub-crates.
+# libtorajs_str.a + libtorajs_rc.a — same pattern as the other
+# Layer-3 sub-crates.
 
 [dev-dependencies]
 torajs-bench = { path = "../torajs-bench" }

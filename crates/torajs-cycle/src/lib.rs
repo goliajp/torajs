@@ -40,7 +40,7 @@
 //!   link) — invoked by `collect_white` to drop surviving non-cycle
 //!   children with their type-specific dec paths.
 //! - `__torajs_class_layouts` / `__torajs_n_class_layouts` (emitted
-//!   by `ssa_inkwell::compile_module` at codegen) — the per-class
+//!   by torajs-link at `tr build` link time) — the per-class
 //!   field-offset metadata that lets the walker descend into
 //!   class-instance children. Stub (length 0) at cargo test time.
 //!

@@ -2,7 +2,7 @@
 //!
 //! Replaces every `extern "C" putchar` call site in the print
 //! family (torajs-str / torajs-arr / torajs-anyvalue / torajs-num
-//! + ssa_inkwell IR-emitted `define_print_*`). Buffers per-byte
+//! + torajs-print's `print_*` helpers). Buffers per-byte
 //! pushes in a thread-local line buffer; flushes on newline,
 //! buffer full, or explicit `__torajs_io_flush()` call.
 //!

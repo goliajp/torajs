@@ -27,8 +27,8 @@
 //!
 //! IR-side surface (declared in `ssa_lower::lower` and consumed by
 //! the `toUpperCase` / `toLowerCase` method dispatch in
-//! `lower_expr` + the alloc-intrinsic noalias whitelist in
-//! `ssa_inkwell::is_alloc_intrinsic`): `__torajs_str_to_upper(s)`
+//! `lower_expr`; alloc-intrinsic noalias-whitelisted on the
+//! LLVM-era backend): `__torajs_str_to_upper(s)`
 //! and `__torajs_str_to_lower(s)`, both `Str -> Str`.
 
 use alloc::vec::Vec;

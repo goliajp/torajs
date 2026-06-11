@@ -53,8 +53,8 @@ const OBJ_HEADER_SIZE: u64 = 24;
 const OBJ_CLASS_TAG_OFF: u64 = 8;
 const OBJ_VTABLE_OFF: u64 = 16;
 
-/// Phase 2A refcount + T-13.5 deque layout (mirrors `__TORAJS_ARR_HDR_*`
-/// in runtime_str.c and `ARR_HDR_*` in ssa_inkwell.rs):
+/// Phase 2A refcount + T-13.5 deque layout (mirrors the `ARR_HDR_*`
+/// constants in torajs-arr):
 ///
 ///   offset 0  — universal heap header (refcount u32 + type_tag u16 + flags u16)
 ///   offset 8  — len (u64)
@@ -1605,7 +1605,7 @@ fn lower_inner(
         &[Type::Ptr, Type::I64],
         Type::Ptr,
     );
-    // 12-b non-deque Array push fast-path. Body in ssa_inkwell.
+    // 12-b non-deque Array push fast-path. Body in torajs-arr.
     let arr_push_non_deque_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2475,8 +2475,8 @@ fn lower_inner(
      *   at the start of main with the LLVM-widened
      *   argc/argv/envp params; stores them into runtime globals.
      *   envp is null on WASI (`__main_argc_argv` is 2-param); the
-     *   ssa_inkwell entry-block lowering forwards a const-null ptr
-     *   in that case so the call site stays uniform.
+     *   entry-block wrapper forwards a const-null ptr in that case
+     *   so the call site stays uniform.
      * - __torajs_process_argv(): returns Array<Str> built from the
      *   captured globals. Called by `process.argv` / `Bun.argv`. */
     let argv_init_id = declare_intrinsic(
@@ -8815,7 +8815,7 @@ impl<'a> LowerCtx<'a> {
     /// lowering happened to be in — which a mid-expression block split
     /// (a may-throw call / bigint op) moves forward — that block won't
     /// dominate the drop's load and codegen rejects ("unmapped SSA
-    /// value", since ssa_inkwell maps values in block-insertion order).
+    /// value" — the backend maps values in block-insertion order).
     /// Entry-hoisting refcounted slots is the standard LLVM shape (all
     /// allocas in entry; mem2reg promotes them) and removes the whole
     /// fragility class. Copy slots have no scope-end drop, so they keep
@@ -13599,7 +13599,7 @@ impl<'a> LowerCtx<'a> {
 
     /// v0.3 #4 D-3 — outer wrapper that stamps every Inst emitted
     /// while lowering `eid` with `current_origin = Some(eid)` so
-    /// ssa_inkwell can resolve the source span for DWARF DILocation.
+    /// debug-info emission can resolve the source span for DWARF.
     /// Recursive `self.lower_expr(...)` calls re-enter this wrapper
     /// so nested exprs get their own tighter origin scoped to the
     /// inner subtree (RAII-style save/restore on the prev value).
@@ -14763,8 +14763,8 @@ impl<'a> LowerCtx<'a> {
                 // operands — both `a` and `b` keep their heaps and remain
                 // readable + droppable afterwards. The concat runtime
                 // produces a fresh allocation without freeing inputs;
-                // see ssa_inkwell::define_str_concat / ssa_cranelift::
-                // str_concat_runtime for the matching change.
+                // see torajs-str's concat (port of the pre-rewrite
+                // define_str_concat) for the matching change.
                 // P1.5/P1.8 — pass the operand ExprIds so the Eq/Neq
                 // Any-side packing can pick ANY_UNDEF=5 vs ANY_NULL=0.
                 let result = self.lower_binop_with_ids(*op, a, b, Some(*left), Some(*right));
@@ -22307,7 +22307,7 @@ impl<'a> LowerCtx<'a> {
                 let obj_ty = self.operand_ty(&obj_val);
                 // `s.length` for Type::Str — read the u64 length stored
                 // at offset 8 of the StrRepr (after the 8-byte universal
-                // refcount header). See ssa_inkwell::STR_HDR_LEN_OFF.
+                // refcount header). See torajs-str layout STR_LEN_OFF.
                 // Substr's len lives at the same offset (8) as Str's —
                 // single load for both layouts.
                 // V3-18 m2.c — `<prim>.constructor` returns the

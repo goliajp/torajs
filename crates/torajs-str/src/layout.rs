@@ -1,7 +1,7 @@
 //! Str block ABI constants + packed-header init + block-size
-//! computation. Single source of truth for the byte layout
-//! `ssa_inkwell` GEPs against and the runtime_*.c macros (`__TORAJS_
-//! STR_LEN(p)` etc.) mirror.
+//! computation. Single source of truth for the byte layout the
+//! toolchain emit layer (torajs-codegen) bakes into every Str
+//! access site.
 //!
 //! ```text
 //! Str = [header:8][length:4][_pad:4][bytes:N]   prefix 16
@@ -29,7 +29,7 @@
 //!   `length × 2`. Mirrors V8 SeqString / SpiderMonkey
 //!   JSLinearString — neither stores capacity, both derive it.
 //! - `STR_HDR_SIZE` = 16 and `STR_DATA_OFF` = 16 are unchanged so
-//!   every `ssa_inkwell` GEP against `STR_DATA_OFF` continues to
+//!   every emitted access against `STR_DATA_OFF` continues to
 //!   resolve.
 //! - S1 phase: every `alloc` path forces `is_latin1 = true`, so
 //!   the payload semantics match the pre-S1 byte-Str exactly
@@ -39,13 +39,12 @@
 use torajs_rc::Tag;
 
 /// Total bytes from `Str` block start to the first payload byte.
-/// `ssa_inkwell::emit_str_data_gep` GEPs against this constant; the
-/// runtime_str.c `__TORAJS_STR_HDR_SIZE` mirrors it.
+/// Toolchain-emitted Str data accesses bake in this constant.
 pub const STR_HDR_SIZE: usize = 16;
 
 /// Byte offset (from `Str` block start) of the `length` u32 field.
-/// `ssa_inkwell::emit_str_len_gep` + `__TORAJS_STR_LEN(p)` C macro
-/// both mirror this. P11.1-S1: the field width shrank from u64 to
+/// Toolchain-emitted Str length loads bake this in.
+/// P11.1-S1: the field width shrank from u64 to
 /// u32 here, but the offset stayed at 8 — only the load width at
 /// the SSA / IR / runtime side changed.
 pub const STR_LEN_OFF: usize = 8;

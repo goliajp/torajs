@@ -1,7 +1,8 @@
 //! SD-4c-prereq+e8 — layout + emit for the cycle collector's
 //! per-class `child_offsets` tables.
 //!
-//! Mirrors `ssa_inkwell::class_globals::emit_class_layouts`. The
+//! Byte ABI from the LLVM-era `ssa_inkwell::class_globals::
+//! emit_class_layouts` (canonical here since the swap). The
 //! cycle collector indexes by `class_tag - 1`; for each entry it
 //! reads `n_children` then walks `offsets[]` to enumerate the
 //! refcounted-pointer fields. Three rodata blocks per `class_layouts`

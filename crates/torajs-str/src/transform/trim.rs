@@ -14,7 +14,7 @@
 //! encodings always match.
 //!
 //! IR-side surface (declared in `ssa_lower::lower`, intrinsic
-//! noalias-whitelisted in `ssa_inkwell::is_alloc_intrinsic`):
+//! noalias-whitelisted on the LLVM-era backend):
 //! - `__torajs_str_trim(s) -> Str`
 //! - `__torajs_str_trim_start(s) -> Str`
 //! - `__torajs_str_trim_end(s) -> Str`

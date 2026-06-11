@@ -39,7 +39,7 @@ torajs-syscall = { path = "../torajs-syscall" }
 # so leaving them here doesn't widen the user binary's import set.
 # Cross-tier extern calls (str_alloc_pooled, arr_alloc, arr_push,
 # panic) resolve at `tr build` link time against the matching
-# sibling staticlibs + runtime_str.c.
+# sibling staticlibs.
 
 [dev-dependencies]
 torajs-bench = { path = "../torajs-bench" }

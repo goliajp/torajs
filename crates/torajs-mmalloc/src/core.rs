@@ -239,7 +239,9 @@ static mut CORE_REGISTRY: SpanRegistry = SpanRegistry::new();
 // `#[thread_local]` — Darwin local-exec TLS still routes via tlv).
 //
 // `#[unsafe(no_mangle)] pub` (Phase 2e item 13): stable symbol name
-// for ssa_inkwell IR-emit inline TLAB.pop/push at alloc/free sites.
+// so the toolchain can inline TLAB.pop/push at alloc/free sites
+// (LLVM-era backend did; the native ARM64 re-port is swap-3+
+// backlog — see cmd_build's synthesize_obj_alloc).
 #[unsafe(no_mangle)]
 pub static mut __torajs_core_tlab: TlabCache = TlabCache::new();
 

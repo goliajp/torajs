@@ -18,8 +18,8 @@
 //!   `"[object]\n"` (heap-typed pretty-print is a later wedge).
 //!
 //! Cross-tier symbols resolved at `tr build` link time:
-//! - `print_i64` / `print_f64` / `print_bool` — IR-emitted in
-//!   ssa_inkwell (per-byte putchar stdio buffer).
+//! - `print_i64` / `print_f64` / `print_bool` — `libtorajs_print.a`
+//!   (buffered via torajs-io).
 //! - `__torajs_str_print` — `libtorajs_str.a`.
 //! - `__torajs_str_alloc_pooled` — `libtorajs_str.a`.
 //! - `putchar` — libc; per-byte writer shared with the print family.

@@ -18,7 +18,7 @@ const ARR_HDR_LEN_OFF: usize = 8;
 
 /// Offset of the `cap` u32 within an array heap block. T-13.5 packed
 /// cap (u32) + head_offset (u32) into the 8-byte slot at offset 16
-/// (formerly cap was a u64). Mirrors `ssa_inkwell::ARR_HDR_CAP_OFF`.
+/// (formerly cap was a u64). Mirrors ssa_lower's deque-layout table.
 const ARR_HDR_CAP_OFF: usize = 16;
 
 /// Offset of the `head_offset` u32 within an array heap block (T-13.5
@@ -26,7 +26,7 @@ const ARR_HDR_CAP_OFF: usize = 16;
 const ARR_HDR_HEAD_OFF: usize = 20;
 
 /// Offset of the slot array within an array heap block (24 = 8B header
-/// + 8B len + 4B cap + 4B head). Mirrors `ssa_inkwell::ARR_HDR_DATA_OFF`.
+/// + 8B len + 4B cap + 4B head). Mirrors ssa_lower's deque-layout table.
 const ARR_HDR_DATA_OFF: usize = 24;
 
 unsafe extern "C" {

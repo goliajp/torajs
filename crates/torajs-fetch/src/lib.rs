@@ -38,8 +38,8 @@
 mod native;
 
 // Cross-tier extern stubs for cargo unit tests — real symbols
-// live in sibling staticlibs (torajs-str + torajs-rc) +
-// runtime_str.c at `tr build` link time. cargo test for
+// live in sibling staticlibs (torajs-str + torajs-rc) at
+// `tr build` link time. cargo test for
 // torajs-fetch doesn't link those, so panicking stubs keep the
 // test binary linking clean. Same pattern as torajs-promise /
 // torajs-regex / torajs-cycle test stubs.
@@ -84,7 +84,7 @@ mod tests {
 // ---- Public constants shared with the native impl module ----
 
 /// `__TORAJS_TAG_RESPONSE` — heap header type tag for Response.
-/// Matches runtime_str.c's `value_drop_heap` dispatch on tag=9.
+/// Matches torajs-value-drop's `value_drop_heap` dispatch on tag=9.
 pub const TAG_RESPONSE: u16 = 9;
 
 /// Total Response heap block size in bytes.
@@ -96,6 +96,6 @@ pub const RESPONSE_STATUS_OFF: usize = 8;
 /// Byte offset of `body` (*Str) within the Response block.
 pub const RESPONSE_BODY_OFF: usize = 16;
 
-// wasm32-wasi target — fetch is intentionally absent (matches
-// runtime_fetch.c's `#ifndef __wasi__` gate). T-21.b lands the
+// wasm32-wasi target — fetch is intentionally absent (the
+// pre-rewrite C had the same `#ifndef __wasi__` gate). T-21.b lands the
 // browser-API routing later.

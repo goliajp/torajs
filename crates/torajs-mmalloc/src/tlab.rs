@@ -48,9 +48,10 @@ pub const TLAB_CACHE_DEPTH: usize = 16;
 /// * sizeof(*mut u8)` ≈ 1.2 KB.
 ///
 /// `#[repr(C)]` (Phase 2e item 13 prerequisite): layout is
-/// IR-codegen-visible. `ssa_inkwell` emits inline TLAB.pop / push
-/// IR at user-binary alloc/free sites using the offset constants
-/// below — eliminates extern "C" call overhead, parity with libc
+/// codegen-visible. The LLVM-era backend inlined TLAB.pop / push
+/// at user-binary alloc/free sites using the offset constants
+/// below (native ARM64 re-port = swap-3+ backlog) —
+/// eliminates extern "C" call overhead, parity with libc
 /// nano-allocator inline thread-cache.
 #[repr(C)]
 pub struct TlabCache {
@@ -64,7 +65,7 @@ pub struct TlabCache {
 }
 
 // ============================================================
-// IR-codegen layout constants — exposed for ssa_inkwell inline emit
+// Codegen layout constants — exposed for toolchain inline emit
 // ============================================================
 
 /// Byte offset of `slots` field within `TlabCache`. Equal to 0
@@ -79,8 +80,8 @@ pub const TLAB_DEPTH_OFFSET: usize =
 
 /// Total size of `TlabCache` struct in bytes (rounded up to
 /// alignment by Rust layout rules). Sanity-checked by
-/// `ir_layout_constants_match_actual_struct` test; ssa_inkwell
-/// uses this for alloca / GEP calculations.
+/// `ir_layout_constants_match_actual_struct` test; inline-emit
+/// codegen sizes its accesses with this.
 pub const TLAB_TOTAL_SIZE: usize = core::mem::size_of::<TlabCache>();
 
 /// Per-slot stride (= bytes per cached pointer). 8 on 64-bit.
@@ -247,8 +248,8 @@ mod tests {
         assert_eq!(count, 0);
     }
 
-    /// Pin TlabCache layout for Phase 2e ssa_inkwell IR-emit. If
-    /// these constants drift from actual struct layout, IR-emitted
+    /// Pin TlabCache layout for toolchain inline emit (Phase 2e).
+    /// If these constants drift from actual struct layout, emitted
     /// TLAB.pop / push reads/writes wrong fields → memory corruption.
     /// Test catches drift at `cargo test` time before any user binary
     /// is built with the stale offsets baked in.

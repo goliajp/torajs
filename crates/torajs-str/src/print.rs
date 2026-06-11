@@ -6,10 +6,10 @@
 //!
 //! **Buffer-sharing constraint**: `__torajs_str_print` (stdout)
 //! uses `torajs_io::__torajs_io_putc_stdout` per-byte (v0.7-A3
-//! Step 14-b cutover from libc `putchar`). The IR-emitted
-//! `print_i64` / `print_f64` / `print_bool` in `ssa_inkwell/
-//! builders.rs` also route through the same symbol (Step 14-c
-//! cutover), so all stdout writers share torajs-io's process-
+//! Step 14-b cutover from libc `putchar`). torajs-print's
+//! `print_i64` / `print_f64` / `print_bool` also route through
+//! the same symbol (Step 14-c cutover), so all stdout writers
+//! share torajs-io's process-
 //! global line buffer. No cross-buffer reordering risk: every
 //! console.log call ends with '\n' which triggers a flush.
 //!

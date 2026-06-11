@@ -8,7 +8,7 @@
 //!   that anyvalue + other runtime helpers already consume.
 //! - [`__torajs_str_eq_cstr`] — compare a heap Str against a raw
 //!   C-style byte slice (e.g. a literal `"undefined"` baked into
-//!   ssa_inkwell IR for typeof comparisons). Same shape as above
+//!   the binary's rodata for typeof comparisons). Same shape as above
 //!   but the second operand carries its length separately rather
 //!   than via the Str header.
 //!
@@ -163,8 +163,8 @@ pub unsafe extern "C" fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64 {
 /// # Safety
 ///
 /// `s` must point at a valid Str block; `cstr_bytes` must point at
-/// `cstr_len` readable bytes (typically a `.rodata` literal baked
-/// into ssa_inkwell IR).
+/// `cstr_len` readable bytes (typically a toolchain-baked
+/// `.rodata` literal).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_eq_cstr(
     s: *const u8,

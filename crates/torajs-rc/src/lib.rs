@@ -7,8 +7,8 @@
 //! free + walk children. The C-side substrate (previously inline
 //! `__torajs_rc_inc` / `__torajs_rc_dec` in `runtime_str.c`) is
 //! replaced by this crate; the FFI surface (the
-//! `__torajs_rc_inc` / `__torajs_rc_dec` symbols emitted by
-//! `ssa_inkwell` IR) is preserved exactly via the
+//! `__torajs_rc_inc` / `__torajs_rc_dec` symbols toolchain-emitted
+//! code calls) is preserved exactly via the
 //! [`__torajs_rc_inc`] / [`__torajs_rc_dec`] thin shims at the
 //! bottom of this file.
 //!
@@ -449,8 +449,8 @@ impl HeapHeader {
 // ============================================================
 //
 // These keep the exact C ABI (`extern "C"`, `*mut c_void` param,
-// `i32` return on dec for legacy 0/1 verdicts) so ssa_inkwell
-// doesn't need any IR-side changes. Each wrapper is the
+// `i32` return on dec for legacy 0/1 verdicts) so emitted call
+// sites never needed changes. Each wrapper is the
 // null-check + reborrow + delegate; all real logic is in the
 // methods above.
 

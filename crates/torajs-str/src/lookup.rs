@@ -22,8 +22,8 @@
 //!
 //! The IR-side `__torajs_str_starts_with` / `_ends_with` /
 //! `_index_of` / `_includes` (no `_from` suffix) emitted by
-//! `ssa_inkwell::define_str_*` remain LLVM-IR until P3.1-g
-//! consolidation; this module handles only the C-defined `*_from`
+//! `ssa_inkwell::define_str_*` remained LLVM-IR until the P3.1-g
+//! consolidation; this module took the pre-rewrite `*_from`
 //! variants plus `_last_index_of` / `_locale_compare`.
 
 use core::cmp::Ordering;
