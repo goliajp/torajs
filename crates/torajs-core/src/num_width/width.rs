@@ -109,10 +109,41 @@ impl<'a> Analysis<'a> {
                 // Mul grows multiplicatively — any slot feeding it is
                 // a growth dependency (W5). In a cycle that means
                 // geometric blow-up past 2^53 within tens of steps.
-                BinOp::Mul => mark_growth(join(
-                    self.width_of(*left, scope),
-                    self.width_of(*right, scope),
-                )),
+                //
+                // W3 C4 — int `a * b` mints -0 when one factor is
+                // zero and the other negative; a non-positive
+                // integer-literal cofactor makes that reachable, so
+                // the result must stay f64 (mirrors the lower_binop
+                // float predicate). Variable×variable keeps the int
+                // face for now (S9, rfc follow-up).
+                BinOp::Mul => {
+                    let lit = |eid: ExprId| -> Option<i64> {
+                        match self.ast.get_expr(eid) {
+                            Expr::Number(n) if !literal_is_f64(*n) => Some(*n as i64),
+                            Expr::Unary {
+                                op: UnaryOp::Neg,
+                                expr,
+                            } => match self.ast.get_expr(*expr) {
+                                Expr::Number(n) if !literal_is_f64(*n) => Some(-(*n as i64)),
+                                _ => None,
+                            },
+                            _ => None,
+                        }
+                    };
+                    let minus_zero_risk = match (lit(*left), lit(*right)) {
+                        (Some(x), Some(y)) => (x == 0 && y < 0) || (x < 0 && y == 0),
+                        (Some(c), None) | (None, Some(c)) => c <= 0,
+                        (None, None) => false,
+                    };
+                    if minus_zero_risk {
+                        W::F64
+                    } else {
+                        mark_growth(join(
+                            self.width_of(*left, scope),
+                            self.width_of(*right, scope),
+                        ))
+                    }
+                }
                 // Add/Sub with a literal int increment stays a linear
                 // small-step counter (`i = i + 1`) — passes through
                 // unmarked. A non-constant increment can be any size

@@ -12,10 +12,12 @@
 //!   operands is exact (no rounding: |result| < |divisor|), and ±0
 //!   compare equal under every fcmp predicate, so the -0 that srem
 //!   cannot represent is unobservable here.
-//! * **Truncate (R2)** — `fptosi(frem(x̂, ŷ))` over a single-use frem:
-//!   the i64 sink already collapses -0 to 0, so the float detour
-//!   computes the same i64. The frem retypes to srem in place and the
-//!   fptosi collapses to a Copy of it.
+//! * **Truncate (R2)** — `fptosi(frem(x̂, ŷ))` / `fptosi(fmul(x̂, ŷ))`
+//!   over a single-use float op: the i64 sink already collapses -0 to
+//!   0, so the float detour computes the same i64. The op retypes to
+//!   srem / mul in place and the fptosi collapses to a Copy of it.
+//!   (fmul qualifies only here — an fcmp would observe the f64
+//!   rounding past 2^53 that the int product wraps instead, W3 C4.)
 //!
 //! A constant-zero divisor never narrows (frem → NaN is the JS `a % 0`
 //! answer; srem would be UB). A *runtime* zero divisor in the narrowed
@@ -108,25 +110,33 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
         }
     }
 
-    // A single-use single-def frem whose operands peel to int form and
-    // whose divisor is not a compile-time zero.
-    let narrowable = |v: &ValueId| -> Option<(Operand, Operand)> {
+    // A single-use single-def frem / fmul whose operands peel to int
+    // form; a frem divisor must not be a compile-time zero. fmul only
+    // qualifies for the fptosi sink (W3 C4): the i64 truncation makes
+    // the int product bit-equal to the pre-W3 path, while an fcmp
+    // would observe the f64 rounding past 2^53.
+    let narrowable = |v: &ValueId, allow_mul: bool| -> Option<(BinOp, Operand, Operand)> {
         if multi.contains(v) || uses.get(v).copied().unwrap_or(0) != 1 {
             return None;
         }
-        let InstKind::BinOp(BinOp::FRem, a, b) = defs.get(v)? else {
+        let InstKind::BinOp(fop @ (BinOp::FRem | BinOp::FMul), a, b) = defs.get(v)? else {
             return None;
         };
+        let iop = match fop {
+            BinOp::FRem => BinOp::SRem,
+            _ if allow_mul => BinOp::Mul,
+            _ => return None,
+        };
         let bi = int_form(b, &defs)?;
-        if matches!(bi, Operand::ConstI64(0)) {
+        if iop == BinOp::SRem && matches!(bi, Operand::ConstI64(0)) {
             return None;
         }
-        Some((int_form(a, &defs)?, bi))
+        Some((iop, int_form(a, &defs)?, bi))
     };
 
     // Decision pass — collect frem results to retype, keyed by the
     // consuming inst shape.
-    let mut narrow: HashMap<ValueId, (Operand, Operand)> = HashMap::new();
+    let mut narrow: HashMap<ValueId, (BinOp, Operand, Operand)> = HashMap::new();
     let mut cmp_results: HashSet<ValueId> = HashSet::new();
     let mut trunc_results: HashSet<ValueId> = HashSet::new();
     for block in &func.blocks {
@@ -143,14 +153,14 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
                     if op_const_int(other).is_none() {
                         continue;
                     }
-                    if let Some(ops) = narrowable(v) {
+                    if let Some(ops) = narrowable(v, false) {
                         narrow.insert(*v, ops);
                         cmp_results.insert(*v);
                         stats.cmps_narrowed += 1;
                     }
                 }
                 InstKind::FpToSi(Operand::Value(v)) => {
-                    if let Some(ops) = narrowable(v) {
+                    if let Some(ops) = narrowable(v, true) {
                         narrow.insert(*v, ops);
                         trunc_results.insert(*v);
                         stats.truncs_narrowed += 1;
@@ -169,9 +179,9 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
     for block in func.blocks.iter_mut() {
         for inst in block.insts.iter_mut() {
             if let Some(r) = inst.result {
-                if let Some((xi, yi)) = narrow.get(&r) {
-                    if matches!(inst.kind, InstKind::BinOp(BinOp::FRem, _, _)) {
-                        inst.kind = InstKind::BinOp(BinOp::SRem, *xi, *yi);
+                if let Some((iop, xi, yi)) = narrow.get(&r) {
+                    if matches!(inst.kind, InstKind::BinOp(BinOp::FRem | BinOp::FMul, _, _)) {
+                        inst.kind = InstKind::BinOp(*iop, *xi, *yi);
                         func.values[r.0 as usize].ty = Type::I64;
                         continue;
                     }
@@ -378,6 +388,52 @@ mod tests {
                 inst(3, InstKind::SiToFp(v(1))),
                 inst(4, InstKind::BinOp(BinOp::FRem, v(2), v(3))),
                 inst(5, InstKind::FCmp(FPred::Oeq, v(4), cf(0.5))),
+            ],
+            6,
+            Terminator::CondBr {
+                cond: v(5),
+                then_blk: BlockId(0),
+                else_blk: BlockId(0),
+            },
+        );
+        let stats = run(&mut f);
+        assert_eq!(stats.cmps_narrowed, 0);
+    }
+
+    #[test]
+    fn fptosi_over_fmul_collapses_to_mul() {
+        // W3 C4 — `x * -1` floated by lowering, recovered at the i64
+        // sink.
+        let mut f = func_with(
+            vec![
+                inst(1, InstKind::SiToFp(v(0))),
+                inst(2, InstKind::BinOp(BinOp::FMul, v(1), cf(-1.0))),
+                inst(3, InstKind::FpToSi(v(2))),
+            ],
+            4,
+            Terminator::Ret(Some(v(3))),
+        );
+        let stats = run(&mut f);
+        assert_eq!(stats.truncs_narrowed, 1);
+        assert!(matches!(
+            f.blocks[0].insts[0].kind,
+            InstKind::BinOp(
+                BinOp::Mul,
+                Operand::Value(ValueId(0)),
+                Operand::ConstI64(-1)
+            )
+        ));
+    }
+
+    #[test]
+    fn fcmp_over_fmul_stays_float() {
+        // rounding-observable: fcmp never narrows an fmul.
+        let mut f = func_with(
+            vec![
+                inst(2, InstKind::SiToFp(v(0))),
+                inst(3, InstKind::SiToFp(v(1))),
+                inst(4, InstKind::BinOp(BinOp::FMul, v(2), v(3))),
+                inst(5, InstKind::FCmp(FPred::Oeq, v(4), cf(0.0))),
             ],
             6,
             Terminator::CondBr {

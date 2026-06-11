@@ -14903,6 +14903,17 @@ impl<'a> LowerCtx<'a> {
                                 Operand::Value(r)
                             }
                             _ => {
+                                // W3 C4 — fold Neg on ConstI64 at
+                                // lower-time (mirror of the ConstF64
+                                // fold above): a negative-literal
+                                // operand must be visible to the Mul
+                                // -0 float predicate (`x * -1`), which
+                                // matches on Operand::ConstI64.
+                                if let Operand::ConstI64(n) = v
+                                    && let Some(m) = n.checked_neg()
+                                {
+                                    return Operand::ConstI64(m);
+                                }
                                 let r = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::BinOp(SsaBinOp::Sub, Operand::ConstI64(0), v),
@@ -25582,8 +25593,25 @@ impl<'a> LowerCtx<'a> {
         // narrow the -0-insensitive / interval-proven shapes back to
         // srem downstream.
         let mod_int_safe = matches!(a, Operand::ConstI64(c) if c >= 0);
+        // W3 C4 — int `a * b` mints -0 only when one factor is zero
+        // and the other negative. A non-positive constant cofactor
+        // makes that reachable (`x * -1`, `0 * x`), so those float; a
+        // positive constant cofactor or two constants that miss the
+        // zero×negative pattern keep the int path. Variable×variable
+        // also keeps it for now — floating it needs truncation
+        // propagation through f-op trees to hold the bench surface
+        // (S9, rfc 20260611-ann-width-unification follow-up).
+        let mul_minus_zero_risk = matches!(op, AstBinOp::Mul)
+            && match (&a, &b) {
+                (Operand::ConstI64(x), Operand::ConstI64(y)) => {
+                    (*x == 0 && *y < 0) || (*x < 0 && *y == 0)
+                }
+                (Operand::ConstI64(c), _) | (_, Operand::ConstI64(c)) => *c <= 0,
+                _ => false,
+            };
         let force_float = matches!(op, AstBinOp::Div | AstBinOp::Pow)
-            || (matches!(op, AstBinOp::Mod) && !mod_int_safe);
+            || (matches!(op, AstBinOp::Mod) && !mod_int_safe)
+            || mul_minus_zero_risk;
         let either_float = self.operand_ty(&a) == Type::F64 || self.operand_ty(&b) == Type::F64;
         let is_float = force_float || either_float;
 
@@ -25701,115 +25729,7 @@ impl<'a> LowerCtx<'a> {
     // (`lower_logical_and` / `lower_logical_or` live in
     // `ssa_lower_logical.rs`.)
 
-    /// V3-18 m1.g — JS spec §7.1.2 ToBoolean. Coerces `op` to a
-    /// Type::Bool for branch conditions in `&&` / `||` / `if` /
-    /// ternary on non-bool inputs.
-    ///   undefined → false  (post-V3-18 m1.h)
-    ///   null      → false
-    ///   Bool      → as-is
-    ///   Number i64 → 0 = false, else true
-    ///   F64       → 0/-0/NaN = false, else true
-    ///   String / Substr → empty = false, else true
-    ///   Object / Array / Closure / etc → always true (non-null heap)
-    pub(crate) fn coerce_to_bool(&mut self, op: Operand) -> Operand {
-        let ty = self.operand_ty(&op);
-        match ty {
-            Type::Bool => op,
-            Type::I64 => self.cmp(IPred::Ne, op, Operand::ConstI64(0)),
-            Type::F64 => {
-                // ToBoolean(NaN) = false, ToBoolean(+0/-0) = false,
-                // else true. FPred::One ("ordered, not equal") is
-                // true iff both operands are non-NaN AND unequal —
-                // exactly NaN→false, ±0→false, others→true.
-                self.fcmp(FPred::One, op, Operand::ConstF64(0.0))
-            }
-            Type::Str | Type::Substr => {
-                // ToBoolean(string) per spec §7.1.2 — falsy iff "" or
-                // null. Pre-fix tora unconditionally loaded len at
-                // offset 8 (segfault on null). Truthy-narrow on
-                // Nullable<String> in check.rs hands us a Str operand
-                // that may be NULL when the runtime branch isn't taken
-                // (e.g. `if (s)` on `s: string | null`), so guard the
-                // length load with an explicit null-check.
-                let is_null = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::ICmp(IPred::Eq, op.clone(), Operand::ConstPtrNull),
-                    Type::Bool,
-                    None,
-                );
-                let null_blk = self.f.add_block();
-                let nn_blk = self.f.add_block();
-                let merge = self.f.add_block();
-                let result_slot = self.alloca_in_entry(Type::Bool, Some("__strbool"));
-                let cb = self.cur_block;
-                self.f.set_term(
-                    cb,
-                    Terminator::CondBr {
-                        cond: Operand::Value(is_null),
-                        then_blk: null_blk,
-                        else_blk: nn_blk,
-                    },
-                );
-                // null branch: store false.
-                self.f.append_void(
-                    null_blk,
-                    InstKind::Store(Operand::ConstBool(false), Operand::Value(result_slot), 0),
-                );
-                self.f.set_term(null_blk, Terminator::Br(merge));
-                // non-null branch: load len via the encoding-aware
-                // helper, compare > 0.
-                self.cur_block = nn_blk;
-                let len_op = crate::ssa_lower_str::load_str_or_substr_length(self, op, ty);
-                let nz = self.cmp(IPred::Sgt, len_op, Operand::ConstI64(0));
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(nz, Operand::Value(result_slot), 0),
-                );
-                let cb = self.cur_block;
-                self.f.set_term(cb, Terminator::Br(merge));
-                self.cur_block = merge;
-                let r = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::Bool, Operand::Value(result_slot), 0),
-                    Type::Bool,
-                    None,
-                );
-                Operand::Value(r)
-            }
-            Type::Ptr => {
-                // null literal or any raw pointer — null = false.
-                self.cmp(IPred::Ne, op, Operand::ConstPtrNull)
-            }
-            // P0.4 — ToBoolean(Any) per JS spec §7.1.2 routes through
-            // __torajs_any_to_bool which unboxes the tag + payload
-            // and applies spec rules: NULL → false, BOOL → value,
-            // I64 → !=0, F64 → !=0 && !NaN, HEAP/Str → len>0, other
-            // HEAP → true. Other heap-pointer types continue to use
-            // the simple null-check fallback (still correct because
-            // they're statically non-Any objects: object → true,
-            // null → false).
-            Type::Any => {
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.any_to_bool, vec![op]),
-                    Type::Bool,
-                    None,
-                );
-                Operand::Value(v)
-            }
-            // Heap-typed values (Obj / Arr / Closure / Symbol /
-            // RegExp / Date / BigInt / ...) lower to a single pointer
-            // at codegen, so ToBoolean per spec §7.1.2 is exactly
-            // `ptr != null` — null is the only falsy value for an
-            // object / heap value. The previous shortcut returned
-            // ConstBool(true) under the assumption that these values
-            // always come from `new` / literal alloc; the truthy-
-            // narrow wedge breaks that (a Nullable<Obj> binding can
-            // legitimately carry NULL through `if (b) ...`), so the
-            // fallback now does the explicit null-check.
-            _ => self.cmp(IPred::Ne, op, Operand::ConstPtrNull),
-        }
-    }
+    // (`coerce_to_bool` lives in `ssa_lower_logical.rs`.)
 
     fn bin(&mut self, op: SsaBinOp, a: Operand, b: Operand, ty: Type) -> Operand {
         let v = self
@@ -25818,14 +25738,14 @@ impl<'a> LowerCtx<'a> {
         Operand::Value(v)
     }
 
-    fn cmp(&mut self, pred: IPred, a: Operand, b: Operand) -> Operand {
+    pub(crate) fn cmp(&mut self, pred: IPred, a: Operand, b: Operand) -> Operand {
         let v = self
             .f
             .append_inst(self.cur_block, InstKind::ICmp(pred, a, b), Type::Bool, None);
         Operand::Value(v)
     }
 
-    fn fcmp(&mut self, pred: FPred, a: Operand, b: Operand) -> Operand {
+    pub(crate) fn fcmp(&mut self, pred: FPred, a: Operand, b: Operand) -> Operand {
         let v = self
             .f
             .append_inst(self.cur_block, InstKind::FCmp(pred, a, b), Type::Bool, None);
