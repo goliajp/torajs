@@ -12,12 +12,16 @@
 //!   operands is exact (no rounding: |result| < |divisor|), and ±0
 //!   compare equal under every fcmp predicate, so the -0 that srem
 //!   cannot represent is unobservable here.
-//! * **Truncate (R2)** — `fptosi(frem(x̂, ŷ))` / `fptosi(fmul(x̂, ŷ))`
-//!   over a single-use float op: the i64 sink already collapses -0 to
-//!   0, so the float detour computes the same i64. The op retypes to
-//!   srem / mul in place and the fptosi collapses to a Copy of it.
-//!   (fmul qualifies only here — an fcmp would observe the f64
-//!   rounding past 2^53 that the int product wraps instead, W3 C4.)
+//! * **Truncate (R2)** — `fptosi(frem(x̂, ŷ))` / `fptosi(fmul(x̂, ŷ))` /
+//!   `fptosi(fsub(-0.0, ŷ))` over a single-use float op: the i64 sink
+//!   already collapses -0 to 0, so the float detour computes the same
+//!   i64. The op retypes to srem / mul / sub-from-0 in place and the
+//!   fptosi collapses to a Copy of it. (fmul qualifies only here — an
+//!   fcmp would observe the f64 rounding past 2^53 that the int
+//!   product wraps instead, W3 C4. The -0.0-LHS fsub is the unary-
+//!   negation shape S8's lowering emits for `-x` on a runtime int;
+//!   it narrows to `sub(0, x)` only at this sink for the same
+//!   rounding reason.)
 //!
 //! A constant-zero divisor never narrows (frem → NaN is the JS `a % 0`
 //! answer; srem would be UB). A *runtime* zero divisor in the narrowed
@@ -110,28 +114,36 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
         }
     }
 
-    // A single-use single-def frem / fmul whose operands peel to int
-    // form; a frem divisor must not be a compile-time zero. fmul only
-    // qualifies for the fptosi sink (W3 C4): the i64 truncation makes
-    // the int product bit-equal to the pre-W3 path, while an fcmp
-    // would observe the f64 rounding past 2^53.
-    let narrowable = |v: &ValueId, allow_mul: bool| -> Option<(BinOp, Operand, Operand)> {
+    // A single-use single-def frem / fmul / negation-shaped fsub whose
+    // operands peel to int form; a frem divisor must not be a
+    // compile-time zero. fmul and the -0.0-LHS fsub (S8's `-x`
+    // lowering shape) qualify only for the fptosi sink: the i64
+    // truncation makes the result bit-equal to the pre-W3 int path,
+    // while an fcmp would observe the f64 rounding past 2^53.
+    let narrowable = |v: &ValueId, trunc_sink: bool| -> Option<(BinOp, Operand, Operand)> {
         if multi.contains(v) || uses.get(v).copied().unwrap_or(0) != 1 {
             return None;
         }
-        let InstKind::BinOp(fop @ (BinOp::FRem | BinOp::FMul), a, b) = defs.get(v)? else {
+        let InstKind::BinOp(fop @ (BinOp::FRem | BinOp::FMul | BinOp::FSub), a, b) = defs.get(v)?
+        else {
             return None;
         };
-        let iop = match fop {
-            BinOp::FRem => BinOp::SRem,
-            _ if allow_mul => BinOp::Mul,
+        let (iop, ai) = match fop {
+            BinOp::FRem => (BinOp::SRem, int_form(a, &defs)?),
+            BinOp::FMul if trunc_sink => (BinOp::Mul, int_form(a, &defs)?),
+            BinOp::FSub
+                if trunc_sink
+                    && matches!(a, Operand::ConstF64(c) if *c == 0.0 && c.is_sign_negative()) =>
+            {
+                (BinOp::Sub, Operand::ConstI64(0))
+            }
             _ => return None,
         };
         let bi = int_form(b, &defs)?;
         if iop == BinOp::SRem && matches!(bi, Operand::ConstI64(0)) {
             return None;
         }
-        Some((iop, int_form(a, &defs)?, bi))
+        Some((iop, ai, bi))
     };
 
     // Decision pass — collect frem results to retype, keyed by the
@@ -180,7 +192,10 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
         for inst in block.insts.iter_mut() {
             if let Some(r) = inst.result {
                 if let Some((iop, xi, yi)) = narrow.get(&r) {
-                    if matches!(inst.kind, InstKind::BinOp(BinOp::FRem | BinOp::FMul, _, _)) {
+                    if matches!(
+                        inst.kind,
+                        InstKind::BinOp(BinOp::FRem | BinOp::FMul | BinOp::FSub, _, _)
+                    ) {
                         inst.kind = InstKind::BinOp(*iop, *xi, *yi);
                         func.values[r.0 as usize].ty = Type::I64;
                         continue;
@@ -444,6 +459,81 @@ mod tests {
         );
         let stats = run(&mut f);
         assert_eq!(stats.cmps_narrowed, 0);
+    }
+
+    #[test]
+    fn fptosi_over_neg_shaped_fsub_collapses_to_sub() {
+        // W3 S8 — `-x` on a runtime int floated by lowering as
+        // fsub(-0.0, sitofp x), recovered at the i64 sink.
+        let mut f = func_with(
+            vec![
+                inst(1, InstKind::SiToFp(v(0))),
+                inst(2, InstKind::BinOp(BinOp::FSub, cf(-0.0), v(1))),
+                inst(3, InstKind::FpToSi(v(2))),
+            ],
+            4,
+            Terminator::Ret(Some(v(3))),
+        );
+        let stats = run(&mut f);
+        assert_eq!(stats.truncs_narrowed, 1);
+        assert_eq!(stats.dead_converts_removed, 1);
+        let insts = &f.blocks[0].insts;
+        assert_eq!(insts.len(), 2);
+        assert!(matches!(
+            insts[0].kind,
+            InstKind::BinOp(BinOp::Sub, Operand::ConstI64(0), Operand::Value(ValueId(0)))
+        ));
+        assert!(matches!(
+            insts[1].kind,
+            InstKind::Copy(Type::I64, Operand::Value(ValueId(2)))
+        ));
+        assert_eq!(f.values[2].ty, Type::I64);
+    }
+
+    #[test]
+    fn fptosi_over_plain_fsub_stays_float() {
+        // an ordinary subtraction (LHS not the -0.0 negation marker)
+        // never narrows — only S8's exact lowering shape qualifies.
+        let mut f = func_with(
+            vec![
+                inst(1, InstKind::SiToFp(v(0))),
+                inst(2, InstKind::BinOp(BinOp::FSub, cf(0.0), v(1))),
+                inst(3, InstKind::FpToSi(v(2))),
+            ],
+            4,
+            Terminator::Ret(Some(v(3))),
+        );
+        let stats = run(&mut f);
+        assert_eq!(stats.truncs_narrowed, 0);
+        assert!(matches!(
+            f.blocks[0].insts[1].kind,
+            InstKind::BinOp(BinOp::FSub, _, _)
+        ));
+    }
+
+    #[test]
+    fn fcmp_over_neg_shaped_fsub_stays_float() {
+        // rounding-observable past 2^53 — the negation shape narrows
+        // only at the truncating sink, never into a compare.
+        let mut f = func_with(
+            vec![
+                inst(1, InstKind::SiToFp(v(0))),
+                inst(2, InstKind::BinOp(BinOp::FSub, cf(-0.0), v(1))),
+                inst(3, InstKind::FCmp(FPred::Oeq, v(2), cf(0.0))),
+            ],
+            4,
+            Terminator::CondBr {
+                cond: v(3),
+                then_blk: BlockId(0),
+                else_blk: BlockId(0),
+            },
+        );
+        let stats = run(&mut f);
+        assert_eq!(stats.cmps_narrowed, 0);
+        assert!(matches!(
+            f.blocks[0].insts[1].kind,
+            InstKind::BinOp(BinOp::FSub, _, _)
+        ));
     }
 
     #[test]

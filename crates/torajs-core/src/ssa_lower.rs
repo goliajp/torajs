@@ -23100,26 +23100,43 @@ impl<'a> LowerCtx<'a> {
                 let then_blk = self.f.add_block();
                 let else_blk = self.f.add_block();
                 let after_blk = self.f.add_block();
-                // Lower then-branch first to discover the result type.
-                let saved = self.cur_block;
-                self.cur_block = then_blk;
-                let then_val = self.lower_expr(tb);
-                let res_ty = self.operand_ty(&then_val);
-                let res_slot = self.alloca_in_entry(res_ty, Some("__tern"));
+                // Lower both branches before sizing the result slot.
                 // Use the CURRENT block (post-branch lowering), not the
                 // entry of the branch — nested ternaries / calls move
                 // cur_block forward, and emitting into the wrong block
                 // produces dangling SSA refs ("unmapped SSA value N" at
                 // LLVM emit).
+                let saved = self.cur_block;
+                self.cur_block = then_blk;
+                let then_val = self.lower_expr(tb);
                 let then_end = self.cur_block;
+                self.cur_block = else_blk;
+                let else_val = self.lower_expr(eb);
+                let else_end = self.cur_block;
+                // W3 S8 — a mixed i64/f64 Number pair joins at f64:
+                // check.rs verified both arms are `number`, but the
+                // float face (`n < 0 ? -n : n`) can leave one arm f64
+                // while the other stays i64, and a shared slot must
+                // hold one representation.
+                let tt = self.operand_ty(&then_val);
+                let et = self.operand_ty(&else_val);
+                let (then_val, else_val, res_ty) = if tt == Type::F64 && et == Type::I64 {
+                    self.cur_block = else_end;
+                    let e = self.coerce_to_f64(else_val);
+                    (then_val, e, Type::F64)
+                } else if tt == Type::I64 && et == Type::F64 {
+                    self.cur_block = then_end;
+                    let t = self.coerce_to_f64(then_val);
+                    (t, else_val, Type::F64)
+                } else {
+                    (then_val, else_val, tt)
+                };
+                let res_slot = self.alloca_in_entry(res_ty, Some("__tern"));
                 self.f.append_void(
                     then_end,
                     InstKind::Store(then_val, Operand::Value(res_slot), 0),
                 );
                 self.f.set_term(then_end, Terminator::Br(after_blk));
-                self.cur_block = else_blk;
-                let else_val = self.lower_expr(eb);
-                let else_end = self.cur_block;
                 self.f.append_void(
                     else_end,
                     InstKind::Store(else_val, Operand::Value(res_slot), 0),

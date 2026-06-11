@@ -220,6 +220,26 @@ impl LowerCtx<'_> {
                         {
                             return Operand::ConstI64(m);
                         }
+                        // W3 S8 (rfc 20260611-ann-width-unification
+                        // §5.3) — `-x` on a runtime int mints -0
+                        // when x == 0 (JS spec §13.5.5 unary minus),
+                        // which i64 cannot represent, so a
+                        // non-constant negation routes through the
+                        // sign-preserving f64 FSub path. The
+                        // frem_narrow fptosi sink recovers
+                        // `sub(0, x)` where the -0 is unobservable
+                        // (i64 truncation collapses it), same
+                        // playbook as Mod / Mul.
+                        if self.operand_ty(&v) == Type::I64 {
+                            let vf = self.coerce_to_f64(v);
+                            let r = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(SsaBinOp::FSub, Operand::ConstF64(-0.0), vf),
+                                Type::F64,
+                                None,
+                            );
+                            return Operand::Value(r);
+                        }
                         let r = self.f.append_inst(
                             self.cur_block,
                             InstKind::BinOp(SsaBinOp::Sub, Operand::ConstI64(0), v),

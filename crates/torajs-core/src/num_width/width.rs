@@ -181,13 +181,17 @@ impl<'a> Analysis<'a> {
             Expr::Unary { op, expr } => match op {
                 UnaryOp::Neg => {
                     // `-0` spells Neg(Number(0)) — meaningful f64 sign
-                    // state. Other negations preserve operand width.
-                    if let Expr::Number(n) = self.ast.get_expr(*expr)
-                        && *n == 0.0
-                    {
-                        W::F64
-                    } else {
-                        self.width_of(*expr, scope)
+                    // state. A non-zero literal negation is the
+                    // lower-time ConstI64 fold (int path), so it
+                    // preserves operand width.
+                    //
+                    // W3 S8 — any other negation (`-x` on a runtime
+                    // value) mints -0 when x == 0, so lowering floats
+                    // it; the slot mirrors F64 (same mirror discipline
+                    // as the Mod / Mul arms above).
+                    match self.ast.get_expr(*expr) {
+                        Expr::Number(n) if *n != 0.0 => self.width_of(*expr, scope),
+                        _ => W::F64,
                     }
                 }
                 // `+x` is ToNumber — strings coerce to fractional
