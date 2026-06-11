@@ -3,10 +3,29 @@
 //! assignment constraints. The union-find / activation / congruence
 //! machinery these feed lives in `container.rs`.
 
-use super::{Analysis, Scope, SlotKey};
+use super::{Analysis, Scope, SlotKey, W};
 use crate::ast::{Expr, ExprId};
 
 impl<'a> Analysis<'a> {
+    /// Container-channel constraint — same shape as `add_constraint`
+    /// but lands in `c_seeds`/`c_edges`, which only the canonical
+    /// fixpoint merges in. Keeps the scalar (pre-W4) fixpoint
+    /// bit-identical until D2/D3 wire the consuming lowering sites.
+    pub(super) fn add_container_constraint(&mut self, target: SlotKey, w: W) {
+        match w {
+            W::F64 => self.c_seeds.push(target),
+            W::Num(deps) => {
+                for (d, growth) in deps {
+                    self.c_edges
+                        .entry(d)
+                        .or_default()
+                        .push((target.clone(), growth));
+                }
+            }
+            W::NotNum => {}
+        }
+    }
+
     /// Mark a key (and the receivers it nests in) as container
     /// evidence for the guarded-union activation.
     pub(super) fn mark_containerish(&mut self, k: &SlotKey) {
@@ -99,12 +118,12 @@ impl<'a> Analysis<'a> {
                                 // scalar case: width-only cost).
                                 self.uf.union(&ek, &SlotKey::Elem(Box::new(sk)));
                             }
-                            None => self.seeds.push(ek.clone()),
+                            None => self.c_seeds.push(ek.clone()),
                         }
                         continue;
                     }
                     let w = self.width_of(el, scope);
-                    self.add_constraint(ek.clone(), w);
+                    self.add_container_constraint(ek.clone(), w);
                     if let Some(ik) = self.container_key_of(el, scope) {
                         // A container stored as an element is aliased
                         // by the slot — unconditional.
@@ -119,7 +138,7 @@ impl<'a> Analysis<'a> {
                 for (fname, fe) in fields.clone() {
                     let fk = SlotKey::Field(Box::new(anon.clone()), fname.clone());
                     let w = self.width_of(fe, scope);
-                    self.add_constraint(fk.clone(), w);
+                    self.add_container_constraint(fk.clone(), w);
                     if let Some(ik) = self.container_key_of(fe, scope) {
                         self.uf.union(&fk, &ik);
                     }
@@ -214,14 +233,14 @@ impl<'a> Analysis<'a> {
                 match args.first().and_then(|a| self.callee_fn_name(*a)) {
                     Some(cb) => {
                         let rk = SlotKey::Ret(cb);
-                        self.edges
+                        self.c_edges
                             .entry(rk.clone())
                             .or_default()
                             .push((aek.clone(), false));
                         self.guarded_unions.push((aek, rk));
                     }
                     // Opaque callback — element width unprovable.
-                    None => self.seeds.push(aek),
+                    None => self.c_seeds.push(aek),
                 }
                 Some(anon)
             }
@@ -234,7 +253,7 @@ impl<'a> Analysis<'a> {
                         self.uf
                             .union(&aek, &SlotKey::Elem(Box::new(SlotKey::Ret(cb))));
                     }
-                    None => self.seeds.push(aek),
+                    None => self.c_seeds.push(aek),
                 }
                 Some(anon)
             }
@@ -281,7 +300,7 @@ impl<'a> Analysis<'a> {
         };
         for a in write_args {
             let w = self.width_of(a, scope);
-            self.add_constraint(ek.clone(), w);
+            self.add_container_constraint(ek.clone(), w);
             if let Some(ak) = self.container_key_of(a, scope) {
                 self.uf.union(&ek, &ak);
             }
@@ -295,7 +314,7 @@ impl<'a> Analysis<'a> {
                     && let Some(p0) = self.fn_params.get(&cb).and_then(|ps| ps.first()).cloned()
                 {
                     let pk = SlotKey::Param(cb, p0);
-                    self.edges
+                    self.c_edges
                         .entry(ek.clone())
                         .or_default()
                         .push((pk.clone(), false));
@@ -312,17 +331,17 @@ impl<'a> Analysis<'a> {
                         let pk = SlotKey::Param(cb.clone(), p0.clone());
                         if let Some(init) = args.get(1).copied() {
                             let w = self.width_of(init, scope);
-                            self.add_constraint(pk.clone(), w);
+                            self.add_container_constraint(pk.clone(), w);
                             self.alias_guarded(pk.clone(), init, scope);
                         }
-                        self.edges
+                        self.c_edges
                             .entry(SlotKey::Ret(cb.clone()))
                             .or_default()
                             .push((pk, false));
                     }
                     if let Some(p1) = ps.get(1) {
                         let pk = SlotKey::Param(cb.clone(), p1.clone());
-                        self.edges
+                        self.c_edges
                             .entry(ek.clone())
                             .or_default()
                             .push((pk.clone(), false));
@@ -345,7 +364,7 @@ impl<'a> Analysis<'a> {
                     if let Some(p) = ps.get(i + 1) {
                         let pk = SlotKey::Param(f.clone(), p.clone());
                         let w = self.width_of(*a, scope);
-                        self.add_constraint(pk.clone(), w);
+                        self.add_container_constraint(pk.clone(), w);
                         self.alias_guarded(pk, *a, scope);
                     }
                 }
@@ -364,7 +383,7 @@ impl<'a> Analysis<'a> {
                     self.mark_containerish(&rk);
                     let ek = SlotKey::Elem(Box::new(rk));
                     let w = self.width_of(value, scope);
-                    self.add_constraint(ek.clone(), w);
+                    self.add_container_constraint(ek.clone(), w);
                     if let Some(vk) = self.container_key_of(value, scope) {
                         self.uf.union(&ek, &vk);
                     }
@@ -376,7 +395,7 @@ impl<'a> Analysis<'a> {
                     self.mark_containerish(&rk);
                     let fk = SlotKey::Field(Box::new(rk), name.clone());
                     let w = self.width_of(value, scope);
-                    self.add_constraint(fk.clone(), w);
+                    self.add_container_constraint(fk.clone(), w);
                     if let Some(vk) = self.container_key_of(value, scope) {
                         self.uf.union(&fk, &vk);
                     }
@@ -389,7 +408,7 @@ impl<'a> Analysis<'a> {
                     if let Some(p1) = self.fn_params.get(&f).and_then(|ps| ps.get(1)).cloned() {
                         let pk = SlotKey::Param(f.clone(), p1);
                         let w = self.width_of(value, scope);
-                        self.add_constraint(pk.clone(), w);
+                        self.add_container_constraint(pk.clone(), w);
                         self.alias_guarded(pk, value, scope);
                     }
                 }

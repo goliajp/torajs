@@ -40,13 +40,15 @@ pub(super) fn collect_let_names(s: &Stmt, out: &mut HashSet<String>) {
             }
             collect_let_names(body, out);
         }
-        // The for-of element binding is a per-iteration let — W4
-        // needs its key resolvable so elem-width deps land on it.
-        Stmt::ForOf { var_name, body, .. } => {
-            out.insert(var_name.clone());
-            collect_let_names(body, out);
+        // NOTE: the for-of element binding deliberately stays out of
+        // the let-name set in D1 — adding it changes ident resolution
+        // inside loop bodies and thus the scalar (pre-W4) fixpoint.
+        // D2 registers it together with the lowering wiring so the
+        // binding's elem-width dep and its coercion sites land in the
+        // same commit.
+        Stmt::ForOf { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
+            collect_let_names(body, out)
         }
-        Stmt::ForOfSplitIter { body, .. } => collect_let_names(body, out),
         Stmt::Switch { cases, default, .. } => {
             for c in cases {
                 for cs in &c.body {

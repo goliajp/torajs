@@ -105,26 +105,38 @@ fn canon_key_frozen(uf: &UnionFind, k: &SlotKey) -> SlotKey {
     uf.find_frozen(&rewritten)
 }
 
-/// Frozen analysis result: the poisoned-slot set over canonical keys
-/// (plus raw spellings for pre-W4 consumers) and the alias classes
-/// that answer container elem/field width queries.
+/// Frozen analysis result. Two poison sets, two consumers:
+/// - `raw` — the scalar (W1/W5) fixpoint with the container channel
+///   excluded, bit-identical to the pre-W4 analysis. `f64_slots()`
+///   hands this to today's lowering sites.
+/// - `canon` — the canonical fixpoint over alias classes with the
+///   container channel merged in. The elem/field/slot queries the
+///   D2/D3 lowering wiring consumes read this (and must land in the
+///   same commit as the coercion sites that mirror it).
 pub(crate) struct WidthTable {
-    f64: HashSet<SlotKey>,
+    raw: HashSet<SlotKey>,
+    canon: HashSet<SlotKey>,
     uf: UnionFind,
     container_poison: bool,
 }
 
 impl WidthTable {
-    pub(super) fn new(f64: HashSet<SlotKey>, uf: UnionFind, container_poison: bool) -> Self {
+    pub(super) fn new(
+        raw: HashSet<SlotKey>,
+        canon: HashSet<SlotKey>,
+        uf: UnionFind,
+        container_poison: bool,
+    ) -> Self {
         WidthTable {
-            f64,
+            raw,
+            canon,
             uf,
             container_poison,
         }
     }
 
     pub(super) fn into_f64_set(self) -> HashSet<SlotKey> {
-        self.f64
+        self.raw
     }
 
     // The three queries are the D2/D3 lowering wiring surface (parse_type
@@ -133,7 +145,7 @@ impl WidthTable {
     // commit. See rfc 20260611-ann-width-unification §5.4 chunks.
     #[allow(dead_code)]
     pub(crate) fn slot_is_f64(&self, k: &SlotKey) -> bool {
-        self.f64.contains(&canon_key_frozen(&self.uf, k))
+        self.canon.contains(&canon_key_frozen(&self.uf, k))
     }
 
     #[allow(dead_code)]
@@ -216,9 +228,8 @@ fn collect_subkeys(k: &SlotKey, out: &mut HashSet<SlotKey>) {
 /// spellings `Elem(xs)` / `Elem(ys)` with find(xs)==find(ys) denote
 /// the same element class; close over that congruence, then rewrite
 /// every seed / edge key onto its representative so the fixpoint
-/// propagates per alias class. Returns every raw key seen, for the
-/// post-fixpoint re-expansion.
-pub(super) fn canonicalize(a: &mut Analysis) -> Vec<SlotKey> {
+/// propagates per alias class.
+pub(super) fn canonicalize(a: &mut Analysis) {
     let mut keys: HashSet<SlotKey> = HashSet::new();
     for s in &a.seeds {
         collect_subkeys(s, &mut keys);
@@ -263,7 +274,6 @@ pub(super) fn canonicalize(a: &mut Analysis) -> Vec<SlotKey> {
             entry.push((canon_key(&mut a.uf, &t), g));
         }
     }
-    keys.into_iter().collect()
 }
 
 #[cfg(test)]

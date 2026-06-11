@@ -145,6 +145,13 @@ pub(super) struct Analysis<'a> {
     pub(super) by_name: HashMap<String, Vec<SlotKey>>,
     pub(super) seeds: Vec<SlotKey>,
     pub(super) edges: HashMap<SlotKey, Vec<Dep>>,
+    /// W4 — container-channel constraints (element / field writes,
+    /// callback wiring through transform methods). Kept out of the
+    /// W1 seeds/edges so the scalar fixpoint pre-W4 consumers read
+    /// stays bit-identical; merged in only for the canonical fixpoint
+    /// the D2/D3 lowering wiring will consume.
+    pub(super) c_seeds: Vec<SlotKey>,
+    pub(super) c_edges: HashMap<SlotKey, Vec<Dep>>,
     /// W4 — container alias classes. Unconditional unions (element
     /// writes, literal/method plumbing, nominal class hookups) land
     /// here directly during the walk.
@@ -224,6 +231,8 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
         by_name,
         seeds: Vec::new(),
         edges: HashMap::new(),
+        c_seeds: Vec::new(),
+        c_edges: HashMap::new(),
         uf: container::UnionFind::default(),
         guarded_unions: Vec::new(),
         containerish: HashSet::new(),
@@ -264,25 +273,40 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
         }
     }
 
+    // Scalar (W1/W5) fixpoint over the untouched seeds/edges — the
+    // container channel stays out, so this set is bit-identical to
+    // the pre-W4 analysis. Pre-W4 consumers read exactly this.
+    let mut raw_seeds = a.seeds.clone();
+    cycle::seed_growth_cycles(&a.edges, &mut raw_seeds);
+    let raw_out = fixpoint(raw_seeds, &a.edges);
+
     // W4 container pipeline: nominal class hookups, guarded-union
-    // activation, congruence closure, then rewrite of every seed /
-    // edge key onto its alias-class representative.
+    // activation, container-channel merge, congruence closure, then
+    // rewrite of every seed / edge key onto its alias-class
+    // representative. The canonical fixpoint is the D2/D3 lowering
+    // wiring's query surface (container widths + the slot widths
+    // their coercion sites must mirror).
     container::nominal_unions(&mut a);
     container::activate_guarded(&mut a);
-    let raw_keys = container::canonicalize(&mut a);
-
-    // W5: an assignment-graph cycle through a growth edge is an
-    // unbounded self-feeding loop — integral yet not i64-safe. Seed
-    // every slot on such a cycle before the poison fixpoint.
+    a.seeds.append(&mut a.c_seeds);
+    for (d, ts) in std::mem::take(&mut a.c_edges) {
+        a.edges.entry(d).or_default().extend(ts);
+    }
+    container::canonicalize(&mut a);
     cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
+    let canon_out = fixpoint(std::mem::take(&mut a.seeds), &a.edges);
 
-    // Fixpoint: poison flows forward along assignment edges until
-    // stable. Monotone single-direction lattice — O(edges).
+    WidthTable::new(raw_out, canon_out, a.uf, a.container_poison)
+}
+
+/// Poison flows forward along assignment edges until stable.
+/// Monotone single-direction lattice — O(edges).
+fn fixpoint(seeds: Vec<SlotKey>, edges: &HashMap<SlotKey, Vec<Dep>>) -> HashSet<SlotKey> {
     let mut out: HashSet<SlotKey> = HashSet::new();
-    let mut work: VecDeque<SlotKey> = a.seeds.into_iter().collect();
+    let mut work: VecDeque<SlotKey> = seeds.into_iter().collect();
     while let Some(k) = work.pop_front() {
         if out.insert(k.clone())
-            && let Some(dsts) = a.edges.get(&k)
+            && let Some(dsts) = edges.get(&k)
         {
             for (d, _) in dsts {
                 if !out.contains(d) {
@@ -291,18 +315,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
             }
         }
     }
-
-    // Re-expand onto raw (pre-canonicalization) spellings so pre-W4
-    // consumers querying uncanonicalized slot keys keep seeing every
-    // poisoned slot.
-    let expanded: Vec<SlotKey> = raw_keys
-        .iter()
-        .filter(|k| out.contains(&container::canon_key(&mut a.uf, k)))
-        .cloned()
-        .collect();
-    out.extend(expanded);
-
-    WidthTable::new(out, a.uf, a.container_poison)
+    out
 }
 
 #[cfg(test)]
