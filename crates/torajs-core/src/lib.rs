@@ -6,11 +6,9 @@
 //! downstream callers (`torajs-cli`, the conformance and bench
 //! harnesses) drive any sub-stage of the pipeline directly.
 //!
-//! Depends on `torajs-runtime` for the C source files that get
-//! embedded into every `tr build` artifact (string/array helpers,
-//! regex/Date engines, ...) and on `torajs-rc` for the Layer-1
-//! refcount staticlib that torajs-link co-links into every user
-//! binary alongside those C object files.
+//! Depends on `torajs-rc` (and the other Layer-1+ sub-crates via
+//! build.rs env vars) for the staticlibs that torajs-link bakes
+//! into every `tr build` user binary.
 
 /// Embedded staticlib bytes for every Layer-1+ Rust sub-crate
 /// that contributes `__torajs_*` symbols to the final `tr build`

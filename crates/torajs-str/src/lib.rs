@@ -5,9 +5,8 @@
 //! rewrite.md` P3). Depends only on [`torajs-rc`] for the universal
 //! heap header + `Tag::Str` + `FLAG_STATIC_LITERAL`. Provides
 //! pointer-stable `Str` heap blocks plus the pool-aware alloc /
-//! free path that the still-LLVM-IR-emitted `__torajs_str_alloc` /
-//! `__torajs_str_drop` (in `ssa_inkwell`) and the remaining C-side
-//! helpers in `crates/torajs-runtime/src/runtime_str.c` call into.
+//! free path that the toolchain-emitted `__torajs_str_alloc` /
+//! `__torajs_str_drop` call into.
 //!
 //! ## Layout
 //!

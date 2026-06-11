@@ -1,6 +1,6 @@
 [package]
 name = "torajs-cycle"
-description = "Bacon & Rajan trial-deletion cycle collector for the torajs AOT TypeScript runtime. Three-color (BLACK/GRAY/PURPLE/WHITE) recursive mark-scan-collect over a global buffer of cyclic-shape candidates pushed by rc_dec / Obj-walk_blk drop hooks. Walks class instances via ssa_inkwell-emitted `__torajs_class_layouts` table + arrays via in-place slot iteration. Manual `gc()` trigger + threshold-driven auto-collect + main-exit drain. Layer-3 substrate."
+description = "Bacon & Rajan trial-deletion cycle collector for the torajs AOT TypeScript runtime. Three-color (BLACK/GRAY/PURPLE/WHITE) recursive mark-scan-collect over a global buffer of cyclic-shape candidates pushed by rc_dec / Obj-walk_blk drop hooks. Walks class instances via the toolchain-emitted `__torajs_class_layouts` table + arrays via in-place slot iteration. Manual `gc()` trigger + threshold-driven auto-collect + main-exit drain. Layer-3 substrate."
 keywords = ["torajs", "gc", "garbage-collection", "cycle-collector", "runtime"]
 categories = ["memory-management", "no-std"]
 readme = "README.md"
@@ -16,7 +16,7 @@ authors.workspace = true
 workspace = true
 
 # Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
-# emits libtorajs_cycle.a so ssa_inkwell links it into every
+# emits libtorajs_cycle.a so the in-house link pipeline (torajs-link) bakes it into every
 # `tr build` AOT user binary alongside the other Layer-1+ staticlibs.
 [lib]
 crate-type = ["rlib", "staticlib"]

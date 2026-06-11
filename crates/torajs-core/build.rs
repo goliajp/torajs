@@ -2,8 +2,7 @@
 //! `lib<name>.a` as a cargo env var so `lib.rs` can `include_bytes!`
 //! the staticlib bytes directly into the `tr` binary. At `tr build`
 //! time, `torajs-link` writes each `.a` to a temp file and hands the
-//! paths to the in-house Mach-O linker alongside the runtime_*.c
-//! object files.
+//! paths to the in-house Mach-O linker.
 //!
 //! Why this dance: `tr` is a Rust binary; `tr build` runs on user
 //! machines that have no Rust toolchain. Each Layer-1+ staticlib

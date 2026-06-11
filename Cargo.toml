@@ -41,7 +41,6 @@ members = [
     "crates/torajs-egraph",
     "crates/torajs-obj",
     "crates/torajs-link",
-    "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",
     "crates/torajs-playground-api",

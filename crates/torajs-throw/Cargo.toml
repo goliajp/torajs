@@ -16,7 +16,7 @@ authors.workspace = true
 workspace = true
 
 # Dual emit: `rlib` for cargo workspace builds + unit tests;
-# `staticlib` for ssa_inkwell to link into every `tr build` AOT
+# `staticlib` for the in-house link pipeline (torajs-link) to bake into every `tr build` AOT
 # user binary alongside libtorajs_rc.a / libtorajs_anyvalue.a.
 [lib]
 crate-type = ["rlib", "staticlib"]

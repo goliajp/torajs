@@ -300,10 +300,9 @@ impl StrBlock {
 // ============================================================
 
 /// Pool-aware Str allocation. Mirrors the pre-rewrite C
-/// `__torajs_str_alloc_pooled(uint64_t len) -> uint8_t *`. ssa_
-/// inkwell's IR-emitted `__torajs_str_alloc` delegates to this
-/// for short strings; remaining C helpers in
-/// `crates/torajs-runtime/src/runtime_str.c` call it directly.
+/// `__torajs_str_alloc_pooled(uint64_t len) -> uint8_t *`. The
+/// toolchain-emitted `__torajs_str_alloc` delegates to this for
+/// short strings.
 ///
 /// Returns a fresh refcount=1 block with `len` payload bytes
 /// reserved (uninitialized). On allocator failure the function

@@ -36,7 +36,8 @@
 //! no `union`s happen, so `egraph.opt_value(v) == v` for every value
 //! and every instruction emits unchanged. The conformance gate must
 //! see identical TS-runtime behaviour with the egraph pass switched
-//! on (`TORAJS_NEW_PIPELINE=1`) vs off.
+//! on vs off (gated then by the since-retired `TORAJS_NEW_PIPELINE`
+//! flag; the pipeline is now the only path).
 //!
 //! **LICM** (loop-invariant code motion) — hoisting pure values to a
 //! shallower-loop-nest dominator block — is the next milestone. The

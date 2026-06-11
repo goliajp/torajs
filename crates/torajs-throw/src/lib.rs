@@ -5,7 +5,7 @@
 //! + `torajs-anyvalue` in P2 of the architecture rewrite (see
 //! `docs/architecture-rewrite.md`). Replaces the C-side native-
 //! error registry + `__torajs_throw_range_error` / `__torajs_throw
-//! _type_error` wrappers in `crates/torajs-runtime/src/runtime_str.c`.
+//! _type_error` wrappers in the pre-rewrite `runtime_str.c`.
 //!
 //! ## What this crate provides
 //!
@@ -141,8 +141,8 @@ unsafe extern "C" {
     /// Allocate a Str with `len` bytes of payload capacity; the
     /// returned ptr's `[header:8][len:u64@8][bytes:len@16]` layout
     /// is pre-initialized except for the bytes (caller writes
-    /// those at `*+ 16`). Stays in `crates/torajs-runtime/src/
-    /// runtime_str.c` until the Layer-2 `torajs-str` rewrite.
+    /// those at `*+ 16`). Implemented in `torajs-str` (`block.rs`)
+    /// since the Layer-2 rewrite.
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
 
     /// libc `strlen` — Layer-0 system primitive; no `dep` cost.

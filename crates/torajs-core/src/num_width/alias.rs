@@ -252,7 +252,8 @@ mod tests {
 
     #[test]
     fn mutual_recursion_marks_both() {
-        let c = cyclic("type A = { x: number; b: B | null };\ntype B = { y: number; a: A | null };");
+        let c =
+            cyclic("type A = { x: number; b: B | null };\ntype B = { y: number; a: A | null };");
         assert!(c.contains("A") && c.contains("B"));
     }
 

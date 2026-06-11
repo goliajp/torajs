@@ -2,7 +2,7 @@
 //! `\p{NAME}` property classes.
 //!
 //! Extracted from the torajs AOT TypeScript runtime
-//! (`crates/torajs-runtime/src/runtime_regex.c` UCD section,
+//! (the pre-rewrite `runtime_regex.c` UCD section,
 //! P9.3-A2 ship 2026-05-19). Provides binary-searchable static tables
 //! covering the dominant test262 usage subset of Letter (`L`) and
 //! Number (`N`) categories.

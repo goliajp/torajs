@@ -6,14 +6,11 @@ edition = "2024"
 # v0.3 #6 Graduation — compiler internals as a library crate. Owns
 # the lex / parse / desugar / typecheck / SSA-lower pipeline; downstream
 # AOT codegen lives in torajs-codegen → torajs-obj → torajs-link.
-# Depends on torajs-runtime for the C source files embedded into each
-# `tr build` artifact.
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
-torajs-runtime = { path = "../torajs-runtime" }
 # v0.7-A2 metal-tier allocator. TLAB layout constants are read at
 # `tr build` time so SSA lowering can emit inline TLAB.pop / push at
 # user-binary alloc/free call sites.

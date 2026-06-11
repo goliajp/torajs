@@ -14,10 +14,9 @@ path = "src/main.rs"
 [dependencies]
 torajs-core = { path = "../torajs-core" }
 
-# SD-4c-prereq swap-1 — `TORAJS_NEW_PIPELINE=1` routes `tr build`
-# through codegen + link (self-hosted toolchain) instead of
-# ssa_inkwell / LLVM. Default-off until the new pipeline closes
-# coverage parity with the LLVM path; existing builds are unaffected.
+# Self-hosted AOT toolchain: `tr build` routes through codegen + link
+# (SSA → aarch64 emit → Mach-O link, no LLVM). The only pipeline since
+# the ssa_inkwell/LLVM backend was retired (v0.7 Metal stone #6).
 torajs-codegen = { path = "../torajs-codegen" }
 torajs-link = { path = "../torajs-link" }
 
