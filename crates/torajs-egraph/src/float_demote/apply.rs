@@ -173,7 +173,7 @@ pub(crate) fn install_guards(
 /// Split `block` before each inst index (ascending); continuation
 /// blocks append (chained head → c0 → c1 → … → original terminator).
 /// Returns the continuation starting at each index.
-fn split_block_at(func: &mut Function, block: BlockId, idxs: &[usize]) -> Vec<BlockId> {
+pub(super) fn split_block_at(func: &mut Function, block: BlockId, idxs: &[usize]) -> Vec<BlockId> {
     let src = &mut func.blocks[block.0 as usize];
     let term = std::mem::replace(&mut src.term, Terminator::Unreachable);
     let insts = std::mem::take(&mut src.insts);

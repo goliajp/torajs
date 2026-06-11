@@ -130,9 +130,11 @@ fn demote_in_function(
 }
 
 /// The demotion set plus the versioning plans its guarded defs need.
-/// `None` = nothing demotes in this function.
+/// `None` = nothing demotes in this function. Mutates only on a
+/// planner split request (mixed preheader normalization — a pure
+/// control-flow split, semantics-preserving even if nothing fires).
 fn compute_demote_set(
-    func: &Function,
+    func: &mut Function,
     facts: &HashMap<ValueId, NumFact>,
 ) -> Option<(HashSet<ValueId>, Vec<plan::RegionPlan>)> {
     // def sites per value (loop cells have several).
@@ -248,10 +250,14 @@ fn compute_demote_set(
         }
         match plan::plan_regions(func, &set, growth, entries) {
             Ok(plans) => return Some((set, plans)),
-            Err(evict) => {
+            Err(plan::PlanFail::Evict(evict)) => {
                 for v in evict {
                     set.remove(&v);
                 }
+            }
+            Err(plan::PlanFail::Split(b, p)) => {
+                // sites re-collect next round on the split shape
+                apply::split_block_at(func, b, &[p]);
             }
         }
     }

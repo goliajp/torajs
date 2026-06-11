@@ -49,17 +49,33 @@ impl RegionPlan {
     }
 }
 
+/// Why planning failed: evict the named values and re-run the
+/// fixpoint, or split the named pre-chain block before the given
+/// inst index first (a mixed preheader — see `plan_one`) and re-plan.
+pub(crate) enum PlanFail {
+    Evict(HashSet<ValueId>),
+    Split(BlockId, usize),
+}
+
+/// One header's planning outcome.
+enum PlanOutcome {
+    Plan(RegionPlan),
+    Fail,
+    Split(BlockId, usize),
+}
+
 /// Plan versioning regions. Candidate regions grow from the innermost
 /// natural loop of every in-set def; every guarded site must land in
 /// some region. `Err` carries the values whose guarded defs cannot be
 /// hosted (caller evicts them from the demotion set and re-runs the
-/// fixpoint).
+/// fixpoint) or a pre-chain split request (caller splits and
+/// re-plans).
 pub(crate) fn plan_regions(
     func: &Function,
     set: &HashSet<ValueId>,
     growth_sites: Vec<GuardSite>,
     entry_sites: Vec<GuardSite>,
-) -> Result<Vec<RegionPlan>, HashSet<ValueId>> {
+) -> Result<Vec<RegionPlan>, PlanFail> {
     let dom = DominatorTree::compute(func);
     let loops = LoopAnalysis::compute(func, &dom);
     let value_blocks = collect_value_blocks(func);
@@ -92,7 +108,7 @@ pub(crate) fn plan_regions(
             .unwrap()
             .body
             .clone();
-        if let Some(plan) = plan_one(
+        match plan_one(
             func,
             set,
             &dom,
@@ -104,11 +120,15 @@ pub(crate) fn plan_regions(
             &entry_sites,
             &used,
         ) {
-            if plan.growth.is_empty() && plan.entry_guard.is_empty() {
-                continue; // fully exact component — no versioning needed
+            PlanOutcome::Plan(plan) => {
+                if plan.growth.is_empty() && plan.entry_guard.is_empty() {
+                    continue; // fully exact component — no versioning needed
+                }
+                used.extend(plan.region.iter().copied());
+                plans.push(plan);
             }
-            used.extend(plan.region.iter().copied());
-            plans.push(plan);
+            PlanOutcome::Fail => {}
+            PlanOutcome::Split(b, p) => return Err(PlanFail::Split(b, p)),
         }
     }
 
@@ -128,7 +148,7 @@ pub(crate) fn plan_regions(
     if evict.is_empty() {
         Ok(plans)
     } else {
-        Err(evict)
+        Err(PlanFail::Evict(evict))
     }
 }
 
@@ -144,7 +164,7 @@ fn plan_one(
     growth_sites: &[GuardSite],
     entry_sites: &[GuardSite],
     used: &HashSet<BlockId>,
-) -> Option<RegionPlan> {
+) -> PlanOutcome {
     let mut region: HashSet<BlockId> = body.iter().copied().collect();
 
     // grow the region until it hosts every touched in-set value's
@@ -158,7 +178,9 @@ fn plan_one(
         let touched = touched_values(func, set, &region);
         let mut missing: Vec<(BlockId, ValueId, bool)> = Vec::new();
         for v in &touched {
-            let (defs, uses) = value_blocks.get(v)?;
+            let Some((defs, uses)) = value_blocks.get(v) else {
+                return PlanOutcome::Fail;
+            };
             for b in defs {
                 if !region.contains(b) {
                     missing.push((*b, *v, true));
@@ -186,7 +208,7 @@ fn plan_one(
             {
                 region.insert(b);
             } else if is_def {
-                return None;
+                return PlanOutcome::Fail;
             } else {
                 escapes.insert(v);
             }
@@ -201,7 +223,7 @@ fn plan_one(
     });
 
     if region.iter().any(|b| used.contains(b)) {
-        return None;
+        return PlanOutcome::Fail;
     }
 
     // single entry: exactly one region block with external preds (or
@@ -211,17 +233,23 @@ fn plan_one(
         let ext = preds[b.0 as usize].iter().any(|p| !region.contains(p));
         if ext || b.0 == 0 {
             if entry.is_some() {
-                return None;
+                return PlanOutcome::Fail;
             }
             entry = Some(b);
         }
     }
-    let entry = entry?;
+    let Some(entry) = entry else {
+        return PlanOutcome::Fail;
+    };
 
     // renamed clone values must not escape: any value the clone will
     // rename (in-set or single-def intermediate defined inside) is
     // used only inside — except an in-set value marked escaped, whose
-    // external uses read the merge-bridge cell on both versions
+    // external uses read the merge-bridge cell on both versions. A
+    // violation inside an absorbed pre-chain block is a mixed
+    // preheader (the `loopSum` env-object setup sharing the sum-init
+    // block): request a tail split so the unrelated defs leave the
+    // region, and re-plan.
     let cells = multi_def_values(func);
     for (v, (defs, uses)) in value_blocks {
         if !defs.iter().any(|b| region.contains(b)) {
@@ -229,14 +257,23 @@ fn plan_one(
         }
         let renamed = set.contains(v) || !cells.contains(v);
         if renamed && !escapes.contains(v) && uses.iter().any(|b| !region.contains(b)) {
-            return None;
+            if let Some(&d) = defs.iter().find(|b| region.contains(b)) {
+                if let Some(p) =
+                    tail_split_point(func, set, &cells, value_blocks, &region, &body, d)
+                {
+                    return PlanOutcome::Split(d, p);
+                }
+            }
+            return PlanOutcome::Fail;
         }
     }
 
     // an external use that is itself an in-set def (a cross-region
     // demotion chain) cannot read the f64 bridge cell — bail out
     for v in &escapes {
-        let (_, uses) = value_blocks.get(v)?;
+        let Some((_, uses)) = value_blocks.get(v) else {
+            return PlanOutcome::Fail;
+        };
         for b in uses {
             if region.contains(b) {
                 continue;
@@ -248,7 +285,7 @@ fn plan_one(
                 let mut reads_v = false;
                 visit_value_operands(&inst.kind, |o| reads_v |= o == *v);
                 if reads_v {
-                    return None;
+                    return PlanOutcome::Fail;
                 }
             }
         }
@@ -283,20 +320,60 @@ fn plan_one(
         }
     }
     if !entry_guard.is_empty() && entry.0 == 0 {
-        return None;
+        return PlanOutcome::Fail;
     }
 
     let mut region: Vec<BlockId> = region.into_iter().collect();
     region.sort_by_key(|b| b.0);
     let mut escapes: Vec<ValueId> = escapes.into_iter().collect();
     escapes.sort_by_key(|v| v.0);
-    Some(RegionPlan {
+    PlanOutcome::Plan(RegionPlan {
         region,
         entry,
         growth,
         entry_guard,
         escapes,
     })
+}
+
+/// The split point of a mixed pre-chain block: the position of its
+/// first in-set def. Valid when the block is absorbed pre-chain (not
+/// loop body), something precedes the point, and every def at or
+/// after it is region-clean — in-set (bridged when escaping), a
+/// shared multi-def cell, or used only inside the region and this
+/// block. The head segment then leaves the region on re-plan.
+fn tail_split_point(
+    func: &Function,
+    set: &HashSet<ValueId>,
+    cells: &HashSet<ValueId>,
+    value_blocks: &HashMap<ValueId, (Vec<BlockId>, Vec<BlockId>)>,
+    region: &HashSet<BlockId>,
+    body: &[BlockId],
+    d: BlockId,
+) -> Option<usize> {
+    if !region.contains(&d) || body.contains(&d) {
+        return None;
+    }
+    let insts = &func.blocks[d.0 as usize].insts;
+    let p = insts
+        .iter()
+        .position(|i| i.result.is_some_and(|r| set.contains(&r)))?;
+    if p == 0 {
+        return None;
+    }
+    for inst in &insts[p..] {
+        let Some(r) = inst.result else { continue };
+        if set.contains(&r) || cells.contains(&r) {
+            continue;
+        }
+        let clean = value_blocks
+            .get(&r)
+            .is_none_or(|(_, uses)| uses.iter().all(|b| region.contains(b) || *b == d));
+        if !clean {
+            return None;
+        }
+    }
+    Some(p)
 }
 
 #[cfg(test)]
@@ -439,6 +516,46 @@ mod tests {
             .filter(|i| matches!(i.kind, InstKind::BinOp(BinOp::FAdd, _, _)))
             .count();
         assert_eq!(fadd_count, 1, "slow clone keeps the f64 fadd");
+    }
+
+    #[test]
+    fn mixed_preheader_splits_and_fires() {
+        // the loopSum shape: the sum-init block also allocates an
+        // env-like slot read after the loop. The planner requests a
+        // pre-chain tail split, the head segment (alloca) leaves the
+        // region on re-plan, and the closure demotes with the merge
+        // bridge.
+        let mut f = accumulator_loop(BinOp::FAdd);
+        f.ret = Type::F64;
+        f.values.push(ValueInfo {
+            ty: Type::Ptr,
+            name: None,
+        }); // %7 env-like alloca
+        f.values.push(ValueInfo {
+            ty: Type::I64,
+            name: None,
+        }); // %8 post-loop load
+        f.blocks[0]
+            .insts
+            .insert(0, inst(7, InstKind::Alloca(Type::I64)));
+        f.blocks[3]
+            .insts
+            .push(inst(8, InstKind::Load(Type::I64, v(7), 0)));
+        f.blocks[3].term = Terminator::Ret(Some(v(1)));
+        let (m, stats) = run(f);
+        assert_eq!(stats.values_demoted, 3);
+        assert_eq!(stats.loops_versioned, 1);
+        assert_eq!(stats.merge_cells, 1);
+        let f0 = &m.funcs[0];
+        // the alloca was split out of the region — not cloned
+        let allocas = f0
+            .blocks
+            .iter()
+            .flat_map(|b| &b.insts)
+            .filter(|i| matches!(i.kind, InstKind::Alloca(_)))
+            .count();
+        assert_eq!(allocas, 1, "env alloca stays out of the slow clone");
+        assert_eq!(f0.values[1].ty, Type::I64);
     }
 
     #[test]
