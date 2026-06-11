@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-11T13:03:34.334Z",
+  "generatedAt": "2026-06-11T14:08:45.162Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 71.31
   },
   "torajs": {
-    "commit": "b7b9f27",
-    "commitSubject": "fix(core): cyclic struct layouts keep parse-default widths - w4 d3 recursion guard",
+    "commit": "e207925",
+    "commitSubject": "chore(bench): record 6b2c3aa 3-run - item 16 w1 block-let verdict pass (32/32 artifact identical)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,22 @@
   },
   "commits": [
     {
+      "hash": "e207925",
+      "subject": "chore(bench): record 6b2c3aa 3-run - item 16 w1 block-let verdict pass (32/32 artifact identical)"
+    },
+    {
+      "hash": "6b2c3aa",
+      "subject": "fix(core): top-level block-scoped lets resolve to global width slots - w1 s1 family gap"
+    },
+    {
+      "hash": "cf7c38c",
+      "subject": "chore(bench): record b7b9f27 3-run - item 15 w4 verdict pass (2 justified hash deltas: class field/arr elem f64 widen)"
+    },
+    {
+      "hash": "7731a6b",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD b7b9f27 (L3a item 15 W4 D1-D3 shipped: container elem/field width by alias class, S3 all 8 repro shapes fixed, gate 4x to 750/0/4, D4 bench in flight)"
+    },
+    {
       "hash": "b7b9f27",
       "subject": "fix(core): cyclic struct layouts keep parse-default widths - w4 d3 recursion guard"
     },
@@ -646,43 +662,38 @@
     {
       "hash": "4a3822e",
       "subject": "fix(core): mul minus-zero semantics - float non-positive constant cofactors"
-    },
-    {
-      "hash": "9b22c9e",
-      "subject": "perf(egraph): float-demote frem by variable divisor - nonzero certificate channel"
-    },
-    {
-      "hash": "bf1d9f0",
-      "subject": "perf(egraph): frem truncation recovery - narrow -0-insensitive mod shapes to srem"
-    },
-    {
-      "hash": "2158e05",
-      "subject": "fix(core): mod minus-zero semantics - force float path for variable dividend"
-    },
-    {
-      "hash": "0eec0f8",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 5a346ad (L3a item 13 merge-bridge close: 5-commit fire pipeline + profitability gate, gate 5x 746/0/4, bench PASS 0 unjustified, generic-pair -21.9%, item 14 W3 hotified)"
     }
   ],
-  "headSha": "b7b9f27",
+  "headSha": "e207925",
   "autorun": {
-    "total": 119,
+    "total": 120,
     "baselineTarget": 10,
-    "bySelf": 117,
+    "bySelf": 118,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781162368-77a8",
-      "at": "2026-06-11T07:19:28Z",
-      "ts": 1781162368,
+      "rotationId": "r-1781183096-757a",
+      "at": "2026-06-11T13:04:56Z",
+      "ts": 1781183096,
       "trigger": "self",
-      "prevHead": "f62ef6a",
-      "handoffSha": "sha256:eb71fe4a93cdb1414d59e33f443276491746af06de8dd39ca806177c812813f4",
-      "handoffAgeSec": 6,
+      "prevHead": "7731a6b",
+      "handoffSha": "sha256:9bf9bbe7ead4f9280f7875ecc4627cea6b25307d467ef9b63d8222f7382ed6f1",
+      "handoffAgeSec": 9,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781183096-757a",
+        "at": "2026-06-11T13:04:56Z",
+        "ts": 1781183096,
+        "trigger": "self",
+        "prevHead": "7731a6b",
+        "handoffSha": "sha256:9bf9bbe7ead4f9280f7875ecc4627cea6b25307d467ef9b63d8222f7382ed6f1",
+        "handoffAgeSec": 9,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781162368-77a8",
         "at": "2026-06-11T07:19:28Z",
@@ -779,17 +790,6 @@
         "prevHead": "d44c870",
         "handoffSha": "sha256:39af99b9d3662112337b33733ed59c1a0d1b6dc74b93f14b2262f8266fd9f785",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781095194-3020",
-        "at": "2026-06-10T12:39:54Z",
-        "ts": 1781095194,
-        "trigger": "self",
-        "prevHead": "56095be",
-        "handoffSha": "sha256:f41a7c3e69c3d897ce9584d4a36a27c7275ebee406fd977032665e339234e8f6",
-        "handoffAgeSec": 26,
         "conformanceBefore": null,
         "commitsInSession": null
       }
