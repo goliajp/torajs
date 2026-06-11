@@ -205,14 +205,25 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
                         .push(SlotKey::Local(name.clone(), v));
                 }
             }
-            Stmt::LetDecl { name, .. } => {
-                toplevel_lets.insert(name.clone());
-                by_name
-                    .entry(name.clone())
-                    .or_default()
-                    .push(SlotKey::Global(name.clone()));
+            // Top-level lets key as Global — including ones nested in
+            // top-level blocks/loops (`for { const cr = ... }`):
+            // lowering's `num_width_local_key` keys every main-fn let
+            // as Global, so the analysis must resolve the same names
+            // or their widths silently read as NotNum (the mandelbrot
+            // `cr = i/100-1.5` FpToSi truncation). Shadowing collapses
+            // same-named bindings into one key — joins only cost
+            // width, never correctness.
+            other => {
+                let mut names = HashSet::new();
+                walk::collect_let_names(other, &mut names);
+                for name in names {
+                    toplevel_lets.insert(name.clone());
+                    by_name
+                        .entry(name.clone())
+                        .or_default()
+                        .push(SlotKey::Global(name.clone()));
+                }
             }
-            _ => {}
         }
     }
 
@@ -374,6 +385,32 @@ mod tests {
         assert!(s.contains(&SlotKey::Global("v".into())));
         assert!(s.contains(&param("g", "x")));
         assert!(s.contains(&ret("g")));
+    }
+
+    #[test]
+    fn s1_toplevel_for_body_const_fract_poisons_param() {
+        // mandelbrot repro — a for-body const is a main-fn binding
+        // (Global key); its fract width must reach the callee param.
+        let s = slots(
+            "function g(x: number): number { return x; }\nfor (let i = 0; i < 3; i = i + 1) {\n  const cr = i / 100 - 1.5;\n  console.log(g(cr));\n}",
+        );
+        assert!(s.contains(&SlotKey::Global("cr".into())));
+        assert!(s.contains(&param("g", "x")));
+    }
+
+    #[test]
+    fn toplevel_block_let_fract_resolves_global() {
+        let s = slots("{\n  let t = 0.25;\n  t = t + 0.5;\n  console.log(t);\n}");
+        assert!(s.contains(&SlotKey::Global("t".into())));
+    }
+
+    #[test]
+    fn toplevel_block_int_let_stays_narrow() {
+        let s = slots(
+            "function g(x: number): number { return x; }\nfor (let j = 0; j < 2; j = j + 1) {\n  const dbl = j * 2;\n  console.log(g(dbl));\n}",
+        );
+        assert!(!s.contains(&SlotKey::Global("dbl".into())));
+        assert!(!s.contains(&param("g", "x")));
     }
 
     #[test]
