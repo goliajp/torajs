@@ -26,12 +26,16 @@ pub enum Constraint {
     Range(ValueId, NumFact),
     /// Value is provably even on this path (frem-parity guard).
     Even(ValueId),
+    /// Value is provably nonzero on this path (W3 C3 — the
+    /// `while (b !== 0)` loop-guard shape; consumed as an endpoint
+    /// trim when the base range touches zero).
+    NonZero(ValueId),
 }
 
 impl Constraint {
     pub fn value(&self) -> ValueId {
         match self {
-            Constraint::Range(v, _) | Constraint::Even(v) => *v,
+            Constraint::Range(v, _) | Constraint::Even(v) | Constraint::NonZero(v) => *v,
         }
     }
 }
@@ -136,13 +140,30 @@ fn edge_constraints(
                 if let Some(r) = icmp_range(*pred, taken, k, false) {
                     out.push(Constraint::Range(*v, r));
                 }
+                if k == 0 && nonzero_edge(*pred, taken) {
+                    out.push(Constraint::NonZero(*v));
+                }
             }
             if let (Some(k), Operand::Value(v)) = (op_const_int(a), b) {
                 if let Some(r) = icmp_range(*pred, taken, k, true) {
                     out.push(Constraint::Range(*v, r));
                 }
+                if k == 0 && nonzero_edge(*pred, taken) {
+                    out.push(Constraint::NonZero(*v));
+                }
             }
             (!out.is_empty()).then_some(out)
+        }
+        // fcmp une/one (v, 0) taken — or oeq not taken — proves the
+        // value nonzero (W3 C3; ±0 both compare equal to 0, so the
+        // nonzero edge excludes the whole zero class).
+        InstKind::FCmp(pred, a, b) if fcmp_nonzero_edge(*pred, taken) => {
+            let v = match (a, b) {
+                (Operand::Value(v), z) if op_const_int(z) == Some(0) => Some(*v),
+                (z, Operand::Value(v)) if op_const_int(z) == Some(0) => Some(*v),
+                _ => None,
+            }?;
+            Some(vec![Constraint::NonZero(v)])
         }
         // fcmp oeq (frem n, 2), 0 — true edge proves n even
         InstKind::FCmp(FPred::Oeq, Operand::Value(r), z) if taken && op_const_int(z) == Some(0) => {
@@ -157,6 +178,24 @@ fn edge_constraints(
         }
         _ => None,
     }
+}
+
+/// The edge (taken / not taken) on which `value <pred> 0` proves the
+/// value nonzero. Eq/Ne only — ordering predicates already carry
+/// their information through `icmp_range`.
+fn nonzero_edge(pred: IPred, taken: bool) -> bool {
+    matches!((pred, taken), (IPred::Ne, true) | (IPred::Eq, false))
+}
+
+/// fcmp counterpart of [`nonzero_edge`]. `One` and `Une` agree on the
+/// nonzero verdict (NaN ≠ 0 either way); `Oeq` proves nonzero on the
+/// not-taken edge only for non-NaN values — but NaN has no interval
+/// fact, so the trim never applies to it.
+fn fcmp_nonzero_edge(pred: FPred, taken: bool) -> bool {
+    matches!(
+        (pred, taken),
+        (FPred::Une | FPred::One, true) | (FPred::Oeq, false)
+    )
 }
 
 /// Interval implied for the value side of `value <pred> k` (or

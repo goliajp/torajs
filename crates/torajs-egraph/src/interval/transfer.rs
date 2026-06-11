@@ -291,6 +291,21 @@ pub fn eval_inst(
             BinOp::FRem => match (env(a), op_const_int(b)) {
                 (AbsVal::Bottom, _) => AbsVal::Bottom,
                 (AbsVal::Fact(fa), Some(d)) if d != 0 => AbsVal::Fact(rem_iv(fa, d)),
+                // W3 C3 — variable divisor: a non-negative dividend
+                // and a divisor range excluding zero (branch-refined,
+                // the `while (b !== 0)` gcd shape) bound the result in
+                // [0, max|b|-1]. The fact's presence doubles as the
+                // nonzero-divisor certificate fit::def_exact consumes
+                // (same channel as the FDiv evenness certificate).
+                (AbsVal::Fact(fa), None) if fa.lo >= 0 => match env(b) {
+                    AbsVal::Fact(fb)
+                        if (fb.lo >= 1 || fb.hi <= -1) && fb.lo > NEG_INF && fb.hi < POS_INF =>
+                    {
+                        let m = fb.lo.abs().max(fb.hi.abs());
+                        AbsVal::Fact(NumFact::new(0, m - 1))
+                    }
+                    _ => AbsVal::Top,
+                },
                 _ => AbsVal::Top,
             },
         },

@@ -101,7 +101,14 @@ pub(crate) fn def_exact(
             _ => op_const_int(x).is_some(),
         },
         InstKind::BinOp(BinOp::FRem, a, b) => {
-            op_ok(a, set) && op_const_int(b).is_some_and(|c| c != 0)
+            op_ok(a, set)
+                && (op_const_int(b).is_some_and(|c| c != 0)
+                    // W3 C3 — variable divisor: the interval transfer
+                    // assigns a var-divisor frem a fact only under a
+                    // dominating ≠0 refinement (`while (b !== 0)`),
+                    // so the fact's presence is the nonzero-divisor
+                    // certificate (FDiv evenness channel, below).
+                    || (op_ok(b, set) && facts.contains_key(v)))
         }
         // the interval transfer only assigns an fdiv result a fact
         // under the frem-parity guard — its presence IS the evenness

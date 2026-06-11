@@ -238,12 +238,23 @@ fn lookup(op: &Operand, state: &HashMap<ValueId, AbsVal>, live: &[Constraint]) -
         return base;
     };
     for c in live {
-        if let Constraint::Range(cv, r) = c {
-            if cv == v {
+        match c {
+            Constraint::Range(cv, r) if cv == v => {
                 if let Some(m) = f.meet(*r) {
                     f = m;
                 }
             }
+            // W3 C3 — nonzero on this path: trim a zero endpoint.
+            // A range with zero strictly inside keeps its bounds
+            // (the exclusion is not interval-expressible — sound).
+            Constraint::NonZero(cv) if cv == v => {
+                if f.lo == 0 && f.hi > 0 {
+                    f = NumFact::new(1, f.hi);
+                } else if f.hi == 0 && f.lo < 0 {
+                    f = NumFact::new(f.lo, -1);
+                }
+            }
+            _ => {}
         }
     }
     AbsVal::Fact(f)
