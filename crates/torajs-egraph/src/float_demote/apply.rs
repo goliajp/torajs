@@ -148,12 +148,15 @@ pub(crate) fn install_guards(
     let inverse: HashMap<ValueId, ValueId> =
         clone.value_map.iter().map(|(k, v)| (*v, *k)).collect();
 
-    // fast-side splits + check chains + side exits
+    // fast-side splits + check chains + side exits. A post site
+    // splits after its (already-run) op — the checks see the result;
+    // its side exit still targets the slow split before the op, so
+    // the slow path recomputes it and only operands write back.
     let mut guards = 0u32;
     for (b, sites) in by_block {
         let idxs: Vec<usize> = sites
             .iter()
-            .map(|s| fast_pos[&(s.block, s.inst_idx)])
+            .map(|s| fast_pos[&(s.block, s.inst_idx)] + s.post as usize)
             .collect();
         debug_assert!(idxs.is_sorted(), "mutation preserves inst order");
         let conts = split_block_at(func, b, &idxs);

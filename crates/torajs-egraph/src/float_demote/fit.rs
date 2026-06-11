@@ -77,7 +77,7 @@ pub(crate) fn def_fit(
                 (Operand::Value(av), Operand::Value(bv)) => set.contains(av) && set.contains(bv),
                 _ => false,
             };
-            if vars_in_set && guard::growth_checks(d, facts).is_some() {
+            if vars_in_set && guard::growth_checks(d, *v, facts).is_some() {
                 Fit::Guarded
             } else {
                 Fit::No

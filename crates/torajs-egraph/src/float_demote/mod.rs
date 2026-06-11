@@ -289,16 +289,18 @@ fn collect_guard_sites(
                             inst_idx: i,
                             result: r,
                             checks,
+                            post: false,
                         });
                     }
                 }
                 _ => {
-                    if let Some(checks) = guard::growth_checks(&inst.kind, facts) {
+                    if let Some((checks, post)) = guard::growth_checks(&inst.kind, r, facts) {
                         growth.push(GuardSite {
                             block: block.id,
                             inst_idx: i,
                             result: r,
                             checks,
+                            post,
                         });
                     }
                 }

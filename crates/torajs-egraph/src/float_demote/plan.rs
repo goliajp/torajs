@@ -490,11 +490,11 @@ mod tests {
     fn accumulator_loop_demotes_with_per_iter_guards() {
         let (m, stats) = run(accumulator_loop(BinOp::FAdd));
         // %1, %4, %5 demote; the in-region sitofp takes a per-iter
-        // guard (1 check, non-negative fact prunes the lower side) and
-        // the double-variable fadd guards both operands (2 checks).
+        // guard and the fadd one post-result check (both single-sided
+        // — the non-negative facts prune the lower bounds).
         assert_eq!(stats.values_demoted, 3);
         assert_eq!(stats.loops_versioned, 1);
-        assert_eq!(stats.guards_inserted, 3);
+        assert_eq!(stats.guards_inserted, 2);
         assert_eq!(stats.entry_guards, 0);
         assert_eq!(stats.bridges_inserted, 0);
         let f = &m.funcs[0];

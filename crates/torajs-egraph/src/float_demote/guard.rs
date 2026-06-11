@@ -33,61 +33,79 @@ pub(crate) struct GuardCheck {
 
 /// A growth site needing per-iteration guards. `inst_idx` indexes the
 /// block's inst list at collection time — valid until mutation.
+/// `post` sites check the result after the op runs (the i64 add/sub
+/// cannot overflow under the in-set magnitude invariant), halving the
+/// check count against per-operand windows; the side exit still
+/// re-enters the slow path before the op, so only the operands — both
+/// inside ±2^53 — write back.
 #[derive(Debug, Clone)]
 pub(crate) struct GuardSite {
     pub block: BlockId,
     pub inst_idx: usize,
     pub result: ValueId,
     pub checks: Vec<GuardCheck>,
+    pub post: bool,
 }
 
-/// The checks a growth def needs, pruned by what the operand's fact
-/// already proves. `None` = the shape is not guardable (division-
-/// shaped, double-variable multiply, or the window math degenerates).
-/// `Some(vec![])` only arises when the facts already prove the window
-/// — the def would have classified exact, so callers treat it as
-/// not-guardable to stay conservative.
+/// The checks a growth def needs, pruned by what the facts already
+/// prove, plus whether they run after the op (post-result). `None` =
+/// the shape is not guardable (division-shaped, double-variable
+/// multiply, or the window math degenerates). `Some((vec![], _))`
+/// only arises when the facts already prove the bound — the def
+/// would have classified exact, so callers treat it as not-guardable
+/// to stay conservative.
 ///
-/// A double-variable `fadd`/`fsub` (the accumulator shape `sum += f(i)`)
-/// guards each operand inside ±⌊(2^53-1)/2⌋: the result magnitude then
-/// stays ≤ 2^53-2, so the f64 op would have been exact and the i64 op
-/// cannot overflow.
+/// `fadd`/`fsub` check the *result* against ±(2^53-1) after the i64
+/// op runs: with both operands at ≤ 2^53 magnitude (the in-set
+/// invariant) the i64 add/sub cannot overflow, and one check covers
+/// what per-operand windows needed two-to-four for. `fmul` keeps the
+/// pre-op operand window (a large constant could overflow i64 before
+/// a post check sees the result).
 pub(crate) fn growth_checks(
     kind: &InstKind,
+    result: ValueId,
     facts: &HashMap<ValueId, NumFact>,
-) -> Option<Vec<GuardCheck>> {
+) -> Option<(Vec<GuardCheck>, bool)> {
     let InstKind::BinOp(op @ (BinOp::FMul | BinOp::FAdd | BinOp::FSub), a, b) = kind else {
         return None;
     };
-    let (var, var_first, c) = match (a, b) {
-        (Operand::Value(av), Operand::Value(bv)) => {
-            if *op == BinOp::FMul {
-                return None; // product window needs a per-pair bound — not guardable
+    let value_ok = |o: &Operand| match o {
+        Operand::Value(_) => true,
+        other => op_const_int(other).is_some(),
+    };
+    match op {
+        BinOp::FAdd | BinOp::FSub => {
+            if !value_ok(a) || !value_ok(b) {
+                return None;
             }
-            let half = MAX_EXACT / 2;
-            let (fa, fb) = (facts.get(av)?, facts.get(bv)?);
-            let mut checks = window_checks(*a, fa, -half, half);
-            checks.extend(window_checks(*b, fb, -half, half));
-            return if checks.is_empty() {
+            let f = facts.get(&result)?;
+            let checks = window_checks(Operand::Value(result), f, -MAX_EXACT, MAX_EXACT);
+            if checks.is_empty() {
                 None
             } else {
-                Some(checks)
-            };
+                Some((checks, true))
+            }
         }
-        (Operand::Value(_), other) => (*a, true, op_const_int(other)?),
-        (other, Operand::Value(_)) => (*b, false, op_const_int(other)?),
-        _ => return None,
-    };
-    let (lo, hi) = operand_window(*op, var_first, c)?;
-    let Operand::Value(v) = var else {
-        return None;
-    };
-    let f = facts.get(&v)?;
-    let checks = window_checks(var, f, lo, hi);
-    if checks.is_empty() {
-        None
-    } else {
-        Some(checks)
+        BinOp::FMul => {
+            let (var, var_first, c) = match (a, b) {
+                (Operand::Value(_), Operand::Value(_)) => return None, // no per-operand product window
+                (Operand::Value(_), other) => (*a, true, op_const_int(other)?),
+                (other, Operand::Value(_)) => (*b, false, op_const_int(other)?),
+                _ => return None,
+            };
+            let (lo, hi) = operand_window(*op, var_first, c)?;
+            let Operand::Value(v) = var else {
+                return None;
+            };
+            let f = facts.get(&v)?;
+            let checks = window_checks(var, f, lo, hi);
+            if checks.is_empty() {
+                None
+            } else {
+                Some((checks, false))
+            }
+        }
+        _ => None,
     }
 }
 
@@ -122,11 +140,13 @@ fn window_checks(operand: Operand, f: &NumFact, lo: i64, hi: i64) -> Vec<GuardCh
     checks
 }
 
-/// The window the variable operand must stay inside so the result
-/// magnitude is ≤ 2^53-1. Endpoints clamp to i64 (the in-set operand
-/// is itself ≤ 2^53-1 in magnitude on the fast path, so a window
-/// wider than i64 means the check is vacuous on that side).
-fn operand_window(op: BinOp, var_first: bool, c: i128) -> Option<(i64, i64)> {
+/// The window the variable operand of a constant multiply must stay
+/// inside so the product magnitude is ≤ 2^53-1. Endpoints clamp to
+/// i64 (the in-set operand is itself ≤ 2^53-1 in magnitude on the
+/// fast path, so a window wider than i64 means the check is vacuous
+/// on that side). `var_first` is unused for multiplication but kept
+/// for shape symmetry with the call site.
+fn operand_window(op: BinOp, _var_first: bool, c: i128) -> Option<(i64, i64)> {
     let m = MAX_EXACT as i128;
     let (lo, hi) = match op {
         BinOp::FMul => {
@@ -139,10 +159,6 @@ fn operand_window(op: BinOp, var_first: bool, c: i128) -> Option<(i64, i64)> {
                 (div_ceil(m, c), div_floor(-m, c))
             }
         }
-        BinOp::FAdd => (-m - c, m - c),
-        // a - c  /  c - a
-        BinOp::FSub if var_first => (-m + c, m + c),
-        BinOp::FSub => (c - m, c + m),
         _ => return None,
     };
     Some((clamp_i64(lo), clamp_i64(hi)))
@@ -188,26 +204,6 @@ mod tests {
     }
 
     #[test]
-    fn add_window_shifts() {
-        let (lo, hi) = operand_window(BinOp::FAdd, true, 1).unwrap();
-        assert_eq!(hi, MAX_EXACT - 1);
-        assert_eq!(lo, -MAX_EXACT - 1);
-    }
-
-    #[test]
-    fn sub_windows_by_operand_order() {
-        // a - 5: a ∈ [-m+5, m+5];  5 - a: a ∈ [5-m, 5+m]
-        assert_eq!(
-            operand_window(BinOp::FSub, true, 5).unwrap(),
-            (-MAX_EXACT + 5, MAX_EXACT + 5)
-        );
-        assert_eq!(
-            operand_window(BinOp::FSub, false, 5).unwrap(),
-            (5 - MAX_EXACT, 5 + MAX_EXACT)
-        );
-    }
-
-    #[test]
     fn nonneg_fact_drops_lower_check() {
         let mut facts = HashMap::new();
         facts.insert(ValueId(1), unbounded_nonneg());
@@ -216,44 +212,48 @@ mod tests {
             Operand::ConstF64(3.0),
             Operand::Value(ValueId(1)),
         );
-        let checks = growth_checks(&kind, &facts).unwrap();
+        let (checks, post) = growth_checks(&kind, ValueId(9), &facts).unwrap();
+        assert!(!post, "constant multiply keeps the pre-op window");
         assert_eq!(checks.len(), 1);
         assert!(matches!(checks[0].pred, IPred::Sgt));
         assert_eq!(checks[0].bound, 3_002_399_751_580_330);
     }
 
     #[test]
-    fn two_sided_when_unbounded_both_ways() {
-        let mut facts = HashMap::new();
-        facts.insert(ValueId(1), NumFact::new(NEG_INF, POS_INF));
-        let kind = InstKind::BinOp(
-            BinOp::FAdd,
-            Operand::Value(ValueId(1)),
-            Operand::ConstF64(1.0),
-        );
-        let checks = growth_checks(&kind, &facts).unwrap();
-        assert_eq!(checks.len(), 2);
-    }
-
-    #[test]
-    fn double_variable_add_guards_each_operand() {
-        // sum += f(i): both operands unbounded non-negative — each
-        // takes one upper check at ⌊(2^53-1)/2⌋, lower side pruned.
+    fn add_checks_result_post_op() {
+        // the accumulator add checks its result once after the i64 op
+        // (no overflow under the in-set magnitude invariant), pruned
+        // by the result fact: non-negative → upper check only.
         let mut facts = HashMap::new();
         facts.insert(ValueId(1), unbounded_nonneg());
         facts.insert(ValueId(2), unbounded_nonneg());
+        facts.insert(ValueId(9), unbounded_nonneg());
         let kind = InstKind::BinOp(
             BinOp::FAdd,
             Operand::Value(ValueId(1)),
             Operand::Value(ValueId(2)),
         );
-        let checks = growth_checks(&kind, &facts).unwrap();
+        let (checks, post) = growth_checks(&kind, ValueId(9), &facts).unwrap();
+        assert!(post);
+        assert_eq!(checks.len(), 1);
+        assert!(matches!(checks[0].pred, IPred::Sgt));
+        assert_eq!(checks[0].operand, Operand::Value(ValueId(9)));
+        assert_eq!(checks[0].bound, MAX_EXACT);
+    }
+
+    #[test]
+    fn add_result_two_sided_when_unbounded() {
+        let mut facts = HashMap::new();
+        facts.insert(ValueId(1), NumFact::new(NEG_INF, POS_INF));
+        facts.insert(ValueId(9), NumFact::new(NEG_INF, POS_INF));
+        let kind = InstKind::BinOp(
+            BinOp::FAdd,
+            Operand::Value(ValueId(1)),
+            Operand::ConstF64(1.0),
+        );
+        let (checks, post) = growth_checks(&kind, ValueId(9), &facts).unwrap();
+        assert!(post);
         assert_eq!(checks.len(), 2);
-        let half = MAX_EXACT / 2;
-        for c in &checks {
-            assert!(matches!(c.pred, IPred::Sgt));
-            assert_eq!(c.bound, half);
-        }
     }
 
     #[test]
@@ -261,28 +261,13 @@ mod tests {
         let mut facts = HashMap::new();
         facts.insert(ValueId(1), unbounded_nonneg());
         facts.insert(ValueId(2), unbounded_nonneg());
+        facts.insert(ValueId(9), unbounded_nonneg());
         let kind = InstKind::BinOp(
             BinOp::FMul,
             Operand::Value(ValueId(1)),
             Operand::Value(ValueId(2)),
         );
-        assert!(growth_checks(&kind, &facts).is_none());
-    }
-
-    #[test]
-    fn double_variable_sub_two_sided_when_unbounded() {
-        let mut facts = HashMap::new();
-        facts.insert(ValueId(1), NumFact::new(NEG_INF, POS_INF));
-        facts.insert(ValueId(2), unbounded_nonneg());
-        let kind = InstKind::BinOp(
-            BinOp::FSub,
-            Operand::Value(ValueId(1)),
-            Operand::Value(ValueId(2)),
-        );
-        // operand 1 unbounded both ways → 2 checks; operand 2
-        // non-negative → upper check only.
-        let checks = growth_checks(&kind, &facts).unwrap();
-        assert_eq!(checks.len(), 3);
+        assert!(growth_checks(&kind, ValueId(9), &facts).is_none());
     }
 
     #[test]
