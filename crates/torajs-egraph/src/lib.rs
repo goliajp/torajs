@@ -24,6 +24,7 @@ pub mod dominator;
 pub mod egraph;
 pub mod elaborate;
 pub mod float_demote;
+pub mod frem_narrow;
 pub mod inliner;
 pub mod interval;
 pub mod loop_analysis;
@@ -165,6 +166,17 @@ pub fn transform_module(mut module: Module) -> Module {
         let phi_stats = phi_promote::promote_phi_slots(&mut module);
         if std::env::var("TORAJS_MEM2REG_PHI_STATS").as_deref() == Ok("1") {
             eprintln!("torajs-mem2reg-phi-stats: {phi_stats:?}");
+        }
+    }
+    // frem truncation recovery (W3 C2, ann-width RFC §5.3) — narrows
+    // the -0-insensitive float `%` shapes C1 minted (single-use frem
+    // into an integral fcmp or an fptosi sink) back to srem, so the
+    // interval analysis / float_demote below see the recovered int
+    // loops directly. `TORAJS_FREM_NARROW_OFF=1` skips (bisect gate).
+    if std::env::var("TORAJS_FREM_NARROW_OFF").as_deref() != Ok("1") {
+        let fn_stats = frem_narrow::narrow_frems(&mut module);
+        if std::env::var("TORAJS_FREM_NARROW_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-frem-narrow-stats: {fn_stats:?}");
         }
     }
     // Integer range analysis (analysis-only, RFC 20260611) — interval
