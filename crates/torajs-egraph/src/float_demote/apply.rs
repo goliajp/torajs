@@ -151,7 +151,10 @@ pub(crate) fn install_guards(
     // fast-side splits + check chains + side exits. A post site
     // splits after its (already-run) op — the checks see the result;
     // its side exit still targets the slow split before the op, so
-    // the slow path recomputes it and only operands write back.
+    // the slow path recomputes it and only operands write back. The
+    // first check of every site inlines into the preceding segment
+    // (cmp appended, terminator becomes the branch) — the common
+    // single-check site then adds no extra hot-path jump.
     let mut guards = 0u32;
     for (b, sites) in by_block {
         let idxs: Vec<usize> = sites
@@ -164,8 +167,24 @@ pub(crate) fn install_guards(
         for (s, cont) in sites.iter().zip(conts) {
             let target = slow_target[&(s.block, s.inst_idx)];
             let exit = build_side_exit(func, target, &live_in, &inverse, set);
-            let chain = build_check_chain(func, &s.checks, exit, cont);
-            func.blocks[prev.0 as usize].term = Terminator::Br(chain);
+            let (first, rest) = s.checks.split_first().expect("guarded site has checks");
+            let next = if rest.is_empty() {
+                cont
+            } else {
+                build_check_chain(func, rest, exit, cont)
+            };
+            let cond = push_value(&mut func.values, Type::Bool);
+            let head = &mut func.blocks[prev.0 as usize];
+            head.insts.push(Inst {
+                result: Some(cond),
+                kind: InstKind::ICmp(first.pred, first.operand, Operand::ConstI64(first.bound)),
+                origin: None,
+            });
+            head.term = Terminator::CondBr {
+                cond: Operand::Value(cond),
+                then_blk: exit,
+                else_blk: next,
+            };
             prev = cont;
             guards += s.checks.len() as u32;
         }

@@ -249,7 +249,22 @@ fn compute_demote_set(
             return Some((set, Vec::new()));
         }
         match plan::plan_regions(func, &set, growth, entries) {
-            Ok(plans) => return Some((set, plans)),
+            Ok(plans) => {
+                // profitability gate: an unprofitable region's guarded
+                // values evict like an infeasible one — the f64
+                // baseline is the cheaper correct form there
+                let costly: HashSet<ValueId> = plans
+                    .iter()
+                    .filter(|p| !plan::profitable(func, p, &set))
+                    .flat_map(|p| p.growth.iter().map(|s| s.result))
+                    .collect();
+                if costly.is_empty() {
+                    return Some((set, plans));
+                }
+                for v in costly {
+                    set.remove(&v);
+                }
+            }
             Err(plan::PlanFail::Evict(evict)) => {
                 for v in evict {
                     set.remove(&v);

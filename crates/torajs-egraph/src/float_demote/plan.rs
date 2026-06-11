@@ -27,6 +27,9 @@ use super::guard::{GuardCheck, GuardSite};
 pub(crate) struct RegionPlan {
     /// Region blocks (loop body + pre-chain), sorted.
     pub(super) region: Vec<BlockId>,
+    /// The natural-loop body alone (no pre-chain) — the per-iteration
+    /// blocks the profitability gate weighs checks against.
+    pub(super) body: Vec<BlockId>,
     /// The single region block with external predecessors.
     pub(super) entry: BlockId,
     /// Growth sites inside the region.
@@ -329,11 +332,41 @@ fn plan_one(
     escapes.sort_by_key(|v| v.0);
     PlanOutcome::Plan(RegionPlan {
         region,
+        body,
         entry,
         growth,
         entry_guard,
         escapes,
     })
+}
+
+/// Per-iteration profitability: a region fires only when the checks
+/// it pays per iteration are covered by the f64 ops it removes.
+/// Weights are coarse op-cost classes: `frem`/`fdiv` rewrite away a
+/// libcall / hard division (4), `sitofp` a domain crossing (2), the
+/// remaining f64 arithmetic 1 each; every per-iteration check costs
+/// 1. Only loop-body defs count — pre-chain rewrites and entry
+/// guards run once. An unprofitable region (the unbounded-load
+/// accumulator that swaps two f64 ops for four checks) evicts its
+/// guarded values: the f64 baseline IS the cheaper correct form.
+pub(crate) fn profitable(func: &Function, plan: &RegionPlan, set: &HashSet<ValueId>) -> bool {
+    use torajs_core::ssa::{BinOp, InstKind};
+    let checks: usize = plan.growth.iter().map(|s| s.checks.len()).sum();
+    let mut savings = 0usize;
+    for b in &plan.body {
+        for inst in &func.blocks[b.0 as usize].insts {
+            if !inst.result.is_some_and(|r| set.contains(&r)) {
+                continue;
+            }
+            savings += match &inst.kind {
+                InstKind::BinOp(BinOp::FRem | BinOp::FDiv, _, _) => 4,
+                InstKind::SiToFp(_) => 2,
+                InstKind::BinOp(BinOp::FAdd | BinOp::FSub | BinOp::FMul, _, _) => 1,
+                _ => 0,
+            };
+        }
+    }
+    checks <= savings
 }
 
 /// The split point of a mixed pre-chain block: the position of its
