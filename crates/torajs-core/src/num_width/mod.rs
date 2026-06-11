@@ -25,6 +25,7 @@
 //! monomorphizer uses BEFORE this analysis can run (the mono pass
 //! creates the very FnDecls the fixpoint walks).
 
+mod cycle;
 mod mono;
 mod walk;
 mod width;
@@ -50,13 +51,22 @@ pub(crate) enum SlotKey {
     Ret(String),
 }
 
+/// A slot dependency plus whether the value path from that slot to
+/// the consuming write runs through a growth op (Mul, or Add/Sub with
+/// a non-constant increment). A growth edge inside an assignment-graph
+/// cycle means the slot's value can grow without bound across
+/// iterations — integral, yet not i64-safe (W5): past 2^53 the f64
+/// semantics round where i64 keeps exact / wraps, so the slot must
+/// stay F64 and let guarded demotion (1b-ii) pull it back.
+pub(super) type Dep = (SlotKey, bool);
+
 /// Width of an expression as seen by the analysis.
 pub(super) enum W {
     /// Statically certain to be (or possibly be) a fractional /
     /// non-i64-exact f64 value.
     F64,
     /// Integral candidate whose final width depends on these slots.
-    Num(Vec<SlotKey>),
+    Num(Vec<Dep>),
     /// Not a number value (or a shape the analysis does not track —
     /// member/index reads keep their annotation-derived width, the
     /// container-width face is W4 scope).
@@ -110,7 +120,7 @@ pub(super) struct Analysis<'a> {
     /// only costs width, never correctness.
     pub(super) by_name: HashMap<String, Vec<SlotKey>>,
     pub(super) seeds: Vec<SlotKey>,
-    pub(super) edges: HashMap<SlotKey, Vec<SlotKey>>,
+    pub(super) edges: HashMap<SlotKey, Vec<Dep>>,
 }
 
 /// Compute the set of slots that must take the F64 representation.
@@ -194,6 +204,11 @@ pub(crate) fn f64_slots(ast: &Ast, retargets: &HashMap<ExprId, String>) -> HashS
         }
     }
 
+    // W5: an assignment-graph cycle through a growth edge is an
+    // unbounded self-feeding loop — integral yet not i64-safe. Seed
+    // every slot on such a cycle before the poison fixpoint.
+    cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
+
     // Fixpoint: poison flows forward along assignment edges until
     // stable. Monotone single-direction lattice — O(edges).
     let mut out: HashSet<SlotKey> = HashSet::new();
@@ -202,7 +217,7 @@ pub(crate) fn f64_slots(ast: &Ast, retargets: &HashMap<ExprId, String>) -> HashS
         if out.insert(k.clone())
             && let Some(dsts) = a.edges.get(&k)
         {
-            for d in dsts {
+            for (d, _) in dsts {
                 if !out.contains(d) {
                     work.push_back(d.clone());
                 }
@@ -313,5 +328,52 @@ mod tests {
     fn bitwise_firewall_blocks_poison() {
         let s = slots("function f(x: number): number { return (x / 2) | 0; }\nconsole.log(f(7));");
         assert!(!s.contains(&ret("f")));
+    }
+
+    #[test]
+    fn w5_s7_growth_cycle_poisons_loop_cell() {
+        let s = slots(
+            "function grow(start: number, steps: number): number {\n  let n: number = start;\n  let i: number = 0;\n  while (i < steps) { n = n * 3 + 1; i = i + 1; }\n  return n;\n}\nconsole.log(grow(1, 40));",
+        );
+        assert!(s.contains(&local("grow", "n")));
+        assert!(s.contains(&ret("grow")));
+        // the small-const counter and the unlooped param stay narrow
+        assert!(!s.contains(&local("grow", "i")));
+        assert!(!s.contains(&param("grow", "steps")));
+    }
+
+    #[test]
+    fn w5_cross_slot_growth_cycle_poisons_both() {
+        let s = slots(
+            "function f(k: number): number {\n  let n: number = 1;\n  let t: number = 0;\n  let i: number = 0;\n  while (i < k) { t = n * 3; n = t + 1; i = i + 1; }\n  return n;\n}\nconsole.log(f(10));",
+        );
+        assert!(s.contains(&local("f", "n")));
+        assert!(s.contains(&local("f", "t")));
+        assert!(!s.contains(&local("f", "i")));
+    }
+
+    #[test]
+    fn w5_recursive_growth_cycle_poisons_ret() {
+        let s = slots(
+            "function fib(n: number): number {\n  if (n < 2) { return n; }\n  return fib(n - 1) + fib(n - 2);\n}\nconsole.log(fib(40));",
+        );
+        assert!(s.contains(&ret("fib")));
+    }
+
+    #[test]
+    fn w5_accumulator_with_nonconst_step_poisons() {
+        let s = slots(
+            "function sum(k: number, c: number): number {\n  let acc: number = 0;\n  let i: number = 0;\n  while (i < k) { acc = acc + c; i = i + 1; }\n  return acc;\n}\nconsole.log(sum(10, 5));",
+        );
+        assert!(s.contains(&local("sum", "acc")));
+        assert!(!s.contains(&local("sum", "i")));
+    }
+
+    #[test]
+    fn w5_straightline_mul_no_cycle_stays_narrow() {
+        let s = slots(
+            "function area(w: number, h: number): number {\n  let a: number = w * h;\n  return a;\n}\nconsole.log(area(3, 4));",
+        );
+        assert!(s.is_empty());
     }
 }

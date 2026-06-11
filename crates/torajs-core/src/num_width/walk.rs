@@ -333,9 +333,12 @@ impl<'a> Analysis<'a> {
                     }
                 }
                 W::Num(deps) => {
-                    for d in &deps {
+                    for (d, growth) in &deps {
                         for k in &keys {
-                            self.edges.entry(d.clone()).or_default().push(k.clone());
+                            self.edges
+                                .entry(d.clone())
+                                .or_default()
+                                .push((k.clone(), *growth));
                         }
                     }
                 }

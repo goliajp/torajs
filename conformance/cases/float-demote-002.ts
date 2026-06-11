@@ -2,11 +2,13 @@
 // growth site hands the fast i64 path off to the preserved f64 loop
 // exactly where the trajectory leaves the ±(2^53-1) window; from
 // there the f64 slow path must reproduce bun's rounding tail bit for
-// bit. (The `/` in each loop is load-bearing: it seeds the f64 width
-// so the demotion pipeline owns the loop; single call sites keep the
-// helpers inlinable so the interval analysis sees the constant
-// entries. Sections printing the trajectory value itself stay f64 —
-// a post-loop SCC use escapes any hostable region — and pin the
+// bit. (The `/` in cross/small is the collatz halving itself; the
+// climb/sink loops are `/`-free — their f64 width comes from the W5
+// growth-cycle seed (ann-width §5.5), which the demotion pipeline
+// pulls back to guarded i64. Single call sites keep the helpers
+// inlinable so the interval analysis sees the constant entries.
+// Sections printing the trajectory value itself stay f64 — a
+// post-loop SCC use escapes any hostable region — and pin the
 // ground-truth path; sections printing the step count demote and pin
 // the fast path + side exits.)
 
@@ -42,19 +44,15 @@ while (s < 20) {
 }
 console.log(small);
 
-// upper-bound guard + side exit: an odd-only climb (the even arm
-// never runs but keeps the f64 seed) with an fcmp loop exit — the
-// fast i64 path runs ~30 steps, the side exit fires past
-// (2^53-1)/3, and the f64 slow path carries the loop to its bound.
+// upper-bound guard + side exit: a `/`-free odd-only climb with an
+// fcmp loop exit — the fast i64 path runs ~30 steps, the side exit
+// fires past (2^53-1)/3, and the f64 slow path carries the loop to
+// its bound.
 function climb(start: number): number {
   let n: number = start;
   let i: number = 0;
   while (n < 9000000000000000) {
-    if (n % 2 === 0) {
-      n = n / 2;
-    } else {
-      n = n * 3 - 2;
-    }
+    n = n * 3 - 2;
     i = i + 1;
   }
   return i;
@@ -68,11 +66,7 @@ function sink(start: number): number {
   let n: number = start;
   let i: number = 0;
   while (n > -9000000000000000) {
-    if (n % 2 === 0) {
-      n = n / 2;
-    } else {
-      n = n * 3 - 2;
-    }
+    n = n * 3 - 2;
     i = i + 1;
   }
   return i;

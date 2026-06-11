@@ -4,6 +4,16 @@
 use super::{Analysis, Scope, SlotKey, W, join, literal_is_f64};
 use crate::ast::{BinOp, Expr, ExprId, UnaryOp};
 
+/// Mark every slot dependency as reaching the consumer through a
+/// growth op (W5). Inside an assignment-graph cycle that marking
+/// makes the cycle non-i64-safe.
+fn mark_growth(w: W) -> W {
+    match w {
+        W::Num(deps) => W::Num(deps.into_iter().map(|(k, _)| (k, true)).collect()),
+        other => other,
+    }
+}
+
 impl<'a> Analysis<'a> {
     pub(super) fn resolve(&self, n: &str, scope: &Scope) -> Option<SlotKey> {
         if scope.fn_name.is_empty() {
@@ -28,11 +38,32 @@ impl<'a> Analysis<'a> {
         match w {
             W::F64 => self.seeds.push(target),
             W::Num(deps) => {
-                for d in deps {
-                    self.edges.entry(d).or_default().push(target.clone());
+                for (d, growth) in deps {
+                    self.edges
+                        .entry(d)
+                        .or_default()
+                        .push((target.clone(), growth));
                 }
             }
             W::NotNum => {}
+        }
+    }
+
+    /// A literal whose value an i64 slot holds exactly — the Add/Sub
+    /// increment shape that keeps a self-feeding counter linear-small
+    /// (`i = i + 1` family). Non-constant increments (slot / param /
+    /// call / member) can be arbitrarily large per step, so they mark
+    /// growth instead.
+    fn is_int_const(&self, eid: ExprId) -> bool {
+        match self.ast.get_expr(eid) {
+            Expr::Number(n) => !literal_is_f64(*n),
+            Expr::Unary {
+                op: UnaryOp::Neg,
+                expr,
+            } => {
+                matches!(self.ast.get_expr(*expr), Expr::Number(n) if !literal_is_f64(*n) && *n != 0.0)
+            }
+            _ => false,
         }
     }
 
@@ -53,7 +84,7 @@ impl<'a> Analysis<'a> {
                     return W::F64;
                 }
                 match self.resolve(n, scope) {
-                    Some(k) => W::Num(vec![k]),
+                    Some(k) => W::Num(vec![(k, false)]),
                     None => W::NotNum,
                 }
             }
@@ -75,7 +106,32 @@ impl<'a> Analysis<'a> {
                 | BinOp::Neq
                 | BinOp::LooseEq
                 | BinOp::LooseNeq => W::NotNum,
-                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Mod | BinOp::LAnd | BinOp::LOr => {
+                // Mul grows multiplicatively — any slot feeding it is
+                // a growth dependency (W5). In a cycle that means
+                // geometric blow-up past 2^53 within tens of steps.
+                BinOp::Mul => mark_growth(join(
+                    self.width_of(*left, scope),
+                    self.width_of(*right, scope),
+                )),
+                // Add/Sub with a literal int increment stays a linear
+                // small-step counter (`i = i + 1`) — passes through
+                // unmarked. A non-constant increment can be any size
+                // per step, so it marks growth. Known boundary: a
+                // huge-literal step (`n += 2**52`) is not marked —
+                // same physical-trip-count carve-out as counters
+                // (see rfc 20260611-ann-width-unification §5.5).
+                BinOp::Add | BinOp::Sub => {
+                    let w = join(self.width_of(*left, scope), self.width_of(*right, scope));
+                    if self.is_int_const(*left) || self.is_int_const(*right) {
+                        w
+                    } else {
+                        mark_growth(w)
+                    }
+                }
+                // Mod passes growth through: the intermediate value
+                // (`(n*3+1) % m`) already diverges between f64 and
+                // i64 before the mod contracts it.
+                BinOp::Mod | BinOp::LAnd | BinOp::LOr => {
                     join(self.width_of(*left, scope), self.width_of(*right, scope))
                 }
             },
@@ -99,12 +155,12 @@ impl<'a> Analysis<'a> {
             },
             Expr::Call { callee, .. } => {
                 if let Some(mono) = self.retargets.get(&eid) {
-                    return W::Num(vec![SlotKey::Ret(mono.clone())]);
+                    return W::Num(vec![(SlotKey::Ret(mono.clone()), false)]);
                 }
                 match self.ast.get_expr(*callee) {
                     Expr::Ident(f) => {
                         if self.fn_params.contains_key(f) {
-                            W::Num(vec![SlotKey::Ret(f.clone())])
+                            W::Num(vec![(SlotKey::Ret(f.clone()), false)])
                         } else {
                             W::NotNum
                         }
@@ -141,7 +197,7 @@ impl<'a> Analysis<'a> {
                 if let Expr::Ident(n) = self.ast.get_expr(*target)
                     && let Some(k) = self.resolve(n, scope)
                 {
-                    W::Num(vec![k])
+                    W::Num(vec![(k, false)])
                 } else {
                     W::NotNum
                 }
