@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-11T01:19:35.547Z",
+  "generatedAt": "2026-06-11T03:34:33.377Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 71.31
   },
   "torajs": {
-    "commit": "ec4f197",
-    "commitSubject": "chore(bench): record 45ad495 3-run - ann-width W5 verdict",
+    "commit": "5a346ad",
+    "commitSubject": "chore(bench): record a6e744a 3-run - item 13 merge-bridge verdict PASS",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,34 @@
   },
   "commits": [
     {
+      "hash": "5a346ad",
+      "subject": "chore(bench): record a6e744a 3-run - item 13 merge-bridge verdict PASS"
+    },
+    {
+      "hash": "a6e744a",
+      "subject": "perf(core): inline first guard check + per-iteration profitability gate"
+    },
+    {
+      "hash": "82ff2d2",
+      "subject": "perf(core): post-result growth checks - halve accumulator guard cost"
+    },
+    {
+      "hash": "6a029e5",
+      "subject": "feat(core): mixed-preheader tail split - closure-counter demotion fire"
+    },
+    {
+      "hash": "6efea7f",
+      "subject": "feat(core): merge bridge - escaped accumulator cells demote via exit writeback"
+    },
+    {
+      "hash": "b1528b4",
+      "subject": "feat(core): double-variable growth windows + per-iter sitofp guards - merge-bridge chunk A"
+    },
+    {
+      "hash": "a1e1e1b",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD ec4f197 (L3a item 12 W5 close: growth-cycle f64 seeding + 2 latent jit/aot fixes, gate 746/0/4, bench PASS 0 unjustified, item 13 merge-bridge hotified)"
+    },
+    {
       "hash": "ec4f197",
       "subject": "chore(bench): record 45ad495 3-run - ann-width W5 verdict"
     },
@@ -634,55 +662,38 @@
     {
       "hash": "cc9d27d",
       "subject": "chore(bench): record 83d485e 3-run - int-range 1b-ii verdict"
-    },
-    {
-      "hash": "83d485e",
-      "subject": "fix(egraph): route folded f64 consts through int_op in copy/identity rewrites"
-    },
-    {
-      "hash": "5b442b4",
-      "subject": "feat(egraph): loop versioning + 53-bit growth guards for float demotion - int-range 1b-ii"
-    },
-    {
-      "hash": "d8c2fd8",
-      "subject": "chore(hardev): refresh test262 full-run snapshot @ 8c1123b - pass 3483->3527, trAccepted 3763->4946 (+31% compile surface), bug bucket 280->1419 (boundary-shift exposure, not regression; conformance 744/0/4 holds)"
-    },
-    {
-      "hash": "704ee79",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD 8c1123b (L3a item 11 W1 ann-width close: num_width module-wide slot inference, gate 744/0/4, bench 0-regression by construction)"
-    },
-    {
-      "hash": "8c1123b",
-      "subject": "chore(bench): record ccbba59 r2 timed run - ann-width W1 verdict"
-    },
-    {
-      "hash": "ccbba59",
-      "subject": "feat(core): module-wide number-slot width inference - ann-width W1"
-    },
-    {
-      "hash": "dde9b5a",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD e6900cf (L3a item 10 phase 1a+1b-i: interval analysis + float demotion, gates 741/742 zero-regression, popcount -4.2%)"
     }
   ],
-  "headSha": "ec4f197",
+  "headSha": "5a346ad",
   "autorun": {
-    "total": 116,
+    "total": 117,
     "baselineTarget": 10,
-    "bySelf": 114,
+    "bySelf": 115,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781135896-3ee4",
-      "at": "2026-06-10T23:58:16Z",
-      "ts": 1781135896,
+      "rotationId": "r-1781140856-12ce",
+      "at": "2026-06-11T01:20:56Z",
+      "ts": 1781140856,
       "trigger": "self",
-      "prevHead": "ea4ee55",
-      "handoffSha": "sha256:a0567ea7e8a231054bcc86df9bef8c70b5c9c5b956eaf37743716f0ee2dc768c",
+      "prevHead": "a1e1e1b",
+      "handoffSha": "sha256:f1fc72aac5041689a19c8ea726ae16d42fbe2728384671c86fed83a1ed52bbbc",
       "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781140856-12ce",
+        "at": "2026-06-11T01:20:56Z",
+        "ts": 1781140856,
+        "trigger": "self",
+        "prevHead": "a1e1e1b",
+        "handoffSha": "sha256:f1fc72aac5041689a19c8ea726ae16d42fbe2728384671c86fed83a1ed52bbbc",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781135896-3ee4",
         "at": "2026-06-10T23:58:16Z",
@@ -779,17 +790,6 @@
         "prevHead": "c158ba3",
         "handoffSha": "sha256:9769d45615a6a9b2307d565db7c9195fc434bbd944c39419d9d4a2c14a266995",
         "handoffAgeSec": 14,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781078144-2682",
-        "at": "2026-06-10T07:55:44Z",
-        "ts": 1781078144,
-        "trigger": "self",
-        "prevHead": "316d8e7",
-        "handoffSha": "sha256:cbb8470ae47cb6f3dc58902e6c8ee5efa05acdc04c267ef5e475b1c397cd5880",
-        "handoffAgeSec": 20,
         "conformanceBefore": null,
         "commitsInSession": null
       }
