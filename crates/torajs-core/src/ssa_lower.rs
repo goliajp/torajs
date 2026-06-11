@@ -21611,50 +21611,16 @@ impl<'a> LowerCtx<'a> {
                         field_vals.push(v);
                     }
                 }
-                // V3-05 — permissive layout match: a literal field
-                // typed `Ptr` (the lowered shape of `null`) matches a
-                // registered field of any pointer-shaped type
-                // (Obj / Arr / Str / Closure / etc). This is the
-                // self-ref class case — `let __this: Node = {v: 0,
-                // next: null}` produces a literal whose `next` field
-                // is Ptr while the registered Node layout has
-                // `next: Obj(sid_node)`.
-                let layout_compatible = |reg: &Vec<(String, Type)>| -> bool {
-                    if reg.len() != field_tys.len() {
-                        return false;
-                    }
-                    reg.iter()
-                        .zip(field_tys.iter())
-                        .all(|((rn, rt), (ln, lt))| {
-                            rn == ln && (rt == lt || (*lt == Type::Ptr && rt.is_pointer_shaped()))
-                        })
-                };
-                // V3-18 P2.4.c — auto-register anonymous struct layouts
-                // when the literal doesn't match any pre-declared
-                // `type T = { ... }`. Layout is appended to
-                // struct_layouts with a synthetic id; subsequent
-                // literals of the same shape reuse it via the
-                // layout_compatible check above. No class tag is
-                // assigned (these aren't classes), so instanceof /
-                // Object.getPrototypeOf paths stay correct.
-                let sid = match self.struct_layouts.iter().position(layout_compatible) {
-                    Some(i) => ssa::StructId(i as u32),
-                    None => {
-                        let new_id = ssa::StructId(self.struct_layouts.len() as u32);
-                        self.struct_layouts.push(field_tys.clone());
-                        new_id
-                    }
-                };
-                // Bring `field_tys` in line with the registered layout
-                // so downstream Store-typing emits the right Type::Obj
-                // / Type::Arr at each slot — without this, slots stay
-                // typed Ptr and the slot-load arm at Member-access
-                // produces Ptr instead of Obj(sid_node), breaking
-                // recursive class field reads.
-                let canon = self.struct_layouts[sid.0 as usize].clone();
-                for (i, (_, ty)) in canon.iter().enumerate() {
-                    field_tys[i].1 = *ty;
-                }
+                // Layout resolution + canonical width alignment —
+                // exact match / numeric-width coercion / anonymous
+                // auto-register, see ssa_lower_objlit_layout.rs.
+                let sid = crate::ssa_lower_objlit_layout::resolve_objlit_layout(
+                    &mut self.struct_layouts,
+                    &mut self.f,
+                    self.cur_block,
+                    &mut field_tys,
+                    &mut field_vals,
+                );
                 // Phase H.1.a — alloc reserves OBJ_HEADER_SIZE for the
                 // class tag at offset 0, fields then start at offset
                 // OBJ_HEADER_SIZE. H.1.b — write the per-class tag if
@@ -24096,8 +24062,11 @@ impl<'a> LowerCtx<'a> {
                 // shapes mirror Assign: Ident (load slot → store new),
                 // Member (load obj+offset → store new at same offset),
                 // Index (load arr+16+i*8 → store new at same addr).
-                // Type is always Number (typecheck enforced); we use BinOp
-                // Add/Sub against ConstI64(1) on i64 or ConstF64(1.0) on f64.
+                // Type is always Number (typecheck enforced); the incr op
+                // must match the slot width — FAdd/FSub on ConstF64(1.0)
+                // for f64 slots, Add/Sub on ConstI64(1) for i64 (codegen
+                // dispatches register class by op kind, so an int Add
+                // with an f64 result is an invalid SSA shape).
                 let is_inc = *is_inc;
                 match self.ast.get_expr(*target).clone() {
                     Expr::Ident(name) => {
@@ -24122,12 +24091,17 @@ impl<'a> LowerCtx<'a> {
                                 slot_ty,
                                 None,
                             );
-                            let one = if slot_ty == Type::F64 {
-                                Operand::ConstF64(1.0)
+                            let (one, op) = if slot_ty == Type::F64 {
+                                let f = if is_inc {
+                                    SsaBinOp::FAdd
+                                } else {
+                                    SsaBinOp::FSub
+                                };
+                                (Operand::ConstF64(1.0), f)
                             } else {
-                                Operand::ConstI64(1)
+                                let i = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
+                                (Operand::ConstI64(1), i)
                             };
-                            let op = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
                             let new_v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::BinOp(op, Operand::Value(old), one),
@@ -24150,12 +24124,17 @@ impl<'a> LowerCtx<'a> {
                             info.ty,
                             None,
                         );
-                        let one = if info.ty == Type::F64 {
-                            Operand::ConstF64(1.0)
+                        let (one, op) = if info.ty == Type::F64 {
+                            let f = if is_inc {
+                                SsaBinOp::FAdd
+                            } else {
+                                SsaBinOp::FSub
+                            };
+                            (Operand::ConstF64(1.0), f)
                         } else {
-                            Operand::ConstI64(1)
+                            let i = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
+                            (Operand::ConstI64(1), i)
                         };
-                        let op = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
                         let new_v = self.f.append_inst(
                             self.cur_block,
                             InstKind::BinOp(op, Operand::Value(old), one),
@@ -24196,12 +24175,17 @@ impl<'a> LowerCtx<'a> {
                             field_ty,
                             None,
                         );
-                        let one = if field_ty == Type::F64 {
-                            Operand::ConstF64(1.0)
+                        let (one, op) = if field_ty == Type::F64 {
+                            let f = if is_inc {
+                                SsaBinOp::FAdd
+                            } else {
+                                SsaBinOp::FSub
+                            };
+                            (Operand::ConstF64(1.0), f)
                         } else {
-                            Operand::ConstI64(1)
+                            let i = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
+                            (Operand::ConstI64(1), i)
                         };
-                        let op = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
                         let new_v = self.f.append_inst(
                             self.cur_block,
                             InstKind::BinOp(op, Operand::Value(old), one),
@@ -24238,12 +24222,17 @@ impl<'a> LowerCtx<'a> {
                             elem_ty,
                             None,
                         );
-                        let one = if elem_ty == Type::F64 {
-                            Operand::ConstF64(1.0)
+                        let (one, op) = if elem_ty == Type::F64 {
+                            let f = if is_inc {
+                                SsaBinOp::FAdd
+                            } else {
+                                SsaBinOp::FSub
+                            };
+                            (Operand::ConstF64(1.0), f)
                         } else {
-                            Operand::ConstI64(1)
+                            let i = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
+                            (Operand::ConstI64(1), i)
                         };
-                        let op = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
                         let new_v = self.f.append_inst(
                             self.cur_block,
                             InstKind::BinOp(op, Operand::Value(old), one),
