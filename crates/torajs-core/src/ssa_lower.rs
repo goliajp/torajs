@@ -25572,7 +25572,18 @@ impl<'a> LowerCtx<'a> {
         // V3-01 — `**` for Number lowers via libm `pow`, which always
         // takes + returns f64. Force both operands into the float
         // path so downstream consumers see a Number-shaped result.
-        let force_float = matches!(op, AstBinOp::Div | AstBinOp::Pow);
+        //
+        // W3 (rfc 20260611-ann-width-unification §5.3) — `%` can mint
+        // -0 at runtime (negative dividend with zero remainder, JS
+        // spec §13.10), which i64 cannot represent, so Mod also forces
+        // the float path. A provably non-negative constant dividend
+        // keeps the int path: a ≥ 0 bounds the remainder in [+0, |b|).
+        // The egraph truncation-recovery rewrites and float_demote
+        // narrow the -0-insensitive / interval-proven shapes back to
+        // srem downstream.
+        let mod_int_safe = matches!(a, Operand::ConstI64(c) if c >= 0);
+        let force_float = matches!(op, AstBinOp::Div | AstBinOp::Pow)
+            || (matches!(op, AstBinOp::Mod) && !mod_int_safe);
         let either_float = self.operand_ty(&a) == Type::F64 || self.operand_ty(&b) == Type::F64;
         let is_float = force_float || either_float;
 
@@ -25655,6 +25666,10 @@ impl<'a> LowerCtx<'a> {
             // b loaded from a slot) still falls through to srem; a
             // proper guard needs branching IR + f64 result, which
             // changes types and is deferred.
+            //
+            // W3 — only reachable for a provably non-negative constant
+            // dividend (`mod_int_safe`); every other Mod takes the
+            // float path above for -0 correctness.
             AstBinOp::Mod => {
                 if matches!(b, Operand::ConstI64(0)) {
                     return Operand::ConstF64(f64::NAN);
@@ -25683,101 +25698,8 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
-    /// M1.5 — `a && b` with short-circuit. Layout:
-    ///
-    /// ```text
-    ///   <slot> = alloca bool
-    ///   av = lower(a)
-    ///   cond_br av, eval_b, false_blk
-    /// eval_b:
-    ///   bv = lower(b)
-    ///   store bv → slot
-    ///   br merge
-    /// false_blk:
-    ///   store false → slot
-    ///   br merge
-    /// merge:
-    ///   load slot
-    /// ```
-    /// V3-18 m1.g — JS spec §13.13: `a && b` returns `a` if it's
-    /// falsy, otherwise `b`. Result type is the common type of
-    /// both operands (typed tora gates on l == r at typecheck;
-    /// implicit-any (m1.h) widens to mixed types later).
-    fn lower_logical_and(&mut self, left: ExprId, right: ExprId) -> Operand {
-        let a = self.lower_expr(left);
-        let a_ty = self.operand_ty(&a);
-        let truthy = self.coerce_to_bool(a);
-        let slot = self.alloca(a_ty, None);
-        let eval_b = self.f.add_block();
-        let false_blk = self.f.add_block();
-        let merge = self.f.add_block();
-        self.f.set_term(
-            self.cur_block,
-            Terminator::CondBr {
-                cond: truthy,
-                then_blk: eval_b,
-                else_blk: false_blk,
-            },
-        );
-        self.cur_block = eval_b;
-        let b = self.lower_expr(right);
-        self.f
-            .append_void(self.cur_block, InstKind::Store(b, Operand::Value(slot), 0));
-        self.f.set_term(self.cur_block, Terminator::Br(merge));
-        self.cur_block = false_blk;
-        // a is the falsy value — return it directly (matches JS:
-        // `0 && expr` returns 0, not false; `"" && expr` returns "").
-        self.f
-            .append_void(self.cur_block, InstKind::Store(a, Operand::Value(slot), 0));
-        self.f.set_term(self.cur_block, Terminator::Br(merge));
-        self.cur_block = merge;
-        let v = self.f.append_inst(
-            self.cur_block,
-            InstKind::Load(a_ty, Operand::Value(slot), 0),
-            a_ty,
-            None,
-        );
-        Operand::Value(v)
-    }
-
-    /// V3-18 m1.g — JS spec §13.13: `a || b` returns `a` if truthy,
-    /// otherwise `b`. Mirror of `&&`.
-    fn lower_logical_or(&mut self, left: ExprId, right: ExprId) -> Operand {
-        let a = self.lower_expr(left);
-        let a_ty = self.operand_ty(&a);
-        let truthy = self.coerce_to_bool(a);
-        let slot = self.alloca(a_ty, None);
-        let true_blk = self.f.add_block();
-        let eval_b = self.f.add_block();
-        let merge = self.f.add_block();
-        self.f.set_term(
-            self.cur_block,
-            Terminator::CondBr {
-                cond: truthy,
-                then_blk: true_blk,
-                else_blk: eval_b,
-            },
-        );
-        self.cur_block = true_blk;
-        // a is truthy — return it directly (matches JS: `5 || 0`
-        // returns 5; `"x" || ""` returns "x").
-        self.f
-            .append_void(self.cur_block, InstKind::Store(a, Operand::Value(slot), 0));
-        self.f.set_term(self.cur_block, Terminator::Br(merge));
-        self.cur_block = eval_b;
-        let b = self.lower_expr(right);
-        self.f
-            .append_void(self.cur_block, InstKind::Store(b, Operand::Value(slot), 0));
-        self.f.set_term(self.cur_block, Terminator::Br(merge));
-        self.cur_block = merge;
-        let v = self.f.append_inst(
-            self.cur_block,
-            InstKind::Load(a_ty, Operand::Value(slot), 0),
-            a_ty,
-            None,
-        );
-        Operand::Value(v)
-    }
+    // (`lower_logical_and` / `lower_logical_or` live in
+    // `ssa_lower_logical.rs`.)
 
     /// V3-18 m1.g — JS spec §7.1.2 ToBoolean. Coerces `op` to a
     /// Type::Bool for branch conditions in `&&` / `||` / `if` /

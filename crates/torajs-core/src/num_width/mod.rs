@@ -317,10 +317,25 @@ mod tests {
     }
 
     #[test]
-    fn srem_int_modulo_stays_narrow() {
+    fn w3_modulo_variable_dividend_seeds_f64() {
+        // W3 — `a % b` can mint -0 (negative dividend, zero
+        // remainder); the %-fed slot chain must stay f64. The SSA
+        // float_demote narrows the proven-non-negative hot loop back.
         let s = slots(
             "function gcd(a: number, b: number): number {\n  while (b !== 0) {\n    let t: number = b;\n    b = a % b;\n    a = t;\n  }\n  return a;\n}\nconsole.log(gcd(48, 18));",
         );
+        assert!(s.contains(&param("gcd", "b")));
+        assert!(s.contains(&param("gcd", "a")));
+        assert!(s.contains(&local("gcd", "t")));
+        assert!(s.contains(&ret("gcd")));
+    }
+
+    #[test]
+    fn w3_modulo_nonneg_const_dividend_stays_narrow() {
+        // a non-negative integer-literal dividend bounds the
+        // remainder in [+0, |b|) — no -0, int path keeps.
+        let s =
+            slots("function wrap(k: number): number { return 100 % k; }\nconsole.log(wrap(7));");
         assert!(s.is_empty());
     }
 

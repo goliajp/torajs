@@ -128,10 +128,22 @@ impl<'a> Analysis<'a> {
                         mark_growth(w)
                     }
                 }
-                // Mod passes growth through: the intermediate value
-                // (`(n*3+1) % m`) already diverges between f64 and
-                // i64 before the mod contracts it.
-                BinOp::Mod | BinOp::LAnd | BinOp::LOr => {
+                // W3 — `%` can mint -0 at runtime (negative dividend
+                // with zero remainder), unrepresentable in i64: any
+                // slot the result reaches must stay f64. A plain
+                // integer-literal dividend is non-negative (negation
+                // is Unary), bounding the remainder in [+0, |b|) — it
+                // keeps the pass-through join, where growth still
+                // flows through (the intermediate `(n*3+1) % m`
+                // diverges before the mod contracts it).
+                BinOp::Mod => {
+                    if matches!(self.ast.get_expr(*left), Expr::Number(n) if !literal_is_f64(*n)) {
+                        join(self.width_of(*left, scope), self.width_of(*right, scope))
+                    } else {
+                        W::F64
+                    }
+                }
+                BinOp::LAnd | BinOp::LOr => {
                     join(self.width_of(*left, scope), self.width_of(*right, scope))
                 }
             },
