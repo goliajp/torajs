@@ -105,55 +105,34 @@ fn canon_key_frozen(uf: &UnionFind, k: &SlotKey) -> SlotKey {
     uf.find_frozen(&rewritten)
 }
 
-/// Frozen analysis result. Two poison sets, two consumers:
-/// - `raw` — the scalar (W1/W5) fixpoint with the container channel
-///   excluded, bit-identical to the pre-W4 analysis. `f64_slots()`
-///   hands this to today's lowering sites.
-/// - `canon` — the canonical fixpoint over alias classes with the
-///   container channel merged in. The elem/field/slot queries the
-///   D2/D3 lowering wiring consumes read this (and must land in the
-///   same commit as the coercion sites that mirror it).
+/// Frozen analysis result: the poison fixpoint over canonical alias
+/// classes (scalar slots and container elem/field points in one
+/// lattice), queried through the frozen union-find so any spelling of
+/// a key resolves to its class representative.
 pub(crate) struct WidthTable {
-    raw: HashSet<SlotKey>,
     canon: HashSet<SlotKey>,
     uf: UnionFind,
     container_poison: bool,
 }
 
 impl WidthTable {
-    pub(super) fn new(
-        raw: HashSet<SlotKey>,
-        canon: HashSet<SlotKey>,
-        uf: UnionFind,
-        container_poison: bool,
-    ) -> Self {
+    pub(super) fn new(canon: HashSet<SlotKey>, uf: UnionFind, container_poison: bool) -> Self {
         WidthTable {
-            raw,
             canon,
             uf,
             container_poison,
         }
     }
 
-    pub(super) fn into_f64_set(self) -> HashSet<SlotKey> {
-        self.raw
-    }
-
-    // The three queries are the D2/D3 lowering wiring surface (parse_type
-    // elem/field width injection + width_of Member/Index flip); D1 ships
-    // the analysis with unit tests only, so prod consumers arrive next
-    // commit. See rfc 20260611-ann-width-unification §5.4 chunks.
-    #[allow(dead_code)]
     pub(crate) fn slot_is_f64(&self, k: &SlotKey) -> bool {
         self.canon.contains(&canon_key_frozen(&self.uf, k))
     }
 
-    #[allow(dead_code)]
     pub(crate) fn elem_is_f64(&self, holder: &SlotKey) -> bool {
         self.container_poison || self.slot_is_f64(&SlotKey::Elem(Box::new(holder.clone())))
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // D3 wires the struct/class field face
     pub(crate) fn field_is_f64(&self, holder: &SlotKey, name: &str) -> bool {
         self.container_poison
             || self.slot_is_f64(&SlotKey::Field(Box::new(holder.clone()), name.to_string()))

@@ -1491,11 +1491,14 @@ pub(crate) fn try_lower_method_call(
         && method == "fill"
         && (args.len() >= 1 && args.len() <= 3)
     {
-        let value = ctx.lower_expr(args[0]);
-        let value_ty = ctx.operand_ty(&value);
-        if value_ty == Type::F64 {
-            panic!("ssa-lower: Array.fill on f64 elements not yet supported (need IR bitcast)");
+        let mut value = ctx.lower_expr(args[0]);
+        // W4 — align with the elem width, then cross the i64-param
+        // intrinsic boundary as raw bits.
+        let fill_elem = ctx.arr_layouts[arr_id.0 as usize];
+        if fill_elem == Type::F64 && ctx.operand_ty(&value) == Type::I64 {
+            value = ctx.coerce_to_f64(value);
         }
+        let value = ctx.raw_slot_arg(value);
         // V3-18 m1.h.53 — start defaults to 0, end
         // defaults to arr.length per JS spec §22.1.3.6.
         // V3-18 wedge — negatives count from the

@@ -210,13 +210,19 @@ impl<'a> Analysis<'a> {
                     }
                     // Math.* numeric intrinsics are libm-shaped f64
                     // (same set the retired infer_arg_width flagged).
+                    // Other member calls read through the container
+                    // lattice (`xs.pop()` → the receiver's elem point,
+                    // `xs.reduce(cb)` → the callback's ret).
                     Expr::Member { obj, .. } => {
                         if let Expr::Ident(ns) = self.ast.get_expr(*obj)
                             && ns == "Math"
                         {
                             W::F64
                         } else {
-                            W::NotNum
+                            match self.container_key_lookup(eid, scope) {
+                                Some(k) => W::Num(vec![(k, false)]),
+                                None => W::NotNum,
+                            }
                         }
                     }
                     _ => W::NotNum,
@@ -245,9 +251,18 @@ impl<'a> Analysis<'a> {
                     W::NotNum
                 }
             }
-            // Member / Index reads keep their annotation-derived width
-            // (container-width face is W4 scope); everything else is
-            // not a tracked number source.
+            // W4 — Member / Index reads depend on the container's
+            // elem / field lattice point; the canonical fixpoint
+            // resolves them per alias class. Untrackable receivers
+            // (string literals etc.) stay NotNum — their props are
+            // runtime-typed independent of the width table.
+            Expr::Member { .. } | Expr::Index { .. } => {
+                match self.container_key_lookup(eid, scope) {
+                    Some(k) => W::Num(vec![(k, false)]),
+                    None => W::NotNum,
+                }
+            }
+            // Everything else is not a tracked number source.
             _ => W::NotNum,
         }
     }

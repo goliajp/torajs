@@ -1431,7 +1431,7 @@ fn lower_inner(
     // Single ground truth for every `: number` (or un-annotated
     // number) slot's I64-vs-F64 representation; consumers below gate
     // on the annotation and the `__` synthetic-fn exclusion.
-    let num_f64_slots = crate::num_width::f64_slots(ast, &call_retargets);
+    let num_f64_slots = crate::num_width::analyze(ast, &call_retargets);
 
     let mut module = Module::default();
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();
@@ -4718,13 +4718,24 @@ fn lower_inner(
                 if pty == Type::I64
                     && p.type_ann.as_deref() == Some("number")
                     && !name.starts_with("__")
-                    && num_f64_slots.contains(&crate::num_width::SlotKey::Param(
+                    && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Param(
                         name.clone(),
                         p.name.clone(),
                     ))
                 {
                     pty = Type::F64;
                 }
+                // W4 — container elem widths come from the alias-class
+                // table. No `__` exclusion: Arr is pointer-shaped at
+                // the ABI, and the arr_id must agree across the fn
+                // boundary with the caller's value.
+                pty = crate::ssa_lower_container_width::widen_arr_elem(
+                    pty,
+                    p.type_ann.as_deref(),
+                    &crate::num_width::SlotKey::Param(name.clone(), p.name.clone()),
+                    &num_f64_slots,
+                    &mut arr_layouts,
+                );
                 param_tys.push(pty);
             }
             let mut ret_ty = effective_ret_ty(
@@ -4746,10 +4757,17 @@ fn lower_inner(
             if ret_ty == Type::I64
                 && return_type.as_deref() == Some("number")
                 && !name.starts_with("__")
-                && num_f64_slots.contains(&crate::num_width::SlotKey::Ret(name.clone()))
+                && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Ret(name.clone()))
             {
                 ret_ty = Type::F64;
             }
+            ret_ty = crate::ssa_lower_container_width::widen_arr_elem(
+                ret_ty,
+                return_type.as_deref(),
+                &crate::num_width::SlotKey::Ret(name.clone()),
+                &num_f64_slots,
+                &mut arr_layouts,
+            );
             let fid = FuncId(module.funcs.len() as u32);
             fn_table.insert(name.clone(), fid);
             // Intern this user fn's signature — needed for `let f = name`
@@ -6130,7 +6148,7 @@ fn synthesize_main(
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
-    num_f64_slots: &std::collections::HashSet<crate::num_width::SlotKey>,
+    num_f64_slots: &crate::num_width::WidthTable,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
@@ -6856,7 +6874,7 @@ fn lower_fn(
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
-    num_f64_slots: &std::collections::HashSet<crate::num_width::SlotKey>,
+    num_f64_slots: &crate::num_width::WidthTable,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
     let mut ret_ty = effective_ret_ty(
         parse_type(
@@ -6875,10 +6893,17 @@ fn lower_fn(
     if ret_ty == Type::I64
         && return_type == Some("number")
         && !name.starts_with("__")
-        && num_f64_slots.contains(&crate::num_width::SlotKey::Ret(name.to_string()))
+        && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Ret(name.to_string()))
     {
         ret_ty = Type::F64;
     }
+    ret_ty = crate::ssa_lower_container_width::widen_arr_elem(
+        ret_ty,
+        return_type,
+        &crate::num_width::SlotKey::Ret(name.to_string()),
+        num_f64_slots,
+        arr_layouts,
+    );
     let mut f = ssa::Function::new(name, ret_ty);
 
     // Capture param SSA values + types BEFORE creating the entry block; we'll
@@ -6904,13 +6929,20 @@ fn lower_fn(
         if pty == Type::I64
             && p.type_ann.as_deref() == Some("number")
             && !name.starts_with("__")
-            && num_f64_slots.contains(&crate::num_width::SlotKey::Param(
+            && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Param(
                 name.to_string(),
                 p.name.clone(),
             ))
         {
             pty = Type::F64;
         }
+        pty = crate::ssa_lower_container_width::widen_arr_elem(
+            pty,
+            p.type_ann.as_deref(),
+            &crate::num_width::SlotKey::Param(name.to_string(), p.name.clone()),
+            num_f64_slots,
+            arr_layouts,
+        );
         let pid = f.add_param(pty, &p.name);
         param_setup.push((p.name.clone(), pid, pty));
     }
@@ -7253,7 +7285,7 @@ pub(crate) struct LowerCtx<'a> {
     /// from `num_width::f64_slots`. Consulted at the let-decl site so
     /// a `: number` (or un-annotated) binding whose reaching values
     /// include a statically-possible f64 takes the F64 slot.
-    num_f64_slots: &'a std::collections::HashSet<crate::num_width::SlotKey>,
+    num_f64_slots: &'a crate::num_width::WidthTable,
     /// Mutable view of the lowering-phase Array element-type interner.
     /// Let-decl annotations encountered during body lowering may
     /// introduce new `T[]` instantiations; they intern lazily here.
@@ -7386,7 +7418,7 @@ pub(crate) struct LowerCtx<'a> {
     /// captures (or re-entries of the same closure body) see the live
     /// pointer. Empty for non-closure fns; populated only by the
     /// closure prologue.
-    captured_arr_writeback: HashMap<ValueId, (ValueId, u64)>,
+    pub(crate) captured_arr_writeback: HashMap<ValueId, (ValueId, u64)>,
     /// Names of `let` bindings in the current fn body that are
     /// captured by an escape closure (one whose env outlives the
     /// construction frame — detected via the enclosing fn's return
@@ -7442,7 +7474,7 @@ pub(crate) struct LowerCtx<'a> {
     /// are NOT in this map yet — they fall through to the existing
     /// implicit-main-local path; lifting them requires a destructor at
     /// program exit and is deferred to a later phase.
-    globals: &'a HashMap<String, Type>,
+    pub(crate) globals: &'a HashMap<String, Type>,
     /// Phase K.3 — true while lowering the synthesized `main` fn. The
     /// LetDecl arm uses this to decide whether a top-level let in
     /// `globals` should write to the global slot (in main) or skip
@@ -8804,7 +8836,7 @@ impl<'a> LowerCtx<'a> {
     /// binding as moved. No-op for Copy types (number/bool/etc) and for
     /// non-Ident expressions (literals, BinOp results, Call results).
     /// Mirrors check.rs's affine consume pass.
-    fn consume_if_ident(&mut self, eid: ExprId) {
+    pub(crate) fn consume_if_ident(&mut self, eid: ExprId) {
         if let Expr::Ident(name) = self.ast.get_expr(eid) {
             let name = name.clone();
             if let Some(info) = self.locals.get_mut(&name)
@@ -10445,11 +10477,19 @@ impl<'a> LowerCtx<'a> {
                     // the width-mismatch reject (repro R2).
                     if parsed == Type::I64
                         && type_ann.as_deref() == Some("number")
-                        && self.num_f64_slots.contains(&self.num_width_local_key(name))
+                        && self
+                            .num_f64_slots
+                            .slot_is_f64(&self.num_width_local_key(name))
                     {
                         Type::F64
                     } else {
-                        parsed
+                        crate::ssa_lower_container_width::widen_arr_elem(
+                            parsed,
+                            type_ann.as_deref(),
+                            &self.num_width_local_key(name),
+                            self.num_f64_slots,
+                            self.arr_layouts,
+                        )
                     }
                 } else if let Expr::Array(els) = self.ast.get_expr(*init)
                     && els.is_empty()
@@ -10629,7 +10669,9 @@ impl<'a> LowerCtx<'a> {
                     // S6: `let acc = 0; acc = acc + 0.5`) takes the
                     // F64 slot up front; the init coerces to match.
                     if ty == Type::I64
-                        && self.num_f64_slots.contains(&self.num_width_local_key(name))
+                        && self
+                            .num_f64_slots
+                            .slot_is_f64(&self.num_width_local_key(name))
                     {
                         ty = Type::F64;
                         self.coerce_to_f64(init_val)
@@ -12801,13 +12843,12 @@ impl<'a> LowerCtx<'a> {
         // `~bits` if those ever appear inside an Array literal.
         fn classify(ast: &Ast, eid: ExprId) -> Option<u8> {
             match ast.get_expr(eid) {
-                Expr::Number(n) => {
-                    if n.is_finite() && n.fract() == 0.0 && n.abs() < 1e18 {
-                        Some(1) // i64 literal kind
-                    } else {
-                        Some(2) // f64 literal kind
-                    }
-                }
+                // W4 — int and fract literals share the number kind:
+                // `[2, 1.5]` is a typed F64-elem array (the width
+                // analysis seeds the literal's elem class and the
+                // ArrayLit lowering coerces the int members), not an
+                // Array<Any>. check.rs agrees (both are TS Number).
+                Expr::Number(_) => Some(1),
                 Expr::String(_) => Some(3),
                 Expr::Bool(_) => Some(4),
                 Expr::Null => Some(5),
@@ -14583,6 +14624,18 @@ impl<'a> LowerCtx<'a> {
                         );
                         let v = self.lower_expr(*value);
                         self.consume_if_ident(*value);
+                        // W4 — align the stored value with the elem
+                        // width. The reverse direction (f64 value into
+                        // an i64 elem) means the width analysis missed
+                        // a write site — loud over bit-punning.
+                        let v = match (elem_ty, self.operand_ty(&v)) {
+                            (Type::F64, Type::I64) => self.coerce_to_f64(v),
+                            (Type::I64, Type::F64) => panic!(
+                                "ssa-lower: f64 value into i64 array elem — \
+                                 container width analysis missed this write"
+                            ),
+                            _ => v,
+                        };
                         // Drop old elem if non-Copy. M1.2 MVP only ships
                         // i64 elements (Copy), so this branch currently
                         // never fires; lays groundwork for non-Copy
@@ -18359,227 +18412,8 @@ impl<'a> LowerCtx<'a> {
                     self.emit_drop_value(final_str, Type::Str);
                     return Operand::ConstI64(0);
                 }
-                // `xs.pop()` — receiver is either an Ident bound to a
-                // typed Array<T> local OR an Ident bound to a K.3
-                // const-global Array<T>. Pop reads-and-mutates the
-                // slot in place (decrements len, no realloc) so the
-                // global-receiver path is safe: the in-place len
-                // mutation persists on the global heap object even
-                // without a write-back of the array pointer.
-                // Empty-array `pop` is UB in this subset (no
-                // undefined element type) — matches the unchecked
-                // convention used elsewhere.
-                if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
-                    && name == "pop"
-                    && args.is_empty()
-                    && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
-                {
-                    let recv_name = recv_name.clone();
-                    let resolved_arr: Option<(Operand, Type)> = if let Some(info) =
-                        self.locals.get(&recv_name).copied()
-                        && matches!(info.ty, Type::Arr(_))
-                    {
-                        let cur_arr = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                            info.ty,
-                            None,
-                        );
-                        Some((Operand::Value(cur_arr), info.ty))
-                    } else if let Some(gty) = self.globals.get(&recv_name).copied()
-                        && matches!(gty, Type::Arr(_))
-                    {
-                        let gref = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::GlobalRef(recv_name.clone()),
-                            Type::Ptr,
-                            None,
-                        );
-                        let cur_arr = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(gty, Operand::Value(gref), 0),
-                            gty,
-                            None,
-                        );
-                        Some((Operand::Value(cur_arr), gty))
-                    } else {
-                        None
-                    };
-                    if let Some((arr_op, arr_ty)) = resolved_arr {
-                        let arr_id = match arr_ty {
-                            Type::Arr(id) => id,
-                            _ => unreachable!(),
-                        };
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        let cur_arr = match arr_op {
-                            Operand::Value(v) => v,
-                            _ => unreachable!(),
-                        };
-                        let len = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(cur_arr), ARR_LEN_OFF),
-                            Type::I64,
-                            None,
-                        );
-                        let new_len = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Sub,
-                                Operand::Value(len),
-                                Operand::ConstI64(1),
-                            ),
-                            Type::I64,
-                            None,
-                        );
-                        // T-13.5: head-aware byte offset for arr.pop()'s
-                        // last-element load.
-                        let off = self.emit_arr_slot_byte_offset(
-                            Operand::Value(cur_arr),
-                            Operand::Value(new_len),
-                            3,
-                            false,
-                        );
-                        let elem = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::LoadDyn(elem_ty, Operand::Value(cur_arr), off),
-                            elem_ty,
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(new_len),
-                                Operand::Value(cur_arr),
-                                ARR_LEN_OFF,
-                            ),
-                        );
-                        return Operand::Value(elem);
-                    }
-                }
-                // M1.2 — `xs.push(v)` special-case. Two receiver shapes:
-                // `xs.shift()` — receiver is either an Ident bound to
-                // a typed Array<T> local OR an Ident bound to a K.3
-                // const-global Array<T>. Shift uses the head_offset
-                // bump strategy (T-13.5 deque), so it mutates len +
-                // head in place without realloc — same safety as pop
-                // for the global-receiver path.
-                if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
-                    && name == "shift"
-                    && args.is_empty()
-                    && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
-                {
-                    let recv_name = recv_name.clone();
-                    let resolved_arr: Option<(Operand, Type)> = if let Some(info) =
-                        self.locals.get(&recv_name).copied()
-                        && matches!(info.ty, Type::Arr(_))
-                    {
-                        let cur_arr = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                            info.ty,
-                            None,
-                        );
-                        Some((Operand::Value(cur_arr), info.ty))
-                    } else if let Some(gty) = self.globals.get(&recv_name).copied()
-                        && matches!(gty, Type::Arr(_))
-                    {
-                        let gref = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::GlobalRef(recv_name.clone()),
-                            Type::Ptr,
-                            None,
-                        );
-                        let cur_arr = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(gty, Operand::Value(gref), 0),
-                            gty,
-                            None,
-                        );
-                        Some((Operand::Value(cur_arr), gty))
-                    } else {
-                        None
-                    };
-                    if let Some((arr_op, arr_ty)) = resolved_arr {
-                        let arr_id = match arr_ty {
-                            Type::Arr(id) => id,
-                            _ => unreachable!(),
-                        };
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.arr_shift, vec![arr_op]),
-                            elem_ty,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                }
-                // `xs.unshift(v)` — same realloc-and-store-back shape
-                // as push (a), but the runtime helper memmoves slots
-                // right + writes slot[0] before returning the new ptr.
-                if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
-                    && name == "unshift"
-                    && args.len() == 1
-                    && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
-                    && let Some(info) = self.locals.get(recv_name).copied()
-                    && let Type::Arr(arr_id) = info.ty
-                {
-                    let arr_ty = info.ty;
-                    let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                    let cur_arr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
-                        arr_ty,
-                        None,
-                    );
-                    let val = self.lower_expr(args[0]);
-                    if !elem_ty.is_refcounted() {
-                        self.consume_if_ident(args[0]);
-                    }
-                    let new_arr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_unshift,
-                            vec![Operand::Value(cur_arr), val],
-                        ),
-                        arr_ty,
-                        None,
-                    );
-                    if elem_ty.is_refcounted() {
-                        self.emit_rc_inc(val);
-                    }
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::Value(new_arr), Operand::Value(info.slot), 0),
-                    );
-                    if let Some((env_slot, env_offset)) =
-                        self.captured_arr_writeback.get(&info.slot).copied()
-                    {
-                        let env_ptr = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
-                            Type::Ptr,
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(new_arr),
-                                Operand::Value(env_ptr),
-                                env_offset,
-                            ),
-                        );
-                    }
-                    // chunk 9c — JS spec: unshift returns new length.
-                    // Runtime helper bumps `len + 1` into arr[#8] before
-                    // returning; mirror the .length getter.
-                    let new_len = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
-                        Type::I64,
-                        None,
-                    );
-                    return Operand::Value(new_len);
+                if let Some(r) = self.try_lower_arr_pop_shift_unshift(*callee, args) {
+                    return r;
                 }
                 // `xs.splice(start, deleteCount)` — in-place remove +
                 // return removed slice as a fresh Array<T>. Per ES
@@ -18830,6 +18664,16 @@ impl<'a> LowerCtx<'a> {
                         // Boolean elements need widening to the uniform
                         // 8-byte slot the runtime helper expects.
                         val = self.coerce_bool_to_i64(val);
+                        // W4 — align the pushed value with the elem
+                        // width (mirrors the index-assign site).
+                        val = match (elem_ty, self.operand_ty(&val)) {
+                            (Type::F64, Type::I64) => self.coerce_to_f64(val),
+                            (Type::I64, Type::F64) => panic!(
+                                "ssa-lower: f64 value into i64 array elem via push — \
+                                 container width analysis missed this write"
+                            ),
+                            _ => val,
+                        };
                         /* v0.6+1 perf checkpoint — push-loop pre-reserve.
                          *
                          * If the enclosing for-loop's lowerer detected
@@ -18907,11 +18751,12 @@ impl<'a> LowerCtx<'a> {
                             // (already in SSA as `len_next`, mirrors arr[#8]).
                             return Operand::Value(len_next);
                         }
+                        let push_arg = self.raw_slot_arg(val);
                         let new_arr = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
                                 self.intrinsics.arr_push,
-                                vec![Operand::Value(cur_arr), val],
+                                vec![Operand::Value(cur_arr), push_arg],
                             ),
                             arr_ty,
                             None,
@@ -18992,11 +18837,17 @@ impl<'a> LowerCtx<'a> {
                             self.consume_if_ident(args[0]);
                         }
                         val = self.coerce_bool_to_i64(val);
+                        // W4 — align with the elem width (mirrors the
+                        // local-receiver push site).
+                        if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
+                            val = self.coerce_to_f64(val);
+                        }
+                        let push_arg = self.raw_slot_arg(val);
                         let new_arr = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
                                 self.intrinsics.arr_push,
-                                vec![Operand::Value(cur_arr), val],
+                                vec![Operand::Value(cur_arr), push_arg],
                             ),
                             arr_ty,
                             None,
@@ -19047,15 +18898,20 @@ impl<'a> LowerCtx<'a> {
                                     field_ty,
                                     None,
                                 );
-                                let val = self.lower_expr(args[0]);
+                                let mut val = self.lower_expr(args[0]);
                                 if !elem_ty.is_refcounted() {
                                     self.consume_if_ident(args[0]);
                                 }
+                                // W4 — align with the elem width.
+                                if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
+                                    val = self.coerce_to_f64(val);
+                                }
+                                let push_arg = self.raw_slot_arg(val);
                                 let new_arr = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::Call(
                                         self.intrinsics.arr_push,
-                                        vec![Operand::Value(cur_arr), val],
+                                        vec![Operand::Value(cur_arr), push_arg],
                                     ),
                                     field_ty,
                                     None,
@@ -20950,9 +20806,24 @@ impl<'a> LowerCtx<'a> {
                     } else {
                         None
                     };
+                    // W4 — the reduce accumulator's width follows the
+                    // callback's ret (it is fed back from it every
+                    // iteration), not the receiver's elem: i64 elems
+                    // with an f64-widened callback left the acc slot
+                    // narrow → GPR/FPR mismatch (array-007 shape).
+                    let acc_ty = match fn_ty {
+                        Type::FnSig(s) | Type::Closure(s) => self.fn_sigs[s.0 as usize].1,
+                        _ => elem_ty,
+                    };
                     let acc_slot = if method == "reduce" {
                         let init_v = self.lower_expr(args[1]);
-                        let slot = self.alloca(elem_ty, Some("__iter_acc"));
+                        let init_v = if acc_ty == Type::F64 && self.operand_ty(&init_v) == Type::I64
+                        {
+                            self.coerce_to_f64(init_v)
+                        } else {
+                            init_v
+                        };
+                        let slot = self.alloca(acc_ty, Some("__iter_acc"));
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(init_v, Operand::Value(slot), 0),
@@ -21052,7 +20923,21 @@ impl<'a> LowerCtx<'a> {
                      * args[0] was an Expr::Closure literal or a
                      * top-level Ident — see the `known_fid` resolver
                      * above). */
-                    let do_call = |this: &mut Self, args: Vec<Operand>| -> ValueId {
+                    // W4 — align arg widths with the callback's user
+                    // signature (an f64-widened callback param must not
+                    // receive raw i64 elem bits).
+                    let sig_params: Vec<Type> = match fn_ty {
+                        Type::FnSig(s) | Type::Closure(s) => self.fn_sigs[s.0 as usize].0.clone(),
+                        _ => Vec::new(),
+                    };
+                    let do_call = |this: &mut Self, mut args: Vec<Operand>| -> ValueId {
+                        for (i, a) in args.iter_mut().enumerate() {
+                            if sig_params.get(i) == Some(&Type::F64)
+                                && this.operand_ty(a) == Type::I64
+                            {
+                                *a = this.coerce_to_f64(a.clone());
+                            }
+                        }
                         match known_fid {
                             Some(fid) => {
                                 this.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args)
@@ -21074,11 +20959,12 @@ impl<'a> LowerCtx<'a> {
                                 dst_arr_ty,
                                 None,
                             );
+                            let mapped_arg = self.raw_slot_arg(Operand::Value(mapped));
                             self.f.append_void(
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.arr_push_unchecked,
-                                    vec![Operand::Value(cur_dst), Operand::Value(mapped)],
+                                    vec![Operand::Value(cur_dst), mapped_arg],
                                 ),
                             );
                         }
@@ -21101,11 +20987,12 @@ impl<'a> LowerCtx<'a> {
                                 dst_arr_ty,
                                 None,
                             );
+                            let elem_arg = self.raw_slot_arg(Operand::Value(elem));
                             self.f.append_void(
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.arr_push_unchecked,
-                                    vec![Operand::Value(cur_dst), Operand::Value(elem)],
+                                    vec![Operand::Value(cur_dst), elem_arg],
                                 ),
                             );
                             self.f.set_term(self.cur_block, Terminator::Br(next_blk));
@@ -21114,8 +21001,8 @@ impl<'a> LowerCtx<'a> {
                         "reduce" => {
                             let acc_now = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(elem_ty, Operand::Value(acc_slot.unwrap()), 0),
-                                elem_ty,
+                                InstKind::Load(acc_ty, Operand::Value(acc_slot.unwrap()), 0),
+                                acc_ty,
                                 None,
                             );
                             let new_acc =
@@ -21171,8 +21058,8 @@ impl<'a> LowerCtx<'a> {
                         "reduce" => {
                             let v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(elem_ty, Operand::Value(acc_slot.unwrap()), 0),
-                                elem_ty,
+                                InstKind::Load(acc_ty, Operand::Value(acc_slot.unwrap()), 0),
+                                acc_ty,
                                 None,
                             );
                             Operand::Value(v)
@@ -22798,7 +22685,26 @@ impl<'a> LowerCtx<'a> {
                         elem_inc_after.push(needs_inc);
                         elem_vals.push(v);
                     }
-                    let elem_ty = anchor_ty.unwrap_or_else(|| self.operand_ty(&elem_vals[0]));
+                    let mut elem_ty = anchor_ty.unwrap_or_else(|| self.operand_ty(&elem_vals[0]));
+                    // W4 — the literal's element width comes from its
+                    // alias class (the Anon origin key unions with the
+                    // receiving slot during analysis), not from the
+                    // first element's shape: `[1, 0.5]` and a later
+                    // `a[0] = 0.5` both make the class f64-possible.
+                    if elem_ty == Type::I64
+                        && self
+                            .num_f64_slots
+                            .elem_is_f64(&crate::num_width::SlotKey::Anon(eid.0))
+                    {
+                        elem_ty = Type::F64;
+                    }
+                    if elem_ty == Type::F64 {
+                        for v in elem_vals.iter_mut() {
+                            if self.operand_ty(v) == Type::I64 {
+                                *v = self.coerce_to_f64(v.clone());
+                            }
+                        }
+                    }
                     let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
                     // Plan A — stack-alloca path. Triggered when the
                     // escape verifier flagged this Array literal AND
@@ -22929,7 +22835,16 @@ impl<'a> LowerCtx<'a> {
                         Item::Lit(li.op)
                     });
                 }
-                let elem_ty = elem_ty.unwrap_or(Type::I64);
+                let mut elem_ty = elem_ty.unwrap_or(Type::I64);
+                // W4 — same alias-class width consult as the no-spread
+                // path; literal items coerce at the push below.
+                if elem_ty == Type::I64
+                    && self
+                        .num_f64_slots
+                        .elem_is_f64(&crate::num_width::SlotKey::Anon(eid.0))
+                {
+                    elem_ty = Type::F64;
+                }
                 let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
                 let elem_is_refcounted = elem_ty.is_refcounted();
                 // P5.6 — for Array<Any> spread, route through
@@ -22973,11 +22888,17 @@ impl<'a> LowerCtx<'a> {
                 for it in items {
                     match it {
                         Item::Lit(v) => {
+                            let v = if elem_ty == Type::F64 && self.operand_ty(&v) == Type::I64 {
+                                self.coerce_to_f64(v)
+                            } else {
+                                v
+                            };
+                            let push_arg = self.raw_slot_arg(v);
                             self.f.append_void(
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.arr_push_unchecked,
-                                    vec![Operand::Value(arr_ptr), v],
+                                    vec![Operand::Value(arr_ptr), push_arg],
                                 ),
                             );
                             // Phase B refcount: array now shares
@@ -24521,6 +24442,26 @@ impl<'a> LowerCtx<'a> {
     /// Promote an i64 operand to f64. Constants are rewritten in place
     /// (cheaper than emitting a sitofp instruction LLVM would constant-fold
     /// anyway). Value operands emit an explicit InstKind::SiToFp.
+    /// W4 — raw-slot intrinsic argument: array slots are 8 raw bytes
+    /// and the `__torajs_arr_*` helpers take them as i64. An f64
+    /// value must cross as explicit bits — passing an FPR value to an
+    /// i64 param is codegen-ambiguous (the baseline tier reads the
+    /// wrong register class; LLVM IR type-mismatches).
+    pub(crate) fn raw_slot_arg(&mut self, val: Operand) -> Operand {
+        if self.operand_ty(&val) != Type::F64 {
+            return val;
+        }
+        match val {
+            Operand::ConstF64(x) => Operand::ConstI64(x.to_bits() as i64),
+            _ => Operand::Value(self.f.append_inst(
+                self.cur_block,
+                InstKind::BitCastF64ToI64(val),
+                Type::I64,
+                None,
+            )),
+        }
+    }
+
     pub(crate) fn coerce_to_f64(&mut self, op: Operand) -> Operand {
         match self.operand_ty(&op) {
             Type::F64 => op,

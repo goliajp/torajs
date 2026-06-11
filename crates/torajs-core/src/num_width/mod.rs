@@ -26,6 +26,7 @@
 //! creates the very FnDecls the fixpoint walks).
 
 mod container;
+mod container_lookup;
 mod container_walk;
 mod cycle;
 mod mono;
@@ -176,15 +177,10 @@ pub(super) struct Analysis<'a> {
     pub(super) container_poison: bool,
 }
 
-/// Compute the set of slots that must take the F64 representation.
-/// Call after monomorphization (the analyzed AST must be the one
-/// lowering walks) with the same retarget map lowering uses.
-pub(crate) fn f64_slots(ast: &Ast, retargets: &HashMap<ExprId, String>) -> HashSet<SlotKey> {
-    analyze(ast, retargets).into_f64_set()
-}
-
-/// Full analysis result — the scalar F64 slot set plus the container
-/// alias classes that answer elem/field width queries (W4).
+/// Full analysis result — the F64 slot classes plus the container
+/// alias classes that answer elem/field width queries (W4). Call
+/// after monomorphization (the analyzed AST must be the one lowering
+/// walks) with the same retarget map lowering uses.
 pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTable {
     let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
     let mut toplevel_lets: HashSet<String> = HashSet::new();
@@ -273,19 +269,11 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
         }
     }
 
-    // Scalar (W1/W5) fixpoint over the untouched seeds/edges — the
-    // container channel stays out, so this set is bit-identical to
-    // the pre-W4 analysis. Pre-W4 consumers read exactly this.
-    let mut raw_seeds = a.seeds.clone();
-    cycle::seed_growth_cycles(&a.edges, &mut raw_seeds);
-    let raw_out = fixpoint(raw_seeds, &a.edges);
-
     // W4 container pipeline: nominal class hookups, guarded-union
     // activation, container-channel merge, congruence closure, then
     // rewrite of every seed / edge key onto its alias-class
-    // representative. The canonical fixpoint is the D2/D3 lowering
-    // wiring's query surface (container widths + the slot widths
-    // their coercion sites must mirror).
+    // representative. The fixpoint runs per alias class; queries
+    // canonicalize through the frozen union-find.
     container::nominal_unions(&mut a);
     container::activate_guarded(&mut a);
     a.seeds.append(&mut a.c_seeds);
@@ -296,7 +284,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
     cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
     let canon_out = fixpoint(std::mem::take(&mut a.seeds), &a.edges);
 
-    WidthTable::new(raw_out, canon_out, a.uf, a.container_poison)
+    WidthTable::new(canon_out, a.uf, a.container_poison)
 }
 
 /// Poison flows forward along assignment edges until stable.
@@ -323,10 +311,17 @@ mod tests {
     use super::*;
     use crate::{lexer, parser};
 
-    fn slots(src: &str) -> HashSet<SlotKey> {
+    struct Slots(WidthTable);
+    impl Slots {
+        fn contains(&self, k: &SlotKey) -> bool {
+            self.0.slot_is_f64(k)
+        }
+    }
+
+    fn slots(src: &str) -> Slots {
         let tokens = lexer::tokenize(src).expect("lex");
         let ast = parser::parse(&tokens).expect("parse");
-        f64_slots(&ast, &HashMap::new())
+        Slots(analyze(&ast, &HashMap::new()))
     }
 
     fn local(f: &str, v: &str) -> SlotKey {
@@ -404,7 +399,10 @@ mod tests {
         let s = slots(
             "function popcount(x: number): number {\n  let n: number = x;\n  let count: number = 0;\n  while (n !== 0) { n = n & (n - 1); count = count + 1; }\n  return count;\n}\nconsole.log(popcount(9999999));",
         );
-        assert!(s.is_empty());
+        assert!(!s.contains(&param("popcount", "x")));
+        assert!(!s.contains(&local("popcount", "n")));
+        assert!(!s.contains(&local("popcount", "count")));
+        assert!(!s.contains(&ret("popcount")));
     }
 
     #[test]
@@ -427,7 +425,8 @@ mod tests {
         // remainder in [+0, |b|) — no -0, int path keeps.
         let s =
             slots("function wrap(k: number): number { return 100 % k; }\nconsole.log(wrap(7));");
-        assert!(s.is_empty());
+        assert!(!s.contains(&param("wrap", "k")));
+        assert!(!s.contains(&ret("wrap")));
     }
 
     #[test]
@@ -480,6 +479,9 @@ mod tests {
         let s = slots(
             "function area(w: number, h: number): number {\n  let a: number = w * h;\n  return a;\n}\nconsole.log(area(3, 4));",
         );
-        assert!(s.is_empty());
+        assert!(!s.contains(&param("area", "w")));
+        assert!(!s.contains(&param("area", "h")));
+        assert!(!s.contains(&local("area", "a")));
+        assert!(!s.contains(&ret("area")));
     }
 }

@@ -23,7 +23,7 @@
 //!     mutation through method calls (`xs.push(v)`) would need
 //!     writeback to the slot (K.6, not yet landed).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, Stmt};
 use crate::ast_refs::GlobalSlotShape;
@@ -48,7 +48,7 @@ pub(crate) fn collect_toplevel_globals(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     struct_layouts: &mut Vec<Vec<(String, Type)>>,
-    num_f64_slots: &HashSet<SlotKey>,
+    num_f64_slots: &crate::num_width::WidthTable,
 ) -> HashMap<String, Type> {
     let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
     let mut globals: HashMap<String, Type> = HashMap::new();
@@ -93,7 +93,8 @@ pub(crate) fn collect_toplevel_globals(
             // the shared inference can't resolve keep the K.1
             // main-local behavior.
             let widened = |parsed: Type| {
-                if parsed == Type::I64 && num_f64_slots.contains(&SlotKey::Global(name.clone())) {
+                if parsed == Type::I64 && num_f64_slots.slot_is_f64(&SlotKey::Global(name.clone()))
+                {
                     Type::F64
                 } else {
                     parsed
@@ -108,6 +109,15 @@ pub(crate) fn collect_toplevel_globals(
                         fn_sigs,
                         generic_struct_decls,
                         struct_layouts,
+                    );
+                    // W4 — container elem widths from the alias-class
+                    // table (same consult as the fn-local let site).
+                    let parsed = crate::ssa_lower_container_width::widen_arr_elem(
+                        parsed,
+                        Some(ann),
+                        &SlotKey::Global(name.clone()),
+                        num_f64_slots,
+                        arr_layouts,
                     );
                     if ann == "number" {
                         widened(parsed)
