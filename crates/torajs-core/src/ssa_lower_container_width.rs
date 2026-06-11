@@ -16,8 +16,85 @@
 //! `arr_layouts[arr_id]` and follow automatically.
 
 use crate::num_width::{SlotKey, WidthTable};
-use crate::ssa::Type;
+use crate::ssa::{StructId, Type};
 use crate::ssa_lower::intern_arr_layout;
+
+/// Intern a struct layout by structural equality (mirrors the
+/// TypeDecl intern walk); widened twins get fresh StructIds so
+/// differently-classed slots of one structural annotation can carry
+/// different field widths.
+fn intern_struct_layout(
+    layouts: &mut Vec<Vec<(String, Type)>>,
+    fields: Vec<(String, Type)>,
+) -> StructId {
+    for (i, ex) in layouts.iter().enumerate() {
+        if *ex == fields {
+            return StructId(i as u32);
+        }
+    }
+    let id = StructId(layouts.len() as u32);
+    layouts.push(fields);
+    id
+}
+
+/// Widen a parsed / inferred container type's number faces per the
+/// width table: array elems (`widen_arr_elem`) and struct fields.
+/// `key` is the slot (or literal Anon origin / nominal Class) holding
+/// the container. An I64 field is a number-domain candidate by
+/// construction; the explicit `: i64` struct-field narrow spelling is
+/// an accepted edge (recorded in rfc §5.4 — the analysis has no field
+/// annotations, and a fract write into such a field was bit-punning
+/// silent-wrong before W4 anyway).
+pub(crate) fn widen_container_ty(
+    parsed: Type,
+    ann: Option<&str>,
+    key: &SlotKey,
+    table: &WidthTable,
+    arr_layouts: &mut Vec<Type>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+) -> Type {
+    match parsed {
+        Type::Arr(_) => widen_arr_elem(parsed, ann, key, table, arr_layouts),
+        Type::Obj(_) => widen_struct_fields(parsed, key, table, arr_layouts, struct_layouts),
+        _ => parsed,
+    }
+}
+
+/// Widen a struct type's I64 fields whose alias-class field points
+/// are f64-possible, re-interning the layout. Recurses into Arr /
+/// Obj fields through the Field-spelled keys (the table
+/// canonicalizes them onto the congruence-closed classes).
+pub(crate) fn widen_struct_fields(
+    parsed: Type,
+    key: &SlotKey,
+    table: &WidthTable,
+    arr_layouts: &mut Vec<Type>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+) -> Type {
+    let Type::Obj(sid) = parsed else {
+        return parsed;
+    };
+    let layout = struct_layouts[sid.0 as usize].clone();
+    let mut widened = layout.clone();
+    let mut changed = false;
+    for (fname, fty) in widened.iter_mut() {
+        let fkey = SlotKey::Field(Box::new(key.clone()), fname.clone());
+        let new_fty = match *fty {
+            Type::I64 if table.field_is_f64(key, fname) => Type::F64,
+            Type::Arr(_) => widen_arr_elem(*fty, None, &fkey, table, arr_layouts),
+            Type::Obj(_) => widen_struct_fields(*fty, &fkey, table, arr_layouts, struct_layouts),
+            _ => *fty,
+        };
+        if new_fty != *fty {
+            *fty = new_fty;
+            changed = true;
+        }
+    }
+    if !changed {
+        return parsed;
+    }
+    Type::Obj(intern_struct_layout(struct_layouts, widened))
+}
 
 /// Widen a parsed / inferred array type's element faces per the
 /// width table. `key` is the slot (or literal Anon origin) holding

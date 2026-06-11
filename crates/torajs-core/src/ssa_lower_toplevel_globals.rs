@@ -112,12 +112,13 @@ pub(crate) fn collect_toplevel_globals(
                     );
                     // W4 — container elem widths from the alias-class
                     // table (same consult as the fn-local let site).
-                    let parsed = crate::ssa_lower_container_width::widen_arr_elem(
+                    let parsed = crate::ssa_lower_container_width::widen_container_ty(
                         parsed,
                         Some(ann),
                         &SlotKey::Global(name.clone()),
                         num_f64_slots,
                         arr_layouts,
+                        struct_layouts,
                     );
                     if ann == "number" {
                         widened(parsed)

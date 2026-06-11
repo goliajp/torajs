@@ -4598,8 +4598,16 @@ fn lower_inner(
                 continue;
             }
             let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
+            // W4 — class field widths join over all instances through
+            // the nominal Class key; the class's single layout takes
+            // the alias-class width here. Plain `type` aliases widen
+            // per consuming slot at the ann sites instead.
+            let class_key = ast
+                .class_parents
+                .contains_key(name)
+                .then(|| crate::num_width::SlotKey::Class(name.clone()));
             for (fname, fty_ann) in fields {
-                let ty = parse_type(
+                let mut ty = parse_type(
                     Some(fty_ann.as_str()),
                     &aliases,
                     &mut arr_layouts,
@@ -4607,6 +4615,25 @@ fn lower_inner(
                     &generic_struct_decls,
                     &mut struct_layouts,
                 );
+                if let Some(ck) = &class_key {
+                    let fkey =
+                        crate::num_width::SlotKey::Field(Box::new(ck.clone()), fname.clone());
+                    ty = match ty {
+                        Type::I64
+                            if fty_ann == "number" && num_f64_slots.field_is_f64(ck, fname) =>
+                        {
+                            Type::F64
+                        }
+                        Type::Arr(_) => crate::ssa_lower_container_width::widen_arr_elem(
+                            ty,
+                            Some(fty_ann.as_str()),
+                            &fkey,
+                            &num_f64_slots,
+                            &mut arr_layouts,
+                        ),
+                        other => other,
+                    };
+                }
                 layout.push((fname.clone(), ty));
             }
             let reserved_sid = class_sids[name];
@@ -4729,12 +4756,13 @@ fn lower_inner(
                 // table. No `__` exclusion: Arr is pointer-shaped at
                 // the ABI, and the arr_id must agree across the fn
                 // boundary with the caller's value.
-                pty = crate::ssa_lower_container_width::widen_arr_elem(
+                pty = crate::ssa_lower_container_width::widen_container_ty(
                     pty,
                     p.type_ann.as_deref(),
                     &crate::num_width::SlotKey::Param(name.clone(), p.name.clone()),
                     &num_f64_slots,
                     &mut arr_layouts,
+                    &mut struct_layouts,
                 );
                 param_tys.push(pty);
             }
@@ -4761,12 +4789,13 @@ fn lower_inner(
             {
                 ret_ty = Type::F64;
             }
-            ret_ty = crate::ssa_lower_container_width::widen_arr_elem(
+            ret_ty = crate::ssa_lower_container_width::widen_container_ty(
                 ret_ty,
                 return_type.as_deref(),
                 &crate::num_width::SlotKey::Ret(name.clone()),
                 &num_f64_slots,
                 &mut arr_layouts,
+                &mut struct_layouts,
             );
             let fid = FuncId(module.funcs.len() as u32);
             fn_table.insert(name.clone(), fid);
@@ -6897,12 +6926,13 @@ fn lower_fn(
     {
         ret_ty = Type::F64;
     }
-    ret_ty = crate::ssa_lower_container_width::widen_arr_elem(
+    ret_ty = crate::ssa_lower_container_width::widen_container_ty(
         ret_ty,
         return_type,
         &crate::num_width::SlotKey::Ret(name.to_string()),
         num_f64_slots,
         arr_layouts,
+        struct_layouts,
     );
     let mut f = ssa::Function::new(name, ret_ty);
 
@@ -6936,12 +6966,13 @@ fn lower_fn(
         {
             pty = Type::F64;
         }
-        pty = crate::ssa_lower_container_width::widen_arr_elem(
+        pty = crate::ssa_lower_container_width::widen_container_ty(
             pty,
             p.type_ann.as_deref(),
             &crate::num_width::SlotKey::Param(name.to_string(), p.name.clone()),
             num_f64_slots,
             arr_layouts,
+            struct_layouts,
         );
         let pid = f.add_param(pty, &p.name);
         param_setup.push((p.name.clone(), pid, pty));
@@ -10483,12 +10514,13 @@ impl<'a> LowerCtx<'a> {
                     {
                         Type::F64
                     } else {
-                        crate::ssa_lower_container_width::widen_arr_elem(
+                        crate::ssa_lower_container_width::widen_container_ty(
                             parsed,
                             type_ann.as_deref(),
                             &self.num_width_local_key(name),
                             self.num_f64_slots,
                             self.arr_layouts,
+                            self.struct_layouts,
                         )
                     }
                 } else if let Expr::Array(els) = self.ast.get_expr(*init)
@@ -14488,7 +14520,18 @@ impl<'a> LowerCtx<'a> {
                         } else {
                             let v = self.lower_expr(*value);
                             self.consume_if_ident(*value);
-                            v
+                            // W4 — align the stored value with the
+                            // field width (mirrors the index-assign
+                            // site; the reverse direction means the
+                            // width analysis missed this write).
+                            match (field_ty, self.operand_ty(&v)) {
+                                (Type::F64, Type::I64) => self.coerce_to_f64(v),
+                                (Type::I64, Type::F64) => panic!(
+                                    "ssa-lower: f64 value into i64 struct field `{field}` — \
+                                     container width analysis missed this write"
+                                ),
+                                _ => v,
+                            }
                         };
                         // Drop the old field value if non-Copy.
                         if !field_ty.is_copy() {
@@ -21507,6 +21550,21 @@ impl<'a> LowerCtx<'a> {
                     } else {
                         field_tys.push((n.clone(), ty));
                         field_vals.push(v);
+                    }
+                }
+                // W4 — the literal's field widths come from its alias
+                // class (the Anon origin key unions with the receiving
+                // slot during analysis): `{x: 1}` with a later
+                // `o.x = 0.5` carries an F64 `x` slot up front.
+                for (i, (fname, fty)) in field_tys.iter_mut().enumerate() {
+                    if *fty == Type::I64
+                        && self
+                            .num_f64_slots
+                            .field_is_f64(&crate::num_width::SlotKey::Anon(eid.0), fname)
+                    {
+                        *fty = Type::F64;
+                        let coerced = self.coerce_to_f64(field_vals[i].clone());
+                        field_vals[i] = coerced;
                     }
                 }
                 // Layout resolution + canonical width alignment —
