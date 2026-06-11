@@ -71,12 +71,13 @@ pub(crate) fn def_fit(
             _ => Fit::No,
         },
         InstKind::BinOp(BinOp::FMul | BinOp::FAdd | BinOp::FSub, a, b) => {
-            let var_in_set = match (a, b) {
+            let vars_in_set = match (a, b) {
                 (Operand::Value(av), other) if op_const_int(other).is_some() => set.contains(av),
                 (other, Operand::Value(bv)) if op_const_int(other).is_some() => set.contains(bv),
+                (Operand::Value(av), Operand::Value(bv)) => set.contains(av) && set.contains(bv),
                 _ => false,
             };
-            if var_in_set && guard::growth_checks(d, facts).is_some() {
+            if vars_in_set && guard::growth_checks(d, facts).is_some() {
                 Fit::Guarded
             } else {
                 Fit::No

@@ -52,7 +52,7 @@ pub(crate) fn plan_regions(
     func: &Function,
     set: &HashSet<ValueId>,
     growth_sites: Vec<GuardSite>,
-    entry_sites: Vec<(BlockId, ValueId, Vec<GuardCheck>)>,
+    entry_sites: Vec<GuardSite>,
 ) -> Result<Vec<RegionPlan>, HashSet<ValueId>> {
     let dom = DominatorTree::compute(func);
     let loops = LoopAnalysis::compute(func, &dom);
@@ -114,9 +114,9 @@ pub(crate) fn plan_regions(
             evict.insert(s.result);
         }
     }
-    for (b, r, _) in &entry_sites {
-        if !plans.iter().any(|p| p.region.contains(b)) {
-            evict.insert(*r);
+    for s in &entry_sites {
+        if !plans.iter().any(|p| p.region.contains(&s.block)) {
+            evict.insert(s.result);
         }
     }
     if evict.is_empty() {
@@ -136,7 +136,7 @@ fn plan_one(
     body: Vec<BlockId>,
     header: BlockId,
     growth_sites: &[GuardSite],
-    entry_sites: &[(BlockId, ValueId, Vec<GuardCheck>)],
+    entry_sites: &[GuardSite],
     used: &HashSet<BlockId>,
 ) -> Option<RegionPlan> {
     let mut region: HashSet<BlockId> = body.iter().copied().collect();
@@ -202,30 +202,32 @@ fn plan_one(
         }
     }
 
-    let growth: Vec<GuardSite> = growth_sites
+    let mut growth: Vec<GuardSite> = growth_sites
         .iter()
         .filter(|s| region.contains(&s.block))
         .cloned()
         .collect();
 
-    // entry checks for hosted guarded sitofp defs; their operands
-    // must be defined outside the region (available at the entry
-    // edge), and a function-entry region has no edge to guard
+    // entry checks for hosted guarded sitofp defs. An operand defined
+    // outside the region is available at the entry edge — checked
+    // once there; one defined inside (the loop-body `sitofp` of an
+    // accumulator increment) re-classifies as a per-iteration growth
+    // site instead. A function-entry region has no edge to guard.
     let mut entry_guard: Vec<GuardCheck> = Vec::new();
-    for (b, _, checks) in entry_sites {
-        if !region.contains(b) {
+    for s in entry_sites {
+        if !region.contains(&s.block) {
             continue;
         }
-        for c in checks {
-            if let Operand::Value(cv) = c.operand {
-                let inside = value_blocks
-                    .get(&cv)
-                    .is_some_and(|(defs, _)| defs.iter().any(|d| region.contains(d)));
-                if inside {
-                    return None;
-                }
-            }
-            entry_guard.push(*c);
+        let inside = s.checks.iter().any(|c| match c.operand {
+            Operand::Value(cv) => value_blocks
+                .get(&cv)
+                .is_some_and(|(defs, _)| defs.iter().any(|d| region.contains(d))),
+            _ => false,
+        });
+        if inside {
+            growth.push(s.clone());
+        } else {
+            entry_guard.extend(s.checks.iter().copied());
         }
     }
     if !entry_guard.is_empty() && entry.0 == 0 {
@@ -240,4 +242,178 @@ fn plan_one(
         growth,
         entry_guard,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{FloatDemoteStats, demote_in_function};
+    use crate::interval;
+    use torajs_core::ssa::{
+        BinOp, Block, BlockId, Function, Inst, InstKind, Module, Operand, Terminator, Type,
+        ValueId, ValueInfo,
+    };
+
+    fn inst(result: u32, kind: InstKind) -> Inst {
+        Inst {
+            result: Some(ValueId(result)),
+            kind,
+            origin: None,
+        }
+    }
+
+    fn v(id: u32) -> Operand {
+        Operand::Value(ValueId(id))
+    }
+
+    fn func(ret: Type, values: Vec<Type>, blocks: Vec<Block>) -> Function {
+        Function {
+            name: "f".into(),
+            params: vec![],
+            ret,
+            blocks,
+            values: values
+                .into_iter()
+                .map(|ty| ValueInfo { ty, name: None })
+                .collect(),
+            current_origin: None,
+        }
+    }
+
+    fn block(id: u32, insts: Vec<Inst>, term: Terminator) -> Block {
+        Block {
+            id: BlockId(id),
+            insts,
+            term,
+        }
+    }
+
+    fn run(f: Function) -> (Module, FloatDemoteStats) {
+        let mut m = Module {
+            funcs: vec![f],
+            ..Default::default()
+        };
+        let facts = interval::analyze_module(&m);
+        let mut stats = FloatDemoteStats::default();
+        demote_in_function(&mut m.funcs[0], &facts[0], &mut stats);
+        (m, stats)
+    }
+
+    /// the accumulator loop `for (i…) sum += i` with the loop-body
+    /// sitofp and a double-variable fadd, no escaping use: the
+    /// in-region sitofp re-classifies as a per-iteration growth site
+    /// and the whole closure demotes (the chunk-A shape — escape
+    /// handling is the merge-bridge step on top of this).
+    fn accumulator_loop(op: BinOp) -> Function {
+        let mut f = func(
+            Type::Void,
+            vec![
+                Type::I64,  // %0 n param
+                Type::F64,  // %1 sum cell
+                Type::I64,  // %2 i cell
+                Type::Bool, // %3 icmp
+                Type::F64,  // %4 sitofp
+                Type::F64,  // %5 fadd
+                Type::I64,  // %6 i + 1
+            ],
+            vec![
+                block(
+                    0,
+                    vec![
+                        inst(1, InstKind::Copy(Type::F64, Operand::ConstF64(0.0))),
+                        inst(2, InstKind::Copy(Type::I64, Operand::ConstI64(0))),
+                    ],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(
+                    1,
+                    vec![inst(
+                        3,
+                        InstKind::ICmp(torajs_core::ssa::IPred::Slt, v(2), v(0)),
+                    )],
+                    Terminator::CondBr {
+                        cond: v(3),
+                        then_blk: BlockId(2),
+                        else_blk: BlockId(3),
+                    },
+                ),
+                block(
+                    2,
+                    vec![
+                        inst(4, InstKind::SiToFp(v(2))),
+                        inst(5, InstKind::BinOp(op, v(1), v(4))),
+                        inst(1, InstKind::Copy(Type::F64, v(5))),
+                        inst(6, InstKind::BinOp(BinOp::Add, v(2), Operand::ConstI64(1))),
+                        inst(2, InstKind::Copy(Type::I64, v(6))),
+                    ],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(3, vec![], Terminator::Ret(None)),
+            ],
+        );
+        f.params = vec![ValueId(0)];
+        f
+    }
+
+    #[test]
+    fn accumulator_loop_demotes_with_per_iter_guards() {
+        let (m, stats) = run(accumulator_loop(BinOp::FAdd));
+        // %1, %4, %5 demote; the in-region sitofp takes a per-iter
+        // guard (1 check, non-negative fact prunes the lower side) and
+        // the double-variable fadd guards both operands (2 checks).
+        assert_eq!(stats.values_demoted, 3);
+        assert_eq!(stats.loops_versioned, 1);
+        assert_eq!(stats.guards_inserted, 3);
+        assert_eq!(stats.entry_guards, 0);
+        assert_eq!(stats.bridges_inserted, 0);
+        let f = &m.funcs[0];
+        // fast path rewrote the sitofp to an i64 copy (the guard
+        // splits moved it into a continuation block)
+        let has_copy = f.blocks.iter().flat_map(|b| &b.insts).any(|i| {
+            matches!(
+                i.kind,
+                InstKind::Copy(Type::I64, Operand::Value(ValueId(2)))
+            )
+        });
+        assert!(has_copy, "sitofp must rewrite to an i64 copy");
+        assert_eq!(f.values[1].ty, Type::I64);
+        // the slow clone preserves an fadd over fresh ids
+        let fadd_count = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.insts)
+            .filter(|i| matches!(i.kind, InstKind::BinOp(BinOp::FAdd, _, _)))
+            .count();
+        assert_eq!(fadd_count, 1, "slow clone keeps the f64 fadd");
+    }
+
+    #[test]
+    fn double_variable_fmul_evicts() {
+        // prod *= i (seeded 1, so the interval cannot collapse it to
+        // the constant 0): the product has no operand window — the
+        // growth def cannot be guarded and the closure stays f64.
+        let mut f = accumulator_loop(BinOp::FMul);
+        f.blocks[0].insts[0].kind = InstKind::Copy(Type::F64, Operand::ConstF64(1.0));
+        let (m, stats) = run(f);
+        assert_eq!(stats.values_demoted, 0);
+        assert_eq!(stats.loops_versioned, 0);
+        assert!(matches!(
+            m.funcs[0].blocks[2].insts[1].kind,
+            InstKind::BinOp(BinOp::FMul, _, _)
+        ));
+        assert_eq!(m.funcs[0].values[1].ty, Type::F64);
+    }
+
+    #[test]
+    fn escaping_accumulator_still_evicts_without_bridge() {
+        // same loop but the sum cell is printed after the loop: the
+        // escaping use is not bridgeable until the merge-bridge step,
+        // so the guarded defs evict and everything stays f64.
+        let mut f = accumulator_loop(BinOp::FAdd);
+        f.ret = Type::F64;
+        f.blocks[3].term = Terminator::Ret(Some(v(1)));
+        let (m, stats) = run(f);
+        assert_eq!(stats.values_demoted, 0);
+        assert_eq!(stats.loops_versioned, 0);
+        assert_eq!(m.funcs[0].values[1].ty, Type::F64);
+    }
 }

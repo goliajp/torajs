@@ -63,7 +63,7 @@ use crate::rc_peephole::visit_value_operands;
 use crate::slot_forward::rewrite_operands;
 
 use fit::Fit;
-use guard::{GuardCheck, GuardSite};
+use guard::GuardSite;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct FloatDemoteStats {
@@ -246,15 +246,17 @@ fn compute_demote_set(
 }
 
 /// The non-exact (guarded) def sites of the final set, split into
-/// growth sites and sitofp entries.
-#[expect(clippy::type_complexity, reason = "internal plumbing tuple")]
+/// growth sites and sitofp entries. Entry sites carry their inst
+/// position too: one whose operand is defined inside the hosting
+/// region re-classifies as a per-iteration growth site during
+/// planning (the `sum += xs[j]` loop-body sitofp shape).
 fn collect_guard_sites(
     func: &Function,
     set: &HashSet<ValueId>,
     facts: &HashMap<ValueId, NumFact>,
-) -> (Vec<GuardSite>, Vec<(BlockId, ValueId, Vec<GuardCheck>)>) {
+) -> (Vec<GuardSite>, Vec<GuardSite>) {
     let mut growth: Vec<GuardSite> = Vec::new();
-    let mut entries: Vec<(BlockId, ValueId, Vec<GuardCheck>)> = Vec::new();
+    let mut entries: Vec<GuardSite> = Vec::new();
     for block in &func.blocks {
         for (i, inst) in block.insts.iter().enumerate() {
             let Some(r) = inst.result else { continue };
@@ -264,7 +266,12 @@ fn collect_guard_sites(
             match &inst.kind {
                 InstKind::SiToFp(x) => {
                     if let Some(checks) = guard::entry_checks(x, facts) {
-                        entries.push((block.id, r, checks));
+                        entries.push(GuardSite {
+                            block: block.id,
+                            inst_idx: i,
+                            result: r,
+                            checks,
+                        });
                     }
                 }
                 _ => {

@@ -42,11 +42,16 @@ pub(crate) struct GuardSite {
 }
 
 /// The checks a growth def needs, pruned by what the operand's fact
-/// already proves. `None` = the shape is not guardable (no constant
-/// operand, division-shaped, or the window math degenerates).
-/// `Some(vec![])` only arises when the fact already proves the window
+/// already proves. `None` = the shape is not guardable (division-
+/// shaped, double-variable multiply, or the window math degenerates).
+/// `Some(vec![])` only arises when the facts already prove the window
 /// — the def would have classified exact, so callers treat it as
 /// not-guardable to stay conservative.
+///
+/// A double-variable `fadd`/`fsub` (the accumulator shape `sum += f(i)`)
+/// guards each operand inside ±⌊(2^53-1)/2⌋: the result magnitude then
+/// stays ≤ 2^53-2, so the f64 op would have been exact and the i64 op
+/// cannot overflow.
 pub(crate) fn growth_checks(
     kind: &InstKind,
     facts: &HashMap<ValueId, NumFact>,
@@ -55,6 +60,20 @@ pub(crate) fn growth_checks(
         return None;
     };
     let (var, var_first, c) = match (a, b) {
+        (Operand::Value(av), Operand::Value(bv)) => {
+            if *op == BinOp::FMul {
+                return None; // product window needs a per-pair bound — not guardable
+            }
+            let half = MAX_EXACT / 2;
+            let (fa, fb) = (facts.get(av)?, facts.get(bv)?);
+            let mut checks = window_checks(*a, fa, -half, half);
+            checks.extend(window_checks(*b, fb, -half, half));
+            return if checks.is_empty() {
+                None
+            } else {
+                Some(checks)
+            };
+        }
         (Operand::Value(_), other) => (*a, true, op_const_int(other)?),
         (other, Operand::Value(_)) => (*b, false, op_const_int(other)?),
         _ => return None,
@@ -217,7 +236,9 @@ mod tests {
     }
 
     #[test]
-    fn double_variable_not_guardable() {
+    fn double_variable_add_guards_each_operand() {
+        // sum += f(i): both operands unbounded non-negative — each
+        // takes one upper check at ⌊(2^53-1)/2⌋, lower side pruned.
         let mut facts = HashMap::new();
         facts.insert(ValueId(1), unbounded_nonneg());
         facts.insert(ValueId(2), unbounded_nonneg());
@@ -226,7 +247,42 @@ mod tests {
             Operand::Value(ValueId(1)),
             Operand::Value(ValueId(2)),
         );
+        let checks = growth_checks(&kind, &facts).unwrap();
+        assert_eq!(checks.len(), 2);
+        let half = MAX_EXACT / 2;
+        for c in &checks {
+            assert!(matches!(c.pred, IPred::Sgt));
+            assert_eq!(c.bound, half);
+        }
+    }
+
+    #[test]
+    fn double_variable_mul_not_guardable() {
+        let mut facts = HashMap::new();
+        facts.insert(ValueId(1), unbounded_nonneg());
+        facts.insert(ValueId(2), unbounded_nonneg());
+        let kind = InstKind::BinOp(
+            BinOp::FMul,
+            Operand::Value(ValueId(1)),
+            Operand::Value(ValueId(2)),
+        );
         assert!(growth_checks(&kind, &facts).is_none());
+    }
+
+    #[test]
+    fn double_variable_sub_two_sided_when_unbounded() {
+        let mut facts = HashMap::new();
+        facts.insert(ValueId(1), NumFact::new(NEG_INF, POS_INF));
+        facts.insert(ValueId(2), unbounded_nonneg());
+        let kind = InstKind::BinOp(
+            BinOp::FSub,
+            Operand::Value(ValueId(1)),
+            Operand::Value(ValueId(2)),
+        );
+        // operand 1 unbounded both ways → 2 checks; operand 2
+        // non-negative → upper check only.
+        let checks = growth_checks(&kind, &facts).unwrap();
+        assert_eq!(checks.len(), 3);
     }
 
     #[test]
