@@ -60,6 +60,46 @@ pub(crate) fn widen_container_ty(
     }
 }
 
+/// Does `ty` reach `target` through Obj fields / Arr elems?
+/// Self-referential layouts (linked lists, cycle fixtures) must not
+/// be widened at all: re-interning the outer layout while the
+/// recursive field keeps the old sid would split one logical type
+/// into two disagreeing layouts (bit-punning on the inner hop), and
+/// closing the recursion needs graph interning. Cyclic types keep
+/// the parse-default widths — the pre-W4 behavior (recorded as a D3
+/// carve in rfc §5.4).
+fn ty_reaches(
+    ty: Type,
+    target: StructId,
+    arr_layouts: &[Type],
+    struct_layouts: &[Vec<(String, Type)>],
+    seen: &mut Vec<StructId>,
+) -> bool {
+    match ty {
+        Type::Obj(s) => {
+            if s == target {
+                return true;
+            }
+            if seen.contains(&s) {
+                return false;
+            }
+            seen.push(s);
+            struct_layouts[s.0 as usize]
+                .clone()
+                .iter()
+                .any(|(_, f)| ty_reaches(*f, target, arr_layouts, struct_layouts, seen))
+        }
+        Type::Arr(id) => ty_reaches(
+            arr_layouts[id.0 as usize],
+            target,
+            arr_layouts,
+            struct_layouts,
+            seen,
+        ),
+        _ => false,
+    }
+}
+
 /// Widen a struct type's I64 fields whose alias-class field points
 /// are f64-possible, re-interning the layout. Recurses into Arr /
 /// Obj fields through the Field-spelled keys (the table
@@ -74,6 +114,14 @@ pub(crate) fn widen_struct_fields(
     let Type::Obj(sid) = parsed else {
         return parsed;
     };
+    let mut seen = Vec::new();
+    if struct_layouts[sid.0 as usize]
+        .clone()
+        .iter()
+        .any(|(_, f)| ty_reaches(*f, sid, arr_layouts, struct_layouts, &mut seen))
+    {
+        return parsed;
+    }
     let layout = struct_layouts[sid.0 as usize].clone();
     let mut widened = layout.clone();
     let mut changed = false;
