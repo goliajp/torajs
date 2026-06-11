@@ -16,6 +16,7 @@ use torajs_core::ssa::{BlockId, Function, Operand, ValueId};
 
 use crate::dominator::DominatorTree;
 use crate::loop_analysis::LoopAnalysis;
+use crate::rc_peephole::visit_value_operands;
 
 use super::cfg::{
     collect_value_blocks, innermost_loop, multi_def_values, pred_map, successors, touched_values,
@@ -33,6 +34,11 @@ pub(crate) struct RegionPlan {
     /// Entry checks (`sitofp` operands not provably exact); checked
     /// once on the region entry edge.
     pub(super) entry_guard: Vec<GuardCheck>,
+    /// In-set cells read outside the region (the `console.log(sum)` /
+    /// `return sum` accumulator shape), sorted. Their external uses
+    /// read a fresh f64 cell written on every region exit edge — the
+    /// merge bridge — instead of evicting the component.
+    pub(super) escapes: Vec<ValueId>,
 }
 
 impl RegionPlan {
@@ -142,33 +148,57 @@ fn plan_one(
     let mut region: HashSet<BlockId> = body.iter().copied().collect();
 
     // grow the region until it hosts every touched in-set value's
-    // defs and uses (pre-chain absorption), or fail
+    // defs and uses (pre-chain absorption). A def block that cannot
+    // absorb fails the region; a use block that cannot absorb marks
+    // its value escaped instead — every external use of an escaped
+    // value reads the merge-bridge cell, so nothing else is absorbed
+    // for it.
+    let mut escapes: HashSet<ValueId> = HashSet::new();
     loop {
         let touched = touched_values(func, set, &region);
-        let mut missing: Vec<BlockId> = Vec::new();
+        let mut missing: Vec<(BlockId, ValueId, bool)> = Vec::new();
         for v in &touched {
             let (defs, uses) = value_blocks.get(v)?;
-            for b in defs.iter().chain(uses) {
-                if !region.contains(b) && !missing.contains(b) {
-                    missing.push(*b);
+            for b in defs {
+                if !region.contains(b) {
+                    missing.push((*b, *v, true));
+                }
+            }
+            if !escapes.contains(v) {
+                for b in uses {
+                    if !region.contains(b) {
+                        missing.push((*b, *v, false));
+                    }
                 }
             }
         }
         if missing.is_empty() {
             break;
         }
-        for b in missing {
+        for (b, v, is_def) in missing {
+            if region.contains(&b) {
+                continue; // absorbed earlier this round
+            }
             // a pre-chain block dominates the header and flows only
             // into the region
             if dom.dominates(b, header)
                 && successors(&func.blocks[b.0 as usize].term).all(|s| region.contains(&s))
             {
                 region.insert(b);
-            } else {
+            } else if is_def {
                 return None;
+            } else {
+                escapes.insert(v);
             }
         }
     }
+    // drop escape marks whose external uses were all absorbed after
+    // the mark (the block also held another value's def)
+    escapes.retain(|v| {
+        value_blocks
+            .get(v)
+            .is_some_and(|(_, uses)| uses.iter().any(|b| !region.contains(b)))
+    });
 
     if region.iter().any(|b| used.contains(b)) {
         return None;
@@ -190,15 +220,37 @@ fn plan_one(
 
     // renamed clone values must not escape: any value the clone will
     // rename (in-set or single-def intermediate defined inside) is
-    // used only inside
+    // used only inside — except an in-set value marked escaped, whose
+    // external uses read the merge-bridge cell on both versions
     let cells = multi_def_values(func);
     for (v, (defs, uses)) in value_blocks {
         if !defs.iter().any(|b| region.contains(b)) {
             continue;
         }
         let renamed = set.contains(v) || !cells.contains(v);
-        if renamed && uses.iter().any(|b| !region.contains(b)) {
+        if renamed && !escapes.contains(v) && uses.iter().any(|b| !region.contains(b)) {
             return None;
+        }
+    }
+
+    // an external use that is itself an in-set def (a cross-region
+    // demotion chain) cannot read the f64 bridge cell — bail out
+    for v in &escapes {
+        let (_, uses) = value_blocks.get(v)?;
+        for b in uses {
+            if region.contains(b) {
+                continue;
+            }
+            for inst in &func.blocks[b.0 as usize].insts {
+                if !inst.result.is_some_and(|r| set.contains(&r)) {
+                    continue;
+                }
+                let mut reads_v = false;
+                visit_value_operands(&inst.kind, |o| reads_v |= o == *v);
+                if reads_v {
+                    return None;
+                }
+            }
         }
     }
 
@@ -236,11 +288,14 @@ fn plan_one(
 
     let mut region: Vec<BlockId> = region.into_iter().collect();
     region.sort_by_key(|b| b.0);
+    let mut escapes: Vec<ValueId> = escapes.into_iter().collect();
+    escapes.sort_by_key(|v| v.0);
     Some(RegionPlan {
         region,
         entry,
         growth,
         entry_guard,
+        escapes,
     })
 }
 
@@ -404,16 +459,33 @@ mod tests {
     }
 
     #[test]
-    fn escaping_accumulator_still_evicts_without_bridge() {
-        // same loop but the sum cell is printed after the loop: the
-        // escaping use is not bridgeable until the merge-bridge step,
-        // so the guarded defs evict and everything stays f64.
+    fn escaping_accumulator_takes_merge_bridge() {
+        // same loop but the sum cell is returned after the loop: the
+        // escaping use takes a merge bridge — the ret reads a fresh
+        // f64 cell written on both exit edges and the closure still
+        // demotes (the `return sum` accumulator shape).
         let mut f = accumulator_loop(BinOp::FAdd);
         f.ret = Type::F64;
         f.blocks[3].term = Terminator::Ret(Some(v(1)));
         let (m, stats) = run(f);
-        assert_eq!(stats.values_demoted, 0);
-        assert_eq!(stats.loops_versioned, 0);
-        assert_eq!(m.funcs[0].values[1].ty, Type::F64);
+        assert_eq!(stats.values_demoted, 3);
+        assert_eq!(stats.loops_versioned, 1);
+        assert_eq!(stats.merge_cells, 1);
+        assert_eq!(stats.bridges_inserted, 0);
+        let f0 = &m.funcs[0];
+        assert_eq!(f0.values[1].ty, Type::I64);
+        let Terminator::Ret(Some(Operand::Value(w))) = f0.blocks[3].term else {
+            panic!("expected ret of the bridge cell");
+        };
+        assert_ne!(w, ValueId(1));
+        assert_eq!(f0.values[w.0 as usize].ty, Type::F64);
+        // both versions write the bridge cell at their exit
+        let writebacks = f0
+            .blocks
+            .iter()
+            .flat_map(|b| &b.insts)
+            .filter(|i| i.result == Some(w))
+            .count();
+        assert_eq!(writebacks, 2, "one fast + one slow exit writeback");
     }
 }

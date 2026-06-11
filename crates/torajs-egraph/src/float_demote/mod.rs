@@ -50,6 +50,7 @@ mod apply;
 mod cfg;
 mod fit;
 mod guard;
+mod merge;
 mod plan;
 
 use std::collections::{HashMap, HashSet};
@@ -79,6 +80,8 @@ pub struct FloatDemoteStats {
     pub guards_inserted: u32,
     /// entry-edge checks inserted (1b-ii).
     pub entry_guards: u32,
+    /// escaped accumulator cells bridged at region exits (item 13).
+    pub merge_cells: u32,
 }
 
 pub fn demote_floats(module: &mut Module, facts: &[HashMap<ValueId, NumFact>]) -> FloatDemoteStats {
@@ -101,6 +104,13 @@ fn demote_in_function(
     let Some((set, plans)) = compute_demote_set(func, facts) else {
         return;
     };
+    // mint merge-bridge cells and re-point external uses first —
+    // before cloning (only original blocks exist) and before mutation
+    // (the rewritten uses must not take per-use sitofp bridges)
+    let bridges: Vec<merge::MergeBridge> = plans
+        .iter()
+        .map(|p| merge::rewrite_escapes(func, p))
+        .collect();
     // clone the slow (f64) regions before any mutation
     let clones: Vec<apply::RegionClone> = plans
         .iter()
@@ -108,7 +118,9 @@ fn demote_in_function(
         .collect();
     let track: HashSet<(BlockId, usize)> = plans.iter().flat_map(|p| p.growth_keys()).collect();
     let fast_pos = mutate_function(func, &set, &track, stats);
-    for (plan, clone) in plans.iter().zip(&clones) {
+    for ((plan, clone), bridge) in plans.iter().zip(&clones).zip(&bridges) {
+        merge::install_exits(func, plan, clone, bridge);
+        stats.merge_cells += bridge.len() as u32;
         let (g, eg) = apply::install_guards(func, plan, clone, &set, &fast_pos);
         stats.guards_inserted += g;
         stats.entry_guards += eg;
@@ -541,12 +553,12 @@ mod tests {
     }
 
     #[test]
-    fn growth_loop_with_escaping_ret_stays_f64() {
+    fn growth_loop_with_escaping_ret_takes_merge_bridge() {
         // collatz odd arm with the SCC cell returned after the loop:
-        // the guarded fmul/fadd would need versioning, but the ret
-        // use escapes any hostable region, so the guarded defs evict
-        // and the whole chain collapses back to f64 (a 1b-ii
-        // feasibility eviction, not a 1b-i bound failure).
+        // the guarded fmul/fadd need versioning and the ret use
+        // escapes the region — the escape takes a merge bridge (item
+        // 13): the ret reads a fresh f64 cell written on both exit
+        // edges, and the closure demotes instead of evicting.
         let f = func(
             Type::F64,
             vec![
@@ -585,11 +597,30 @@ mod tests {
             ],
         );
         let (m, stats) = run(f);
-        assert_eq!(stats.values_demoted, 0);
-        assert!(matches!(
-            m.funcs[0].blocks[1].insts[0].kind,
-            InstKind::BinOp(BinOp::FMul, _, _)
-        ));
+        // %1, %2, %3, %4 demote; the n cell bridges at the exits
+        assert_eq!(stats.values_demoted, 4);
+        assert_eq!(stats.loops_versioned, 1);
+        assert_eq!(stats.merge_cells, 1);
+        let f0 = &m.funcs[0];
+        // the ret reads the bridge cell, not the demoted i64 cell
+        let Terminator::Ret(Some(Operand::Value(w))) = f0.blocks[2].term else {
+            panic!("expected ret of the bridge cell");
+        };
+        assert_ne!(w, ValueId(2));
+        assert_eq!(f0.values[w.0 as usize].ty, Type::F64);
+        assert_eq!(f0.values[2].ty, Type::I64);
+        // the fast exit writes it via sitofp(n), the slow exit copies
+        // the cloned f64 cell
+        let fast_wb = f0.blocks.iter().flat_map(|b| &b.insts).any(|i| {
+            i.result == Some(w) && matches!(i.kind, InstKind::SiToFp(Operand::Value(ValueId(2))))
+        });
+        let slow_wb = f0
+            .blocks
+            .iter()
+            .flat_map(|b| &b.insts)
+            .any(|i| i.result == Some(w) && matches!(i.kind, InstKind::Copy(Type::F64, _)));
+        assert!(fast_wb, "fast exit bridges through sitofp");
+        assert!(slow_wb, "slow exit copies the cloned cell");
     }
 
     #[test]

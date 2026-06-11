@@ -84,6 +84,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "../torajs-egraph/src/float_demote/plan.rs",
     "../torajs-egraph/src/float_demote/apply.rs",
     "../torajs-egraph/src/float_demote/cfg.rs",
+    "../torajs-egraph/src/float_demote/merge.rs",
     "../torajs-egraph/src/inliner/splice2_emit.rs",
     "../torajs-egraph/src/interval/mod.rs",
     "../torajs-egraph/src/interval/refine.rs",

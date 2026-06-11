@@ -33,8 +33,8 @@ use super::push_value;
 
 /// The f64 clone of a planned region, taken before mutation.
 pub(crate) struct RegionClone {
-    block_map: HashMap<BlockId, BlockId>,
-    value_map: HashMap<ValueId, ValueId>,
+    pub(super) block_map: HashMap<BlockId, BlockId>,
+    pub(super) value_map: HashMap<ValueId, ValueId>,
 }
 
 /// Clone the region blocks (appended, preserving the
