@@ -113,15 +113,28 @@ pub(crate) struct WidthTable {
     canon: HashSet<SlotKey>,
     uf: UnionFind,
     container_poison: bool,
+    /// D5 — cyclic plain-alias names (see `alias.rs`); the TypeDecl
+    /// fill site takes nominal widths for these, like classes.
+    cyclic_aliases: HashSet<String>,
 }
 
 impl WidthTable {
-    pub(super) fn new(canon: HashSet<SlotKey>, uf: UnionFind, container_poison: bool) -> Self {
+    pub(super) fn new(
+        canon: HashSet<SlotKey>,
+        uf: UnionFind,
+        container_poison: bool,
+        cyclic_aliases: HashSet<String>,
+    ) -> Self {
         WidthTable {
             canon,
             uf,
             container_poison,
+            cyclic_aliases,
         }
+    }
+
+    pub(crate) fn is_cyclic_alias(&self, name: &str) -> bool {
+        self.cyclic_aliases.contains(name)
     }
 
     pub(crate) fn slot_is_f64(&self, k: &SlotKey) -> bool {
@@ -405,6 +418,73 @@ mod tests {
         );
         assert!(t.elem_is_f64(&g("m")));
         assert!(t.elem_is_f64(&SlotKey::Ret("make".into())));
+    }
+
+    #[test]
+    fn d5_cyclic_alias_fract_write_poisons_nominal_field() {
+        let t = table(
+            "type Item = { v: number; next: Item | null };\nconst c: Item = { v: 1, next: null };\nc.v = 0.25;\nconsole.log(c.v);",
+        );
+        assert!(t.is_cyclic_alias("Item"));
+        assert!(t.field_is_f64(&SlotKey::Class("Item".into()), "v"));
+    }
+
+    #[test]
+    fn d5_cyclic_alias_deep_write_collapses_depth() {
+        // The Field(Field(slot, next), v) spelling must canonicalize
+        // onto the same nominal point as the shallow write.
+        let t = table(
+            "type Item = { v: number; next: Item | null };\nconst c: Item = { v: 1, next: null };\nc.next = { v: 2, next: null };\nc.next.v = 0.5;\nconsole.log(c.v);",
+        );
+        assert!(t.field_is_f64(&SlotKey::Class("Item".into()), "v"));
+    }
+
+    #[test]
+    fn d5_deep_write_without_intermediate_assign() {
+        // The Field(Field(slot, next), v) seed must collapse even when
+        // `next` was never assigned a tracked container value — the
+        // TypeDecl field-rule union alone closes the depth.
+        let t = table(
+            "type Item = { v: number; next: Item | null };\nconst c: Item = { v: 1, next: null };\nc.next.v = 0.5;\nconsole.log(c.v);",
+        );
+        assert!(t.field_is_f64(&SlotKey::Class("Item".into()), "v"));
+    }
+
+    #[test]
+    fn d5_cyclic_alias_int_writes_stay_narrow() {
+        let t = table(
+            "type Counter = { n: number; next: Counter | null };\nconst k: Counter = { n: 1, next: null };\nk.n = 7;\nconsole.log(k.n);",
+        );
+        assert!(t.is_cyclic_alias("Counter"));
+        assert!(!t.field_is_f64(&SlotKey::Class("Counter".into()), "n"));
+    }
+
+    #[test]
+    fn d5_param_ann_joins_nominal() {
+        let t = table(
+            "type Item = { v: number; next: Item | null };\nfunction bump(it: Item) { it.v = 0.5; }\nconst c: Item = { v: 1, next: null };\nbump(c);\nconsole.log(c.v);",
+        );
+        assert!(t.field_is_f64(&SlotKey::Class("Item".into()), "v"));
+    }
+
+    #[test]
+    fn d5_mutual_recursion_joins_each_alias() {
+        let t = table(
+            "type A = { x: number; b: B | null };\ntype B = { y: number; a: A | null };\nconst aa: A = { x: 1, b: null };\naa.x = 1.5;\nconsole.log(aa.x);",
+        );
+        assert!(t.is_cyclic_alias("A") && t.is_cyclic_alias("B"));
+        assert!(t.field_is_f64(&SlotKey::Class("A".into()), "x"));
+        assert!(!t.field_is_f64(&SlotKey::Class("B".into()), "y"));
+    }
+
+    #[test]
+    fn d5_acyclic_alias_keeps_slot_granularity() {
+        let t = table(
+            "type P = { x: number };\nconst o1: P = { x: 1 };\nconst o2: P = { x: 2 };\no1.x = 0.5;\no2.x = 3;\nconsole.log(o1.x);",
+        );
+        assert!(!t.is_cyclic_alias("P"));
+        assert!(t.field_is_f64(&g("o1"), "x"));
+        assert!(!t.field_is_f64(&g("o2"), "x"));
     }
 
     #[test]

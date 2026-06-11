@@ -25,6 +25,7 @@
 //! monomorphizer uses BEFORE this analysis can run (the mono pass
 //! creates the very FnDecls the fixpoint walks).
 
+mod alias;
 mod container;
 mod container_lookup;
 mod container_walk;
@@ -169,6 +170,12 @@ pub(super) struct Analysis<'a> {
     /// Class names post-desugar (`ast.class_parents` keys), sorted for
     /// deterministic union order.
     pub(super) classes: Vec<String>,
+    /// D5 — plain alias names on a cycle in the named-type reference
+    /// graph. Their field widths join at type granularity through
+    /// `SlotKey::Class` (annotation-driven hookups in `alias.rs`);
+    /// lowering's TypeDecl fill site queries the same set to take
+    /// nominal widths for them.
+    pub(super) cyclic_aliases: HashSet<String>,
     /// W4 — an element write through a receiver the analysis cannot
     /// resolve to a container class. Never expected to fire (assign
     /// receivers are idents / members / indexes / calls); if it does,
@@ -229,6 +236,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
 
     let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
     classes.sort();
+    let cyclic_aliases = alias::cyclic_alias_names(ast);
 
     let mut a = Analysis {
         ast,
@@ -244,6 +252,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
         guarded_unions: Vec::new(),
         containerish: HashSet::new(),
         classes,
+        cyclic_aliases,
         container_poison: false,
     };
 
@@ -286,6 +295,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
     // representative. The fixpoint runs per alias class; queries
     // canonicalize through the frozen union-find.
     container::nominal_unions(&mut a);
+    a.alias_nominal_unions();
     container::activate_guarded(&mut a);
     a.seeds.append(&mut a.c_seeds);
     for (d, ts) in std::mem::take(&mut a.c_edges) {
@@ -295,7 +305,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
     cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
     let canon_out = fixpoint(std::mem::take(&mut a.seeds), &a.edges);
 
-    WidthTable::new(canon_out, a.uf, a.container_poison)
+    WidthTable::new(canon_out, a.uf, a.container_poison, a.cyclic_aliases)
 }
 
 /// Poison flows forward along assignment edges until stable.

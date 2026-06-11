@@ -4599,13 +4599,13 @@ fn lower_inner(
             }
             let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
             // W4 — class field widths join over all instances through
-            // the nominal Class key; the class's single layout takes
-            // the alias-class width here. Plain `type` aliases widen
-            // per consuming slot at the ann sites instead.
-            let class_key = ast
-                .class_parents
-                .contains_key(name)
-                .then(|| crate::num_width::SlotKey::Class(name.clone()));
+            // the nominal Class key. D5 — cyclic plain aliases take
+            // the same nominal widths (their reserved sid closes the
+            // recursion right here; see num_width/alias.rs); acyclic
+            // aliases widen per consuming slot instead.
+            let class_key = (ast.class_parents.contains_key(name)
+                || num_f64_slots.is_cyclic_alias(name))
+            .then(|| crate::num_width::SlotKey::Class(name.clone()));
             for (fname, fty_ann) in fields {
                 let mut ty = parse_type(
                     Some(fty_ann.as_str()),

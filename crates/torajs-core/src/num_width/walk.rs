@@ -91,13 +91,23 @@ pub(super) fn collect_let_names(s: &Stmt, out: &mut HashSet<String>) {
 impl<'a> Analysis<'a> {
     pub(super) fn walk_stmt(&mut self, s: &Stmt, scope: &Scope) {
         match s {
-            Stmt::LetDecl { name, init, .. } => {
+            Stmt::LetDecl {
+                name,
+                type_ann,
+                init,
+                ..
+            } => {
                 let w = self.width_of(*init, scope);
                 let key = if scope.fn_name.is_empty() {
                     SlotKey::Global(name.clone())
                 } else {
                     SlotKey::Local(scope.fn_name.to_string(), name.clone())
                 };
+                // D5 — a binding annotated with a cyclic alias joins
+                // the alias's nominal field-width point.
+                if let Some(ann) = type_ann {
+                    self.alias_ann_union(&key, ann);
+                }
                 self.add_constraint(key.clone(), w);
                 self.alias_guarded(key, *init, scope);
                 self.walk_expr(*init, scope);
