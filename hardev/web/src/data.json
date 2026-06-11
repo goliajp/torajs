@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-11T03:34:33.377Z",
+  "generatedAt": "2026-06-11T07:18:10.485Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 71.31
   },
   "torajs": {
-    "commit": "5a346ad",
-    "commitSubject": "chore(bench): record a6e744a 3-run - item 13 merge-bridge verdict PASS",
+    "commit": "3bc74d7",
+    "commitSubject": "chore(bench): record 4a3822e 3-run - item 14 W3 verdict PASS",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,30 @@
   },
   "commits": [
     {
+      "hash": "3bc74d7",
+      "subject": "chore(bench): record 4a3822e 3-run - item 14 W3 verdict PASS"
+    },
+    {
+      "hash": "4a3822e",
+      "subject": "fix(core): mul minus-zero semantics - float non-positive constant cofactors"
+    },
+    {
+      "hash": "9b22c9e",
+      "subject": "perf(egraph): float-demote frem by variable divisor - nonzero certificate channel"
+    },
+    {
+      "hash": "bf1d9f0",
+      "subject": "perf(egraph): frem truncation recovery - narrow -0-insensitive mod shapes to srem"
+    },
+    {
+      "hash": "2158e05",
+      "subject": "fix(core): mod minus-zero semantics - force float path for variable dividend"
+    },
+    {
+      "hash": "0eec0f8",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 5a346ad (L3a item 13 merge-bridge close: 5-commit fire pipeline + profitability gate, gate 5x 746/0/4, bench PASS 0 unjustified, generic-pair -21.9%, item 14 W3 hotified)"
+    },
+    {
       "hash": "5a346ad",
       "subject": "chore(bench): record a6e744a 3-run - item 13 merge-bridge verdict PASS"
     },
@@ -638,51 +662,38 @@
     {
       "hash": "b1528b4",
       "subject": "feat(core): double-variable growth windows + per-iter sitofp guards - merge-bridge chunk A"
-    },
-    {
-      "hash": "a1e1e1b",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD ec4f197 (L3a item 12 W5 close: growth-cycle f64 seeding + 2 latent jit/aot fixes, gate 746/0/4, bench PASS 0 unjustified, item 13 merge-bridge hotified)"
-    },
-    {
-      "hash": "ec4f197",
-      "subject": "chore(bench): record 45ad495 3-run - ann-width W5 verdict"
-    },
-    {
-      "hash": "45ad495",
-      "subject": "fix(core): f64-width postincr op + objlit numeric layout coercion"
-    },
-    {
-      "hash": "52de261",
-      "subject": "feat(core): growth-cycle f64 seeding in num_width - ann-width W5"
-    },
-    {
-      "hash": "ea4ee55",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — HEAD cc9d27d (L3a item 10 1b-ii close: loop versioning + 53-bit guards, collatz -77.0% to bun-aot band, gate 745/0/4, 0 unjustified bench regression)"
-    },
-    {
-      "hash": "cc9d27d",
-      "subject": "chore(bench): record 83d485e 3-run - int-range 1b-ii verdict"
     }
   ],
-  "headSha": "5a346ad",
+  "headSha": "3bc74d7",
   "autorun": {
-    "total": 117,
+    "total": 118,
     "baselineTarget": 10,
-    "bySelf": 115,
+    "bySelf": 116,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781140856-12ce",
-      "at": "2026-06-11T01:20:56Z",
-      "ts": 1781140856,
+      "rotationId": "r-1781148982-22e0",
+      "at": "2026-06-11T03:36:22Z",
+      "ts": 1781148982,
       "trigger": "self",
-      "prevHead": "a1e1e1b",
-      "handoffSha": "sha256:f1fc72aac5041689a19c8ea726ae16d42fbe2728384671c86fed83a1ed52bbbc",
-      "handoffAgeSec": 6,
+      "prevHead": "0eec0f8",
+      "handoffSha": "sha256:fc46686e5bb7d3bb7737ca83aef9c77b3c1243820044ebd9992dc8dc499ed332",
+      "handoffAgeSec": 11,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781148982-22e0",
+        "at": "2026-06-11T03:36:22Z",
+        "ts": 1781148982,
+        "trigger": "self",
+        "prevHead": "0eec0f8",
+        "handoffSha": "sha256:fc46686e5bb7d3bb7737ca83aef9c77b3c1243820044ebd9992dc8dc499ed332",
+        "handoffAgeSec": 11,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781140856-12ce",
         "at": "2026-06-11T01:20:56Z",
@@ -779,17 +790,6 @@
         "prevHead": "c98aa8f",
         "handoffSha": "sha256:6aa90fcae348d1896dbee71be2edb75dc5bda1f0857ef68e1ea4fb1e960ac6f1",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781084022-7976",
-        "at": "2026-06-10T09:33:42Z",
-        "ts": 1781084022,
-        "trigger": "self",
-        "prevHead": "c158ba3",
-        "handoffSha": "sha256:9769d45615a6a9b2307d565db7c9195fc434bbd944c39419d9d4a2c14a266995",
-        "handoffAgeSec": 14,
         "conformanceBefore": null,
         "commitsInSession": null
       }
