@@ -40,9 +40,13 @@ pub(super) fn collect_let_names(s: &Stmt, out: &mut HashSet<String>) {
             }
             collect_let_names(body, out);
         }
-        Stmt::ForOf { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
-            collect_let_names(body, out)
+        // The for-of element binding is a per-iteration let — W4
+        // needs its key resolvable so elem-width deps land on it.
+        Stmt::ForOf { var_name, body, .. } => {
+            out.insert(var_name.clone());
+            collect_let_names(body, out);
         }
+        Stmt::ForOfSplitIter { body, .. } => collect_let_names(body, out),
         Stmt::Switch { cases, default, .. } => {
             for c in cases {
                 for cs in &c.body {
@@ -92,14 +96,17 @@ impl<'a> Analysis<'a> {
                 } else {
                     SlotKey::Local(scope.fn_name.to_string(), name.clone())
                 };
-                self.add_constraint(key, w);
+                self.add_constraint(key.clone(), w);
+                self.alias_guarded(key, *init, scope);
                 self.walk_expr(*init, scope);
             }
             Stmt::Return(maybe) => {
                 if let Some(e) = maybe {
                     if !scope.fn_name.is_empty() {
                         let w = self.width_of(*e, scope);
-                        self.add_constraint(SlotKey::Ret(scope.fn_name.to_string()), w);
+                        let rk = SlotKey::Ret(scope.fn_name.to_string());
+                        self.add_constraint(rk.clone(), w);
+                        self.alias_guarded(rk, *e, scope);
                     }
                     self.walk_expr(*e, scope);
                 }
@@ -139,8 +146,23 @@ impl<'a> Analysis<'a> {
                 self.walk_stmt(body, scope);
             }
             Stmt::ForOf {
-                elem_expr, body, ..
+                var_name,
+                elem_expr,
+                body,
+                ..
             } => {
+                // The element binding is fed by the indexed read the
+                // parser pre-built (`src[i]`) — scalar width dep via
+                // width_of (live once W4 wires the Index arm) plus a
+                // guarded alias for container elements.
+                let key = if scope.fn_name.is_empty() {
+                    SlotKey::Global(var_name.clone())
+                } else {
+                    SlotKey::Local(scope.fn_name.to_string(), var_name.clone())
+                };
+                let w = self.width_of(*elem_expr, scope);
+                self.add_constraint(key.clone(), w);
+                self.alias_guarded(key, *elem_expr, scope);
                 self.walk_expr(*elem_expr, scope);
                 self.walk_stmt(body, scope);
             }
@@ -220,8 +242,18 @@ impl<'a> Analysis<'a> {
         match &e {
             Expr::Assign { target, value } => {
                 if let Expr::Ident(n) = self.ast.get_expr(*target) {
+                    let n = n.clone();
                     let w = self.width_of(*value, scope);
-                    self.assign_to_name(&n.clone(), w, scope);
+                    self.assign_to_name(&n, w, scope);
+                    if let Some(k) = self.resolve(&n, scope) {
+                        self.alias_guarded(k, *value, scope);
+                    } else if scope.fn_name.starts_with("__") && self.by_name.contains_key(&n) {
+                        // Captured container reassigned from a lifted
+                        // closure — alias through the shared key.
+                        self.alias_guarded(SlotKey::Captured(n), *value, scope);
+                    }
+                } else {
+                    self.container_assign(*target, *value, scope);
                 }
                 self.walk_expr(*target, scope);
                 self.walk_expr(*value, scope);
@@ -239,10 +271,13 @@ impl<'a> Analysis<'a> {
                     for (i, arg) in args.iter().enumerate() {
                         if let Some(pname) = pnames.get(i) {
                             let w = self.width_of(*arg, scope);
-                            self.add_constraint(SlotKey::Param(fname.clone(), pname.clone()), w);
+                            let pk = SlotKey::Param(fname.clone(), pname.clone());
+                            self.add_constraint(pk.clone(), w);
+                            self.alias_guarded(pk, *arg, scope);
                         }
                     }
                 }
+                self.member_call_effects(*callee, args, scope);
                 self.walk_expr(*callee, scope);
                 for a in args {
                     self.walk_expr(*a, scope);

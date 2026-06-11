@@ -43,6 +43,8 @@ use std::path::PathBuf;
 const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower.rs",
     "src/ast_refs.rs",
+    "src/num_width/container.rs",
+    "src/num_width/container_walk.rs",
     "src/num_width/cycle.rs",
     "src/num_width/mod.rs",
     "src/num_width/mono.rs",

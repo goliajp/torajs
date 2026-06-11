@@ -25,11 +25,14 @@
 //! monomorphizer uses BEFORE this analysis can run (the mono pass
 //! creates the very FnDecls the fixpoint walks).
 
+mod container;
+mod container_walk;
 mod cycle;
 mod mono;
 mod walk;
 mod width;
 
+pub(crate) use container::WidthTable;
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 
 use crate::ast::{Ast, ExprId, Stmt};
@@ -49,6 +52,27 @@ pub(crate) enum SlotKey {
     Param(String, String),
     /// Fn return slot.
     Ret(String),
+    /// W4 — nominal aggregation point for a class: every instance of
+    /// `class C` shares one struct layout at lowering, so field-width
+    /// decisions join over all instances. `__new_C`'s ret and every
+    /// `__cm_C__*` method's `__this` param union into this key.
+    Class(String),
+    /// W4 — captured outer binding referenced from a lifted closure
+    /// body, where the defining scope is no longer recoverable. All
+    /// same-named slots union through this key (conservative merge —
+    /// width-only cost, mirrors the scalar by_name broadcast).
+    Captured(String),
+    /// W4 — anonymous container origin (array / object literal, or a
+    /// transform-method result), keyed by the originating ExprId.
+    Anon(u32),
+    /// W4 — element-width point of the container alias class whose
+    /// representative is the inner key. `number[]` elems narrow to I64
+    /// only when every write reaching any alias of the array is
+    /// provably integral.
+    Elem(Box<SlotKey>),
+    /// W4 — field-width point of a struct / class / inline-object
+    /// alias class: (container class representative, field name).
+    Field(Box<SlotKey>, String),
 }
 
 /// A slot dependency plus whether the value path from that slot to
@@ -121,12 +145,40 @@ pub(super) struct Analysis<'a> {
     pub(super) by_name: HashMap<String, Vec<SlotKey>>,
     pub(super) seeds: Vec<SlotKey>,
     pub(super) edges: HashMap<SlotKey, Vec<Dep>>,
+    /// W4 — container alias classes. Unconditional unions (element
+    /// writes, literal/method plumbing, nominal class hookups) land
+    /// here directly during the walk.
+    pub(super) uf: container::UnionFind,
+    /// W4 — guarded alias edges from plain value copies (`let ys =
+    /// xs`, call args, returns). Activated post-walk only when either
+    /// endpoint shows container evidence, so scalar copy chains
+    /// (`let v = xs[0]; v = v / 2`) don't glue the copy's width back
+    /// onto the source class.
+    pub(super) guarded_unions: Vec<(SlotKey, SlotKey)>,
+    /// W4 — slots with container evidence (write receivers, literal
+    /// origins, class keys); the activation worklist grows it.
+    pub(super) containerish: HashSet<SlotKey>,
+    /// Class names post-desugar (`ast.class_parents` keys), sorted for
+    /// deterministic union order.
+    pub(super) classes: Vec<String>,
+    /// W4 — an element write through a receiver the analysis cannot
+    /// resolve to a container class. Never expected to fire (assign
+    /// receivers are idents / members / indexes / calls); if it does,
+    /// every elem/field query answers F64 — conservative, loud in
+    /// STATS, never silent-wrong.
+    pub(super) container_poison: bool,
 }
 
 /// Compute the set of slots that must take the F64 representation.
 /// Call after monomorphization (the analyzed AST must be the one
 /// lowering walks) with the same retarget map lowering uses.
 pub(crate) fn f64_slots(ast: &Ast, retargets: &HashMap<ExprId, String>) -> HashSet<SlotKey> {
+    analyze(ast, retargets).into_f64_set()
+}
+
+/// Full analysis result — the scalar F64 slot set plus the container
+/// alias classes that answer elem/field width queries (W4).
+pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTable {
     let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
     let mut toplevel_lets: HashSet<String> = HashSet::new();
     let mut by_name: HashMap<String, Vec<SlotKey>> = HashMap::new();
@@ -161,6 +213,9 @@ pub(crate) fn f64_slots(ast: &Ast, retargets: &HashMap<ExprId, String>) -> HashS
         }
     }
 
+    let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
+    classes.sort();
+
     let mut a = Analysis {
         ast,
         retargets,
@@ -169,6 +224,11 @@ pub(crate) fn f64_slots(ast: &Ast, retargets: &HashMap<ExprId, String>) -> HashS
         by_name,
         seeds: Vec::new(),
         edges: HashMap::new(),
+        uf: container::UnionFind::default(),
+        guarded_unions: Vec::new(),
+        containerish: HashSet::new(),
+        classes,
+        container_poison: false,
     };
 
     // Top-level statements walk under the "" scope; fn bodies under
@@ -204,6 +264,13 @@ pub(crate) fn f64_slots(ast: &Ast, retargets: &HashMap<ExprId, String>) -> HashS
         }
     }
 
+    // W4 container pipeline: nominal class hookups, guarded-union
+    // activation, congruence closure, then rewrite of every seed /
+    // edge key onto its alias-class representative.
+    container::nominal_unions(&mut a);
+    container::activate_guarded(&mut a);
+    let raw_keys = container::canonicalize(&mut a);
+
     // W5: an assignment-graph cycle through a growth edge is an
     // unbounded self-feeding loop — integral yet not i64-safe. Seed
     // every slot on such a cycle before the poison fixpoint.
@@ -224,7 +291,18 @@ pub(crate) fn f64_slots(ast: &Ast, retargets: &HashMap<ExprId, String>) -> HashS
             }
         }
     }
-    out
+
+    // Re-expand onto raw (pre-canonicalization) spellings so pre-W4
+    // consumers querying uncanonicalized slot keys keep seeing every
+    // poisoned slot.
+    let expanded: Vec<SlotKey> = raw_keys
+        .iter()
+        .filter(|k| out.contains(&container::canon_key(&mut a.uf, k)))
+        .cloned()
+        .collect();
+    out.extend(expanded);
+
+    WidthTable::new(out, a.uf, a.container_poison)
 }
 
 #[cfg(test)]
