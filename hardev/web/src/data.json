@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-11T14:08:45.162Z",
+  "generatedAt": "2026-06-11T16:23:48.656Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 71.31
   },
   "torajs": {
-    "commit": "e207925",
-    "commitSubject": "chore(bench): record 6b2c3aa 3-run - item 16 w1 block-let verdict pass (32/32 artifact identical)",
+    "commit": "b4e3eee",
+    "commitSubject": "chore(bench): record d0f7abe 3-run - item 17 w4 d5 verdict pass (32/32 artifact identical, 0 delta)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,18 @@
   },
   "commits": [
     {
+      "hash": "b4e3eee",
+      "subject": "chore(bench): record d0f7abe 3-run - item 17 w4 d5 verdict pass (32/32 artifact identical, 0 delta)"
+    },
+    {
+      "hash": "d0f7abe",
+      "subject": "fix(core): cyclic type-alias struct fields widen at nominal granularity - w4 d5"
+    },
+    {
+      "hash": "7323865",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 6b2c3aa (items 15 w4 d4 + 16 w1 block-let closed, gate 751/0/4, bench pass x2, next item 17 cyclic alias field width)"
+    },
+    {
       "hash": "e207925",
       "subject": "chore(bench): record 6b2c3aa 3-run - item 16 w1 block-let verdict pass (32/32 artifact identical)"
     },
@@ -650,39 +662,38 @@
     {
       "hash": "7ef3f0e",
       "subject": "feat(core): container elem/field width analysis - w4 d1 alias-class union-find"
-    },
-    {
-      "hash": "f62ef6a",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 3bc74d7 (L3a item 14 W3 minus-zero close: 4-commit Mod/Mul float + recovery pipeline, gate 4x to 748/0/4, bench PASS 0 unjustified, gcd1m -2.8%, item 15 W4 hotified)"
-    },
-    {
-      "hash": "3bc74d7",
-      "subject": "chore(bench): record 4a3822e 3-run - item 14 W3 verdict PASS"
-    },
-    {
-      "hash": "4a3822e",
-      "subject": "fix(core): mul minus-zero semantics - float non-positive constant cofactors"
     }
   ],
-  "headSha": "e207925",
+  "headSha": "b4e3eee",
   "autorun": {
-    "total": 120,
+    "total": 121,
     "baselineTarget": 10,
-    "bySelf": 118,
+    "bySelf": 119,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781183096-757a",
-      "at": "2026-06-11T13:04:56Z",
-      "ts": 1781183096,
+      "rotationId": "r-1781187029-007c",
+      "at": "2026-06-11T14:10:29Z",
+      "ts": 1781187029,
       "trigger": "self",
-      "prevHead": "7731a6b",
-      "handoffSha": "sha256:9bf9bbe7ead4f9280f7875ecc4627cea6b25307d467ef9b63d8222f7382ed6f1",
+      "prevHead": "7323865",
+      "handoffSha": "sha256:5ca656d24922e5a2395c27f999eb1af01c0f28dbff562224f16171ec10524bd5",
       "handoffAgeSec": 9,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781187029-007c",
+        "at": "2026-06-11T14:10:29Z",
+        "ts": 1781187029,
+        "trigger": "self",
+        "prevHead": "7323865",
+        "handoffSha": "sha256:5ca656d24922e5a2395c27f999eb1af01c0f28dbff562224f16171ec10524bd5",
+        "handoffAgeSec": 9,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781183096-757a",
         "at": "2026-06-11T13:04:56Z",
@@ -779,17 +790,6 @@
         "prevHead": "6cbdac1",
         "handoffSha": "sha256:c2f5b67ff482d17e1e102957bc98bb68b8d83fb49000a1988965244650f0f3ac",
         "handoffAgeSec": 14,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781097694-1d6a",
-        "at": "2026-06-10T13:21:34Z",
-        "ts": 1781097694,
-        "trigger": "self",
-        "prevHead": "d44c870",
-        "handoffSha": "sha256:39af99b9d3662112337b33733ed59c1a0d1b6dc74b93f14b2262f8266fd9f785",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
