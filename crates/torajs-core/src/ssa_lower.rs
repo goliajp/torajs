@@ -13583,9 +13583,9 @@ impl<'a> LowerCtx<'a> {
                         // drop_entry hook walks the bucket on
                         // refcount==0.
                         if matches!(obj_ty, Type::Arr(_)) {
-                            let v_raw = self.lower_expr(*value);
+                            // lower_to_tag_value keeps `undefined` ANY_UNDEF (plain pair would collapse to null)
+                            let (tag, val_op) = self.lower_to_tag_value(*value);
                             self.consume_if_ident(*value);
-                            let (tag, val_op) = self.box_to_tag_value(v_raw);
                             let key_str = self.intern_string_literal(&field);
                             self.f.append_void(
                                 self.cur_block,

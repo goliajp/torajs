@@ -80,7 +80,7 @@ unsafe fn put_codepoint_utf8(cp: u32) {
 /// expands to 2-byte UTF-8; UTF-16 LE decodes with surrogate pair
 /// handling and re-encodes.
 #[inline]
-unsafe fn put_str_payload(payload: &[u8], is_latin1: bool) {
+pub(crate) unsafe fn put_str_payload(payload: &[u8], is_latin1: bool) {
     unsafe {
         if is_latin1 {
             for &b in payload {
@@ -128,14 +128,14 @@ unsafe extern "C" {
 // ============================================================
 
 #[inline]
-unsafe fn put_byte(b: u8) {
+pub(crate) unsafe fn put_byte(b: u8) {
     unsafe {
         __torajs_io_putc_stdout(b as i32);
     }
 }
 
 #[inline]
-unsafe fn put_bytes(s: &[u8]) {
+pub(crate) unsafe fn put_bytes(s: &[u8]) {
     for &b in s {
         unsafe { put_byte(b) };
     }
@@ -188,7 +188,7 @@ unsafe fn slot_addr(arr: *const u8, head: u32, i: u64) -> *const u8 {
 /// v0.7-A4 Step 15-d: format `v` via `__torajs_fmt_itoa`
 /// (0-libc) into a stack buffer + emit bytes via
 /// `__torajs_io_putc_stdout`. Replaces libc snprintf("%lld").
-unsafe fn put_snprintf_i64(v: i64) {
+pub(crate) unsafe fn put_snprintf_i64(v: i64) {
     let mut buf = [0u8; 64];
     let n = unsafe { __torajs_fmt_itoa(v, buf.as_mut_ptr(), 64) };
     if n > 0 {
@@ -201,7 +201,7 @@ unsafe fn put_snprintf_i64(v: i64) {
 /// (0-libc; shortest-roundtrip JS-spec shape). Replaces libc
 /// snprintf("%g") which truncated to 6 significant digits — the
 /// new path matches v8/JSC shortest-roundtrip exactly.
-unsafe fn put_snprintf_f64_g(v: f64) {
+pub(crate) unsafe fn put_snprintf_f64_g(v: f64) {
     let mut buf = [0u8; 64];
     let n = unsafe { __torajs_fmt_dtoa(v, buf.as_mut_ptr(), 64) };
     if n > 0 {
@@ -227,6 +227,7 @@ pub unsafe extern "C" fn __torajs_arr_print_i64(arr: *const c_void) {
             let v = *(slot_addr(arr, head, i) as *const i64);
             put_snprintf_i64(v);
         }
+        crate::print_props::put_arrprops(arr as *mut c_void);
         put_close_bracket();
     }
 }
@@ -253,6 +254,7 @@ pub unsafe extern "C" fn __torajs_arr_print_f64(arr: *const c_void) {
                 put_snprintf_f64_g(v);
             }
         }
+        crate::print_props::put_arrprops(arr as *mut c_void);
         put_close_bracket();
     }
 }
@@ -270,6 +272,7 @@ pub unsafe extern "C" fn __torajs_arr_print_bool(arr: *const c_void) {
             let v = *(slot_addr(arr, head, i) as *const i64);
             put_bytes(if v != 0 { b"true" } else { b"false" });
         }
+        crate::print_props::put_arrprops(arr as *mut c_void);
         put_close_bracket();
     }
 }
@@ -310,6 +313,7 @@ pub unsafe extern "C" fn __torajs_arr_print_str(arr: *const c_void) {
             }
             put_byte(b'"');
         }
+        crate::print_props::put_arrprops(arr as *mut c_void);
         put_close_bracket();
     }
 }
@@ -353,6 +357,7 @@ pub unsafe extern "C" fn __torajs_arr_print_substr(arr: *const c_void) {
             }
             put_byte(b'"');
         }
+        crate::print_props::put_arrprops(arr as *mut c_void);
         put_close_bracket();
     }
 }

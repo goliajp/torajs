@@ -100,6 +100,18 @@ unsafe fn find(arr_ptr: *mut c_void) -> *mut Node {
     core::ptr::null_mut()
 }
 
+/// Side-table lookup → the array's props dynobj, or NULL when the
+/// array never had a property written. Used by the print family to
+/// emit the `[ 1, 2, x: 5 ]` props face.
+pub(crate) unsafe fn dynobj_of(arr_ptr: *mut c_void) -> *mut c_void {
+    let n = unsafe { find(arr_ptr) };
+    if n.is_null() {
+        core::ptr::null_mut()
+    } else {
+        unsafe { (*n).dynobj }
+    }
+}
+
 /// Find or insert a node for `arr_ptr`. Newly inserted node has
 /// `dynobj = NULL`; caller (`set`) allocates the dynobj lazily.
 unsafe fn intern(arr_ptr: *mut c_void) -> *mut Node {
