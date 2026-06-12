@@ -30,10 +30,6 @@
 // testTypedArray.js (2,064) — TypedArray family is unimplemented
 //   (loud reject in check.rs).
 // isConstructor.js (637) — needs Reflect.construct; no Reflect.
-// regExpUtils.js (586) — helpers take a RegExp as a function
-//   parameter; the type-annotation surface has no name that resolves
-//   to Type::RegExp (`RegExp`/`regex` both reject), and method calls
-//   through `any` are "not callable". Shallow substrate gap.
 // asyncHelpers.js (357) — asyncTest/$DONE async-completion protocol
 //   plus dynamic .then callbacks; the runner has no async-case
 //   protocol yet.
@@ -232,6 +228,109 @@ const end_of_time: number = 8.64e15;
 // the correct, attributable signal (substrate gap), not a harness gap.
 
 const $MAX_ITERATIONS: number = 100000;
+
+// ─── regExpUtils.js port (2026-06-13) ───
+//
+// Unblocked by the `RegExp` type-annotation surface (ee989df). All
+// helpers are same-name top-level definitions — no rewrite entries.
+// buildString drops the original's String.fromCodePoint.apply +
+// CHUNK_SIZE batching for a per-code-point append (the chunking is a
+// perf workaround for engine argument limits, not semantics).
+// testPropertyOfStrings declares nonMatchStrings as required — the
+// few generated cases that omit it (rgi-emoji property-of-strings)
+// land in the type-error bucket, attributably.
+
+type __T262BuildStringArgs = { loneCodePoints: number[]; ranges: number[][] };
+
+function buildString(args: __T262BuildStringArgs): string {
+  let result: string = "";
+  const lone: number[] = args.loneCodePoints;
+  for (let i = 0; i < lone.length; i++) {
+    result += String.fromCodePoint(lone[i]);
+  }
+  const ranges: number[][] = args.ranges;
+  for (let i = 0; i < ranges.length; i++) {
+    for (let cp = ranges[i][0]; cp <= ranges[i][1]; cp++) {
+      result += String.fromCodePoint(cp);
+    }
+  }
+  return result;
+}
+
+function printCodePoint(codePoint: number): string {
+  return "U+" + codePoint.toString(16).toUpperCase().padStart(6, "0");
+}
+
+function printStringCodePoints(str: string): string {
+  const buf: string[] = [];
+  for (const symbol of str) {
+    buf.push(printCodePoint(symbol.codePointAt(0)));
+  }
+  return buf.join(" ");
+}
+
+function testPropertyEscapes(regExp: RegExp, str: string, expression: string): void {
+  if (!regExp.test(str)) {
+    for (const symbol of str) {
+      __t262_assert(
+        regExp.test(symbol),
+        "`" + expression + "` should match " + printCodePoint(symbol.codePointAt(0)) +
+          " (`" + symbol + "`)"
+      );
+    }
+  }
+}
+
+type __T262PropOfStringsArgs = {
+  regExp: RegExp;
+  expression: string;
+  matchStrings: string[];
+  nonMatchStrings: string[];
+};
+
+function testPropertyOfStrings(args: __T262PropOfStringsArgs): void {
+  const regExp: RegExp = args.regExp;
+  const expression: string = args.expression;
+  const matchStrings: string[] = args.matchStrings;
+  if (!regExp.test(matchStrings.join(""))) {
+    for (const str of matchStrings) {
+      __t262_assert(
+        regExp.test(str),
+        "`" + expression + "` should match " + str + " (" + printStringCodePoints(str) + ")"
+      );
+    }
+  }
+  const nonMatchStrings: string[] = args.nonMatchStrings;
+  if (regExp.test(nonMatchStrings.join(""))) {
+    for (const str of nonMatchStrings) {
+      __t262_assert(
+        !regExp.test(str),
+        "`" + expression + "` should not match " + str + " (" + printStringCodePoints(str) + ")"
+      );
+    }
+  }
+}
+
+// alias in the test262 source; a thin wrapper here
+function testExtendedCharacterClass(args: __T262PropOfStringsArgs): void {
+  testPropertyOfStrings(args);
+}
+
+function matchValidator(
+  expectedEntries: string[],
+  expectedIndex: number,
+  expectedInput: string
+): (match: string[]) => void {
+  return function (match: string[]): void {
+    __t262_compareArray_assert(match, expectedEntries, "Match entries");
+    if (match.index !== expectedIndex) {
+      throw new Test262Error("Match index");
+    }
+    if (match.input !== expectedInput) {
+      throw new Test262Error("Match input");
+    }
+  };
+}
 
 // ─── promiseHelper.js port (2026-06-13) ───
 //
