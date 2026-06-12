@@ -17,23 +17,40 @@ impl crate::ssa_lower::LowerCtx<'_> {
     /// ②.6b — is the promise value point of `obj`'s expr f64? Mirrors
     /// the analysis-side container_key_lookup shallow shapes: an Ident
     /// queries its slot keys (Local/Global and, in a named fn, the
-    /// Param spelling — only the one the analysis populated answers),
-    /// anything else its Anon origin. The `value` projection matches
-    /// the parser's `await p` → `p.value` desugar spelling.
+    /// Param spelling — only the one the analysis populated answers);
+    /// a direct call of a known fn queries the fn's Ret key (the
+    /// analysis keys `await presolved(x)` through `Ret(presolved)`,
+    /// NOT an Anon — the original Anon spelling read narrow and the
+    /// let-store sitofp'd raw f64 bits); anything else its Anon
+    /// origin. The `value` projection matches the parser's
+    /// `await p` → `p.value` desugar spelling.
     pub(crate) fn promise_value_is_f64(&self, obj: ExprId) -> bool {
+        use crate::num_width::SlotKey;
         match self.ast.get_expr(obj) {
             Expr::Ident(n) => {
                 self.num_f64_slots
                     .field_is_f64(&self.num_width_local_key(n), "value")
                     || (!self.is_main_fn
-                        && self.num_f64_slots.field_is_f64(
-                            &crate::num_width::SlotKey::Param(self.f.name.clone(), n.clone()),
-                            "value",
-                        ))
+                        && self
+                            .num_f64_slots
+                            .field_is_f64(&SlotKey::Param(self.f.name.clone(), n.clone()), "value"))
+            }
+            Expr::Call { callee, .. } => {
+                let fname = self.call_retargets.get(&obj).cloned().or_else(|| {
+                    match self.ast.get_expr(*callee) {
+                        Expr::Ident(n) if self.fn_table.contains_key(n) => Some(n.clone()),
+                        _ => None,
+                    }
+                });
+                let key = match fname {
+                    Some(f) => SlotKey::Ret(f),
+                    None => SlotKey::Anon(obj.0),
+                };
+                self.num_f64_slots.field_is_f64(&key, "value")
             }
             _ => self
                 .num_f64_slots
-                .field_is_f64(&crate::num_width::SlotKey::Anon(obj.0), "value"),
+                .field_is_f64(&SlotKey::Anon(obj.0), "value"),
         }
     }
 

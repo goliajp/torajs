@@ -96,7 +96,7 @@ pub(crate) const CLOSURE_CAP_BASE_OFF: u64 = 32;
 /// concrete type args; this map remembers the **specialized fn name** the
 /// monomorphization pre-pass picked for that call site, so the lowerer's
 /// `Expr::Call` arm rewrites the callee to point at the specialized fn.
-type CallRetargets = HashMap<ExprId, String>;
+pub(crate) type CallRetargets = HashMap<ExprId, String>;
 
 /// V3-18 m2.b — per-namespace known-own-property table for the
 /// hasOwnProperty / propertyIsEnumerable subset stub. Only literal-
@@ -7472,7 +7472,7 @@ pub(crate) struct LowerCtx<'a> {
     /// `(generic_name, type_args)`; at each generic call site, the
     /// `Expr::Call` arm rewrites the callee Ident to the mono name from
     /// this map before falling through to the regular call lowering.
-    call_retargets: &'a CallRetargets,
+    pub(crate) call_retargets: &'a CallRetargets,
     /// M2 — env-write-back map for captured-array mutability. When a
     /// closure captures a `Type::Arr` binding and pushes into it, the
     /// element buffer may realloc; the local cap_slot stores the new
