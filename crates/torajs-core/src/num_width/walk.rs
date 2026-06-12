@@ -309,7 +309,7 @@ impl<'a> Analysis<'a> {
                         self.fn_value_flow(&pk, *arg, scope);
                     }
                 }
-                self.member_call_effects(*callee, args, scope);
+                self.member_call_effects(eid, *callee, args, scope);
                 self.walk_expr(*callee, scope);
                 for a in args {
                     self.walk_expr(*a, scope);

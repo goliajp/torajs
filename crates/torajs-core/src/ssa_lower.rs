@@ -88,8 +88,8 @@ pub(crate) const ARR_DATA_OFF: u64 = 24;
 /// site via `emit_obj_header_init` adapted for type_tag=CLOSURE.
 pub const CLOSURE_FN_ADDR_OFF: u64 = 8;
 pub const CLOSURE_DROP_FN_OFF: u64 = 16;
-const CLOSURE_PROPS_OFF: u64 = 24;
-const CLOSURE_CAP_BASE_OFF: u64 = 32;
+pub(crate) const CLOSURE_PROPS_OFF: u64 = 24;
+pub(crate) const CLOSURE_CAP_BASE_OFF: u64 = 32;
 
 /// M3 — generic call-site retargeting. For each `Expr::Call` whose ExprId
 /// is a generic call site, the typechecker has already inferred the
@@ -4894,6 +4894,21 @@ fn lower_inner(
         (fid, sig)
     };
 
+    // ②.6b — promise callback ABI thunks (bits-adapters for f64-faced
+    // `.then` / `.catch` handlers). Synthesized here because the fn
+    // list freezes at the signatures snapshot below; modules without
+    // a promise chain synthesize nothing.
+    let promise_thunks = crate::ssa_lower_promise_thunk::synthesize_promise_thunks(
+        ast,
+        &num_f64_slots,
+        &mut module,
+        &mut fn_table,
+        &mut fn_sigs,
+        &mut fn_sig_ids,
+        obj_drop_sized_id,
+        value_drop_heap_id,
+    );
+
     // Snapshot every callable's return type — used inside lower_fn to type
     // call-site results correctly.
     let signatures: HashMap<FuncId, Type> = module
@@ -5354,6 +5369,7 @@ fn lower_inner(
                 expr_types,
                 arity_pad_count,
                 &num_f64_slots,
+                &promise_thunks,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -5391,6 +5407,7 @@ fn lower_inner(
             expr_types,
             arity_pad_count,
             &num_f64_slots,
+            &promise_thunks,
         );
         for s in new_strings {
             module.strings.push(s);
@@ -5438,6 +5455,7 @@ fn lower_inner(
                 expr_types,
                 arity_pad_count,
                 &num_f64_slots,
+                &promise_thunks,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -6183,6 +6201,7 @@ fn synthesize_main(
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
     num_f64_slots: &crate::num_width::WidthTable,
+    promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
@@ -6199,6 +6218,7 @@ fn synthesize_main(
             expr_types,
             arity_pad_count,
             num_f64_slots,
+            promise_thunks,
             arr_layouts,
             fn_sigs,
             struct_layouts,
@@ -6913,6 +6933,7 @@ fn lower_fn(
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
     num_f64_slots: &crate::num_width::WidthTable,
+    promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
     let mut ret_ty = effective_ret_ty(
         parse_type(
@@ -7004,6 +7025,7 @@ fn lower_fn(
         expr_types,
         arity_pad_count,
         num_f64_slots,
+        promise_thunks,
         arr_layouts,
         fn_sigs,
         struct_layouts,
@@ -7293,7 +7315,7 @@ pub(crate) struct LowerCtx<'a> {
     /// FuncId → return type, populated in pass 1 of `lower`. Lets call-site
     /// lowering pick the right SSA result type even when the callee hasn't
     /// been body-lowered yet (forward refs, mutual recursion, bool returns).
-    signatures: &'a HashMap<FuncId, Type>,
+    pub(crate) signatures: &'a HashMap<FuncId, Type>,
     /// FuncId → SigId for every user FnDecl, populated in pass 1. Used by
     /// `let f = global_fn` to allocate the right FnSig slot type and by
     /// `FnAddr(fid)` to type its result. M2 Phase B Stage 4.
@@ -7325,7 +7347,10 @@ pub(crate) struct LowerCtx<'a> {
     /// from `num_width::f64_slots`. Consulted at the let-decl site so
     /// a `: number` (or un-annotated) binding whose reaching values
     /// include a statically-possible f64 takes the F64 slot.
-    num_f64_slots: &'a crate::num_width::WidthTable,
+    pub(crate) num_f64_slots: &'a crate::num_width::WidthTable,
+    /// ②.6b — synthesized promise-callback ABI thunks (bits-adapters
+    /// the `.then` / `.catch` lowering wraps f64-faced handlers in).
+    pub(crate) promise_thunks: &'a crate::ssa_lower_promise_thunk::PromiseThunks,
     /// Mutable view of the lowering-phase Array element-type interner.
     /// Let-decl annotations encountered during body lowering may
     /// introduce new `T[]` instantiations; they intern lazily here.
@@ -7334,7 +7359,7 @@ pub(crate) struct LowerCtx<'a> {
     /// Mutable view of the lowering-phase fn-pointer signature interner.
     /// `__fn(P1|P2)->R` annotations intern lazily; written into
     /// `module.signatures` at the end of `lower()`. M2 Phase B Stage 2.
-    fn_sigs: &'a mut Vec<(Vec<Type>, Type)>,
+    pub(crate) fn_sigs: &'a mut Vec<(Vec<Type>, Type)>,
     /// Mutable view of the struct-layouts interner. M3.4 lets parse_type
     /// instantiate a generic-struct annotation (`Pair<number|string>`)
     /// during body lowering and intern the resulting concrete layout
@@ -7566,7 +7591,7 @@ impl<'a> LowerCtx<'a> {
     /// W1 — the num_width SlotKey for a let binding in the current fn.
     /// Top-level bindings key as Global regardless of whether Pass 1.5
     /// promoted them (the analysis keys every top-level let that way).
-    fn num_width_local_key(&self, name: &str) -> crate::num_width::SlotKey {
+    pub(crate) fn num_width_local_key(&self, name: &str) -> crate::num_width::SlotKey {
         if self.is_main_fn {
             crate::num_width::SlotKey::Global(name.to_string())
         } else {
@@ -17110,202 +17135,12 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
-                /* T-15.g.3 (v0.5.0) — `p.then(cb)` for built-in Promise.
-                 * MVP: cb is `(v: number) => number`. Lowers to a
-                 * runtime helper that:
-                 *   1. allocates a fresh result Promise (pending)
-                 *   2. heap-allocates a {source, cb, result} struct
-                 *   3. attaches the dispatcher to source's callbacks
-                 *   4. returns result Promise
-                 * The dispatcher reads source's resolved value via
-                 * __torajs_promise_get_value, calls cb, resolves
-                 * result. T-15.g.4 generalizes to non-i64 types and
-                 * Type::Closure (env-carrying) cb. */
-                if let Expr::Member {
-                    obj: src_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && (m_name == "then" || m_name == "catch" || m_name == "finally")
-                    && (args.len() == 1 || (m_name == "then" && args.len() == 2))
-                {
-                    // Static-type check (no eager lower) — same pattern
-                    // as the await Member dispatch. Only fire when src
-                    // is provably built-in Promise so user-class .then
-                    // keeps working through the regular Member-call path.
-                    let src_is_builtin_promise = match self.ast.get_expr(*src_id) {
-                        Expr::Ident(n) => self
-                            .locals
-                            .get(n)
-                            .map(|info| matches!(info.ty, Type::Promise))
-                            .unwrap_or(false),
-                        Expr::Call {
-                            callee: src_callee, ..
-                        } => {
-                            // Built-in Promise namespace statics. resolve/reject (T-15.g.5)
-                            // were the original entries; P10.2-A2 extends to all/race/any/
-                            // allSettled (T-17.a/b/c) so chained `.then`/`.catch`/`.finally`
-                            // on their results lowers through the runtime helpers instead
-                            // of the user-class fallback. check.rs already returns
-                            // Type::Promise for each, so all that's missing here is the
-                            // source-callee shape recognition.
-                            let static_ctor = matches!(
-                                self.ast.get_expr(*src_callee),
-                                Expr::Member { obj: ns_id, name: src_m }
-                                    if matches!(
-                                        src_m.as_str(),
-                                        "resolve" | "reject" | "all" | "race" | "any" | "allSettled"
-                                    ) && matches!(
-                                            self.ast.get_expr(*ns_id),
-                                            Expr::Ident(ns) if ns == "Promise"
-                                        )
-                            );
-                            // Chained `.then(...)` — its result is itself a
-                            // built-in Promise. Walks the callee shape but
-                            // does NOT require obj==Ident("Promise").
-                            let then_chain = matches!(
-                                self.ast.get_expr(*src_callee),
-                                Expr::Member { name: src_m, .. }
-                                    if src_m == "then" || src_m == "catch" || src_m == "finally"
-                            );
-                            // User fn whose declared return type is
-                            // Type::Promise (async desugar / Promise<T>
-                            // return annotation).
-                            let fn_returns_promise =
-                                if let Expr::Ident(fn_name) = self.ast.get_expr(*src_callee) {
-                                    self.fn_table
-                                        .get(fn_name)
-                                        .copied()
-                                        .and_then(|fid| self.signatures.get(&fid).copied())
-                                        .map(|ty| matches!(ty, Type::Promise))
-                                        .unwrap_or(false)
-                                } else {
-                                    false
-                                };
-                            // T-19.g — fs/promises async returns +
-                            // Bun.file(...).text/.exists also produce
-                            // built-in Promise. Mirrors the
-                            // `await p.value` site's source detection
-                            // so `Bun.file(p).text().then(cb)` lowers
-                            // through the runtime helper instead of
-                            // bouncing off the user-class fallback.
-                            let fs_async = matches!(
-                                self.ast.get_expr(*src_callee),
-                                Expr::Member { obj: ns_id, name: m_name }
-                                    if matches!(
-                                        m_name.as_str(),
-                                        "readFile" | "writeFile" | "appendFile"
-                                            | "unlink" | "mkdir" | "exists" | "readdir"
-                                    ) && matches!(
-                                        self.ast.get_expr(*ns_id),
-                                        Expr::Ident(ns) if ns == "fs_promises"
-                                    )
-                            );
-                            let bun_file_text = matches!(
-                                self.ast.get_expr(*src_callee),
-                                Expr::Member { obj: file_id, name: m_name }
-                                    if (m_name == "text" || m_name == "exists")
-                                        && matches!(
-                                            self.ast.get_expr(*file_id),
-                                            Expr::Call { callee: f_callee, .. }
-                                                if matches!(
-                                                    self.ast.get_expr(*f_callee),
-                                                    Expr::Member { obj: ns_id, name: fm }
-                                                        if fm == "file"
-                                                            && matches!(
-                                                                self.ast.get_expr(*ns_id),
-                                                                Expr::Ident(ns) if ns == "Bun"
-                                                            )
-                                                )
-                                        )
-                            );
-                            static_ctor
-                                || then_chain
-                                || fn_returns_promise
-                                || fs_async
-                                || bun_file_text
-                        }
-                        _ => false,
-                    };
-                    if src_is_builtin_promise {
-                        let src_op = self.lower_expr(*src_id);
-                        // T-19.l — 2-arg `.then(onOk, onErr)` form is
-                        // spec equivalent of `.then(onOk).catch(onErr)`.
-                        // Lower as a chained pair of helper calls; the
-                        // intermediate Promise is the bridge between
-                        // the two stages and gets dropped after the
-                        // catch attaches. Only fires for `.then` —
-                        // `.catch` / `.finally` are 1-arg only.
-                        let v = if m_name == "then" && args.len() == 2 {
-                            let on_ok = self.lower_expr(args[0]);
-                            let on_err = self.lower_expr(args[1]);
-                            let on_ok_ty = self.operand_ty(&on_ok);
-                            let then_fid = if matches!(on_ok_ty, Type::Closure(_)) {
-                                self.intrinsics.promise_then_closure
-                            } else {
-                                self.intrinsics.promise_then_simple
-                            };
-                            let mid = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(then_fid, vec![src_op.clone(), on_ok]),
-                                Type::Promise,
-                                None,
-                            );
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.promise_catch_simple,
-                                    vec![Operand::Value(mid), on_err],
-                                ),
-                                Type::Promise,
-                                None,
-                            );
-                            // The `mid` Promise is consumed by .catch
-                            // (which inc's its source's rc); drop the
-                            // chain's natural ref so the count balances.
-                            self.emit_drop_value(Operand::Value(mid), Type::Promise);
-                            v
-                        } else {
-                            let cb_op = self.lower_expr(args[0]);
-                            // T-15.g.5 / T-19.k / T-19.n — pick the
-                            // right runtime helper. All three method
-                            // names support both simple-fn and closure
-                            // cb shapes — selection by cb's static type
-                            // (Type::Closure → env-pointer dispatcher,
-                            // else → raw fn-pointer dispatcher).
-                            let cb_ty = self.operand_ty(&cb_op);
-                            let is_closure = matches!(cb_ty, Type::Closure(_));
-                            let then_intrinsic = match (m_name.as_str(), is_closure) {
-                                ("then", true) => self.intrinsics.promise_then_closure,
-                                ("then", false) => self.intrinsics.promise_then_simple,
-                                ("catch", true) => self.intrinsics.promise_catch_closure,
-                                ("catch", false) => self.intrinsics.promise_catch_simple,
-                                ("finally", true) => self.intrinsics.promise_finally_closure,
-                                ("finally", false) => self.intrinsics.promise_finally,
-                                _ => unreachable!(),
-                            };
-                            self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(then_intrinsic, vec![src_op.clone(), cb_op]),
-                                Type::Promise,
-                                None,
-                            )
-                        };
-                        // T-15.g.7 — drop fresh source after .then.
-                        // Now that promise_drop is rc-aware AND
-                        // then_simple inc's source on attach, this
-                        // drop just balances the natural ref of the
-                        // intermediate `.then` result. Skip on
-                        // borrow-source (Ident / Member / Index —
-                        // owner still holds the ref).
-                        let src_is_borrow = matches!(
-                            self.ast.get_expr(*src_id),
-                            Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-                        );
-                        if !src_is_borrow {
-                            self.emit_drop_value(src_op, Type::Promise);
-                        }
-                        return Operand::Value(v);
-                    }
+                // T-15.g.3 / T-19.k / T-19.l / T-19.n / ②.6b — built-in
+                // Promise `.then` / `.catch` / `.finally` chain lowering
+                // (extracted to `ssa_lower_promise_thunk.rs`, file-size
+                // known-debt). Falls through for user-class receivers.
+                if let Some(v) = self.try_lower_promise_chain_call(*callee, args) {
+                    return v;
                 }
                 /* T-19 (v0.5.0) — `Bun.file(path)` is a no-op
                  * passthrough at SSA: the BunFile handle is just the
@@ -17702,10 +17537,37 @@ impl<'a> LowerCtx<'a> {
                         _ => unreachable!(),
                     };
                     // Bool is i64-shaped via ZExtBoolToI64; the helper
-                    // expects an i64 arg slot. Other primitive types
-                    // (Number/F64) are already i64-compatible at SSA.
+                    // expects an i64 arg slot.
+                    //
+                    // ②.6b — number widths: the value slot is raw 8
+                    // bytes every reader decodes per the promise's
+                    // value class. F64 args pass their BITS (the old
+                    // direct pass put the value in the wrong register
+                    // bank — `resolve(2.5)` corruption); an I64 arg
+                    // whose value class floated (an f64 resident
+                    // elsewhere in the chain) converts first so the
+                    // slot uniformly holds f64 bits.
                     let arg_i64 = if matches!(arg_ty, Type::Bool) {
                         self.coerce_bool_to_i64(arg_op)
+                    } else if matches!(arg_ty, Type::F64) {
+                        Operand::Value(self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BitCastF64ToI64(arg_op),
+                            Type::I64,
+                            None,
+                        ))
+                    } else if matches!(arg_ty, Type::I64)
+                        && self
+                            .num_f64_slots
+                            .field_is_f64(&crate::num_width::SlotKey::Anon(eid.0), "value")
+                    {
+                        let as_f64 = self.coerce_to_f64(arg_op);
+                        Operand::Value(self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BitCastF64ToI64(as_f64),
+                            Type::I64,
+                            None,
+                        ))
                     } else {
                         arg_op
                     };
@@ -21541,10 +21403,16 @@ impl<'a> LowerCtx<'a> {
                                                 )
                                         )
                             );
-                            // Built-in Promise<T>.then(...) chain.
+                            // Built-in Promise<T> chain. ②.6b — catch /
+                            // finally results are the same built-in
+                            // Promise shape as then's; recognizing only
+                            // `then` left `await p.catch(cb)` falling
+                            // through to the Member path (silent empty
+                            // output).
                             let then_chain = matches!(
                                 self.ast.get_expr(*callee),
-                                Expr::Member { name: m_name, .. } if m_name == "then"
+                                Expr::Member { name: m_name, .. }
+                                    if m_name == "then" || m_name == "catch" || m_name == "finally"
                             );
                             // User fn whose declared return type is
                             // Type::Promise (e.g. an `async` body's
@@ -21672,6 +21540,17 @@ impl<'a> LowerCtx<'a> {
                             None
                         }
                     });
+                    // ②.6b — Promise<number> parses to the I64 default;
+                    // when the promise's value class floated, the slot
+                    // carries f64 BITS and the await read must decode
+                    // them (the F64 match arm below).
+                    let inner_ssa_ty = inner_ssa_ty.map(|t| {
+                        if t == Type::I64 && self.promise_value_is_f64(*obj) {
+                            Type::F64
+                        } else {
+                            t
+                        }
+                    });
                     let raw_v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(self.intrinsics.promise_get_value, vec![obj_op.clone()]),
@@ -21739,6 +21618,15 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::TruncI64ToBool(Operand::Value(raw_v)),
                             Type::Bool,
+                            None,
+                        ),
+                        // ②.6b — F64: the value slot holds f64 bits
+                        // (resolve / cb-thunk write them bit-cast);
+                        // decode symmetrically.
+                        Some(Type::F64) => self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BitCastI64ToF64(Operand::Value(raw_v)),
+                            Type::F64,
                             None,
                         ),
                         _ => raw_v,

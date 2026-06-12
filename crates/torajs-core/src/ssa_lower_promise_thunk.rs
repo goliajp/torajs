@@ -1,0 +1,289 @@
+//! ②.6b (ann-width RFC §5.7) — promise callback ABI thunks.
+//!
+//! The promise runtime moves the resolved value as raw 8 bytes and
+//! invokes handlers through one fixed signature — `(env, i64) -> i64`
+//! (`torajs-promise/src/then.rs` `ThenClosureFn`). A callback whose
+//! width-negotiated user signature carries an F64 face would put its
+//! value in the wrong register bank across that boundary, so the
+//! `.then` / `.catch` lowering wraps such callbacks in a synthesized
+//! bits-ABI adapter: a closure-shaped env block whose fn slot points
+//! at a thunk that bit-casts the value across the boundary and calls
+//! the real callback (capture slot 0).
+//!
+//! Thunks are synthesized in Pass 1 (the module fn list is no longer
+//! growable once per-fn lowering starts) — one per needed
+//! `(inner-is-closure, param-f64, ret-f64)` variant, discovered by a
+//! pre-scan of `.then` / `.catch` call sites against the width table.
+//! Modules without a promise chain (every bench case) synthesize
+//! nothing — zero artifact delta.
+
+use crate::ast::{Ast, Expr, Stmt};
+use crate::num_width::{SlotKey, WidthTable};
+use crate::ssa::{self, FuncId, InstKind, Module, Operand, Terminator, Type};
+use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, CLOSURE_FN_ADDR_OFF};
+use std::collections::HashMap;
+
+/// Wrap-env byte size: closure header (32 = `CLOSURE_CAP_BASE_OFF`)
+/// plus one capture slot holding the wrapped callback value.
+pub(crate) const PTHUNK_ENV_SIZE: i64 = CLOSURE_CAP_BASE_OFF as i64 + 8;
+
+/// Synthesized adapters, keyed by
+/// `(inner_is_closure, param_is_f64, ret_is_f64)`. `drop_fid` is the
+/// matching env-drop for the wrap env (closure inners release their
+/// capture; both variants free the 40-byte block).
+pub(crate) struct PromiseThunks {
+    map: HashMap<(bool, bool, bool), (FuncId, ssa::SigId)>,
+    pub(crate) drop_closure: Option<(FuncId, ssa::SigId)>,
+    pub(crate) drop_fnsig: Option<(FuncId, ssa::SigId)>,
+}
+
+impl PromiseThunks {
+    pub(crate) fn get(
+        &self,
+        inner_closure: bool,
+        p: bool,
+        r: bool,
+    ) -> Option<(FuncId, ssa::SigId)> {
+        self.map.get(&(inner_closure, p, r)).copied()
+    }
+}
+
+/// Pre-scan `.then` / `.catch` callback idents against the width
+/// table and synthesize the needed adapter variants. Must run before
+/// the `signatures` snapshot (thunks need ret-type hints like any fn).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn synthesize_promise_thunks(
+    ast: &Ast,
+    table: &WidthTable,
+    module: &mut Module,
+    fn_table: &mut HashMap<String, FuncId>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
+    obj_drop_sized_id: FuncId,
+    value_drop_heap_id: FuncId,
+) -> PromiseThunks {
+    let mut thunks = PromiseThunks {
+        map: HashMap::new(),
+        drop_closure: None,
+        drop_fnsig: None,
+    };
+    // fn name → user param names (mirrors the analysis fn_params with
+    // the lifted-closure `__env` slot stripped) plus the number-domain
+    // gates for the first param / ret faces (same gate as the
+    // analysis-side promise_chain_wiring — non-number faces never
+    // join the width class, so querying them would be meaningless).
+    let mut fn_user_params: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut fn_is_closure: HashMap<&str, bool> = HashMap::new();
+    let mut fn_num_faces: HashMap<&str, (bool, bool)> = HashMap::new();
+    for stmt in &ast.stmts {
+        if let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            ..
+        } = stmt
+        {
+            let lifted = params.first().is_some_and(|p| p.name == "__env");
+            let user = &params[usize::from(lifted)..];
+            let names: Vec<&str> = user.iter().map(|p| p.name.as_str()).collect();
+            let p_num = user
+                .first()
+                .is_none_or(|p0| matches!(p0.type_ann.as_deref(), None | Some("number")));
+            let r_num = matches!(return_type.as_deref(), None | Some("number"));
+            fn_user_params.insert(name, names);
+            fn_is_closure.insert(name, lifted);
+            fn_num_faces.insert(name, (p_num, r_num));
+        }
+    }
+    let mut needed: Vec<(bool, bool, bool)> = Vec::new();
+    for expr in &ast.exprs {
+        let Expr::Call { callee, args } = expr else {
+            continue;
+        };
+        let Expr::Member { name, .. } = ast.get_expr(*callee) else {
+            continue;
+        };
+        if !matches!(name.as_str(), "then" | "catch") {
+            continue;
+        }
+        for a in args.iter().take(2) {
+            let cb = match ast.get_expr(*a) {
+                Expr::Ident(n) if fn_user_params.contains_key(n.as_str()) => n.as_str(),
+                Expr::Closure { fn_name, .. } if fn_user_params.contains_key(fn_name.as_str()) => {
+                    fn_name.as_str()
+                }
+                _ => continue,
+            };
+            let (p_num, r_num) = fn_num_faces[cb];
+            let p = p_num
+                && fn_user_params[cb].first().is_some_and(|p0| {
+                    table.slot_is_f64(&SlotKey::Param(cb.to_string(), p0.to_string()))
+                });
+            let r = r_num && table.slot_is_f64(&SlotKey::Ret(cb.to_string()));
+            if p || r {
+                let key = (fn_is_closure[cb], p, r);
+                if !needed.contains(&key) {
+                    needed.push(key);
+                }
+            }
+        }
+    }
+    if needed.is_empty() {
+        return thunks;
+    }
+    needed.sort();
+    for (inner_closure, p, r) in needed {
+        let fid = build_thunk(module, fn_table, fn_sigs, fn_sig_ids, inner_closure, p, r);
+        thunks.map.insert((inner_closure, p, r), fid);
+    }
+    thunks.drop_closure = Some(build_env_drop(
+        module,
+        fn_table,
+        fn_sigs,
+        fn_sig_ids,
+        obj_drop_sized_id,
+        Some(value_drop_heap_id),
+    ));
+    thunks.drop_fnsig = Some(build_env_drop(
+        module,
+        fn_table,
+        fn_sigs,
+        fn_sig_ids,
+        obj_drop_sized_id,
+        None,
+    ));
+    thunks
+}
+
+/// One adapter: `(env, v_bits: i64) -> i64`. Loads the wrapped
+/// callback from capture slot 0, bit-casts the value in per the
+/// param face, calls it (closure inners pass their own env first),
+/// bit-casts the result out per the ret face.
+fn build_thunk(
+    module: &mut Module,
+    fn_table: &mut HashMap<String, FuncId>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
+    inner_closure: bool,
+    p: bool,
+    r: bool,
+) -> (FuncId, ssa::SigId) {
+    let name = format!(
+        "__pthunk_{}_{}{}",
+        if inner_closure { "c" } else { "f" },
+        u8::from(p),
+        u8::from(r)
+    );
+    let fid = FuncId(module.funcs.len() as u32);
+    let own_sig = crate::ssa_lower::intern_fn_sig(fn_sigs, vec![Type::Ptr, Type::I64], Type::I64);
+    fn_table.insert(name.clone(), fid);
+    fn_sig_ids.insert(fid, own_sig);
+    let mut f = ssa::Function::new(&name, Type::I64);
+    let env = f.add_param(Type::Ptr, "__env");
+    let v = f.add_param(Type::I64, "v");
+    let entry = f.add_block();
+    let inner = f.append_inst(
+        entry,
+        InstKind::Load(Type::Ptr, Operand::Value(env), CLOSURE_CAP_BASE_OFF),
+        Type::Ptr,
+        None,
+    );
+    let p_ty = if p { Type::F64 } else { Type::I64 };
+    let r_ty = if r { Type::F64 } else { Type::I64 };
+    let v_in = if p {
+        Operand::Value(f.append_inst(
+            entry,
+            InstKind::BitCastI64ToF64(Operand::Value(v)),
+            Type::F64,
+            None,
+        ))
+    } else {
+        Operand::Value(v)
+    };
+    let raw = if inner_closure {
+        let fnp = f.append_inst(
+            entry,
+            InstKind::Load(Type::Ptr, Operand::Value(inner), CLOSURE_FN_ADDR_OFF),
+            Type::Ptr,
+            None,
+        );
+        let callee_sig = crate::ssa_lower::intern_fn_sig(fn_sigs, vec![Type::Ptr, p_ty], r_ty);
+        f.append_inst(
+            entry,
+            InstKind::CallIndirect(
+                callee_sig,
+                Operand::Value(fnp),
+                vec![Operand::Value(inner), v_in],
+            ),
+            r_ty,
+            None,
+        )
+    } else {
+        let callee_sig = crate::ssa_lower::intern_fn_sig(fn_sigs, vec![p_ty], r_ty);
+        f.append_inst(
+            entry,
+            InstKind::CallIndirect(callee_sig, Operand::Value(inner), vec![v_in]),
+            r_ty,
+            None,
+        )
+    };
+    let out = if r {
+        f.append_inst(
+            entry,
+            InstKind::BitCastF64ToI64(Operand::Value(raw)),
+            Type::I64,
+            None,
+        )
+    } else {
+        raw
+    };
+    f.set_term(entry, Terminator::Ret(Some(Operand::Value(out))));
+    module.funcs.push(f);
+    (fid, own_sig)
+}
+
+/// Env-drop for a wrap env: closure inners release their captured
+/// callback ref first; both variants free the 40-byte block.
+fn build_env_drop(
+    module: &mut Module,
+    fn_table: &mut HashMap<String, FuncId>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
+    obj_drop_sized_id: FuncId,
+    value_drop_heap_id: Option<FuncId>,
+) -> (FuncId, ssa::SigId) {
+    let name = if value_drop_heap_id.is_some() {
+        "__pthunk_env_drop_c"
+    } else {
+        "__pthunk_env_drop_f"
+    };
+    let fid = FuncId(module.funcs.len() as u32);
+    let sig = crate::ssa_lower::intern_fn_sig(fn_sigs, vec![Type::Ptr], Type::Void);
+    fn_table.insert(name.to_string(), fid);
+    fn_sig_ids.insert(fid, sig);
+    let mut f = ssa::Function::new(name, Type::Void);
+    let env = f.add_param(Type::Ptr, "env");
+    let entry = f.add_block();
+    if let Some(drop_heap) = value_drop_heap_id {
+        let inner = f.append_inst(
+            entry,
+            InstKind::Load(Type::Ptr, Operand::Value(env), CLOSURE_CAP_BASE_OFF),
+            Type::Ptr,
+            None,
+        );
+        f.append_void(
+            entry,
+            InstKind::Call(drop_heap, vec![Operand::Value(inner)]),
+        );
+    }
+    f.append_void(
+        entry,
+        InstKind::Call(
+            obj_drop_sized_id,
+            vec![Operand::Value(env), Operand::ConstI64(PTHUNK_ENV_SIZE)],
+        ),
+    );
+    f.set_term(entry, Terminator::Ret(None));
+    module.funcs.push(f);
+    (fid, sig)
+}

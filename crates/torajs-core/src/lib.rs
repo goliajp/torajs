@@ -189,6 +189,8 @@ pub mod ssa_lower_main_exit;
 pub mod ssa_lower_obj_escape;
 pub(crate) mod ssa_lower_objlit_layout;
 pub mod ssa_lower_process_on;
+pub(crate) mod ssa_lower_promise_chain;
+pub(crate) mod ssa_lower_promise_thunk;
 pub mod ssa_lower_push_loop_detect;
 pub mod ssa_lower_str;
 pub mod ssa_lower_substr_trim_into;

@@ -46,6 +46,13 @@ impl<'a> Analysis<'a> {
                     return None;
                 }
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee) {
+                    // ②.6b — mirror of the walk's promise_static_key.
+                    if let Expr::Ident(ns) = self.ast.get_expr(*obj)
+                        && ns == "Promise"
+                        && self.resolve(ns, scope).is_none()
+                    {
+                        return Some(SlotKey::Anon(eid.0));
+                    }
                     let recv = self.container_key_lookup(*obj, scope)?;
                     return self.method_result_key_pure(eid, recv, name, args);
                 }
@@ -80,6 +87,8 @@ impl<'a> Analysis<'a> {
                 .first()
                 .and_then(|a| self.callee_fn_name(*a))
                 .map(SlotKey::Ret),
+            // ②.6b — same Anon spelling as the walk's promise arm.
+            "then" | "catch" | "finally" => Some(SlotKey::Anon(eid.0)),
             _ => {
                 let any = self
                     .classes

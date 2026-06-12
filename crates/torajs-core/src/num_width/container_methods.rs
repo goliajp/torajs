@@ -37,9 +37,103 @@ const BUILTIN_MEMBER_METHODS: &[&str] = &[
     "findIndex",
     "some",
     "every",
+    "then",
+    "catch",
+    "finally",
 ];
 
 impl<'a> Analysis<'a> {
+    /// ②.6b — value-point wiring for `Promise.resolve` /
+    /// `Promise.reject` (the combinators' element fan-in is follow-up
+    /// scope). The single-value statics feed the argument's width into
+    /// the result's `value` point; thenable absorption passes the
+    /// inner promise's point through. Fired from member_call_effects
+    /// (every call site), keyed by the call's Anon origin.
+    fn promise_static_wiring(&mut self, eid: ExprId, name: &str, args: &[ExprId], scope: &Scope) {
+        let anon = SlotKey::Anon(eid.0);
+        self.mark_containerish(&anon);
+        if matches!(name, "resolve" | "reject")
+            && let Some(a0) = args.first()
+        {
+            let pv = SlotKey::Field(Box::new(anon.clone()), "value".to_string());
+            let w = self.width_of(*a0, scope);
+            self.add_container_constraint(pv.clone(), w);
+            if let Some(ak) = self.container_key_of(*a0, scope) {
+                self.uf
+                    .union(&pv, &SlotKey::Field(Box::new(ak), "value".to_string()));
+            }
+        }
+    }
+
+    /// ②.6b — value-point wiring for a promise chain call. The value
+    /// slot is raw 8 bytes the runtime moves blindly (settled-state
+    /// passthrough, cb invocation, resolve(result, cb_ret)), so every
+    /// party touching one slot unions into one ABI class: source and
+    /// result `value` points plus each handler's user param / ret.
+    ///
+    /// Each cb face unions ONLY when its annotation is number-domain
+    /// (`: number` or unannotated) — promise slots carry any type,
+    /// and gluing a `(s: string) => number` param into the numeric
+    /// class poisons it (a T→U chain even closes a growth cycle
+    /// through the passthrough union: Ret(tagN) ≡ Param(tagN) seeded
+    /// the whole chain F64 — the async-025 regression). The width
+    /// table only ever answers number-faced queries, so non-number
+    /// faces simply stay out.
+    fn promise_chain_wiring(&mut self, eid: ExprId, recv: &SlotKey, name: &str, args: &[ExprId]) {
+        let anon = SlotKey::Anon(eid.0);
+        self.mark_containerish(&anon);
+        let src_pv = SlotKey::Field(Box::new(recv.clone()), "value".to_string());
+        let res_pv = SlotKey::Field(Box::new(anon), "value".to_string());
+        self.uf.union(&res_pv, &src_pv);
+        if name != "finally" {
+            // `.then(onOk, onErr)` — both handlers read the same
+            // source slot and resolve the same result.
+            for a in args.iter().take(2) {
+                if let Some(cb) = self.callee_fn_name(*a) {
+                    let (p_num, r_num) = self.fn_number_faces(&cb);
+                    if p_num && let Some(p0) = self.user_params(&cb).first() {
+                        self.uf
+                            .union(&src_pv, &SlotKey::Param(cb.clone(), p0.clone()));
+                    }
+                    if r_num {
+                        self.uf.union(&res_pv, &SlotKey::Ret(cb));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Number-domain gate for a fn's first user param and ret: `true`
+    /// when the annotation is `number` or absent (inference may go
+    /// either way — union is the conservative, ABI-safe side for the
+    /// numeric case and harmless for non-numeric slots, which no
+    /// width query ever reads).
+    fn fn_number_faces(&self, fname: &str) -> (bool, bool) {
+        for stmt in &self.ast.stmts {
+            if let crate::ast::Stmt::FnDecl {
+                name,
+                params,
+                return_type,
+                ..
+            } = stmt
+                && name == fname
+            {
+                let user: &[crate::ast::Param] =
+                    if params.first().is_some_and(|p| p.name == "__env") {
+                        &params[1..]
+                    } else {
+                        &params[..]
+                    };
+                let p = user
+                    .first()
+                    .is_none_or(|p0| matches!(p0.type_ann.as_deref(), None | Some("number")));
+                let r = matches!(return_type.as_deref(), None | Some("number"));
+                return (p, r);
+            }
+        }
+        (false, false)
+    }
+
     pub(super) fn callee_fn_name(&self, eid: ExprId) -> Option<String> {
         match self.ast.get_expr(eid) {
             Expr::Ident(n) if self.fn_params.contains_key(n) => Some(n.clone()),
@@ -59,6 +153,17 @@ impl<'a> Analysis<'a> {
         args: &[ExprId],
         scope: &Scope,
     ) -> Option<SlotKey> {
+        // ②.6b — `Promise.<static>(..)` has an untrackable receiver
+        // (the global namespace ident); key the result by its Anon
+        // origin (wiring fires from member_call_effects).
+        if let Expr::Ident(ns) = self.ast.get_expr(obj)
+            && ns == "Promise"
+            && self.resolve(ns, scope).is_none()
+        {
+            let anon = SlotKey::Anon(eid.0);
+            self.mark_containerish(&anon);
+            return Some(anon);
+        }
         let recv = self.container_key_of(obj, scope)?;
         self.mark_containerish(&recv);
         let ek = SlotKey::Elem(Box::new(recv.clone()));
@@ -134,6 +239,15 @@ impl<'a> Analysis<'a> {
                 .first()
                 .and_then(|a| self.callee_fn_name(*a))
                 .map(SlotKey::Ret),
+            // ②.6b — promise chain result keys by its Anon origin
+            // (wiring fires from member_call_effects). The `value`
+            // spelling matches the parser's `await p` → `p.value`
+            // desugar, so await reads need no extra wiring.
+            "then" | "catch" | "finally" => {
+                let anon = SlotKey::Anon(eid.0);
+                self.mark_containerish(&anon);
+                Some(anon)
+            }
             _ => {
                 // User class method — the AST keeps `q.m()` as a Member
                 // call; which `__cm_<C>__m` lowering picks needs types
@@ -168,13 +282,34 @@ impl<'a> Analysis<'a> {
     /// Side effects of a member call — element writes (push family),
     /// callback parameter wiring, and user-class-method broadcast.
     /// Fires from walk_expr for every call site, result used or not.
-    pub(super) fn member_call_effects(&mut self, callee: ExprId, args: &[ExprId], scope: &Scope) {
+    pub(super) fn member_call_effects(
+        &mut self,
+        eid: ExprId,
+        callee: ExprId,
+        args: &[ExprId],
+        scope: &Scope,
+    ) {
         let Expr::Member { obj, name } = self.ast.get_expr(callee).clone() else {
             return;
         };
+        // ②.6b — Promise statics have an untrackable receiver (the
+        // global namespace ident); their value-point wiring must fire
+        // from here, the every-call-site hook (the result-key path
+        // only fires when the result is consumed via a tracked flow —
+        // `console.log(await Promise.resolve(2.5))` never is).
+        if let Expr::Ident(ns) = self.ast.get_expr(obj)
+            && ns == "Promise"
+            && self.resolve(ns, scope).is_none()
+        {
+            self.promise_static_wiring(eid, &name, args, scope);
+            return;
+        }
         let Some(recv) = self.container_key_of(obj, scope) else {
             return;
         };
+        if matches!(name.as_str(), "then" | "catch" | "finally") {
+            self.promise_chain_wiring(eid, &recv, &name, args);
+        }
         self.mark_containerish(&recv);
         let ek = SlotKey::Elem(Box::new(recv.clone()));
         let write_args: Vec<ExprId> = match name.as_str() {
