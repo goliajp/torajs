@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-12T20:23:18.983Z",
+  "generatedAt": "2026-06-12T22:25:57.780Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -10,26 +10,29 @@
     "sourceMtime": "2026-06-10T02:48:22.109Z"
   },
   "test262": {
-    "ranAt": "2026-06-10T21:55:58Z",
-    "headSha": "8c1123b",
-    "elapsedSec": 1119.13,
+    "ranAt": "2026-06-12T22:14:25Z",
+    "headSha": "dd96f88",
+    "elapsedSec": 1039.07,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 3527,
-    "bug": 1419,
-    "incompatible": 23368,
-    "bunSkip": 24860,
+    "pass": 2620,
+    "passNoOracle": 279,
+    "passNegative": 4444,
+    "passTotal": 7343,
+    "bug": 320,
+    "incompatible": 45511,
+    "bunSkip": 11170,
     "harnessError": 0,
-    "inScope": 28314,
-    "trAccepted": 4946,
-    "passRateInScope": 12.46,
-    "passRateTrAccepted": 71.31
+    "inScope": 53174,
+    "trAccepted": 7663,
+    "passRateInScope": 13.81,
+    "passRateTrAccepted": 95.82
   },
   "torajs": {
-    "commit": "3dd386b",
-    "commitSubject": "fix(core): demote name-based class-method rewrites on builtin container receivers",
+    "commit": "4b42a8b",
+    "commitSubject": "chore(bench): add 3-run results for dd96f88 regex-exec chain (32/32 delta justified; popcount flag = scheduler noise, same-binary retest 100-110ms)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,73 +619,84 @@
   },
   "commits": [
     {
+      "hash": "4b42a8b",
+      "subject": "chore(bench): add 3-run results for dd96f88 regex-exec chain (32/32 delta justified; popcount flag = scheduler noise, same-binary retest 100-110ms)"
+    },
+    {
+      "hash": "f7452ab",
+      "subject": "chore(conformance): refresh test262 baseline with no-skip judgment (53174 all judged, passTotal 7343)"
+    },
+    {
+      "hash": "dd96f88",
+      "subject": "feat(conformance): judge bun-failed test262 cases directly instead of skipping"
+    },
+    {
+      "hash": "d2bbb40",
+      "subject": "fix(core): null-guard array scope drop for nullable regex results"
+    },
+    {
+      "hash": "0f7a707",
+      "subject": "fix(runtime): regex exec and match return null on no-match per spec"
+    },
+    {
+      "hash": "ef540c9",
+      "subject": "feat(runtime): attach index/input/groups to regex exec and match results"
+    },
+    {
+      "hash": "f149db1",
+      "subject": "feat(runtime): print array side-table props insertion-ordered in console.log"
+    },
+    {
+      "hash": "49f2dde",
+      "subject": "chore(bench): add 3-run self results for 88c9778 (32/32 artifact delta justified, verdict pass)"
+    },
+    {
+      "hash": "88c9778",
+      "subject": "feat(runtime): rebuild dynobj as insertion-ordered compact dict with iteration api"
+    },
+    {
+      "hash": "2d4fd32",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 3dd386b (name-based class-method dispatch demote on builtin container receivers via cm_demote speculative-rewrite mechanism, gate 766 -> 768/0/4, bench precheck 32/32 identical twice, file-size debt net negative)"
+    },
+    {
       "hash": "3dd386b",
       "subject": "fix(core): demote name-based class-method rewrites on builtin container receivers"
     },
     {
       "hash": "495ceb9",
       "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD eb01806 (l3b residual batch closed: r3/r4 async promise covariance + value width faces, value-drop test link fix unlocks workspace nextest 1880/1880 as real gate, map get-as-number unbox + value slot width, 6 stale entries audited closed, gate 764 -> 766/0/4, bench precheck 32/32 identical twice)"
-    },
-    {
-      "hash": "eb01806",
-      "subject": "fix(core): as-number unboxes anyvalue and map value slot answers width queries"
-    },
-    {
-      "hash": "018c6cf",
-      "subject": "test: value-drop integration test links via per-tag drop stubs"
-    },
-    {
-      "hash": "bdbc7e8",
-      "subject": "fix(core): async fn promise return covariance and awaited value width faces"
-    },
-    {
-      "hash": "2cee60b",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD d2ebb2a (l3b ground truth sweep: 5 residual items reproduced, f64 array index coerce closed, recursive generic alias closed across check/lower/width layers with rfc, gate 762 -> 764/0/4, bench precheck 32/32 identical twice)"
-    },
-    {
-      "hash": "d2ebb2a",
-      "subject": "fix(bench): torajs-str bench matches StrBlock u32 length signature"
-    },
-    {
-      "hash": "6bc0d0d",
-      "subject": "fix(core): nominal width join for generic instantiation keys"
-    },
-    {
-      "hash": "7f40f90",
-      "subject": "fix(core): recursive generic alias instantiation memo in ssa lowering"
-    },
-    {
-      "hash": "5c99954",
-      "subject": "fix(core): recursive generic alias instantiation guard in checker"
-    },
-    {
-      "hash": "03e9978",
-      "subject": "fix(core): typed array index lowering coerces f64 operands to i64"
-    },
-    {
-      "hash": "446a901",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD d82bd04 (l3b double fix: silent lower-panic abort now prints message + exits 3, json.parse number faces seed f64 with cursor-derangement root cause closed, gate 762/0/4, bench precheck 32/32 identical)"
     }
   ],
-  "headSha": "3dd386b",
+  "headSha": "4b42a8b",
   "autorun": {
-    "total": 130,
+    "total": 131,
     "baselineTarget": 10,
-    "bySelf": 128,
+    "bySelf": 129,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781265646-141c",
-      "at": "2026-06-12T12:00:46Z",
-      "ts": 1781265646,
+      "rotationId": "r-1781295875-7629",
+      "at": "2026-06-12T20:24:35Z",
+      "ts": 1781295875,
       "trigger": "self",
-      "prevHead": "495ceb9",
-      "handoffSha": "sha256:8809efc32f718cac949eaba485ac761d3215ad3fed44eb819dce4fd6f88ab73f",
-      "handoffAgeSec": 34,
+      "prevHead": "2d4fd32",
+      "handoffSha": "sha256:c826c5c1e45ee836dc7af37c9307f4745efbea8c244a1bd07cf7127d29c00e92",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781295875-7629",
+        "at": "2026-06-12T20:24:35Z",
+        "ts": 1781295875,
+        "trigger": "self",
+        "prevHead": "2d4fd32",
+        "handoffSha": "sha256:c826c5c1e45ee836dc7af37c9307f4745efbea8c244a1bd07cf7127d29c00e92",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781265646-141c",
         "at": "2026-06-12T12:00:46Z",
@@ -779,17 +793,6 @@
         "prevHead": "a8b68a2",
         "handoffSha": "sha256:3bcf6b2a51a63bd695b58c3ab5f943ce1fa8cfe34e5be0a83b76c612b9505e8b",
         "handoffAgeSec": 20,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781187029-007c",
-        "at": "2026-06-11T14:10:29Z",
-        "ts": 1781187029,
-        "trigger": "self",
-        "prevHead": "7323865",
-        "handoffSha": "sha256:5ca656d24922e5a2395c27f999eb1af01c0f28dbff562224f16171ec10524bd5",
-        "handoffAgeSec": 9,
         "conformanceBefore": null,
         "commitsInSession": null
       }

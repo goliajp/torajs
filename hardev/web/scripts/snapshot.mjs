@@ -306,6 +306,9 @@ function parseTest262() {
     'totalCases',
     'ran',
     'pass',
+    'passNoOracle',
+    'passNegative',
+    'passTotal',
     'bug',
     'incompatible',
     'bunSkip',
@@ -604,7 +607,7 @@ console.log(
 console.log(`  changelog: ${changelog.length} releases · ${commits.length} commits`)
 if (test262) {
   console.log(
-    `  test262: ${test262.pass}/${test262.inScope} (${test262.passRateInScope.toFixed(2)}% in-scope) · ranAt ${test262.ranAt} @ ${test262.headSha}`
+    `  test262: ${test262.passTotal}/${test262.inScope} (${test262.passRateInScope.toFixed(2)}% in-scope) · ranAt ${test262.ranAt} @ ${test262.headSha}`
   )
 } else {
   console.log(`  test262: (no hardev/test262-latest.json — run torajs-test262 --json to populate)`)

@@ -18,6 +18,9 @@ export type Test262 = {
   totalCases: number
   ran: number
   pass: number
+  passNoOracle: number
+  passNegative: number
+  passTotal: number
   bug: number
   incompatible: number
   bunSkip: number

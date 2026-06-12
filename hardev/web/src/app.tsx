@@ -239,7 +239,7 @@ function Test262Card() {
       <div className="t262-row">
         <div className="t262-main">
           <div className="t262-headline">
-            {t.pass}
+            {t.passTotal}
             <span className="d">/{t.inScope}</span>
             <span className="pct">{t.passRateInScope.toFixed(2)}%</span>
           </div>
@@ -247,13 +247,22 @@ function Test262Card() {
         </div>
         <div className="t262-breakdown">
           <span>
+            <b>{t.pass}</b> oracle
+          </span>
+          <span>
+            <b>{t.passNegative}</b> negative
+          </span>
+          <span>
+            <b>{t.passNoOracle}</b> no-oracle
+          </span>
+          <span>
             <b>{t.bug}</b> bug
           </span>
           <span>
             <b>{t.incompatible}</b> incompatible
           </span>
           <span>
-            <b>{t.bunSkip}</b> bun-skip
+            <b>{t.bunSkip}</b> bun-fail judged
           </span>
           <span>
             <b>{t.trAccepted}</b> tr-accepted ({t.passRateTrAccepted.toFixed(1)}%)
