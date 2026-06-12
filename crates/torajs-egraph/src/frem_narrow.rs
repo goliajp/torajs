@@ -12,16 +12,20 @@
 //!   operands is exact (no rounding: |result| < |divisor|), and ±0
 //!   compare equal under every fcmp predicate, so the -0 that srem
 //!   cannot represent is unobservable here.
-//! * **Truncate (R2)** — `fptosi(frem(x̂, ŷ))` / `fptosi(fmul(x̂, ŷ))` /
-//!   `fptosi(fsub(-0.0, ŷ))` over a single-use float op: the i64 sink
-//!   already collapses -0 to 0, so the float detour computes the same
-//!   i64. The op retypes to srem / mul / sub-from-0 in place and the
-//!   fptosi collapses to a Copy of it. (fmul qualifies only here — an
-//!   fcmp would observe the f64 rounding past 2^53 that the int
-//!   product wraps instead, W3 C4. The -0.0-LHS fsub is the unary-
-//!   negation shape S8's lowering emits for `-x` on a runtime int;
-//!   it narrows to `sub(0, x)` only at this sink for the same
-//!   rounding reason.)
+//! * **Truncate (R2, tree-shaped since W3 chunk ②)** — `fptosi` over a
+//!   whole fadd / fsub / fmul / frem expression tree whose leaves all
+//!   peel to int form: the i64 sink already collapses -0 to 0, and
+//!   interior ±0 / rounding-past-2^53 differences are wrap-parity
+//!   with the pre-W3 int path (known debt, unchanged), so the float
+//!   detour computes the same i64. Every node retypes to its int op
+//!   in place (`fptosi(fadd(fmul(x̂,ŷ), fmul(ẑ,ŵ)))` → the add/mul
+//!   tree in i64) and the fptosi collapses to a Copy. This is the AOT
+//!   shape of V8's Truncation::Word64 propagating through kNumberAdd /
+//!   kNumberMultiply. The single-op shapes (frem / fmul / S8's
+//!   -0.0-LHS fsub for `-x` on a runtime int — the -0.0 constant
+//!   peels to 0 via `int_form`) are the depth-1 trees. fadd / fsub /
+//!   fmul qualify only under this sink — an fcmp would observe the
+//!   rounding the int form wraps (W3 C4).
 //!
 //! A constant-zero divisor never narrows (frem → NaN is the JS `a % 0`
 //! answer; srem would be UB). A *runtime* zero divisor in the narrowed
@@ -45,8 +49,13 @@ use crate::rc_peephole::visit_value_operands;
 pub struct FremNarrowStats {
     /// fcmp-over-frem chains narrowed to icmp-over-srem.
     pub cmps_narrowed: u32,
-    /// fptosi-over-frem chains collapsed to srem.
+    /// fptosi sinks whose float-op tree collapsed to int form
+    /// (counts the root; interior nodes land in
+    /// `tree_interior_narrowed`).
     pub truncs_narrowed: u32,
+    /// Interior float-op nodes retyped as part of a trunc tree
+    /// (0 for the single-op shapes).
+    pub tree_interior_narrowed: u32,
     /// Orphaned sitofp insts swept after the rewrites.
     pub dead_converts_removed: u32,
 }
@@ -72,6 +81,70 @@ fn int_form(op: &Operand, defs: &HashMap<ValueId, InstKind>) -> Option<Operand> 
         return None;
     }
     op_const_int(op).map(|c| Operand::ConstI64(c as i64))
+}
+
+/// Truncation propagation through a float-op tree (W3 chunk ② —
+/// the AOT shape of V8's Truncation::Word64 flowing through
+/// kNumberAdd / kNumberSubtract / kNumberMultiply): an entire
+/// fadd / fsub / fmul / frem expression tree rooted at an fptosi
+/// sink retypes to int ops when every leaf peels to int form.
+/// The i64 sink collapses ±0, and interior ±0 / rounding-past-2^53
+/// differences are wrap-parity with the pre-W3 int path (W4 /
+/// overflow known debt, unchanged). Every interior node must be
+/// single-def single-use (its only consumer is its tree parent or
+/// the sink); a leaf `sitofp` may stay multi-use — the peel doesn't
+/// disturb it and DCE only sweeps orphans. An frem divisor that is
+/// a compile-time zero rejects the whole tree (frem → NaN is the JS
+/// `a % 0` answer; srem would be UB).
+///
+/// On success `out` holds the int rewrite for every tree node;
+/// interior edges keep their `Operand::Value` identity (the nodes
+/// retype in place, so references stay valid).
+fn collect_trunc_tree(
+    v: &ValueId,
+    defs: &HashMap<ValueId, InstKind>,
+    multi: &HashSet<ValueId>,
+    uses: &HashMap<ValueId, u32>,
+    out: &mut HashMap<ValueId, (BinOp, Operand, Operand)>,
+) -> bool {
+    if multi.contains(v) || uses.get(v).copied().unwrap_or(0) != 1 {
+        return false;
+    }
+    let Some(InstKind::BinOp(fop @ (BinOp::FAdd | BinOp::FSub | BinOp::FMul | BinOp::FRem), a, b)) =
+        defs.get(v)
+    else {
+        return false;
+    };
+    let iop = match fop {
+        BinOp::FAdd => BinOp::Add,
+        BinOp::FSub => BinOp::Sub,
+        BinOp::FMul => BinOp::Mul,
+        BinOp::FRem => BinOp::SRem,
+        _ => unreachable!(),
+    };
+    let resolve =
+        |op: &Operand, out: &mut HashMap<ValueId, (BinOp, Operand, Operand)>| -> Option<Operand> {
+            if let Some(leaf) = int_form(op, defs) {
+                return Some(leaf);
+            }
+            if let Operand::Value(c) = op
+                && collect_trunc_tree(c, defs, multi, uses, out)
+            {
+                return Some(*op);
+            }
+            None
+        };
+    let Some(ai) = resolve(a, out) else {
+        return false;
+    };
+    let Some(bi) = resolve(b, out) else {
+        return false;
+    };
+    if iop == BinOp::SRem && matches!(bi, Operand::ConstI64(0)) {
+        return false;
+    }
+    out.insert(*v, (iop, ai, bi));
+    true
 }
 
 fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
@@ -114,36 +187,24 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
         }
     }
 
-    // A single-use single-def frem / fmul / negation-shaped fsub whose
-    // operands peel to int form; a frem divisor must not be a
-    // compile-time zero. fmul and the -0.0-LHS fsub (S8's `-x`
-    // lowering shape) qualify only for the fptosi sink: the i64
-    // truncation makes the result bit-equal to the pre-W3 int path,
-    // while an fcmp would observe the f64 rounding past 2^53.
-    let narrowable = |v: &ValueId, trunc_sink: bool| -> Option<(BinOp, Operand, Operand)> {
+    // Compare sink — a single-use single-def frem whose operands peel
+    // to int form narrows under an fcmp (±0 compare equal, frem over
+    // integral operands is exact). fadd / fsub / fmul stay out of the
+    // fcmp shape: an fcmp would observe the f64 rounding past 2^53
+    // that the int form wraps instead.
+    let narrow_cmp = |v: &ValueId| -> Option<(BinOp, Operand, Operand)> {
         if multi.contains(v) || uses.get(v).copied().unwrap_or(0) != 1 {
             return None;
         }
-        let InstKind::BinOp(fop @ (BinOp::FRem | BinOp::FMul | BinOp::FSub), a, b) = defs.get(v)?
-        else {
+        let InstKind::BinOp(BinOp::FRem, a, b) = defs.get(v)? else {
             return None;
         };
-        let (iop, ai) = match fop {
-            BinOp::FRem => (BinOp::SRem, int_form(a, &defs)?),
-            BinOp::FMul if trunc_sink => (BinOp::Mul, int_form(a, &defs)?),
-            BinOp::FSub
-                if trunc_sink
-                    && matches!(a, Operand::ConstF64(c) if *c == 0.0 && c.is_sign_negative()) =>
-            {
-                (BinOp::Sub, Operand::ConstI64(0))
-            }
-            _ => return None,
-        };
+        let ai = int_form(a, &defs)?;
         let bi = int_form(b, &defs)?;
-        if iop == BinOp::SRem && matches!(bi, Operand::ConstI64(0)) {
+        if matches!(bi, Operand::ConstI64(0)) {
             return None;
         }
-        Some((iop, ai, bi))
+        Some((BinOp::SRem, ai, bi))
     };
 
     // Decision pass — collect frem results to retype, keyed by the
@@ -165,15 +226,17 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
                     if op_const_int(other).is_none() {
                         continue;
                     }
-                    if let Some(ops) = narrowable(v, false) {
+                    if let Some(ops) = narrow_cmp(v) {
                         narrow.insert(*v, ops);
                         cmp_results.insert(*v);
                         stats.cmps_narrowed += 1;
                     }
                 }
                 InstKind::FpToSi(Operand::Value(v)) => {
-                    if let Some(ops) = narrowable(v, true) {
-                        narrow.insert(*v, ops);
+                    let mut tree: HashMap<ValueId, (BinOp, Operand, Operand)> = HashMap::new();
+                    if collect_trunc_tree(v, &defs, &multi, &uses, &mut tree) {
+                        stats.tree_interior_narrowed += (tree.len() as u32) - 1;
+                        narrow.extend(tree);
                         trunc_results.insert(*v);
                         stats.truncs_narrowed += 1;
                     }
@@ -194,7 +257,11 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
                 if let Some((iop, xi, yi)) = narrow.get(&r) {
                     if matches!(
                         inst.kind,
-                        InstKind::BinOp(BinOp::FRem | BinOp::FMul | BinOp::FSub, _, _)
+                        InstKind::BinOp(
+                            BinOp::FRem | BinOp::FMul | BinOp::FSub | BinOp::FAdd,
+                            _,
+                            _
+                        )
                     ) {
                         inst.kind = InstKind::BinOp(*iop, *xi, *yi);
                         func.values[r.0 as usize].ty = Type::I64;
@@ -491,9 +558,10 @@ mod tests {
     }
 
     #[test]
-    fn fptosi_over_plain_fsub_stays_float() {
-        // an ordinary subtraction (LHS not the -0.0 negation marker)
-        // never narrows — only S8's exact lowering shape qualifies.
+    fn fptosi_over_plain_fsub_collapses_to_sub() {
+        // chunk ② — an ordinary subtraction with an integral-const
+        // LHS narrows under the i64 sink (wrap-parity with the int
+        // path), not just S8's -0.0 negation marker.
         let mut f = func_with(
             vec![
                 inst(1, InstKind::SiToFp(v(0))),
@@ -504,10 +572,113 @@ mod tests {
             Terminator::Ret(Some(v(3))),
         );
         let stats = run(&mut f);
+        assert_eq!(stats.truncs_narrowed, 1);
+        assert!(matches!(
+            f.blocks[0].insts[0].kind,
+            InstKind::BinOp(BinOp::Sub, Operand::ConstI64(0), Operand::Value(ValueId(0)))
+        ));
+    }
+
+    #[test]
+    fn fptosi_over_fop_tree_collapses_to_int_tree() {
+        // chunk ② — fptosi(fadd(fmul(â,b̂), fmul(ĉ,d̂))) retypes the
+        // whole tree: both fmuls → mul, the fadd → add, sink → Copy.
+        let mut f = func_with(
+            vec![
+                inst(4, InstKind::SiToFp(v(0))),
+                inst(5, InstKind::SiToFp(v(1))),
+                inst(6, InstKind::SiToFp(v(2))),
+                inst(7, InstKind::SiToFp(v(3))),
+                inst(8, InstKind::BinOp(BinOp::FMul, v(4), v(5))),
+                inst(9, InstKind::BinOp(BinOp::FMul, v(6), v(7))),
+                inst(10, InstKind::BinOp(BinOp::FAdd, v(8), v(9))),
+                inst(11, InstKind::FpToSi(v(10))),
+            ],
+            12,
+            Terminator::Ret(Some(v(11))),
+        );
+        let stats = run(&mut f);
+        assert_eq!(stats.truncs_narrowed, 1);
+        assert_eq!(stats.tree_interior_narrowed, 2);
+        assert_eq!(stats.dead_converts_removed, 4);
+        // orphaned sitofps swept; the three binops retyped in place.
+        let kinds: Vec<_> = f.blocks[0].insts.iter().map(|i| &i.kind).collect();
+        assert!(matches!(
+            kinds[0],
+            InstKind::BinOp(
+                BinOp::Mul,
+                Operand::Value(ValueId(0)),
+                Operand::Value(ValueId(1))
+            )
+        ));
+        assert!(matches!(
+            kinds[1],
+            InstKind::BinOp(
+                BinOp::Mul,
+                Operand::Value(ValueId(2)),
+                Operand::Value(ValueId(3))
+            )
+        ));
+        assert!(matches!(
+            kinds[2],
+            InstKind::BinOp(
+                BinOp::Add,
+                Operand::Value(ValueId(8)),
+                Operand::Value(ValueId(9))
+            )
+        ));
+        assert!(matches!(
+            kinds[3],
+            InstKind::Copy(Type::I64, Operand::Value(ValueId(10)))
+        ));
+    }
+
+    #[test]
+    fn tree_with_multi_use_interior_stays_float() {
+        // chunk ② — an interior node consumed outside the tree keeps
+        // the whole tree float (retyping it would break the other
+        // f64 consumer).
+        let mut f = func_with(
+            vec![
+                inst(2, InstKind::SiToFp(v(0))),
+                inst(3, InstKind::SiToFp(v(1))),
+                inst(4, InstKind::BinOp(BinOp::FMul, v(2), v(3))),
+                inst(5, InstKind::BinOp(BinOp::FAdd, v(4), cf(1.0))),
+                inst(6, InstKind::FpToSi(v(5))),
+                // second consumer of the fmul result
+                inst(7, InstKind::BinOp(BinOp::FAdd, v(4), cf(2.0))),
+            ],
+            8,
+            Terminator::Ret(Some(v(6))),
+        );
+        let stats = run(&mut f);
+        assert_eq!(stats.truncs_narrowed, 0);
+        assert!(matches!(
+            f.blocks[0].insts[2].kind,
+            InstKind::BinOp(BinOp::FMul, _, _)
+        ));
+    }
+
+    #[test]
+    fn tree_with_const_zero_frem_divisor_stays_float() {
+        // chunk ② — a const-0 frem divisor anywhere in the tree
+        // rejects the whole tree (frem → NaN is the JS answer; srem
+        // would be UB).
+        let mut f = func_with(
+            vec![
+                inst(1, InstKind::SiToFp(v(0))),
+                inst(2, InstKind::BinOp(BinOp::FRem, v(1), cf(0.0))),
+                inst(3, InstKind::BinOp(BinOp::FAdd, v(2), cf(1.0))),
+                inst(4, InstKind::FpToSi(v(3))),
+            ],
+            5,
+            Terminator::Ret(Some(v(4))),
+        );
+        let stats = run(&mut f);
         assert_eq!(stats.truncs_narrowed, 0);
         assert!(matches!(
             f.blocks[0].insts[1].kind,
-            InstKind::BinOp(BinOp::FSub, _, _)
+            InstKind::BinOp(BinOp::FRem, _, _)
         ));
     }
 
