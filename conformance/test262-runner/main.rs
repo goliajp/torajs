@@ -466,6 +466,7 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
         "dateConstants.js",
         "decimalToHexString.js",
         "nans.js",
+        "tcoHelper.js",
     ];
     let unported: Vec<&str> = fm
         .includes

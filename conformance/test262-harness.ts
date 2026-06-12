@@ -197,6 +197,15 @@ const date_2099_end: number = 4102444799999;
 const date_2100_start: number = 4102444800000;
 const start_of_time: number = -8.64e15;
 const end_of_time: number = 8.64e15;
+
+// ─── tcoHelper.js port (2026-06-13) ───
+//
+// Number of consecutive recursive calls that proves ES2015 tail-call
+// frames are destroyed. torajs doesn't implement TCO today, so these
+// cases land in the bug bucket as loud stack-depth failures — that is
+// the correct, attributable signal (substrate gap), not a harness gap.
+
+const $MAX_ITERATIONS: number = 100000;
 function __t262_deepEqual(_actual: any, _expected: any, _msg: string = ""): void {}
 function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}
 function __t262_verifyCallableProperty(_obj: any, _name: any, _fnName: any, _fnLen: any, _desc: any): boolean { return true; }
