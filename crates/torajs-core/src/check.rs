@@ -246,7 +246,8 @@ impl Type {
     }
 }
 
-type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(String, String)>)>;
+use crate::check_type_ann::resolve_type_ann_full;
+pub(crate) type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(String, String)>)>;
 
 /// M6.1 — string / array methods that borrow both their receiver and
 /// any args (no consume on pass). Shared between `check.rs`'s Call
@@ -537,362 +538,6 @@ fn resolve_type_ann_with_vars(
 /// Full resolver: also accepts a generic-alias-decls map so `Pair<X|Y>`
 /// instantiates against the original `type Pair<A, B> = { ... }` decl.
 /// M3.4.
-fn resolve_type_ann_full(
-    name: &str,
-    aliases: &HashMap<String, Type>,
-    type_params: &[String],
-    generic_aliases: &GenericAliasMap,
-) -> Option<Type> {
-    if let Some(rest) = name.strip_suffix("[]") {
-        return resolve_type_ann_full(rest, aliases, type_params, generic_aliases)
-            .map(|inner| Type::Array(Box::new(inner)));
-    }
-    // Nullable wrapper produced by the parser when it sees `T | null`.
-    if let Some(rest) = name.strip_prefix("__nullable(")
-        && let Some(inner) = rest.strip_suffix(')')
-    {
-        return resolve_type_ann_full(inner, aliases, type_params, generic_aliases)
-            .map(|t| Type::Nullable(Box::new(t)));
-    }
-    if name == "null" {
-        return Some(Type::Null);
-    }
-    // V3-18 wedge — `Array<T>` / `ReadonlyArray<T>` / `Iterable<T>`
-    // generic shorthand for `T[]`. TS users write both interchangeably
-    // and the spec treats `Array<T>` as the canonical Library form;
-    // tora's type-ann parser already produces the `Array<T>` flat
-    // string but had no mapping. ReadonlyArray is identical semantically
-    // (the immutability marker has no runtime effect in the subset).
-    // Iterable<T> resolves to Array<T> for typecheck purposes (the
-    // for-of source path treats arrays as iterables).
-    if let Some(open_idx) = name.find('<')
-        && name.ends_with('>')
-        && !name.starts_with("__fn(")
-        && !name.starts_with("__cls(")
-        && !name.starts_with("__env(")
-    {
-        let head = &name[..open_idx];
-        if matches!(head, "Array" | "ReadonlyArray" | "Iterable") {
-            let inner = &name[open_idx + 1..name.len() - 1];
-            // Single arg only — Array<T1, T2> is invalid TS.
-            if !inner.contains('|') {
-                return resolve_type_ann_full(inner, aliases, type_params, generic_aliases)
-                    .map(|t| Type::Array(Box::new(t)));
-            }
-        }
-        // P5.1 — `IteratorResult<T>` is the spec-shaped step value
-        // produced by an iterator's `next()` method (ES §27.1.2.1).
-        // Structural alias for `{ value: T, done: boolean }`. The
-        // existing generator desugar emits the same shape under a
-        // per-generator `__step_<name>` alias; this lets user-class
-        // iterators (P5.2) annotate `next(): IteratorResult<T>`
-        // without minting their own per-iterator alias.
-        if head == "IteratorResult" {
-            let inner = &name[open_idx + 1..name.len() - 1];
-            if !inner.contains('|')
-                && let Some(value_ty) =
-                    resolve_type_ann_full(inner, aliases, type_params, generic_aliases)
-            {
-                return Some(Type::Struct(vec![
-                    ("value".into(), value_ty),
-                    ("done".into(), Type::Boolean),
-                ]));
-            }
-        }
-        // P5.1 — `Iterator<T>` / `IterableIterator<T>` are opaque
-        // iterable objects whose only typed surface is `.next() →
-        // IteratorResult<T>`. Resolved as Type::Any for now — the
-        // for-of dispatch in P5.3 Phase B will inspect the runtime
-        // class to find the `[Symbol.iterator]` / `next` methods.
-        // User can still annotate fields as `Iterator<T>` without
-        // surfacing a "unresolved type" error.
-        if matches!(head, "Iterator" | "IterableIterator") {
-            let inner = &name[open_idx + 1..name.len() - 1];
-            if !inner.contains('|') {
-                let _ = resolve_type_ann_full(inner, aliases, type_params, generic_aliases);
-                return Some(Type::Any);
-            }
-        }
-    }
-    // M3.4 — generic struct instantiation: `Foo<arg1|arg2|...>`. Same
-    // depth-aware decoder as `__fn(...)`. Substitutes type-args into the
-    // original decl's field annotations (as strings), then recursively
-    // resolves each substituted field type.
-    if let Some(open_idx) = name.find('<')
-        && name.ends_with('>')
-        && !name.starts_with("__fn(")
-        && !name.starts_with("__cls(")
-        && !name.starts_with("__env(")
-    {
-        let head = &name[..open_idx];
-        if let Some((tp_names, fields)) = generic_aliases.get(head) {
-            let inner = &name[open_idx + 1..name.len() - 1];
-            // Split inner at depth-0 `|`.
-            let mut args: Vec<&str> = Vec::new();
-            let mut depth: i32 = 0;
-            let mut last = 0usize;
-            let bytes = inner.as_bytes();
-            for (i, &b) in bytes.iter().enumerate() {
-                match b {
-                    b'<' | b'(' => depth += 1,
-                    b'>' | b')' => depth -= 1,
-                    b'|' if depth == 0 => {
-                        args.push(&inner[last..i]);
-                        last = i + 1;
-                    }
-                    _ => {}
-                }
-            }
-            if !inner.is_empty() {
-                args.push(&inner[last..]);
-            }
-            if args.len() != tp_names.len() {
-                return None;
-            }
-            // Substitute each tp_name with its arg ann in every field's
-            // annotation string, then recursively resolve.
-            let subst: Vec<(String, String)> = tp_names
-                .iter()
-                .cloned()
-                .zip(args.iter().map(|s| s.to_string()))
-                .collect();
-            // V3-18 wedge — generic bare alias (`type Pair<T> = T[]`)
-            // uses the same single-field "__alias__" sentinel; resolve
-            // directly to the substituted underlying type instead of
-            // wrapping in a Struct.
-            if fields.len() == 1 && fields[0].0 == "__alias__" {
-                let substituted = ann_substitute(&fields[0].1, &subst);
-                return resolve_type_ann_full(&substituted, aliases, type_params, generic_aliases);
-            }
-            let mut field_tys: Vec<(String, Type)> = Vec::new();
-            for (fname, fann) in fields {
-                let substituted = ann_substitute(fann, &subst);
-                let ty =
-                    resolve_type_ann_full(&substituted, aliases, type_params, generic_aliases)?;
-                field_tys.push((fname.clone(), ty));
-            }
-            return Some(Type::Struct(field_tys));
-        }
-        // T-15 (v0.5.0) — `Promise<T>` is a built-in generic type
-        // when the user hasn't shadowed it with a `class Promise<T>`
-        // (which would have populated generic_aliases above). The
-        // resolver checks user decls FIRST so existing user-class
-        // patterns (e.g. test262-port/promise-001-basic.ts) keep
-        // working through the v0.5 transition. T-15.h reserves
-        // `Promise` as a built-in name and forces migration.
-        if head == "Promise" {
-            let inner = &name[head.len() + 1..name.len() - 1];
-            let inner_ty = resolve_type_ann_full(inner, aliases, type_params, generic_aliases)?;
-            return Some(Type::Promise(Box::new(inner_ty)));
-        }
-        return None;
-    }
-    // M2 — closure env marker `__env(cap0|cap1|...)` injected by
-    // `lift_arrow_fns` on the hidden first param of capturing arrows. At
-    // the typechecker layer the env is just a printable opaque value
-    // (capture types are tracked separately in `Checker.closure_captures`),
-    // so we resolve it to `Any`. The SSA lowerer recognizes the same
-    // marker string and emits the actual env load preamble.
-    if name.starts_with("__env(") && name.ends_with(')') {
-        return Some(Type::Any);
-    }
-    // M2 Phase B Stage 1 — fn type annotations encoded as
-    // V3-18 P2.4.c.2 — inline obj type `__inlobj(name1:T1|name2:T2|...)`.
-    // Same depth-aware decoder shape as `__fn(...)`. Each field's type
-    // recurses through resolve_type_ann_full so nested inline obj /
-    // generic types work.
-    if let Some(rest) = name.strip_prefix("__inlobj(") {
-        let bytes = rest.as_bytes();
-        let mut depth: i32 = 1;
-        let mut close_idx = None;
-        for (i, &b) in bytes.iter().enumerate() {
-            match b {
-                b'(' => depth += 1,
-                b')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close_idx = Some(i);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let close = close_idx?;
-        let fields_str = &rest[..close];
-        let mut fields_split: Vec<&str> = Vec::new();
-        let mut depth2: i32 = 0;
-        let mut last = 0usize;
-        for (i, &b) in fields_str.as_bytes().iter().enumerate() {
-            match b {
-                b'(' => depth2 += 1,
-                b')' => depth2 -= 1,
-                b'|' if depth2 == 0 => {
-                    fields_split.push(&fields_str[last..i]);
-                    last = i + 1;
-                }
-                _ => {}
-            }
-        }
-        if !fields_str.is_empty() {
-            fields_split.push(&fields_str[last..]);
-        }
-        let mut fields_out: Vec<(String, Type)> = Vec::with_capacity(fields_split.len());
-        for f in fields_split {
-            let colon = f.find(':')?;
-            let fname = f[..colon].to_string();
-            let fty_str = &f[colon + 1..];
-            let fty = resolve_type_ann_full(fty_str, aliases, type_params, generic_aliases)?;
-            fields_out.push((fname, fty));
-        }
-        return Some(Type::Struct(fields_out));
-    }
-    // `__fn(P1|P2|...)->R` (user-source fn type) and its
-    // `tag_struct_field_closure_types`-tagged sibling `__cls(P1|...)->R`
-    // (struct-field closure slot) share the same parse shape and both
-    // resolve to `Type::Function(params, ret)` at the typecheck layer.
-    // SSA `parse_type` is what actually distinguishes them: `__fn` →
-    // `Type::FnSig` (direct dispatch), `__cls` → `Type::Closure`
-    // (env-first dispatch).
-    if let Some(rest) = name
-        .strip_prefix("__fn(")
-        .or_else(|| name.strip_prefix("__cls("))
-    {
-        let bytes = rest.as_bytes();
-        let mut depth: i32 = 1;
-        let mut close_idx = None;
-        for (i, &b) in bytes.iter().enumerate() {
-            match b {
-                b'(' => depth += 1,
-                b')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close_idx = Some(i);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let close = close_idx?;
-        let params_str = &rest[..close];
-        let after = &rest[close + 1..];
-        let ret_str = after.strip_prefix("->")?;
-
-        let mut params = Vec::new();
-        let mut depth2: i32 = 0;
-        let mut last = 0usize;
-        for (i, &b) in params_str.as_bytes().iter().enumerate() {
-            match b {
-                b'(' => depth2 += 1,
-                b')' => depth2 -= 1,
-                b'|' if depth2 == 0 => {
-                    params.push(&params_str[last..i]);
-                    last = i + 1;
-                }
-                _ => {}
-            }
-        }
-        if !params_str.is_empty() {
-            params.push(&params_str[last..]);
-        }
-
-        let mut param_tys = Vec::with_capacity(params.len());
-        for p in params {
-            param_tys.push(resolve_type_ann_full(
-                p,
-                aliases,
-                type_params,
-                generic_aliases,
-            )?);
-        }
-        let ret_ty = resolve_type_ann_full(ret_str, aliases, type_params, generic_aliases)?;
-        return Some(Type::Function(param_tys, Box::new(ret_ty)));
-    }
-    // M3 — bare identifier matching an in-scope type-param resolves to a
-    // TypeVar regardless of any conflicting alias / primitive.
-    if type_params.iter().any(|p| p == name) {
-        return Some(Type::TypeVar(name.to_string()));
-    }
-    match name {
-        // `number` is the JS-spelled umbrella; `i64` and `f64` are explicit
-        // Rust-shaped aliases. The typechecker treats all three as the same
-        // numeric category — the SSA lowerer is what actually distinguishes
-        // i64 vs f64 representation per `parse_type` in ssa_lower.rs.
-        "number" | "i64" | "f64" => Some(Type::Number),
-        "string" => Some(Type::String),
-        "boolean" => Some(Type::Boolean),
-        "void" => Some(Type::Void),
-        "bigint" => Some(Type::BigInt),
-        "weakref" | "WeakRef" => Some(Type::WeakRef),
-        "weakmap" | "WeakMap" => Some(Type::WeakMap),
-        "weakset" | "WeakSet" => Some(Type::WeakSet),
-        "Map" => Some(Type::Map),
-        "Set" => Some(Type::Set),
-        "mapiter" | "MapIter" => Some(Type::MapIter),
-        "arriter" | "ArrIter" => Some(Type::ArrIter),
-        // `any` is recognized as a real type in the resolver only as a
-        // late-stage fallback — `desugar_implicit_generics` rewrites
-        // every annotated `: any` to a fresh TypeVar before this layer
-        // sees it. A bare `any` reaching here means the AST pre-pass
-        // was bypassed (e.g. a custom front-end test wiring), and we
-        // accept it rather than reject so the surface stays self-
-        // consistent.
-        "any" => Some(Type::Any),
-        // T-13.a (v0.4.0) — `symbol` is a primitive type alias for
-        // Type::Symbol. Lower-case `symbol` is the spec spelling
-        // (`typeof Symbol() === "symbol"`); `Symbol` is the constructor
-        // function, not a type. Annotation `let s: symbol = Symbol()`
-        // and `symbol[]` arrays both go through here.
-        "symbol" => Some(Type::Symbol),
-        // T-21 (v0.6.0) — `Response` is the heap struct returned by
-        // `fetch(url)`. Its surface (.text() / .status) is wired in
-        // the method-table arm; the type-resolver entry lets users
-        // write `let r: Response = await fetch(url)` explicitly.
-        "Response" => Some(Type::Object("Response")),
-        // User-declared struct alias (P2.4): `type Point = { x: number, y: number }`
-        // adds `Point` to the aliases map. Resolution returns the
-        // structural Type::Struct directly — no nominal layer above.
-        other => aliases.get(other).cloned(),
-    }
-}
-
-/// Word-boundary substitution on a type-annotation string. Same shape as
-/// the SSA layer's `substitute_in_ann` (kept local to check.rs to avoid
-/// a cross-module dep). Used by `resolve_type_ann_full` to substitute
-/// generic-alias type-params (`A`, `B`, ...) with concrete arg ann strings
-/// (`number`, `string`, `Pair<number|string>`, ...) during instantiation.
-fn ann_substitute(ann: &str, subst: &[(String, String)]) -> String {
-    let mut out = String::with_capacity(ann.len());
-    let bytes = ann.as_bytes();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        let c = bytes[i];
-        let is_word_start = c.is_ascii_alphabetic() || c == b'_';
-        if !is_word_start {
-            out.push(c as char);
-            i += 1;
-            continue;
-        }
-        let start = i;
-        while i < bytes.len() {
-            let cc = bytes[i];
-            if cc.is_ascii_alphanumeric() || cc == b'_' {
-                i += 1;
-            } else {
-                break;
-            }
-        }
-        let word = &ann[start..i];
-        if let Some((_, replacement)) = subst.iter().find(|(from, _)| from == word) {
-            out.push_str(replacement);
-        } else {
-            out.push_str(word);
-        }
-    }
-    out
-}
-
 fn build_fn_type(
     fn_name: &str,
     params: &[Param],
@@ -1017,21 +662,23 @@ pub fn is_assignable_to_resolved(
     to: &Type,
     from: &Type,
     aliases: &std::collections::HashMap<String, Type>,
+    generic_aliases: &GenericAliasMap,
 ) -> bool {
     let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
-    is_assignable_to_deep(to, from, aliases, &mut seen)
+    is_assignable_to_deep(to, from, aliases, generic_aliases, &mut seen)
 }
 
 fn is_assignable_to_deep(
     to: &Type,
     from: &Type,
     aliases: &std::collections::HashMap<String, Type>,
+    generic_aliases: &GenericAliasMap,
     seen: &mut std::collections::HashSet<(String, String)>,
 ) -> bool {
     // Resolve any ClassRef placeholders one layer up before deeper
     // structural comparison.
-    let to_r = resolve_class_ref(to, aliases);
-    let from_r = resolve_class_ref(from, aliases);
+    let to_r = resolve_class_ref(to, aliases, generic_aliases);
+    let from_r = resolve_class_ref(from, aliases, generic_aliases);
     if to_r == from_r {
         return true;
     }
@@ -1052,13 +699,13 @@ fn is_assignable_to_deep(
         if matches!(from_r, Type::Null | Type::Undefined) {
             return true;
         }
-        return is_assignable_to_deep(inner, &from_r, aliases, seen);
+        return is_assignable_to_deep(inner, &from_r, aliases, generic_aliases, seen);
     }
     if let (Type::Array(to_el), Type::Array(from_el)) = (&to_r, &from_r) {
         if matches!(**to_el, Type::Any) {
             return true;
         }
-        return is_assignable_to_deep(to_el, from_el, aliases, seen);
+        return is_assignable_to_deep(to_el, from_el, aliases, generic_aliases, seen);
     }
     if let (Type::Struct(to_fields), Type::Struct(from_fields)) = (&to_r, &from_r)
         && from_fields.len() >= to_fields.len()
@@ -1080,7 +727,7 @@ fn is_assignable_to_deep(
         }
         let result = to_fields.iter().enumerate().all(|(i, (n, t))| {
             let (fn_name, fn_ty) = &from_fields[i];
-            fn_name == n && is_assignable_to_deep(t, fn_ty, aliases, seen)
+            fn_name == n && is_assignable_to_deep(t, fn_ty, aliases, generic_aliases, seen)
         });
         seen.remove(&key);
         return result;
@@ -1267,7 +914,11 @@ fn is_assignable_to(to: &Type, from: &Type) -> bool {
 /// type (field access, unify, member-call dispatch) — without it,
 /// a self-referential class field stays at the placeholder and
 /// the consumer sees no fields.
-pub fn resolve_class_ref(ty: &Type, aliases: &std::collections::HashMap<String, Type>) -> Type {
+pub fn resolve_class_ref(
+    ty: &Type,
+    aliases: &std::collections::HashMap<String, Type>,
+    generic_aliases: &GenericAliasMap,
+) -> Type {
     match ty {
         Type::ClassRef(name) => {
             match aliases.get(name) {
@@ -1278,12 +929,25 @@ pub fn resolve_class_ref(ty: &Type, aliases: &std::collections::HashMap<String, 
                     // ClassRef("Node")). One unwrap pass keeps
                     // following levels resolved at access time.
                     let resolved = t.clone();
-                    resolve_class_ref_one(&resolved, aliases)
+                    resolve_class_ref_one(&resolved, aliases, generic_aliases)
+                }
+                // Generic-instantiation back-edge (`Rec<number>` from a
+                // recursive `type Rec<T>`): the key is not in `aliases`
+                // (instantiation is lazy, there is no Pass-0 entry) but
+                // it IS its own canonical annotation — re-instantiate
+                // one shallow layer. Recursive fields inside come back
+                // as ClassRef again, so this terminates: same lazy
+                // one-layer-per-access contract as the named-class arm.
+                None if name.contains('<') => {
+                    match resolve_type_ann_full(name, aliases, &[], generic_aliases) {
+                        Some(t) if !matches!(t, Type::ClassRef(_)) => t,
+                        _ => ty.clone(),
+                    }
                 }
                 _ => ty.clone(),
             }
         }
-        _ => resolve_class_ref_one(ty, aliases),
+        _ => resolve_class_ref_one(ty, aliases, generic_aliases),
     }
 }
 
@@ -1291,10 +955,18 @@ pub fn resolve_class_ref(ty: &Type, aliases: &std::collections::HashMap<String, 
 /// embedded in struct/array fields alone (they get resolved on the
 /// next access). This keeps recursive class layouts finite — a
 /// fully-resolved Node would expand infinitely.
-fn resolve_class_ref_one(ty: &Type, aliases: &std::collections::HashMap<String, Type>) -> Type {
+fn resolve_class_ref_one(
+    ty: &Type,
+    aliases: &std::collections::HashMap<String, Type>,
+    generic_aliases: &GenericAliasMap,
+) -> Type {
     match ty {
-        Type::Nullable(inner) => Type::Nullable(Box::new(resolve_class_ref(inner, aliases))),
-        Type::Array(inner) => Type::Array(Box::new(resolve_class_ref(inner, aliases))),
+        Type::Nullable(inner) => {
+            Type::Nullable(Box::new(resolve_class_ref(inner, aliases, generic_aliases)))
+        }
+        Type::Array(inner) => {
+            Type::Array(Box::new(resolve_class_ref(inner, aliases, generic_aliases)))
+        }
         _ => ty.clone(),
     }
 }
@@ -1343,9 +1015,15 @@ pub fn type_to_ann(ty: &Type) -> String {
         }
         Type::Object(name) => (*name).into(),
         Type::ClassRef(name) => {
-            /* V3-05 — class references should have been resolved
-             * (via aliases lookup) before reaching ssa_lower. The
-             * placeholder Pass should have been replaced by the
+            // Generic-instantiation back-edge (`Rec<number>`): the key
+            // IS its own canonical annotation — emit it verbatim and
+            // ssa_lower::parse_type re-instantiates on its side.
+            if name.contains('<') {
+                return name.clone();
+            }
+            /* V3-05 — non-generic class references should have been
+             * resolved (via aliases lookup) before reaching ssa_lower.
+             * The placeholder Pass should have been replaced by the
              * Real Type::Struct in c.aliases by the time anyone
              * asks for an SSA annotation. Panic to surface stale
              * usage rather than silently emitting `__struct()` for
@@ -2821,7 +2499,12 @@ impl Checker {
                             self.errors.push_err(format!("unknown type `{ann}`"));
                             return;
                         };
-                        if !is_assignable_to_resolved(&ann_ty, &init_ty, &self.aliases) {
+                        if !is_assignable_to_resolved(
+                            &ann_ty,
+                            &init_ty,
+                            &self.aliases,
+                            &self.generic_alias_decls,
+                        ) {
                             self.errors.push_err(format!(
                                 "type mismatch on `{name}`: declared {ann_ty:?}, init has {init_ty:?}"
                             ));
@@ -2985,7 +2668,14 @@ impl Checker {
                 // returned values. Previous strict-eq blocked
                 // generators with default-Any yield types from
                 // returning concrete iterator-result structs.
-                if !nullable_ok && !is_assignable_to_resolved(&expected, &actual, &self.aliases) {
+                if !nullable_ok
+                    && !is_assignable_to_resolved(
+                        &expected,
+                        &actual,
+                        &self.aliases,
+                        &self.generic_alias_decls,
+                    )
+                {
                     self.errors.push_err(format!(
                         "return type mismatch: function expects {expected:?}, got {actual:?}"
                     ));
@@ -3265,11 +2955,16 @@ impl Checker {
                 // the named field; type is whatever it was declared as.
                 // V3-05 — resolve any ClassRef placeholder embedded in
                 // obj_ty (self-reference fields hit this).
-                let resolved_obj_ty = resolve_class_ref(&obj_ty, &self.aliases);
+                let resolved_obj_ty =
+                    resolve_class_ref(&obj_ty, &self.aliases, &self.generic_alias_decls);
                 if let Type::Struct(fields) = &resolved_obj_ty
                     && let Some((_, ty)) = fields.iter().find(|(fname, _)| fname == name)
                 {
-                    return Ok(resolve_class_ref(ty, &self.aliases));
+                    return Ok(resolve_class_ref(
+                        ty,
+                        &self.aliases,
+                        &self.generic_alias_decls,
+                    ));
                 }
                 // P8.2 — accessor read: `c.value` where the resolved
                 // class C has a `get value(): T` declaration. After the
@@ -3294,7 +2989,11 @@ impl Checker {
                             ast.accessor_getters.get(&(cls.clone(), name.clone()))
                         && let Some(Type::Function(_params, ret)) = self.globals.get(getter_fn)
                     {
-                        return Ok(resolve_class_ref(ret, &self.aliases));
+                        return Ok(resolve_class_ref(
+                            ret,
+                            &self.aliases,
+                            &self.generic_alias_decls,
+                        ));
                     }
                 }
                 /* T-15.g.2 (v0.5.0) — built-in `Promise<T>.value` returns
@@ -4991,7 +4690,12 @@ impl Checker {
                 for &eid in ids.iter() {
                     let ty = elem_value_ty(self, eid)?;
                     if let Some(ty) = ty
-                        && !is_assignable_to_resolved(&first_ty, &ty, &self.aliases)
+                        && !is_assignable_to_resolved(
+                            &first_ty,
+                            &ty,
+                            &self.aliases,
+                            &self.generic_alias_decls,
+                        )
                     {
                         heterogeneous = true;
                         break;
@@ -6976,7 +6680,12 @@ impl Checker {
                             && let Some(global_ty) = self.globals.get(&name).cloned()
                         {
                             let value_ty = self.type_of(ast, *value)?;
-                            if !is_assignable_to_resolved(&global_ty, &value_ty, &self.aliases) {
+                            if !is_assignable_to_resolved(
+                                &global_ty,
+                                &value_ty,
+                                &self.aliases,
+                                &self.generic_alias_decls,
+                            ) {
                                 return Err(format!(
                                     "type mismatch assigning to global `{name}`: declared {global_ty:?}, value is {value_ty:?}"
                                 ));
@@ -6995,7 +6704,12 @@ impl Checker {
                         }
                         let target_ty = info.ty.clone();
                         let value_ty = self.type_of(ast, *value)?;
-                        if !is_assignable_to_resolved(&target_ty, &value_ty, &self.aliases) {
+                        if !is_assignable_to_resolved(
+                            &target_ty,
+                            &value_ty,
+                            &self.aliases,
+                            &self.generic_alias_decls,
+                        ) {
                             return Err(format!(
                                 "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
                             ));
@@ -7143,6 +6857,7 @@ impl Checker {
                                 &setter_param_ty,
                                 &value_ty,
                                 &self.aliases,
+                                &self.generic_alias_decls,
                             ) {
                                 return Err(format!(
                                     "type mismatch assigning to accessor `{cls}.{field}`: setter expects {setter_param_ty:?}, value is {value_ty:?}"
@@ -7160,7 +6875,14 @@ impl Checker {
                         // gets its element type from the field's
                         // declared array type.
                         if matches!(ast.get_expr(*value), Expr::Array(els) if els.is_empty())
-                            && matches!(resolve_class_ref(&field_ty, &self.aliases), Type::Array(_))
+                            && matches!(
+                                resolve_class_ref(
+                                    &field_ty,
+                                    &self.aliases,
+                                    &self.generic_alias_decls
+                                ),
+                                Type::Array(_)
+                            )
                         {
                             self.consume(ast, *value);
                             return Ok(field_ty);
@@ -7171,7 +6893,12 @@ impl Checker {
                         // widens into Nullable(T), and ClassRef
                         // placeholders resolve to their concrete struct
                         // before the equality check.
-                        if !is_assignable_to_resolved(&field_ty, &value_ty, &self.aliases) {
+                        if !is_assignable_to_resolved(
+                            &field_ty,
+                            &value_ty,
+                            &self.aliases,
+                            &self.generic_alias_decls,
+                        ) {
                             return Err(format!(
                                 "type mismatch assigning to `{field}`: field is {field_ty:?}, value is {value_ty:?}"
                             ));
@@ -7201,7 +6928,12 @@ impl Checker {
                         // via `__torajs_arr_set_any` (matches the
                         // existing Any-typed let init / call-arg
                         // boxing path).
-                        if !is_assignable_to_resolved(&elem_ty, &value_ty, &self.aliases) {
+                        if !is_assignable_to_resolved(
+                            &elem_ty,
+                            &value_ty,
+                            &self.aliases,
+                            &self.generic_alias_decls,
+                        ) {
                             return Err(format!(
                                 "type mismatch on element assignment: array of {elem_ty:?}, value is {value_ty:?}"
                             ));
@@ -7407,7 +7139,12 @@ impl Checker {
             Expr::New { class_name, args } if class_name == "Array" => {
                 if args.len() == 1 {
                     let arg_ty = self.type_of(ast, args[0])?;
-                    if !is_assignable_to_resolved(&Type::Number, &arg_ty, &self.aliases) {
+                    if !is_assignable_to_resolved(
+                        &Type::Number,
+                        &arg_ty,
+                        &self.aliases,
+                        &self.generic_alias_decls,
+                    ) {
                         return Err(format!(
                             "`new Array(...)` 1-arg form: arg must be number, got {arg_ty:?}"
                         ));

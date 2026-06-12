@@ -169,6 +169,7 @@ pub const TORAJS_COMPILER_REV: &str = env!("TORAJS_COMPILER_REV");
 pub mod ast;
 pub mod ast_refs;
 pub mod check;
+pub(crate) mod check_type_ann;
 pub mod formatter;
 pub mod lexer;
 pub mod linter;
