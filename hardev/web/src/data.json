@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-12T10:28:57.053Z",
+  "generatedAt": "2026-06-12T11:59:07.414Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 71.31
   },
   "torajs": {
-    "commit": "d2ebb2a",
-    "commitSubject": "fix(bench): torajs-str bench matches StrBlock u32 length signature",
+    "commit": "eb01806",
+    "commitSubject": "fix(core): as-number unboxes anyvalue and map value slot answers width queries",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,22 @@
   },
   "commits": [
     {
+      "hash": "eb01806",
+      "subject": "fix(core): as-number unboxes anyvalue and map value slot answers width queries"
+    },
+    {
+      "hash": "018c6cf",
+      "subject": "test: value-drop integration test links via per-tag drop stubs"
+    },
+    {
+      "hash": "bdbc7e8",
+      "subject": "fix(core): async fn promise return covariance and awaited value width faces"
+    },
+    {
+      "hash": "2cee60b",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD d2ebb2a (l3b ground truth sweep: 5 residual items reproduced, f64 array index coerce closed, recursive generic alias closed across check/lower/width layers with rfc, gate 762 -> 764/0/4, bench precheck 32/32 identical twice)"
+    },
+    {
       "hash": "d2ebb2a",
       "subject": "fix(bench): torajs-str bench matches StrBlock u32 length signature"
     },
@@ -646,43 +662,38 @@
     {
       "hash": "8b9b138",
       "subject": "fix(cli): lower panic hook prints message and exits 3 under panic=abort"
-    },
-    {
-      "hash": "2557961",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD ce5263f (w3 srem runtime-0 closed: divisor non-zero carve + frem_narrow fused zero guard, gate 761/0/4, bench pass with prime_count +2.2% justified; ann-width rfc fully closed - all follow-up rows done; s8 was already closed at 0ed852a, prior handoff stale)"
-    },
-    {
-      "hash": "ce5263f",
-      "subject": "chore(bench): record 091d784 3-run - srem runtime-0 verdict pass (31/32 artifact identical vs faf093e; prime_count sole delta justified = fused divisor zero guard intended, run_ms 55.6 -> 56.8 +2.2% = the two guard alu insts, recovered from +2640% under the reject-only dfd3d62)"
-    },
-    {
-      "hash": "091d784",
-      "subject": "perf(core): fused zero guard keeps variable-divisor srem compares - w3 srem runtime-0 bench fix"
-    },
-    {
-      "hash": "dfd3d62",
-      "subject": "fix(core): srem requires provably non-zero divisor - w3 srem runtime-0 close"
     }
   ],
-  "headSha": "d2ebb2a",
+  "headSha": "eb01806",
   "autorun": {
-    "total": 128,
+    "total": 129,
     "baselineTarget": 10,
-    "bySelf": 126,
+    "bySelf": 127,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781255420-0913",
-      "at": "2026-06-12T09:10:20Z",
-      "ts": 1781255420,
+      "rotationId": "r-1781260211-67db",
+      "at": "2026-06-12T10:30:11Z",
+      "ts": 1781260211,
       "trigger": "self",
-      "prevHead": "446a901",
-      "handoffSha": "sha256:c2850d1980387a4e890681f42a957bf4da0d782c025addef950df03b7f679a01",
-      "handoffAgeSec": 8,
+      "prevHead": "2cee60b",
+      "handoffSha": "sha256:d15b00e686ee8516b9c8a6f0b799c53c47fd66b76111e40f73971542f49f0c41",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781260211-67db",
+        "at": "2026-06-12T10:30:11Z",
+        "ts": 1781260211,
+        "trigger": "self",
+        "prevHead": "2cee60b",
+        "handoffSha": "sha256:d15b00e686ee8516b9c8a6f0b799c53c47fd66b76111e40f73971542f49f0c41",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781255420-0913",
         "at": "2026-06-12T09:10:20Z",
@@ -779,17 +790,6 @@
         "prevHead": "7731a6b",
         "handoffSha": "sha256:9bf9bbe7ead4f9280f7875ecc4627cea6b25307d467ef9b63d8222f7382ed6f1",
         "handoffAgeSec": 9,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781162368-77a8",
-        "at": "2026-06-11T07:19:28Z",
-        "ts": 1781162368,
-        "trigger": "self",
-        "prevHead": "f62ef6a",
-        "handoffSha": "sha256:eb71fe4a93cdb1414d59e33f443276491746af06de8dd39ca806177c812813f4",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
