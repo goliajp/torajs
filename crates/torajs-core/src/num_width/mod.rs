@@ -257,9 +257,11 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
     };
 
     // Top-level statements walk under the "" scope; fn bodies under
-    // their own. Synthetic fns (`__closure_*` / `__cm_*` …) still walk
-    // — their bodies can write captured outer slots — but their own
-    // params / rets never enter the consumer guard (sites skip `__`).
+    // their own. Synthetic fns (`__closure_*` / `__cm_*` …) walk like
+    // user fns, and since §5.6 F2 their Param / Ret keys feed the
+    // lowering consumer sites too — a synthetic fn whose body returns
+    // an f64-possible value gets a genuinely-F64 ABI instead of the
+    // old `: number`-pinned I64 (the FpToSi truncation face).
     let top_scope = Scope {
         fn_name: "",
         params: HashSet::new(),

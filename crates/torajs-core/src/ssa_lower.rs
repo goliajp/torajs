@@ -4740,11 +4740,13 @@ fn lower_inner(
                 // propagation). Widening here makes call sites coerce
                 // i64 args via SiToFp. Same num_width ground truth as
                 // the body-lowering param_setup — the two sites must
-                // not drift (K.3 lesson). Synthetic fns keep their ABI
-                // surfaces untouched.
+                // not drift (K.3 lesson). Synthetic fns (`__cm_*` /
+                // `__closure_*`) consult the same table (§5.6 F2):
+                // their call sites read the same Pass-1 sig / Pass-2
+                // signatures entries this widen feeds, so both ends
+                // move together.
                 if pty == Type::I64
                     && p.type_ann.as_deref() == Some("number")
-                    && !name.starts_with("__")
                     && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Param(
                         name.clone(),
                         p.name.clone(),
@@ -4784,7 +4786,6 @@ fn lower_inner(
             // 0.5` printed 0, silent wrong).
             if ret_ty == Type::I64
                 && return_type.as_deref() == Some("number")
-                && !name.starts_with("__")
                 && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Ret(name.clone()))
             {
                 ret_ty = Type::F64;
@@ -6921,7 +6922,6 @@ fn lower_fn(
     // sites must not drift (K.3 lesson).
     if ret_ty == Type::I64
         && return_type == Some("number")
-        && !name.starts_with("__")
         && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Ret(name.to_string()))
     {
         ret_ty = Type::F64;
@@ -6958,7 +6958,6 @@ fn lower_fn(
         // site — the two must not drift (K.3 lesson).
         if pty == Type::I64
             && p.type_ann.as_deref() == Some("number")
-            && !name.starts_with("__")
             && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Param(
                 name.to_string(),
                 p.name.clone(),
@@ -22807,45 +22806,17 @@ impl<'a> LowerCtx<'a> {
                 let fid = self.fn_table.get(&fn_name).copied().unwrap_or_else(|| {
                     panic!("ssa-lower: closure target `{fn_name}` not in fn table")
                 });
-                // Build the user-facing signature (without env first param)
-                // by reading the lifted FnDecl's params from the AST and
-                // skipping the `__env` first param. Ret type matches the
-                // SSA function's ret slot.
-                let (user_param_tys, user_ret_ty) = {
-                    let mut params_v: Vec<Type> = Vec::new();
-                    let mut ret_v = Type::Void;
-                    for s in &self.ast.stmts {
-                        if let Stmt::FnDecl {
-                            name,
-                            params: ps,
-                            return_type,
-                            ..
-                        } = s
-                            && name == &fn_name
-                        {
-                            for p in ps.iter().skip(1) {
-                                params_v.push(parse_type(
-                                    p.type_ann.as_deref(),
-                                    self.aliases,
-                                    self.arr_layouts,
-                                    self.fn_sigs,
-                                    self.generic_struct_decls,
-                                    self.struct_layouts,
-                                ));
-                            }
-                            ret_v = parse_type(
-                                return_type.as_deref(),
-                                self.aliases,
-                                self.arr_layouts,
-                                self.fn_sigs,
-                                self.generic_struct_decls,
-                                self.struct_layouts,
-                            );
-                            break;
-                        }
-                    }
-                    (params_v, ret_v)
-                };
+                // Build the user-facing signature (without env first
+                // param) from the lifted FnDecl's Pass-1 interned sig —
+                // the num_width-widened truth its body lowers against.
+                // Re-parsing the AST annotations here would re-introduce
+                // the un-widened parse widths (§5.6 F2 drift: the body
+                // wrote its widened f64 ret, this sig still read i64).
+                let own_sig = self.fn_sig_ids.get(&fid).copied().unwrap_or_else(|| {
+                    panic!("ssa-lower: closure `{fn_name}` has no interned sig")
+                });
+                let (own_params, user_ret_ty) = self.fn_sigs[own_sig.0 as usize].clone();
+                let user_param_tys: Vec<Type> = own_params.iter().skip(1).copied().collect();
                 let user_sig = intern_fn_sig(self.fn_sigs, user_param_tys, user_ret_ty);
                 let closure_ty = Type::Closure(user_sig);
 
