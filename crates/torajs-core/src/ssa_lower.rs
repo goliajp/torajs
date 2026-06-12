@@ -9021,6 +9021,27 @@ impl<'a> LowerCtx<'a> {
                 // migrate them to the universal heap header so they
                 // join this path.
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                // NULL guard — regex exec / match no-match results are
+                // null (spec §22.2.7.2), so a nullable Arr binding
+                // reaches scope drop as NULL; the refcounted-element
+                // walk below would Load the len off NULL otherwise.
+                let body_blk = self.f.add_block();
+                let after = self.f.add_block();
+                let null_check = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(IPred::Eq, val.clone(), Operand::ConstPtrNull),
+                    Type::Bool,
+                    None,
+                );
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(null_check),
+                        then_blk: after,
+                        else_blk: body_blk,
+                    },
+                );
+                self.cur_block = body_blk;
                 // T-10.d.i — Array<Any> uses 16-byte slot stride and
                 // a tagged-slot layout that the regular arr_drop
                 // walker can't decode. Route to the dedicated
@@ -9030,25 +9051,27 @@ impl<'a> LowerCtx<'a> {
                     let drop_fid = self.intrinsics.arr_drop_any;
                     self.f
                         .append_void(self.cur_block, InstKind::Call(drop_fid, vec![val]));
-                    return;
+                } else {
+                    if elem_ty.is_refcounted() {
+                        let len_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, val.clone(), ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        self.emit_arr_rc_drop_range(
+                            val.clone(),
+                            elem_ty,
+                            Operand::ConstI64(0),
+                            Operand::Value(len_v),
+                        );
+                    }
+                    let drop_fid = self.intrinsics.arr_drop;
+                    self.f
+                        .append_void(self.cur_block, InstKind::Call(drop_fid, vec![val]));
                 }
-                if elem_ty.is_refcounted() {
-                    let len_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::I64, val, ARR_LEN_OFF),
-                        Type::I64,
-                        None,
-                    );
-                    self.emit_arr_rc_drop_range(
-                        val,
-                        elem_ty,
-                        Operand::ConstI64(0),
-                        Operand::Value(len_v),
-                    );
-                }
-                let drop_fid = self.intrinsics.arr_drop;
-                self.f
-                    .append_void(self.cur_block, InstKind::Call(drop_fid, vec![val]));
+                self.f.set_term(self.cur_block, Terminator::Br(after));
+                self.cur_block = after;
             }
             Type::Closure(_) => {
                 // Per-closure env-drop: load drop_fn ptr from
