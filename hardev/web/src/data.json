@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-12T11:59:07.414Z",
+  "generatedAt": "2026-06-12T20:23:18.983Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 71.31
   },
   "torajs": {
-    "commit": "eb01806",
-    "commitSubject": "fix(core): as-number unboxes anyvalue and map value slot answers width queries",
+    "commit": "3dd386b",
+    "commitSubject": "fix(core): demote name-based class-method rewrites on builtin container receivers",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,14 @@
   },
   "commits": [
     {
+      "hash": "3dd386b",
+      "subject": "fix(core): demote name-based class-method rewrites on builtin container receivers"
+    },
+    {
+      "hash": "495ceb9",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD eb01806 (l3b residual batch closed: r3/r4 async promise covariance + value width faces, value-drop test link fix unlocks workspace nextest 1880/1880 as real gate, map get-as-number unbox + value slot width, 6 stale entries audited closed, gate 764 -> 766/0/4, bench precheck 32/32 identical twice)"
+    },
+    {
       "hash": "eb01806",
       "subject": "fix(core): as-number unboxes anyvalue and map value slot answers width queries"
     },
@@ -654,35 +662,38 @@
     {
       "hash": "446a901",
       "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD d82bd04 (l3b double fix: silent lower-panic abort now prints message + exits 3, json.parse number faces seed f64 with cursor-derangement root cause closed, gate 762/0/4, bench precheck 32/32 identical)"
-    },
-    {
-      "hash": "d82bd04",
-      "subject": "fix(core): json.parse number faces seed f64 - w4 follow-up"
-    },
-    {
-      "hash": "8b9b138",
-      "subject": "fix(cli): lower panic hook prints message and exits 3 under panic=abort"
     }
   ],
-  "headSha": "eb01806",
+  "headSha": "3dd386b",
   "autorun": {
-    "total": 129,
+    "total": 130,
     "baselineTarget": 10,
-    "bySelf": 127,
+    "bySelf": 128,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781260211-67db",
-      "at": "2026-06-12T10:30:11Z",
-      "ts": 1781260211,
+      "rotationId": "r-1781265646-141c",
+      "at": "2026-06-12T12:00:46Z",
+      "ts": 1781265646,
       "trigger": "self",
-      "prevHead": "2cee60b",
-      "handoffSha": "sha256:d15b00e686ee8516b9c8a6f0b799c53c47fd66b76111e40f73971542f49f0c41",
-      "handoffAgeSec": 7,
+      "prevHead": "495ceb9",
+      "handoffSha": "sha256:8809efc32f718cac949eaba485ac761d3215ad3fed44eb819dce4fd6f88ab73f",
+      "handoffAgeSec": 34,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781265646-141c",
+        "at": "2026-06-12T12:00:46Z",
+        "ts": 1781265646,
+        "trigger": "self",
+        "prevHead": "495ceb9",
+        "handoffSha": "sha256:8809efc32f718cac949eaba485ac761d3215ad3fed44eb819dce4fd6f88ab73f",
+        "handoffAgeSec": 34,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781260211-67db",
         "at": "2026-06-12T10:30:11Z",
@@ -778,17 +789,6 @@
         "trigger": "self",
         "prevHead": "7323865",
         "handoffSha": "sha256:5ca656d24922e5a2395c27f999eb1af01c0f28dbff562224f16171ec10524bd5",
-        "handoffAgeSec": 9,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781183096-757a",
-        "at": "2026-06-11T13:04:56Z",
-        "ts": 1781183096,
-        "trigger": "self",
-        "prevHead": "7731a6b",
-        "handoffSha": "sha256:9bf9bbe7ead4f9280f7875ecc4627cea6b25307d467ef9b63d8222f7382ed6f1",
         "handoffAgeSec": 9,
         "conformanceBefore": null,
         "commitsInSession": null
