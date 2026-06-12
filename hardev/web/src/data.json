@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-12T02:31:33.121Z",
+  "generatedAt": "2026-06-12T07:58:50.093Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 71.31
   },
   "torajs": {
-    "commit": "c3d4ab3",
-    "commitSubject": "chore(bench): record faf093e 3-run - chunk 2.5 verdict pass (31/32 artifact identical vs f2f0021, class-method delta justified = f2 __cm_* ret abi widen intended with run_ms -0.6% neutral; torajs-run column invalid - nohup-reparented harness left the sshd developer-tools exemption chain, syspolicyd scan tax ~+152ms/invocation)",
+    "commit": "ff1a790",
+    "commitSubject": "fix(core): var x var int mul preserves ieee -0 - w3 s9 third flip",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,26 @@
   },
   "commits": [
     {
+      "hash": "ff1a790",
+      "subject": "fix(core): var x var int mul preserves ieee -0 - w3 s9 third flip"
+    },
+    {
+      "hash": "5d82c57",
+      "subject": "fix(core): promise value width query mirrors known-fn ret key - w3 chunk 2.6b gate fix"
+    },
+    {
+      "hash": "dcce0ff",
+      "subject": "fix(core): promise value-slot width negotiation - w3 chunk 2.6b f5"
+    },
+    {
+      "hash": "c94366f",
+      "subject": "fix(core): dispatch-face width negotiation - w3 chunk 2.6a f5"
+    },
+    {
+      "hash": "2ec7f16",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD faf093e (chunk 2.5 synthetic/indirect width negotiation shipped x3 fixing 4 live silent-wrongs, s9 second flip reverted on third dispatch-face batch, bench pass 31/32 identical, next chunk 2.6 remaining dispatch faces)"
+    },
+    {
       "hash": "c3d4ab3",
       "subject": "chore(bench): record faf093e 3-run - chunk 2.5 verdict pass (31/32 artifact identical vs f2f0021, class-method delta justified = f2 __cm_* ret abi widen intended with run_ms -0.6% neutral; torajs-run column invalid - nohup-reparented harness left the sshd developer-tools exemption chain, syspolicyd scan tax ~+152ms/invocation)"
     },
@@ -642,47 +662,38 @@
     {
       "hash": "0bb4e18",
       "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 9ae50a3 (determinism debt closed via drop-order sort, artifact gate restored 32/32 x2, chunk 2 trunc-tree shipped, chunk 3 s9 first flip reverted on synthetic-abi width gap, next chunk 2.5 abi width negotiation)"
-    },
-    {
-      "hash": "9ae50a3",
-      "subject": "revert: var x var int mul float (w3 s9) - blocked on synthetic/indirect abi width"
-    },
-    {
-      "hash": "15d1dac",
-      "subject": "fix(core): var x var int mul preserves ieee -0 - w3 s9"
-    },
-    {
-      "hash": "161f227",
-      "subject": "chore(bench): record f2f0021 3-run - chunk 2 verdict pass (32/32 artifact identical vs 6b635e3, tree recovery has no fire surface in current bench ssa as designed - fires after chunk 3 mul float)"
-    },
-    {
-      "hash": "f2f0021",
-      "subject": "feat(egraph): truncation propagation through f-op trees - w3 chunk 2"
-    },
-    {
-      "hash": "abf7491",
-      "subject": "chore(bench): record 6b635e3 3-run - determinism fix verdict pass (32/32 artifact identical vs 0ed852a, run_ms 0 signal, artifact hash gate restored to full trust)"
     }
   ],
-  "headSha": "c3d4ab3",
+  "headSha": "ff1a790",
   "autorun": {
-    "total": 124,
+    "total": 125,
     "baselineTarget": 10,
-    "bySelf": 122,
+    "bySelf": 123,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781224447-510f",
-      "at": "2026-06-12T00:34:07Z",
-      "ts": 1781224447,
+      "rotationId": "r-1781231520-3f18",
+      "at": "2026-06-12T02:32:00Z",
+      "ts": 1781231520,
       "trigger": "self",
-      "prevHead": "0bb4e18",
-      "handoffSha": "sha256:49bc3a03812fdb575cb7076ff468be6ab7f84f6427c92dd2a950d52d8dbe2bbc",
+      "prevHead": "2ec7f16",
+      "handoffSha": "sha256:240a4850a0325a1d77000cbaeef511dea075621fddbc9651314313364f220325",
       "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781231520-3f18",
+        "at": "2026-06-12T02:32:00Z",
+        "ts": 1781231520,
+        "trigger": "self",
+        "prevHead": "2ec7f16",
+        "handoffSha": "sha256:240a4850a0325a1d77000cbaeef511dea075621fddbc9651314313364f220325",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781224447-510f",
         "at": "2026-06-12T00:34:07Z",
@@ -779,17 +790,6 @@
         "prevHead": "ea4ee55",
         "handoffSha": "sha256:a0567ea7e8a231054bcc86df9bef8c70b5c9c5b956eaf37743716f0ee2dc768c",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781127145-62a7",
-        "at": "2026-06-10T21:32:25Z",
-        "ts": 1781127145,
-        "trigger": "self",
-        "prevHead": "704ee79",
-        "handoffSha": "sha256:f3e2b1eac2a500576ca4cfb3f896486419229e66e974c160aecc7d5e455b59f6",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
