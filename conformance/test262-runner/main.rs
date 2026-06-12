@@ -461,7 +461,12 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
     // harness-includes bucket — an attributable reject, NOT a silent
     // skip (the case would fail on the missing helper for bun and tr
     // alike).
-    const PORTED_INCLUDES: &[&str] = &["compareArray.js", "decimalToHexString.js", "nans.js"];
+    const PORTED_INCLUDES: &[&str] = &[
+        "compareArray.js",
+        "dateConstants.js",
+        "decimalToHexString.js",
+        "nans.js",
+    ];
     let unported: Vec<&str> = fm
         .includes
         .iter()

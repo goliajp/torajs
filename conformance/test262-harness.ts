@@ -184,6 +184,19 @@ const NaNs: number[] = [
   -Math.pow(-1, 0.5),
   Number("Not-a-Number"),
 ];
+
+// ─── dateConstants.js port (2026-06-13) ───
+
+const date_1899_end: number = -2208988800001;
+const date_1900_start: number = -2208988800000;
+const date_1969_end: number = -1;
+const date_1970_start: number = 0;
+const date_1999_end: number = 946684799999;
+const date_2000_start: number = 946684800000;
+const date_2099_end: number = 4102444799999;
+const date_2100_start: number = 4102444800000;
+const start_of_time: number = -8.64e15;
+const end_of_time: number = 8.64e15;
 function __t262_deepEqual(_actual: any, _expected: any, _msg: string = ""): void {}
 function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}
 function __t262_verifyCallableProperty(_obj: any, _name: any, _fnName: any, _fnLen: any, _desc: any): boolean { return true; }
