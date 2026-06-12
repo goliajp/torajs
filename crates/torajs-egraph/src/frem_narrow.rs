@@ -27,10 +27,11 @@
 //!   fmul qualify only under this sink — an fcmp would observe the
 //!   rounding the int form wraps (W3 C4).
 //!
-//! A constant-zero divisor never narrows (frem → NaN is the JS `a % 0`
-//! answer; srem would be UB). A *runtime* zero divisor in the narrowed
-//! form is UB-parity with the pre-W3 int path (known debt, ssa_lower
-//! Mod arm comment).
+//! An SRem recovery requires a PROVABLY non-zero divisor — a non-zero
+//! integral constant (srem runtime-0, ann-width §5.3 follow-up close).
+//! A variable divisor that is 0 at runtime must keep the frem: frem →
+//! NaN is the JS `a % 0` answer, while aarch64 sdiv-by-zero hands the
+//! dividend back (`(7 % b) | 0` printed 7 where bun prints NaN|0 = 0).
 //!
 //! Runs after phi_promote, before the interval analysis — the
 //! recovered int loops feed interval facts and sext_elide seeds as if
@@ -140,7 +141,13 @@ fn collect_trunc_tree(
     let Some(bi) = resolve(b, out) else {
         return false;
     };
-    if iop == BinOp::SRem && matches!(bi, Operand::ConstI64(0)) {
+    // srem runtime-0 (ann-width §5.3 follow-up close) — an SRem
+    // recovery needs a PROVABLY non-zero divisor, not just "not the
+    // constant zero": a variable divisor that is 0 at runtime must
+    // keep the frem (NaN per JS `a % 0`; aarch64 sdiv-by-zero hands
+    // the dividend back — `(7 % b) | 0` printed 7 where bun prints
+    // NaN|0 = 0).
+    if iop == BinOp::SRem && !matches!(bi, Operand::ConstI64(d) if d != 0) {
         return false;
     }
     out.insert(*v, (iop, ai, bi));
@@ -201,7 +208,8 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
         };
         let ai = int_form(a, &defs)?;
         let bi = int_form(b, &defs)?;
-        if matches!(bi, Operand::ConstI64(0)) {
+        // Same provably-non-zero divisor gate as the trunc-tree pass.
+        if !matches!(bi, Operand::ConstI64(d) if d != 0) {
             return None;
         }
         Some((BinOp::SRem, ai, bi))
@@ -386,8 +394,48 @@ mod tests {
 
     #[test]
     fn cmp_over_frem_narrows_to_icmp_srem() {
-        // %2 = sitofp %0 ; %3 = sitofp %1 ; %4 = frem %2, %3
+        // %2 = sitofp %0 ; %4 = frem %2, 2.0
         // %5 = fcmp oeq %4, 0.0 ; cond_br %5
+        // Constant non-zero divisor — the provable srem case.
+        let mut f = func_with(
+            vec![
+                inst(2, InstKind::SiToFp(v(0))),
+                inst(4, InstKind::BinOp(BinOp::FRem, v(2), cf(2.0))),
+                inst(5, InstKind::FCmp(FPred::Oeq, v(4), cf(0.0))),
+            ],
+            6,
+            Terminator::CondBr {
+                cond: v(5),
+                then_blk: BlockId(0),
+                else_blk: BlockId(0),
+            },
+        );
+        let stats = run(&mut f);
+        assert_eq!(stats.cmps_narrowed, 1);
+        assert_eq!(stats.dead_converts_removed, 1);
+        let insts = &f.blocks[0].insts;
+        assert_eq!(insts.len(), 2);
+        assert!(matches!(
+            insts[0].kind,
+            InstKind::BinOp(
+                BinOp::SRem,
+                Operand::Value(ValueId(0)),
+                Operand::ConstI64(2)
+            )
+        ));
+        assert!(matches!(
+            insts[1].kind,
+            InstKind::ICmp(IPred::Eq, Operand::Value(ValueId(4)), Operand::ConstI64(0))
+        ));
+        assert_eq!(f.values[4].ty, Type::I64);
+    }
+
+    #[test]
+    fn cmp_over_frem_variable_divisor_stays_float() {
+        // srem runtime-0 guard: a VARIABLE divisor can be 0 at
+        // runtime (frem → NaN, NaN == 0 is false; srem-by-zero on
+        // aarch64 hands the dividend back — `0 % 0 == 0` would
+        // wrongly take the branch). No narrow.
         let mut f = func_with(
             vec![
                 inst(2, InstKind::SiToFp(v(0))),
@@ -403,23 +451,11 @@ mod tests {
             },
         );
         let stats = run(&mut f);
-        assert_eq!(stats.cmps_narrowed, 1);
-        assert_eq!(stats.dead_converts_removed, 2);
-        let insts = &f.blocks[0].insts;
-        assert_eq!(insts.len(), 2);
+        assert_eq!(stats.cmps_narrowed, 0);
         assert!(matches!(
-            insts[0].kind,
-            InstKind::BinOp(
-                BinOp::SRem,
-                Operand::Value(ValueId(0)),
-                Operand::Value(ValueId(1))
-            )
+            f.blocks[0].insts[2].kind,
+            InstKind::BinOp(BinOp::FRem, _, _)
         ));
-        assert!(matches!(
-            insts[1].kind,
-            InstKind::ICmp(IPred::Eq, Operand::Value(ValueId(4)), Operand::ConstI64(0))
-        ));
-        assert_eq!(f.values[4].ty, Type::I64);
     }
 
     #[test]
@@ -709,11 +745,11 @@ mod tests {
 
     #[test]
     fn fptosi_over_frem_collapses_to_srem() {
+        // Constant non-zero divisor — the provable srem case.
         let mut f = func_with(
             vec![
                 inst(2, InstKind::SiToFp(v(0))),
-                inst(3, InstKind::SiToFp(v(1))),
-                inst(4, InstKind::BinOp(BinOp::FRem, v(2), v(3))),
+                inst(4, InstKind::BinOp(BinOp::FRem, v(2), cf(2.0))),
                 inst(5, InstKind::FpToSi(v(4))),
             ],
             6,
@@ -728,12 +764,35 @@ mod tests {
             InstKind::BinOp(
                 BinOp::SRem,
                 Operand::Value(ValueId(0)),
-                Operand::Value(ValueId(1))
+                Operand::ConstI64(2)
             )
         ));
         assert!(matches!(
             insts[1].kind,
             InstKind::Copy(Type::I64, Operand::Value(ValueId(4)))
+        ));
+    }
+
+    #[test]
+    fn fptosi_over_frem_variable_divisor_stays_float() {
+        // srem runtime-0 guard: `(a % b) | 0` with b == 0 is
+        // NaN → fptosi → 0; an srem recovery would hand back the
+        // dividend (printed 7 where bun prints 0). No narrow.
+        let mut f = func_with(
+            vec![
+                inst(2, InstKind::SiToFp(v(0))),
+                inst(3, InstKind::SiToFp(v(1))),
+                inst(4, InstKind::BinOp(BinOp::FRem, v(2), v(3))),
+                inst(5, InstKind::FpToSi(v(4))),
+            ],
+            6,
+            Terminator::Ret(Some(v(5))),
+        );
+        let stats = run(&mut f);
+        assert_eq!(stats.truncs_narrowed, 0);
+        assert!(matches!(
+            f.blocks[0].insts[2].kind,
+            InstKind::BinOp(BinOp::FRem, _, _)
         ));
     }
 }

@@ -175,8 +175,22 @@ impl<'a> Analysis<'a> {
                 // keeps the pass-through join, where growth still
                 // flows through (the intermediate `(n*3+1) % m`
                 // diverges before the mod contracts it).
+                //
+                // srem runtime-0 (§5.3 follow-up close) — the divisor
+                // must ALSO be a provably non-zero literal: `7 % b`
+                // with a runtime-zero b is NaN per spec (the lowering
+                // carve mirrors this; aarch64 sdiv-by-zero silently
+                // handed the dividend back).
                 BinOp::Mod => {
-                    if matches!(self.ast.get_expr(*left), Expr::Number(n) if !literal_is_f64(*n)) {
+                    let dividend_ok = matches!(
+                        self.ast.get_expr(*left),
+                        Expr::Number(n) if !literal_is_f64(*n)
+                    );
+                    let divisor_ok = matches!(
+                        self.ast.get_expr(*right),
+                        Expr::Number(m) if *m != 0.0 && !literal_is_f64(*m)
+                    );
+                    if dividend_ok && divisor_ok {
                         join(self.width_of(*left, scope), self.width_of(*right, scope))
                     } else {
                         W::F64

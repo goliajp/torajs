@@ -497,12 +497,26 @@ mod tests {
 
     #[test]
     fn w3_modulo_nonneg_const_dividend_stays_narrow() {
-        // a non-negative integer-literal dividend bounds the
-        // remainder in [+0, |b|) — no -0, int path keeps.
-        let s =
-            slots("function wrap(k: number): number { return 100 % k; }\nconsole.log(wrap(7));");
+        // both faces provable: a non-negative integer-literal
+        // dividend bounds the remainder in [+0, |b|) (no -0) and a
+        // non-zero literal divisor rules out the runtime-0 NaN —
+        // int path keeps.
+        let s = slots(
+            "function wrap(k: number): number { return k + 100 % 7; }\nconsole.log(wrap(7));",
+        );
         assert!(!s.contains(&param("wrap", "k")));
         assert!(!s.contains(&ret("wrap")));
+    }
+
+    #[test]
+    fn w3_modulo_variable_divisor_floats() {
+        // srem runtime-0 (§5.3 follow-up close): `100 % k` with
+        // k == 0 is NaN per spec, but the int path's sdiv-by-zero
+        // hands the dividend back (silent 100). The result floats
+        // and frem mints the NaN.
+        let s =
+            slots("function wrap(k: number): number { return 100 % k; }\nconsole.log(wrap(7));");
+        assert!(s.contains(&ret("wrap")));
     }
 
     #[test]

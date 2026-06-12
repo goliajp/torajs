@@ -25188,7 +25188,15 @@ impl<'a> LowerCtx<'a> {
         // The egraph truncation-recovery rewrites and float_demote
         // narrow the -0-insensitive / interval-proven shapes back to
         // srem downstream.
-        let mod_int_safe = matches!(a, Operand::ConstI64(c) if c >= 0);
+        //
+        // srem runtime-0 (§5.3 follow-up close) — the carve must ALSO
+        // prove the divisor non-zero: `7 % b` with b == 0 at runtime
+        // is NaN per spec, but aarch64 sdiv-by-zero yields 0 and the
+        // msub hands the dividend back (silent 7). A non-zero
+        // constant divisor is the provable case; everything else
+        // floats and lets frem mint the NaN.
+        let mod_int_safe = matches!(a, Operand::ConstI64(c) if c >= 0)
+            && matches!(b, Operand::ConstI64(d) if d != 0);
         // W3 C4 + S9 — int `a * b` mints -0 only when one factor is
         // zero and the other negative. A positive constant cofactor
         // rules that out and keeps the int path, as do two constants
