@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-12T09:08:34.446Z",
+  "generatedAt": "2026-06-12T10:28:57.053Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 71.31
   },
   "torajs": {
-    "commit": "d82bd04",
-    "commitSubject": "fix(core): json.parse number faces seed f64 - w4 follow-up",
+    "commit": "d2ebb2a",
+    "commitSubject": "fix(bench): torajs-str bench matches StrBlock u32 length signature",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,30 @@
   },
   "commits": [
     {
+      "hash": "d2ebb2a",
+      "subject": "fix(bench): torajs-str bench matches StrBlock u32 length signature"
+    },
+    {
+      "hash": "6bc0d0d",
+      "subject": "fix(core): nominal width join for generic instantiation keys"
+    },
+    {
+      "hash": "7f40f90",
+      "subject": "fix(core): recursive generic alias instantiation memo in ssa lowering"
+    },
+    {
+      "hash": "5c99954",
+      "subject": "fix(core): recursive generic alias instantiation guard in checker"
+    },
+    {
+      "hash": "03e9978",
+      "subject": "fix(core): typed array index lowering coerces f64 operands to i64"
+    },
+    {
+      "hash": "446a901",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD d82bd04 (l3b double fix: silent lower-panic abort now prints message + exits 3, json.parse number faces seed f64 with cursor-derangement root cause closed, gate 762/0/4, bench precheck 32/32 identical)"
+    },
+    {
       "hash": "d82bd04",
       "subject": "fix(core): json.parse number faces seed f64 - w4 follow-up"
     },
@@ -638,51 +662,38 @@
     {
       "hash": "dfd3d62",
       "subject": "fix(core): srem requires provably non-zero divisor - w3 srem runtime-0 close"
-    },
-    {
-      "hash": "975b975",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD ff1a790 (w3 s9 third flip shipped and held: chunk 2.6 dispatch faces + promise value slot closed all 5 second-flip blockers, gate 760/0/4, bench precheck 32/32 artifact identical = 0 regression by construction; 8 live silent-wrongs fixed across chunks 2.5-2.6; next chunk = s8 neg-on-variable)"
-    },
-    {
-      "hash": "ff1a790",
-      "subject": "fix(core): var x var int mul preserves ieee -0 - w3 s9 third flip"
-    },
-    {
-      "hash": "5d82c57",
-      "subject": "fix(core): promise value width query mirrors known-fn ret key - w3 chunk 2.6b gate fix"
-    },
-    {
-      "hash": "dcce0ff",
-      "subject": "fix(core): promise value-slot width negotiation - w3 chunk 2.6b f5"
-    },
-    {
-      "hash": "c94366f",
-      "subject": "fix(core): dispatch-face width negotiation - w3 chunk 2.6a f5"
-    },
-    {
-      "hash": "2ec7f16",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD faf093e (chunk 2.5 synthetic/indirect width negotiation shipped x3 fixing 4 live silent-wrongs, s9 second flip reverted on third dispatch-face batch, bench pass 31/32 identical, next chunk 2.6 remaining dispatch faces)"
     }
   ],
-  "headSha": "d82bd04",
+  "headSha": "d2ebb2a",
   "autorun": {
-    "total": 127,
+    "total": 128,
     "baselineTarget": 10,
-    "bySelf": 125,
+    "bySelf": 126,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781253613-454e",
-      "at": "2026-06-12T08:40:13Z",
-      "ts": 1781253613,
+      "rotationId": "r-1781255420-0913",
+      "at": "2026-06-12T09:10:20Z",
+      "ts": 1781255420,
       "trigger": "self",
-      "prevHead": "2557961",
-      "handoffSha": "sha256:f74bada57529c7ecc3d2167a449b82eaaa4374137c8aa81d75af18b852e3d4fc",
+      "prevHead": "446a901",
+      "handoffSha": "sha256:c2850d1980387a4e890681f42a957bf4da0d782c025addef950df03b7f679a01",
       "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781255420-0913",
+        "at": "2026-06-12T09:10:20Z",
+        "ts": 1781255420,
+        "trigger": "self",
+        "prevHead": "446a901",
+        "handoffSha": "sha256:c2850d1980387a4e890681f42a957bf4da0d782c025addef950df03b7f679a01",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781253613-454e",
         "at": "2026-06-12T08:40:13Z",
@@ -779,17 +790,6 @@
         "prevHead": "f62ef6a",
         "handoffSha": "sha256:eb71fe4a93cdb1414d59e33f443276491746af06de8dd39ca806177c812813f4",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781148982-22e0",
-        "at": "2026-06-11T03:36:22Z",
-        "ts": 1781148982,
-        "trigger": "self",
-        "prevHead": "0eec0f8",
-        "handoffSha": "sha256:fc46686e5bb7d3bb7737ca83aef9c77b3c1243820044ebd9992dc8dc499ed332",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
