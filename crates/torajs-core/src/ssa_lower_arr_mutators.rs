@@ -9,6 +9,17 @@ use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 impl<'a> LowerCtx<'a> {
+    /// `xs[i]` index operand — lower + ToInteger coerce. JS index
+    /// expressions are number-typed; an F64 value reaching here
+    /// (`xs[6/3]`, `xs[-(-j)]`) must come back to i64 before slot
+    /// arithmetic or the codegen materializes an Fpr where a Gpr is
+    /// required. Fractional indices keep dynobj property semantics
+    /// out of scope (typed-tier truncates, same bar as str charAt).
+    pub(crate) fn lower_index_operand(&mut self, index: ExprId) -> Operand {
+        let raw = self.lower_expr(index);
+        self.coerce_to_i64(raw)
+    }
+
     /// `xs.pop()` / `xs.shift()` / `xs.unshift(v)` on Ident receivers
     /// (local or const-global Array<T>). Returns None when the callee
     /// is some other member-call shape — the caller's dispatch chain

@@ -14212,7 +14212,7 @@ impl<'a> LowerCtx<'a> {
                             Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
                             other => panic!("ssa-lower: index assign on non-array {other:?}"),
                         };
-                        let idx_val = self.lower_expr(index);
+                        let idx_val = self.lower_index_operand(index);
                         // P0.10 — Array<Any>[i] = <concrete>. The Any
                         // slots are 16 bytes (tag, value); the
                         // arr_set_any runtime helper boxes the (tag,
@@ -22314,7 +22314,7 @@ impl<'a> LowerCtx<'a> {
                     Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
                     other => panic!("ssa-lower: index access on non-array type {other:?}"),
                 };
-                let idx_val = self.lower_expr(*index);
+                let idx_val = self.lower_index_operand(*index);
                 // T-10.d.i — `xs[i]` on Array<Any>: 16-byte slot stride
                 // (tag at offset 24+i*16, value at offset 24+i*16+8).
                 // Dual-load + box into a fresh Any-box so the lowered
@@ -23442,7 +23442,7 @@ impl<'a> LowerCtx<'a> {
                             Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
                             other => panic!("ssa-lower: post-incr index on non-array {other:?}"),
                         };
-                        let idx_val = self.lower_expr(index);
+                        let idx_val = self.lower_index_operand(index);
                         // T-13.5: head-aware offset, computed once for
                         // both load (old) and store (new).
                         let offset = self.emit_arr_slot_byte_offset(
