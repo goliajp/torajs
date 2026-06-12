@@ -62,6 +62,14 @@ pub const DYNOBJ_INITIAL_CAP: u32 = 8;
 /// `torajs_rc::Tag::DynObj` = 14).
 pub const TAG_DYNOBJ: u16 = 14;
 
+/// Heap-header `flags` bit (u16 @6) marking a DynObj created with a
+/// null prototype (`Object.create(null)` semantics — e.g. a regex
+/// match's `.groups` dict per spec §22.2.7.8). Print surfaces render
+/// the `[Object: null prototype] ` prefix off this bit. Bit 6 is free
+/// on DynObj: bits 1-5 are SPLIT_BLOCK / STATIC_LITERAL / color-field
+/// (3-4 overlay) / FROZEN / BUFFERED per torajs-rc's flag table.
+pub const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
+
 /// Offset of the `count` u32 within the heap block.
 pub const DYNOBJ_COUNT_OFF: usize = HEAP_HEADER_SIZE;
 

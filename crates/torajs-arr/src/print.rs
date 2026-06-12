@@ -295,7 +295,9 @@ pub unsafe extern "C" fn __torajs_arr_print_str(arr: *const c_void) {
             put_sep(i);
             let s = *(slot_addr(arr, head, i) as *const *const u8);
             if s.is_null() {
-                put_bytes(b"\"\"");
+                // NULL slot = non-participating capture (regex exec /
+                // match) — bun prints `undefined`, not an empty string.
+                put_bytes(b"undefined");
                 continue;
             }
             let length = *(s.add(STR_LEN_OFF) as *const u32);
@@ -338,7 +340,8 @@ pub unsafe extern "C" fn __torajs_arr_print_substr(arr: *const c_void) {
             put_sep(i);
             let v = *(slot_addr(arr, head, i) as *const *const u8);
             if v.is_null() {
-                put_bytes(b"\"\"");
+                // NULL slot → `undefined` (mirrors the Str printer).
+                put_bytes(b"undefined");
                 continue;
             }
             let cu_len = *(v.add(SUBSTR_LEN_OFF) as *const u64) as usize;

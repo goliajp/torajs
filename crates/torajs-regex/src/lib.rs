@@ -80,6 +80,20 @@ pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
+    panic!("torajs-regex test stub: __torajs_rc_inc should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_mark_null_proto(_obj: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-regex test stub: __torajs_dynobj_mark_null_proto should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     panic!(
         "torajs-regex test stub: __torajs_str_alloc_pooled should not be called from cargo test"

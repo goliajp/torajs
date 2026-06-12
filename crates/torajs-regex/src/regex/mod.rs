@@ -58,6 +58,7 @@ pub const STR_HDR_SIZE: usize = 16;
 /// dynobj / arrprops bucket. Must match runtime_str.c's
 /// `__TORAJS_ANY_HEAP` / `__TORAJS_ANY_UNDEF` (see runtime_regex.c
 /// L2212-2213 where they're redeclared locally).
+pub const ANY_I64: u64 = 2;
 pub const ANY_HEAP: u64 = 4;
 pub const ANY_UNDEF: u64 = 5;
 
@@ -103,6 +104,7 @@ pub struct RegExp {
 // the crate root).
 
 unsafe extern "C" {
+    pub fn __torajs_rc_inc(p: *mut c_void);
     pub fn __torajs_rc_dec(p: *mut c_void) -> i32;
     pub fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     /// P11.1-S2.1 canonical-encoding alloc — scans the input UTF-8
@@ -114,6 +116,7 @@ unsafe extern "C" {
     pub fn __torajs_arr_alloc(initial_cap: u64) -> *mut c_void;
     pub fn __torajs_arr_push(arr: *mut c_void, val: i64) -> *mut c_void;
     pub fn __torajs_dynobj_alloc() -> *mut c_void;
+    pub fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
     pub fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     pub fn __torajs_arrprops_set(arr_ptr: *mut c_void, key: *mut c_void, tag: i64, value: i64);
     pub fn __torajs_throw_type_error(msg: *const u8);

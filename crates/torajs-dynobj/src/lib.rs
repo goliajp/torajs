@@ -34,7 +34,7 @@ pub mod probe;
 pub mod resize;
 pub mod set;
 
-pub use alloc::__torajs_dynobj_alloc;
+pub use alloc::{__torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto};
 pub use define::__torajs_dynobj_define;
 pub use delete::__torajs_dynobj_delete;
 pub use drop::__torajs_dynobj_drop;

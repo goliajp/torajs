@@ -5,18 +5,42 @@ use core::ffi::c_void;
 
 use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_arrprops_set, __torajs_dynobj_alloc,
-    __torajs_dynobj_set, __torajs_str_drop, ANY_HEAP, ANY_UNDEF, RegExp, abort_unsupported,
-    as_regex_mut, str_from_bytes, str_slice,
+    __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_rc_inc, __torajs_str_drop,
+    ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, abort_unsupported, as_regex_mut, str_from_bytes,
+    str_slice,
 };
 use crate::node::{REGEX_MAX_CAPTURES, REGEX_SAVE_SLOTS};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{Workspace, match_anchor, search_from, search_from_with_ws};
 
+/// Attach the spec §22.2.7.8 match-result properties `index` (match
+/// start; UTF-8 byte domain — same domain note as lastIndex) and
+/// `input` (the original subject Str, rc-shared, zero copy + zero
+/// encoding drift) to `arr` via the arrprops side table. Insertion
+/// order matters for the print face: index → input (→ groups, which
+/// [`attach_groups`] appends right after).
+///
+/// # Safety
+///
+/// `arr` is a live tora Array; `str_ptr` a live Str outliving it.
+pub unsafe fn attach_exec_props(arr: *mut c_void, str_ptr: *const c_void, index: i64) {
+    unsafe {
+        let k_index = str_from_bytes(b"index");
+        __torajs_arrprops_set(arr, k_index as *mut c_void, ANY_I64 as i64, index);
+        __torajs_str_drop(k_index as *mut c_void);
+        let k_input = str_from_bytes(b"input");
+        __torajs_rc_inc(str_ptr as *mut c_void);
+        __torajs_arrprops_set(arr, k_input as *mut c_void, ANY_HEAP as i64, str_ptr as i64);
+        __torajs_str_drop(k_input as *mut c_void);
+    }
+}
+
 /// Build `.groups` dynobj from the named captures recorded on `re`
 /// and the just-finished match's saves[]. Attaches the dict to
 /// `arr` via the arrprops side table (so `arr.groups` resolves via
-/// the standard Array.<unknown-prop> path). Skips work entirely if
-/// `re` has no named captures.
+/// the standard Array.<unknown-prop> path). Without named captures
+/// the property is still attached, as `undefined` (spec §22.2.7.8
+/// step 24; bun prints `groups: undefined`).
 ///
 /// # Safety
 ///
@@ -29,9 +53,18 @@ pub unsafe fn attach_groups(
     saves: &[i64; REGEX_SAVE_SLOTS],
 ) {
     if re.n_named_captures == 0 || re.capture_names.is_empty() {
+        let outer_key = unsafe { str_from_bytes(b"groups") };
+        unsafe {
+            __torajs_arrprops_set(arr, outer_key as *mut c_void, ANY_UNDEF as i64, 0);
+            __torajs_str_drop(outer_key as *mut c_void);
+        }
         return;
     }
+    // Spec: the groups object is created with a null prototype
+    // (OrdinaryObjectCreate(null)); the flag drives the
+    // `[Object: null prototype] ` print prefix.
     let mut groups = unsafe { __torajs_dynobj_alloc() };
+    unsafe { __torajs_dynobj_mark_null_proto(groups) };
     let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
     for i in 1..=n_cap_lim {
         let name = match re.capture_names.get(i) {
@@ -133,8 +166,12 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
                     out = unsafe { __torajs_arr_push(out, grp as i64) };
                 }
             }
-            // Named captures → .groups dict.
-            unsafe { attach_groups(out, re, &s, &m.saves) };
+            // Non-global match = exec shape (spec §22.2.7.8):
+            // index / input / groups attach in print order.
+            unsafe {
+                attach_exec_props(out, str_ptr, m.start);
+                attach_groups(out, re, &s, &m.saves);
+            }
             break;
         }
         // Empty match — bump pos by 1.
@@ -202,6 +239,9 @@ pub unsafe extern "C" fn __torajs_regex_exec(
             out = unsafe { __torajs_arr_push(out, grp as i64) };
         }
     }
-    unsafe { attach_groups(out, re, &s, &m.saves) };
+    unsafe {
+        attach_exec_props(out, str_ptr, m.start);
+        attach_groups(out, re, &s, &m.saves);
+    }
     out
 }

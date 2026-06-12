@@ -50,10 +50,30 @@ pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut c_void {
     p as *mut c_void
 }
 
+/// `__torajs_dynobj_mark_null_proto(obj)` — set the null-prototype
+/// flag bit on a dynobj's heap header (see
+/// [`crate::layout::DYNOBJ_HDR_FLAG_NULL_PROTO`]). Callers tag dicts
+/// with `Object.create(null)` semantics (regex `.groups`) right after
+/// alloc; print surfaces read it for the
+/// `[Object: null prototype] ` prefix.
+///
+/// # Safety
+/// `obj` is null (no-op) or a live dynobj heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_mark_null_proto(obj: *mut c_void) {
+    if obj.is_null() {
+        return;
+    }
+    unsafe {
+        let flags = (obj as *mut u8).add(6) as *mut u16;
+        *flags |= crate::layout::DYNOBJ_HDR_FLAG_NULL_PROTO;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::{DYNOBJ_ENTRY_SIZE, IDX_EMPTY};
+    use crate::layout::{DYNOBJ_ENTRY_SIZE, DYNOBJ_HDR_FLAG_NULL_PROTO, IDX_EMPTY};
 
     /// Header + metadata fields land at the expected offsets, with
     /// initial cap = 8 power-of-2, entries_cap = 7, count/entries_len
@@ -96,6 +116,15 @@ mod tests {
                 assert_eq!(*(e as *const u64), 0, "key_ptr_tagged");
                 assert_eq!(*(e.add(8) as *const u64), 0, "value_anyv");
             }
+
+            // Null-proto marking flips exactly the one flag bit.
+            assert_eq!(*(p.add(6) as *const u16), 0, "flags pre-mark");
+            __torajs_dynobj_mark_null_proto(p as *mut c_void);
+            assert_eq!(
+                *(p.add(6) as *const u16),
+                DYNOBJ_HDR_FLAG_NULL_PROTO,
+                "flags post-mark"
+            );
 
             // Hand back to mmalloc (test-only path — production drop
             // helper lives in drop.rs). Layer 1 sized API: caller

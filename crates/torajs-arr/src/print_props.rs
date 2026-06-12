@@ -48,6 +48,11 @@ const HDR_TYPE_TAG_OFF: usize = 4;
 /// (mirror of torajs-dynobj's `BUCKET_FLAG_ENUMERABLE`).
 const DYNOBJ_FLAG_ENUMERABLE: u64 = 1 << 1;
 
+/// Heap-header flags bit marking a null-prototype dynobj (mirror of
+/// torajs-dynobj's `DYNOBJ_HDR_FLAG_NULL_PROTO`) — regex `.groups`
+/// dicts; drives bun's `[Object: null prototype] ` print prefix.
+const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
+
 unsafe extern "C" {
     /// torajs-dynobj — insertion-order iteration surface.
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
@@ -165,6 +170,10 @@ unsafe fn put_anyv_inline(anyv: u64, depth: usize) {
 /// # Safety
 /// `obj` is a live dynobj heap pointer.
 unsafe fn put_dynobj_block(obj: *const c_void, depth: usize) {
+    let hdr_flags = unsafe { *((obj as *const u8).add(HDR_FLAGS_OFF) as *const u16) };
+    if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
+        unsafe { put_bytes(b"[Object: null prototype] ") };
+    }
     let n = unsafe { __torajs_dynobj_iter_len(obj) };
     let live = |i: u64| -> bool {
         unsafe {
