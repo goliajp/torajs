@@ -4,17 +4,19 @@
 //! Pipeline per case:
 //!   1. Read the case's source from `vendor/test262/test/.../case.js`.
 //!   2. Prepend the standard test262 harness (sta.js + assert.js).
-//!   3. Run with `bun run` (oracle). If bun exits non-zero we treat
-//!      the case as a negative / harness-dependent test and skip.
-//!   4. Run with `tr run`. Compare exit code + stdout against bun.
-//!   5. Categorize:
-//!     - pass: tr matches bun
-//!     - bug: tr exit non-zero with no obvious "subset boundary"
-//!       error in stderr, OR stdout differs
-//!     - incompatible: tr stderr starts with one of the documented
-//!       subset-boundary messages (lex error / parse error / type
-//!       error / not yet supported / import error)
-//!     - bun-skip: oracle didn't pass; not interesting
+//!   3. Parse the frontmatter. `negative:` cases are judged against
+//!      their declared phase (the frontmatter IS the oracle — bun is
+//!      not consulted); `includes:` beyond assert/sta classify as
+//!      `harness-includes` until the typed harness ports them.
+//!   4. Positive cases: run `bun run` (oracle). bun passing → tr must
+//!      match exit 0 + stdout. bun FAILING is NOT a skip (takagi
+//!      2026-06-13): the assert harness self-validates, so tr is
+//!      judged directly — exit 0 = `pass-no-oracle`, failures
+//!      classify with a `no-oracle:` kind prefix.
+//!   5. Categorize (see verdict.rs for the full table):
+//!     - pass / pass-no-oracle / pass-negative
+//!     - bug: unexpected divergence (real-bug bucket)
+//!     - incompatible: documented subset-boundary rejects
 //!
 //! Concurrency: spawns N worker threads (default 8) that pull from a
 //! shared queue. Each worker writes a temp file under
@@ -29,10 +31,11 @@
 
 mod args;
 mod cache;
+mod frontmatter;
+mod verdict;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -47,14 +50,7 @@ const TEST262_ROOT: &str = "vendor/test262";
 /// source-rewrite layer points every `assert.X(...)` call site at.
 const TORAJS_HARNESS: &str = "conformance/test262-harness.ts";
 
-#[derive(Debug, Clone)]
-enum Outcome {
-    Pass,
-    Bug { kind: String, msg: String },
-    Incompatible { kind: String, msg: String },
-    BunSkip,
-    HarnessError { msg: String },
-}
+use crate::verdict::Outcome;
 
 /// Minimal hand-rolled JSON object writer (test262-runner is zero-dep).
 /// Escapes `"` and `\` in strings; everything else assumed ASCII-safe.
@@ -68,9 +64,11 @@ fn write_summary_json(
     total_cases: usize,
     ran: usize,
     pass: usize,
+    pass_no_oracle: usize,
+    pass_negative: usize,
     bug: usize,
     incompatible: usize,
-    bun_skip: usize,
+    bun_fail: usize,
     harness_error: usize,
     in_scope: usize,
     tr_accepted: usize,
@@ -84,8 +82,10 @@ fn write_summary_json(
         Some(n) => n.to_string(),
         None => "null".to_string(),
     };
+    // `bunSkip` keeps its key for dashboard compatibility but now
+    // counts bun failures that were still judged (no case is skipped).
     let body = format!(
-        "{{\n  \"ranAt\": \"{ra}\",\n  \"headSha\": \"{hs}\",\n  \"elapsedSec\": {es:.2},\n  \"workers\": {w},\n  \"limit\": {lj},\n  \"totalCases\": {tc},\n  \"ran\": {ran},\n  \"pass\": {pass},\n  \"bug\": {bug},\n  \"incompatible\": {inc},\n  \"bunSkip\": {bs},\n  \"harnessError\": {he},\n  \"inScope\": {is_},\n  \"trAccepted\": {ta},\n  \"passRateInScope\": {pris:.2},\n  \"passRateTrAccepted\": {prta:.2}\n}}\n",
+        "{{\n  \"ranAt\": \"{ra}\",\n  \"headSha\": \"{hs}\",\n  \"elapsedSec\": {es:.2},\n  \"workers\": {w},\n  \"limit\": {lj},\n  \"totalCases\": {tc},\n  \"ran\": {ran},\n  \"pass\": {pass},\n  \"passNoOracle\": {pno},\n  \"passNegative\": {png},\n  \"passTotal\": {ptot},\n  \"bug\": {bug},\n  \"incompatible\": {inc},\n  \"bunSkip\": {bs},\n  \"harnessError\": {he},\n  \"inScope\": {is_},\n  \"trAccepted\": {ta},\n  \"passRateInScope\": {pris:.2},\n  \"passRateTrAccepted\": {prta:.2}\n}}\n",
         ra = esc(ran_at),
         hs = esc(head_sha),
         es = elapsed_sec,
@@ -94,9 +94,12 @@ fn write_summary_json(
         tc = total_cases,
         ran = ran,
         pass = pass,
+        pno = pass_no_oracle,
+        png = pass_negative,
+        ptot = pass + pass_no_oracle + pass_negative,
         bug = bug,
         inc = incompatible,
-        bs = bun_skip,
+        bs = bun_fail,
         he = harness_error,
         is_ = in_scope,
         ta = tr_accepted,
@@ -449,6 +452,18 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
             };
         }
     };
+    let fm = frontmatter::parse(&case_src);
+
+    // Harness includes beyond assert/sta aren't ported into the typed
+    // harness yet — an attributable reject, NOT a silent skip (the
+    // case would fail on the missing helper for bun and tr alike).
+    if !fm.includes.is_empty() {
+        return Outcome::Incompatible {
+            kind: "harness-includes".to_string(),
+            msg: format!("needs {}", fm.includes.join(", ")),
+        };
+    }
+
     let transformed = transform_source(&case_src);
     let full = format!("{harness}\n{transformed}");
 
@@ -464,8 +479,25 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
         };
     }
 
-    // Bun oracle (cache lookup + spawn with 15s timeout). Cache
-    // hit → 0 spawn cost. Miss → spawn bun, populate cache.
+    // Negative case — the frontmatter is the oracle; bun isn't
+    // consulted at all (judging it against bun's own failure modes
+    // would re-introduce the bun-skip blind spot).
+    if let Some(phase) = fm.negative_phase.as_deref() {
+        let expected_type = fm.negative_type.as_deref().unwrap_or("?").to_string();
+        let out = match verdict::run_tr(tr_bin, &tmp_path) {
+            Ok(o) => o,
+            Err(outcome) => {
+                let _ = std::fs::remove_file(&tmp_path);
+                return outcome;
+            }
+        };
+        let _ = std::fs::remove_file(&tmp_path);
+        return verdict::judge_negative(phase, &expected_type, &out);
+    }
+
+    // Positive case — bun oracle (cache lookup + spawn with 15s
+    // timeout). Cache hit → 0 spawn cost. Miss → spawn bun, populate
+    // cache.
     let (bun_success, bun_stdout) =
         match cache::bun_oracle(case_src.as_bytes(), harness.as_bytes(), &tmp_path) {
             Ok(v) => v,
@@ -474,121 +506,22 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
                 return Outcome::HarnessError { msg: e };
             }
         };
-    if !bun_success {
-        let _ = std::fs::remove_file(&tmp_path);
-        return Outcome::BunSkip;
-    }
 
-    // 30s per-case timeout. tr's compile pipeline shouldn't take that
-    // long even on huge cases (test262's Unicode-table cases push 3MB
-    // sources); a 30s outlier almost always means an O(n^2) pass or an
-    // infinite loop, not a slow-but-correct compile. We classify hung
-    // cases as `Incompatible { kind: "tr-timeout" }` so they don't
-    // block the run from finishing.
-    // tr AOT cache enabled (`~/.torajs/cache` is content-keyed by
-    // source + compiler-rev so byte-identical to no-cache outcome;
-    // saves the LLVM compile pipeline on every (case + tr binary)
-    // re-encounter). Caller can `tr cache clean --max-mb N` to cap
-    // disk usage.
-    let mut tr_proc = match Command::new(tr_bin)
-        .args(["run", &tmp_path.to_string_lossy()])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
+    let out = match verdict::run_tr(tr_bin, &tmp_path) {
+        Ok(o) => o,
+        Err(outcome) => {
             let _ = std::fs::remove_file(&tmp_path);
-            return Outcome::HarnessError {
-                msg: format!("tr spawn: {e}"),
-            };
-        }
-    };
-    let timeout = std::time::Duration::from_secs(30);
-    let started = Instant::now();
-    let tr_out = loop {
-        match tr_proc.try_wait() {
-            Ok(Some(_status)) => {
-                break tr_proc.wait_with_output();
-            }
-            Ok(None) => {
-                if started.elapsed() >= timeout {
-                    let _ = tr_proc.kill();
-                    let _ = tr_proc.wait();
-                    let _ = std::fs::remove_file(&tmp_path);
-                    return Outcome::Incompatible {
-                        kind: "tr-timeout".to_string(),
-                        msg: format!("tr timed out after {}s", timeout.as_secs()),
-                    };
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Err(e) => {
-                let _ = std::fs::remove_file(&tmp_path);
-                return Outcome::HarnessError {
-                    msg: format!("tr wait: {e}"),
-                };
-            }
+            return outcome;
         }
     };
     let _ = std::fs::remove_file(&tmp_path);
-    let tr_out = match tr_out {
-        Ok(o) => o,
-        Err(e) => {
-            return Outcome::HarnessError {
-                msg: format!("tr output: {e}"),
-            };
-        }
-    };
 
-    if tr_out.status.success() && tr_out.stdout == bun_stdout {
-        return Outcome::Pass;
-    }
-
-    let stderr = String::from_utf8_lossy(&tr_out.stderr).into_owned();
-    let first_line = stderr.lines().next().unwrap_or("(no stderr)").to_string();
-
-    // Subset-boundary signals: tr deliberately rejects out-of-subset
-    // syntax / surface. classify these as `incompatible` so they
-    // don't pollute the "bug" bucket.
-    let incompat_kind = if first_line.starts_with("lex error:") {
-        Some("lex error")
-    } else if first_line.starts_with("parse error:") {
-        Some("parse error")
-    } else if first_line.starts_with("type error:") {
-        Some("type error")
-    } else if first_line.starts_with("not yet supported:") {
-        Some("not yet supported")
-    } else if first_line.starts_with("import error:") {
-        Some("import error")
-    } else if first_line.starts_with("compile error:") {
-        Some("compile error")
+    if bun_success {
+        verdict::judge_oracle(&out, &bun_stdout)
     } else {
-        None
-    };
-
-    if let Some(kind) = incompat_kind {
-        return Outcome::Incompatible {
-            kind: kind.to_string(),
-            msg: first_line,
-        };
-    }
-
-    // Non-subset-boundary failure: either tr crashed (sigsegv,
-    // abort, panic without "panic" prefix) or it exited with a
-    // different stdout — that's a real bug or unexpected divergence.
-    let kind = if !tr_out.status.success() {
-        if let Some(code) = tr_out.status.code() {
-            format!("exit {code}")
-        } else {
-            "killed".to_string()
-        }
-    } else {
-        "stdout-mismatch".to_string()
-    };
-    Outcome::Bug {
-        kind,
-        msg: first_line,
+        // bun itself failed — not a skip (takagi 2026-06-13): test262
+        // positive cases self-validate through the assert harness.
+        verdict::judge_no_oracle(&out)
     }
 }
 
@@ -649,7 +582,9 @@ fn main() {
 
     let queue = Mutex::new(0usize);
     let pass = AtomicUsize::new(0);
-    let bun_skip = AtomicUsize::new(0);
+    let pass_no_oracle = AtomicUsize::new(0);
+    let pass_negative = AtomicUsize::new(0);
+    let bun_fail = AtomicUsize::new(0);
     let incompat: Mutex<std::collections::HashMap<String, usize>> =
         Mutex::new(std::collections::HashMap::new());
     let incompat_samples: Mutex<std::collections::HashMap<String, Vec<(PathBuf, String)>>> =
@@ -667,7 +602,9 @@ fn main() {
             let harness = &harness;
             let tr_bin = &tr_bin;
             let pass = &pass;
-            let bun_skip = &bun_skip;
+            let pass_no_oracle = &pass_no_oracle;
+            let pass_negative = &pass_negative;
+            let bun_fail = &bun_fail;
             let incompat = &incompat;
             let incompat_samples = &incompat_samples;
             let bugs = &bugs;
@@ -690,10 +627,17 @@ fn main() {
                         Outcome::Pass => {
                             pass.fetch_add(1, Ordering::Relaxed);
                         }
-                        Outcome::BunSkip => {
-                            bun_skip.fetch_add(1, Ordering::Relaxed);
+                        Outcome::PassNoOracle => {
+                            pass_no_oracle.fetch_add(1, Ordering::Relaxed);
+                            bun_fail.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Outcome::PassNegative => {
+                            pass_negative.fetch_add(1, Ordering::Relaxed);
                         }
                         Outcome::Incompatible { kind, msg } => {
+                            if kind.starts_with("no-oracle:") {
+                                bun_fail.fetch_add(1, Ordering::Relaxed);
+                            }
                             let mut m = incompat.lock().unwrap();
                             *m.entry(kind.clone()).or_insert(0) += 1;
                             drop(m);
@@ -704,6 +648,9 @@ fn main() {
                             }
                         }
                         Outcome::Bug { kind, msg } => {
+                            if kind.starts_with("no-oracle:") {
+                                bun_fail.fetch_add(1, Ordering::Relaxed);
+                            }
                             let mut v = bugs.lock().unwrap();
                             v.push((p.clone(), kind, msg));
                         }
@@ -729,7 +676,9 @@ fn main() {
     });
 
     let pass = pass.load(Ordering::Relaxed);
-    let bun_skip = bun_skip.load(Ordering::Relaxed);
+    let pass_no_oracle = pass_no_oracle.load(Ordering::Relaxed);
+    let pass_negative = pass_negative.load(Ordering::Relaxed);
+    let bun_fail = bun_fail.load(Ordering::Relaxed);
     let incompat = incompat.into_inner().unwrap();
     let incompat_samples = incompat_samples.into_inner().unwrap();
     let incompat_total: usize = incompat.values().sum();
@@ -737,37 +686,40 @@ fn main() {
     let harness_err = harness_err.into_inner().unwrap();
     let elapsed = start.elapsed().as_secs_f64();
 
-    // "In-scope" = cases bun executed successfully and torajs at least
-    // attempted (so excluding bun-skip and harness-error). Within that,
-    // `incompatible` are torajs's documented subset-boundary rejects;
-    // `bug` are unexpected divergences (subset slice we *should* pass
-    // but don't yet); `pass` are three-way-agreed.
-    let in_scope = pass + bugs.len() + incompat_total;
-    let tr_accepted = pass + bugs.len();
+    // Every case is judged (no bun-skip blind spot since 2026-06-13):
+    // "in-scope" = everything except runner-side harness errors.
+    // `incompatible` are torajs's documented subset-boundary rejects
+    // (each with an attributable kind); `bug` are unexpected
+    // divergences (the slice we *should* pass but don't yet).
+    let pass_total = pass + pass_no_oracle + pass_negative;
+    let in_scope = pass_total + bugs.len() + incompat_total;
+    let tr_accepted = pass_total + bugs.len();
     let pass_rate_in_scope = if in_scope > 0 {
-        (pass as f64 / in_scope as f64) * 100.0
+        (pass_total as f64 / in_scope as f64) * 100.0
     } else {
         0.0
     };
     let pass_rate_tr_accepted = if tr_accepted > 0 {
-        (pass as f64 / tr_accepted as f64) * 100.0
+        (pass_total as f64 / tr_accepted as f64) * 100.0
     } else {
         0.0
     };
 
     println!("\n\n=== test262 baseline ===");
     println!("ran           : {} cases ({elapsed:.1}s)", cases.len());
-    println!("pass          : {pass}");
+    println!("pass          : {pass}  (bun-oracle matched)");
+    println!("pass-no-oracle: {pass_no_oracle}  (bun failed; assert harness self-validated)");
+    println!("pass-negative : {pass_negative}  (expected error, matching phase)");
     println!("bug           : {}", bugs.len());
-    println!("incompatible  : {incompat_total}  (subset-boundary rejects)");
-    println!("bun-skip      : {bun_skip}  (oracle non-zero — negative tests / harness)");
+    println!("incompatible  : {incompat_total}  (subset-boundary rejects, attributable kinds)");
+    println!("bun-fail      : {bun_fail}  (diagnostic: oracle failed but case still judged)");
     println!("harness-error : {}  (runner-side issue)", harness_err.len());
     println!();
     println!(
-        "pass rate over in-scope (pass / (pass + bug + incompatible)): {pass_rate_in_scope:.2}%  ({pass}/{in_scope})"
+        "pass rate over in-scope (passes / (passes + bug + incompatible)): {pass_rate_in_scope:.2}%  ({pass_total}/{in_scope})"
     );
     println!(
-        "pass rate over tr-accepted (pass / (pass + bug)):             {pass_rate_tr_accepted:.2}%  ({pass}/{tr_accepted})"
+        "pass rate over tr-accepted (passes / (passes + bug)):             {pass_rate_tr_accepted:.2}%  ({pass_total}/{tr_accepted})"
     );
 
     let mut incompat_sorted: Vec<(String, usize)> = incompat.into_iter().collect();
@@ -828,9 +780,11 @@ fn main() {
             total,
             cases.len(),
             pass,
+            pass_no_oracle,
+            pass_negative,
             bugs.len(),
             incompat_total,
-            bun_skip,
+            bun_fail,
             harness_err.len(),
             in_scope,
             tr_accepted,
