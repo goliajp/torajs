@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-12T22:25:57.780Z",
+  "generatedAt": "2026-06-12T23:27:28.453Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -10,29 +10,29 @@
     "sourceMtime": "2026-06-10T02:48:22.109Z"
   },
   "test262": {
-    "ranAt": "2026-06-12T22:14:25Z",
-    "headSha": "dd96f88",
-    "elapsedSec": 1039.07,
+    "ranAt": "2026-06-12T23:25:55Z",
+    "headSha": "ee989df",
+    "elapsedSec": 521.74,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 2620,
-    "passNoOracle": 279,
+    "pass": 2854,
+    "passNoOracle": 281,
     "passNegative": 4444,
-    "passTotal": 7343,
-    "bug": 320,
-    "incompatible": 45511,
-    "bunSkip": 11170,
+    "passTotal": 7579,
+    "bug": 327,
+    "incompatible": 45268,
+    "bunSkip": 11433,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 7663,
-    "passRateInScope": 13.81,
-    "passRateTrAccepted": 95.82
+    "trAccepted": 7906,
+    "passRateInScope": 14.25,
+    "passRateTrAccepted": 95.86
   },
   "torajs": {
-    "commit": "4b42a8b",
-    "commitSubject": "chore(bench): add 3-run results for dd96f88 regex-exec chain (32/32 delta justified; popcount flag = scheduler noise, same-binary retest 100-110ms)",
+    "commit": "3b4c3693",
+    "commitSubject": "chore(conformance): refresh test262 baseline after harness-includes port wave",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,73 +619,84 @@
   },
   "commits": [
     {
-      "hash": "4b42a8b",
+      "hash": "3b4c3693",
+      "subject": "chore(conformance): refresh test262 baseline after harness-includes port wave"
+    },
+    {
+      "hash": "973a1b9b",
+      "subject": "feat(conformance): port regExpUtils.js into typed test262 harness"
+    },
+    {
+      "hash": "ee989df8",
+      "subject": "feat(core): accept RegExp as type annotation for the regex value type"
+    },
+    {
+      "hash": "fc2e8f49",
+      "subject": "docs(conformance): record root cause for each unported test262 include"
+    },
+    {
+      "hash": "7e5a9ebf",
+      "subject": "feat(conformance): port promiseHelper.js into typed test262 harness"
+    },
+    {
+      "hash": "356a203f",
+      "subject": "feat(conformance): port tcoHelper.js into typed test262 harness"
+    },
+    {
+      "hash": "adde44bf",
+      "subject": "feat(conformance): port dateConstants.js into typed test262 harness"
+    },
+    {
+      "hash": "624b9730",
+      "subject": "feat(conformance): port nans.js into typed test262 harness"
+    },
+    {
+      "hash": "f0ed855a",
+      "subject": "feat(conformance): port decimalToHexString.js into typed test262 harness"
+    },
+    {
+      "hash": "6770920c",
+      "subject": "feat(conformance): port compareArray.js into typed test262 harness"
+    },
+    {
+      "hash": "af39385e",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 4b42a8b (regex-exec chain closed: dynobj insertion-order compact dict, arrprops print face, exec index/input/groups, no-match null + arr-drop null guard, gate 768 -> 771/0/4, bench 2x verdict pass; test262 no-skip rework: 53174 all judged, passTotal 3527 -> 7343, dashboard schema to passTotal)"
+    },
+    {
+      "hash": "4b42a8b5",
       "subject": "chore(bench): add 3-run results for dd96f88 regex-exec chain (32/32 delta justified; popcount flag = scheduler noise, same-binary retest 100-110ms)"
-    },
-    {
-      "hash": "f7452ab",
-      "subject": "chore(conformance): refresh test262 baseline with no-skip judgment (53174 all judged, passTotal 7343)"
-    },
-    {
-      "hash": "dd96f88",
-      "subject": "feat(conformance): judge bun-failed test262 cases directly instead of skipping"
-    },
-    {
-      "hash": "d2bbb40",
-      "subject": "fix(core): null-guard array scope drop for nullable regex results"
-    },
-    {
-      "hash": "0f7a707",
-      "subject": "fix(runtime): regex exec and match return null on no-match per spec"
-    },
-    {
-      "hash": "ef540c9",
-      "subject": "feat(runtime): attach index/input/groups to regex exec and match results"
-    },
-    {
-      "hash": "f149db1",
-      "subject": "feat(runtime): print array side-table props insertion-ordered in console.log"
-    },
-    {
-      "hash": "49f2dde",
-      "subject": "chore(bench): add 3-run self results for 88c9778 (32/32 artifact delta justified, verdict pass)"
-    },
-    {
-      "hash": "88c9778",
-      "subject": "feat(runtime): rebuild dynobj as insertion-ordered compact dict with iteration api"
-    },
-    {
-      "hash": "2d4fd32",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 3dd386b (name-based class-method dispatch demote on builtin container receivers via cm_demote speculative-rewrite mechanism, gate 766 -> 768/0/4, bench precheck 32/32 identical twice, file-size debt net negative)"
-    },
-    {
-      "hash": "3dd386b",
-      "subject": "fix(core): demote name-based class-method rewrites on builtin container receivers"
-    },
-    {
-      "hash": "495ceb9",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD eb01806 (l3b residual batch closed: r3/r4 async promise covariance + value width faces, value-drop test link fix unlocks workspace nextest 1880/1880 as real gate, map get-as-number unbox + value slot width, 6 stale entries audited closed, gate 764 -> 766/0/4, bench precheck 32/32 identical twice)"
     }
   ],
-  "headSha": "4b42a8b",
+  "headSha": "3b4c3693",
   "autorun": {
-    "total": 131,
+    "total": 132,
     "baselineTarget": 10,
-    "bySelf": 129,
+    "bySelf": 130,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781295875-7629",
-      "at": "2026-06-12T20:24:35Z",
-      "ts": 1781295875,
+      "rotationId": "r-1781303290-4f19",
+      "at": "2026-06-12T22:28:10Z",
+      "ts": 1781303290,
       "trigger": "self",
-      "prevHead": "2d4fd32",
-      "handoffSha": "sha256:c826c5c1e45ee836dc7af37c9307f4745efbea8c244a1bd07cf7127d29c00e92",
-      "handoffAgeSec": 6,
+      "prevHead": "af39385",
+      "handoffSha": "sha256:fc85af14de6815fda16fcf4ff7c660b88ddeeae898ca81c6415a1f5d969af3d2",
+      "handoffAgeSec": 58,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781303290-4f19",
+        "at": "2026-06-12T22:28:10Z",
+        "ts": 1781303290,
+        "trigger": "self",
+        "prevHead": "af39385",
+        "handoffSha": "sha256:fc85af14de6815fda16fcf4ff7c660b88ddeeae898ca81c6415a1f5d969af3d2",
+        "handoffAgeSec": 58,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781295875-7629",
         "at": "2026-06-12T20:24:35Z",
@@ -782,17 +793,6 @@
         "prevHead": "7b635bf",
         "handoffSha": "sha256:bee870d8e5f4f5c02d87647e0a72b7ded45d82227d375ec1c833dd2fee336117",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781195141-28ea",
-        "at": "2026-06-11T16:25:41Z",
-        "ts": 1781195141,
-        "trigger": "self",
-        "prevHead": "a8b68a2",
-        "handoffSha": "sha256:3bcf6b2a51a63bd695b58c3ab5f943ce1fa8cfe34e5be0a83b76c612b9505e8b",
-        "handoffAgeSec": 20,
         "conformanceBefore": null,
         "commitsInSession": null
       }
