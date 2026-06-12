@@ -6246,6 +6246,7 @@ fn synthesize_main(
             push_unchecked_for: std::collections::HashMap::new(),
             binop_left_undef_id: None,
             binop_right_undef_id: None,
+            binop_mul_square: false,
             bigint_op_may_throw: false,
             globals,
             is_main_fn: true,
@@ -7053,6 +7054,7 @@ fn lower_fn(
         push_unchecked_for: std::collections::HashMap::new(),
         binop_left_undef_id: None,
         binop_right_undef_id: None,
+        binop_mul_square: false,
         bigint_op_may_throw: false,
         globals,
         is_main_fn: false,
@@ -7521,6 +7523,11 @@ pub(crate) struct LowerCtx<'a> {
     /// Any-side packing reads these to pick ANY_UNDEF=5 vs ANY_NULL=0.
     binop_left_undef_id: Option<ExprId>,
     binop_right_undef_id: Option<ExprId>,
+    /// S9 square carve — set by lower_binop_with_ids when both Mul
+    /// operands are the same identifier (`x * x`): a value times
+    /// itself can never be negative×zero, so -0 is unmintable and
+    /// the int path keeps (mirrors the width_of square carve).
+    binop_mul_square: bool,
     /// P7.4-a-b — set by `lower_binop_inner` when a bigint
     /// Div/Mod/Pow/Shl/Shr is dispatched (those runtime helpers can
     /// call `__torajs_throw_range_error`). The enclosing `Expr::BinOp`
@@ -24450,6 +24457,15 @@ impl<'a> LowerCtx<'a> {
     ) -> Operand {
         let saved_left = self.binop_left_undef_id.take();
         let saved_right = self.binop_right_undef_id.take();
+        let saved_square = self.binop_mul_square;
+        self.binop_mul_square = matches!(op, AstBinOp::Mul)
+            && matches!(
+                (
+                    left_id.map(|e| self.ast.get_expr(e)),
+                    right_id.map(|e| self.ast.get_expr(e)),
+                ),
+                (Some(Expr::Ident(l)), Some(Expr::Ident(r))) if l == r
+            );
         self.binop_left_undef_id = left_id.filter(|eid| {
             matches!(
                 self.expr_types.get(eid),
@@ -24465,6 +24481,7 @@ impl<'a> LowerCtx<'a> {
         let r = self.lower_binop_inner(op, a, b);
         self.binop_left_undef_id = saved_left;
         self.binop_right_undef_id = saved_right;
+        self.binop_mul_square = saved_square;
         r
     }
 
@@ -25172,21 +25189,22 @@ impl<'a> LowerCtx<'a> {
         // narrow the -0-insensitive / interval-proven shapes back to
         // srem downstream.
         let mod_int_safe = matches!(a, Operand::ConstI64(c) if c >= 0);
-        // W3 C4 — int `a * b` mints -0 only when one factor is zero
-        // and the other negative. A non-positive constant cofactor
-        // makes that reachable (`x * -1`, `0 * x`), so those float; a
-        // positive constant cofactor or two constants that miss the
-        // zero×negative pattern keep the int path. Variable×variable
-        // also keeps it for now — floating it needs truncation
-        // propagation through f-op trees to hold the bench surface
-        // (S9, rfc 20260611-ann-width-unification follow-up).
+        // W3 C4 + S9 — int `a * b` mints -0 only when one factor is
+        // zero and the other negative. A positive constant cofactor
+        // rules that out and keeps the int path, as do two constants
+        // that miss the zero×negative pattern and a square (`x * x`,
+        // the with_ids side channel); everything else — non-positive
+        // constant cofactor (`x * -1`, `0 * x`) and variable×variable
+        // (S9, runtime zero × runtime negative) — floats. The
+        // frem_narrow trunc-tree recovery (chunk ②) pulls the
+        // -0-insensitive i64-sink shapes back to int.
         let mul_minus_zero_risk = matches!(op, AstBinOp::Mul)
             && match (&a, &b) {
                 (Operand::ConstI64(x), Operand::ConstI64(y)) => {
                     (*x == 0 && *y < 0) || (*x < 0 && *y == 0)
                 }
                 (Operand::ConstI64(c), _) | (_, Operand::ConstI64(c)) => *c <= 0,
-                _ => false,
+                _ => !self.binop_mul_square,
             };
         let force_float = matches!(op, AstBinOp::Div | AstBinOp::Pow)
             || (matches!(op, AstBinOp::Mod) && !mod_int_safe)
