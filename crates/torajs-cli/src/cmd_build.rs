@@ -181,26 +181,34 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
             ExitCode::from(1)
         })?;
 
-    // ssa_lower panics on unsupported AST shapes; mirror cmd_build.rs's
-    // panic-catch so the bench harness sees a clean exit-3 "skip" rather
-    // than a backtrace.
+    // ssa_lower panics on unsupported AST shapes; surface them as the
+    // exit-3 "not yet supported" contract the bench harness keys on.
+    // The workspace release profile is `panic = "abort"`, so the
+    // catch_unwind below never sees the payload there — the hook is
+    // the only place the message can surface, and exiting from it
+    // (instead of falling through to abort) preserves both the
+    // message and the exit code. Pre-fix the hook was empty: every
+    // lower reject was a silent SIGABRT with zero output, and the
+    // harness misclassified skips as real failures.
     let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let lower_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ssa_lower::lower_with_arity(&ast, &generic_call_sites, &expr_types, &arity_pad_count)
-    }));
-    std::panic::set_hook(prev_hook);
-    lower_result.map_err(|payload| {
-        let msg = if let Some(s) = payload.downcast_ref::<&str>() {
-            s.to_string()
-        } else if let Some(s) = payload.downcast_ref::<String>() {
+    std::panic::set_hook(Box::new(|info| {
+        let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
             s.clone()
         } else {
             "ssa_lower panicked".to_string()
         };
         eprintln!("not yet supported: {msg}");
-        ExitCode::from(3)
-    })
+        std::process::exit(3);
+    }));
+    let lower_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ssa_lower::lower_with_arity(&ast, &generic_call_sites, &expr_types, &arity_pad_count)
+    }));
+    std::panic::set_hook(prev_hook);
+    // Unreachable under panic=abort (the hook exits first) and a pure
+    // backstop under panic=unwind — the hook already printed.
+    lower_result.map_err(|_| ExitCode::from(3))
 }
 
 pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
