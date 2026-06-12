@@ -605,12 +605,39 @@ mod tests {
 
     #[test]
     fn w5_straightline_mul_no_cycle_stays_narrow() {
+        // positive-literal cofactor: no -0 risk (S9), and a
+        // straight-line mul outside any growth cycle stays narrow.
+        let s = slots(
+            "function area(w: number): number {\n  let a: number = w * 3;\n  return a;\n}\nconsole.log(area(4));",
+        );
+        assert!(!s.contains(&param("area", "w")));
+        assert!(!s.contains(&local("area", "a")));
+        assert!(!s.contains(&ret("area")));
+    }
+
+    #[test]
+    fn s9_var_var_mul_widens_result_not_operands() {
+        // S9 — runtime zero × runtime negative mints -0, so a
+        // var×var product is f64; the factors themselves stay
+        // narrow (width flows operand → result only).
         let s = slots(
             "function area(w: number, h: number): number {\n  let a: number = w * h;\n  return a;\n}\nconsole.log(area(3, 4));",
         );
         assert!(!s.contains(&param("area", "w")));
         assert!(!s.contains(&param("area", "h")));
-        assert!(!s.contains(&local("area", "a")));
-        assert!(!s.contains(&ret("area")));
+        assert!(s.contains(&local("area", "a")));
+        assert!(s.contains(&ret("area")));
+    }
+
+    #[test]
+    fn s9_square_keeps_int_face() {
+        // square carve — `x * x` can never be negative×zero, so -0
+        // is unmintable and the product stays narrow.
+        let s = slots(
+            "function sq(x: number): number {\n  let a: number = x * x;\n  return a;\n}\nconsole.log(sq(7));",
+        );
+        assert!(!s.contains(&param("sq", "x")));
+        assert!(!s.contains(&local("sq", "a")));
+        assert!(!s.contains(&ret("sq")));
     }
 }

@@ -110,12 +110,16 @@ impl<'a> Analysis<'a> {
                 // a growth dependency (W5). In a cycle that means
                 // geometric blow-up past 2^53 within tens of steps.
                 //
-                // W3 C4 — int `a * b` mints -0 when one factor is
-                // zero and the other negative; a non-positive
-                // integer-literal cofactor makes that reachable, so
-                // the result must stay f64 (mirrors the lower_binop
-                // float predicate). Variable×variable keeps the int
-                // face for now (S9, rfc follow-up).
+                // W3 C4 + S9 — int `a * b` mints -0 when one factor
+                // is zero and the other negative; a non-positive
+                // integer-literal cofactor or two non-literal factors
+                // (runtime zero × runtime negative) make that
+                // reachable, so the result must stay f64 (mirrors the
+                // lower_binop float predicate). A positive literal
+                // cofactor, a literal pair missing the zero×negative
+                // pattern, or a square (`x * x` — a value times
+                // itself is never negative×zero, 0*0 = +0) keeps the
+                // int face.
                 BinOp::Mul => {
                     let lit = |eid: ExprId| -> Option<i64> {
                         match self.ast.get_expr(eid) {
@@ -130,10 +134,14 @@ impl<'a> Analysis<'a> {
                             _ => None,
                         }
                     };
+                    let square = matches!(
+                        (self.ast.get_expr(*left), self.ast.get_expr(*right)),
+                        (Expr::Ident(l), Expr::Ident(r)) if l == r
+                    );
                     let minus_zero_risk = match (lit(*left), lit(*right)) {
                         (Some(x), Some(y)) => (x == 0 && y < 0) || (x < 0 && y == 0),
                         (Some(c), None) | (None, Some(c)) => c <= 0,
-                        (None, None) => false,
+                        (None, None) => !square,
                     };
                     if minus_zero_risk {
                         W::F64
