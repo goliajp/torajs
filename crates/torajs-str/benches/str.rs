@@ -9,8 +9,8 @@ use torajs_bench::{Bench, bench_group, bench_main};
 use torajs_str::{__torajs_str_eq, __torajs_str_free, __torajs_str_slice, StrBlock};
 
 fn make_str(payload: &[u8]) -> *mut u8 {
-    let mut b = StrBlock::alloc(payload.len() as u64);
-    let dst = unsafe { b.as_bytes_mut(payload.len() as u64) };
+    let mut b = StrBlock::alloc(payload.len() as u32);
+    let dst = unsafe { b.as_bytes_mut(payload.len() as u32) };
     dst.copy_from_slice(payload);
     b.into_raw()
 }
