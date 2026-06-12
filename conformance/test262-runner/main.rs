@@ -454,13 +454,24 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
     };
     let fm = frontmatter::parse(&case_src);
 
-    // Harness includes beyond assert/sta aren't ported into the typed
-    // harness yet — an attributable reject, NOT a silent skip (the
-    // case would fail on the missing helper for bun and tr alike).
-    if !fm.includes.is_empty() {
+    // Harness includes beyond assert/sta classify by whether the typed
+    // harness has ported them. A case whose every include is ported
+    // runs normally (the `__t262_*` rewrites in transform_source bind
+    // the call sites); any unported include keeps the case in the
+    // harness-includes bucket — an attributable reject, NOT a silent
+    // skip (the case would fail on the missing helper for bun and tr
+    // alike).
+    const PORTED_INCLUDES: &[&str] = &["compareArray.js"];
+    let unported: Vec<&str> = fm
+        .includes
+        .iter()
+        .map(String::as_str)
+        .filter(|inc| !PORTED_INCLUDES.contains(inc))
+        .collect();
+    if !unported.is_empty() {
         return Outcome::Incompatible {
             kind: "harness-includes".to_string(),
-            msg: format!("needs {}", fm.includes.join(", ")),
+            msg: format!("needs {}", unported.join(", ")),
         };
     }
 

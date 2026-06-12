@@ -90,9 +90,6 @@ function __t262_throws_runtime(thunk: () => void, msg: string = ""): void {
 function __t262_verifyProperty(_obj: any, _key: any, _desc: any): boolean {
   return true;
 }
-function __t262_compareArray(_actual: any, _expected: any): boolean {
-  return true;
-}
 function __t262_verifyConfigurable(_obj: any, _key: any): void {}
 function __t262_verifyEnumerable(_obj: any, _key: any): void {}
 function __t262_verifyWritable(_obj: any, _key: any): void {}
@@ -102,12 +99,48 @@ function __t262_verifyNotWritable(_obj: any, _key: any): void {}
 function __t262_isConstructor(_obj: any): boolean { return true; }
 function __t262_assertRelativeDateMs(_date: any, _ms: any): void {}
 
+// ─── compareArray.js port (2026-06-13) ───
+//
+// Real implementation replacing the former no-op stubs, with the
+// SameValue element semantics of test262's assert._isSameValue
+// (NaN equals NaN; +0 differs from -0). Generic over the element
+// type because torajs array typing is invariant — Array(Number)
+// doesn't flow into an `any[]` parameter — so a single generic
+// declaration serves number[] / string[] / boolean[] case arrays;
+// the per-element comparison drops to `any` for the NaN / ±0
+// discrimination arithmetic.
+
+function __t262_sv<T>(a: T, b: T): boolean {
+  const aa: any = a;
+  const bb: any = b;
+  if (aa !== aa && bb !== bb) {
+    return true;
+  }
+  if (aa === 0 && bb === 0) {
+    return 1 / aa === 1 / bb;
+  }
+  return aa === bb;
+}
+
+function __t262_compareArray<T>(actual: T[], expected: T[]): boolean {
+  if (actual.length !== expected.length) {
+    return false;
+  }
+  for (let i = 0; i < actual.length; i++) {
+    if (!__t262_sv(actual[i], expected[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // `assert.compareArray(actual, expected)` — like compareArray but
 // THROWS on mismatch (vs the bare-call form that returns boolean).
-// No-op stub for the typecheck-unblock path; behavioral cases that
-// truly require deep equality lose precision here, recorded as
-// false-positive pass.
-function __t262_compareArray_assert(_actual: any, _expected: any, _msg: string = ""): void {}
+function __t262_compareArray_assert<T>(actual: T[], expected: T[], msg: string = ""): void {
+  if (!__t262_compareArray(actual, expected)) {
+    throw new Test262Error("compareArray mismatch: " + msg);
+  }
+}
 function __t262_deepEqual(_actual: any, _expected: any, _msg: string = ""): void {}
 function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}
 function __t262_verifyCallableProperty(_obj: any, _name: any, _fnName: any, _fnLen: any, _desc: any): boolean { return true; }
