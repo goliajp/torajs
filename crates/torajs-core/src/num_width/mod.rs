@@ -32,6 +32,7 @@ mod container_methods;
 mod container_walk;
 mod cycle;
 mod fnsig;
+mod json_seed;
 mod mono;
 mod walk;
 mod width;
@@ -506,6 +507,24 @@ mod tests {
         );
         assert!(!s.contains(&param("wrap", "k")));
         assert!(!s.contains(&ret("wrap")));
+    }
+
+    #[test]
+    fn json_parse_seeds_number_faces_f64() {
+        // ②.7 — JSON text is runtime data: every number-domain face
+        // reachable from the parse target seeds F64 (the typed
+        // cursor parser otherwise truncates AND deranges the cursor).
+        let s = slots(
+            "type P = { x: number, tags: string[], inner: Q };\ntype Q = { y: number };\nlet xs: number[] = JSON.parse(\"[1.5]\");\nlet p: P = JSON.parse(\"{}\");\nconsole.log(xs[0], p.x);",
+        );
+        let g = |n: &str| SlotKey::Global(n.into());
+        assert!(s.0.elem_is_f64(&g("xs")));
+        assert!(s.0.field_is_f64(&g("p"), "x"));
+        // nested named-type field face seeds through recursion.
+        let inner = SlotKey::Field(Box::new(g("p")), "inner".into());
+        assert!(s.0.field_is_f64(&inner, "y"));
+        // non-number faces stay out of the width domain.
+        assert!(!s.0.field_is_f64(&g("p"), "tags"));
     }
 
     #[test]

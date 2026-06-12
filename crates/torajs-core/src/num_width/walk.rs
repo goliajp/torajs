@@ -111,6 +111,11 @@ impl<'a> Analysis<'a> {
                     self.alias_ann_union(&key, ann);
                     self.fnsig_ann_union(&key, ann);
                 }
+                // ②.7 — JSON.parse targets: runtime data, every
+                // number-domain face seeds F64 (see json_seed.rs).
+                if self.is_json_parse(*init) {
+                    self.json_parse_seed(&key, type_ann.as_deref());
+                }
                 self.add_constraint(key.clone(), w);
                 self.alias_guarded(key.clone(), *init, scope);
                 self.fn_value_flow(&key, *init, scope);
