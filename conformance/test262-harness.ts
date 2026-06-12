@@ -141,6 +141,32 @@ function __t262_compareArray_assert<T>(actual: T[], expected: T[], msg: string =
     throw new Test262Error("compareArray mismatch: " + msg);
   }
 }
+
+// ─── decimalToHexString.js port (2026-06-13) ───
+//
+// Same-name top-level definitions — no `__t262_*` rewrite needed:
+// the case's bare call resolves against the prepended harness
+// directly, and the rewrite table in test262-runner/main.rs doesn't
+// list these identifiers.
+
+function decimalToHexString(n: number): string {
+  const hexDigits: string = "0123456789ABCDEF";
+  n = n >>> 0;
+  let s: string = "";
+  while (n) {
+    s = hexDigits[n & 0xf] + s;
+    n = n >>> 4;
+  }
+  while (s.length < 4) {
+    s = "0" + s;
+  }
+  return s;
+}
+
+function decimalToPercentHexString(n: number): string {
+  const hexDigits: string = "0123456789ABCDEF";
+  return "%" + hexDigits[(n >> 4) & 0xf] + hexDigits[n & 0xf];
+}
 function __t262_deepEqual(_actual: any, _expected: any, _msg: string = ""): void {}
 function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}
 function __t262_verifyCallableProperty(_obj: any, _name: any, _fnName: any, _fnLen: any, _desc: any): boolean { return true; }
