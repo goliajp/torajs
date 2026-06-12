@@ -25291,21 +25291,21 @@ impl<'a> LowerCtx<'a> {
         // narrow the -0-insensitive / interval-proven shapes back to
         // srem downstream.
         let mod_int_safe = matches!(a, Operand::ConstI64(c) if c >= 0);
-        // W3 C4 + S9 — int `a * b` mints -0 only when one factor is
-        // zero and the other negative. A positive constant cofactor
-        // rules that out and keeps the int path, as do two constants
-        // that miss the zero×negative pattern; everything else —
-        // non-positive constant cofactor (`x * -1`, `0 * x`) and
-        // variable×variable (S9, runtime zero × runtime negative) —
-        // floats. The frem_narrow trunc-tree recovery (chunk ②)
-        // pulls the -0-insensitive i64-sink shapes back to int.
+        // W3 C4 — int `a * b` mints -0 only when one factor is zero
+        // and the other negative. A non-positive constant cofactor
+        // makes that reachable (`x * -1`, `0 * x`), so those float; a
+        // positive constant cofactor or two constants that miss the
+        // zero×negative pattern keep the int path. Variable×variable
+        // also keeps it for now — floating it needs truncation
+        // propagation through f-op trees to hold the bench surface
+        // (S9, rfc 20260611-ann-width-unification follow-up).
         let mul_minus_zero_risk = matches!(op, AstBinOp::Mul)
             && match (&a, &b) {
                 (Operand::ConstI64(x), Operand::ConstI64(y)) => {
                     (*x == 0 && *y < 0) || (*x < 0 && *y == 0)
                 }
                 (Operand::ConstI64(c), _) | (_, Operand::ConstI64(c)) => *c <= 0,
-                _ => true,
+                _ => false,
             };
         let force_float = matches!(op, AstBinOp::Div | AstBinOp::Pow)
             || (matches!(op, AstBinOp::Mod) && !mod_int_safe)
