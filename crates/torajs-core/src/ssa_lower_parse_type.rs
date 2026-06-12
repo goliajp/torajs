@@ -456,7 +456,7 @@ pub(crate) fn parse_type(
         "boolean" => Type::Bool,
         "string" => Type::Str,
         "void" => Type::Void,
-        "regex" => Type::RegExp,
+        "regex" | "RegExp" => Type::RegExp,
         "date" => Type::Date,
         // T-21 (v0.6.0) — `fetch(url)` Response heap struct. Maps
         // to a plain heap pointer at SSA (Type::Ptr); field access

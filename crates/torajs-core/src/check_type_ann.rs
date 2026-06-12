@@ -346,6 +346,10 @@ fn resolve_type_ann_inner(
         "boolean" => Some(Type::Boolean),
         "void" => Some(Type::Void),
         "bigint" => Some(Type::BigInt),
+        // `RegExp` is the TS-spelled annotation for the regex value
+        // type (`const re: RegExp = /a/`); `regex` is the internal
+        // spelling type_to_ann emits, accepted for round-tripping.
+        "regex" | "RegExp" => Some(Type::RegExp),
         "weakref" | "WeakRef" => Some(Type::WeakRef),
         "weakmap" | "WeakMap" => Some(Type::WeakMap),
         "weakset" | "WeakSet" => Some(Type::WeakSet),
