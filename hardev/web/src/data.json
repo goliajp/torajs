@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-12T00:32:38.612Z",
+  "generatedAt": "2026-06-12T02:31:33.121Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 71.31
   },
   "torajs": {
-    "commit": "9ae50a3",
-    "commitSubject": "revert: var x var int mul float (w3 s9) - blocked on synthetic/indirect abi width",
+    "commit": "c3d4ab3",
+    "commitSubject": "chore(bench): record faf093e 3-run - chunk 2.5 verdict pass (31/32 artifact identical vs f2f0021, class-method delta justified = f2 __cm_* ret abi widen intended with run_ms -0.6% neutral; torajs-run column invalid - nohup-reparented harness left the sshd developer-tools exemption chain, syspolicyd scan tax ~+152ms/invocation)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,34 @@
   },
   "commits": [
     {
+      "hash": "c3d4ab3",
+      "subject": "chore(bench): record faf093e 3-run - chunk 2.5 verdict pass (31/32 artifact identical vs f2f0021, class-method delta justified = f2 __cm_* ret abi widen intended with run_ms -0.6% neutral; torajs-run column invalid - nohup-reparented harness left the sshd developer-tools exemption chain, syspolicyd scan tax ~+152ms/invocation)"
+    },
+    {
+      "hash": "faf093e",
+      "subject": "Revert \"fix(core): var x var int mul preserves ieee -0 - w3 s9 re-flip\""
+    },
+    {
+      "hash": "d815ca8",
+      "subject": "fix(core): var x var int mul preserves ieee -0 - w3 s9 re-flip"
+    },
+    {
+      "hash": "123d62a",
+      "subject": "fix(core): generator step value slot width joins nominally - w3 chunk 2.5 f3"
+    },
+    {
+      "hash": "2262780",
+      "subject": "fix(core): fn-type ann width negotiation + scalar nested-union latent fixes - w3 chunk 2.5 f1"
+    },
+    {
+      "hash": "ddae3bc",
+      "subject": "fix(core): synthetic fn ret/param widths consult num_width - w3 chunk 2.5 f2"
+    },
+    {
+      "hash": "0bb4e18",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 9ae50a3 (determinism debt closed via drop-order sort, artifact gate restored 32/32 x2, chunk 2 trunc-tree shipped, chunk 3 s9 first flip reverted on synthetic-abi width gap, next chunk 2.5 abi width negotiation)"
+    },
+    {
       "hash": "9ae50a3",
       "subject": "revert: var x var int mul float (w3 s9) - blocked on synthetic/indirect abi width"
     },
@@ -634,55 +662,38 @@
     {
       "hash": "abf7491",
       "subject": "chore(bench): record 6b635e3 3-run - determinism fix verdict pass (32/32 artifact identical vs 0ed852a, run_ms 0 signal, artifact hash gate restored to full trust)"
-    },
-    {
-      "hash": "6b635e3",
-      "subject": "fix(core): deterministic tr build output - sort fn-exit drop order, add staticlib dep edges"
-    },
-    {
-      "hash": "7b635bf",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 932846e (item 18 chunk 1 s8 neg-zero closed, gate 753/0/4, bench justified via incremental-edge bisect, syspolicyd gate tax fixed 409s to 44s, next chunk 2 truncation propagation)"
-    },
-    {
-      "hash": "932846e",
-      "subject": "chore(bench): record 0ed852a 3-run - item 18 chunk 1 s8 verdict justified (artifact delta = tr-rebuild layout drift, s8 zero-delta proven by incremental-edge bisect on 5 cases, run_ms 0 signal)"
-    },
-    {
-      "hash": "0ed852a",
-      "subject": "fix(core): unary negation on runtime int preserves ieee -0 - w3 s8"
-    },
-    {
-      "hash": "4c84bf0",
-      "subject": "refactor: extract unary operator lowering to ssa_lower_unary.rs"
-    },
-    {
-      "hash": "08d09ef",
-      "subject": "docs: retire llvm-era present-tense comments across the workspace"
-    },
-    {
-      "hash": "5352ea5",
-      "subject": "chore: remove dead torajs-runtime crate and retire stale llvm-era comments"
     }
   ],
-  "headSha": "9ae50a3",
+  "headSha": "c3d4ab3",
   "autorun": {
-    "total": 123,
+    "total": 124,
     "baselineTarget": 10,
-    "bySelf": 121,
+    "bySelf": 122,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781220008-1b12",
-      "at": "2026-06-11T23:20:08Z",
-      "ts": 1781220008,
+      "rotationId": "r-1781224447-510f",
+      "at": "2026-06-12T00:34:07Z",
+      "ts": 1781224447,
       "trigger": "self",
-      "prevHead": "7b635bf",
-      "handoffSha": "sha256:bee870d8e5f4f5c02d87647e0a72b7ded45d82227d375ec1c833dd2fee336117",
-      "handoffAgeSec": 11,
+      "prevHead": "0bb4e18",
+      "handoffSha": "sha256:49bc3a03812fdb575cb7076ff468be6ab7f84f6427c92dd2a950d52d8dbe2bbc",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781224447-510f",
+        "at": "2026-06-12T00:34:07Z",
+        "ts": 1781224447,
+        "trigger": "self",
+        "prevHead": "0bb4e18",
+        "handoffSha": "sha256:49bc3a03812fdb575cb7076ff468be6ab7f84f6427c92dd2a950d52d8dbe2bbc",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781220008-1b12",
         "at": "2026-06-11T23:20:08Z",
@@ -779,17 +790,6 @@
         "prevHead": "704ee79",
         "handoffSha": "sha256:f3e2b1eac2a500576ca4cfb3f896486419229e66e974c160aecc7d5e455b59f6",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781111512-013b",
-        "at": "2026-06-10T17:11:52Z",
-        "ts": 1781111512,
-        "trigger": "self",
-        "prevHead": "dde9b5a",
-        "handoffSha": "sha256:b6a39c90ec448b347f76f94cbc2dc7883c8f709249295fa43c37f66a964385a6",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
