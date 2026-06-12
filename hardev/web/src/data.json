@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-11T23:18:52.527Z",
+  "generatedAt": "2026-06-12T00:32:38.612Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 71.31
   },
   "torajs": {
-    "commit": "932846e",
-    "commitSubject": "chore(bench): record 0ed852a 3-run - item 18 chunk 1 s8 verdict justified (artifact delta = tr-rebuild layout drift, s8 zero-delta proven by incremental-edge bisect on 5 cases, run_ms 0 signal)",
+    "commit": "9ae50a3",
+    "commitSubject": "revert: var x var int mul float (w3 s9) - blocked on synthetic/indirect abi width",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -616,6 +616,34 @@
   },
   "commits": [
     {
+      "hash": "9ae50a3",
+      "subject": "revert: var x var int mul float (w3 s9) - blocked on synthetic/indirect abi width"
+    },
+    {
+      "hash": "15d1dac",
+      "subject": "fix(core): var x var int mul preserves ieee -0 - w3 s9"
+    },
+    {
+      "hash": "161f227",
+      "subject": "chore(bench): record f2f0021 3-run - chunk 2 verdict pass (32/32 artifact identical vs 6b635e3, tree recovery has no fire surface in current bench ssa as designed - fires after chunk 3 mul float)"
+    },
+    {
+      "hash": "f2f0021",
+      "subject": "feat(egraph): truncation propagation through f-op trees - w3 chunk 2"
+    },
+    {
+      "hash": "abf7491",
+      "subject": "chore(bench): record 6b635e3 3-run - determinism fix verdict pass (32/32 artifact identical vs 0ed852a, run_ms 0 signal, artifact hash gate restored to full trust)"
+    },
+    {
+      "hash": "6b635e3",
+      "subject": "fix(core): deterministic tr build output - sort fn-exit drop order, add staticlib dep edges"
+    },
+    {
+      "hash": "7b635bf",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 932846e (item 18 chunk 1 s8 neg-zero closed, gate 753/0/4, bench justified via incremental-edge bisect, syspolicyd gate tax fixed 409s to 44s, next chunk 2 truncation propagation)"
+    },
+    {
       "hash": "932846e",
       "subject": "chore(bench): record 0ed852a 3-run - item 18 chunk 1 s8 verdict justified (artifact delta = tr-rebuild layout drift, s8 zero-delta proven by incremental-edge bisect on 5 cases, run_ms 0 signal)"
     },
@@ -634,55 +662,38 @@
     {
       "hash": "5352ea5",
       "subject": "chore: remove dead torajs-runtime crate and retire stale llvm-era comments"
-    },
-    {
-      "hash": "a8b68a2",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD d0f7abe (item 17 w4 d5 cyclic alias closed, gate 752/0/4, bench pass 32/32, ann-width rfc all phases done, next item 18 w3 s8/s9 neg-zero)"
-    },
-    {
-      "hash": "b4e3eee",
-      "subject": "chore(bench): record d0f7abe 3-run - item 17 w4 d5 verdict pass (32/32 artifact identical, 0 delta)"
-    },
-    {
-      "hash": "d0f7abe",
-      "subject": "fix(core): cyclic type-alias struct fields widen at nominal granularity - w4 d5"
-    },
-    {
-      "hash": "7323865",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 6b2c3aa (items 15 w4 d4 + 16 w1 block-let closed, gate 751/0/4, bench pass x2, next item 17 cyclic alias field width)"
-    },
-    {
-      "hash": "e207925",
-      "subject": "chore(bench): record 6b2c3aa 3-run - item 16 w1 block-let verdict pass (32/32 artifact identical)"
-    },
-    {
-      "hash": "6b2c3aa",
-      "subject": "fix(core): top-level block-scoped lets resolve to global width slots - w1 s1 family gap"
-    },
-    {
-      "hash": "cf7c38c",
-      "subject": "chore(bench): record b7b9f27 3-run - item 15 w4 verdict pass (2 justified hash deltas: class field/arr elem f64 widen)"
     }
   ],
-  "headSha": "932846e",
+  "headSha": "9ae50a3",
   "autorun": {
-    "total": 122,
+    "total": 123,
     "baselineTarget": 10,
-    "bySelf": 120,
+    "bySelf": 121,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781195141-28ea",
-      "at": "2026-06-11T16:25:41Z",
-      "ts": 1781195141,
+      "rotationId": "r-1781220008-1b12",
+      "at": "2026-06-11T23:20:08Z",
+      "ts": 1781220008,
       "trigger": "self",
-      "prevHead": "a8b68a2",
-      "handoffSha": "sha256:3bcf6b2a51a63bd695b58c3ab5f943ce1fa8cfe34e5be0a83b76c612b9505e8b",
-      "handoffAgeSec": 20,
+      "prevHead": "7b635bf",
+      "handoffSha": "sha256:bee870d8e5f4f5c02d87647e0a72b7ded45d82227d375ec1c833dd2fee336117",
+      "handoffAgeSec": 11,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781220008-1b12",
+        "at": "2026-06-11T23:20:08Z",
+        "ts": 1781220008,
+        "trigger": "self",
+        "prevHead": "7b635bf",
+        "handoffSha": "sha256:bee870d8e5f4f5c02d87647e0a72b7ded45d82227d375ec1c833dd2fee336117",
+        "handoffAgeSec": 11,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781195141-28ea",
         "at": "2026-06-11T16:25:41Z",
@@ -779,17 +790,6 @@
         "prevHead": "dde9b5a",
         "handoffSha": "sha256:b6a39c90ec448b347f76f94cbc2dc7883c8f709249295fa43c37f66a964385a6",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781104149-0308",
-        "at": "2026-06-10T15:09:09Z",
-        "ts": 1781104149,
-        "trigger": "self",
-        "prevHead": "a1a84b0",
-        "handoffSha": "sha256:40ff30ec75fc44b56d5a356b414642cf03f2410501bf31b76151a5628f7d0e90",
-        "handoffAgeSec": 37,
         "conformanceBefore": null,
         "commitsInSession": null
       }
