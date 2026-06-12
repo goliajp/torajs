@@ -115,7 +115,7 @@ pub(crate) struct WidthTable {
     container_poison: bool,
     /// D5 — cyclic plain-alias names (see `alias.rs`); the TypeDecl
     /// fill site takes nominal widths for these, like classes.
-    cyclic_aliases: HashSet<String>,
+    nominal_aliases: HashSet<String>,
 }
 
 impl WidthTable {
@@ -123,18 +123,18 @@ impl WidthTable {
         canon: HashSet<SlotKey>,
         uf: UnionFind,
         container_poison: bool,
-        cyclic_aliases: HashSet<String>,
+        nominal_aliases: HashSet<String>,
     ) -> Self {
         WidthTable {
             canon,
             uf,
             container_poison,
-            cyclic_aliases,
+            nominal_aliases,
         }
     }
 
-    pub(crate) fn is_cyclic_alias(&self, name: &str) -> bool {
-        self.cyclic_aliases.contains(name)
+    pub(crate) fn is_nominal_alias(&self, name: &str) -> bool {
+        self.nominal_aliases.contains(name)
     }
 
     pub(crate) fn slot_is_f64(&self, k: &SlotKey) -> bool {
@@ -440,7 +440,7 @@ mod tests {
         let t = table(
             "type Item = { v: number; next: Item | null };\nconst c: Item = { v: 1, next: null };\nc.v = 0.25;\nconsole.log(c.v);",
         );
-        assert!(t.is_cyclic_alias("Item"));
+        assert!(t.is_nominal_alias("Item"));
         assert!(t.field_is_f64(&SlotKey::Class("Item".into()), "v"));
     }
 
@@ -470,7 +470,7 @@ mod tests {
         let t = table(
             "type Counter = { n: number; next: Counter | null };\nconst k: Counter = { n: 1, next: null };\nk.n = 7;\nconsole.log(k.n);",
         );
-        assert!(t.is_cyclic_alias("Counter"));
+        assert!(t.is_nominal_alias("Counter"));
         assert!(!t.field_is_f64(&SlotKey::Class("Counter".into()), "n"));
     }
 
@@ -487,7 +487,7 @@ mod tests {
         let t = table(
             "type A = { x: number; b: B | null };\ntype B = { y: number; a: A | null };\nconst aa: A = { x: 1, b: null };\naa.x = 1.5;\nconsole.log(aa.x);",
         );
-        assert!(t.is_cyclic_alias("A") && t.is_cyclic_alias("B"));
+        assert!(t.is_nominal_alias("A") && t.is_nominal_alias("B"));
         assert!(t.field_is_f64(&SlotKey::Class("A".into()), "x"));
         assert!(!t.field_is_f64(&SlotKey::Class("B".into()), "y"));
     }
@@ -497,7 +497,7 @@ mod tests {
         let t = table(
             "type P = { x: number };\nconst o1: P = { x: 1 };\nconst o2: P = { x: 2 };\no1.x = 0.5;\no2.x = 3;\nconsole.log(o1.x);",
         );
-        assert!(!t.is_cyclic_alias("P"));
+        assert!(!t.is_nominal_alias("P"));
         assert!(t.field_is_f64(&g("o1"), "x"));
         assert!(!t.field_is_f64(&g("o2"), "x"));
     }

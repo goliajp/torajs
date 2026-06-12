@@ -4601,10 +4601,12 @@ fn lower_inner(
             // W4 — class field widths join over all instances through
             // the nominal Class key. D5 — cyclic plain aliases take
             // the same nominal widths (their reserved sid closes the
-            // recursion right here; see num_width/alias.rs); acyclic
-            // aliases widen per consuming slot instead.
+            // recursion right here; see num_width/alias.rs). F3 —
+            // generator `__step_*` aliases too, so the state machine's
+            // value slot width joins over every yielded expression.
+            // Other plain aliases widen per consuming slot instead.
             let class_key = (ast.class_parents.contains_key(name)
-                || num_f64_slots.is_cyclic_alias(name))
+                || num_f64_slots.is_nominal_alias(name))
             .then(|| crate::num_width::SlotKey::Class(name.clone()));
             for (fname, fty_ann) in fields {
                 let mut ty = parse_type(

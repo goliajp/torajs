@@ -20,15 +20,40 @@
 //! identical, so a separate variant would just split one mechanism
 //! in two.
 //!
-//! Only *cyclic* aliases are nominalized. Acyclic aliases keep the D3
-//! per-consuming-slot precision (widened twins allow differently-
-//! classed slots of one spelling to carry different widths); cyclic
-//! ones physically cannot, because their single reserved layout is
-//! shared by every depth of the recursion.
+//! Nominalized aliases: *cyclic* ones (their single reserved layout
+//! is shared by every recursion depth) and generator *step* aliases
+//! (`__step_<gen>`, §5.6 F3 — single synthesized producer, so the
+//! nominal join loses no precision and the state machine's value
+//! slot negotiates with every yielded expression). All other plain
+//! aliases keep the D3 per-consuming-slot precision (widened twins
+//! allow differently-classed slots of one spelling to carry
+//! different widths).
 
 use super::{Analysis, SlotKey};
 use crate::ast::{Ast, Stmt};
 use std::collections::{HashMap, HashSet};
+
+/// Plain alias names whose field widths join at *type* granularity
+/// (nominal, like classes): cyclic aliases (their single reserved
+/// layout is shared by every recursion depth) plus generator step
+/// aliases (`__step_<gen>` — synthesized with a single producer, the
+/// state machine's yield returns, so nominal granularity loses no
+/// precision; §5.6 F3). All other plain aliases keep the D3
+/// per-consuming-slot precision.
+pub(crate) fn nominal_alias_names(ast: &Ast) -> HashSet<String> {
+    let mut out = cyclic_alias_names(ast);
+    for stmt in &ast.stmts {
+        if let Stmt::TypeDecl {
+            name, type_params, ..
+        } = stmt
+            && type_params.is_empty()
+            && name.starts_with("__step_")
+        {
+            out.insert(name.clone());
+        }
+    }
+    out
+}
 
 /// Plain (non-class, non-generic, struct-shaped) alias names that sit
 /// on a cycle in the named-type reference graph. Classes participate
@@ -37,7 +62,7 @@ use std::collections::{HashMap, HashSet};
 /// aliases land in the result; classes already have their nominal
 /// path. Mentions are token-scanned, so exotic spellings (inline
 /// nests, generics) over-approximate toward cyclic — width-only cost.
-pub(crate) fn cyclic_alias_names(ast: &Ast) -> HashSet<String> {
+fn cyclic_alias_names(ast: &Ast) -> HashSet<String> {
     let mut mentions: HashMap<&str, HashSet<&str>> = HashMap::new();
     let mut aliases: HashSet<&str> = HashSet::new();
     for stmt in &ast.stmts {
@@ -170,7 +195,7 @@ impl<'a> Analysis<'a> {
         let Some((base, depth)) = named_ref(ann) else {
             return;
         };
-        if !self.cyclic_aliases.contains(base) {
+        if !self.nominal_aliases.contains(base) {
             return;
         }
         let mut k = key.clone();
@@ -242,6 +267,15 @@ mod tests {
     fn self_referential_alias_is_cyclic() {
         let c = cyclic("type Item = { v: number; next: Item | null };");
         assert!(c.contains("Item"));
+    }
+
+    #[test]
+    fn step_alias_is_nominal_but_not_cyclic() {
+        let src = "type __step_g = { value: number; done: boolean };";
+        let tokens = lexer::tokenize(src).expect("lex");
+        let ast = parser::parse(&tokens).expect("parse");
+        assert!(nominal_alias_names(&ast).contains("__step_g"));
+        assert!(cyclic_alias_names(&ast).is_empty());
     }
 
     #[test]

@@ -187,7 +187,7 @@ pub(super) struct Analysis<'a> {
     /// `SlotKey::Class` (annotation-driven hookups in `alias.rs`);
     /// lowering's TypeDecl fill site queries the same set to take
     /// nominal widths for them.
-    pub(super) cyclic_aliases: HashSet<String>,
+    pub(super) nominal_aliases: HashSet<String>,
     /// W4 — an element write through a receiver the analysis cannot
     /// resolve to a container class. Never expected to fire (assign
     /// receivers are idents / members / indexes / calls); if it does,
@@ -248,7 +248,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
 
     let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
     classes.sort();
-    let cyclic_aliases = alias::cyclic_alias_names(ast);
+    let nominal_aliases = alias::nominal_alias_names(ast);
 
     let mut a = Analysis {
         ast,
@@ -265,7 +265,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
         nested_unions: Vec::new(),
         containerish: HashSet::new(),
         classes,
-        cyclic_aliases,
+        nominal_aliases,
         container_poison: false,
     };
 
@@ -332,7 +332,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
         }
     }
 
-    WidthTable::new(canon_out, a.uf, a.container_poison, a.cyclic_aliases)
+    WidthTable::new(canon_out, a.uf, a.container_poison, a.nominal_aliases)
 }
 
 /// Poison flows forward along assignment edges until stable.
