@@ -30,11 +30,13 @@ mod container;
 mod container_lookup;
 mod container_walk;
 mod cycle;
+mod fnsig;
 mod mono;
 mod walk;
 mod width;
 
 pub(crate) use container::WidthTable;
+pub(crate) use fnsig::{fn_type_canon, split_fn_type};
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 
 use crate::ast::{Ast, ExprId, Stmt};
@@ -164,6 +166,16 @@ pub(super) struct Analysis<'a> {
     /// (`let v = xs[0]; v = v / 2`) don't glue the copy's width back
     /// onto the source class.
     pub(super) guarded_unions: Vec<(SlotKey, SlotKey)>,
+    /// F2-fix — nested-container alias edges: (element point,
+    /// candidate). `ys.push(xs)` makes xs alias ys's element class,
+    /// and a map-family callback's param aliases the receiver's
+    /// elements — but ONLY when the flowing value is itself a
+    /// container. Activation requires evidence on the CANDIDATE side
+    /// (the element side is trivially containerish, so the guarded
+    /// either-endpoint rule would always fire and glue scalars into
+    /// the element class — `xs.push(k)` + `xs.push(k*10)` closed a
+    /// growth cycle through Param(k) and floated int arrays).
+    pub(super) nested_unions: Vec<(SlotKey, SlotKey)>,
     /// W4 — slots with container evidence (write receivers, literal
     /// origins, class keys); the activation worklist grows it.
     pub(super) containerish: HashSet<SlotKey>,
@@ -250,6 +262,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
         c_edges: HashMap::new(),
         uf: container::UnionFind::default(),
         guarded_unions: Vec::new(),
+        nested_unions: Vec::new(),
         containerish: HashSet::new(),
         classes,
         cyclic_aliases,
@@ -298,6 +311,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
     // canonicalize through the frozen union-find.
     container::nominal_unions(&mut a);
     a.alias_nominal_unions();
+    a.fnsig_nominal_unions();
     container::activate_guarded(&mut a);
     a.seeds.append(&mut a.c_seeds);
     for (d, ts) in std::mem::take(&mut a.c_edges) {
@@ -306,6 +320,17 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
     container::canonicalize(&mut a);
     cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
     let canon_out = fixpoint(std::mem::take(&mut a.seeds), &a.edges);
+
+    // TORAJS_NUM_WIDTH_STATS=1 — dump the canonical F64 class set
+    // (one line per poisoned representative), the same diagnostic
+    // shape as the SSA-pass *_STATS switches.
+    if std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some() {
+        let mut lines: Vec<String> = canon_out.iter().map(|k| format!("{k:?}")).collect();
+        lines.sort();
+        for l in &lines {
+            eprintln!("[num_width] f64 class: {l}");
+        }
+    }
 
     WidthTable::new(canon_out, a.uf, a.container_poison, a.cyclic_aliases)
 }
@@ -521,6 +546,61 @@ mod tests {
         );
         assert!(s.contains(&local("sum", "acc")));
         assert!(!s.contains(&local("sum", "i")));
+    }
+
+    #[test]
+    fn f1_fn_type_ann_residents_join_ret() {
+        // T1 shape — `half` (f64 ret) and `add` (int ret) both flow
+        // through the same fn-type annotation; the signature's __ret
+        // projection joins over all residents, floating add's Ret too
+        // (one interned signature must agree with every resident).
+        let s = slots(
+            "function add(x: number, y: number): number { return x + y; }\nfunction half(x: number, y: number): number { return x / y; }\nfunction pickOp(op: boolean): (x: number, y: number) => number {\n  if (op) { return add; }\n  return half;\n}\nconsole.log(pickOp(true)(3, 4));\nconsole.log(pickOp(false)(3, 4));",
+        );
+        let ck = SlotKey::Class("__fn(number|number)->number".into());
+        assert!(s.0.field_is_f64(&ck, "__ret"));
+        assert!(s.contains(&ret("add")));
+        assert!(s.contains(&ret("half")));
+        assert!(!s.0.field_is_f64(&ck, "__p0"));
+    }
+
+    #[test]
+    fn f1_all_int_residents_keep_narrow_sig() {
+        let s = slots(
+            "function add(x: number, y: number): number { return x + y; }\nfunction sub(x: number, y: number): number { return x - y; }\nfunction pick(op: boolean): (x: number, y: number) => number {\n  if (op) { return add; }\n  return sub;\n}\nconsole.log(pick(true)(3, 4));",
+        );
+        let ck = SlotKey::Class("__fn(number|number)->number".into());
+        assert!(!s.0.field_is_f64(&ck, "__ret"));
+        assert!(!s.contains(&ret("add")));
+    }
+
+    #[test]
+    fn f1_unannotated_carrier_projects_ret() {
+        // `let f = half` has no annotation — the flow union alone
+        // must answer the indirect read through f.
+        let s = slots(
+            "function half(x: number, y: number): number { return x / y; }\nlet f = half;\nconsole.log(f(3, 4));",
+        );
+        let fk = SlotKey::Field(Box::new(SlotKey::Global("f".into())), "__ret".into());
+        assert!(s.contains(&fk));
+    }
+
+    #[test]
+    fn f1_indirect_arg_poisons_resident_param() {
+        // A fract arg through an fn-value call must reach the
+        // resident fn's param (the indirect mirror of S1).
+        let s = slots(
+            "function g(x: number): number { return x + 1; }\nlet f = g;\nconsole.log(f(0.5));",
+        );
+        assert!(s.contains(&param("g", "x")));
+    }
+
+    #[test]
+    fn f1_indirect_call_ret_feeds_binding() {
+        let s = slots(
+            "function half(x: number, y: number): number { return x / y; }\nfunction pickOp(op: boolean): (x: number, y: number) => number {\n  return half;\n}\nlet r: number = pickOp(true)(8, 2);\nconsole.log(r);",
+        );
+        assert!(s.contains(&SlotKey::Global("r".into())));
     }
 
     #[test]

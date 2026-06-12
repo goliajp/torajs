@@ -181,29 +181,44 @@ pub(super) fn nominal_unions(a: &mut Analysis) {
     }
 }
 
-/// Guarded-union activation: an edge applies iff either endpoint has
-/// container evidence; applying it spreads the evidence to the other
-/// endpoint, so chains of copies activate transitively.
+/// Guarded-union activation: a guarded edge applies iff either
+/// endpoint has container evidence; a nested edge (element point,
+/// candidate) applies iff the CANDIDATE side has its own evidence —
+/// the element side is trivially containerish, and scalars flowing
+/// into elements must contribute width only (one-way constraint),
+/// never glue onto the element class. Applying an edge spreads
+/// evidence, so chains activate transitively across both kinds.
 pub(super) fn activate_guarded(a: &mut Analysis) {
-    let edges = std::mem::take(&mut a.guarded_unions);
-    let mut pending: Vec<(SlotKey, SlotKey)> = edges;
+    let mut guarded: Vec<(SlotKey, SlotKey)> = std::mem::take(&mut a.guarded_unions);
+    let mut nested: Vec<(SlotKey, SlotKey)> = std::mem::take(&mut a.nested_unions);
     loop {
-        let mut next: Vec<(SlotKey, SlotKey)> = Vec::new();
         let mut changed = false;
-        for (x, y) in pending {
+        let mut next_g: Vec<(SlotKey, SlotKey)> = Vec::new();
+        for (x, y) in guarded {
             if a.containerish.contains(&x) || a.containerish.contains(&y) {
                 a.containerish.insert(x.clone());
                 a.containerish.insert(y.clone());
                 a.uf.union(&x, &y);
                 changed = true;
             } else {
-                next.push((x, y));
+                next_g.push((x, y));
             }
         }
+        guarded = next_g;
+        let mut next_n: Vec<(SlotKey, SlotKey)> = Vec::new();
+        for (ek, cand) in nested {
+            if a.containerish.contains(&cand) {
+                a.containerish.insert(ek.clone());
+                a.uf.union(&ek, &cand);
+                changed = true;
+            } else {
+                next_n.push((ek, cand));
+            }
+        }
+        nested = next_n;
         if !changed {
             break;
         }
-        pending = next;
     }
 }
 

@@ -47,6 +47,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/num_width/container_lookup.rs",
     "src/num_width/container_walk.rs",
     "src/num_width/cycle.rs",
+    "src/num_width/fnsig.rs",
     "src/num_width/mod.rs",
     "src/num_width/mono.rs",
     "src/num_width/walk.rs",

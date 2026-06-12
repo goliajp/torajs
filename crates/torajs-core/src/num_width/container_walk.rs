@@ -125,9 +125,12 @@ impl<'a> Analysis<'a> {
                     let w = self.width_of(el, scope);
                     self.add_container_constraint(ek.clone(), w);
                     if let Some(ik) = self.container_key_of(el, scope) {
-                        // A container stored as an element is aliased
-                        // by the slot — unconditional.
-                        self.uf.union(&ek, &ik);
+                        // F2-fix — a container stored as an element is
+                        // aliased by the slot; a scalar element keeps
+                        // the one-way width edge above (gluing it in
+                        // closed growth cycles through literal elems —
+                        // `[n, n*10]` floated the cb param).
+                        self.nested_unions.push((ek.clone(), ik));
                     }
                 }
                 Some(anon)
@@ -140,7 +143,9 @@ impl<'a> Analysis<'a> {
                     let w = self.width_of(fe, scope);
                     self.add_container_constraint(fk.clone(), w);
                     if let Some(ik) = self.container_key_of(fe, scope) {
-                        self.uf.union(&fk, &ik);
+                        // F2-fix — same candidate-side gate as the
+                        // ArrayLit elems above.
+                        self.nested_unions.push((fk.clone(), ik));
                     }
                 }
                 Some(anon)
@@ -210,8 +215,15 @@ impl<'a> Analysis<'a> {
                 let aek = SlotKey::Elem(Box::new(anon.clone()));
                 self.uf.union(&aek, &ek);
                 for a in args.to_vec() {
+                    // F2-fix — `concat` accepts scalars too; alias the
+                    // arg's element class only with candidate-side
+                    // container evidence, and feed its scalar width
+                    // either way.
+                    let w = self.width_of(a, scope);
+                    self.add_container_constraint(aek.clone(), w);
                     if let Some(ak) = self.container_key_of(a, scope) {
-                        self.uf.union(&aek, &SlotKey::Elem(Box::new(ak)));
+                        self.nested_unions
+                            .push((aek.clone(), SlotKey::Elem(Box::new(ak))));
                     }
                 }
                 Some(anon)
@@ -301,8 +313,11 @@ impl<'a> Analysis<'a> {
         for a in write_args {
             let w = self.width_of(a, scope);
             self.add_container_constraint(ek.clone(), w);
+            // F2-fix — nested-reference alias only when the written
+            // value is itself a container (candidate-side evidence);
+            // scalar args contribute the one-way width edge above.
             if let Some(ak) = self.container_key_of(a, scope) {
-                self.uf.union(&ek, &ak);
+                self.nested_unions.push((ek.clone(), ak));
             }
         }
         // Callback-taking iteration — the element param sees the
@@ -318,7 +333,11 @@ impl<'a> Analysis<'a> {
                         .entry(ek.clone())
                         .or_default()
                         .push((pk.clone(), false));
-                    self.guarded_unions.push((pk, ek.clone()));
+                    // F2-fix — the param aliases the element class
+                    // only when it is used as a container itself
+                    // (`grid.map(row => row[0] = …)`); a scalar elem
+                    // param keeps the one-way width edge above.
+                    self.nested_unions.push((ek.clone(), pk));
                 }
             }
             "reduce" | "reduceRight" => {

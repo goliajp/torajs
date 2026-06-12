@@ -119,6 +119,7 @@ pub(crate) fn collect_toplevel_globals(
                         num_f64_slots,
                         arr_layouts,
                         struct_layouts,
+                        fn_sigs,
                     );
                     if ann == "number" {
                         widened(parsed)

@@ -205,12 +205,8 @@ impl<'a> Analysis<'a> {
                     return W::Num(vec![(SlotKey::Ret(mono.clone()), false)]);
                 }
                 match self.ast.get_expr(*callee) {
-                    Expr::Ident(f) => {
-                        if self.fn_params.contains_key(f) {
-                            W::Num(vec![(SlotKey::Ret(f.clone()), false)])
-                        } else {
-                            W::NotNum
-                        }
+                    Expr::Ident(f) if self.fn_params.contains_key(f) => {
+                        W::Num(vec![(SlotKey::Ret(f.clone()), false)])
                     }
                     // Math.* numeric intrinsics are libm-shaped f64
                     // (same set the retired infer_arg_width flagged).
@@ -229,7 +225,18 @@ impl<'a> Analysis<'a> {
                             }
                         }
                     }
-                    _ => W::NotNum,
+                    // F1 — indirect call through an fn value (local
+                    // fn-value slot or a chained call's ret): the
+                    // result reads the value's `__ret` projection,
+                    // which the flow unions glue onto the residents'
+                    // Ret keys.
+                    _ => match self.container_key_lookup(*callee, scope) {
+                        Some(k) => W::Num(vec![(
+                            SlotKey::Field(Box::new(k), "__ret".to_string()),
+                            false,
+                        )]),
+                        None => W::NotNum,
+                    },
                 }
             }
             Expr::Ternary {

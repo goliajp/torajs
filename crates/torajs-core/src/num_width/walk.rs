@@ -104,12 +104,16 @@ impl<'a> Analysis<'a> {
                     SlotKey::Local(scope.fn_name.to_string(), name.clone())
                 };
                 // D5 — a binding annotated with a cyclic alias joins
-                // the alias's nominal field-width point.
+                // the alias's nominal field-width point; F1 — one
+                // annotated with a fn-type joins the spelling's
+                // signature class.
                 if let Some(ann) = type_ann {
                     self.alias_ann_union(&key, ann);
+                    self.fnsig_ann_union(&key, ann);
                 }
                 self.add_constraint(key.clone(), w);
-                self.alias_guarded(key, *init, scope);
+                self.alias_guarded(key.clone(), *init, scope);
+                self.fn_value_flow(&key, *init, scope);
                 self.walk_expr(*init, scope);
             }
             Stmt::Return(maybe) => {
@@ -118,7 +122,8 @@ impl<'a> Analysis<'a> {
                         let w = self.width_of(*e, scope);
                         let rk = SlotKey::Ret(scope.fn_name.to_string());
                         self.add_constraint(rk.clone(), w);
-                        self.alias_guarded(rk, *e, scope);
+                        self.alias_guarded(rk.clone(), *e, scope);
+                        self.fn_value_flow(&rk, *e, scope);
                     }
                     self.walk_expr(*e, scope);
                 }
@@ -258,7 +263,8 @@ impl<'a> Analysis<'a> {
                     let w = self.width_of(*value, scope);
                     self.assign_to_name(&n, w, scope);
                     if let Some(k) = self.resolve(&n, scope) {
-                        self.alias_guarded(k, *value, scope);
+                        self.alias_guarded(k.clone(), *value, scope);
+                        self.fn_value_flow(&k, *value, scope);
                     } else if scope.fn_name.starts_with("__") && self.by_name.contains_key(&n) {
                         // Captured container reassigned from a lifted
                         // closure — alias through the shared key.
@@ -285,8 +291,22 @@ impl<'a> Analysis<'a> {
                             let w = self.width_of(*arg, scope);
                             let pk = SlotKey::Param(fname.clone(), pname.clone());
                             self.add_constraint(pk.clone(), w);
-                            self.alias_guarded(pk, *arg, scope);
+                            self.alias_guarded(pk.clone(), *arg, scope);
+                            self.fn_value_flow(&pk, *arg, scope);
                         }
+                    }
+                } else if !matches!(self.ast.get_expr(*callee), Expr::Member { .. })
+                    && let Some(ck) = self.container_key_lookup(*callee, scope)
+                {
+                    // F1 — indirect call through an fn value: args flow
+                    // into the value's `__p{i}` projections (the
+                    // indirect mirror of the direct Param edges; member
+                    // callees keep their builtin method handling).
+                    for (i, arg) in args.iter().enumerate() {
+                        let w = self.width_of(*arg, scope);
+                        let pk = SlotKey::Field(Box::new(ck.clone()), format!("__p{i}"));
+                        self.add_constraint(pk.clone(), w);
+                        self.fn_value_flow(&pk, *arg, scope);
                     }
                 }
                 self.member_call_effects(*callee, args, scope);

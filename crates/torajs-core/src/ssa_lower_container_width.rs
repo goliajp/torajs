@@ -15,9 +15,9 @@
 //! interpretation — load/store/print sites all read
 //! `arr_layouts[arr_id]` and follow automatically.
 
-use crate::num_width::{SlotKey, WidthTable};
+use crate::num_width::{SlotKey, WidthTable, fn_type_canon, split_fn_type};
 use crate::ssa::{StructId, Type};
-use crate::ssa_lower::intern_arr_layout;
+use crate::ssa_lower::{intern_arr_layout, intern_fn_sig};
 
 /// Intern a struct layout by structural equality (mirrors the
 /// TypeDecl intern walk); widened twins get fresh StructIds so
@@ -52,11 +52,62 @@ pub(crate) fn widen_container_ty(
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
     struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     match parsed {
         Type::Arr(_) => widen_arr_elem(parsed, ann, key, table, arr_layouts),
         Type::Obj(_) => widen_struct_fields(parsed, key, table, arr_layouts, struct_layouts),
+        Type::Closure(_) | Type::FnSig(_) => widen_fn_sig(parsed, ann, table, fn_sigs),
         _ => parsed,
+    }
+}
+
+/// F1 (§5.6) — widen a fn-type annotation's number faces per the
+/// width table. The annotation's canonical spelling is the nominal
+/// class key shared by every slot spelled with it and every function
+/// flowing through those slots (`num_width/fnsig.rs`); its `__ret` /
+/// `__p{i}` projections answer whether any resident's face is
+/// f64-possible. All-integral residents keep the narrow signature.
+pub(crate) fn widen_fn_sig(
+    parsed: Type,
+    ann: Option<&str>,
+    table: &WidthTable,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+) -> Type {
+    let (sid, is_closure) = match parsed {
+        Type::Closure(s) => (s, true),
+        Type::FnSig(s) => (s, false),
+        _ => return parsed,
+    };
+    let Some(canon) = ann.and_then(fn_type_canon) else {
+        return parsed;
+    };
+    let Some((param_anns, ret_ann)) = split_fn_type(canon) else {
+        return parsed;
+    };
+    let ck = SlotKey::Class(canon.to_string());
+    let (param_tys, ret_ty) = fn_sigs[sid.0 as usize].clone();
+    let mut new_params = param_tys.clone();
+    for (i, pt) in new_params.iter_mut().enumerate() {
+        if *pt == Type::I64
+            && param_anns.get(i).copied() == Some("number")
+            && table.field_is_f64(&ck, &format!("__p{i}"))
+        {
+            *pt = Type::F64;
+        }
+    }
+    let mut new_ret = ret_ty;
+    if ret_ty == Type::I64 && ret_ann == "number" && table.field_is_f64(&ck, "__ret") {
+        new_ret = Type::F64;
+    }
+    if new_params == param_tys && new_ret == ret_ty {
+        return parsed;
+    }
+    let id = intern_fn_sig(fn_sigs, new_params, new_ret);
+    if is_closure {
+        Type::Closure(id)
+    } else {
+        Type::FnSig(id)
     }
 }
 

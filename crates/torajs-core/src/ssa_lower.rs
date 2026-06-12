@@ -4765,6 +4765,7 @@ fn lower_inner(
                     &num_f64_slots,
                     &mut arr_layouts,
                     &mut struct_layouts,
+                    &mut fn_sigs,
                 );
                 param_tys.push(pty);
             }
@@ -4797,6 +4798,7 @@ fn lower_inner(
                 &num_f64_slots,
                 &mut arr_layouts,
                 &mut struct_layouts,
+                &mut fn_sigs,
             );
             let fid = FuncId(module.funcs.len() as u32);
             fn_table.insert(name.clone(), fid);
@@ -6869,7 +6871,11 @@ pub(crate) fn intern_arr_layout(arr_layouts: &mut Vec<Type>, elem: Type) -> ssa:
 // `StringLiteral::encode_from_str` — see crates/torajs-core/src/
 // ssa/module_methods.rs.
 
-fn intern_fn_sig(fn_sigs: &mut Vec<(Vec<Type>, Type)>, params: Vec<Type>, ret: Type) -> ssa::SigId {
+pub(crate) fn intern_fn_sig(
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    params: Vec<Type>,
+    ret: Type,
+) -> ssa::SigId {
     for (i, ex) in fn_sigs.iter().enumerate() {
         if ex.0 == params && ex.1 == ret {
             return ssa::SigId(i as u32);
@@ -6933,6 +6939,7 @@ fn lower_fn(
         num_f64_slots,
         arr_layouts,
         struct_layouts,
+        fn_sigs,
     );
     let mut f = ssa::Function::new(name, ret_ty);
 
@@ -6972,6 +6979,7 @@ fn lower_fn(
             num_f64_slots,
             arr_layouts,
             struct_layouts,
+            fn_sigs,
         );
         let pid = f.add_param(pty, &p.name);
         param_setup.push((p.name.clone(), pid, pty));
@@ -10464,6 +10472,7 @@ impl<'a> LowerCtx<'a> {
                             self.num_f64_slots,
                             self.arr_layouts,
                             self.struct_layouts,
+                            self.fn_sigs,
                         )
                     }
                 } else if let Expr::Array(els) = self.ast.get_expr(*init)
@@ -14394,9 +14403,20 @@ impl<'a> LowerCtx<'a> {
                         {
                             let v = self.lower_expr(*value);
                             self.consume_if_ident(*value);
+                            // F2-fix — the accessor arm bypasses the
+                            // width-aware direct-call coercion; an i64
+                            // value must widen to the setter's f64
+                            // param (raw bits read as a denormal).
+                            let mut arg = v.clone();
+                            if let Some(sig_id) = self.fn_sig_ids.get(&fid).copied()
+                                && self.fn_sigs[sig_id.0 as usize].0.get(1) == Some(&Type::F64)
+                                && self.operand_ty(&arg) == Type::I64
+                            {
+                                arg = self.coerce_to_f64(arg);
+                            }
                             self.f.append_void(
                                 self.cur_block,
-                                InstKind::Call(fid, vec![obj_val, v.clone()]),
+                                InstKind::Call(fid, vec![obj_val, arg]),
                             );
                             self.emit_throw_check(Some(fid));
                             return v;
