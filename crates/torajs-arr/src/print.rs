@@ -4,7 +4,7 @@
 //! (P4.1-g, 2026-05-23).
 //!
 //! Output shape (matches bun for these element types):
-//! - `undefined\n` for NULL arr
+//! - `null\n` for NULL arr (regex no-match result)
 //! - `[]\n` for empty arr
 //! - `[ a, b, c ]\n` for non-empty (note the spaces)
 //!
@@ -161,13 +161,15 @@ unsafe fn put_sep(i: u64) {
     }
 }
 
-/// Common entry: NULL → "undefined\n", empty → "[]\n", else open bracket
-/// + return (head, len) for the caller to drive its per-element loop.
-/// Returns `Some((head, len))` when caller should proceed; `None` when
+/// Common entry: NULL → "null\n" (a NULL array reaches print only as
+/// a regex exec / match no-match result, which is `null` per spec
+/// §22.2.7.2), empty → "[]\n", else open bracket + return (head, len)
+/// for the caller to drive its per-element loop. Returns
+/// `Some((head, len))` when caller should proceed; `None` when
 /// already handled the NULL / empty case.
 unsafe fn print_header(arr: *const u8) -> Option<(u32, u64)> {
     if arr.is_null() {
-        unsafe { put_bytes(b"undefined\n") };
+        unsafe { put_bytes(b"null\n") };
         return None;
     }
     let len = unsafe { *(arr.add(ARR_LEN_OFF) as *const u64) };

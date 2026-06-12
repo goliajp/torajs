@@ -120,9 +120,11 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     str_ptr: *const c_void,
     re_ptr: *const c_void,
 ) -> *mut c_void {
-    let out = unsafe { __torajs_arr_alloc(0) };
+    // Spec §22.2.7.5/.8: no match → null (both global and non-global).
+    // The array is allocated lazily on first hit so the null path
+    // never owns a stray +1 block.
     if re_ptr.is_null() || str_ptr.is_null() {
-        return out;
+        return core::ptr::null_mut();
     }
     let re = unsafe { as_regex_mut(re_ptr as *mut c_void) };
     if re.rejected != 0 {
@@ -135,7 +137,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     let sticky = re.flags & RE_FLAG_Y != 0;
 
     let mut ws = Workspace::for_program(&re.prog);
-    let mut out = out;
+    let mut out: *mut c_void = core::ptr::null_mut();
     let mut pos: i64 = 0;
     while pos <= slen {
         let hit = if !global && sticky {
@@ -151,6 +153,9 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws)
         };
         let Some(m) = hit else { break };
+        if out.is_null() {
+            out = unsafe { __torajs_arr_alloc(0) };
+        }
         let seg = unsafe { str_from_bytes(&s[m.start as usize..m.end as usize]) };
         out = unsafe { __torajs_arr_push(out, seg as i64) };
         if !global {
@@ -193,9 +198,10 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     re_ptr: *const c_void,
     str_ptr: *const c_void,
 ) -> *mut c_void {
-    let out = unsafe { __torajs_arr_alloc(0) };
+    // Spec §22.2.7.2 step 9.a: no match → null. The array is
+    // allocated only after a hit so the null path owns nothing.
     if re_ptr.is_null() || str_ptr.is_null() {
-        return out;
+        return core::ptr::null_mut();
     }
     let re = unsafe { as_regex_mut(re_ptr as *mut c_void) };
     if re.rejected != 0 {
@@ -220,12 +226,12 @@ pub unsafe extern "C" fn __torajs_regex_exec(
         if track {
             re.last_index = 0;
         }
-        return out;
+        return core::ptr::null_mut();
     };
     if track {
         re.last_index = m.end;
     }
-    let mut out = out;
+    let mut out = unsafe { __torajs_arr_alloc(0) };
     let whole = unsafe { str_from_bytes(&s[m.start as usize..m.end as usize]) };
     out = unsafe { __torajs_arr_push(out, whole as i64) };
     let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
