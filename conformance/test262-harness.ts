@@ -206,6 +206,82 @@ const end_of_time: number = 8.64e15;
 // the correct, attributable signal (substrate gap), not a harness gap.
 
 const $MAX_ITERATIONS: number = 100000;
+
+// ─── promiseHelper.js port (2026-06-13) ───
+//
+// checkSequence: verbatim semantics (array must be 1..n). The
+// original uses a two-arg forEach callback; torajs forEach takes a
+// single-arg callback, so this is an index loop.
+//
+// checkSettledPromises: own-property checks go through
+// Object.getOwnPropertyDescriptor(x, k) !== undefined instead of
+// Object.prototype.hasOwnProperty.call (no Function.prototype.call
+// surface). Generic params because torajs array typing is invariant.
+
+function checkSequence(arr: number[], message: string = ""): boolean {
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] !== i + 1) {
+      throw new Test262Error(
+        (message ? message : "Steps in unexpected sequence:") + " '" + arr.join(",") + "'"
+      );
+    }
+  }
+  return true;
+}
+
+function __t262_hasOwn(obj: any, key: string): boolean {
+  return Object.getOwnPropertyDescriptor(obj, key) !== undefined;
+}
+
+function checkSettledPromises<T, U>(settleds: T[], expected: U[], message: string = ""): void {
+  const prefix: string = message ? message + ": " : "";
+  __t262_sameValue(Array.isArray(settleds), true, prefix + "Settled values is an array");
+  __t262_sameValue(
+    settleds.length,
+    expected.length,
+    prefix + "The settled values has a different length than expected"
+  );
+  for (let i = 0; i < settleds.length; i++) {
+    const settled: any = settleds[i];
+    const exp: any = expected[i];
+    __t262_sameValue(
+      __t262_hasOwn(settled, "status"),
+      true,
+      prefix + "The settled value has a property status"
+    );
+    __t262_sameValue(settled.status, exp.status, prefix + "status for item " + i);
+    if (settled.status === "fulfilled") {
+      __t262_sameValue(
+        __t262_hasOwn(settled, "value"),
+        true,
+        prefix + "The fulfilled promise has a property named value"
+      );
+      __t262_sameValue(
+        __t262_hasOwn(settled, "reason"),
+        false,
+        prefix + "The fulfilled promise has no property named reason"
+      );
+      __t262_sameValue(settled.value, exp.value, prefix + "value for item " + i);
+    } else {
+      __t262_sameValue(
+        settled.status,
+        "rejected",
+        prefix + "Valid statuses are only fulfilled or rejected"
+      );
+      __t262_sameValue(
+        __t262_hasOwn(settled, "value"),
+        false,
+        prefix + "The fulfilled promise has no property named value"
+      );
+      __t262_sameValue(
+        __t262_hasOwn(settled, "reason"),
+        true,
+        prefix + "The fulfilled promise has a property named reason"
+      );
+      __t262_sameValue(settled.reason, exp.reason, prefix + "Reason value for item " + i);
+    }
+  }
+}
 function __t262_deepEqual(_actual: any, _expected: any, _msg: string = ""): void {}
 function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}
 function __t262_verifyCallableProperty(_obj: any, _name: any, _fnName: any, _fnLen: any, _desc: any): boolean { return true; }
