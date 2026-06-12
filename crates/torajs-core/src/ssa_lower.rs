@@ -20770,17 +20770,11 @@ impl<'a> LowerCtx<'a> {
                             None
                         }
                     });
-                    // ②.6b — Promise<number> parses to the I64 default;
-                    // when the promise's value class floated, the slot
-                    // carries f64 BITS and the await read must decode
-                    // them (the F64 match arm below).
-                    let inner_ssa_ty = inner_ssa_ty.map(|t| {
-                        if t == Type::I64 && self.promise_value_is_f64(*obj) {
-                            Type::F64
-                        } else {
-                            t
-                        }
-                    });
+                    // ②.6b — decode the value point's width faces
+                    // (scalar f64 flip + the Promise.all result
+                    // array's element face, r3); see
+                    // ssa_lower_promise_chain.rs.
+                    let inner_ssa_ty = self.widen_promise_inner_ty(inner_ssa_ty, *obj);
                     let raw_v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(self.intrinsics.promise_get_value, vec![obj_op.clone()]),

@@ -14,26 +14,25 @@ use crate::ssa_lower::{
 use crate::ssa_lower_promise_thunk::PTHUNK_ENV_SIZE;
 
 impl crate::ssa_lower::LowerCtx<'_> {
-    /// ②.6b — is the promise value point of `obj`'s expr f64? Mirrors
-    /// the analysis-side container_key_lookup shallow shapes: an Ident
-    /// queries its slot keys (Local/Global and, in a named fn, the
-    /// Param spelling — only the one the analysis populated answers);
-    /// a direct call of a known fn queries the fn's Ret key (the
-    /// analysis keys `await presolved(x)` through `Ret(presolved)`,
-    /// NOT an Anon — the original Anon spelling read narrow and the
-    /// let-store sitofp'd raw f64 bits); anything else its Anon
-    /// origin. The `value` projection matches the parser's
-    /// `await p` → `p.value` desugar spelling.
-    pub(crate) fn promise_value_is_f64(&self, obj: ExprId) -> bool {
+    /// ②.6b — candidate slot keys for a promise-typed `obj` expr,
+    /// mirroring the analysis-side container_key_lookup shallow
+    /// shapes: an Ident yields its slot keys (Local/Global and, in a
+    /// named fn, the Param spelling — only the one the analysis
+    /// populated answers); a direct call of a known fn the fn's Ret
+    /// key (the analysis keys `await presolved(x)` through
+    /// `Ret(presolved)`, NOT an Anon — the original Anon spelling
+    /// read narrow and the let-store sitofp'd raw f64 bits); an
+    /// Index projection (`await ps[i]`, r4) the Elem of every base
+    /// candidate; anything else its Anon origin.
+    pub(crate) fn promise_obj_keys(&self, obj: ExprId) -> Vec<crate::num_width::SlotKey> {
         use crate::num_width::SlotKey;
         match self.ast.get_expr(obj) {
             Expr::Ident(n) => {
-                self.num_f64_slots
-                    .field_is_f64(&self.num_width_local_key(n), "value")
-                    || (!self.is_main_fn
-                        && self
-                            .num_f64_slots
-                            .field_is_f64(&SlotKey::Param(self.f.name.clone(), n.clone()), "value"))
+                let mut keys = vec![self.num_width_local_key(n)];
+                if !self.is_main_fn {
+                    keys.push(SlotKey::Param(self.f.name.clone(), n.clone()));
+                }
+                keys
             }
             Expr::Call { callee, .. } => {
                 let fname = self.call_retargets.get(&obj).cloned().or_else(|| {
@@ -42,15 +41,61 @@ impl crate::ssa_lower::LowerCtx<'_> {
                         _ => None,
                     }
                 });
-                let key = match fname {
+                vec![match fname {
                     Some(f) => SlotKey::Ret(f),
                     None => SlotKey::Anon(obj.0),
-                };
-                self.num_f64_slots.field_is_f64(&key, "value")
+                }]
             }
-            _ => self
-                .num_f64_slots
-                .field_is_f64(&SlotKey::Anon(obj.0), "value"),
+            Expr::Index { obj: base, .. } => self
+                .promise_obj_keys(*base)
+                .into_iter()
+                .map(|k| SlotKey::Elem(Box::new(k)))
+                .collect(),
+            _ => vec![SlotKey::Anon(obj.0)],
+        }
+    }
+
+    /// ②.6b — is the promise value point of `obj`'s expr f64? The
+    /// `value` projection matches the parser's `await p` → `p.value`
+    /// desugar spelling.
+    pub(crate) fn promise_value_is_f64(&self, obj: ExprId) -> bool {
+        self.promise_obj_keys(obj)
+            .iter()
+            .any(|k| self.num_f64_slots.field_is_f64(k, "value"))
+    }
+
+    /// ②.6b — width-face decode for the awaited value's SSA type.
+    /// `Promise<number>` parses to the I64 default; when the value
+    /// class floated, the slot carries f64 BITS and the await read
+    /// must decode them (the caller's BitCastI64ToF64 arm).
+    /// `Promise<number[]>` (Promise.all, r3) parses to the Arr(I64)
+    /// default the same way: the combinator fills the result array
+    /// from each source promise's raw value slot, so the element
+    /// face must take the width table's value-point class, queried
+    /// through the same candidate keys as the scalar flip.
+    pub(crate) fn widen_promise_inner_ty(
+        &mut self,
+        inner_ssa_ty: Option<Type>,
+        obj: ExprId,
+    ) -> Option<Type> {
+        use crate::num_width::SlotKey;
+        match inner_ssa_ty {
+            Some(Type::I64) if self.promise_value_is_f64(obj) => Some(Type::F64),
+            Some(t @ Type::Arr(_)) => {
+                let mut t = t;
+                for k in self.promise_obj_keys(obj) {
+                    let pv = SlotKey::Field(Box::new(k), "value".to_string());
+                    t = crate::ssa_lower_container_width::widen_arr_elem(
+                        t,
+                        None,
+                        &pv,
+                        self.num_f64_slots,
+                        self.arr_layouts,
+                    );
+                }
+                Some(t)
+            }
+            other => other,
         }
     }
 

@@ -246,6 +246,7 @@ impl Type {
     }
 }
 
+use crate::check_assignable::is_assignable_to_resolved;
 use crate::check_type_ann::resolve_type_ann_full;
 pub(crate) type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(String, String)>)>;
 
@@ -636,105 +637,6 @@ struct LocalInfo {
 /// reads this to pick / generate the right specialized fn.
 pub type GenericCallSites = HashMap<ExprId, (String, Vec<Type>)>;
 
-/// Map check.rs's `Type` to the type-annotation string the SSA layer's
-/// Subtyping rule for the `let x: T = init` shape and similar slots.
-/// Returns true iff a value of type `from` is assignable to a variable
-/// of type `to`. The only widening relations we admit so far:
-///
-/// - `T == T`                                — identity
-/// - `T → T | null` (Nullable widening)      — non-null T fits a nullable slot
-/// - `null → T | null`                       — null fits a nullable slot
-/// - `null → null`                           — identity (rare in practice)
-///
-/// Everything else falls back to PartialEq. Notably we do NOT auto-narrow
-/// `T | null → T` — the user must use `??` or `?.` to dispose of the null.
-/// V3-05 — caller-side resolver wrapper. Use this at every site
-/// where the operands may be class types whose ClassRef placeholder
-/// hasn't been dereferenced yet (LetDecl init, Assign LHS/RHS, fn-
-/// arg coercion, return-value compat). Resolving up-front keeps the
-/// existing `is_assignable_to` body free of alias-table threading.
-///
-/// Deep-resolves through Struct fields too — the V3-06 case
-/// `class C { kids: C[] }` needs `Array(ClassRef("C"))` to match
-/// `Array(Struct(...))` recursively. A `seen` cycle guard keyed by
-/// `(to_class, from_class)` keeps recursive class layouts finite.
-pub fn is_assignable_to_resolved(
-    to: &Type,
-    from: &Type,
-    aliases: &std::collections::HashMap<String, Type>,
-    generic_aliases: &GenericAliasMap,
-) -> bool {
-    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
-    is_assignable_to_deep(to, from, aliases, generic_aliases, &mut seen)
-}
-
-fn is_assignable_to_deep(
-    to: &Type,
-    from: &Type,
-    aliases: &std::collections::HashMap<String, Type>,
-    generic_aliases: &GenericAliasMap,
-    seen: &mut std::collections::HashSet<(String, String)>,
-) -> bool {
-    // Resolve any ClassRef placeholders one layer up before deeper
-    // structural comparison.
-    let to_r = resolve_class_ref(to, aliases, generic_aliases);
-    let from_r = resolve_class_ref(from, aliases, generic_aliases);
-    if to_r == from_r {
-        return true;
-    }
-    if matches!(from_r, Type::Any) {
-        return true;
-    }
-    // P0 — anything is assignable to Any (per TS spec). The init's
-    // concrete value gets boxed into the universal Any-box at lower
-    // time. Pre-fix tora rejected `let x: any = 5` with a strict
-    // Any vs Number mismatch, blocking the implicit-any path the
-    // entire untyped-JS surface needs.
-    if matches!(to_r, Type::Any) {
-        return true;
-    }
-    if let Type::Nullable(inner) = &to_r {
-        // P1.7 — `Nullable<T>` ≡ `T | null | undefined` per spec.
-        // Both null and undefined are valid in any Nullable<T> slot.
-        if matches!(from_r, Type::Null | Type::Undefined) {
-            return true;
-        }
-        return is_assignable_to_deep(inner, &from_r, aliases, generic_aliases, seen);
-    }
-    if let (Type::Array(to_el), Type::Array(from_el)) = (&to_r, &from_r) {
-        if matches!(**to_el, Type::Any) {
-            return true;
-        }
-        return is_assignable_to_deep(to_el, from_el, aliases, generic_aliases, seen);
-    }
-    if let (Type::Struct(to_fields), Type::Struct(from_fields)) = (&to_r, &from_r)
-        && from_fields.len() >= to_fields.len()
-    {
-        // V3-06 cycle guard: structurally-recursive layouts (`Tree`
-        // contains `Array<Tree>`) would otherwise infinite-loop here.
-        // We approximate identity by field-name signature — good
-        // enough since the code path only fires inside a single
-        // alias-resolve chain.
-        let fingerprint = |fs: &[(String, Type)]| -> String {
-            fs.iter()
-                .map(|(n, _)| n.as_str())
-                .collect::<Vec<_>>()
-                .join(",")
-        };
-        let key = (fingerprint(to_fields), fingerprint(from_fields));
-        if !seen.insert(key.clone()) {
-            return true;
-        }
-        let result = to_fields.iter().enumerate().all(|(i, (n, t))| {
-            let (fn_name, fn_ty) = &from_fields[i];
-            fn_name == n && is_assignable_to_deep(t, fn_ty, aliases, generic_aliases, seen)
-        });
-        seen.remove(&key);
-        return result;
-    }
-    is_assignable_to(&to_r, &from_r)
-}
-
 /// V3-18 m1.a — JS spec §13.15.3 ApplyStringOrNumericBinaryOperator
 /// guard for non-string `+`. Returns true iff both operands are
 /// statically-typed numerics-or-coercible-to-numerics: Number,
@@ -834,72 +736,6 @@ fn js_truthy_acceptable(t: &Type) -> bool {
 fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
     matches!(l, Type::Number | Type::Boolean | Type::Null)
         && matches!(r, Type::Number | Type::Boolean | Type::Null)
-}
-
-fn is_assignable_to(to: &Type, from: &Type) -> bool {
-    if to == from {
-        return true;
-    }
-    // M6.3 — `Type::Any` from JSON.parse return is a typecheck-level
-    // hole; ssa_lower's LetDecl arm specializes the actual decode at
-    // lower time using the slot's annotation. Allow Any → any T at
-    // assignment sites so `let v: T = JSON.parse(text)` typechecks.
-    // (`Type::Any` was previously only used as `console.log`'s param
-    // type, where source Any was never the from-side; this widens
-    // it without breaking that path.)
-    if matches!(from, Type::Any) {
-        return true;
-    }
-    // T-11 (v0.4.0) — `Array<Any>` is the universal element-type
-    // sink; any concrete `Array<T>` widens into it via boxing at
-    // ssa_lower time. Used by the synthesized `let
-    // __torajs_arguments: any[] = [...params]` and by user-written
-    // `let xs: any[] = [...]` whose elements happen to share a
-    // concrete type.
-    if let (Type::Array(to_el), Type::Array(_)) = (to, from)
-        && matches!(**to_el, Type::Any)
-    {
-        return true;
-    }
-    if let Type::Nullable(inner) = to {
-        // P1.7 — `Nullable<T>` ≡ `T | null | undefined` per spec.
-        if matches!(from, Type::Null | Type::Undefined) {
-            return true;
-        }
-        return is_assignable_to(inner, from);
-    }
-    // Phase H.2 — struct prefix subtyping. `class Sub extends Base`
-    // desugars to a Sub struct whose field list starts with Base's
-    // (parent fields prepended in desugar_classes), so Sub is
-    // assignable to Base iff Base's fields are a prefix of Sub's
-    // and pairwise types match. Pure structural rule — no class_parents
-    // lookup needed; the layout invariant guarantees the fields-prefix
-    // check coincides with the class hierarchy.
-    if let (Type::Struct(to_fields), Type::Struct(from_fields)) = (to, from)
-        && from_fields.len() >= to_fields.len()
-    {
-        // V3-05 — equal-length structs participate in field-by-field
-        // assignability too, not just prefix-subtyping. This is what
-        // lets `{v: number, next: null}` (object literal) assign into
-        // `{v: number, next: Node | null}` (declared class type), and
-        // what makes `b: Node` assign into a Nullable(Node) field.
-        for (i, (n, t)) in to_fields.iter().enumerate() {
-            let (fn_name, fn_ty) = &from_fields[i];
-            if fn_name != n || !is_assignable_to(t, fn_ty) {
-                return false;
-            }
-        }
-        return true;
-    }
-    // Array<Sub> → Array<Base> covariance: required for heterogeneous
-    // arrays like `Animal[] = [new Animal(), new Dog()]`. Same
-    // structural reasoning as the struct case — both Sub and Base
-    // share the storage shape (8-byte ptr slots) so the runtime
-    // layout is uniform.
-    if let (Type::Array(to_elem), Type::Array(from_elem)) = (to, from) {
-        return is_assignable_to(to_elem, from_elem);
-    }
-    false
 }
 
 /// V3-05 — substitute `Type::ClassRef(name)` with whatever the
