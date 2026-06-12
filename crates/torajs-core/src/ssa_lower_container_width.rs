@@ -213,6 +213,26 @@ pub(crate) fn widen_struct_fields(
         .iter()
         .any(|(_, f)| ty_reaches(*f, sid, arr_layouts, struct_layouts, &mut seen))
     {
+        // Self-referential layout: every such sid is nominal (the
+        // generic-instantiation memo or the non-generic reserved-sid
+        // pass are the only producers of a layout that mentions its
+        // own sid), so widening IN PLACE is sound — the recursive
+        // field keeps pointing at the same sid and every consumer of
+        // the key sees the widened layout. The analysis joins all
+        // consuming slots of one key onto its Class spelling
+        // (alias.rs::register_inst_key), so the first consumer's
+        // query already answers the joined width — no lowering-order
+        // sensitivity. (Pre-fix this arm bailed entirely: the W4 D3
+        // carve that kept `Rec<number>` fract fields bit-punning.)
+        widen_struct_fields_in_place(
+            sid,
+            key,
+            table,
+            arr_layouts,
+            struct_layouts,
+            fn_sigs,
+            &mut Vec::new(),
+        );
         return parsed;
     }
     let layout = struct_layouts[sid.0 as usize].clone();
@@ -240,6 +260,69 @@ pub(crate) fn widen_struct_fields(
         return parsed;
     }
     Type::Obj(intern_struct_layout(struct_layouts, widened))
+}
+
+/// In-place variant for self-referential (nominal) layouts: mutate
+/// `struct_layouts[sid]` directly instead of re-interning, so the
+/// recursive field's same-sid reference stays consistent. `visiting`
+/// breaks mutual cycles (`A<T>` ↔ `B<T>`); a sid is widened at most
+/// once per top-level call — re-entry is idempotent anyway since the
+/// I64 faces are already F64. Non-cyclic Obj fields keep the original
+/// re-intern semantics (their sids may be structurally shared by
+/// unrelated slots — mutating them would leak width across slots).
+fn widen_struct_fields_in_place(
+    sid: StructId,
+    key: &SlotKey,
+    table: &WidthTable,
+    arr_layouts: &mut Vec<Type>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    visiting: &mut Vec<StructId>,
+) {
+    if visiting.contains(&sid) {
+        return;
+    }
+    visiting.push(sid);
+    let mut widened = struct_layouts[sid.0 as usize].clone();
+    for (fname, fty) in widened.iter_mut() {
+        let fkey = SlotKey::Field(Box::new(key.clone()), fname.clone());
+        match *fty {
+            Type::I64 if table.field_is_f64(key, fname) => *fty = Type::F64,
+            Type::Arr(_) => *fty = widen_arr_elem(*fty, None, &fkey, table, arr_layouts),
+            Type::Obj(inner) => {
+                let mut seen = Vec::new();
+                if struct_layouts[inner.0 as usize]
+                    .clone()
+                    .iter()
+                    .any(|(_, f)| ty_reaches(*f, inner, arr_layouts, struct_layouts, &mut seen))
+                {
+                    widen_struct_fields_in_place(
+                        inner,
+                        &fkey,
+                        table,
+                        arr_layouts,
+                        struct_layouts,
+                        fn_sigs,
+                        visiting,
+                    );
+                } else {
+                    *fty = widen_struct_fields(
+                        *fty,
+                        &fkey,
+                        table,
+                        arr_layouts,
+                        struct_layouts,
+                        fn_sigs,
+                    );
+                }
+            }
+            Type::FnSig(_) | Type::Closure(_) => {
+                *fty = widen_fn_sig_by_key(*fty, &fkey, table, fn_sigs)
+            }
+            _ => {}
+        }
+    }
+    struct_layouts[sid.0 as usize] = widened;
 }
 
 /// Widen a parsed / inferred array type's element faces per the

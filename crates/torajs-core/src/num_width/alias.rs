@@ -178,13 +178,25 @@ fn named_ref(ann: &str) -> Option<(&str, usize)> {
     }
     let mut chars = t.chars();
     let head = chars.next()?;
-    if (head.is_ascii_alphabetic() || head == '_' || head == '$')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-    {
-        Some((t, depth))
-    } else {
-        None
+    if !(head.is_ascii_alphabetic() || head == '_' || head == '$') {
+        return None;
     }
+    if chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') {
+        return Some((t, depth));
+    }
+    // Generic instantiation spelling `Head<...>` — the full text is
+    // the nominal key (its own canonical annotation). The caller's
+    // nominal-set gate decides whether it participates; built-in
+    // generics (`Promise<T>`, `Map<K,V>`) never register there.
+    if let Some(open) = t.find('<')
+        && t.ends_with('>')
+        && t[..open]
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+    {
+        return Some((t, depth));
+    }
+    None
 }
 
 impl<'a> Analysis<'a> {
@@ -196,7 +208,12 @@ impl<'a> Analysis<'a> {
             return;
         };
         if !self.nominal_aliases.contains(base) {
-            return;
+            // Generic instantiation key — register lazily on first
+            // sighting; built-ins / unknown heads fall through to the
+            // D3 per-slot path.
+            if !(base.contains('<') && self.register_inst_key(&base.to_string())) {
+                return;
+            }
         }
         let mut k = key.clone();
         for _ in 0..depth {
@@ -206,6 +223,65 @@ impl<'a> Analysis<'a> {
         self.mark_containerish(&ck);
         self.mark_containerish(&k);
         self.uf.union(&ck, &k);
+    }
+
+    /// First sighting of a generic instantiation key (`Rec<number>`):
+    /// admit it to the nominal set and union its substituted field
+    /// annotations onto the key's Class projections. Lowering reserves
+    /// one memo'd layout per key shared by every consuming slot, so
+    /// widths must join at type granularity — per-slot widths would be
+    /// lowering-order sensitive. Recursive fields re-enter
+    /// `alias_ann_union`, which registers indirect keys (`Rec<number>`
+    /// surfacing only inside `Wrap<number>`'s substituted fields) the
+    /// same way; the nominal-set insert above the recursion makes the
+    /// closure terminate. Returns false for non-generic heads and bare
+    /// `__alias__` decls (those resolve to their underlying type — no
+    /// struct layout, nothing to join).
+    fn register_inst_key(&mut self, key: &String) -> bool {
+        let Some(open) = key.find('<') else {
+            return false;
+        };
+        let Some((tp_names, fields)) = self.generic_decls.get(&key[..open]).cloned() else {
+            return false;
+        };
+        if fields.len() == 1 && fields[0].0 == "__alias__" {
+            return false;
+        }
+        if self.nominal_aliases.contains(key) {
+            return true;
+        }
+        self.nominal_aliases.insert(key.clone());
+        let inner = &key[open + 1..key.len() - 1];
+        let mut args: Vec<&str> = Vec::new();
+        let mut d: i32 = 0;
+        let mut last = 0usize;
+        for (i, &b) in inner.as_bytes().iter().enumerate() {
+            match b {
+                b'<' | b'(' => d += 1,
+                b'>' | b')' => d -= 1,
+                b'|' if d == 0 => {
+                    args.push(&inner[last..i]);
+                    last = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if !inner.is_empty() {
+            args.push(&inner[last..]);
+        }
+        if args.len() != tp_names.len() {
+            return true; // malformed spelling; lowering rejects loudly
+        }
+        let subst: Vec<(String, String)> = tp_names
+            .into_iter()
+            .zip(args.iter().map(|a| a.to_string()))
+            .collect();
+        for (fname, fann) in &fields {
+            let substituted = crate::ssa_lower::substitute_in_ann(fann, &subst);
+            let fk = SlotKey::Field(Box::new(SlotKey::Class(key.clone())), fname.clone());
+            self.alias_ann_union(&fk, &substituted);
+        }
+        true
     }
 
     /// Annotation-driven nominal hookups, the alias analog of

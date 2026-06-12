@@ -188,8 +188,16 @@ pub(super) struct Analysis<'a> {
     /// graph. Their field widths join at type granularity through
     /// `SlotKey::Class` (annotation-driven hookups in `alias.rs`);
     /// lowering's TypeDecl fill site queries the same set to take
-    /// nominal widths for them.
+    /// nominal widths for them. Generic instantiation keys
+    /// (`Rec<number>`) register here lazily on first annotation
+    /// sighting (`alias.rs::register_inst_key`) — their single
+    /// memo-reserved layout is shared by every consuming slot, so
+    /// widths must join nominally or they'd be lowering-order
+    /// sensitive.
     pub(super) nominal_aliases: HashSet<String>,
+    /// Generic TypeDecl bodies by name (`Rec` → (["T"], fields)),
+    /// for the lazy instantiation-key registration above.
+    pub(super) generic_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     /// W4 — an element write through a receiver the analysis cannot
     /// resolve to a container class. Never expected to fire (assign
     /// receivers are idents / members / indexes / calls); if it does,
@@ -251,6 +259,18 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
     let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
     classes.sort();
     let nominal_aliases = alias::nominal_alias_names(ast);
+    let mut generic_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)> = HashMap::new();
+    for stmt in &ast.stmts {
+        if let Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        } = stmt
+            && !type_params.is_empty()
+        {
+            generic_decls.insert(name.clone(), (type_params.clone(), fields.clone()));
+        }
+    }
 
     let mut a = Analysis {
         ast,
@@ -268,6 +288,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
         containerish: HashSet::new(),
         classes,
         nominal_aliases,
+        generic_decls,
         container_poison: false,
     };
 
