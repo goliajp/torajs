@@ -88,7 +88,12 @@ impl<'a> Analysis<'a> {
                 if any {
                     Some(SlotKey::Anon(eid.0))
                 } else {
-                    None
+                    // F5 — struct-field-fn call: same `__ret`
+                    // projection spelling as the walk side.
+                    Some(SlotKey::Field(
+                        Box::new(SlotKey::Field(Box::new(recv), name.to_string())),
+                        "__ret".to_string(),
+                    ))
                 }
             }
         }

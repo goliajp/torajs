@@ -28,6 +28,7 @@
 mod alias;
 mod container;
 mod container_lookup;
+mod container_methods;
 mod container_walk;
 mod cycle;
 mod fnsig;
@@ -310,6 +311,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
     // representative. The fixpoint runs per alias class; queries
     // canonicalize through the frozen union-find.
     container::nominal_unions(&mut a);
+    container::dispatch_unions(&mut a);
     a.alias_nominal_unions();
     a.fnsig_nominal_unions();
     container::activate_guarded(&mut a);

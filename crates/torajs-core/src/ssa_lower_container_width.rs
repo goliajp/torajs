@@ -56,7 +56,9 @@ pub(crate) fn widen_container_ty(
 ) -> Type {
     match parsed {
         Type::Arr(_) => widen_arr_elem(parsed, ann, key, table, arr_layouts),
-        Type::Obj(_) => widen_struct_fields(parsed, key, table, arr_layouts, struct_layouts),
+        Type::Obj(_) => {
+            widen_struct_fields(parsed, key, table, arr_layouts, struct_layouts, fn_sigs)
+        }
         Type::Closure(_) | Type::FnSig(_) => widen_fn_sig(parsed, ann, table, fn_sigs),
         _ => parsed,
     }
@@ -98,6 +100,45 @@ pub(crate) fn widen_fn_sig(
     }
     let mut new_ret = ret_ty;
     if ret_ty == Type::I64 && ret_ann == "number" && table.field_is_f64(&ck, "__ret") {
+        new_ret = Type::F64;
+    }
+    if new_params == param_tys && new_ret == ret_ty {
+        return parsed;
+    }
+    let id = intern_fn_sig(fn_sigs, new_params, new_ret);
+    if is_closure {
+        Type::Closure(id)
+    } else {
+        Type::FnSig(id)
+    }
+}
+
+/// F5 (§5.6 ②.6) — widen an fn-typed struct field's signature faces
+/// by the field's own slot key: the fill site's `fn_value_flow` glued
+/// the key's `__ret` / `__p{i}` projections onto the resident
+/// function's Ret / Param classes, so the query needs no canonical
+/// spelling (struct layouts carry no annotation strings). I64 faces
+/// only — the parse default is the sole widenable spelling.
+pub(crate) fn widen_fn_sig_by_key(
+    parsed: Type,
+    key: &SlotKey,
+    table: &WidthTable,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+) -> Type {
+    let (sid, is_closure) = match parsed {
+        Type::Closure(s) => (s, true),
+        Type::FnSig(s) => (s, false),
+        _ => return parsed,
+    };
+    let (param_tys, ret_ty) = fn_sigs[sid.0 as usize].clone();
+    let mut new_params = param_tys.clone();
+    for (i, pt) in new_params.iter_mut().enumerate() {
+        if *pt == Type::I64 && table.field_is_f64(key, &format!("__p{i}")) {
+            *pt = Type::F64;
+        }
+    }
+    let mut new_ret = ret_ty;
+    if ret_ty == Type::I64 && table.field_is_f64(key, "__ret") {
         new_ret = Type::F64;
     }
     if new_params == param_tys && new_ret == ret_ty {
@@ -161,6 +202,7 @@ pub(crate) fn widen_struct_fields(
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
     struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     let Type::Obj(sid) = parsed else {
         return parsed;
@@ -181,7 +223,12 @@ pub(crate) fn widen_struct_fields(
         let new_fty = match *fty {
             Type::I64 if table.field_is_f64(key, fname) => Type::F64,
             Type::Arr(_) => widen_arr_elem(*fty, None, &fkey, table, arr_layouts),
-            Type::Obj(_) => widen_struct_fields(*fty, &fkey, table, arr_layouts, struct_layouts),
+            Type::Obj(_) => {
+                widen_struct_fields(*fty, &fkey, table, arr_layouts, struct_layouts, fn_sigs)
+            }
+            // F5 — fn-typed fields widen by the field's own key
+            // projections (the dispatch face reads this signature).
+            Type::FnSig(_) | Type::Closure(_) => widen_fn_sig_by_key(*fty, &fkey, table, fn_sigs),
             _ => *fty,
         };
         if new_fty != *fty {

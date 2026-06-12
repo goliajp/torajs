@@ -181,6 +181,40 @@ pub(super) fn nominal_unions(a: &mut Analysis) {
     }
 }
 
+/// F5 — vtable-slot ABI hookups: the synthetic `__dispatch_<M>` fn is
+/// lowered as a tag-switch over every owner's `__cm_<C>__<M>`, so the
+/// dispatcher and ALL owners must share one signature width (one
+/// vtable slot, one ABI). The dispatcher's AST stub only forwards to
+/// the base owner — which an abstract base doesn't even emit — so
+/// without these unions `Ret(__dispatch_<M>)` is an orphan class and
+/// a f64-possible override's return reads back as a garbage integer
+/// through the dispatch face.
+pub(super) fn dispatch_unions(a: &mut Analysis) {
+    let mut fn_names: Vec<String> = a.fn_params.keys().cloned().collect();
+    fn_names.sort();
+    for f in &fn_names {
+        let Some(m_name) = f.strip_prefix("__dispatch_") else {
+            continue;
+        };
+        let d_params = a.fn_params[f].clone();
+        for c in a.classes.clone() {
+            let cm = format!("__cm_{c}__{m_name}");
+            let Some(cm_params) = a.fn_params.get(&cm).cloned() else {
+                continue;
+            };
+            a.uf.union(&SlotKey::Ret(f.clone()), &SlotKey::Ret(cm.clone()));
+            // Positional params align 1:1 (both lists start with
+            // `__this`, which stays out of the width domain).
+            for (dp, cp) in d_params.iter().zip(cm_params.iter()).skip(1) {
+                a.uf.union(
+                    &SlotKey::Param(f.clone(), dp.clone()),
+                    &SlotKey::Param(cm.clone(), cp.clone()),
+                );
+            }
+        }
+    }
+}
+
 /// Guarded-union activation: a guarded edge applies iff either
 /// endpoint has container evidence; a nested edge (element point,
 /// candidate) applies iff the CANDIDATE side has its own evidence —

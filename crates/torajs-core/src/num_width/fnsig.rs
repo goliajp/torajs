@@ -169,14 +169,7 @@ impl<'a> Analysis<'a> {
             }
             _ => return,
         };
-        // A lifted closure's first param is the `__env` pointer — the
-        // user-facing arity starts after it.
-        let params = self.fn_params[&fname].clone();
-        let user_params = if params.first().is_some_and(|p| p == "__env") {
-            &params[1..]
-        } else {
-            &params[..]
-        };
+        let user_params = self.user_params(&fname);
         self.mark_containerish(key);
         let rk = SlotKey::Field(Box::new(key.clone()), "__ret".to_string());
         self.mark_containerish(&rk);
@@ -186,6 +179,22 @@ impl<'a> Analysis<'a> {
             self.mark_containerish(&pk);
             self.uf
                 .union(&pk, &SlotKey::Param(fname.clone(), p.clone()));
+        }
+    }
+
+    /// A function's user-facing param names: a lifted closure's first
+    /// param is the `__env` pointer — the user arity starts after it.
+    /// Every positional hookup (callback acc/elem wiring, `__p{i}`
+    /// projections) must index THESE, not the raw `fn_params` list.
+    pub(super) fn user_params(&self, fname: &str) -> Vec<String> {
+        let params = match self.fn_params.get(fname) {
+            Some(ps) => ps.as_slice(),
+            None => return Vec::new(),
+        };
+        if params.first().is_some_and(|p| p == "__env") {
+            params[1..].to_vec()
+        } else {
+            params.to_vec()
         }
     }
 }
