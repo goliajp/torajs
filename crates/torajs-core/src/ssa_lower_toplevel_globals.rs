@@ -48,6 +48,7 @@ pub(crate) fn collect_toplevel_globals(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    inst_memo: &mut HashMap<String, crate::ssa::StructId>,
     num_f64_slots: &crate::num_width::WidthTable,
 ) -> HashMap<String, Type> {
     let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
@@ -109,6 +110,7 @@ pub(crate) fn collect_toplevel_globals(
                         fn_sigs,
                         generic_struct_decls,
                         struct_layouts,
+                        inst_memo,
                     );
                     // W4 — container elem widths from the alias-class
                     // table (same consult as the fn-local let site).

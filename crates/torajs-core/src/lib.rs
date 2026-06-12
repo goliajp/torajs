@@ -190,6 +190,7 @@ pub(crate) mod ssa_lower_logical;
 pub mod ssa_lower_main_exit;
 pub mod ssa_lower_obj_escape;
 pub(crate) mod ssa_lower_objlit_layout;
+pub(crate) mod ssa_lower_parse_type;
 pub mod ssa_lower_process_on;
 pub(crate) mod ssa_lower_promise_chain;
 pub(crate) mod ssa_lower_promise_thunk;
