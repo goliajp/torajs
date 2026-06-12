@@ -7379,10 +7379,10 @@ pub(crate) struct LowerCtx<'a> {
     /// `moved` mirrors check.rs's affine pass: when a binding's value is
     /// consumed (let-rhs, assign-rhs, non-Copy call-arg, return), the
     /// flag flips to true and Drop emission at fn-end skips that local.
-    /// Insertion order preserved (LinkedHashMap-style) so multi-Ret
-    /// drops fire in deterministic order — using IndexMap-equivalent
-    /// behavior would be cleaner but a plain HashMap is fine for the
-    /// number of locals our cases have.
+    /// NOTE: HashMap iteration order is random per process — any walk
+    /// that feeds instruction emission must sort first (see
+    /// `emit_drops_for_owned_locals` in `ssa_lower_drops.rs`), or the
+    /// `tr build` output becomes non-reproducible.
     pub(crate) locals: HashMap<String, LocalInfo>,
     /// Stack of names declared in each enclosing lexical scope, with the
     /// fn-root scope as `scope_stack[0]`. M1.3 — at `}` close we pop the
@@ -7511,7 +7511,7 @@ pub(crate) struct LowerCtx<'a> {
     /// `globals` should write to the global slot (in main) or skip
     /// declaration entirely (in named fns — they only ever read/write
     /// the slot via the ident-read / Assign-Ident fallbacks).
-    is_main_fn: bool,
+    pub(crate) is_main_fn: bool,
     /// V3-05 — sids currently being inlined by `emit_drop_value`.
     /// Self-referential class layouts (`class Node { next: Node | null }`)
     /// would otherwise inline-recurse forever at codegen. When the
@@ -7541,7 +7541,7 @@ pub(crate) struct LowerCtx<'a> {
     /// any local whose name is in this set: no rc-dec branch, no
     /// `__torajs_obj_drop_sized` call. Stack reclaim is automatic
     /// at fn return.
-    stack_alloced_locals: std::collections::HashSet<String>,
+    pub(crate) stack_alloced_locals: std::collections::HashSet<String>,
     /// 11-A2-a — short-lived hint set by the `LetDecl` arm before
     /// lowering an `ObjectLit` init, when (a) the binding is in
     /// the safe set (`name ∉ escape_obj_lets`) and (b) the init
@@ -9964,62 +9964,6 @@ impl<'a> LowerCtx<'a> {
     /// block. Called immediately before terminators that exit the function
     /// (Ret, fall-through). Skips `moved` bindings — those have transferred
     /// ownership elsewhere and the receiver is responsible for the drop.
-    fn emit_drops_for_owned_locals(&mut self) {
-        // Snapshot to avoid borrowing self.locals while we emit instructions
-        // (which need &mut self.f). Cheap: bench cases have <10 locals each.
-        // 11-A2-a — skip stack-alloced locals: their backing storage is
-        // reclaimed by fn return; no rc-dec / obj_drop_sized needed.
-        let to_drop: Vec<(ValueId, Type)> = self
-            .locals
-            .iter()
-            .filter(|(name, info)| {
-                !info.moved && !info.ty.is_copy() && !self.stack_alloced_locals.contains(*name)
-            })
-            .map(|(_, info)| (info.slot, info.ty))
-            .collect();
-        for (slot, ty) in to_drop {
-            let val = self.f.append_inst(
-                self.cur_block,
-                InstKind::Load(ty, Operand::Value(slot), 0),
-                ty,
-                None,
-            );
-            self.emit_drop_value(Operand::Value(val), ty);
-        }
-    }
-
-    /// K.4 — drop refcount-typed module data globals at the
-    /// fall-through `main` exit so the heap doesn't leak. Iterated in
-    /// sorted name order for deterministic codegen across runs.
-    /// Throw-out-of-main exits skip this (process abort cleans up the
-    /// heap; emitting drops on an unwind path would need finally-style
-    /// glue that's out of scope for K.4). Only fires inside the
-    /// synthesized `main` fn.
-    fn emit_drops_for_globals(&mut self) {
-        if !self.is_main_fn {
-            return;
-        }
-        let mut entries: Vec<(String, Type)> = self
-            .globals
-            .iter()
-            .filter(|(_, ty)| ty.is_refcounted())
-            .map(|(n, t)| (n.clone(), *t))
-            .collect();
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
-        for (name, ty) in entries {
-            let ptr =
-                self.f
-                    .append_inst(self.cur_block, InstKind::GlobalRef(name), Type::Ptr, None);
-            let v = self.f.append_inst(
-                self.cur_block,
-                InstKind::Load(ty, Operand::Value(ptr), 0),
-                ty,
-                None,
-            );
-            self.emit_drop_value(Operand::Value(v), ty);
-        }
-    }
-
     pub(crate) fn lower_stmt(&mut self, s: &Stmt) {
         match s {
             Stmt::Multi(stmts) => {

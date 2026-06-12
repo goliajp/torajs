@@ -127,3 +127,23 @@ torajs-abort = { path = "../torajs-abort" }
 # torajs-link co-links libtorajs_print.a so the in-house toolchain
 # resolves these symbols at `tr build`.
 torajs-print = { path = "../torajs-print" }
+# The seven deps below were missing their explicit edge even though
+# build.rs lists their staticlibs — without the edge cargo gives no
+# build-order guarantee, so a cold-cache workspace build raced
+# torajs-core's `include_bytes!` against the not-yet-written .a and
+# failed (or, worse, could embed a stale archive on a dirty target
+# dir). Same dep-order rationale as torajs-weak.
+torajs-syscall = { path = "../torajs-syscall" }
+torajs-fs = { path = "../torajs-fs" }
+torajs-math = { path = "../torajs-math" }
+torajs-date = { path = "../torajs-date" }
+torajs-regex = { path = "../torajs-regex" }
+torajs-fetch = { path = "../torajs-fetch" }
+torajs-capture-box = { path = "../torajs-capture-box" }
+# NOT depended on here: torajs-panic-runtime. It is `#![panic_runtime]`
+# when `--cfg torajs_panic_runtime_active` is set (release-build.sh),
+# and a panic-runtime crate inside this crate graph would collide with
+# the build-std panic_abort runtime ("multiple panic runtimes"). Its
+# staticlib still comes from the workspace build; cold-cache builds
+# rely on `cargo build --workspace` scheduling it before torajs-core
+# (see build.rs STATICLIBS).

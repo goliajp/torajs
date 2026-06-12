@@ -183,6 +183,7 @@ pub mod ssa_lower_body_returns_closure;
 pub mod ssa_lower_closure_captures;
 pub(crate) mod ssa_lower_container_width;
 pub mod ssa_lower_deque_escape;
+pub(crate) mod ssa_lower_drops;
 pub(crate) mod ssa_lower_logical;
 pub mod ssa_lower_main_exit;
 pub mod ssa_lower_obj_escape;
