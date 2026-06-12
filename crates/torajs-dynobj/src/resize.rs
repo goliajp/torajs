@@ -1,24 +1,28 @@
-//! DynObj table resize — fresh allocation + live-bucket re-probe.
+//! DynObj table resize — fresh allocation + compact + index rebuild.
 //!
-//! Private-to-crate helper used by [`crate::set`] (and later
-//! [`crate::define`]) when the load factor `(count + tomb + 1) > cap * 7/8`
-//! threshold trips. C-side `__torajs_dynobj_resize` (still `static` in
-//! runtime_str.c) remains the duplicate used by C-side `set` / `define`
-//! until those also port (P4.2-c+ progressively shrinks the duplicate
-//! surface; deleted entirely once `define` lands at P4.2-e).
+//! Private-to-crate helper used by [`crate::set`] / [`crate::define`]
+//! when the dense entry array fills (`entries_len == entries_cap`).
 //!
-//! Algorithm:
-//! 1. calloc fresh block sized `DYNOBJ_HDR_SIZE + new_cap * BUCKET_SIZE`.
-//! 2. Copy heap header verbatim (preserves refcount + type_tag + flags).
-//! 3. Init count=0 / cap=new_cap / tomb=0 in the new block.
-//! 4. Walk old buckets; for each live entry (key_ptr != NULL && != tombstone),
-//!    probe in the new block + copy the bucket. Tombstones drop on rehash.
-//! 5. Update *obj_slot + free the old block.
+//! Algorithm (CPython `dictresize` shape):
+//! 1. Pick the smallest power-of-2 cap with `cap > count * 3` (at
+//!    least [`DYNOBJ_INITIAL_CAP`]). When most entries are holes this
+//!    lands on the same or a smaller cap — the pass degenerates to a
+//!    pure compact; when the table is genuinely full it doubles+.
+//! 2. calloc a fresh block, copy the heap header verbatim (preserves
+//!    refcount + type_tag + flags), fill the new index with IDX_EMPTY.
+//! 3. Walk the old dense array in order; skip holes; append each live
+//!    entry to the new dense array (insertion order preserved) and
+//!    probe the new index for its slot (all distinct keys ⇒ lands on
+//!    an empty slot). Tombstones and holes vanish.
+//! 4. Update `*obj_slot` + free the old block.
 
 use core::ffi::c_void;
 
-use crate::layout::{DYNOBJ_BUCKET_SIZE, DYNOBJ_HDR_SIZE, DYNOBJ_KEY_EMPTY, DYNOBJ_KEY_TOMBSTONE};
-use crate::probe::{Bucket, bucket_key_ptr, buckets, cap, probe};
+use crate::layout::{
+    DYNOBJ_CAP_OFF, DYNOBJ_COUNT_OFF, DYNOBJ_ENTRIES_CAP_OFF, DYNOBJ_ENTRIES_LEN_OFF,
+    DYNOBJ_INDEX_OFF, DYNOBJ_INITIAL_CAP, DYNOBJ_KEY_HOLE, block_bytes, entries_cap_for,
+};
+use crate::probe::{Entry, bucket_key_ptr, cap, count, entries, entries_len, index_ptr, probe};
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat calloc/free — v0.7-A2 step 6b cutover.
@@ -28,56 +32,67 @@ unsafe extern "C" {
     fn free(p: *mut c_void, size: usize);
 }
 
-/// Grow `*obj_slot` to a fresh block of `new_cap` buckets, rehashing
-/// every live entry. Old block is freed.
+/// Rebuild `*obj_slot` into a fresh block sized for its live count,
+/// compacting holes out of the dense array and rebuilding the hash
+/// index. Old block is freed. Guarantees at least one free dense slot
+/// on return.
 ///
 /// # Safety
 /// `obj_slot` must point at a non-NULL `*mut c_void` that itself holds
-/// a live dynobj heap pointer. `new_cap` must be a power of 2 and
-/// large enough to hold the live entry count (caller passes `cap * 2`
-/// which the 7/8 load-factor guard ensures is sufficient).
-pub(crate) unsafe fn resize(obj_slot: *mut *mut c_void, new_cap: u32) {
+/// a live dynobj heap pointer.
+pub(crate) unsafe fn resize(obj_slot: *mut *mut c_void) {
     let old = unsafe { *obj_slot };
     let old_cap = unsafe { cap(old) };
-    let old_bk = unsafe { buckets(old) };
-    // Fresh block: header(24) + new_cap * 24.
-    let bytes = DYNOBJ_HDR_SIZE + (new_cap as usize) * DYNOBJ_BUCKET_SIZE;
-    let p = unsafe { calloc(bytes) } as *mut u8;
+    let old_len = unsafe { entries_len(old) };
+    let old_ent = unsafe { entries(old) };
+    let live = unsafe { count(old) };
+
+    // CPython growth rule: smallest power-of-2 cap > count * 3. The
+    // 7/8 dense ratio then gives entries_cap > count, so the pending
+    // insert always fits (debug-asserted below).
+    let mut new_cap = DYNOBJ_INITIAL_CAP;
+    while (new_cap as u64) <= (live as u64) * 3 {
+        new_cap *= 2;
+    }
+    debug_assert!(entries_cap_for(new_cap) > live);
+
+    let p = unsafe { calloc(block_bytes(new_cap)) } as *mut u8;
     unsafe {
         // Header verbatim (refcount + type_tag + flags) — same 8 bytes.
         core::ptr::copy_nonoverlapping(old as *const u8, p, 8);
-        // count=0 (rebuilds below), cap=new_cap, tomb=0.
-        *(p.add(8) as *mut u32) = 0;
-        *(p.add(12) as *mut u32) = new_cap;
-        *(p.add(16) as *mut u32) = 0;
+        *(p.add(DYNOBJ_COUNT_OFF) as *mut u32) = 0; // rebuilt below
+        *(p.add(DYNOBJ_CAP_OFF) as *mut u32) = new_cap;
+        *(p.add(DYNOBJ_ENTRIES_LEN_OFF) as *mut u32) = 0;
+        *(p.add(DYNOBJ_ENTRIES_CAP_OFF) as *mut u32) = entries_cap_for(new_cap);
+        core::ptr::write_bytes(p.add(DYNOBJ_INDEX_OFF), 0xFF, new_cap as usize * 4);
     }
     let new_obj = p as *mut c_void;
-    let new_bk = unsafe { buckets(new_obj) };
-    let mut live: u32 = 0;
-    for i in 0..old_cap as usize {
-        let kp_tagged = unsafe { (*old_bk.add(i)).key_ptr_tagged };
-        if kp_tagged == DYNOBJ_KEY_EMPTY || kp_tagged == DYNOBJ_KEY_TOMBSTONE {
+    let new_ent = unsafe { entries(new_obj) };
+    let new_idx = unsafe { index_ptr(new_obj) };
+    let mut n: u32 = 0;
+    for i in 0..old_len as usize {
+        let kp_tagged = unsafe { (*old_ent.add(i)).key_ptr_tagged };
+        if kp_tagged == DYNOBJ_KEY_HOLE {
             continue;
         }
+        // Live keys are distinct, so the probe lands on an empty slot
+        // (found = false, slot = fresh). Bitwise entry copy preserves
+        // both the tagged key (ptr | flags) and the NaN-box value —
+        // ownership moves, no rc traffic.
         let pr = unsafe { probe(new_obj, bucket_key_ptr(kp_tagged) as *const c_void) };
-        // SAFETY: live entries in the source are guaranteed unique,
-        // so probe lands on an empty slot (found=false, idx=fresh).
-        // Bucket is `#[repr(C)]` with 2 × u64; bitwise copy preserves
-        // both the tagged key (ptr | flags) and the NaN-box value.
         unsafe {
-            *new_bk.add(pr.idx as usize) = Bucket {
+            *new_ent.add(n as usize) = Entry {
                 key_ptr_tagged: kp_tagged,
-                value_anyv: (*old_bk.add(i)).value_anyv,
+                value_anyv: (*old_ent.add(i)).value_anyv,
             };
+            *new_idx.add(pr.slot as usize) = n;
         }
-        live += 1;
+        n += 1;
     }
     unsafe {
-        *(p.add(8) as *mut u32) = live;
+        *(p.add(DYNOBJ_COUNT_OFF) as *mut u32) = n;
+        *(p.add(DYNOBJ_ENTRIES_LEN_OFF) as *mut u32) = n;
         *obj_slot = new_obj;
-        // Layer 1 sized free: old block = DYNOBJ_HDR_SIZE + old_cap *
-        // DYNOBJ_BUCKET_SIZE (Step 4d).
-        let old_bytes = DYNOBJ_HDR_SIZE + (old_cap as usize) * DYNOBJ_BUCKET_SIZE;
-        free(old, old_bytes);
+        free(old, block_bytes(old_cap));
     }
 }

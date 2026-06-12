@@ -1,7 +1,6 @@
 //! `Object.defineProperty(obj, key, descriptor)` — full attribute-flag
 //! tracking path.
 //!
-//! Port of `runtime_str.c::__torajs_dynobj_define` (P4.2-d, 2026-05-23).
 //! Implements spec §10.1.6.3 ValidateAndApplyPropertyDescriptor for the
 //! data-property subset (accessor descriptors not yet supported by tr).
 //!
@@ -25,11 +24,14 @@ use core::ffi::c_void;
 
 use crate::layout::{
     ANY_HEAP, ANY_UNDEF, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
-    BUCKET_TAG_MASK, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE, DEFINE_FLAG_WRITABLE,
-    DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE, DEFINE_PRESENT_VALUE,
-    DEFINE_PRESENT_WRITABLE, DYNOBJ_KEY_TOMBSTONE,
+    BUCKET_KEY_PTR_MASK, BUCKET_TAG_MASK, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE,
+    DEFINE_FLAG_WRITABLE, DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE,
+    DEFINE_PRESENT_VALUE, DEFINE_PRESENT_WRITABLE,
 };
-use crate::probe::{bucket_flags, bucket_make_key_tagged, buckets, probe};
+use crate::probe::{
+    Entry, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
+    index_ptr, probe, set_count, set_entries_len,
+};
 use crate::resize::resize;
 
 unsafe extern "C" {
@@ -60,18 +62,16 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
     if obj.is_null() {
         return;
     }
-    let cap = unsafe { *((obj as *const u8).add(12) as *const u32) };
-    let count = unsafe { *((obj as *const u8).add(8) as *const u32) };
-    let tomb = unsafe { *((obj as *const u8).add(16) as *const u32) };
-    if (count + tomb + 1) * 8 > cap * 7 {
+    // Dense-array-full guard — same shape as set.rs.
+    if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
         unsafe {
-            resize(obj_slot, cap * 2);
+            resize(obj_slot);
             obj = *obj_slot;
         }
     }
 
     let pr = unsafe { probe(obj, key as *const c_void) };
-    let bk = unsafe { buckets(obj) };
+    let ent = unsafe { entries(obj) };
 
     let has_writable = flags_byte & DEFINE_PRESENT_WRITABLE != 0;
     let has_enumerable = flags_byte & DEFINE_PRESENT_ENUMERABLE != 0;
@@ -82,8 +82,9 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
     let desc_configurable = flags_byte & DEFINE_FLAG_CONFIGURABLE != 0;
 
     if pr.found {
-        let cur_kp_tagged = unsafe { (*bk.add(pr.idx as usize)).key_ptr_tagged };
-        let cur_value_anyv = unsafe { (*bk.add(pr.idx as usize)).value_anyv };
+        let e = unsafe { ent.add(pr.entry as usize) };
+        let cur_kp_tagged = unsafe { (*e).key_ptr_tagged };
+        let cur_value_anyv = unsafe { (*e).value_anyv };
         let cur_flags = bucket_flags(cur_kp_tagged);
         let cur_writable = cur_flags & BUCKET_FLAG_WRITABLE != 0;
         let cur_enumerable = cur_flags & BUCKET_FLAG_ENUMERABLE != 0;
@@ -91,7 +92,7 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
         let cur_value_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
 
         if !cur_configurable {
-            // Spec §10.1.6.3 — non-configurable bucket; reject diverging
+            // Spec §10.1.6.3 — non-configurable entry; reject diverging
             // present-flag changes.
             if has_configurable && desc_configurable && !cur_configurable {
                 unsafe {
@@ -196,23 +197,14 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
 
         // Preserve the existing key pointer (re-pack with new flags);
         // rebox the (tag, value) pair into a fresh NaN-box AnyValue.
-        let cur_key_ptr = (cur_kp_tagged & crate::layout::BUCKET_KEY_PTR_MASK) as *mut c_void;
+        let cur_key_ptr = (cur_kp_tagged & BUCKET_KEY_PTR_MASK) as *mut c_void;
         unsafe {
-            (*bk.add(pr.idx as usize)).key_ptr_tagged =
-                bucket_make_key_tagged(cur_key_ptr, new_flags);
-            (*bk.add(pr.idx as usize)).value_anyv =
-                __torajs_anyv_box_from_pair(new_value_tag as i64, new_value as i64);
+            (*e).key_ptr_tagged = bucket_make_key_tagged(cur_key_ptr, new_flags);
+            (*e).value_anyv = __torajs_anyv_box_from_pair(new_value_tag as i64, new_value as i64);
         }
     } else {
-        // Fresh define. Absent flags default to false (spec §10.1.6.2).
-        if unsafe { (*bk.add(pr.idx as usize)).key_ptr_tagged } == DYNOBJ_KEY_TOMBSTONE {
-            unsafe {
-                *((obj as *mut u8).add(16) as *mut u32) = tomb - 1;
-            }
-        }
-        unsafe {
-            __torajs_rc_inc(key);
-        }
+        // Fresh define: append to the dense array (insertion order).
+        // Absent flags default to false (spec §10.1.6.2).
         let mut new_flags: u64 = 0;
         if desc_writable {
             new_flags |= BUCKET_FLAG_WRITABLE;
@@ -229,11 +221,16 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
             // No .value present — default [[Value]] to undefined.
             (ANY_UNDEF, 0)
         };
+        let e_idx = unsafe { entries_len(obj) };
         unsafe {
-            (*bk.add(pr.idx as usize)).key_ptr_tagged = bucket_make_key_tagged(key, new_flags);
-            (*bk.add(pr.idx as usize)).value_anyv =
-                __torajs_anyv_box_from_pair(init_tag as i64, init_value as i64);
-            *((obj as *mut u8).add(8) as *mut u32) = count + 1;
+            __torajs_rc_inc(key);
+            *ent.add(e_idx as usize) = Entry {
+                key_ptr_tagged: bucket_make_key_tagged(key, new_flags),
+                value_anyv: __torajs_anyv_box_from_pair(init_tag as i64, init_value as i64),
+            };
+            *index_ptr(obj).add(pr.slot as usize) = e_idx;
+            set_entries_len(obj, e_idx + 1);
+            set_count(obj, count(obj) + 1);
         }
     }
 }

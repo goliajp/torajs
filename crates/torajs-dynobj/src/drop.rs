@@ -1,17 +1,15 @@
 //! DynObj universal-drop entry.
 //!
-//! Port of `runtime_str.c::__torajs_dynobj_drop` (P4.2-e, 2026-05-23).
-//! Called by the C-side `__torajs_value_drop_heap` dispatch case
-//! `__TORAJS_TAG_DYNOBJ` (still in runtime_str.c) when a dynobj's
-//! refcount transitions to zero.
+//! Called by `__torajs_value_drop_heap`'s `Tag::DynObj` dispatch case
+//! (torajs-value-drop) when a dynobj's refcount transitions to zero.
 //!
-//! Walks every live bucket, drops the key Str + any ANY_HEAP value,
-//! then libc-frees the block. Tombstones and empties are skipped.
+//! Walks the dense entry array in order, drops each live entry's key
+//! Str + any ANY_HEAP value (holes are skipped), then frees the block.
 
 use core::ffi::c_void;
 
-use crate::layout::{DYNOBJ_BUCKET_SIZE, DYNOBJ_HDR_SIZE, DYNOBJ_KEY_EMPTY, DYNOBJ_KEY_TOMBSTONE};
-use crate::probe::{bucket_key_ptr, buckets, cap};
+use crate::layout::{DYNOBJ_KEY_HOLE, block_bytes};
+use crate::probe::{bucket_key_ptr, cap, entries, entries_len};
 
 unsafe extern "C" {
     /// Cross-tier — torajs-rc's refcount dec. Returns 1 iff the
@@ -41,21 +39,19 @@ pub unsafe extern "C" fn __torajs_dynobj_drop(obj: *mut c_void) {
     if unsafe { __torajs_rc_dec(obj) } == 0 {
         return;
     }
-    let cap = unsafe { cap(obj) };
-    let bk = unsafe { buckets(obj) };
-    for i in 0..cap as usize {
-        let kp_tagged = unsafe { (*bk.add(i)).key_ptr_tagged };
-        if kp_tagged == DYNOBJ_KEY_EMPTY || kp_tagged == DYNOBJ_KEY_TOMBSTONE {
+    let len = unsafe { entries_len(obj) };
+    let ent = unsafe { entries(obj) };
+    for i in 0..len as usize {
+        let kp_tagged = unsafe { (*ent.add(i)).key_ptr_tagged };
+        if kp_tagged == DYNOBJ_KEY_HOLE {
             continue;
         }
         unsafe {
             __torajs_str_drop(bucket_key_ptr(kp_tagged));
-            __torajs_value_drop_heap((*bk.add(i)).value_anyv as *mut c_void);
+            __torajs_value_drop_heap((*ent.add(i)).value_anyv as *mut c_void);
         }
     }
-    // Layer 1 sized free: obj block = DYNOBJ_HDR_SIZE + cap *
-    // DYNOBJ_BUCKET_SIZE; cap is in scope from line 42.
-    let total = DYNOBJ_HDR_SIZE + (cap as usize) * DYNOBJ_BUCKET_SIZE;
+    let total = block_bytes(unsafe { cap(obj) });
     unsafe {
         free(obj, total);
     }

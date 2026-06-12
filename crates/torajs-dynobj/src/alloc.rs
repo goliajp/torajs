@@ -1,55 +1,51 @@
 //! DynObj allocation.
 //!
-//! Port of `runtime_str.c::__torajs_dynobj_alloc` (P4.2-a, 2026-05-23).
-//!
-//! Fresh `+1`-rc heap block, header initialized, all buckets zeroed
-//! (zero `key_ptr` = empty bucket per the probe contract). Subsequent
-//! sub-steps (P4.2-b..-f) port the rest of the dynobj surface; until
-//! then, set / probe / resize / drop continue to live in C and resolve
-//! `__torajs_dynobj_alloc` via cross-tier link.
+//! Fresh `+1`-rc heap block, header initialized, hash index filled
+//! with [`IDX_EMPTY`] (all-ones — one `write_bytes` pass), dense entry
+//! array zeroed by calloc (zero `key_ptr_tagged` = hole, but
+//! `entries_len = 0` means iteration never reaches them).
 
 use core::ffi::c_void;
 
 use crate::layout::{
-    DYNOBJ_CAP_OFF, DYNOBJ_COUNT_OFF, DYNOBJ_HDR_SIZE, DYNOBJ_INITIAL_CAP, DYNOBJ_TOMB_OFF,
-    TAG_DYNOBJ,
+    DYNOBJ_CAP_OFF, DYNOBJ_COUNT_OFF, DYNOBJ_ENTRIES_CAP_OFF, DYNOBJ_ENTRIES_LEN_OFF,
+    DYNOBJ_INDEX_OFF, DYNOBJ_INITIAL_CAP, TAG_DYNOBJ, block_bytes, entries_cap_for,
 };
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat calloc — zero-init alloc; v0.7-A2
-    /// step 6b cutover. Ensures every bucket's `key_ptr` starts as
-    /// NULL (empty) which the probe contract requires.
+    /// step 6b cutover.
     #[link_name = "__torajs_calloc"]
     fn calloc(size: usize) -> *mut c_void;
 }
 
 /// `__torajs_dynobj_alloc()` — allocate a fresh empty dynobj.
 ///
-/// Block size: `DYNOBJ_HDR_SIZE + DYNOBJ_INITIAL_CAP * DYNOBJ_BUCKET_SIZE`
-/// = 24 + 8 × 16 = 152 bytes (Step 7e-B bucket shrink). Header is
-/// initialized to `refcount = 1`, `type_tag = TAG_DYNOBJ`, `flags = 0`.
-/// `count = 0`, `cap = 8`, `tomb = 0`. Returns a fresh `+1`-rc heap
-/// pointer.
+/// Block size: `block_bytes(8)` = 24 + 8 × 4 + 7 × 16 = 168 bytes.
+/// Header is initialized to `refcount = 1`, `type_tag = TAG_DYNOBJ`,
+/// `flags = 0`. `count = 0`, `cap = 8`, `entries_len = 0`,
+/// `entries_cap = 7`. Returns a fresh `+1`-rc heap pointer.
 ///
 /// # Safety
 /// Returned pointer is owned by the caller; release via
-/// `__torajs_dynobj_drop` (still in C runtime_str.c until P4.2-f).
+/// [`crate::drop::__torajs_dynobj_drop`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut c_void {
     let cap = DYNOBJ_INITIAL_CAP;
-    let bytes = DYNOBJ_HDR_SIZE + (cap as usize) * crate::layout::DYNOBJ_BUCKET_SIZE;
-    let p = unsafe { calloc(bytes) } as *mut u8;
+    let p = unsafe { calloc(block_bytes(cap)) } as *mut u8;
     unsafe {
         // Header init: rc=1, tag=DynObj, flags=0.
         *(p as *mut u32) = 1;
         *(p.add(4) as *mut u16) = TAG_DYNOBJ;
         *(p.add(6) as *mut u16) = 0;
-        // count = 0 (already zeroed by calloc — explicit for clarity)
+        // count = 0 / entries_len = 0 (already zeroed by calloc —
+        // explicit for clarity); cap / entries_cap = initial sizing.
         *(p.add(DYNOBJ_COUNT_OFF) as *mut u32) = 0;
-        // cap = INITIAL_CAP
         *(p.add(DYNOBJ_CAP_OFF) as *mut u32) = cap;
-        // tomb = 0 (already zeroed by calloc — explicit for clarity)
-        *(p.add(DYNOBJ_TOMB_OFF) as *mut u32) = 0;
+        *(p.add(DYNOBJ_ENTRIES_LEN_OFF) as *mut u32) = 0;
+        *(p.add(DYNOBJ_ENTRIES_CAP_OFF) as *mut u32) = entries_cap_for(cap);
+        // Hash index: all slots IDX_EMPTY (all-ones fill).
+        core::ptr::write_bytes(p.add(DYNOBJ_INDEX_OFF), 0xFF, cap as usize * 4);
     }
     p as *mut c_void
 }
@@ -57,9 +53,11 @@ pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut c_void {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::{DYNOBJ_ENTRY_SIZE, IDX_EMPTY};
 
     /// Header + metadata fields land at the expected offsets, with
-    /// initial-cap = 8 power-of-2, count/tomb zero.
+    /// initial cap = 8 power-of-2, entries_cap = 7, count/entries_len
+    /// zero, and every index slot IDX_EMPTY.
     #[test]
     fn alloc_inits_header_and_metadata() {
         let p = unsafe { __torajs_dynobj_alloc() } as *mut u8;
@@ -70,26 +68,43 @@ mod tests {
             assert_eq!(*(p.add(6) as *const u16), 0, "flags");
             assert_eq!(*(p.add(DYNOBJ_COUNT_OFF) as *const u32), 0, "count");
             assert_eq!(*(p.add(DYNOBJ_CAP_OFF) as *const u32), 8, "cap");
-            assert_eq!(*(p.add(DYNOBJ_TOMB_OFF) as *const u32), 0, "tomb");
+            assert_eq!(
+                *(p.add(DYNOBJ_ENTRIES_LEN_OFF) as *const u32),
+                0,
+                "entries_len"
+            );
+            assert_eq!(
+                *(p.add(DYNOBJ_ENTRIES_CAP_OFF) as *const u32),
+                7,
+                "entries_cap"
+            );
 
-            // Buckets zero-init contract: probe relies on
-            // key_ptr_tagged == DYNOBJ_KEY_EMPTY (0).
+            // Index init contract: probe relies on every slot reading
+            // IDX_EMPTY in a fresh block.
             for i in 0..DYNOBJ_INITIAL_CAP as usize {
-                let bucket = p.add(DYNOBJ_HDR_SIZE + i * crate::layout::DYNOBJ_BUCKET_SIZE);
-                assert_eq!(*(bucket as *const u64), 0, "key_ptr_tagged");
-                assert_eq!(*(bucket.add(8) as *const u64), 0, "value_anyv");
+                assert_eq!(
+                    *(p.add(DYNOBJ_INDEX_OFF + i * 4) as *const u32),
+                    IDX_EMPTY,
+                    "index[{i}]"
+                );
             }
 
-            // Hand back to mmalloc (v0.7-A2 step 6b cutover; test-only
-            // path — production drop helper lives in drop.rs).
-            // Layer 1 sized API: caller passes original alloc size.
+            // Dense entries zero-init (calloc): key hole + zero value.
+            let ent_base = DYNOBJ_INDEX_OFF + DYNOBJ_INITIAL_CAP as usize * 4;
+            for i in 0..entries_cap_for(DYNOBJ_INITIAL_CAP) as usize {
+                let e = p.add(ent_base + i * DYNOBJ_ENTRY_SIZE);
+                assert_eq!(*(e as *const u64), 0, "key_ptr_tagged");
+                assert_eq!(*(e.add(8) as *const u64), 0, "value_anyv");
+            }
+
+            // Hand back to mmalloc (test-only path — production drop
+            // helper lives in drop.rs). Layer 1 sized API: caller
+            // passes original alloc size.
             unsafe extern "C" {
                 #[link_name = "__torajs_free"]
                 fn free(p: *mut c_void, size: usize);
             }
-            let bytes =
-                DYNOBJ_HDR_SIZE + (DYNOBJ_INITIAL_CAP as usize) * crate::layout::DYNOBJ_BUCKET_SIZE;
-            free(p as *mut c_void, bytes);
+            free(p as *mut c_void, block_bytes(DYNOBJ_INITIAL_CAP));
         }
     }
 }

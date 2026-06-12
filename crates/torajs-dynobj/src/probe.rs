@@ -1,31 +1,33 @@
-//! Open-addressing probe + key hash / equality.
+//! Hash-index probe + key hash / equality + block field accessors.
 //!
 //! Pure-Rust internals shared by [`crate::get`] / [`crate::set`] /
-//! [`crate::define`] / [`crate::has`] / [`crate::delete`] / [`crate::drop`].
+//! [`crate::define`] / [`crate::has`] / [`crate::delete`] /
+//! [`crate::drop`] / [`crate::iter`] / [`crate::resize`].
 //!
-//! `Bucket` is 16 bytes (Step 7e-B):
-//! ```text
-//! key_ptr_tagged: u64  — 0 = empty, 1 = tombstone, else (ptr<<0 | flags<<0..2)
-//! value_anyv    : u64  — NaN-box AnyValue (tag + value packed)
-//! ```
+//! The block is a compact insertion-ordered dict (see [`crate::layout`]):
+//! `index[cap]` u32 slots map probe positions to dense-entry indices;
+//! `entries[entries_cap]` holds `{ key_ptr_tagged, value_anyv }` pairs
+//! in insertion order.
 //!
-//! Probe contract: linear step = 1; mask = `cap - 1` (cap is power of 2);
-//! tombstones are walked past but remembered as the first insertion
-//! candidate (lazy compaction on next insert).
+//! Probe contract: linear step = 1; mask = `cap - 1` (cap is power of
+//! 2); [`IDX_TOMBSTONE`] slots are walked past but remembered as the
+//! first insertion candidate (lazy slot reuse on next insert).
 
 use core::ffi::c_void;
 
 use crate::layout::{
-    BUCKET_FLAGS_MASK, BUCKET_KEY_PTR_MASK, DYNOBJ_HDR_SIZE, DYNOBJ_KEY_EMPTY,
-    DYNOBJ_KEY_TOMBSTONE, STR_DATA_OFF, STR_LEN_OFF,
+    BUCKET_FLAGS_MASK, BUCKET_KEY_PTR_MASK, DYNOBJ_CAP_OFF, DYNOBJ_COUNT_OFF,
+    DYNOBJ_ENTRIES_CAP_OFF, DYNOBJ_ENTRIES_LEN_OFF, DYNOBJ_INDEX_OFF, IDX_EMPTY, IDX_TOMBSTONE,
+    STR_DATA_OFF, STR_LEN_OFF,
 };
 
-/// In-block bucket — 16 bytes, `#[repr(C)]`. `key_ptr_tagged` encodes
+/// Dense-array entry — 16 bytes, `#[repr(C)]`. `key_ptr_tagged` encodes
 /// the Str pointer (bits 3+) plus the W/E/C PropertyDescriptor flags
-/// (bits 0/1/2); `value_anyv` is a NaN-box AnyValue carrying the slot's
+/// (bits 0/1/2), or [`crate::layout::DYNOBJ_KEY_HOLE`] for a deleted
+/// hole; `value_anyv` is a NaN-box AnyValue carrying the slot's
 /// (tag, value) pair.
 #[repr(C)]
-pub(crate) struct Bucket {
+pub(crate) struct Entry {
     pub(crate) key_ptr_tagged: u64,
     pub(crate) value_anyv: u64,
 }
@@ -50,23 +52,79 @@ pub(crate) fn bucket_make_key_tagged(ptr: *mut c_void, flags: u64) -> u64 {
     (ptr as u64) | (flags & BUCKET_FLAGS_MASK)
 }
 
-/// Read the dynobj's `cap: u32` at offset 12.
+/// Read the dynobj's `count: u32` (live entries, holes excluded).
+///
+/// # Safety
+/// `obj` must point at a live dynobj heap block.
+#[inline]
+pub(crate) unsafe fn count(obj: *const c_void) -> u32 {
+    unsafe { *((obj as *const u8).add(DYNOBJ_COUNT_OFF) as *const u32) }
+}
+
+/// Write the dynobj's `count: u32`.
+///
+/// # Safety
+/// `obj` must point at a live dynobj heap block.
+#[inline]
+pub(crate) unsafe fn set_count(obj: *mut c_void, v: u32) {
+    unsafe { *((obj as *mut u8).add(DYNOBJ_COUNT_OFF) as *mut u32) = v }
+}
+
+/// Read the dynobj's `cap: u32` (hash-index slot count).
 ///
 /// # Safety
 /// `obj` must point at a live dynobj heap block.
 #[inline]
 pub(crate) unsafe fn cap(obj: *const c_void) -> u32 {
-    unsafe { *((obj as *const u8).add(12) as *const u32) }
+    unsafe { *((obj as *const u8).add(DYNOBJ_CAP_OFF) as *const u32) }
 }
 
-/// Pointer to the start of the bucket array. Stride is
-/// `size_of::<Bucket>() = 16` (asserted by tests).
+/// Read the dynobj's `entries_len: u32` (dense-array used length,
+/// holes included — the iteration upper bound).
 ///
 /// # Safety
 /// `obj` must point at a live dynobj heap block.
 #[inline]
-pub(crate) unsafe fn buckets(obj: *const c_void) -> *mut Bucket {
-    unsafe { (obj as *mut u8).add(DYNOBJ_HDR_SIZE) as *mut Bucket }
+pub(crate) unsafe fn entries_len(obj: *const c_void) -> u32 {
+    unsafe { *((obj as *const u8).add(DYNOBJ_ENTRIES_LEN_OFF) as *const u32) }
+}
+
+/// Write the dynobj's `entries_len: u32`.
+///
+/// # Safety
+/// `obj` must point at a live dynobj heap block.
+#[inline]
+pub(crate) unsafe fn set_entries_len(obj: *mut c_void, v: u32) {
+    unsafe { *((obj as *mut u8).add(DYNOBJ_ENTRIES_LEN_OFF) as *mut u32) = v }
+}
+
+/// Read the dynobj's `entries_cap: u32` (dense-array capacity).
+///
+/// # Safety
+/// `obj` must point at a live dynobj heap block.
+#[inline]
+pub(crate) unsafe fn entries_cap(obj: *const c_void) -> u32 {
+    unsafe { *((obj as *const u8).add(DYNOBJ_ENTRIES_CAP_OFF) as *const u32) }
+}
+
+/// Pointer to the start of the `index[cap]` u32 array.
+///
+/// # Safety
+/// `obj` must point at a live dynobj heap block.
+#[inline]
+pub(crate) unsafe fn index_ptr(obj: *const c_void) -> *mut u32 {
+    unsafe { (obj as *mut u8).add(DYNOBJ_INDEX_OFF) as *mut u32 }
+}
+
+/// Pointer to the start of the dense entry array (sits after the
+/// index, so the offset depends on the block's `cap`).
+///
+/// # Safety
+/// `obj` must point at a live dynobj heap block.
+#[inline]
+pub(crate) unsafe fn entries(obj: *const c_void) -> *mut Entry {
+    let cap = unsafe { cap(obj) };
+    unsafe { (obj as *mut u8).add(DYNOBJ_INDEX_OFF + cap as usize * 4) as *mut Entry }
 }
 
 /// Read a Str's `len: u64` (offset 8).
@@ -87,9 +145,8 @@ unsafe fn str_data(key: *const c_void) -> *const u8 {
     unsafe { (key as *const u8).add(STR_DATA_OFF) }
 }
 
-/// FNV-1a hash over the Str's UTF-8 payload. Mirrors
-/// `runtime_str.c::__torajs_dynobj_hash_str` 1:1 (same FNV-1a 64-bit
-/// constants; same byte order).
+/// FNV-1a hash over the Str's UTF-8 payload (64-bit constants,
+/// byte-order over the raw payload).
 ///
 /// # Safety
 /// `key` must point at a live Str heap block.
@@ -130,48 +187,59 @@ pub(crate) unsafe fn str_eq(a: *const c_void, b: *const c_void) -> bool {
 
 /// Verdict from a [`probe`] walk.
 pub(crate) struct Probe {
-    /// Bucket index — if `found`, this is the live key's slot; if not,
-    /// this is the insertion target (first tombstone, else first empty).
-    pub idx: u32,
-    /// True iff `key` is present in the table at `idx`.
+    /// Hash-index slot — if `found`, the live key's slot; if not,
+    /// the insertion target (first tombstone, else first empty).
+    pub slot: u32,
+    /// Dense-entry index — meaningful only when `found`.
+    pub entry: u32,
+    /// True iff `key` is present in the table.
     pub found: bool,
 }
 
-/// Walk the bucket array looking for `key`. Linear probe step = 1.
-/// First reachable empty bucket terminates the walk; first tombstone
-/// is remembered for insert reuse. Returns `(idx, found)`.
+/// Walk the hash index looking for `key`. Linear probe step = 1.
+/// First reachable [`IDX_EMPTY`] slot terminates the walk; first
+/// [`IDX_TOMBSTONE`] is remembered for insert reuse.
 ///
 /// # Safety
 /// `obj` must point at a live dynobj heap block; `key` at a live Str.
 pub(crate) unsafe fn probe(obj: *const c_void, key: *const c_void) -> Probe {
     let cap = unsafe { cap(obj) };
-    let bk = unsafe { buckets(obj) };
+    let idx = unsafe { index_ptr(obj) };
+    let ent = unsafe { entries(obj) };
     let h = unsafe { hash_str(key) };
     let mask = cap - 1;
     let start = (h as u32) & mask;
     let mut tombstone_at: Option<u32> = None;
     for step in 0..cap {
-        let idx = (start + step) & mask;
-        let kp_tagged = unsafe { (*bk.add(idx as usize)).key_ptr_tagged };
-        if kp_tagged == DYNOBJ_KEY_EMPTY {
+        let slot = (start + step) & mask;
+        let iv = unsafe { *idx.add(slot as usize) };
+        if iv == IDX_EMPTY {
             return Probe {
-                idx: tombstone_at.unwrap_or(idx),
+                slot: tombstone_at.unwrap_or(slot),
+                entry: 0,
                 found: false,
             };
         }
-        if kp_tagged == DYNOBJ_KEY_TOMBSTONE {
+        if iv == IDX_TOMBSTONE {
             if tombstone_at.is_none() {
-                tombstone_at = Some(idx);
+                tombstone_at = Some(slot);
             }
             continue;
         }
+        let kp_tagged = unsafe { (*ent.add(iv as usize)).key_ptr_tagged };
         if unsafe { str_eq(bucket_key_ptr(kp_tagged) as *const c_void, key) } {
-            return Probe { idx, found: true };
+            return Probe {
+                slot,
+                entry: iv,
+                found: true,
+            };
         }
     }
-    // Unreachable in practice: resize keeps load factor < 1.
+    // Unreachable in practice: entries_cap = cap * 7/8 keeps at least
+    // cap / 8 index slots empty.
     Probe {
-        idx: tombstone_at.unwrap_or(0),
+        slot: tombstone_at.unwrap_or(0),
+        entry: 0,
         found: false,
     }
 }
@@ -179,18 +247,19 @@ pub(crate) unsafe fn probe(obj: *const c_void, key: *const c_void) -> Probe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::{DYNOBJ_KEY_HOLE, entries_cap_for};
 
     #[test]
-    fn bucket_layout_matches_c() {
-        assert_eq!(core::mem::size_of::<Bucket>(), 16);
-        assert_eq!(core::mem::align_of::<Bucket>(), 8);
-        assert_eq!(core::mem::offset_of!(Bucket, key_ptr_tagged), 0);
-        assert_eq!(core::mem::offset_of!(Bucket, value_anyv), 8);
+    fn entry_layout() {
+        assert_eq!(core::mem::size_of::<Entry>(), 16);
+        assert_eq!(core::mem::align_of::<Entry>(), 8);
+        assert_eq!(core::mem::offset_of!(Entry, key_ptr_tagged), 0);
+        assert_eq!(core::mem::offset_of!(Entry, value_anyv), 8);
     }
 
     /// `bucket_key_ptr` / `bucket_flags` round-trip — pack then
-    /// decompose recovers both halves. Plus the sentinel disjoint-
-    /// ness (empty=0, tombstone=1 ≠ any 8-aligned ptr + flags).
+    /// decompose recovers both halves. Plus the hole sentinel stays
+    /// disjoint from any live packed key.
     #[test]
     fn key_ptr_flag_pack_round_trip() {
         let fake_ptr = 0x1234_5678_0000_0040u64 as *mut c_void;
@@ -200,11 +269,18 @@ mod tests {
         assert_eq!(bucket_key_ptr(tagged), fake_ptr);
         assert_eq!(bucket_flags(tagged), flags);
 
-        // Sentinels stay disjoint from real packed ptrs (low 3 bits
-        // = 0/1 only meets ptr=0).
-        assert_eq!(DYNOBJ_KEY_EMPTY, 0);
-        assert_eq!(DYNOBJ_KEY_TOMBSTONE, 1);
-        assert_ne!(bucket_make_key_tagged(fake_ptr, BUCKET_FLAGS_MASK), 1);
+        // Hole sentinel (0) only meets ptr=0 — disjoint from live keys.
+        assert_eq!(DYNOBJ_KEY_HOLE, 0);
+        assert_ne!(bucket_make_key_tagged(fake_ptr, BUCKET_FLAGS_MASK), 0);
+    }
+
+    /// Index sentinels stay disjoint from any representable entry
+    /// index (entries_cap maxes out well below u32::MAX - 1).
+    #[test]
+    fn index_sentinels_disjoint() {
+        assert_eq!(IDX_EMPTY, u32::MAX);
+        assert_eq!(IDX_TOMBSTONE, u32::MAX - 1);
+        assert!(entries_cap_for(1 << 30) < IDX_TOMBSTONE);
     }
 
     /// FNV-1a known-answer: hash of empty string = offset basis.

@@ -1,9 +1,8 @@
 //! DynObj key lookups — `get_tag` / `get_value` / `get_flags`.
 //!
-//! Port of `runtime_str.c::__torajs_dynobj_get_{tag,value,flags}`
-//! (P4.2-b, 2026-05-23). All three share [`crate::probe::probe`] +
-//! the `Bucket` field layout; the only per-fn variation is which field
-//! returns and the default for an absent / non-dynobj input.
+//! All three share [`crate::probe::probe`] + the dense `Entry` layout;
+//! the only per-fn variation is which field returns and the default
+//! for an absent / non-dynobj input.
 //!
 //! Defensive type-tag check: callers occasionally pass an Any-box that
 //! does not wrap a DynObj (e.g. typed Struct via `obj?.x.y` chained
@@ -15,7 +14,7 @@ use core::ffi::c_void;
 use crate::layout::{
     ANY_UNDEF, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE, TAG_DYNOBJ,
 };
-use crate::probe::{bucket_flags, buckets, probe};
+use crate::probe::{bucket_flags, entries, probe};
 
 unsafe extern "C" {
     /// torajs-anyvalue — NaN-box AnyValue tag decoder.
@@ -29,13 +28,13 @@ unsafe extern "C" {
 /// # Safety
 /// `obj` must point at a live heap block with the universal header.
 #[inline]
-unsafe fn type_tag(obj: *const c_void) -> u16 {
+pub(crate) unsafe fn type_tag(obj: *const c_void) -> u16 {
     unsafe { *((obj as *const u8).add(4) as *const u16) }
 }
 
 /// `__torajs_dynobj_get_tag(obj, key)` — return the slot's ANY_TAG
-/// (low 8 bits of `Bucket::tag`). Returns `ANY_UNDEF` (5) when `obj`
-/// is NULL, not a DynObj, or the key is absent.
+/// (decoded from the NaN-box `value_anyv`). Returns `ANY_UNDEF` (5)
+/// when `obj` is NULL, not a DynObj, or the key is absent.
 ///
 /// # Safety
 /// `obj` is null or a live heap pointer with a universal header.
@@ -52,8 +51,8 @@ pub unsafe extern "C" fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const
     if !p.found {
         return ANY_UNDEF;
     }
-    let bk = unsafe { buckets(obj) };
-    let v = unsafe { (*bk.add(p.idx as usize)).value_anyv };
+    let ent = unsafe { entries(obj) };
+    let v = unsafe { (*ent.add(p.entry as usize)).value_anyv };
     unsafe { __torajs_anyv_unbox_tag(v) as u64 }
 }
 
@@ -75,8 +74,8 @@ pub unsafe extern "C" fn __torajs_dynobj_get_value(obj: *const c_void, key: *con
     if !p.found {
         return 0;
     }
-    let bk = unsafe { buckets(obj) };
-    let v = unsafe { (*bk.add(p.idx as usize)).value_anyv };
+    let ent = unsafe { entries(obj) };
+    let v = unsafe { (*ent.add(p.entry as usize)).value_anyv };
     unsafe { __torajs_anyv_unbox_value(v) as u64 }
 }
 
@@ -102,11 +101,11 @@ pub unsafe extern "C" fn __torajs_dynobj_get_flags(obj: *const c_void, key: *con
     if !p.found {
         return 0;
     }
-    let bk = unsafe { buckets(obj) };
-    let kp_tagged = unsafe { (*bk.add(p.idx as usize)).key_ptr_tagged };
+    let ent = unsafe { entries(obj) };
+    let kp_tagged = unsafe { (*ent.add(p.entry as usize)).key_ptr_tagged };
     let f = bucket_flags(kp_tagged);
     // The output ABI for get_flags is bit 0/1/2 = W/E/C, matching the
-    // internal bucket flag-bit layout exactly — return verbatim.
+    // internal entry flag-bit layout exactly — return verbatim.
     let mut flags: u64 = 0;
     if f & BUCKET_FLAG_WRITABLE != 0 {
         flags |= 1 << 0;

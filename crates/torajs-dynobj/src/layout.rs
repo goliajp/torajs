@@ -1,22 +1,32 @@
 //! DynObj heap-block layout constants.
 //!
-//! Mirrors `runtime_str.c`'s `__TORAJS_DYNOBJ_*` macros 1:1 (the C
-//! runtime keeps the definitions inline so this is a deliberate
-//! duplicate; the contract is "shared layout, separately compiled" —
-//! same pattern as `torajs-arr::layout`).
+//! Compact insertion-ordered dict — the CPython 3.7 dict / V8
+//! property-bag shape: a **dense entry array** appended in insertion
+//! order plus a power-of-2 **hash index** mapping probe slots to entry
+//! indices. JS property insertion order is observable semantics
+//! (property printing / `Object.keys` / `for-in` share this root), so
+//! a bare linear-probe table cannot back a dynobj.
 //!
 //! ```text
-//! offset | size | field
-//! -------|------|------
-//!   0    |  8B  | universal heap header (refcount + type_tag + flags)
-//!   8    |  4B  | count (u32) — # of live entries
-//!  12    |  4B  | cap   (u32) — bucket array size (power of 2)
-//!  16    |  4B  | tomb  (u32) — # of tombstone slots
-//!  20    |  4B  | pad
-//!  24    | 16×n | buckets[cap] — `{ key_ptr_tagged, value_anyv }` (16B each)
+//! offset  | size    | field
+//! --------|---------|------
+//!   0     |  8B     | universal heap header (refcount + type_tag + flags)
+//!   8     |  4B     | count       (u32) — # of live entries (holes excluded)
+//!  12     |  4B     | cap         (u32) — hash-index slot count (power of 2)
+//!  16     |  4B     | entries_len (u32) — dense-array used length (holes included)
+//!  20     |  4B     | entries_cap (u32) — dense-array capacity = cap * 7/8
+//!  24     |  4×cap  | index[cap]  (u32) — IDX_EMPTY / IDX_TOMBSTONE / entry idx
+//!  24+4×cap | 16×ecap | entries[entries_cap] — { key_ptr_tagged, value_anyv }
 //! ```
 //!
-//! ## Bucket key-ptr low-bit flag tagging (Step 7e-B)
+//! Deletion: the index slot becomes [`IDX_TOMBSTONE`] (probe walks
+//! past) and the dense entry becomes a **hole** (`key_ptr_tagged = 0`,
+//! skipped by iteration / drop / compact). Holes are reclaimed when
+//! the dense array fills and [`crate::resize`] compacts. Re-inserting
+//! a deleted key appends a fresh entry at the tail — exactly the JS
+//! "delete then set moves the key to the end" order semantics.
+//!
+//! ## Entry key-ptr low-bit flag tagging (Step 7e-B)
 //!
 //! `key_ptr_tagged: u64` packs the Str pointer (8-aligned ⇒ low 3 bits
 //! free) with the spec §6.2.5 PropertyDescriptor `writable` /
@@ -25,13 +35,7 @@
 //! hidden-class style for compact descriptor storage; same pedigree as
 //! Swift Class isa + V8 Maps.
 //!
-//! Sentinels (key_ptr_tagged values):
-//! * `0` — empty (calloc default; flag bits naturally zero).
-//! * `1` — tombstone (probe walks past). Disjoint from empty (`!= 0`)
-//!   and from live (`ptr & !0x7 != 0` since real Str heap addrs ≥ 16).
-//! * `else` — live: real ptr in `& !0x7`, flags in `& 0x7`.
-//!
-//! ## Bucket value field
+//! ## Entry value field
 //!
 //! `value_anyv: u64` is a NaN-box [`torajs_anyvalue::AnyValue`] encoding
 //! the slot's `(tag, value)` pair as a single 64-bit immediate. Cells
@@ -42,22 +46,20 @@
 /// Universal heap header size (`{ refcount: u32, type_tag: u16, flags: u16 }`).
 pub const HEAP_HEADER_SIZE: usize = 8;
 
-/// Header bytes before `buckets[]` (matches C macro
-/// `__TORAJS_DYNOBJ_HDR_SIZE`). Header + count/cap/tomb/pad = 24.
+/// Header bytes before `index[]` — heap header (8) +
+/// count/cap/entries_len/entries_cap (4 × u32).
 pub const DYNOBJ_HDR_SIZE: usize = 24;
 
-/// Per-bucket size (Step 7e-B: 24 → 16). `key_ptr_tagged: u64` (8) +
-/// `value_anyv: u64` (8). Halves the cache footprint per bucket, lets
-/// 4 buckets fit per 64-byte cache line (vs 2 pre-7e-B).
-pub const DYNOBJ_BUCKET_SIZE: usize = 16;
+/// Per-entry size in the dense array. `key_ptr_tagged: u64` (8) +
+/// `value_anyv: u64` (8). 4 entries per 64-byte cache line.
+pub const DYNOBJ_ENTRY_SIZE: usize = 16;
 
-/// Initial bucket count on alloc (matches C macro
-/// `__TORAJS_DYNOBJ_INITIAL_CAP`). Must be a power of 2 — the linear-
-/// probe `idx = (h + step) & (cap - 1)` mask depends on it.
+/// Initial hash-index slot count on alloc. Must be a power of 2 — the
+/// linear-probe `slot = (h + step) & (cap - 1)` mask depends on it.
 pub const DYNOBJ_INITIAL_CAP: u32 = 8;
 
 /// `type_tag` value for DynObj heap blocks (matches
-/// `torajs_rc::Tag::DynObj` = 14 and `runtime_str.c::__TORAJS_TAG_DYNOBJ`).
+/// `torajs_rc::Tag::DynObj` = 14).
 pub const TAG_DYNOBJ: u16 = 14;
 
 /// Offset of the `count` u32 within the heap block.
@@ -66,17 +68,29 @@ pub const DYNOBJ_COUNT_OFF: usize = HEAP_HEADER_SIZE;
 /// Offset of the `cap` u32 within the heap block.
 pub const DYNOBJ_CAP_OFF: usize = HEAP_HEADER_SIZE + 4;
 
-/// Offset of the `tomb` u32 within the heap block.
-pub const DYNOBJ_TOMB_OFF: usize = HEAP_HEADER_SIZE + 8;
+/// Offset of the `entries_len` u32 within the heap block.
+pub const DYNOBJ_ENTRIES_LEN_OFF: usize = HEAP_HEADER_SIZE + 8;
 
-/// Empty sentinel for `Bucket::key_ptr_tagged`. `0` matches calloc's
-/// default so a fresh dynobj block has every bucket marked empty.
-pub const DYNOBJ_KEY_EMPTY: u64 = 0;
+/// Offset of the `entries_cap` u32 within the heap block.
+pub const DYNOBJ_ENTRIES_CAP_OFF: usize = HEAP_HEADER_SIZE + 12;
 
-/// Tombstone sentinel for `Bucket::key_ptr_tagged`. `1` is disjoint
-/// from both empty (`== 0`) and live (`ptr & !0x7 != 0` since real Str
-/// heap addrs are 8-aligned and well above zero).
-pub const DYNOBJ_KEY_TOMBSTONE: u64 = 1;
+/// Offset of the `index[cap]` u32 array within the heap block.
+pub const DYNOBJ_INDEX_OFF: usize = DYNOBJ_HDR_SIZE;
+
+/// Hash-index "slot never used" sentinel (CPython `DKIX_EMPTY`
+/// analogue). All-ones so a `write_bytes(.., 0xFF, ..)` fill
+/// initializes a fresh index in one call.
+pub const IDX_EMPTY: u32 = 0xFFFF_FFFF;
+
+/// Hash-index "entry deleted here" sentinel (CPython `DKIX_DUMMY`
+/// analogue). Probe walks past it; insert may reuse the slot.
+pub const IDX_TOMBSTONE: u32 = 0xFFFF_FFFE;
+
+/// Dense-entry hole marker for `Entry::key_ptr_tagged` — left behind
+/// by delete, skipped by iteration / drop, reclaimed by compact. `0`
+/// is disjoint from live keys (real Str heap addrs are 8-aligned and
+/// well above zero, so `ptr | flags != 0`).
+pub const DYNOBJ_KEY_HOLE: u64 = 0;
 
 /// Mask isolating the real Str pointer in a `key_ptr_tagged` word
 /// (clears the low-3 flag bits).
@@ -89,13 +103,6 @@ pub const BUCKET_FLAGS_MASK: u64 = 0x7;
 /// `ANY_UNDEF` tag (matches `torajs_rc::AnySlotTag::Undef = 5`). Returned
 /// by `get_tag` when the key is absent or `obj` is not a dynobj.
 pub const ANY_UNDEF: u64 = 5;
-
-// Bucket flag layout (Step 7e-B): the three PropertyDescriptor data-
-// attribute flags occupy bits 0/1/2 of `Bucket::key_ptr_tagged`. The
-// per-slot ANY_TAG (0-5) now lives inside the NaN-box `value_anyv`
-// — decode via `__torajs_anyv_unbox_tag`. `BUCKET_TAG_MASK` is kept
-// only as the input-side mask callers apply to the `tag: u64` FFI
-// parameter before packing into `value_anyv`.
 
 /// Mask for the low-8 ANY_TAG bits of the FFI `tag: u64` parameter
 /// passed into [`crate::set::__torajs_dynobj_set`] /
@@ -117,15 +124,14 @@ pub const BUCKET_FLAGS_DEFAULT: u64 =
     BUCKET_FLAG_WRITABLE | BUCKET_FLAG_ENUMERABLE | BUCKET_FLAG_CONFIGURABLE;
 
 /// `ANY_HEAP` tag (matches `torajs_rc::AnySlotTag::Heap = 4`). Used by
-/// [`crate::set::__torajs_dynobj_set`] to detect when the prior bucket
+/// [`crate::set::__torajs_dynobj_set`] to detect when the prior entry
 /// value is a heap pointer that owes an rc-dec before overwrite.
 pub const ANY_HEAP: u64 = 4;
 
 // Object.defineProperty descriptor-flags encoding — `flags_byte`
 // passed by ssa_lower to [`crate::define::__torajs_dynobj_define`].
 // Low 3 bits = flag VALUE; bits 3-5 = flag PRESENT in descriptor;
-// bit 6 = value present in descriptor. Matches the C macros
-// `__TORAJS_DEFINE_*` 1:1.
+// bit 6 = value present in descriptor.
 
 /// Descriptor's `writable` flag value (low bit 0 of `flags_byte`).
 pub const DEFINE_FLAG_WRITABLE: u64 = 1 << 0;
@@ -153,3 +159,19 @@ pub const DEFINE_PRESENT_VALUE: u64 = 1 << 6;
 pub const STR_LEN_OFF: usize = 8;
 /// Offset of the inline UTF-8 byte payload inside a Str heap block.
 pub const STR_DATA_OFF: usize = 16;
+
+/// Dense-array capacity for a given hash-index `cap`: `cap * 7/8`.
+/// Index occupancy (live slots + tombstones) never exceeds
+/// `entries_len ≤ entries_cap`, so at least `cap / 8` index slots stay
+/// empty and every probe walk terminates.
+#[inline]
+pub const fn entries_cap_for(cap: u32) -> u32 {
+    cap - cap / 8
+}
+
+/// Total heap-block byte size for a given hash-index `cap`:
+/// header + `index[cap]` + `entries[entries_cap]`.
+#[inline]
+pub const fn block_bytes(cap: u32) -> usize {
+    DYNOBJ_HDR_SIZE + cap as usize * 4 + entries_cap_for(cap) as usize * DYNOBJ_ENTRY_SIZE
+}

@@ -1,26 +1,28 @@
 //! DynObj implicit-set — `obj.x = v` + object-literal init.
 //!
-//! Port of `runtime_str.c::__torajs_dynobj_set` (P4.2-c, 2026-05-23).
 //! Implements spec §10.1.5.1 OrdinarySet → §10.1.6.2 CreateDataProperty
 //! for the "writable=true" path; throws TypeError when overwriting a
-//! non-writable bucket (`__torajs_throw_type_error` records pending +
+//! non-writable entry (`__torajs_throw_type_error` records pending +
 //! returns; caller's ssa-lower-side `emit_throw_check` propagates).
 //!
-//! Fresh inserts: rc-bump the key (bucket owns its share) + write
+//! Fresh inserts append to the dense entry array (insertion order) and
+//! point the probed index slot (first tombstone, else first empty) at
+//! the new entry: rc-bump the key (entry owns its share) + write
 //! default flags (writable / enumerable / configurable all true).
-//! Existing bucket overwrite: drop the old heap value if ANY_HEAP,
-//! preserve the existing flag bits, swap only the low-8 ANY_TAG + value.
+//! Existing entry overwrite: drop the old heap value if ANY_HEAP,
+//! preserve the existing flag bits, swap only the NaN-box value.
 
 use core::ffi::c_void;
 
-use crate::layout::{
-    ANY_HEAP, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT, BUCKET_TAG_MASK, DYNOBJ_KEY_TOMBSTONE,
+use crate::layout::{ANY_HEAP, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT, BUCKET_TAG_MASK};
+use crate::probe::{
+    Entry, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
+    index_ptr, probe, set_count, set_entries_len,
 };
-use crate::probe::{bucket_flags, bucket_make_key_tagged, buckets, probe};
 use crate::resize::resize;
 
 unsafe extern "C" {
-    /// Cross-tier — torajs-rc's refcount inc. Bucket takes ownership
+    /// Cross-tier — torajs-rc's refcount inc. Entry takes ownership
     /// of the key string on fresh insert.
     fn __torajs_rc_inc(p: *mut c_void);
 
@@ -31,7 +33,7 @@ unsafe extern "C" {
 
     /// Cross-tier — heap-value drop dispatch (NaN-box-safe; immediate
     /// AnyValues are filtered by the 7d-A cell gate). Drops the old
-    /// bucket value when overwriting.
+    /// entry value when overwriting.
     fn __torajs_value_drop_heap(child: *mut c_void);
 
     /// torajs-anyvalue — NaN-box AnyValue pair encoder. Takes (tag,
@@ -59,24 +61,20 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
     if obj.is_null() {
         return;
     }
-    let cap = unsafe { *((obj as *const u8).add(12) as *const u32) };
-    let count = unsafe { *((obj as *const u8).add(8) as *const u32) };
-    let tomb = unsafe { *((obj as *const u8).add(16) as *const u32) };
-
-    // Load-factor guard: keep `(count + tomb + 1) <= cap * 7/8` after
-    // this insert. Mirrors C's `* 8 > cap * 7` integer-arithmetic form.
-    if (count + tomb + 1) * 8 > cap * 7 {
+    // Dense-array-full guard: compact (and grow if genuinely full)
+    // before probing so a fresh insert always has an append slot.
+    if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
         unsafe {
-            resize(obj_slot, cap * 2);
+            resize(obj_slot);
             obj = *obj_slot;
         }
     }
 
     let pr = unsafe { probe(obj, key as *const c_void) };
-    let bk = unsafe { buckets(obj) };
+    let ent = unsafe { entries(obj) };
     if pr.found {
-        let cur_kp_tagged = unsafe { (*bk.add(pr.idx as usize)).key_ptr_tagged };
-        let cur_flags = bucket_flags(cur_kp_tagged);
+        let e = unsafe { ent.add(pr.entry as usize) };
+        let cur_flags = bucket_flags(unsafe { (*e).key_ptr_tagged });
         if cur_flags & BUCKET_FLAG_WRITABLE == 0 {
             unsafe {
                 __torajs_throw_type_error(
@@ -85,7 +83,7 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
             }
             return;
         }
-        let cur_value_anyv = unsafe { (*bk.add(pr.idx as usize)).value_anyv };
+        let cur_value_anyv = unsafe { (*e).value_anyv };
         let cur_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
         // Drop the old heap value if the current slot was ANY_HEAP.
         // (The NaN-box cell gate in __torajs_value_drop_heap would
@@ -99,23 +97,25 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
         // Preserve existing flag bits in key_ptr_tagged; rebox the
         // (tag, value) pair into a fresh NaN-box AnyValue.
         unsafe {
-            (*bk.add(pr.idx as usize)).value_anyv =
+            (*e).value_anyv =
                 __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
         }
     } else {
-        // Fresh insert path. Reusing a tombstone slot decrements `tomb`.
-        if unsafe { (*bk.add(pr.idx as usize)).key_ptr_tagged } == DYNOBJ_KEY_TOMBSTONE {
-            unsafe {
-                *((obj as *mut u8).add(16) as *mut u32) = tomb - 1;
-            }
-        }
+        // Fresh insert: append to the dense array (insertion order),
+        // point the probed slot (tombstone reuse or empty) at it.
+        let e_idx = unsafe { entries_len(obj) };
         unsafe {
             __torajs_rc_inc(key);
-            (*bk.add(pr.idx as usize)).key_ptr_tagged =
-                bucket_make_key_tagged(key, BUCKET_FLAGS_DEFAULT);
-            (*bk.add(pr.idx as usize)).value_anyv =
-                __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
-            *((obj as *mut u8).add(8) as *mut u32) = count + 1;
+            *ent.add(e_idx as usize) = Entry {
+                key_ptr_tagged: bucket_make_key_tagged(key, BUCKET_FLAGS_DEFAULT),
+                value_anyv: __torajs_anyv_box_from_pair(
+                    (tag & BUCKET_TAG_MASK) as i64,
+                    value as i64,
+                ),
+            };
+            *index_ptr(obj).add(pr.slot as usize) = e_idx;
+            set_entries_len(obj, e_idx + 1);
+            set_count(obj, count(obj) + 1);
         }
     }
 }
