@@ -17,6 +17,32 @@
 // those paths is intentionally divergent from bun and the runner
 // records them as `incompatible` rather than `bug`.
 
+// ─── unported includes — why each stays in the harness-includes
+// bucket (2026-06-13 survey; PORTED_INCLUDES in test262-runner/main.rs
+// is the machine-readable list) ───
+//
+// propertyHelper.js (5,208 cases) — verifyProperty's real semantics
+//   need the `delete` operator (no parser surface; __torajs_dynobj_delete
+//   intrinsic exists but nothing lowers to it), string computed index
+//   on any (`obj[k]` rejects with "index must be number"), and for-in
+//   over any. Substrate gaps, not harness engineering.
+// temporalHelpers.js (2,765) — Temporal API itself is unimplemented.
+// testTypedArray.js (2,064) — TypedArray family is unimplemented
+//   (loud reject in check.rs).
+// isConstructor.js (637) — needs Reflect.construct; no Reflect.
+// regExpUtils.js (586) — helpers take a RegExp as a function
+//   parameter; the type-annotation surface has no name that resolves
+//   to Type::RegExp (`RegExp`/`regex` both reject), and method calls
+//   through `any` are "not callable". Shallow substrate gap.
+// asyncHelpers.js (357) — asyncTest/$DONE async-completion protocol
+//   plus dynamic .then callbacks; the runner has no async-case
+//   protocol yet.
+// detachArrayBuffer.js (326) / resizableArrayBufferUtils.js (188) —
+//   ArrayBuffer is unimplemented.
+// testIntl.js (175) — Intl is unimplemented.
+// fnGlobalObject.js (130) — `globalThis` has no expression surface
+//   (unknown identifier).
+
 class Test262Error {
   message: string;
   constructor(m: string) {
