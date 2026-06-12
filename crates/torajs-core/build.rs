@@ -52,6 +52,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/num_width/mono.rs",
     "src/num_width/walk.rs",
     "src/num_width/width.rs",
+    "src/ssa_lower_any_cast.rs",
     "src/ssa_lower_substr_trim_into.rs",
     "src/ssa_lower_toplevel_globals.rs",
     "src/ssa_lower_unary.rs",

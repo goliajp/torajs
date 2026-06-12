@@ -40,6 +40,9 @@ const BUILTIN_MEMBER_METHODS: &[&str] = &[
     "then",
     "catch",
     "finally",
+    "get",
+    "set",
+    "add",
 ];
 
 impl<'a> Analysis<'a> {
@@ -158,6 +161,15 @@ impl<'a> Analysis<'a> {
         (false, false)
     }
 
+    /// True when any user class declares a method `name` — those
+    /// call sites must keep the `_` arm's every-owner Ret join
+    /// instead of a builtin-container key spelling.
+    pub(super) fn any_class_owns_method(&self, name: &str) -> bool {
+        self.classes
+            .iter()
+            .any(|c| self.fn_params.contains_key(&format!("__cm_{c}__{name}")))
+    }
+
     pub(super) fn callee_fn_name(&self, eid: ExprId) -> Option<String> {
         match self.ast.get_expr(eid) {
             Expr::Ident(n) if self.fn_params.contains_key(n) => Some(n.clone()),
@@ -228,6 +240,12 @@ impl<'a> Analysis<'a> {
                 Some(anon)
             }
             "pop" | "shift" | "at" | "find" | "findLast" => Some(ek),
+            // Map value slot (b1) — `m.get(k)` reads the same class
+            // `m.set(k, v)` writes (the Elem of the receiver, same
+            // shape as Array's at/pop). Gated on no user class owning
+            // a `get` method: those must keep the `_` arm's
+            // every-owner Ret join (dispatch-face negotiation).
+            "get" if !self.any_class_owns_method("get") => Some(ek),
             "map" => {
                 let anon = SlotKey::Anon(eid.0);
                 self.mark_containerish(&anon);
@@ -340,6 +358,13 @@ impl<'a> Analysis<'a> {
             "push" | "unshift" => args.to_vec(),
             "fill" => args.iter().take(1).copied().collect(),
             "splice" => args.iter().skip(2).copied().collect(),
+            // Map value slot (b1) — `m.set(k, v)` writes v into the
+            // receiver's Elem class (read back by `get`'s result
+            // key); `s.add(v)` is Set's single-value form. On a
+            // non-container receiver the class has no consumer —
+            // harmless, same bar as push on a user object.
+            "set" => args.iter().skip(1).take(1).copied().collect(),
+            "add" => args.iter().take(1).copied().collect(),
             _ => Vec::new(),
         };
         for a in write_args {

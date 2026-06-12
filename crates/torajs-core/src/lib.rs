@@ -180,6 +180,7 @@ pub mod parser;
 pub mod short_str_encode;
 pub mod ssa;
 pub mod ssa_lower;
+pub(crate) mod ssa_lower_any_cast;
 pub(crate) mod ssa_lower_arr_mutators;
 pub mod ssa_lower_body_returns_closure;
 pub mod ssa_lower_closure_captures;

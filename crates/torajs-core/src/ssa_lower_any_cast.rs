@@ -1,0 +1,34 @@
+//! `Expr::As` cast lowering — the box/unbox bridge between the
+//! typed tier and the NaN-box AnyValue representation. Split from
+//! `ssa_lower.rs`'s `lower_expr_inner` (file-size known-debt:
+//! ssa_lower.rs only shrinks).
+//!
+//! TS `as` is a compile-time assertion with no runtime conversion,
+//! but tora's typed tier MATERIALIZES the annotated face: a
+//! primitive entering an `any` slot boxes, and an Any value entering
+//! a `number` slot unboxes (spec §7.1.4 ToNumber — exact round-trip
+//! for number-tagged boxes, which is the only well-typed case).
+
+use crate::ast::ExprId;
+use crate::ssa::{Operand, Type};
+
+impl crate::ssa_lower::LowerCtx<'_> {
+    pub(crate) fn lower_as_cast(&mut self, inner: ExprId, ty_ann: &str) -> Operand {
+        let inner_op = self.lower_expr(inner);
+        let inner_ty = self.operand_ty(&inner_op);
+        if ty_ann == "any" {
+            let is_primitive = matches!(inner_ty, Type::I64 | Type::I32 | Type::F64 | Type::Bool);
+            if is_primitive {
+                return self.box_to_any_from_expr(inner, inner_op);
+            }
+        }
+        // Unbox direction (b1) — `<Any-valued> as number` must
+        // materialize the numeric face. Pre-fix the boxed AnyValue
+        // bits passed through raw and printed as garbage
+        // (`m.get(k) as number` → NaN-box tag bits as integer).
+        if inner_ty == Type::Any && ty_ann == "number" {
+            return self.coerce_any_to_number(inner_op, Type::F64);
+        }
+        inner_op
+    }
+}

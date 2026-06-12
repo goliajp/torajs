@@ -12253,7 +12253,7 @@ impl<'a> LowerCtx<'a> {
     /// (both lower to ConstPtrNull); the per-tag rules in
     /// any_typeof / any_to_str / any_to_bool / etc. then preserve
     /// the spec distinction downstream.
-    fn box_to_any_from_expr(&mut self, eid: ExprId, val: Operand) -> Operand {
+    pub(crate) fn box_to_any_from_expr(&mut self, eid: ExprId, val: Operand) -> Operand {
         let is_undef = matches!(
             self.expr_types.get(&eid),
             Some(crate::check::Type::Undefined)
@@ -23070,17 +23070,8 @@ impl<'a> LowerCtx<'a> {
             // Future widening: when arrprops gets a NaN-box-aware
             // accessor, this carve-out can shrink.
             Expr::As { expr, ty_ann } => {
-                let inner = *expr;
-                let inner_op = self.lower_expr(inner);
-                if ty_ann == "any" {
-                    let inner_ty = self.operand_ty(&inner_op);
-                    let is_primitive =
-                        matches!(inner_ty, Type::I64 | Type::I32 | Type::F64 | Type::Bool);
-                    if is_primitive {
-                        return self.box_to_any_from_expr(inner, inner_op);
-                    }
-                }
-                inner_op
+                let (inner, ann) = (*expr, ty_ann.clone());
+                self.lower_as_cast(inner, &ann)
             }
             // V3-18 m1.h.6 — comma operator: lower left for side
             // effects, drop the result if non-Copy heap, then return
@@ -23349,7 +23340,7 @@ impl<'a> LowerCtx<'a> {
     /// (mirrors coerce_to_bool's `Type::Any => any_to_bool`
     /// precedent). Caller guarantees `operand_ty(op) == Type::Any`
     /// and `target` ∈ {I64, F64}.
-    fn coerce_any_to_number(&mut self, op: Operand, target: Type) -> Operand {
+    pub(crate) fn coerce_any_to_number(&mut self, op: Operand, target: Type) -> Operand {
         let num = Operand::Value(self.f.append_inst(
             self.cur_block,
             InstKind::Call(self.intrinsics.any_to_number, vec![op]),

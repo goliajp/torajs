@@ -83,6 +83,8 @@ impl<'a> Analysis<'a> {
             "slice" | "filter" | "reverse" | "sort" | "toReversed" | "toSorted" | "splice"
             | "with" | "concat" | "flat" | "map" | "flatMap" => Some(SlotKey::Anon(eid.0)),
             "pop" | "shift" | "at" | "find" | "findLast" => Some(SlotKey::Elem(Box::new(recv))),
+            // Map value slot (b1) — same gate + spelling as the walk.
+            "get" if !self.any_class_owns_method("get") => Some(SlotKey::Elem(Box::new(recv))),
             "reduce" | "reduceRight" => args
                 .first()
                 .and_then(|a| self.callee_fn_name(*a))
