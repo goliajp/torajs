@@ -167,6 +167,23 @@ function decimalToPercentHexString(n: number): string {
   const hexDigits: string = "0123456789ABCDEF";
   return "%" + hexDigits[(n >> 4) & 0xf] + hexDigits[n & 0xf];
 }
+
+// ─── nans.js port (2026-06-13) ───
+//
+// Same-name top-level constant; expression list mirrors the test262
+// source verbatim (distinct NaN bit-pattern producers).
+
+const NaNs: number[] = [
+  NaN,
+  Number.NaN,
+  NaN * 0,
+  0 / 0,
+  Infinity / Infinity,
+  -(0 / 0),
+  Math.pow(-1, 0.5),
+  -Math.pow(-1, 0.5),
+  Number("Not-a-Number"),
+];
 function __t262_deepEqual(_actual: any, _expected: any, _msg: string = ""): void {}
 function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}
 function __t262_verifyCallableProperty(_obj: any, _name: any, _fnName: any, _fnLen: any, _desc: any): boolean { return true; }
