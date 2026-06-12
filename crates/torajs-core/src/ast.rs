@@ -638,6 +638,12 @@ pub struct Ast {
     /// owner's `__cm_<C>__M`. Single-owner methods aren't kept here
     /// since they go through static `__cm_<Owner>__M` dispatch directly.
     pub method_owners: std::collections::HashMap<String, Vec<String>>,
+    /// Name-based class-method rewrites desugar made speculatively,
+    /// `call ExprId → alt ExprId` where alt clones the original
+    /// member-call shape. check.rs demotes a rewrite (types the alt
+    /// instead) when the receiver checks as a builtin container —
+    /// full mechanism in cm_demote.rs.
+    pub speculative_cm_rewrites: std::collections::HashMap<ExprId, ExprId>,
     /// T-24 — virtual method index. Populated only for `chain_methods`
     /// (methods with multiple owners forming a single inheritance
     /// chain — the override case that goes through `__dispatch_<M>`).
@@ -3287,17 +3293,25 @@ pub fn desugar_classes(ast: &mut Ast) {
                         // (3) Multi-owner across unrelated hierarchies
                         //     (sibling collision) — leave Member as-is.
                         if owners.len() == 1 {
-                            let skip_for_builtin_field = receiver_is_this_builtin_field(
-                                ast,
-                                obj_id,
-                                owners[0].as_str(),
-                                &class_index,
-                            );
+                            let skip_for_builtin_field =
+                                crate::cm_demote::receiver_is_this_builtin_field(
+                                    ast,
+                                    obj_id,
+                                    owners[0].as_str(),
+                                    &class_index,
+                                );
                             if skip_for_builtin_field {
                                 // Leave Member; ssa_lower picks the
                                 // builtin intrinsic from the field's
                                 // actual type at SSA time.
                             } else {
+                                crate::cm_demote::record_speculative_rewrite(
+                                    ast,
+                                    i,
+                                    callee_id,
+                                    obj_id,
+                                    &args_clone,
+                                );
                                 let mangled = format!("__cm_{}__{m_name}", owners[0]);
                                 let new_callee = ast.add_expr(Expr::Ident(mangled));
                                 let mut new_args = Vec::with_capacity(args_clone.len() + 1);
@@ -3309,6 +3323,13 @@ pub fn desugar_classes(ast: &mut Ast) {
                                 };
                             }
                         } else if chain_methods.contains(&m_name) {
+                            crate::cm_demote::record_speculative_rewrite(
+                                ast,
+                                i,
+                                callee_id,
+                                obj_id,
+                                &args_clone,
+                            );
                             let mangled = format!("__dispatch_{m_name}");
                             let new_callee = ast.add_expr(Expr::Ident(mangled));
                             let mut new_args = Vec::with_capacity(args_clone.len() + 1);
@@ -3702,66 +3723,6 @@ pub fn desugar_classes(ast: &mut Ast) {
     for (cname, prop, fn_name) in accessor_setter_records {
         ast.accessor_setters.insert((cname, prop), fn_name);
     }
-}
-
-/// True iff the call receiver is `this.<field>` AND the named
-/// field on class `cname` has a builtin (Array / Str / Number)
-/// type annotation. Used by desugar_classes' single-owner rewrite
-/// guard so `this.data.push(v)` (where `data: T[]`) doesn't get
-/// rewritten as a self-recursive class-method call.
-///
-/// `class_index` is the snapshot built at the top of desugar_classes
-/// — `(usize, name, type_params, parent, fields, ctor, methods)`.
-#[allow(clippy::type_complexity)]
-fn receiver_is_this_builtin_field(
-    ast: &Ast,
-    obj_id: ExprId,
-    cname: &str,
-    class_index: &[(
-        usize,
-        String,
-        Vec<String>,
-        Option<String>,
-        Vec<(String, String)>,
-        Vec<StaticInit>,
-        Option<ClassCtor>,
-        Vec<ClassMethod>,
-        Vec<ClassMethod>,
-    )],
-) -> bool {
-    let Expr::Member {
-        obj: inner_obj,
-        name: field_name,
-    } = &ast.exprs[obj_id.0 as usize]
-    else {
-        return false;
-    };
-    // The This → Ident("__this") rewrite in this same desugar pass
-    // may already have fired for low-ExprId nodes by the time we
-    // inspect this call (Pass 2 walks 0..n). Accept either shape.
-    let inner_is_this = match &ast.exprs[inner_obj.0 as usize] {
-        Expr::This => true,
-        Expr::Ident(n) if n == "__this" => true,
-        _ => false,
-    };
-    if !inner_is_this {
-        return false;
-    }
-    // Find the class entry and look up the field's type annotation.
-    let cls = class_index.iter().find(|(_, n, ..)| n == cname);
-    let Some((_, _, _, _, fields, _, _, _, _)) = cls else {
-        return false;
-    };
-    let field_ty_ann = fields
-        .iter()
-        .find(|(fn_, _)| fn_ == field_name)
-        .map(|(_, ann)| ann.as_str());
-    let Some(ann) = field_ty_ann else {
-        return false;
-    };
-    // Builtin: Array (`T[]`), `string`, or `number`. These dispatch
-    // to runtime intrinsics, not user class methods.
-    ann.ends_with("[]") || ann == "string" || ann == "number"
 }
 
 /// Build a default-initializer Expr for a type annotation string. Used by

@@ -175,11 +175,10 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     ast::apply_rest_args(&mut ast);
     ast::compute_consuming_params(&mut ast);
 
-    let (generic_call_sites, expr_types, arity_pad_count) =
-        check::check_with_arity(&ast).map_err(|e| {
-            eprintln!("type error: {e}");
-            ExitCode::from(1)
-        })?;
+    let artifacts = check::check_with_arity(&ast).map_err(|e| {
+        eprintln!("type error: {e}");
+        ExitCode::from(1)
+    })?;
 
     // ssa_lower panics on unsupported AST shapes; surface them as the
     // exit-3 "not yet supported" contract the bench harness keys on.
@@ -203,7 +202,7 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
         std::process::exit(3);
     }));
     let lower_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ssa_lower::lower_with_arity(&ast, &generic_call_sites, &expr_types, &arity_pad_count)
+        ssa_lower::lower_with_arity(&ast, &artifacts)
     }));
     std::panic::set_hook(prev_hook);
     // Unreachable under panic=abort (the hook exits first) and a pure

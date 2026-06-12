@@ -70,13 +70,13 @@ fn run_single(path: &Path) {
     let src = fs::read_to_string(path).unwrap_or_else(|e| panic!("PIPELINE read: {e}"));
     let tokens = lexer::tokenize(&src).unwrap_or_else(|e| panic!("PIPELINE lex: {e}"));
     let ast = parser::parse(&tokens).unwrap_or_else(|e| panic!("PIPELINE parse: {e}"));
-    let (gcs, expr_types, arity_pad) = check::check_with_arity(&ast).unwrap_or_else(|e| {
+    let artifacts = check::check_with_arity(&ast).unwrap_or_else(|e| {
         // Keep only the first line so the parent's classifier
         // doesn't blow up over multi-line diagnostic blocks.
         let head = e.lines().next().unwrap_or(&e).to_string();
         panic!("PIPELINE check: {head}")
     });
-    let module = ssa_lower::lower_with_arity(&ast, &gcs, &expr_types, &arity_pad);
+    let module = ssa_lower::lower_with_arity(&ast, &artifacts);
 
     // Compile every fn; the first one that panics aborts us — that
     // panic message is what the parent buckets.

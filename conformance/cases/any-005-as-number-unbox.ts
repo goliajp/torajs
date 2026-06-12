@@ -1,10 +1,8 @@
 // b1 — `<Any-valued> as number` must unbox (spec ToNumber on the
 // boxed value), and Map's value slot must answer width queries so
-// fractional values survive the let-slot face.
-// (A user class declaring its own `get` method is kept out of this
-// fixture: name-based class-method dispatch in check.rs currently
-// false-rejects unrelated Map.get receivers — pre-existing,
-// tracked in plan-state L3b.)
+// fractional values survive the let-slot face. A user class declaring
+// its own `get` (bottom of file) must not capture the Map receivers —
+// the speculative name-based rewrite demotes on typed evidence.
 
 // fract value through Map.get + as number
 let m = new Map<number, number>();
@@ -39,3 +37,19 @@ st.add(1.5);
 for (const v of st) {
   console.log(v);
 }
+
+// user class owning `get` — every Map.get above must still hit the
+// builtin (name-based dispatch demotion), and the class's own method
+// must keep working
+class Pair {
+  a: number;
+  constructor(a: number) {
+    this.a = a;
+  }
+  get(): number {
+    return this.a + 0.5;
+  }
+}
+let p = new Pair(1);
+console.log(p.get());
+console.log(m.get(1));

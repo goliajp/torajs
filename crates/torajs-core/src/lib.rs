@@ -171,6 +171,8 @@ pub mod ast_refs;
 pub mod check;
 pub(crate) mod check_assignable;
 pub(crate) mod check_type_ann;
+pub(crate) mod check_typevar;
+pub(crate) mod cm_demote;
 pub mod formatter;
 pub mod lexer;
 pub mod linter;

@@ -4,6 +4,7 @@
 //! - top-level `function` declarations (hoisted, monomorphic)
 //! - lexical scope stack (`let`/`const` block-scoped; fn params are a fresh scope)
 
+use crate::check_typevar::{typevar_appears_in, typevar_appears_in_iter, unify_typevar};
 use std::collections::HashMap;
 
 use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt, Visibility};
@@ -903,23 +904,25 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
 /// 22+ parse_type call sites — this side-channel is the smaller
 /// change).
 pub fn check_with_types(ast: &Ast) -> Result<(GenericCallSites, HashMap<ExprId, Type>), String> {
-    check_with_arity(ast).map(|(g, t, _)| (g, t))
+    check_with_arity(ast).map(|(g, t, _, _)| (g, t))
 }
 
-/// T-28 — check that also returns the per-Call arity pad map. New
-/// callers (main.rs `tr run` / `tr build`) use this so ssa_lower can
-/// emit ANY_UNDEF Any-box operands for trailing missing args. The
+/// T-28 — full pipeline artifacts: generic call sites, per-Expr types,
+/// per-Call arity pad map, and the demoted speculative-rewrite map
+/// (name-based class-method rewrites whose receiver checked as a
+/// builtin container; ssa_lower restores the member-call shape for
+/// those — see cm_demote.rs).
+pub type CheckArtifacts = (
+    GenericCallSites,
+    HashMap<ExprId, Type>,
+    HashMap<ExprId, usize>,
+    HashMap<ExprId, ExprId>,
+);
+
+/// T-28 — check that also returns the per-Call arity pad + demotion
+/// maps. New callers (main.rs `tr run` / `tr build`) use this; the
 /// older `check_with_types` is kept for back-compat (tests, lsp).
-pub fn check_with_arity(
-    ast: &Ast,
-) -> Result<
-    (
-        GenericCallSites,
-        HashMap<ExprId, Type>,
-        HashMap<ExprId, usize>,
-    ),
-    String,
-> {
+pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
     let mut c = Checker::new();
     c.run_full_pipeline(ast);
     let error_messages: Vec<String> = c
@@ -929,7 +932,12 @@ pub fn check_with_arity(
         .map(|d| d.message.clone())
         .collect();
     if error_messages.is_empty() {
-        Ok((c.generic_call_sites, c.expr_types, c.arity_pad_count))
+        Ok((
+            c.generic_call_sites,
+            c.expr_types,
+            c.arity_pad_count,
+            c.demoted_cm_rewrites,
+        ))
     } else {
         Err(error_messages.join("\n"))
     }
@@ -995,6 +1003,7 @@ impl Checker {
             fn_defaults: HashMap::new(),
             consumed_calls: std::collections::HashSet::new(),
             expr_types: HashMap::new(),
+            demoted_cm_rewrites: HashMap::new(),
         }
     }
 
@@ -1234,7 +1243,7 @@ impl Checker {
     }
 }
 
-struct Checker {
+pub(crate) struct Checker {
     globals: HashMap<String, Type>,
     scopes: Vec<HashMap<String, LocalInfo>>,
     /// User-declared type aliases — populated in pass 0 from
@@ -1314,88 +1323,9 @@ struct Checker {
     /// (rebuilt each `collect_types_and_errors` call) so stale
     /// entries from edits don't surface.
     pub expr_types: HashMap<ExprId, Type>,
-}
-
-/// Walk `pattern` and `actual` in lockstep; whenever a `TypeVar(name)` is
-/// found in `pattern`, bind it to the matching position in `actual`
-/// (or check consistency if already bound). Returns Err on mismatch.
-fn unify_typevar(
-    pattern: &Type,
-    actual: &Type,
-    subst: &mut HashMap<String, Type>,
-) -> Result<(), String> {
-    match (pattern, actual) {
-        (Type::TypeVar(name), concrete) => {
-            if let Some(existing) = subst.get(name) {
-                if existing != concrete {
-                    return Err(format!(
-                        "type parameter `{name}` was inferred as {existing:?} earlier but here is {concrete:?}"
-                    ));
-                }
-            } else {
-                subst.insert(name.clone(), concrete.clone());
-            }
-            Ok(())
-        }
-        (Type::Array(p_elem), Type::Array(a_elem)) => unify_typevar(p_elem, a_elem, subst),
-        (Type::Function(p_args, p_ret), Type::Function(a_args, a_ret)) => {
-            if p_args.len() != a_args.len() {
-                return Err(format!(
-                    "function arity mismatch: pattern {:?}, actual {:?}",
-                    p_args.len(),
-                    a_args.len()
-                ));
-            }
-            for (pa, aa) in p_args.iter().zip(a_args.iter()) {
-                unify_typevar(pa, aa, subst)?;
-            }
-            unify_typevar(p_ret, a_ret, subst)
-        }
-        (Type::Struct(p_fields), Type::Struct(a_fields)) => {
-            if p_fields.len() != a_fields.len() {
-                return Err(format!(
-                    "struct field count mismatch: pattern {} fields, actual {}",
-                    p_fields.len(),
-                    a_fields.len()
-                ));
-            }
-            for ((pn, pt), (an, at)) in p_fields.iter().zip(a_fields.iter()) {
-                if pn != an {
-                    return Err(format!(
-                        "struct field name mismatch: expected `{pn}`, got `{an}`"
-                    ));
-                }
-                unify_typevar(pt, at, subst)?;
-            }
-            Ok(())
-        }
-        (Type::Nullable(p), Type::Nullable(a)) => unify_typevar(p, a, subst),
-        (a, b) if a == b => Ok(()),
-        (a, b) => Err(format!("expected {a:?}, got {b:?}")),
-    }
-}
-
-/// Replace every `TypeVar(name)` inside `ty` with the binding from `subst`.
-/// Used to compute the resolved return type at a generic call site.
-/// T-28 — does TypeVar `name` appear anywhere inside `ty`? Used by
-/// the implicit-generic-fn arity-pad path to verify that trailing
-/// missing TypeVars don't bind anything else (so binding them to Any
-/// is safe).
-fn typevar_appears_in(ty: &Type, name: &str) -> bool {
-    match ty {
-        Type::TypeVar(n) => n == name,
-        Type::Array(inner) => typevar_appears_in(inner, name),
-        Type::Function(args, ret) => {
-            args.iter().any(|t| typevar_appears_in(t, name)) || typevar_appears_in(ret, name)
-        }
-        Type::Struct(fields) => fields.iter().any(|(_, t)| typevar_appears_in(t, name)),
-        Type::Nullable(inner) => typevar_appears_in(inner, name),
-        _ => false,
-    }
-}
-
-fn typevar_appears_in_iter(tys: &[Type], name: &str) -> bool {
-    tys.iter().any(|t| typevar_appears_in(t, name))
+    /// Demoted speculative class-method rewrites, `call → alt
+    /// member-call` ExprIds (single decision point — see cm_demote.rs).
+    pub demoted_cm_rewrites: HashMap<ExprId, ExprId>,
 }
 
 /// T-29 — built-in Array.prototype method names recognized by the
@@ -2553,7 +2483,7 @@ impl Checker {
     /// can answer position queries without re-running the typecheck
     /// pipeline. Recursive calls hit this same wrapper, so deeply
     /// nested Exprs all get their inferred type cached.
-    fn type_of(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
+    pub(crate) fn type_of(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
         let result = self.type_of_inner(ast, eid);
         if let Ok(t) = &result {
             self.expr_types.insert(eid, t.clone());
@@ -4590,6 +4520,11 @@ impl Checker {
                 Ok(Type::Struct(field_tys))
             }
             Expr::Call { callee, args } => {
+                // Name-based class-method rewrite vs builtin-container
+                // receiver — decision + alt typecheck live in cm_demote.rs.
+                if let Some(demoted) = self.try_demote_cm_rewrite(ast, eid, args) {
+                    return demoted;
+                }
                 // T-45 — synthetic call from parser for binary `in`
                 // operator: `__torajs_in_op(key, obj)`. ssa_lower
                 // intercepts by name and emits the type-dispatched

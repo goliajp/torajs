@@ -1375,36 +1375,19 @@ fn rewrite_inner_generic_calls(
     }
 }
 
-pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
-    let empty: HashMap<crate::ast::ExprId, crate::check::Type> = HashMap::new();
-    let empty_arity: HashMap<crate::ast::ExprId, usize> = HashMap::new();
-    lower_with_arity(ast, generic_call_sites, &empty, &empty_arity)
-}
-
-/// T-15.g.6 (v0.5.0) — typed-aware lower. The per-Expr check::Type
-/// map (from `check::check_with_types`) lets the await Member-access
-/// dispatch recover Promise<T>'s inner T at the call site without
-/// PromiseId interning.
-pub fn lower_with_types(
-    ast: &Ast,
-    generic_call_sites: &GenericCallSites,
-    expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
-) -> Module {
-    let empty_arity: HashMap<crate::ast::ExprId, usize> = HashMap::new();
-    lower_inner(ast, generic_call_sites, expr_types, &empty_arity)
-}
-
 /// T-28 — lower with the per-Call arity-pad map. Pads missing trailing
 /// args with ANY_UNDEF Any-box operands at the call site for fns whose
 /// trailing missing params are Type::Any. ssa_lower's Expr::Call arm
 /// reads this and emits the padding before invoking the callee.
-pub fn lower_with_arity(
-    ast: &Ast,
-    generic_call_sites: &GenericCallSites,
-    expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
-    arity_pad_count: &HashMap<crate::ast::ExprId, usize>,
-) -> Module {
-    lower_inner(ast, generic_call_sites, expr_types, arity_pad_count)
+pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> Module {
+    let (generic_call_sites, expr_types, arity_pad_count, demoted_cm_rewrites) = artifacts;
+    lower_inner(
+        ast,
+        generic_call_sites,
+        expr_types,
+        arity_pad_count,
+        demoted_cm_rewrites,
+    )
 }
 
 fn lower_inner(
@@ -1412,6 +1395,7 @@ fn lower_inner(
     generic_call_sites: &GenericCallSites,
     expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<crate::ast::ExprId, usize>,
+    demoted_cm_rewrites: &HashMap<crate::ast::ExprId, crate::ast::ExprId>,
 ) -> Module {
     // M3 — produce monomorphized FnDecls from each generic call site,
     // and a per-call-site `ExprId → mono_name` retarget map. We clone
@@ -1422,6 +1406,12 @@ fn lower_inner(
     // callees in cloned bodies (class methods calling each other with
     // shared type params).
     let mut owned_ast: Ast = ast.clone();
+    // Restore the member-call shape at demoted speculative rewrites
+    // BEFORE monomorphization, so cloned generic bodies and num_width
+    // see the builtin dispatch shape (mechanism: cm_demote.rs).
+    for (&call_eid, &alt_eid) in demoted_cm_rewrites {
+        owned_ast.exprs[call_eid.0 as usize] = owned_ast.exprs[alt_eid.0 as usize].clone();
+    }
     let (mono_decls, call_retargets, generic_fn_names) =
         monomorphize_generics(&mut owned_ast, generic_call_sites);
     owned_ast.stmts.extend(mono_decls);
@@ -1431,7 +1421,7 @@ fn lower_inner(
     // Single ground truth for every `: number` (or un-annotated
     // number) slot's I64-vs-F64 representation; consumers below gate
     // on the annotation and the `__` synthetic-fn exclusion.
-    let num_f64_slots = crate::num_width::analyze(ast, &call_retargets);
+    let num_f64_slots = crate::num_width::analyze(ast, &call_retargets, demoted_cm_rewrites);
 
     let mut module = Module::default();
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();

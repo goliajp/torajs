@@ -244,8 +244,12 @@ impl<'a> Analysis<'a> {
             // `m.set(k, v)` writes (the Elem of the receiver, same
             // shape as Array's at/pop). Gated on no user class owning
             // a `get` method: those must keep the `_` arm's
-            // every-owner Ret join (dispatch-face negotiation).
-            "get" if !self.any_class_owns_method("get") => Some(ek),
+            // every-owner Ret join (dispatch-face negotiation) —
+            // EXCEPT demoted call sites, whose receiver check proved
+            // a builtin container (typed evidence beats name gate).
+            "get" if !self.any_class_owns_method("get") || self.demoted.contains_key(&eid) => {
+                Some(ek)
+            }
             "map" => {
                 let anon = SlotKey::Anon(eid.0);
                 self.mark_containerish(&anon);

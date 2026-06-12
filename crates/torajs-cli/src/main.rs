@@ -235,8 +235,8 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let (generic_call_sites, expr_types, arity_pad_count) = match check::check_with_arity(&ast) {
-        Ok(pair) => pair,
+    let artifacts = match check::check_with_arity(&ast) {
+        Ok(a) => a,
         Err(e) => {
             eprintln!("type error: {e}");
             return ExitCode::from(1);
@@ -247,8 +247,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     }
 
     if matches!(stage, Stage::Ssa) {
-        let m =
-            ssa_lower::lower_with_arity(&ast, &generic_call_sites, &expr_types, &arity_pad_count);
+        let m = ssa_lower::lower_with_arity(&ast, &artifacts);
         m.print();
         return ExitCode::SUCCESS;
     }

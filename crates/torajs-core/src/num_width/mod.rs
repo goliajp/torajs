@@ -137,6 +137,12 @@ pub(super) struct Analysis<'a> {
     /// callee ident still spells the generic name in the AST; the
     /// edges must land on the mono instance lowering actually calls.
     pub(super) retargets: &'a HashMap<ExprId, String>,
+    /// Demoted speculative class-method rewrites (check.rs proved the
+    /// receiver is a builtin container; ssa_lower already restored
+    /// the member-call shape at these ExprIds). The `get` arm's
+    /// `any_class_owns_method` gate is bypassed for them — receiver
+    /// identity is typed evidence, not a name guess.
+    pub(super) demoted: &'a HashMap<ExprId, ExprId>,
     /// name → ordered param names, for call-arg → Param edges.
     pub(super) fn_params: HashMap<String, Vec<String>>,
     /// Top-level let/const names, for ident resolution at top level
@@ -210,7 +216,11 @@ pub(super) struct Analysis<'a> {
 /// alias classes that answer elem/field width queries (W4). Call
 /// after monomorphization (the analyzed AST must be the one lowering
 /// walks) with the same retarget map lowering uses.
-pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTable {
+pub(crate) fn analyze(
+    ast: &Ast,
+    retargets: &HashMap<ExprId, String>,
+    demoted: &HashMap<ExprId, ExprId>,
+) -> WidthTable {
     let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
     let mut toplevel_lets: HashSet<String> = HashSet::new();
     let mut by_name: HashMap<String, Vec<SlotKey>> = HashMap::new();
@@ -275,6 +285,7 @@ pub(crate) fn analyze(ast: &Ast, retargets: &HashMap<ExprId, String>) -> WidthTa
     let mut a = Analysis {
         ast,
         retargets,
+        demoted,
         fn_params,
         toplevel_lets,
         by_name,
@@ -393,7 +404,7 @@ mod tests {
     fn slots(src: &str) -> Slots {
         let tokens = lexer::tokenize(src).expect("lex");
         let ast = parser::parse(&tokens).expect("parse");
-        Slots(analyze(&ast, &HashMap::new()))
+        Slots(analyze(&ast, &HashMap::new(), &HashMap::new()))
     }
 
     fn local(f: &str, v: &str) -> SlotKey {
