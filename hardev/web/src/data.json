@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-12T23:27:28.453Z",
+  "generatedAt": "2026-06-13T00:15:19.293Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 95.86
   },
   "torajs": {
-    "commit": "3b4c3693",
-    "commitSubject": "chore(conformance): refresh test262 baseline after harness-includes port wave",
+    "commit": "eded11f1",
+    "commitSubject": "chore: retire labs/0002-inkwell-spike and the last LLVM references",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "eded11f1",
+      "subject": "chore: retire labs/0002-inkwell-spike and the last LLVM references"
+    },
+    {
+      "hash": "6014fe43",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 3b4c369 (test262 harness-includes port wave: 7 includes ported + RegExp type-ann substrate, passTotal 7343 -> 7579, bucket 13435 -> 11854, gate 772/0/4)"
+    },
+    {
       "hash": "3b4c3693",
       "subject": "chore(conformance): refresh test262 baseline after harness-includes port wave"
     },
@@ -657,35 +665,38 @@
     {
       "hash": "6770920c",
       "subject": "feat(conformance): port compareArray.js into typed test262 harness"
-    },
-    {
-      "hash": "af39385e",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 4b42a8b (regex-exec chain closed: dynobj insertion-order compact dict, arrprops print face, exec index/input/groups, no-match null + arr-drop null guard, gate 768 -> 771/0/4, bench 2x verdict pass; test262 no-skip rework: 53174 all judged, passTotal 3527 -> 7343, dashboard schema to passTotal)"
-    },
-    {
-      "hash": "4b42a8b5",
-      "subject": "chore(bench): add 3-run results for dd96f88 regex-exec chain (32/32 delta justified; popcount flag = scheduler noise, same-binary retest 100-110ms)"
     }
   ],
-  "headSha": "3b4c3693",
+  "headSha": "eded11f1",
   "autorun": {
-    "total": 132,
+    "total": 133,
     "baselineTarget": 10,
-    "bySelf": 130,
+    "bySelf": 131,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781303290-4f19",
-      "at": "2026-06-12T22:28:10Z",
-      "ts": 1781303290,
+      "rotationId": "r-1781306961-6c07",
+      "at": "2026-06-12T23:29:21Z",
+      "ts": 1781306961,
       "trigger": "self",
-      "prevHead": "af39385",
-      "handoffSha": "sha256:fc85af14de6815fda16fcf4ff7c660b88ddeeae898ca81c6415a1f5d969af3d2",
-      "handoffAgeSec": 58,
+      "prevHead": "6014fe43",
+      "handoffSha": "sha256:d79ce1f66b76f45982b94688f74ef42b0c67e9118bae0c59f1ced2a2ab88ab5a",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781306961-6c07",
+        "at": "2026-06-12T23:29:21Z",
+        "ts": 1781306961,
+        "trigger": "self",
+        "prevHead": "6014fe43",
+        "handoffSha": "sha256:d79ce1f66b76f45982b94688f74ef42b0c67e9118bae0c59f1ced2a2ab88ab5a",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781303290-4f19",
         "at": "2026-06-12T22:28:10Z",
@@ -782,17 +793,6 @@
         "prevHead": "0bb4e18",
         "handoffSha": "sha256:49bc3a03812fdb575cb7076ff468be6ab7f84f6427c92dd2a950d52d8dbe2bbc",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781220008-1b12",
-        "at": "2026-06-11T23:20:08Z",
-        "ts": 1781220008,
-        "trigger": "self",
-        "prevHead": "7b635bf",
-        "handoffSha": "sha256:bee870d8e5f4f5c02d87647e0a72b7ded45d82227d375ec1c833dd2fee336117",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
