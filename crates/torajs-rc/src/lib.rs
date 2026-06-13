@@ -106,6 +106,7 @@
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
+pub mod builtin_proto;
 pub mod extensible;
 pub mod freeze;
 

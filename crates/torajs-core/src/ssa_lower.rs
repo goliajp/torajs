@@ -2585,6 +2585,19 @@ fn lower_inner(
         &[],
         Type::Ptr,
     );
+    // Builtin-prototype singleton (`torajs-rc::builtin_proto`). Lazy
+    // init dynobj per tag; reuses across the program so
+    // `<Ctor>.prototype === <Ctor>.prototype` is `true` (spec).
+    // Replaces the fresh-`dynobj_alloc` emit pattern formerly used
+    // at every `<Ctor>.prototype` site (cases#obj-is-frozen-any-segv
+    // identity wedge close).
+    let get_builtin_prototype_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_get_builtin_prototype",
+        &[Type::I64],
+        Type::Ptr,
+    );
     let dynobj_get_tag_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5159,6 +5172,7 @@ fn lower_inner(
         arr_get_any_tag: arr_get_any_tag_id,
         arr_get_any_value: arr_get_any_value_id,
         dynobj_alloc: dynobj_alloc_id,
+        get_builtin_prototype: get_builtin_prototype_id,
         fnprops_set: fnprops_set_id,
         fnprops_get_tag: fnprops_get_tag_id,
         fnprops_get_value: fnprops_get_value_id,
@@ -5966,6 +5980,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_get_any_tag: FuncId,
     pub(crate) arr_get_any_value: FuncId,
     pub(crate) dynobj_alloc: FuncId,
+    pub(crate) get_builtin_prototype: FuncId,
     pub(crate) fnprops_set: FuncId,
     pub(crate) fnprops_get_tag: FuncId,
     pub(crate) fnprops_get_value: FuncId,
@@ -21068,24 +21083,24 @@ impl<'a> LowerCtx<'a> {
                         // (5e-324), not f64::MIN_POSITIVE (the
                         // smallest *normal* double, 2.2250738e-308).
                         "MIN_VALUE" => Operand::ConstF64(5e-324),
-                        // Number.prototype — emit a fresh empty
-                        // dynobj boxed as ANY_HEAP. Earlier wedge
-                        // emitted a NULL sentinel; that crashed
+                        // Number.prototype — route through the
+                        // builtin-prototype singleton substrate
+                        // (`torajs-rc::builtin_proto`, tag 0).
+                        // Earlier wedges: (1) NULL sentinel crashed
                         // `Object.isFrozen(Number.prototype)`
-                        // because the runtime helper deref'd the
-                        // NaN-box i64 as a heap header (see
-                        // cases#obj-is-frozen-any-segv). An empty
-                        // dynobj makes the value a real (non-frozen)
-                        // Object — Sub-`.X` access still routes
-                        // through dynobj_get → ANY_UNDEF, so
-                        // verifyProperty-shim consumers stay green.
-                        // Identity (`Number.prototype === Number.prototype`)
-                        // is a known L3b wedge until a builtin-
-                        // prototype singleton substrate lands.
+                        // (cases#obj-is-frozen-any-segv); (2) fresh
+                        // `dynobj_alloc` per access broke
+                        // `Number.prototype === Number.prototype`
+                        // identity. The singleton helper allocates
+                        // once on first access, returns the same
+                        // pointer every subsequent call.
                         "prototype" => {
-                            let dynobj = self.f.append_inst(
+                            let proto = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(self.intrinsics.dynobj_alloc, vec![]),
+                                InstKind::Call(
+                                    self.intrinsics.get_builtin_prototype,
+                                    vec![Operand::ConstI64(0)],
+                                ),
                                 Type::Ptr,
                                 None,
                             );
@@ -21093,7 +21108,7 @@ impl<'a> LowerCtx<'a> {
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.any_box,
-                                    vec![Operand::ConstI64(4), Operand::Value(dynobj)],
+                                    vec![Operand::ConstI64(4), Operand::Value(proto)],
                                 ),
                                 Type::Any,
                                 None,
@@ -21109,35 +21124,42 @@ impl<'a> LowerCtx<'a> {
                     };
                 }
                 // Member access on other constructor namespaces.
-                // `.prototype` emits an empty dynobj boxed as
-                // ANY_HEAP (real non-frozen Object — see Number
-                // arm above for the cases#obj-is-frozen-any-segv
-                // root-cause + verifyProperty-shim parity); `.name`
-                // returns the namespace name; `.length` returns
-                // the constructor's arity.
+                // `.prototype` routes through the builtin-prototype
+                // singleton substrate (`torajs-rc::builtin_proto`)
+                // so `<Ctor>.prototype === <Ctor>.prototype` is
+                // `true` (spec singleton identity). Tags match the
+                // crate's `NUM_BUILTIN_PROTOS` table — never
+                // reorder. `.name` returns the namespace name;
+                // `.length` returns the constructor's arity.
                 if let Expr::Ident(n) = self.ast.get_expr(*obj)
-                    && matches!(
-                        n.as_str(),
-                        "String"
-                            | "Boolean"
-                            | "Symbol"
-                            | "BigInt"
-                            | "Object"
-                            | "Array"
-                            | "RegExp"
-                            | "Date"
-                            | "Error"
-                            | "Promise"
-                            | "Map"
-                            | "Set"
-                            | "Function"
-                    )
+                    && let Some(builtin_proto_tag) = match n.as_str() {
+                        // Number is handled above (tag 0); these
+                        // are tags 1..14, order locked to
+                        // torajs-rc::builtin_proto::NUM_BUILTIN_PROTOS.
+                        "Object" => Some(1i64),
+                        "Array" => Some(2),
+                        "String" => Some(3),
+                        "Boolean" => Some(4),
+                        "Symbol" => Some(5),
+                        "BigInt" => Some(6),
+                        "RegExp" => Some(7),
+                        "Date" => Some(8),
+                        "Error" => Some(9),
+                        "Promise" => Some(10),
+                        "Map" => Some(11),
+                        "Set" => Some(12),
+                        "Function" => Some(13),
+                        _ => None,
+                    }
                 {
                     match name.as_str() {
                         "prototype" => {
-                            let dynobj = self.f.append_inst(
+                            let proto = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(self.intrinsics.dynobj_alloc, vec![]),
+                                InstKind::Call(
+                                    self.intrinsics.get_builtin_prototype,
+                                    vec![Operand::ConstI64(builtin_proto_tag)],
+                                ),
                                 Type::Ptr,
                                 None,
                             );
@@ -21145,7 +21167,7 @@ impl<'a> LowerCtx<'a> {
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.any_box,
-                                    vec![Operand::ConstI64(4), Operand::Value(dynobj)],
+                                    vec![Operand::ConstI64(4), Operand::Value(proto)],
                                 ),
                                 Type::Any,
                                 None,
