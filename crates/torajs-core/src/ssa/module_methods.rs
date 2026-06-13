@@ -376,10 +376,10 @@ impl Module {
     }
 }
 
-/// Hand-built fib(n: i64) -> i64 module — the same shape that
-/// labs/0002-inkwell-spike emits as LLVM IR. Used by `tr ssa-demo` to
-/// validate the IR types + pretty printer before the lowerer (step 2)
-/// exists.
+/// Hand-built fib(n: i64) -> i64 module — the same shape the retired
+/// LLVM-gate spike (labs/0002, removed with the inkwell backend)
+/// emitted as LLVM IR. Used by `tr ssa-demo` to validate the IR types
+/// + pretty printer before the lowerer (step 2) existed.
 pub fn demo_fib40() -> Module {
     let mut m = Module::default();
     let mut fib = Function::new("fib", Type::I64);

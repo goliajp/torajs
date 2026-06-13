@@ -1,9 +1,10 @@
 # torajs
 
 A TypeScript runtime that runs the same TS programs `bun` does, with
-TS semantics, AOT-compiled to small native binaries via LLVM. **No
-GC pauses, no V8 footprint** — tr ships ARC under a universal heap
-header. Two execution modes: `tr build` (AOT to standalone binary)
+TS semantics, AOT-compiled to small native binaries by a fully
+in-house toolchain (SSA → aarch64 emit → Mach-O link; no LLVM, no
+external cc/ld). **No GC pauses, no V8 footprint** — tr ships ARC
+under a universal heap header. Two execution modes: `tr build` (AOT to standalone binary)
 and `tr run` (compile + cache + execute, dev-loop shape — same
 codegen, cached at `~/.torajs/cache`).
 
@@ -304,39 +305,41 @@ torajs binary is **11× smaller** than rust, **57× smaller** than go, **1490× 
                   │                               │
             tr build                          tr run
                   │                               │
-       ┌──────────────────┐             ┌──────────────────────┐
-       │  Inkwell (LLVM 22)│             │  same codegen path   │
-       │  AOT + cc link    │             │  cached @ ~/.torajs/ │
-       └──────────────────┘             └──────────────────────┘
-                  │                               │
-            36 KB binary                  cache hit → ~10 ms
-            production path               cache miss → full build
+       ┌──────────────────────┐         ┌──────────────────────┐
+       │ egraph mid-end       │         │  same codegen path   │
+       │ → torajs-codegen     │         │  direct exec         │
+       │   (SSA → aarch64)    │         └──────────────────────┘
+       │ → torajs-obj (Mach-O)│
+       │ → torajs-link        │
+       └──────────────────────┘
+                  │
+        standalone native binary
 ```
 
-One frontend. One IR. One backend (LLVM 22). Two execution shapes: `tr build` produces a standalone binary; `tr run` AOT-compiles + caches by source-hash so the second invocation skips codegen — same shape as `go run`. The Cranelift JIT prototype was retired (commit `62e26f7`) once the LLVM cache hit got faster than re-JIT.
+One frontend. One IR. One in-house backend — `torajs-codegen` emits aarch64 machine code straight from SSA (linear-scan regalloc, AAPCS64), `torajs-obj` writes the object container, `torajs-link` produces the executable. No LLVM, no Cranelift, no external `cc`/`ld` anywhere in the pipeline (the inkwell/LLVM backend was retired at v0.7 Metal stone #9). Two execution shapes: `tr build` produces a standalone binary; `tr run` compiles and executes — same shape as `go run`.
 
 ## Quick start
 
-Requires Rust nightly + LLVM 22 (homebrew):
+Requires Rust nightly only — no LLVM, no system toolchain beyond Xcode CLT:
 
 ```bash
-brew install llvm                                # LLVM 22
 git clone git@github.com:goliajp/torajs.git
 cd torajs
 
-LLVM_SYS_221_PREFIX=/opt/homebrew/opt/llvm \
-  cargo build --release -p tr -p bench-harness
+cargo build --release -p torajs-cli            # dev build of `tr`
+# production build (build-std + baked staticlibs):
+#   bash scripts/release-build.sh
 
-# Run a program (Cranelift JIT)
+# Run a program
 echo 'console.log("hello");' > hi.tora.ts
 ./target/release/tr run hi.tora.ts
 
-# AOT-compile to native binary (LLVM)
+# AOT-compile to native binary
 ./target/release/tr build hi.tora.ts -o hi
 ./hi
 
 # Run the cross-runtime bench
-./target/release/bench-harness run
+cargo run --release -p bench-harness -- run
 ```
 
 ## Status — through M-OO.2 (single-class + inheritance + super)
@@ -386,16 +389,18 @@ Add a case: drop a directory under `bench/cases/<name>/` with `main.<lang>` file
 
 ```
 torajs/
-├── crates/torajs-runtime/        ← C runtime sources (refcount, str/arr/json, regex, Date)
-├── crates/torajs-core/           ← compiler library (lex / parse / check / ssa / inkwell)
+├── crates/torajs-core/           ← compiler library (lex / parse / check / ssa)
 │   ├── src/lexer.rs
 │   ├── src/parser.rs
 │   ├── src/check.rs              ← typechecker + alias-aware ownership inference
 │   ├── src/ssa.rs                ← SSA IR types + pretty printer
-│   ├── src/ssa_lower.rs          ← AST → SSA
-│   └── src/ssa_inkwell.rs        ← SSA → LLVM 22 (Inkwell)
+│   └── src/ssa_lower.rs          ← AST → SSA
+├── crates/torajs-codegen/        ← SSA → aarch64 machine-code emitter (in-house)
+├── crates/torajs-egraph/         ← mid-end optimizer
+├── crates/torajs-obj/            ← Mach-O / ELF object writer (in-house)
+├── crates/torajs-link/           ← linker (in-house)
+├── crates/torajs-{str,arr,rc,…}/ ← Rust runtime crates (refcount, str/arr/json, regex, Date, …)
 ├── crates/torajs-cli/            ← `tr` binary (build / run / lsp / lsp-bench)
-├── labs/0002-inkwell-spike/      ← throwaway: LLVM gate validation
 ├── bench/                        ← cross-runtime perf harness
 ├── docs/roadmap.md               ← canonical implementation plan
 ├── docs/language-status.md       ← what works today + per-feature roadmap-phase mapping
