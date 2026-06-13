@@ -251,6 +251,12 @@ pub enum Tag {
     MapIter = 16,
     /// `ArrIter` — stateful Array<Any> iterator.
     ArrIter = 17,
+    /// `AccessorPair` — `{ get_closure, set_closure }` backing a
+    /// dynobj property defined with a get/set descriptor (RFC C3).
+    /// Stored as the entry's `value_anyv` cell; resolved by reading
+    /// the pointee's `HeapHeader::type_tag` (the NaN-box itself has no
+    /// free tag space — V8/JSC AccessorPair model).
+    AccessorPair = 18,
 }
 
 // ============================================================

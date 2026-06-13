@@ -1,0 +1,287 @@
+//! `AccessorPair` — heap object backing a dynobj property defined with
+//! a `{ get, set }` descriptor (RFC C3 accessor substrate).
+//!
+//! A property defined via `Object.defineProperty(o, k, { get, set })`
+//! stores, in its dense-entry `value_anyv`, a **cell** pointing at an
+//! `AccessorPair` rather than a data value. Reads/writes of the
+//! property dispatch through the getter/setter closures instead of the
+//! stored value. This is the V8 / JSC AccessorPair model: the NaN-box
+//! `value_anyv` carries no free tag bits (a heap pointer is just a
+//! cell), so accessor-ness is resolved by reading the pointee's
+//! `HeapHeader::type_tag` ([`torajs_rc::Tag::AccessorPair`] = 18),
+//! exactly like every other heap type.
+//!
+//! ```text
+//! offset | size | field
+//! -------|------|------
+//!   0    |  8B  | universal heap header (refcount + type_tag=18 + flags)
+//!   8    |  8B  | get_closure  (closure env ptr; 0 = no getter)
+//!  16    |  8B  | set_closure  (closure env ptr; 0 = no setter)
+//!  24    |  8B  | kinds        (byte 0 = getter ret kind, byte 1 = setter param kind)
+//! ```
+//!
+//! The getter/setter are ordinary closures (env-first ABI, fn_ptr at
+//! `+8`, drop_fn at `+16`). The `kinds` word records each closure's
+//! native value-ABI class so the runtime invoke path (RFC C3b) can
+//! box the getter's raw return / unbox the setter's argument across
+//! the register-class boundary (an f64-returning getter leaves its
+//! value in `d0`, an i64-returning one in `x0`).
+
+use core::ffi::c_void;
+
+unsafe extern "C" {
+    /// torajs-mmalloc libc-compat calloc — zero-init alloc.
+    #[link_name = "__torajs_calloc"]
+    fn calloc(size: usize) -> *mut c_void;
+    /// torajs-mmalloc libc-compat free — sized.
+    #[link_name = "__torajs_free"]
+    fn free(p: *mut c_void, size: usize);
+    /// Cross-tier — refcount dec. Returns 1 iff the caller should free
+    /// + release children; 0 otherwise.
+    fn __torajs_rc_dec(p: *mut c_void) -> i32;
+}
+
+/// Total `AccessorPair` heap-block size.
+pub const ACCESSOR_PAIR_SIZE: usize = 32;
+
+/// Offset of `get_closure` within the block.
+pub const ACC_GET_OFF: usize = 8;
+/// Offset of `set_closure` within the block.
+pub const ACC_SET_OFF: usize = 16;
+/// Offset of the packed `kinds` word within the block.
+pub const ACC_KINDS_OFF: usize = 24;
+
+/// `type_tag` value for `AccessorPair` blocks. Mirrors
+/// `torajs_rc::Tag::AccessorPair` = 18 (same hardcode-with-comment
+/// pattern the rest of dynobj uses for `TAG_DYNOBJ` — torajs-dynobj
+/// does not depend on torajs-rc). Updates to the Tag enum require a
+/// mirroring edit here.
+pub const TAG_ACCESSOR_PAIR: u16 = 18;
+
+/// Closure layout — mirrored from `ssa_lower`'s `CLOSURE_*_OFF`
+/// constants (the env-first closure ABI is a shared cross-tier
+/// contract; same mirror pattern dynobj uses for the Str layout).
+const CLOSURE_DROP_FN_OFF: usize = 16;
+
+/// `__torajs_accessor_pair_new(get_closure, set_closure, kinds)` —
+/// allocate a fresh `+1`-rc `AccessorPair`. `get_closure` /
+/// `set_closure` are closure env pointers (0 when the descriptor omits
+/// that accessor); ownership of each closure ref transfers into the
+/// pair (released by [`__torajs_accessor_drop`]). `kinds` packs the
+/// getter ret kind (byte 0) and setter param kind (byte 1).
+///
+/// # Safety
+/// `get_closure` / `set_closure` are null or live closure heap
+/// pointers whose ref is being moved into the pair.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_accessor_pair_new(
+    get_closure: *mut c_void,
+    set_closure: *mut c_void,
+    kinds: u64,
+) -> *mut c_void {
+    let p = unsafe { calloc(ACCESSOR_PAIR_SIZE) } as *mut u8;
+    unsafe {
+        // Header: rc=1, tag=AccessorPair, flags=0.
+        *(p as *mut u32) = 1;
+        *(p.add(4) as *mut u16) = TAG_ACCESSOR_PAIR;
+        *(p.add(6) as *mut u16) = 0;
+        *(p.add(ACC_GET_OFF) as *mut u64) = get_closure as u64;
+        *(p.add(ACC_SET_OFF) as *mut u64) = set_closure as u64;
+        *(p.add(ACC_KINDS_OFF) as *mut u64) = kinds;
+    }
+    p as *mut c_void
+}
+
+/// `__torajs_accessor_get_getter(pair)` — the getter closure pointer
+/// (0 when absent). Used by `getOwnPropertyDescriptor` to populate the
+/// descriptor's `get` field.
+///
+/// # Safety
+/// `pair` is null or a live `AccessorPair` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_accessor_get_getter(pair: *const c_void) -> *mut c_void {
+    if pair.is_null() {
+        return core::ptr::null_mut();
+    }
+    unsafe { *((pair as *const u8).add(ACC_GET_OFF) as *const u64) as *mut c_void }
+}
+
+/// `__torajs_accessor_get_setter(pair)` — the setter closure pointer
+/// (0 when absent).
+///
+/// # Safety
+/// `pair` is null or a live `AccessorPair` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_accessor_get_setter(pair: *const c_void) -> *mut c_void {
+    if pair.is_null() {
+        return core::ptr::null_mut();
+    }
+    unsafe { *((pair as *const u8).add(ACC_SET_OFF) as *const u64) as *mut c_void }
+}
+
+/// `__torajs_accessor_get_kinds(pair)` — the packed `kinds` word.
+///
+/// # Safety
+/// `pair` is null or a live `AccessorPair` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_accessor_get_kinds(pair: *const c_void) -> u64 {
+    if pair.is_null() {
+        return 0;
+    }
+    unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) }
+}
+
+/// Release one held closure ref via its per-closure env-drop hook
+/// (`drop_fn` at `+16`, synthesized in ssa_lower Pass 2.5). The drop
+/// fn walks the env's captures, releases each, then frees the env
+/// block — the canonical closure-value drop (mirrors ssa_lower's
+/// `Type::Closure` arm). Null closure / null drop_fn are no-ops.
+///
+/// # Safety
+/// `closure` is null or a live closure heap pointer.
+#[inline]
+unsafe fn drop_closure_value(closure: *mut c_void) {
+    if closure.is_null() {
+        return;
+    }
+    let drop_fn = unsafe { *((closure as *const u8).add(CLOSURE_DROP_FN_OFF) as *const usize) };
+    if drop_fn != 0 {
+        let f: unsafe extern "C" fn(*mut c_void) = unsafe { core::mem::transmute(drop_fn) };
+        unsafe { f(closure) };
+    }
+}
+
+/// `__torajs_accessor_drop(pair)` — refcount dec; on hit-zero release
+/// the getter/setter closures then free the block. Wired into
+/// `__torajs_value_drop_heap`'s [`Tag::AccessorPair`] dispatch so a
+/// dynobj entry walk (or any cell drop) reaches it.
+///
+/// # Safety
+/// `pair` is null or a live `AccessorPair` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_accessor_drop(pair: *mut c_void) {
+    if pair.is_null() {
+        return;
+    }
+    if unsafe { __torajs_rc_dec(pair) } == 0 {
+        return;
+    }
+    unsafe {
+        let getter = *((pair as *const u8).add(ACC_GET_OFF) as *const u64) as *mut c_void;
+        let setter = *((pair as *const u8).add(ACC_SET_OFF) as *const u64) as *mut c_void;
+        drop_closure_value(getter);
+        drop_closure_value(setter);
+        free(pair, ACCESSOR_PAIR_SIZE);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::sync::atomic::{AtomicU32, Ordering};
+
+    /// A minimal fake closure block: 24 bytes is enough to hold the
+    /// header + fn_ptr (+8) + drop_fn (+16). `drop_fn` points at a
+    /// test hook that records the drop and frees nothing (the test
+    /// owns the box).
+    #[repr(C)]
+    struct FakeClosure {
+        header: u64,
+        fn_ptr: u64,
+        drop_fn: u64,
+    }
+
+    static DROP_HITS: AtomicU32 = AtomicU32::new(0);
+
+    unsafe extern "C" fn record_drop(_closure: *mut c_void) {
+        DROP_HITS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// `record_drop`'s address as the `u64` a closure's `drop_fn` slot
+    /// holds (cast through a pointer per `function_casts_as_integer`).
+    fn record_drop_ptr() -> u64 {
+        record_drop as unsafe extern "C" fn(*mut c_void) as *const () as u64
+    }
+
+    #[test]
+    fn new_sets_header_and_fields() {
+        let kinds = 0x0201u64; // get ret kind = 1, set param kind = 2
+        let get = 0xAAAA_0000u64 as *mut c_void;
+        let set = 0xBBBB_0000u64 as *mut c_void;
+        let p = unsafe { __torajs_accessor_pair_new(get, set, kinds) } as *mut u8;
+        assert!(!p.is_null());
+        unsafe {
+            assert_eq!(*(p as *const u32), 1, "refcount");
+            assert_eq!(*(p.add(4) as *const u16), TAG_ACCESSOR_PAIR, "type_tag");
+            assert_eq!(*(p.add(6) as *const u16), 0, "flags");
+            assert_eq!(*(p.add(ACC_GET_OFF) as *const u64), get as u64, "get");
+            assert_eq!(*(p.add(ACC_SET_OFF) as *const u64), set as u64, "set");
+            assert_eq!(*(p.add(ACC_KINDS_OFF) as *const u64), kinds, "kinds");
+
+            assert_eq!(__torajs_accessor_get_getter(p as *const c_void), get);
+            assert_eq!(__torajs_accessor_get_setter(p as *const c_void), set);
+            assert_eq!(__torajs_accessor_get_kinds(p as *const c_void), kinds);
+
+            free(p as *mut c_void, ACCESSOR_PAIR_SIZE);
+        }
+    }
+
+    #[test]
+    fn getters_null_safe() {
+        unsafe {
+            assert!(__torajs_accessor_get_getter(core::ptr::null()).is_null());
+            assert!(__torajs_accessor_get_setter(core::ptr::null()).is_null());
+            assert_eq!(__torajs_accessor_get_kinds(core::ptr::null()), 0);
+        }
+    }
+
+    #[test]
+    fn drop_releases_both_closures() {
+        DROP_HITS.store(0, Ordering::Relaxed);
+        let mut getter = FakeClosure {
+            header: 0,
+            fn_ptr: 0,
+            drop_fn: record_drop_ptr(),
+        };
+        let mut setter = FakeClosure {
+            header: 0,
+            fn_ptr: 0,
+            drop_fn: record_drop_ptr(),
+        };
+        let gp = &mut getter as *mut FakeClosure as *mut c_void;
+        let sp = &mut setter as *mut FakeClosure as *mut c_void;
+        let p = unsafe { __torajs_accessor_pair_new(gp, sp, 0) };
+        // rc starts at 1 → drop transitions to free path, firing both
+        // closures' drop hooks.
+        unsafe { __torajs_accessor_drop(p) };
+        assert_eq!(
+            DROP_HITS.load(Ordering::Relaxed),
+            2,
+            "both getter + setter drop hooks fire"
+        );
+    }
+
+    #[test]
+    fn drop_null_safe() {
+        unsafe { __torajs_accessor_drop(core::ptr::null_mut()) };
+    }
+
+    #[test]
+    fn drop_skips_absent_accessor() {
+        DROP_HITS.store(0, Ordering::Relaxed);
+        let mut getter = FakeClosure {
+            header: 0,
+            fn_ptr: 0,
+            drop_fn: record_drop_ptr(),
+        };
+        let gp = &mut getter as *mut FakeClosure as *mut c_void;
+        // No setter (null) — only the getter hook should fire.
+        let p = unsafe { __torajs_accessor_pair_new(gp, core::ptr::null_mut(), 0) };
+        unsafe { __torajs_accessor_drop(p) };
+        assert_eq!(
+            DROP_HITS.load(Ordering::Relaxed),
+            1,
+            "only the present getter drop fires"
+        );
+    }
+}

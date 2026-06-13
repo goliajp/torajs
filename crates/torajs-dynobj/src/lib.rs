@@ -22,6 +22,7 @@
 // v0.7-A2 step 6b — force-link mmalloc.
 extern crate torajs_mmalloc as _;
 
+pub mod accessor;
 pub mod alloc;
 pub mod define;
 pub mod delete;
@@ -34,6 +35,10 @@ pub mod probe;
 pub mod resize;
 pub mod set;
 
+pub use accessor::{
+    __torajs_accessor_drop, __torajs_accessor_get_getter, __torajs_accessor_get_kinds,
+    __torajs_accessor_get_setter, __torajs_accessor_pair_new,
+};
 pub use alloc::{__torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto};
 pub use define::__torajs_dynobj_define;
 pub use delete::__torajs_dynobj_delete;
@@ -76,12 +81,22 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(_child: *mut core::ffi::c_void
     );
 }
 
+// Faithful refcount-dec stub for unit tests: the real torajs-rc dec
+// (universal header refcount at +0) is linked at `tr build` time, but
+// the `accessor::tests` drop path legitimately exercises dec here, so
+// the stub mirrors the real semantics — decrement the header u32,
+// return 1 on the transition to zero (caller should free), 0 otherwise.
 #[cfg(test)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
-    panic!(
-        "torajs-dynobj unit-test stub: __torajs_rc_dec should not be called from cargo test paths"
-    );
+pub unsafe extern "C" fn __torajs_rc_dec(p: *mut core::ffi::c_void) -> i32 {
+    if p.is_null() {
+        return 0;
+    }
+    unsafe {
+        let rc = p as *mut u32;
+        *rc -= 1;
+        i32::from(*rc == 0)
+    }
 }
 
 #[cfg(test)]

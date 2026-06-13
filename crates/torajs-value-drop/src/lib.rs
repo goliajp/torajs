@@ -65,6 +65,7 @@ unsafe extern "C" {
     fn __torajs_map_iter_drop(p: *mut c_void);
     fn __torajs_arr_iter_drop(p: *mut c_void);
     fn __torajs_dynobj_drop(p: *mut c_void);
+    fn __torajs_accessor_drop(p: *mut c_void);
 }
 
 #[cfg(not(target_os = "wasi"))]
@@ -115,6 +116,7 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
         t if t == Tag::MapIter as u16 => unsafe { __torajs_map_iter_drop(child) },
         t if t == Tag::ArrIter as u16 => unsafe { __torajs_arr_iter_drop(child) },
         t if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_drop(child) },
+        t if t == Tag::AccessorPair as u16 => unsafe { __torajs_accessor_drop(child) },
         _ => unsafe {
             // Obj / Substr / Closure / RegExp / Date fallback —
             // rc-dec; on hit-zero free the outer block. May leak inner
