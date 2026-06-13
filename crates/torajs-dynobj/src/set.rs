@@ -100,7 +100,7 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
         if cur_flags & BUCKET_FLAG_WRITABLE == 0 {
             unsafe {
                 __torajs_throw_type_error(
-                    c"Attempted to assign to readonly property.".as_ptr() as *const u8,
+                    c"Attempted to assign to readonly property.".as_ptr() as *const u8
                 );
             }
             return;

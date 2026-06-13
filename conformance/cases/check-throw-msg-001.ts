@@ -9,6 +9,12 @@
 //     (dynobj/set.rs)
 //   * Object.freeze + assign (torajs-rc/freeze.rs)
 
+// Program-level reference to `TypeError` registers the SLOT_TYPE_ERROR
+// factory so __torajs_throw_type_error wraps the C msg into a real
+// TypeError instance (vs. bare-Str fallback that leaves `e.message`
+// undefined — see check-defineproperty-typeerror-001 comments).
+const _t = TypeError;
+
 // reflect.rs:436 — Object.defineProperty(null) → "Properties can only be defined on Objects."
 try {
   Object.defineProperty(null, "x", { value: 1 });
