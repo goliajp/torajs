@@ -2658,6 +2658,17 @@ fn lower_inner(
         &[Type::Any, Type::Ptr],
         Type::Any,
     );
+    // RFC C4b — `Object.defineProperty(O, ...)` step 1 strict
+    // `Type(O) is Object` check. Throws TypeError on undefined /
+    // null / number / boolean / string / bigint / symbol; returns
+    // silently on real objects (dynobj / array / closure / etc).
+    let throw_typeerror_if_not_object_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_anyv_throw_typeerror_if_not_object",
+        &[Type::Any],
+        Type::Void,
+    );
     let dynobj_has_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5095,6 +5106,7 @@ fn lower_inner(
         accessor_pair_new: accessor_pair_new_id,
         accessor_invoke_getter: accessor_invoke_getter_id,
         get_property_descriptor: get_property_descriptor_id,
+        throw_typeerror_if_not_object: throw_typeerror_if_not_object_id,
         dynobj_has: dynobj_has_id,
         dynobj_delete: dynobj_delete_id,
         arr_drop_any: arr_drop_any_id,
@@ -5895,6 +5907,7 @@ pub(crate) struct Intrinsics {
     pub(crate) accessor_pair_new: FuncId,
     pub(crate) accessor_invoke_getter: FuncId,
     pub(crate) get_property_descriptor: FuncId,
+    pub(crate) throw_typeerror_if_not_object: FuncId,
     pub(crate) dynobj_has: FuncId,
     pub(crate) dynobj_delete: FuncId,
     pub(crate) arr_drop_any: FuncId,

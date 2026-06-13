@@ -40,6 +40,12 @@ const ANY_ACCESSOR: u64 = 6;
 
 // Tag::DynObj from torajs-rc — universal heap header at offset 0.
 const TAG_DYNOBJ: u16 = 14;
+/// Tag::Str / Tag::Symbol / Tag::BigInt from `torajs-rc` — primitive-in-spec
+/// heap cells. RFC C4b throws TypeError on these because `Object.defineProperty(O, ...)`
+/// step 1 is a strict `Type(O) is Object` check (no ToObject wrapper boxing).
+const TAG_STR: u16 = 0;
+const TAG_SYMBOL: u16 = 7;
+const TAG_BIGINT: u16 = 10;
 
 #[inline]
 unsafe fn heap_type_tag(child: *const c_void) -> u16 {
@@ -242,4 +248,45 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     // wrapped path rc_inc'd + dropped the local; both cancel
     // out and we skip both).
     desc as u64
+}
+
+/// RFC C4b — `Object.defineProperty(O, ...)` / `Object.defineProperties(O, ...)`
+/// step 1: `If Type(O) is not Object, throw a TypeError`. Spec ES §10.1.6.3
+/// is a **strict** Type(O) check — every primitive throws, including
+/// `string` / `number` / `boolean` / `bigint` / `symbol`, regardless of
+/// whether tora carries the primitive as an imm or a heap cell.
+/// (gOPD's ToObject semantics box primitives to wrappers; defineProperty
+/// does not.)
+///
+/// Branch on the `O` AnyValue at runtime:
+/// * `undefined` / `null` imm → throw TypeError.
+/// * Non-cell imm (number / boolean inline) → throw TypeError.
+/// * Cell whose `HeapHeader::type_tag` is `Str` / `BigInt` / `Symbol`
+///   (tora carries these as heap cells, spec classifies them as
+///   primitives) → throw TypeError.
+/// * Every other cell (DynObj / Arr / Closure / RegExp / Date /
+///   Promise / Map / Set / WeakRef / WeakMap / WeakSet / MapIter /
+///   ArrIter / AccessorPair) is a real object → returns without throwing.
+///
+/// # Safety
+///
+/// `obj_any` must carry a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_not_object(obj_any: u64) {
+    if obj_any == VALUE_UNDEFINED_IMM || obj_any == VALUE_NULL_IMM || !is_cell_imm(obj_any) {
+        // SAFETY: NUL-terminated static C string.
+        unsafe {
+            __torajs_throw_type_error(c"Object.defineProperty called on non-object".as_ptr())
+        };
+        return;
+    }
+    // Cell — inspect the universal heap header `type_tag` to filter out
+    // spec-primitive cells (Str / BigInt / Symbol).
+    let tag = unsafe { heap_type_tag(obj_any as *const c_void) };
+    if matches!(tag, TAG_STR | TAG_BIGINT | TAG_SYMBOL) {
+        // SAFETY: NUL-terminated static C string.
+        unsafe {
+            __torajs_throw_type_error(c"Object.defineProperty called on non-object".as_ptr())
+        };
+    }
 }

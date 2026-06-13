@@ -33,6 +33,69 @@ pub(crate) enum DefineKey<'a> {
     Name(&'a str),
 }
 
+/// RFC C4b — spec §10.1.6.3 step 1 receiver `Type(O) is Object` check
+/// for `Object.defineProperty(O, ...)` / `Object.defineProperties(O, ...)`.
+/// Strict Type(O) (no ToObject wrapper boxing): every primitive throws,
+/// including `string` / `number` / `boolean` / `bigint` / `symbol`.
+///
+/// Static dispatch by the receiver's frontend type so the existing
+/// typed-object / typed-Array / Any-dynobj paths downstream stay
+/// reachable through their original `obj_op`:
+/// * `Any` — call the runtime guard; the helper throws on primitive
+///   imm / cell tags and returns silently on real object cells.
+/// * Typed object — already an object, no guard needed.
+/// * Anything else (`Undefined` / `Null` literal or typed primitive
+///   Number / Bool / Str / Substr / Symbol / BigInt) — box the
+///   receiver once and call the helper; the helper always throws on
+///   these AnyValue patterns, so the post-`throw_check` normal block
+///   is unreachable at runtime and `box_to_any`'s payload inc cannot
+///   accumulate to a leak.
+fn emit_receiver_typecheck(ctx: &mut LowerCtx, obj_eid: ExprId, obj_op: &Operand, obj_ty: Type) {
+    if matches!(obj_ty, Type::Any) {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.throw_typeerror_if_not_object,
+                vec![obj_op.clone()],
+            ),
+        );
+        ctx.emit_throw_check(None);
+        return;
+    }
+    if is_typed_object(obj_ty) {
+        return;
+    }
+    let boxed = ctx.box_to_any_from_expr(obj_eid, obj_op.clone());
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.throw_typeerror_if_not_object, vec![boxed]),
+    );
+    ctx.emit_throw_check(None);
+}
+
+/// Frontend types that are spec-`Type(O) is Object` so RFC C4b's
+/// receiver guard can skip them — the SSA-level type already proves
+/// the receiver is an object cell.
+fn is_typed_object(ty: Type) -> bool {
+    matches!(
+        ty,
+        Type::Obj(_)
+            | Type::Arr(_)
+            | Type::Closure(_)
+            | Type::FnSig(_)
+            | Type::RegExp
+            | Type::Date
+            | Type::Promise
+            | Type::Map
+            | Type::Set
+            | Type::MapIter
+            | Type::ArrIter
+            | Type::WeakRef
+            | Type::WeakMap
+            | Type::WeakSet
+    )
+}
+
 /// Is this key the string `"length"`? (Array `length` descriptor takes
 /// the `arr_set_length_validate` path.) Pure AST/str check — no lowering.
 fn key_is_length(ctx: &LowerCtx, key: &DefineKey) -> bool {
@@ -68,6 +131,9 @@ fn emit_define_one(ctx: &mut LowerCtx, obj_eid: ExprId, key: DefineKey, desc_eid
     };
     let obj_op = ctx.lower_expr(obj_eid);
     let obj_ty = ctx.operand_ty(&obj_op);
+
+    emit_receiver_typecheck(ctx, obj_eid, &obj_op, obj_ty);
+
     let is_length = key_is_length(ctx, &key);
 
     // Tag-pack helper — same table the BinOp Any===concrete arm uses for
@@ -348,17 +414,33 @@ fn try_lower_define_properties(
         && let Expr::Ident(ns) = ctx.ast.get_expr(*ns_id)
         && ns == "Object"
         && args.len() == 2
-        && matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_))
-        && let Expr::ObjectLit { fields } = ctx.ast.get_expr(args[1])
     {
-        // Clone the (name, desc_eid) list — `emit_define_one` borrows ctx
-        // mutably, so we can't hold the AST borrow across the loop.
-        let field_list: Vec<(String, ExprId)> =
-            fields.iter().map(|(n, e)| (n.clone(), *e)).collect();
-        for (name, desc_eid) in &field_list {
-            emit_define_one(ctx, args[0], DefineKey::Name(name), *desc_eid);
+        // RFC C4b — spec §20.1.2.4 step 1 receiver guard. Fires for every
+        // shape (incl. non-Ident / non-ObjectLit) so a primitive receiver
+        // throws even when the prior fall-through to the Object no-op arm
+        // would have silently eval-dropped the args.
+        let obj_raw = ctx.lower_expr(args[0]);
+        let obj_ty = ctx.operand_ty(&obj_raw);
+        emit_receiver_typecheck(ctx, args[0], &obj_raw, obj_ty);
+
+        // Compile-time unfold when both shapes match — Ident lower is
+        // idempotent, so emit_define_one's per-field re-lower is safe.
+        if matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_))
+            && let Expr::ObjectLit { fields } = ctx.ast.get_expr(args[1])
+        {
+            // Clone the (name, desc_eid) list — `emit_define_one` borrows ctx
+            // mutably, so we can't hold the AST borrow across the loop.
+            let field_list: Vec<(String, ExprId)> =
+                fields.iter().map(|(n, e)| (n.clone(), *e)).collect();
+            for (name, desc_eid) in &field_list {
+                emit_define_one(ctx, args[0], DefineKey::Name(name), *desc_eid);
+            }
+        } else {
+            // Runtime props / non-Ident receiver — eval-drop the props
+            // arg for side effects; full runtime walk is a follow-up.
+            let _ = ctx.lower_expr(args[1]);
         }
-        return Some(Operand::ConstI64(0));
+        return Some(obj_raw);
     }
     None
 }
