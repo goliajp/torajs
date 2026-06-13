@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T22:20:05.788Z",
+  "generatedAt": "2026-06-13T23:05:12.869Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "2c8064ce",
-    "commitSubject": "feat: builtin <Ctor>.prototype singleton substrate (identity wedge close)",
+    "commit": "0447b58b",
+    "commitSubject": "feat: auto-inject TypeError / RangeError for runtime-thrown native errors",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "0447b58b",
+      "subject": "feat: auto-inject TypeError / RangeError for runtime-thrown native errors"
+    },
+    {
+      "hash": "8485b93e",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - identity wedge close via builtin-prototype singleton substrate, gate 789/0/4 hold"
+    },
+    {
       "hash": "2c8064ce",
       "subject": "feat: builtin <Ctor>.prototype singleton substrate (identity wedge close)"
     },
@@ -657,17 +665,9 @@
     {
       "hash": "c72939a8",
       "subject": "feat: Type::Any member read on class instance via inline class-tag dispatch"
-    },
-    {
-      "hash": "f1421c40",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC C5b full set (preventExtensions/isExtensible/seal/isSealed real bit + defineProperty-sealed throw), gate 787/0/4"
-    },
-    {
-      "hash": "54d56e65",
-      "subject": "feat: Object.defineProperty on sealed object throws TypeError (RFC C5b-4)"
     }
   ],
-  "headSha": "2c8064ce",
+  "headSha": "0447b58b",
   "autorun": {
     "total": 144,
     "baselineTarget": 10,
