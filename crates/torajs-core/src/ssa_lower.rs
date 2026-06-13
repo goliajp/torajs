@@ -50,7 +50,7 @@ use crate::ssa_lower_while_push_fast::lower_while_inner;
 /// `OBJ_HEADER_SIZE + i*8`. Closure env layout is unaffected — it has
 /// its own fn-ptr header at offset 0 and lives in a separate alloc path.
 pub(crate) const OBJ_HEADER_SIZE: u64 = 24;
-const OBJ_CLASS_TAG_OFF: u64 = 8;
+pub(crate) const OBJ_CLASS_TAG_OFF: u64 = 8;
 const OBJ_VTABLE_OFF: u64 = 16;
 
 /// Phase 2A refcount + T-13.5 deque layout (mirrors the `ARR_HDR_*`
@@ -6970,7 +6970,7 @@ pub(crate) struct LowerCtx<'a> {
     /// User-declared type aliases (`type Point = { ... }` → Type::Obj).
     /// Threaded through so `parse_type("Point", ...)` resolves at let-decl
     /// + function-signature sites.
-    aliases: &'a HashMap<String, Type>,
+    pub(crate) aliases: &'a HashMap<String, Type>,
     /// T-15.g.6.b (v0.5.0) — per-Expr check::Type map (from
     /// check::check_with_types). Lets the await Member-access
     /// dispatch recover Promise<T>'s inner T at the call site
@@ -7026,7 +7026,7 @@ pub(crate) struct LowerCtx<'a> {
     /// a single sid; sid-keyed tags would alias them and silently
     /// mis-route `__dispatch_<M>`. Plain `type` aliases aren't keys
     /// here (they get a 0 tag at allocation time).
-    class_name_to_tag: &'a HashMap<String, u32>,
+    pub(crate) class_name_to_tag: &'a HashMap<String, u32>,
     /// M4 — innermost-active try block's catch-block target. Each
     /// `Stmt::Try` lowering pushes the catch BlockId before lowering its
     /// body and pops after; user-fn calls in scope insert a cond_br on
@@ -12703,7 +12703,7 @@ impl<'a> LowerCtx<'a> {
         Operand::Value(r)
     }
 
-    fn box_to_any(&mut self, val: Operand) -> Operand {
+    pub(crate) fn box_to_any(&mut self, val: Operand) -> Operand {
         let val_ty = self.operand_ty(&val);
         let (tag, value_op): (i64, Operand) = match val_ty {
             Type::I64 | Type::I32 => (2, val),
@@ -21183,35 +21183,11 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
-                // P3.2 — Member read on Type::Any routes through
-                // dynobj substrate. obj_val is an Any-box; extract
-                // the dynobj ptr from the boxed value (via the
-                // any_unbox_value shim), then dispatch through
-                // dynobj_get_tag/value with the field name as Str,
-                // boxing the result back to Any.
+                // RFC 20260613 any-class-member-read — dispatch lives
+                // in `ssa_lower_any_member` so this god-file doesn't
+                // grow further. See that module's doc for the design.
                 if matches!(obj_ty, Type::Any) {
-                    let dynobj = self.any_unbox_value_as_ptr(obj_val.clone());
-                    let key_str = self.intern_string_literal(name);
-                    let tag = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.dynobj_get_tag,
-                            vec![Operand::Value(dynobj), Operand::Value(key_str)],
-                        ),
-                        Type::I64,
-                        None,
-                    );
-                    let value = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.dynobj_get_value,
-                            vec![Operand::Value(dynobj), Operand::Value(key_str)],
-                        ),
-                        Type::I64,
-                        None,
-                    );
-                    let box_v = crate::ssa_lower_accessor::emit_dynobj_get_result(self, tag, value);
-                    return box_v;
+                    return crate::ssa_lower_any_member::lower_any_member_read(self, obj_val, name);
                 }
                 // T-27.c — built-in `length` and `name` are compile-
                 // time constants known from the fn's static signature

@@ -1,0 +1,219 @@
+//! `Type::Any` member-read inline class-tag dispatch — carved out
+//! of `ssa_lower.rs::lower_expr_inner` to keep that god-file from
+//! growing further (file-size HARD RULE per
+//! `.claude/rules/torajs-file-size-debt.md`).
+//!
+//! Pre-fix the Any-member read site decoded the Any-box's value
+//! field as a ptr and unconditionally dispatched through
+//! `__torajs_dynobj_get_tag / value`. For class instances
+//! (type_tag = OBJ = 1) the dynobj entry-table walk found nothing
+//! and returned ANY_UNDEF — so `(e: any).message` on a thrown
+//! TypeError, `(y: any).a` on a `new Foo()`, and every other class-
+//! instance-through-Any member read silently produced undefined.
+//!
+//! Fix: monomorphic inline dispatch on `class_tag` for the candidate
+//! classes the module declares + whose layout resolves the field
+//! name. AOT means `class_name_to_tag` + `struct_layouts` are known
+//! here; the member key is a String literal so candidate enumeration
+//! is a compile-time loop. Each candidate emits one `class_tag` cmp
+//! + direct field load + `box_to_any` (which bumps the refcount for
+//! Heap-typed fields). Non-OBJ header tags + classes whose layout
+//! omits the field fall through to the original dynobj dispatch —
+//! preserving plain `{}`-shape Any semantics.
+//!
+//! Hot path = 1 cmp + 1 load + 1 box for the common monomorphic
+//! case; ceiling matches what a JIT hidden-class inline cache
+//! produces in steady state, without runtime cache slots (AOT-time
+//! monomorphization).
+
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE};
+
+/// Lower a `Type::Any` Member read for `name`. `obj_val` is the
+/// already-lowered Any-box operand.
+pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: &str) -> Operand {
+    // Compile-time enumerate class candidates whose layout declares
+    // `name` as a field. AOT — both maps are stable by this point.
+    let mut candidates: Vec<(u32, u64, Type)> = Vec::new();
+    for (cname, ctag) in ctx.class_name_to_tag.iter() {
+        let Some(Type::Obj(sid)) = ctx.aliases.get(cname) else {
+            continue;
+        };
+        let layout = &ctx.struct_layouts[sid.0 as usize];
+        if let Some((idx, (_, fty))) = layout.iter().enumerate().find(|(_, (n, _))| n == name) {
+            let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
+            candidates.push((*ctag, offset, *fty));
+        }
+    }
+
+    let dynobj = ctx.any_unbox_value_as_ptr(obj_val);
+    let key_str = ctx.intern_string_literal(name);
+
+    // No candidates → original dynobj-only path (plain ObjectLit,
+    // empty class set, or class without this field).
+    if candidates.is_empty() {
+        return emit_dynobj_only(ctx, dynobj, key_str);
+    }
+
+    // Sort by class_tag for deterministic dispatch order.
+    candidates.sort_by_key(|(t, _, _)| *t);
+
+    let res_slot = ctx.alloca_in_entry(Type::Any, Some("__any_member_res"));
+    let dynobj_blk = ctx.f.add_block();
+    let class_blk = ctx.f.add_block();
+    let after = ctx.f.add_block();
+
+    // NULL guard: a non-Heap Any-box decodes to value=0 / NULL ptr;
+    // skip class dispatch entirely so the dynobj_get path can return
+    // ANY_UNDEF as before.
+    let null_chk = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(dynobj), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(null_chk),
+            then_blk: dynobj_blk,
+            else_blk: class_blk,
+        },
+    );
+
+    // class_blk: load type_tag (low 16 bits of the i32 at +4; high
+    // 16 bits = flags). Mask + cmp against OBJ_TAG (1, mirrored from
+    // `torajs_rc::Tag::Obj`).
+    ctx.cur_block = class_blk;
+    let tt_word = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I32, Operand::Value(dynobj), 4),
+        Type::I32,
+        None,
+    );
+    let tt_low = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            SsaBinOp::And,
+            Operand::Value(tt_word),
+            Operand::ConstI32(0xFFFF),
+        ),
+        Type::I32,
+        None,
+    );
+    let is_obj = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(tt_low), Operand::ConstI32(1)),
+        Type::Bool,
+        None,
+    );
+    let cls_dispatch = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_obj),
+            then_blk: cls_dispatch,
+            else_blk: dynobj_blk,
+        },
+    );
+
+    // cls_dispatch: load class_tag + emit one cmp arm per candidate.
+    ctx.cur_block = cls_dispatch;
+    let ct = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(dynobj), OBJ_CLASS_TAG_OFF),
+        Type::I64,
+        None,
+    );
+    let mut current = cls_dispatch;
+    for (ctag, offset, field_ty) in &candidates {
+        ctx.cur_block = current;
+        let eq = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(
+                IPred::Eq,
+                Operand::Value(ct),
+                Operand::ConstI64(*ctag as i64),
+            ),
+            Type::Bool,
+            None,
+        );
+        let match_blk = ctx.f.add_block();
+        let next_blk = ctx.f.add_block();
+        ctx.f.set_term(
+            ctx.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(eq),
+                then_blk: match_blk,
+                else_blk: next_blk,
+            },
+        );
+        ctx.cur_block = match_blk;
+        let field_v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(*field_ty, Operand::Value(dynobj), *offset),
+            *field_ty,
+            None,
+        );
+        let boxed = ctx.box_to_any(Operand::Value(field_v));
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(boxed, Operand::Value(res_slot), 0),
+        );
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+        current = next_blk;
+    }
+    // OBJ-tagged but class_tag missed every candidate (e.g. a class
+    // without this field) — fall through to dynobj_get which returns
+    // ANY_UNDEF for a non-dynobj ptr.
+    ctx.f.set_term(current, Terminator::Br(dynobj_blk));
+
+    // dynobj_blk: original tag/value-pair path.
+    ctx.cur_block = dynobj_blk;
+    let box_v = emit_dynobj_only(ctx, dynobj, key_str);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(box_v, Operand::Value(res_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+
+    // after: collect into one SSA value.
+    ctx.cur_block = after;
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Any, Operand::Value(res_slot), 0),
+        Type::Any,
+        None,
+    );
+    Operand::Value(r)
+}
+
+/// Emit the pre-RFC dynobj-only path: `dynobj_get_tag` +
+/// `dynobj_get_value` paired through `emit_dynobj_get_result`. Both
+/// the no-candidate fast path and the post-dispatch fallback share
+/// this helper.
+fn emit_dynobj_only(
+    ctx: &mut LowerCtx,
+    dynobj: crate::ssa::ValueId,
+    key_str: crate::ssa::ValueId,
+) -> Operand {
+    let tag = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.dynobj_get_tag,
+            vec![Operand::Value(dynobj), Operand::Value(key_str)],
+        ),
+        Type::I64,
+        None,
+    );
+    let value = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.dynobj_get_value,
+            vec![Operand::Value(dynobj), Operand::Value(key_str)],
+        ),
+        Type::I64,
+        None,
+    );
+    crate::ssa_lower_accessor::emit_dynobj_get_result(ctx, tag, value)
+}
