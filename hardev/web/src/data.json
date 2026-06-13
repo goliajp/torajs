@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-13T15:05:16.330Z",
+  "generatedAt": "2026-06-13T15:37:47.874Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 787,
+    "pass": 789,
     "fail": 0,
     "skip": 4,
-    "raw": "787/0/4",
-    "source": "/tmp/torajs-conformance-c5b4-54d56e65.log",
-    "sourceMtime": "2026-06-13T13:54:08.932Z"
+    "raw": "789/0/4",
+    "source": "/tmp/torajs-conformance-ba8f4ef4.log",
+    "sourceMtime": "2026-06-13T15:37:47.035Z"
   },
   "test262": {
     "ranAt": "2026-06-13T02:10:34Z",
@@ -31,17 +31,17 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "ff848f71",
-    "commitSubject": "fix: top-level const Arr<Any> literal uses Any-tagged alloc + push instead of raw stores",
+    "commit": "ba8f4ef4",
+    "commitSubject": "fix: register TypeError factory slot in throw-msg fixture (JIT mode)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 787,
+      "pass": 789,
       "fail": 0,
       "skip": 4,
-      "raw": "787/0/4",
-      "source": "/tmp/torajs-conformance-c5b4-54d56e65.log",
-      "sourceMtime": "2026-06-13T13:54:08.932Z"
+      "raw": "789/0/4",
+      "source": "/tmp/torajs-conformance-ba8f4ef4.log",
+      "sourceMtime": "2026-06-13T15:37:47.035Z"
     }
   },
   "roadmap": [
@@ -619,6 +619,18 @@
   },
   "commits": [
     {
+      "hash": "ba8f4ef4",
+      "subject": "fix: register TypeError factory slot in throw-msg fixture (JIT mode)"
+    },
+    {
+      "hash": "919ae8db",
+      "subject": "fix: align throw helper TypeError msg literals to bun"
+    },
+    {
+      "hash": "68586b9c",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - C5a Arr<Any> + gOPD pre-existing crash fix (top-level const Arr<Any> uses Any-tagged alloc + push), gate 788/0/4"
+    },
+    {
       "hash": "ff848f71",
       "subject": "fix: top-level const Arr<Any> literal uses Any-tagged alloc + push instead of raw stores"
     },
@@ -653,39 +665,38 @@
     {
       "hash": "f8c1060f",
       "subject": "chore(hardev/web): refresh dashboard snapshot - RFC C5a Object.getOwnPropertyDescriptor(arr, length) real descriptor, gate 784/0/4"
-    },
-    {
-      "hash": "21741ab5",
-      "subject": "feat: Object.getOwnPropertyDescriptor(arr, \"length\") real descriptor (RFC C5a)"
-    },
-    {
-      "hash": "5fd0bf57",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC C4b defineProperty/defineProperties arg-validation TypeError, gate 783/0/4"
-    },
-    {
-      "hash": "44d7fd70",
-      "subject": "feat: Object.defineProperty/defineProperties arg-validation TypeError (RFC C4b)"
     }
   ],
-  "headSha": "ff848f71",
+  "headSha": "ba8f4ef4",
   "autorun": {
-    "total": 140,
+    "total": 141,
     "baselineTarget": 10,
-    "bySelf": 138,
+    "bySelf": 139,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781359094-1340",
-      "at": "2026-06-13T13:58:14Z",
-      "ts": 1781359094,
+      "rotationId": "r-1781363312-27ae",
+      "at": "2026-06-13T15:08:32Z",
+      "ts": 1781363312,
       "trigger": "self",
-      "prevHead": "f1421c40",
-      "handoffSha": "sha256:92c1c433fb8bcaeabe7214352acdef9a472e48810288e6a2c1dea7ddf89d00b4",
-      "handoffAgeSec": 5,
+      "prevHead": "68586b9c",
+      "handoffSha": "sha256:5bbc8b703830af626027ef6ab51c8e51b5fa6ec249af583ad919949eb2f06e0f",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781363312-27ae",
+        "at": "2026-06-13T15:08:32Z",
+        "ts": 1781363312,
+        "trigger": "self",
+        "prevHead": "68586b9c",
+        "handoffSha": "sha256:5bbc8b703830af626027ef6ab51c8e51b5fa6ec249af583ad919949eb2f06e0f",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781359094-1340",
         "at": "2026-06-13T13:58:14Z",
@@ -782,17 +793,6 @@
         "prevHead": "af39385",
         "handoffSha": "sha256:fc85af14de6815fda16fcf4ff7c660b88ddeeae898ca81c6415a1f5d969af3d2",
         "handoffAgeSec": 58,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781295875-7629",
-        "at": "2026-06-12T20:24:35Z",
-        "ts": 1781295875,
-        "trigger": "self",
-        "prevHead": "2d4fd32",
-        "handoffSha": "sha256:c826c5c1e45ee836dc7af37c9307f4745efbea8c244a1bd07cf7127d29c00e92",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
