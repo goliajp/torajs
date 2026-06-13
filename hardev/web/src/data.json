@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T12:02:54.735Z",
+  "generatedAt": "2026-06-13T12:39:35.298Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "1acc42ef",
-    "commitSubject": "feat: Object.getOwnPropertyDescriptor arg-validation TypeError (RFC C4a)",
+    "commit": "44d7fd70",
+    "commitSubject": "feat: Object.defineProperty/defineProperties arg-validation TypeError (RFC C4b)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "44d7fd70",
+      "subject": "feat: Object.defineProperty/defineProperties arg-validation TypeError (RFC C4b)"
+    },
+    {
+      "hash": "19d04614",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC C4a gOPD arg-validation TypeError, gate 781/0/4"
+    },
+    {
       "hash": "1acc42ef",
       "subject": "feat: Object.getOwnPropertyDescriptor arg-validation TypeError (RFC C4a)"
     },
@@ -657,35 +665,38 @@
     {
       "hash": "2cf8d623",
       "subject": "feat(conformance): Test262Error extends Error for renderable assert failures"
-    },
-    {
-      "hash": "59f8f688",
-      "subject": "fix: move FLAG_ERROR header store before class_tag store"
-    },
-    {
-      "hash": "af692582",
-      "subject": "feat: render Error instances in uncaught-throw reporter"
     }
   ],
-  "headSha": "1acc42ef",
+  "headSha": "44d7fd70",
   "autorun": {
-    "total": 137,
+    "total": 138,
     "baselineTarget": 10,
-    "bySelf": 135,
+    "bySelf": 136,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781338693-0d74",
-      "at": "2026-06-13T08:18:13Z",
-      "ts": 1781338693,
+      "rotationId": "r-1781352343-37e6",
+      "at": "2026-06-13T12:05:43Z",
+      "ts": 1781352343,
       "trigger": "self",
-      "prevHead": "2bb7b1ec",
-      "handoffSha": "sha256:31a1dd025ad4f37aca9a40350188da074b765c3c8ae53e8dd617655db2ce353f",
-      "handoffAgeSec": 43,
+      "prevHead": "19d04614",
+      "handoffSha": "sha256:8bff346554d8e2733648796339aabeb2441e68b3a72e8404db75f1371231a8ba",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781352343-37e6",
+        "at": "2026-06-13T12:05:43Z",
+        "ts": 1781352343,
+        "trigger": "self",
+        "prevHead": "19d04614",
+        "handoffSha": "sha256:8bff346554d8e2733648796339aabeb2441e68b3a72e8404db75f1371231a8ba",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781338693-0d74",
         "at": "2026-06-13T08:18:13Z",
@@ -782,17 +793,6 @@
         "prevHead": "2cee60b",
         "handoffSha": "sha256:d15b00e686ee8516b9c8a6f0b799c53c47fd66b76111e40f73971542f49f0c41",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781255420-0913",
-        "at": "2026-06-12T09:10:20Z",
-        "ts": 1781255420,
-        "trigger": "self",
-        "prevHead": "446a901",
-        "handoffSha": "sha256:c2850d1980387a4e890681f42a957bf4da0d782c025addef950df03b7f679a01",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
