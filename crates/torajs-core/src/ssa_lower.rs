@@ -8223,6 +8223,25 @@ impl<'a> LowerCtx<'a> {
     /// our type aliases are declaration-ordered and forward refs are
     /// rejected at the type-decl pass — there's no way to build a
     /// recursive struct.
+    /// Walk the `extends` chain from `cname` to decide whether the
+    /// class is `Error` itself or a transitive subclass. Used to stamp
+    /// FLAG_ERROR on the instance header so the uncaught reporter can
+    /// render `name: message`. The hierarchy is acyclic (forward refs
+    /// are rejected at the type-decl pass), so the walk terminates.
+    fn class_is_error_derived(&self, cname: &str) -> bool {
+        if cname == "Error" {
+            return true;
+        }
+        let mut cur = self.ast.class_parents.get(cname).and_then(|p| p.clone());
+        while let Some(name) = cur {
+            if name == "Error" {
+                return true;
+            }
+            cur = self.ast.class_parents.get(&name).and_then(|p| p.clone());
+        }
+        false
+    }
+
     /// Phase 2B refcount: write the universal heap header (refcount=1
     /// + type_tag=OBJ + flags=0) at offset 0 of a freshly-alloc'd
     /// object. Lowerer emits this at every ObjectLit alloc site since
@@ -20321,6 +20340,24 @@ impl<'a> LowerCtx<'a> {
                         OBJ_CLASS_TAG_OFF,
                     ),
                 );
+                /* Error-derived class instances carry FLAG_ERROR in the
+                 * header flags (u16 @+6) so the uncaught-throw reporter
+                 * (torajs-throw) can render `name: message` directly
+                 * from the Error layout prefix (message=field0 @+24,
+                 * name=field1 @+32 — both Str). emit_obj_header_init's
+                 * `Store(ConstI32(1), +4)` left flags=0; re-store +4
+                 * packing type_tag(OBJ=1) low half + FLAG_ERROR high
+                 * half in one i32 (LE: +4=0x01 tag, +6=0x80 flags). */
+                let factory_class = self.f.name.strip_prefix("__new_").map(str::to_owned);
+                if let Some(cname) = factory_class
+                    && self.class_is_error_derived(&cname)
+                {
+                    let packed = 1_i32 | ((torajs_rc::FLAG_ERROR as i32) << 16);
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::ConstI32(packed), Operand::Value(obj_ptr), 4),
+                    );
+                }
                 /* T-24 — vtable pointer slot.
                  *
                  * If the program has any chain methods (i.e. dispatch

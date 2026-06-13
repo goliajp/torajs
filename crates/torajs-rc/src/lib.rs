@@ -154,6 +154,15 @@ pub const FLAG_FROZEN: u16 = 1 << 4;
 /// "this object is in the cycle-collector buffer right now" gate
 /// to avoid traversing the buffer for dedup on every `rc_dec`.
 pub const FLAG_BUFFERED: u16 = 1 << 5;
+/// `Tag::Obj` instance is an Error-derived class (Error itself or a
+/// transitive `extends Error` subclass — TypeError/RangeError/… and
+/// user subclasses). Set at the `__new_<C>` factory alloc site so the
+/// uncaught-throw reporter can render `name: message` (fields are at
+/// the Error layout prefix: message @ field0, name @ field1). Bit 6 is
+/// taken by torajs-dynobj's NULL_PROTO marker (Tag::DynObj, disjoint
+/// tag), so this uses bit 7. Disjoint from the cycle-collector color
+/// bits (3-4) and every other flag user.
+pub const FLAG_ERROR: u16 = 1 << 7;
 
 /// Bit position of the 2-bit cycle-collector color field.
 pub const COLOR_SHIFT: u16 = 3;
