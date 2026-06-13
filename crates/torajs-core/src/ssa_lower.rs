@@ -2539,6 +2539,23 @@ fn lower_inner(
         &[Type::Ptr, Type::I64, Type::I64, Type::I64],
         Type::Void,
     );
+    // bug-327 C3 — growable indexed write (returns the possibly-
+    // realloc'd array ptr; caller writes it back) + the typed-tier
+    // OOB rejector. See ssa_lower_index_assign.rs.
+    let arr_set_any_grow_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_set_any_grow",
+        &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+        Type::Ptr,
+    );
+    let arr_oob_write_reject_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_oob_write_reject",
+        &[Type::I64],
+        Type::Void,
+    );
     // P1.4 — bounds-checking Any-slot read. Returns ANY_UNDEF=5
     // / value=0 for OOB so xs[99] on a length-3 array gives
     // undefined per ES spec §10.4.2.1.
@@ -5032,6 +5049,8 @@ fn lower_inner(
         arr_push_any: arr_push_any_id,
         arr_extend_any: arr_extend_any_id,
         arr_set_any: arr_set_any_id,
+        arr_set_any_grow: arr_set_any_grow_id,
+        arr_oob_write_reject: arr_oob_write_reject_id,
         arr_get_any_tag: arr_get_any_tag_id,
         arr_get_any_value: arr_get_any_value_id,
         dynobj_alloc: dynobj_alloc_id,
@@ -5827,6 +5846,8 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_push_any: FuncId,
     pub(crate) arr_extend_any: FuncId,
     pub(crate) arr_set_any: FuncId,
+    pub(crate) arr_set_any_grow: FuncId,
+    pub(crate) arr_oob_write_reject: FuncId,
     pub(crate) arr_get_any_tag: FuncId,
     pub(crate) arr_get_any_value: FuncId,
     pub(crate) dynobj_alloc: FuncId,
@@ -8460,7 +8481,7 @@ impl<'a> LowerCtx<'a> {
     /// 11-A1 — peek an array-receiving expr's binding name; returns
     /// true only for Ident receivers whose name is NOT in
     /// `deque_arrs` (conservative `false` for any non-Ident shape).
-    fn arr_expr_is_non_deque(&self, eid: ExprId) -> bool {
+    pub(crate) fn arr_expr_is_non_deque(&self, eid: ExprId) -> bool {
         if let Expr::Ident(name) = self.ast.get_expr(eid) {
             !self.deque_arrs.contains(name)
         } else {
@@ -13764,153 +13785,11 @@ impl<'a> LowerCtx<'a> {
                         v
                     }
                     Expr::Index { obj, index } => {
-                        // M1.4 — `arr[i] = value`. 11-A1: peek receiver
-                        // before consuming `obj` for head-elision flag.
-                        let is_non_deque = self.arr_expr_is_non_deque(obj);
-                        let arr_val = self.lower_expr(obj);
-                        let arr_ty = self.operand_ty(&arr_val);
-                        let elem_ty = match arr_ty {
-                            Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
-                            other => panic!("ssa-lower: index assign on non-array {other:?}"),
-                        };
-                        let idx_val = self.lower_index_operand(index);
-                        // P0.10 — Array<Any>[i] = <concrete>. The Any
-                        // slots are 16 bytes (tag, value); the
-                        // arr_set_any runtime helper boxes the (tag,
-                        // value) pair and writes both atomically,
-                        // also dropping any old ANY_HEAP slot. Skip the
-                        // generic StoreDyn path (which uses 8-byte
-                        // stride and would corrupt the 16-byte slot
-                        // layout).
-                        if matches!(elem_ty, Type::Any) {
-                            let v_raw = self.lower_expr(*value);
-                            self.consume_if_ident(*value);
-                            // Pack the value into a (tag, value) pair
-                            // using the same scheme as box_to_any but
-                            // without the heap allocation.
-                            let v_ty = self.operand_ty(&v_raw);
-                            let (tag, value_op): (i64, Operand) = match v_ty {
-                                Type::I64 | Type::I32 => (2, v_raw),
-                                Type::F64 => {
-                                    let bits = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::BitCastF64ToI64(v_raw),
-                                        Type::I64,
-                                        None,
-                                    );
-                                    (3, Operand::Value(bits))
-                                }
-                                Type::Bool => {
-                                    let zext = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::ZExtBoolToI64(v_raw),
-                                        Type::I64,
-                                        None,
-                                    );
-                                    (1, Operand::Value(zext))
-                                }
-                                _ if v_ty.is_refcounted() => (4, v_raw),
-                                Type::Ptr => {
-                                    // Frontend `null` lowers to Type::Ptr
-                                    // ConstPtrNull. Detect that constant
-                                    // shape and emit ANY_NULL (tag=0);
-                                    // any other Ptr value is treated as
-                                    // a generic heap pointer (ANY_HEAP).
-                                    if matches!(v_raw, Operand::ConstPtrNull) {
-                                        (0, Operand::ConstI64(0))
-                                    } else {
-                                        (4, v_raw)
-                                    }
-                                }
-                                Type::Any => {
-                                    // Already boxed — extract tag/value
-                                    // from the AnyValue via the NaN-box
-                                    // decoders (Step 7e-A; the legacy
-                                    // direct-offset Load 16/24 read of
-                                    // an AnyBox struct doesn't survive
-                                    // the 7d-A immediate switch).
-                                    let tag_v = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.any_unbox_tag,
-                                            vec![v_raw.clone()],
-                                        ),
-                                        Type::I64,
-                                        None,
-                                    );
-                                    let val_v = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.any_unbox_value,
-                                            vec![v_raw.clone()],
-                                        ),
-                                        Type::I64,
-                                        None,
-                                    );
-                                    self.f.append_void(
-                                        self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.arr_set_any,
-                                            vec![
-                                                arr_val,
-                                                idx_val,
-                                                Operand::Value(tag_v),
-                                                Operand::Value(val_v),
-                                            ],
-                                        ),
-                                    );
-                                    return v_raw;
-                                }
-                                _ => panic!(
-                                    "ssa-lower: Array<Any>[i] = unsupported value type {v_ty:?}"
-                                ),
-                            };
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_set_any,
-                                    vec![arr_val, idx_val, Operand::ConstI64(tag), value_op],
-                                ),
-                            );
-                            return v_raw;
-                        }
-                        // T-13.5: head-aware byte offset for indexed assign.
-                        let offset = self.emit_arr_slot_byte_offset(
-                            arr_val.clone(),
-                            idx_val,
-                            3,
-                            is_non_deque,
-                        );
-                        let v = self.lower_expr(*value);
-                        self.consume_if_ident(*value);
-                        // W4 — align the stored value with the elem
-                        // width. The reverse direction (f64 value into
-                        // an i64 elem) means the width analysis missed
-                        // a write site — loud over bit-punning.
-                        let v = match (elem_ty, self.operand_ty(&v)) {
-                            (Type::F64, Type::I64) => self.coerce_to_f64(v),
-                            (Type::I64, Type::F64) => panic!(
-                                "ssa-lower: f64 value into i64 array elem — \
-                                 container width analysis missed this write"
-                            ),
-                            _ => v,
-                        };
-                        // Drop old elem if non-Copy. M1.2 MVP only ships
-                        // i64 elements (Copy), so this branch currently
-                        // never fires; lays groundwork for non-Copy
-                        // element types in a follow-up.
-                        if !elem_ty.is_copy() {
-                            let old = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::LoadDyn(elem_ty, arr_val.clone(), offset.clone()),
-                                elem_ty,
-                                None,
-                            );
-                            self.emit_drop_value(Operand::Value(old), elem_ty);
-                        }
-                        self.f
-                            .append_void(self.cur_block, InstKind::StoreDyn(v, arr_val, offset));
-                        v
+                        // bug-327 C3 — moved to ssa_lower_index_assign.rs
+                        // (bounds-honoring write: Array<Any> grows via
+                        // __torajs_arr_set_any_grow + write-back, typed
+                        // tier guards the inline store).
+                        self.lower_index_assign(obj, index, *value)
                     }
                     other => panic!("ssa-lower: unsupported assign target: {other:?}"),
                 }

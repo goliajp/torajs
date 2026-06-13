@@ -78,6 +78,10 @@ unsafe extern "C" {
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
+
+    /// Cross-tier — torajs-throw. Raises a catchable RangeError;
+    /// the caller's SSA-level emit_throw_check propagates it.
+    fn __torajs_throw_range_error(msg: *const u8);
 }
 
 #[inline]
@@ -233,11 +237,18 @@ pub unsafe extern "C" fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) 
     }
 }
 
-/// Indexed write — `arr[i] = (tag, value)`. NULL arr is a no-op. OOB
-/// `i` is the caller's responsibility (no bounds check, matching the
-/// arr_get_any_* helpers). If the slot previously held a heap-cell
-/// AnyValue, drop it first to keep refcount accounting balanced
-/// (`value_drop_heap` is NaN-box-safe — primitives no-op).
+/// Indexed write — `arr[i] = (tag, value)`. NULL arr is a no-op. If
+/// the slot previously held a heap-cell AnyValue, drop it first to
+/// keep refcount accounting balanced (`value_drop_heap` is
+/// NaN-box-safe — primitives no-op).
+///
+/// bug-327 C3 — OOB `i` raises a catchable RangeError instead of the
+/// pre-fix unchecked write (which first treated adjacent heap bytes
+/// as a droppable AnyValue — arbitrary deref+free — then wrote past
+/// the block: silent corruption for small `i`, SIGSEGV past the
+/// page). This entry stays on receivers with no write-back slot
+/// (`getArr()[i] = v`); growable receivers route through
+/// [`__torajs_arr_set_any_grow`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64, value: u64) {
     if arr.is_null() {
@@ -245,8 +256,76 @@ pub unsafe extern "C" fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64
     }
     let arr = arr as *mut u8;
     unsafe {
+        let len = *(arr.add(ARR_LEN_OFF) as *const u64);
+        if i >= len {
+            __torajs_throw_range_error(
+                b"out-of-bounds index write through a temporary array receiver is not yet supported\0".as_ptr(),
+            );
+            return;
+        }
         let old_av = *slot_anyvalue_ptr(arr, i);
         __torajs_value_drop_heap(old_av as *mut c_void);
         *slot_anyvalue_ptr(arr, i) = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+    }
+}
+
+/// ES-spec dense limit for the growable indexed-write path. Writing
+/// at an index past this raises RangeError — torajs arrays are dense
+/// (no dictionary-mode fallback yet), so `x[4294967295] = 1`-style
+/// sparse writes would otherwise demand a 32GB realloc. Matches V8's
+/// fast-elements order of magnitude (32M slots).
+const ARR_DENSE_LIMIT: u64 = 32 * 1024 * 1024;
+
+/// bug-327 C3 — bounds-honoring indexed write for receivers with a
+/// write-back slot (`a[i] = v` on an Ident binding). `i < len`
+/// behaves like [`__torajs_arr_set_any`]; `i >= len` grows per ES
+/// spec (§10.4.2.1 OrdinarySet on an array index): reserve `i+1`
+/// slots (2× amortized), fill the `len..i` gap with undefined, set
+/// `len = i+1`. Returns the (possibly-realloc'd) array pointer; the
+/// caller MUST store it back, mirroring the `arr_push_any` contract.
+///
+/// # Safety
+/// `arr` must be a valid Array<Any> heap pointer (FLAG_ARR_ANY,
+/// 8-byte AnyValue slots). For ANY_HEAP values the caller has
+/// pre-rc-incremented; the slot takes ownership.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_set_any_grow(
+    arr: *mut c_void,
+    i: u64,
+    tag: u64,
+    value: u64,
+) -> *mut u8 {
+    let mut arr = arr as *mut u8;
+    unsafe {
+        let len = *(arr.add(ARR_LEN_OFF) as *const u64);
+        if i < len {
+            let old_av = *slot_anyvalue_ptr(arr, i);
+            __torajs_value_drop_heap(old_av as *mut c_void);
+            *slot_anyvalue_ptr(arr, i) = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+            return arr;
+        }
+        if i >= ARR_DENSE_LIMIT {
+            __torajs_throw_range_error(
+                b"array index beyond the dense-storage limit (sparse arrays are not yet supported)\0".as_ptr(),
+            );
+            return arr;
+        }
+        let cap = *(arr.add(ARR_CAP_LOW32_OFF) as *const u32) as u64;
+        if i >= cap {
+            let mut new_cap: u64 = if cap == 0 { 4 } else { cap * 2 };
+            if new_cap < i + 1 {
+                new_cap = i + 1;
+            }
+            let total = ARR_SLOTS_OFF + (new_cap as usize) * ANY_SLOT_BYTES;
+            arr = realloc(arr as *mut c_void, total) as *mut u8;
+            *(arr.add(ARR_CAP_LOW32_OFF) as *mut u32) = new_cap as u32;
+        }
+        let undef = __torajs_anyv_box_from_pair(5, 0); // ANY_UNDEF
+        for k in len..i {
+            *slot_anyvalue_ptr(arr, k) = undef;
+        }
+        *slot_anyvalue_ptr(arr, i) = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+        *(arr.add(ARR_LEN_OFF) as *mut u64) = i + 1;
+        arr
     }
 }
