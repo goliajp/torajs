@@ -39,10 +39,17 @@
 // fnGlobalObject.js (130) — `globalThis` has no expression surface
 //   (unknown identifier).
 
-class Test262Error {
-  message: string;
+// Extends Error (matching real test262's Test262Error, which derives
+// from Error) so instances carry the Error layout prefix (message
+// field0, name field1) and the FLAG_ERROR header bit — the uncaught
+// reporter then renders `Test262Error: <message>` instead of an opaque
+// `exception`, making assert-failure cases clusterable by their message.
+// `message` is inherited from Error (do NOT redeclare — desugar
+// field-flattening rejects parent-field redeclaration).
+class Test262Error extends Error {
   constructor(m: string) {
-    this.message = m;
+    super(m);
+    this.name = "Test262Error";
   }
 }
 
