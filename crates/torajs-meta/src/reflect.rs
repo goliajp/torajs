@@ -12,9 +12,10 @@
 //! dynobj are rc-incremented so the descriptor's `value` slot owns
 //! its share independently.
 
-use core::ffi::c_void;
+use core::ffi::{c_char, c_void};
 
 unsafe extern "C" {
+    fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_str_drop(s: *mut u8);
@@ -157,6 +158,17 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     obj_any: u64,
     key: *const c_void,
 ) -> u64 {
+    // Spec §20.1.2.8 step 1 — `Let obj be ? ToObject(O)`. ToObject on
+    // `undefined` / `null` throws a TypeError; every other primitive
+    // (number / boolean / string) boxes to a wrapper and falls through
+    // to the no-property `undefined` return below (bun parity).
+    if obj_any == VALUE_UNDEFINED_IMM || obj_any == VALUE_NULL_IMM {
+        // SAFETY: NUL-terminated static C string.
+        unsafe {
+            __torajs_throw_type_error(c"Cannot convert undefined or null to object".as_ptr())
+        };
+        return VALUE_UNDEFINED_IMM;
+    }
     if !is_cell_imm(obj_any) || key.is_null() {
         return VALUE_UNDEFINED_IMM;
     }

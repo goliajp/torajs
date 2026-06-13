@@ -15539,7 +15539,18 @@ impl<'a> LowerCtx<'a> {
                     && ns == "Object"
                     && args.len() == 2
                 {
-                    let obj_op = self.lower_expr(args[0]);
+                    // Box a non-Any receiver to its spec-correct AnyValue
+                    // immediate (undefined → ANY_UNDEF, null → ANY_NULL,
+                    // number/string → wrapper) so the runtime can
+                    // tag-discriminate the `ToObject(undefined|null) →
+                    // throw TypeError` case (RFC C4). An already-Any
+                    // receiver passes through unchanged.
+                    let obj_raw = self.lower_expr(args[0]);
+                    let obj_op = if matches!(self.operand_ty(&obj_raw), Type::Any) {
+                        obj_raw
+                    } else {
+                        self.box_to_any_from_expr(args[0], obj_raw)
+                    };
                     let key_op = self.lower_expr(args[1]);
                     let v = self.f.append_inst(
                         self.cur_block,
@@ -15550,6 +15561,9 @@ impl<'a> LowerCtx<'a> {
                         Type::Any,
                         None,
                     );
+                    // Propagate the runtime TypeError (undefined/null
+                    // receiver) to the enclosing try/catch.
+                    self.emit_throw_check(None);
                     return Operand::Value(v);
                 }
                 if let Expr::Member {
