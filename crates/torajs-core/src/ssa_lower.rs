@@ -9722,19 +9722,51 @@ impl<'a> LowerCtx<'a> {
                     // Mirror the LetDecl fast-path: lower_expr panics
                     // on a bare `[]` because there's no element to
                     // infer the element type from, so we emit
-                    // `arr_alloc(0)` directly using the slot's
-                    // annotated ArrId.
+                    // `arr_alloc(0)` (or `arr_alloc_any(0)` for the
+                    // tagged-slot Arr<Any> layout, T-10.c) directly
+                    // using the slot's annotated ArrId.
                     let init_val = if let Expr::Array(els) = self.ast.get_expr(*init)
                         && els.is_empty()
                         && matches!(slot_ty, Type::Arr(_))
                     {
+                        let alloc_fn = if let Type::Arr(arr_id) = slot_ty
+                            && self.arr_layouts[arr_id.0 as usize] == Type::Any
+                        {
+                            self.intrinsics.arr_alloc_any
+                        } else {
+                            self.intrinsics.arr_alloc
+                        };
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+                            InstKind::Call(alloc_fn, vec![Operand::ConstI64(0)]),
                             slot_ty,
                             None,
                         );
                         Operand::Value(v)
+                    } else if let Expr::Array(els) = self.ast.get_expr(*init)
+                        && let Type::Arr(arr_id) = slot_ty
+                        && self.arr_layouts[arr_id.0 as usize] == Type::Any
+                    {
+                        // Mirror LetDecl's T-11 Arr<Any> non-empty
+                        // literal path. The generic `lower_expr` would
+                        // route this Array literal through the typed
+                        // Arr<T> fast path (arr_alloc + raw slot stores
+                        // at +24/+32/…), but Arr<Any> elements are
+                        // NaN-boxed AnyValues — raw `10` is not a
+                        // valid AnyValue immediate. Without the
+                        // detour, scope-exit `arr_drop_any` decodes
+                        // those raw ints as Any tags + ptrs and the
+                        // resulting invalid heap deref SIGSEGVs in
+                        // main's drop walker. `const ys: any[] =
+                        // [10,20,30]; Object.getOwnPropertyDescriptor
+                        // (ys, "length")` (or any sibling use that
+                        // promotes `ys` from stack alloca to a true
+                        // heap global via the `is_main_fn + globals`
+                        // gate above) triggers this — `let ys`
+                        // stayed on the alloca path and never hit
+                        // the bug. Repro: `/private/tmp/c5a-r26.ts`.
+                        let ids: Vec<ExprId> = els.clone();
+                        self.lower_array_any_literal(&ids)
                     } else {
                         self.lower_expr(*init)
                     };
