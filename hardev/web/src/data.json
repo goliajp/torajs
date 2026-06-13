@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-13T13:00:40.944Z",
+  "generatedAt": "2026-06-13T13:54:09.876Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 724,
+    "pass": 787,
     "fail": 0,
     "skip": 4,
-    "raw": "724/0/4",
-    "source": "/tmp/torajs-conformance-acbc5f6.log",
-    "sourceMtime": "2026-06-10T02:48:22.109Z"
+    "raw": "787/0/4",
+    "source": "/tmp/torajs-conformance-c5b4-54d56e65.log",
+    "sourceMtime": "2026-06-13T13:54:08.932Z"
   },
   "test262": {
     "ranAt": "2026-06-13T02:10:34Z",
@@ -31,17 +31,17 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "21741ab5",
-    "commitSubject": "feat: Object.getOwnPropertyDescriptor(arr, \"length\") real descriptor (RFC C5a)",
+    "commit": "54d56e65",
+    "commitSubject": "feat: Object.defineProperty on sealed object throws TypeError (RFC C5b-4)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 724,
+      "pass": 787,
       "fail": 0,
       "skip": 4,
-      "raw": "724/0/4",
-      "source": "/tmp/torajs-conformance-acbc5f6.log",
-      "sourceMtime": "2026-06-10T02:48:22.109Z"
+      "raw": "787/0/4",
+      "source": "/tmp/torajs-conformance-c5b4-54d56e65.log",
+      "sourceMtime": "2026-06-13T13:54:08.932Z"
     }
   },
   "roadmap": [
@@ -619,6 +619,26 @@
   },
   "commits": [
     {
+      "hash": "54d56e65",
+      "subject": "feat: Object.defineProperty on sealed object throws TypeError (RFC C5b-4)"
+    },
+    {
+      "hash": "1705d60b",
+      "subject": "feat: Object.seal / isSealed real bit + DynObj entry walk (RFC C5b-3)"
+    },
+    {
+      "hash": "5bab5eb6",
+      "subject": "feat: Object.preventExtensions / isExtensible real bit (RFC C5b-2)"
+    },
+    {
+      "hash": "5912b9ec",
+      "subject": "feat: FLAG_NON_EXTENSIBLE bit + raw-ptr layer helpers (RFC C5b-1)"
+    },
+    {
+      "hash": "f8c1060f",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC C5a Object.getOwnPropertyDescriptor(arr, length) real descriptor, gate 784/0/4"
+    },
+    {
       "hash": "21741ab5",
       "subject": "feat: Object.getOwnPropertyDescriptor(arr, \"length\") real descriptor (RFC C5a)"
     },
@@ -645,47 +665,38 @@
     {
       "hash": "b4dcce82",
       "subject": "feat: accessor setter dispatch + getOwnPropertyDescriptor accessor reporting (RFC C3c)"
-    },
-    {
-      "hash": "0aa62a02",
-      "subject": "feat: accessor getter dispatch via Object.defineProperty (RFC C3b)"
-    },
-    {
-      "hash": "6633ab07",
-      "subject": "feat: AccessorPair heap object substrate (RFC C3a)"
-    },
-    {
-      "hash": "4fc7a82f",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC C1+C2 Object property-descriptors (defineProperty runtime-desc + defineProperties unfold), gate 778/0/4"
-    },
-    {
-      "hash": "f4527edf",
-      "subject": "feat: Object.defineProperties via compile-time unfold (RFC C2)"
-    },
-    {
-      "hash": "53361fa7",
-      "subject": "feat: Object.defineProperty runtime-descriptor path (RFC C1)"
     }
   ],
-  "headSha": "21741ab5",
+  "headSha": "54d56e65",
   "autorun": {
-    "total": 138,
+    "total": 139,
     "baselineTarget": 10,
-    "bySelf": 136,
+    "bySelf": 137,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781352343-37e6",
-      "at": "2026-06-13T12:05:43Z",
-      "ts": 1781352343,
+      "rotationId": "r-1781355734-3c7d",
+      "at": "2026-06-13T13:02:14Z",
+      "ts": 1781355734,
       "trigger": "self",
-      "prevHead": "19d04614",
-      "handoffSha": "sha256:8bff346554d8e2733648796339aabeb2441e68b3a72e8404db75f1371231a8ba",
+      "prevHead": "f8c1060f",
+      "handoffSha": "sha256:b287d4e8428955ab3163199919f252b06868f1b057be01fb0ffe1db50b48b4b0",
       "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781355734-3c7d",
+        "at": "2026-06-13T13:02:14Z",
+        "ts": 1781355734,
+        "trigger": "self",
+        "prevHead": "f8c1060f",
+        "handoffSha": "sha256:b287d4e8428955ab3163199919f252b06868f1b057be01fb0ffe1db50b48b4b0",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781352343-37e6",
         "at": "2026-06-13T12:05:43Z",
@@ -782,17 +793,6 @@
         "prevHead": "495ceb9",
         "handoffSha": "sha256:8809efc32f718cac949eaba485ac761d3215ad3fed44eb819dce4fd6f88ab73f",
         "handoffAgeSec": 34,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781260211-67db",
-        "at": "2026-06-12T10:30:11Z",
-        "ts": 1781260211,
-        "trigger": "self",
-        "prevHead": "2cee60b",
-        "handoffSha": "sha256:d15b00e686ee8516b9c8a6f0b799c53c47fd66b76111e40f73971542f49f0c41",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
