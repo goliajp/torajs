@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T23:05:12.869Z",
+  "generatedAt": "2026-06-13T23:31:02.790Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "0447b58b",
-    "commitSubject": "feat: auto-inject TypeError / RangeError for runtime-thrown native errors",
+    "commit": "c994e53a",
+    "commitSubject": "feat: instanceof Type::Any wedge close via runtime tag dispatch",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "c994e53a",
+      "subject": "feat: instanceof Type::Any wedge close via runtime tag dispatch"
+    },
+    {
+      "hash": "e953d092",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - auto-inject TypeError/RangeError for runtime-thrown native errors, gate 789/0/4 hold"
+    },
+    {
       "hash": "0447b58b",
       "subject": "feat: auto-inject TypeError / RangeError for runtime-thrown native errors"
     },
@@ -657,35 +665,38 @@
     {
       "hash": "ff848f71",
       "subject": "fix: top-level const Arr<Any> literal uses Any-tagged alloc + push instead of raw stores"
-    },
-    {
-      "hash": "be3b7efa",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC any-class-member-read inline class-tag dispatch, gate 788/0/4"
-    },
-    {
-      "hash": "c72939a8",
-      "subject": "feat: Type::Any member read on class instance via inline class-tag dispatch"
     }
   ],
-  "headSha": "0447b58b",
+  "headSha": "c994e53a",
   "autorun": {
-    "total": 144,
+    "total": 145,
     "baselineTarget": 10,
-    "bySelf": 142,
+    "bySelf": 143,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781387781-6722",
-      "at": "2026-06-13T21:56:21Z",
-      "ts": 1781387781,
+      "rotationId": "r-1781392314-0a7d",
+      "at": "2026-06-13T23:11:54Z",
+      "ts": 1781392314,
       "trigger": "self",
-      "prevHead": "6a10c8e4",
-      "handoffSha": "sha256:bcacfc68a67d4ce2f68258bae76fb858791793df91d60e2d6b6dc487325d0bec",
-      "handoffAgeSec": 5,
+      "prevHead": "e953d092",
+      "handoffSha": "sha256:b86b45aaf537accbd6d03176cbe8a708ab0b8db059165ad7a36beb25d6773691",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781392314-0a7d",
+        "at": "2026-06-13T23:11:54Z",
+        "ts": 1781392314,
+        "trigger": "self",
+        "prevHead": "e953d092",
+        "handoffSha": "sha256:b86b45aaf537accbd6d03176cbe8a708ab0b8db059165ad7a36beb25d6773691",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781387781-6722",
         "at": "2026-06-13T21:56:21Z",
@@ -782,17 +793,6 @@
         "prevHead": "4fc7a82f",
         "handoffSha": "sha256:9d84e4d4629ea2362a7b9667f392888e141c9cfb5499bf92387d1aab27fc6139",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781326709-0c1b",
-        "at": "2026-06-13T04:58:29Z",
-        "ts": 1781326709,
-        "trigger": "self",
-        "prevHead": "c1a664d2",
-        "handoffSha": "sha256:a66d16c967bbf467b7b3cc7d75706c2d5fdf86177cbc6732ae1ee81a89d0e656",
-        "handoffAgeSec": 254,
         "conformanceBefore": null,
         "commitsInSession": null
       }
