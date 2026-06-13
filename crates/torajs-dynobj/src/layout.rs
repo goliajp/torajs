@@ -112,6 +112,14 @@ pub const BUCKET_FLAGS_MASK: u64 = 0x7;
 /// by `get_tag` when the key is absent or `obj` is not a dynobj.
 pub const ANY_UNDEF: u64 = 5;
 
+/// Synthetic `get_tag` sentinel marking an **accessor** entry — the
+/// stored `value_anyv` is a cell pointing at an `AccessorPair` (RFC
+/// C3). Lives one past `ANY_UNDEF` in the otherwise 0..5 AnySlotTag
+/// space; never produced by the NaN-box encoder, so data-property
+/// paths never see it. The SSA property-GET emit branches on it to
+/// dispatch the getter.
+pub const ANY_ACCESSOR: u64 = 6;
+
 /// Mask for the low-8 ANY_TAG bits of the FFI `tag: u64` parameter
 /// passed into [`crate::set::__torajs_dynobj_set`] /
 /// [`crate::define::__torajs_dynobj_define`]. Callers may pass dirty

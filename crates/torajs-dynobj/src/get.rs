@@ -11,8 +11,10 @@
 
 use core::ffi::c_void;
 
+use crate::accessor::TAG_ACCESSOR_PAIR;
 use crate::layout::{
-    ANY_UNDEF, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE, TAG_DYNOBJ,
+    ANY_ACCESSOR, ANY_HEAP, ANY_UNDEF, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE,
+    BUCKET_FLAG_WRITABLE, TAG_DYNOBJ,
 };
 use crate::probe::{bucket_flags, entries, probe};
 
@@ -53,7 +55,18 @@ pub unsafe extern "C" fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const
     }
     let ent = unsafe { entries(obj) };
     let v = unsafe { (*ent.add(p.entry as usize)).value_anyv };
-    unsafe { __torajs_anyv_unbox_tag(v) as u64 }
+    let tag = unsafe { __torajs_anyv_unbox_tag(v) } as u64;
+    // Accessor entries store an `AccessorPair` cell — surface the
+    // synthetic ANY_ACCESSOR sentinel so the SSA GET path dispatches
+    // the getter instead of yielding the pair pointer. Only a Heap-tag
+    // value can be an accessor, so the pointee type_tag read is gated.
+    if tag == ANY_HEAP {
+        let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
+        if !ptr.is_null() && unsafe { type_tag(ptr) } == TAG_ACCESSOR_PAIR {
+            return ANY_ACCESSOR;
+        }
+    }
+    tag
 }
 
 /// `__torajs_dynobj_get_value(obj, key)` — return the slot's

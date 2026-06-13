@@ -2631,6 +2631,22 @@ fn lower_inner(
         &[Type::Ptr, Type::Ptr, Type::Ptr],
         Type::Void,
     );
+    // RFC 20260613 C3 — accessor substrate (impl in ssa_lower_accessor):
+    // build the AccessorPair (define) + invoke its getter (GET dispatch).
+    let accessor_pair_new_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_accessor_pair_new",
+        &[Type::Ptr, Type::Ptr, Type::I64],
+        Type::Ptr,
+    );
+    let accessor_invoke_getter_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_accessor_invoke_getter",
+        &[Type::Ptr],
+        Type::Any,
+    );
     // P3.getOwnPropertyDescriptor — `Object.getOwnPropertyDescriptor`
     // entry. Returns a fresh Any-box wrapping either a dynobj with
     // {value, writable, enumerable, configurable} fields (when the
@@ -5076,6 +5092,8 @@ fn lower_inner(
         dynobj_set: dynobj_set_id,
         dynobj_define: dynobj_define_id,
         dynobj_define_from_desc: dynobj_define_from_desc_id,
+        accessor_pair_new: accessor_pair_new_id,
+        accessor_invoke_getter: accessor_invoke_getter_id,
         get_property_descriptor: get_property_descriptor_id,
         dynobj_has: dynobj_has_id,
         dynobj_delete: dynobj_delete_id,
@@ -5874,6 +5892,8 @@ pub(crate) struct Intrinsics {
     pub(crate) dynobj_set: FuncId,
     pub(crate) dynobj_define: FuncId,
     pub(crate) dynobj_define_from_desc: FuncId,
+    pub(crate) accessor_pair_new: FuncId,
+    pub(crate) accessor_invoke_getter: FuncId,
     pub(crate) get_property_descriptor: FuncId,
     pub(crate) dynobj_has: FuncId,
     pub(crate) dynobj_delete: FuncId,
@@ -12589,18 +12609,10 @@ impl<'a> LowerCtx<'a> {
             Type::I64,
             None,
         );
-        let box_v = self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(
-                self.intrinsics.any_box,
-                vec![Operand::Value(tag), Operand::Value(value)],
-            ),
-            Type::Any,
-            None,
-        );
+        let box_v = crate::ssa_lower_accessor::emit_dynobj_get_result(self, tag, value);
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(Operand::Value(box_v), Operand::Value(res_slot), 0),
+            InstKind::Store(box_v.clone(), Operand::Value(res_slot), 0),
         );
         let rb = self.cur_block;
         self.f.set_term(rb, Terminator::Br(after));
@@ -20958,16 +20970,8 @@ impl<'a> LowerCtx<'a> {
                         Type::I64,
                         None,
                     );
-                    let box_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.any_box,
-                            vec![Operand::Value(tag), Operand::Value(value)],
-                        ),
-                        Type::Any,
-                        None,
-                    );
-                    return Operand::Value(box_v);
+                    let box_v = crate::ssa_lower_accessor::emit_dynobj_get_result(self, tag, value);
+                    return box_v;
                 }
                 // T-27.c — built-in `length` and `name` are compile-
                 // time constants known from the fn's static signature

@@ -28,7 +28,7 @@ use crate::ssa_lower::LowerCtx;
 /// Property key for [`emit_define_one`] — either an expression
 /// (`defineProperty`'s `key` arg) or a literal field name
 /// (`defineProperties`' unfolded keys).
-enum DefineKey<'a> {
+pub(crate) enum DefineKey<'a> {
     Expr(ExprId),
     Name(&'a str),
 }
@@ -45,7 +45,7 @@ fn key_is_length(ctx: &LowerCtx, key: &DefineKey) -> bool {
 /// Lower the key to a `Str` operand. Call at the spec evaluation point
 /// (after `obj`, before the descriptor) so a side-effecting key expr
 /// orders correctly.
-fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> Operand {
+pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> Operand {
     match key {
         DefineKey::Expr(eid) => ctx.lower_expr(*eid),
         DefineKey::Name(n) => Operand::Value(ctx.intern_string_literal(n)),
@@ -129,6 +129,35 @@ fn emit_define_one(ctx: &mut LowerCtx, obj_eid: ExprId, key: DefineKey, desc_eid
             }
             None
         };
+
+        // RFC C3 — accessor (get/set) descriptor. Per spec §6.2.5 an
+        // accessor descriptor is mutually exclusive with a data
+        // `value`; when the literal carries a `get` and/or `set`
+        // function, store an `AccessorPair` cell instead of a data
+        // value. Only dynobj-backed Any objects carry accessor storage
+        // (typed Struct / Array accessors stay the prior no-op).
+        let (get_eid, set_eid) = match ctx.ast.get_expr(desc_eid) {
+            Expr::ObjectLit { fields } => (
+                fields.iter().find(|(n, _)| n == "get").map(|(_, e)| *e),
+                fields.iter().find(|(n, _)| n == "set").map(|(_, e)| *e),
+            ),
+            _ => (None, None),
+        };
+        if (get_eid.is_some() || set_eid.is_some()) && matches!(obj_ty, Type::Any) {
+            let acc_enum = lookup_bool_field("enumerable");
+            let acc_config = lookup_bool_field("configurable");
+            return crate::ssa_lower_accessor::emit_accessor_define(
+                ctx,
+                obj_op,
+                &key,
+                &receiver_ident,
+                get_eid,
+                set_eid,
+                acc_enum,
+                acc_config,
+            );
+        }
+
         let mut flags_byte: i64 = 0;
         if let Some(b) = lookup_bool_field("writable") {
             flags_byte |= 1 << 3; // present

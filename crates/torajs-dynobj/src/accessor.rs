@@ -39,6 +39,9 @@ unsafe extern "C" {
     /// Cross-tier — refcount dec. Returns 1 iff the caller should free
     /// + release children; 0 otherwise.
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
+    /// torajs-anyvalue — NaN-box a `(tag, value)` pair into an
+    /// `AnyValue`. `tag`: 0=Null 1=Bool 2=I64 3=F64(bits) 4=Heap(ptr).
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
 }
 
 /// Total `AccessorPair` heap-block size.
@@ -61,7 +64,30 @@ pub const TAG_ACCESSOR_PAIR: u16 = 18;
 /// Closure layout — mirrored from `ssa_lower`'s `CLOSURE_*_OFF`
 /// constants (the env-first closure ABI is a shared cross-tier
 /// contract; same mirror pattern dynobj uses for the Str layout).
+const CLOSURE_FN_ADDR_OFF: usize = 8;
 const CLOSURE_DROP_FN_OFF: usize = 16;
+
+// Accessor closure value-ABI kinds — the low byte of `kinds` records
+// the getter's native SSA return type so the invoke path reads the
+// correct return register and boxes accordingly. ssa_lower writes
+// these at define time (RFC C3b) from the getter closure's signature.
+//
+/// Getter returns an `AnyValue` (already NaN-boxed) — pass through.
+pub const ACC_KIND_ANY: u8 = 0;
+/// Getter returns `I64` / `I32` — box as tag 2.
+pub const ACC_KIND_I64: u8 = 1;
+/// Getter returns `F64` (in `d0`) — bitcast + box as tag 3.
+pub const ACC_KIND_F64: u8 = 2;
+/// Getter returns `Bool` — box as tag 1.
+pub const ACC_KIND_BOOL: u8 = 3;
+/// Getter returns a refcounted heap pointer — a raw cell is already a
+/// valid `AnyValue`; box as tag 4 (heap) so null collapses to `null`.
+pub const ACC_KIND_PTR: u8 = 4;
+
+/// `undefined` NaN-box sentinel (mirrors
+/// `torajs_anyvalue::nanbox::VALUE_UNDEFINED` = 0x0A). Returned when an
+/// accessor has no getter (`get` omitted).
+const VALUE_UNDEFINED: u64 = 0x0A;
 
 /// `__torajs_accessor_pair_new(get_closure, set_closure, kinds)` —
 /// allocate a fresh `+1`-rc `AccessorPair`. `get_closure` /
@@ -129,6 +155,65 @@ pub unsafe extern "C" fn __torajs_accessor_get_kinds(pair: *const c_void) -> u64
         return 0;
     }
     unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) }
+}
+
+/// `__torajs_accessor_invoke_getter(pair)` — call the getter closure
+/// and return its result as an `AnyValue`. The getter is invoked with
+/// the env-first closure ABI and **no** user argument (a getter takes
+/// none). Its raw return lands in the register bank dictated by its
+/// native SSA return type, so the packed getter ret kind selects the
+/// matching fn-pointer transmute (an `F64` getter leaves its value in
+/// `d0`, an `I64` one in `x0`) and the matching box. A pair with no
+/// getter yields `undefined`.
+///
+/// `this` binding: tora's non-class functions carry no `this`, so the
+/// getter is called env-only — sufficient for the closure-capture
+/// accessor idiom (`get() { accessed = true; return v }`). A getter
+/// that references `this` is a separate substrate gap (general
+/// non-class `this`), tracked in the RFC.
+///
+/// # Safety
+/// `pair` is null or a live `AccessorPair`; its `get_closure` (when
+/// present) is a live closure whose fn at `+8` has the env-first ABI
+/// and the return type encoded by the getter ret kind.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64 {
+    if pair.is_null() {
+        return VALUE_UNDEFINED;
+    }
+    let getter = unsafe { *((pair as *const u8).add(ACC_GET_OFF) as *const u64) } as *mut c_void;
+    if getter.is_null() {
+        return VALUE_UNDEFINED;
+    }
+    let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
+    let ret_kind = (kinds & 0xff) as u8;
+    let fn_addr = unsafe { *((getter as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const usize) };
+    unsafe {
+        match ret_kind {
+            ACC_KIND_F64 => {
+                let f: unsafe extern "C" fn(*mut c_void) -> f64 = core::mem::transmute(fn_addr);
+                __torajs_anyv_box_from_pair(3, f(getter).to_bits() as i64)
+            }
+            ACC_KIND_BOOL => {
+                let f: unsafe extern "C" fn(*mut c_void) -> i64 = core::mem::transmute(fn_addr);
+                __torajs_anyv_box_from_pair(1, i64::from(f(getter) != 0))
+            }
+            ACC_KIND_I64 => {
+                let f: unsafe extern "C" fn(*mut c_void) -> i64 = core::mem::transmute(fn_addr);
+                __torajs_anyv_box_from_pair(2, f(getter))
+            }
+            ACC_KIND_PTR => {
+                let f: unsafe extern "C" fn(*mut c_void) -> u64 = core::mem::transmute(fn_addr);
+                __torajs_anyv_box_from_pair(4, f(getter) as i64)
+            }
+            // ACC_KIND_ANY (and any unknown): the getter already
+            // returns a NaN-box AnyValue — pass it through verbatim.
+            _ => {
+                let f: unsafe extern "C" fn(*mut c_void) -> u64 = core::mem::transmute(fn_addr);
+                f(getter)
+            }
+        }
+    }
 }
 
 /// Release one held closure ref via its per-closure env-drop hook
