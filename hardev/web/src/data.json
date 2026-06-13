@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T02:43:35.264Z",
+  "generatedAt": "2026-06-13T04:58:06.723Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "a2521d81",
-    "commitSubject": "chore(conformance): refresh test262 baseline after bug-327 fix wave (HEAD 426b8c46)",
+    "commit": "2cf8d623",
+    "commitSubject": "feat(conformance): Test262Error extends Error for renderable assert failures",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,26 @@
   },
   "commits": [
     {
+      "hash": "2cf8d623",
+      "subject": "feat(conformance): Test262Error extends Error for renderable assert failures"
+    },
+    {
+      "hash": "59f8f688",
+      "subject": "fix: move FLAG_ERROR header store before class_tag store"
+    },
+    {
+      "hash": "af692582",
+      "subject": "feat: render Error instances in uncaught-throw reporter"
+    },
+    {
+      "hash": "8be1701a",
+      "subject": "feat(conformance): add --bugs-ndjson per-case bug dump for root-cause clustering"
+    },
+    {
+      "hash": "7358eaa3",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD a2521d81 (bug-327 four-root-cause fix wave + test262 honesty correction 7579->6730)"
+    },
+    {
       "hash": "a2521d81",
       "subject": "chore(conformance): refresh test262 baseline after bug-327 fix wave (HEAD 426b8c46)"
     },
@@ -645,47 +665,38 @@
     {
       "hash": "eded11f1",
       "subject": "chore: retire labs/0002-inkwell-spike and the last LLVM references"
-    },
-    {
-      "hash": "6014fe43",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 3b4c369 (test262 harness-includes port wave: 7 includes ported + RegExp type-ann substrate, passTotal 7343 -> 7579, bucket 13435 -> 11854, gate 772/0/4)"
-    },
-    {
-      "hash": "3b4c3693",
-      "subject": "chore(conformance): refresh test262 baseline after harness-includes port wave"
-    },
-    {
-      "hash": "973a1b9b",
-      "subject": "feat(conformance): port regExpUtils.js into typed test262 harness"
-    },
-    {
-      "hash": "ee989df8",
-      "subject": "feat(core): accept RegExp as type annotation for the regex value type"
-    },
-    {
-      "hash": "fc2e8f49",
-      "subject": "docs(conformance): record root cause for each unported test262 include"
     }
   ],
-  "headSha": "a2521d81",
+  "headSha": "2cf8d623",
   "autorun": {
-    "total": 133,
+    "total": 134,
     "baselineTarget": 10,
-    "bySelf": 131,
+    "bySelf": 132,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781306961-6c07",
-      "at": "2026-06-12T23:29:21Z",
-      "ts": 1781306961,
+      "rotationId": "r-1781318689-784b",
+      "at": "2026-06-13T02:44:49Z",
+      "ts": 1781318689,
       "trigger": "self",
-      "prevHead": "6014fe43",
-      "handoffSha": "sha256:d79ce1f66b76f45982b94688f74ef42b0c67e9118bae0c59f1ced2a2ab88ab5a",
-      "handoffAgeSec": 6,
+      "prevHead": "7358eaa3",
+      "handoffSha": "sha256:5dc00845f6cb053b1dd394d1882fd5739fe61f435d7f016f8ddfe78838cd19af",
+      "handoffAgeSec": 80,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781318689-784b",
+        "at": "2026-06-13T02:44:49Z",
+        "ts": 1781318689,
+        "trigger": "self",
+        "prevHead": "7358eaa3",
+        "handoffSha": "sha256:5dc00845f6cb053b1dd394d1882fd5739fe61f435d7f016f8ddfe78838cd19af",
+        "handoffAgeSec": 80,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781306961-6c07",
         "at": "2026-06-12T23:29:21Z",
@@ -781,17 +792,6 @@
         "trigger": "self",
         "prevHead": "2ec7f16",
         "handoffSha": "sha256:240a4850a0325a1d77000cbaeef511dea075621fddbc9651314313364f220325",
-        "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781224447-510f",
-        "at": "2026-06-12T00:34:07Z",
-        "ts": 1781224447,
-        "trigger": "self",
-        "prevHead": "0bb4e18",
-        "handoffSha": "sha256:49bc3a03812fdb575cb7076ff468be6ab7f84f6427c92dd2a950d52d8dbe2bbc",
         "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
