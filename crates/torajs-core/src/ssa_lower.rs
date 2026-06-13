@@ -20319,6 +20319,27 @@ impl<'a> LowerCtx<'a> {
                 // sweeps them when the alloca's address doesn't escape and
                 // the offsets are never read.
                 self.emit_obj_header_init(Operand::Value(obj_ptr));
+                /* Error-derived class instances carry FLAG_ERROR in the
+                 * header flags (u16 @+6) so the uncaught-throw reporter
+                 * (torajs-throw) renders `name: message` from the Error
+                 * layout prefix (message=field0, name=field1). Re-store
+                 * the +4 header word packing type_tag(OBJ=1) low half +
+                 * FLAG_ERROR high half (LE: +4=0x01 tag, +6=0x80 flags).
+                 * MUST precede the class_tag store: emit_store always
+                 * emits a 64-bit STR (compile/mem.rs), so a write at +4
+                 * spills its high 4 bytes into +8 (class_tag low word);
+                 * the class_tag store at +8 then overwrites that spill.
+                 * The header_init +4 store relies on the same ordering. */
+                let factory_class = self.f.name.strip_prefix("__new_").map(str::to_owned);
+                if let Some(cname) = factory_class
+                    && self.class_is_error_derived(&cname)
+                {
+                    let packed = 1_i32 | ((torajs_rc::FLAG_ERROR as i32) << 16);
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::ConstI32(packed), Operand::Value(obj_ptr), 4),
+                    );
+                }
                 /* Recover the class name from the enclosing factory
                  * `__new_<C>` (every class instance is constructed
                  * via that factory; non-class typed literals fall
@@ -20340,24 +20361,6 @@ impl<'a> LowerCtx<'a> {
                         OBJ_CLASS_TAG_OFF,
                     ),
                 );
-                /* Error-derived class instances carry FLAG_ERROR in the
-                 * header flags (u16 @+6) so the uncaught-throw reporter
-                 * (torajs-throw) can render `name: message` directly
-                 * from the Error layout prefix (message=field0 @+24,
-                 * name=field1 @+32 — both Str). emit_obj_header_init's
-                 * `Store(ConstI32(1), +4)` left flags=0; re-store +4
-                 * packing type_tag(OBJ=1) low half + FLAG_ERROR high
-                 * half in one i32 (LE: +4=0x01 tag, +6=0x80 flags). */
-                let factory_class = self.f.name.strip_prefix("__new_").map(str::to_owned);
-                if let Some(cname) = factory_class
-                    && self.class_is_error_derived(&cname)
-                {
-                    let packed = 1_i32 | ((torajs_rc::FLAG_ERROR as i32) << 16);
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::ConstI32(packed), Operand::Value(obj_ptr), 4),
-                    );
-                }
                 /* T-24 — vtable pointer slot.
                  *
                  * If the program has any chain methods (i.e. dispatch
