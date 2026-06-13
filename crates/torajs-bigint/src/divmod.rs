@@ -195,7 +195,7 @@ pub unsafe extern "C" fn __torajs_bigint_div(a_: *const c_void, b_: *const c_voi
     let b = b_ as *const u8;
     unsafe {
         if read_len(b) == 0 {
-            __torajs_throw_range_error(b"BigInt divide by zero\0".as_ptr());
+            __torajs_throw_range_error(b"0 is an invalid divisor value.\0".as_ptr());
             return core::ptr::null_mut();
         }
         let (q, r) = mag_divmod(a, b);
@@ -217,7 +217,7 @@ pub unsafe extern "C" fn __torajs_bigint_mod(a_: *const c_void, b_: *const c_voi
     let b = b_ as *const u8;
     unsafe {
         if read_len(b) == 0 {
-            __torajs_throw_range_error(b"BigInt divide by zero\0".as_ptr());
+            __torajs_throw_range_error(b"0 is an invalid divisor value.\0".as_ptr());
             return core::ptr::null_mut();
         }
         let (q, r) = mag_divmod(a, b);
