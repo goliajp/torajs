@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T06:38:38.006Z",
+  "generatedAt": "2026-06-13T08:17:42.154Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "f4527edf",
-    "commitSubject": "feat: Object.defineProperties via compile-time unfold (RFC C2)",
+    "commit": "b4dcce82",
+    "commitSubject": "feat: accessor setter dispatch + getOwnPropertyDescriptor accessor reporting (RFC C3c)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,22 @@
   },
   "commits": [
     {
+      "hash": "b4dcce82",
+      "subject": "feat: accessor setter dispatch + getOwnPropertyDescriptor accessor reporting (RFC C3c)"
+    },
+    {
+      "hash": "0aa62a02",
+      "subject": "feat: accessor getter dispatch via Object.defineProperty (RFC C3b)"
+    },
+    {
+      "hash": "6633ab07",
+      "subject": "feat: AccessorPair heap object substrate (RFC C3a)"
+    },
+    {
+      "hash": "4fc7a82f",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC C1+C2 Object property-descriptors (defineProperty runtime-desc + defineProperties unfold), gate 778/0/4"
+    },
+    {
       "hash": "f4527edf",
       "subject": "feat: Object.defineProperties via compile-time unfold (RFC C2)"
     },
@@ -649,43 +665,38 @@
     {
       "hash": "7358eaa3",
       "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD a2521d81 (bug-327 four-root-cause fix wave + test262 honesty correction 7579->6730)"
-    },
-    {
-      "hash": "a2521d81",
-      "subject": "chore(conformance): refresh test262 baseline after bug-327 fix wave (HEAD 426b8c46)"
-    },
-    {
-      "hash": "426b8c46",
-      "subject": "fix: out-of-bounds array index writes grow instead of corrupting (test262 bug-327 C3)"
-    },
-    {
-      "hash": "cfece64b",
-      "subject": "fix: indirect-call throw propagation + uncaught-throw exit code (test262 bug-327 C2.5)"
-    },
-    {
-      "hash": "8b8ea4ec",
-      "subject": "fix: closure-valued args into fn-typed params no longer crash (test262 bug-327 C2)"
     }
   ],
-  "headSha": "f4527edf",
+  "headSha": "b4dcce82",
   "autorun": {
-    "total": 135,
+    "total": 136,
     "baselineTarget": 10,
-    "bySelf": 133,
+    "bySelf": 134,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781326709-0c1b",
-      "at": "2026-06-13T04:58:29Z",
-      "ts": 1781326709,
+      "rotationId": "r-1781332780-1c3c",
+      "at": "2026-06-13T06:39:40Z",
+      "ts": 1781332780,
       "trigger": "self",
-      "prevHead": "c1a664d2",
-      "handoffSha": "sha256:a66d16c967bbf467b7b3cc7d75706c2d5fdf86177cbc6732ae1ee81a89d0e656",
-      "handoffAgeSec": 254,
+      "prevHead": "4fc7a82f",
+      "handoffSha": "sha256:9d84e4d4629ea2362a7b9667f392888e141c9cfb5499bf92387d1aab27fc6139",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781332780-1c3c",
+        "at": "2026-06-13T06:39:40Z",
+        "ts": 1781332780,
+        "trigger": "self",
+        "prevHead": "4fc7a82f",
+        "handoffSha": "sha256:9d84e4d4629ea2362a7b9667f392888e141c9cfb5499bf92387d1aab27fc6139",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781326709-0c1b",
         "at": "2026-06-13T04:58:29Z",
@@ -782,17 +793,6 @@
         "prevHead": "2557961",
         "handoffSha": "sha256:f74bada57529c7ecc3d2167a449b82eaaa4374137c8aa81d75af18b852e3d4fc",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781251234-124c",
-        "at": "2026-06-12T08:00:34Z",
-        "ts": 1781251234,
-        "trigger": "self",
-        "prevHead": "975b975",
-        "handoffSha": "sha256:f704646e52d452850adc4d420574a670df3ae9b0dfe1d4cff9c46cc21aad1095",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
