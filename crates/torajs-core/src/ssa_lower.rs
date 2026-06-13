@@ -15504,13 +15504,10 @@ impl<'a> LowerCtx<'a> {
                 // single-char string per byte into a fresh `string[]`.
                 // Result type is interned through the same arr_layouts
                 // path Object.keys uses (element = Type::Str).
-                // Object.defineProperty(obj, key, descriptor) — literal
-                // + runtime-descriptor (RFC 20260613 C1) paths, carved
-                // out to ssa_lower_object_define so the Object property-
-                // descriptor trunk grows there, not in this god-fn.
-                if let Some(v) =
-                    crate::ssa_lower_object_define::try_lower_define_property(self, *callee, args)
-                {
+                // Object.defineProperty / defineProperties (RFC C1/C2) —
+                // carved out to ssa_lower_object_define so the Object
+                // property-descriptor trunk grows there, not this god-fn.
+                if let Some(v) = crate::ssa_lower_object_define::try_lower(self, *callee, args) {
                     return v;
                 }
                 // P3.getOwnPropertyDescriptor — `Object.getOwnPropertyDescriptor(obj, key)`.

@@ -1,95 +1,148 @@
-//! `Object.defineProperty(obj, key, descriptor)` lowering — carved out
-//! of `ssa_lower.rs::lower_expr_inner` so the Object property-descriptor
-//! trunk (RFC `.claude/rfcs/20260613-object-property-descriptors/`)
-//! grows here instead of the 27k-line god-file.
+//! `Object.defineProperty` / `Object.defineProperties` lowering —
+//! carved out of `ssa_lower.rs::lower_expr_inner` so the Object
+//! property-descriptor trunk (RFC
+//! `.claude/rfcs/20260613-object-property-descriptors/`) grows here
+//! instead of the 27k-line god-file.
 //!
-//! Two entries share this module:
-//! - **literal path** — `args[2]` is a compile-time `ObjectLit`; the
-//!   descriptor's data flags + value are extracted at compile time and
-//!   routed to `dynobj_define` (Any obj) / `arr_set_length_validate` +
-//!   `arrprops_set` (Array obj) per spec §10.1.6.3.
-//! - **runtime path** (RFC C1) — `args[2]` is a runtime expression;
-//!   routed to `dynobj_define_from_desc`, which reads the descriptor
-//!   fields off the `desc` dynobj at runtime.
+//! [`emit_define_one`] is the shared single-property core: a literal
+//! `ObjectLit` descriptor is extracted at compile time and routed to
+//! `dynobj_define` (Any obj) / `arr_set_length_validate` +
+//! `arrprops_set` (Array obj) per spec §10.1.6.3; a runtime descriptor
+//! expression (RFC C1) is routed to `dynobj_define_from_desc`, which
+//! reads the fields off the `desc` dynobj at runtime.
 //!
-//! The dispatcher is a `pub(crate) fn try_lower_define_property(ctx,
-//! callee_eid, args) -> Option<Operand>` — `Some` when it handled the
-//! call, `None` to let `lower_expr_inner` continue (the literal/runtime
-//! arms don't match, or the runtime arm hit a non-Any obj/desc shape
-//! the prior "unsupported member call shape" panic still rejects).
+//! - [`try_lower_define_property`] — `Object.defineProperty(obj, key,
+//!   desc)`: one `emit_define_one` over `(args[0], args[1], args[2])`.
+//! - [`try_lower_define_properties`] — `Object.defineProperties(obj,
+//!   { k1: d1, ... })` (RFC C2): when `props` is a compile-time
+//!   `ObjectLit` and `obj` is an Ident, unfold to one `emit_define_one`
+//!   per field. Nested descriptors stored inside an `any` object aren't
+//!   readable as dynobjs (their fields don't round-trip through dynamic
+//!   member access), so a runtime `props` variable can't be walked —
+//!   that shape falls through to the prior no-op.
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
-/// Lower `Object.defineProperty(obj, key, descriptor)`. Returns `Some`
-/// when handled; `None` to fall through to the rest of
-/// `lower_expr_inner`'s member-call dispatch.
-pub(crate) fn try_lower_define_property(
-    ctx: &mut LowerCtx,
-    callee_eid: ExprId,
-    args: &[ExprId],
-) -> Option<Operand> {
-    // P3.3 / P3.attribute-flag-tracking — literal-descriptor path. For
-    // dynobj-backed Any obj, routes to dynobj_define so spec §10.1.6.3
-    // attribute-flag transitions are enforced (writable / configurable
-    // / enumerable + value-mismatch under writable=false). For Array
-    // obj, the existing arr_set_length_validate / arrprops_set paths
-    // keep their behavior.
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ctx.ast.get_expr(callee_eid)
-        && m_name == "defineProperty"
-        && let Expr::Ident(ns) = ctx.ast.get_expr(*ns_id)
-        && ns == "Object"
-        && args.len() == 3
-        && matches!(ctx.ast.get_expr(args[2]), Expr::ObjectLit { .. })
-    {
-        let value_eid = match ctx.ast.get_expr(args[2]) {
+/// Property key for [`emit_define_one`] — either an expression
+/// (`defineProperty`'s `key` arg) or a literal field name
+/// (`defineProperties`' unfolded keys).
+enum DefineKey<'a> {
+    Expr(ExprId),
+    Name(&'a str),
+}
+
+/// Is this key the string `"length"`? (Array `length` descriptor takes
+/// the `arr_set_length_validate` path.) Pure AST/str check — no lowering.
+fn key_is_length(ctx: &LowerCtx, key: &DefineKey) -> bool {
+    match key {
+        DefineKey::Expr(eid) => matches!(ctx.ast.get_expr(*eid), Expr::String(s) if s == "length"),
+        DefineKey::Name(n) => *n == "length",
+    }
+}
+
+/// Lower the key to a `Str` operand. Call at the spec evaluation point
+/// (after `obj`, before the descriptor) so a side-effecting key expr
+/// orders correctly.
+fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> Operand {
+    match key {
+        DefineKey::Expr(eid) => ctx.lower_expr(*eid),
+        DefineKey::Name(n) => Operand::Value(ctx.intern_string_literal(n)),
+    }
+}
+
+/// Emit one `Object.defineProperty(obj, key, desc)`-equivalent. `obj` is
+/// re-lowered from `obj_eid` (so `defineProperties` can re-read the
+/// receiver variable after a prior field resized it). Returns `true`
+/// when handled; `false` when neither a literal nor a runtime-Any
+/// descriptor applies (caller decides the fall-through).
+fn emit_define_one(ctx: &mut LowerCtx, obj_eid: ExprId, key: DefineKey, desc_eid: ExprId) -> bool {
+    // Step 7d-A — capture the receiver's Ident name (if any) so the
+    // dynobj-define Any path can writeback the post-resize ptr to the
+    // variable's storage as a fresh NaN-box AnyValue.
+    let receiver_ident: Option<String> = if let Expr::Ident(n) = ctx.ast.get_expr(obj_eid) {
+        Some(n.clone())
+    } else {
+        None
+    };
+    let obj_op = ctx.lower_expr(obj_eid);
+    let obj_ty = ctx.operand_ty(&obj_op);
+    let is_length = key_is_length(ctx, &key);
+
+    // Tag-pack helper — same table the BinOp Any===concrete arm uses for
+    // runtime tag values.
+    let pack = |this: &mut LowerCtx, v_raw: Operand, v_ty: Type| -> (i64, Operand) {
+        match v_ty {
+            Type::I64 | Type::I32 => (2, v_raw),
+            Type::F64 => {
+                let bits = this.f.append_inst(
+                    this.cur_block,
+                    InstKind::BitCastF64ToI64(v_raw),
+                    Type::I64,
+                    None,
+                );
+                (3, Operand::Value(bits))
+            }
+            Type::Bool => {
+                let zext = this.f.append_inst(
+                    this.cur_block,
+                    InstKind::ZExtBoolToI64(v_raw),
+                    Type::I64,
+                    None,
+                );
+                (1, Operand::Value(zext))
+            }
+            _ if v_ty.is_refcounted() => {
+                this.f.append_void(
+                    this.cur_block,
+                    InstKind::Call(this.intrinsics.rc_inc, vec![v_raw.clone()]),
+                );
+                (4, v_raw)
+            }
+            Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
+            _ => (0, Operand::ConstI64(0)),
+        }
+    };
+
+    // Compile-time literal descriptor — extract value + the three data
+    // flags from the ObjectLit at compile time.
+    if matches!(ctx.ast.get_expr(desc_eid), Expr::ObjectLit { .. }) {
+        let value_eid = match ctx.ast.get_expr(desc_eid) {
             Expr::ObjectLit { fields } => {
                 fields.iter().find(|(n, _)| n == "value").map(|(_, e)| *e)
             }
             _ => None,
         };
-        // P3.attribute-flag-tracking — extract the three data-attribute
-        // flags from the descriptor ObjectLit. Each is `Bool(true)` /
-        // `Bool(false)` when present; absent fields stay `None`.
+        // Each flag is `Bool(true)` / `Bool(false)` when present; absent
+        // (or non-literal, treated as absent) fields stay `None`.
         let lookup_bool_field = |field_name: &str| -> Option<bool> {
-            if let Expr::ObjectLit { fields } = ctx.ast.get_expr(args[2]) {
+            if let Expr::ObjectLit { fields } = ctx.ast.get_expr(desc_eid) {
                 for (n, e) in fields {
                     if n == field_name {
                         if let Expr::Bool(b) = ctx.ast.get_expr(*e) {
                             return Some(*b);
                         }
-                        // Non-literal bool (e.g. variable reference) is
-                        // rare in defineProperty descriptors and hard to
-                        // evaluate at compile time — bail to None so the
-                        // validator treats it as absent. Real test262
-                        // cases always use literal Bool here.
                         return None;
                     }
                 }
             }
             None
         };
-        let desc_writable = lookup_bool_field("writable");
-        let desc_enumerable = lookup_bool_field("enumerable");
-        let desc_configurable = lookup_bool_field("configurable");
         let mut flags_byte: i64 = 0;
-        if let Some(b) = desc_writable {
+        if let Some(b) = lookup_bool_field("writable") {
             flags_byte |= 1 << 3; // present
             if b {
                 flags_byte |= 1 << 0;
             }
         }
-        if let Some(b) = desc_enumerable {
+        if let Some(b) = lookup_bool_field("enumerable") {
             flags_byte |= 1 << 4;
             if b {
                 flags_byte |= 1 << 1;
             }
         }
-        if let Some(b) = desc_configurable {
+        if let Some(b) = lookup_bool_field("configurable") {
             flags_byte |= 1 << 5;
             if b {
                 flags_byte |= 1 << 2;
@@ -98,64 +151,13 @@ pub(crate) fn try_lower_define_property(
         if value_eid.is_some() {
             flags_byte |= 1 << 6; // value present
         }
-        let is_length_key = matches!(
-            ctx.ast.get_expr(args[1]),
-            Expr::String(s) if s == "length"
-        );
-        // Step 7d-A — capture the receiver's Ident name (if any) so the
-        // dynobj-define Any path below can writeback the post-resize ptr
-        // to the variable's storage as a fresh NaN-box `AnyValue`.
-        let receiver_ident: Option<String> = if let Expr::Ident(n) = ctx.ast.get_expr(args[0]) {
-            Some(n.clone())
-        } else {
-            None
-        };
-        let obj_op = ctx.lower_expr(args[0]);
-        let obj_ty = ctx.operand_ty(&obj_op);
 
-        // Tag-pack helper — same table the BinOp Any===concrete arm uses
-        // for runtime tag values.
-        let pack = |this: &mut LowerCtx, v_raw: Operand, v_ty: Type| -> (i64, Operand) {
-            match v_ty {
-                Type::I64 | Type::I32 => (2, v_raw),
-                Type::F64 => {
-                    let bits = this.f.append_inst(
-                        this.cur_block,
-                        InstKind::BitCastF64ToI64(v_raw),
-                        Type::I64,
-                        None,
-                    );
-                    (3, Operand::Value(bits))
-                }
-                Type::Bool => {
-                    let zext = this.f.append_inst(
-                        this.cur_block,
-                        InstKind::ZExtBoolToI64(v_raw),
-                        Type::I64,
-                        None,
-                    );
-                    (1, Operand::Value(zext))
-                }
-                _ if v_ty.is_refcounted() => {
-                    this.f.append_void(
-                        this.cur_block,
-                        InstKind::Call(this.intrinsics.rc_inc, vec![v_raw.clone()]),
-                    );
-                    (4, v_raw)
-                }
-                Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
-                _ => (0, Operand::ConstI64(0)),
-            }
-        };
-
-        // T-29.b — Array length setter via defineProperty. Spec
-        // §9.4.2.4: ToUint32(v) must equal ToNumber(v), else throw
-        // RangeError. tora can't yet resize Array storage to a new
-        // length, so on valid value we silently no-op; on invalid we
-        // throw via the runtime validator. Sufficient for the test262
-        // assertion shape (assert.throws on negative / NaN / overflow /
-        // fractional values).
-        if matches!(obj_ty, Type::Arr(_)) && is_length_key {
+        // T-29.b — Array length setter via defineProperty. Spec §9.4.2.4:
+        // ToUint32(v) must equal ToNumber(v), else throw RangeError. tora
+        // can't yet resize Array storage to a new length, so on valid
+        // value we silently no-op; on invalid we throw via the runtime
+        // validator (sufficient for the assert.throws assertion shape).
+        if matches!(obj_ty, Type::Arr(_)) && is_length {
             if let Some(val_eid) = value_eid {
                 let v_raw = ctx.lower_expr(val_eid);
                 let v_ty = ctx.operand_ty(&v_raw);
@@ -167,25 +169,18 @@ pub(crate) fn try_lower_define_property(
                         vec![Operand::ConstI64(tag), val_op],
                     ),
                 );
-                // Intrinsics auto-skip emit_throw_check (the call-site
-                // optimizer treats them as non-throwing), so we force it
-                // here — the validator's only side-effect is the
-                // RangeError throw, which has to propagate to the user's
-                // `assert.throws` handler.
                 ctx.emit_throw_check(None);
             }
-            return Some(Operand::ConstI64(0));
+            return true;
         }
 
-        // Array obj (non-"length" key) — keep the legacy arrprops_set
-        // path (per-element prop side table) when the descriptor has a
-        // .value. Without .value (e.g. accessor descriptor `{get: ...,
-        // configurable: true}`), Array attribute tracking is still a
-        // follow-up substrate piece — silent no-op (T-29.b tolerance)
-        // instead of falling into the dynobj path.
+        // Array obj (non-"length" key) — legacy arrprops_set side table
+        // when the descriptor has a .value. Without .value (accessor
+        // descriptor), Array attribute tracking is a follow-up — silent
+        // no-op (T-29.b tolerance).
         if matches!(obj_ty, Type::Arr(_)) {
             if let Some(val_eid) = value_eid {
-                let key_op = ctx.lower_expr(args[1]);
+                let key_op = lower_key(ctx, &key);
                 let v_raw = ctx.lower_expr(val_eid);
                 let v_ty = ctx.operand_ty(&v_raw);
                 let (tag, val_op) = pack(ctx, v_raw, v_ty);
@@ -197,29 +192,23 @@ pub(crate) fn try_lower_define_property(
                     ),
                 );
             }
-            return Some(Operand::ConstI64(0));
+            return true;
+        }
+
+        // Non-Any/non-Arr obj (typed Struct etc.) — no dynobj backing
+        // store, attribute tracking is N/A. Handled (no-op).
+        if !matches!(obj_ty, Type::Any) {
+            return true;
         }
 
         // Dynobj-backed Any obj — route through dynobj_define so spec
-        // §10.1.6.3 validates the configurable / writable / enumerable
-        // transitions and rejects writable=false value mismatches. Works
-        // whether the descriptor has a .value field or not (value-less
-        // path stores ANY_UNDEF on fresh insert; redefine updates only
-        // the flags). For non-Any/non-Arr obj types (typed Struct etc.),
-        // fall through to the existing T-29.b silent no-op — those don't
-        // have a dynobj backing store, so attribute tracking is N/A.
-        if !matches!(obj_ty, Type::Any) {
-            return Some(Operand::ConstI64(0));
-        }
-        let key_op = ctx.lower_expr(args[1]);
+        // §10.1.6.3 validates the transitions.
+        let key_op = lower_key(ctx, &key);
         let (tag, val_op) = if let Some(val_eid) = value_eid {
             let v_raw = ctx.lower_expr(val_eid);
             let v_ty = ctx.operand_ty(&v_raw);
             pack(ctx, v_raw, v_ty)
         } else {
-            // No value — dynobj_define ignores tag/value when the
-            // value-present bit is clear, but we still pass concrete I64
-            // zeros for ABI.
             (0, Operand::ConstI64(0))
         };
         let dynobj = ctx.any_unbox_value_as_ptr(obj_op.clone());
@@ -241,24 +230,61 @@ pub(crate) fn try_lower_define_property(
                 ],
             ),
         );
-        // dynobj_define throws on spec §10.1.6.3 transition violations
-        // (configurable / writable-mismatch); propagate via
-        // __torajs_throw_check.
         ctx.emit_throw_check(None);
         ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
-        return Some(Operand::ConstI64(0));
+        return true;
     }
 
-    // RFC 20260613 C1 — `Object.defineProperty(obj, key, desc)` where
-    // `desc` is a runtime expression (not a compile-time ObjectLit; the
-    // literal case is handled above and always returns). Routes to
-    // dynobj_define_from_desc, which reads the value/writable/enumerable
-    // /configurable fields off the `desc` dynobj at runtime. Gated on
-    // both obj AND desc being Any (dynobj-backed): a typed-struct obj
-    // has no dynobj store, and a typed-struct desc has static field
-    // offsets the runtime field-probe can't read — those fall through
-    // (C1 scope is the dynamic / `any` shape that the prior "unsupported
-    // member call shape" panic rejected).
+    // Runtime descriptor (RFC C1) — gated on both obj and desc being Any
+    // (dynobj-backed). Key is lowered before desc to preserve obj → key
+    // → desc evaluation order.
+    let key_op = lower_key(ctx, &key);
+    let desc_op = ctx.lower_expr(desc_eid);
+    let desc_ty = ctx.operand_ty(&desc_op);
+    if matches!(obj_ty, Type::Any) && matches!(desc_ty, Type::Any) {
+        let desc_ptr = ctx.any_unbox_value_as_ptr(desc_op);
+        let dynobj = ctx.any_unbox_value_as_ptr(obj_op);
+        let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+        );
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.dynobj_define_from_desc,
+                vec![Operand::Value(slot), key_op, Operand::Value(desc_ptr)],
+            ),
+        );
+        ctx.emit_throw_check(None);
+        ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
+        return true;
+    }
+    false
+}
+
+/// Dispatch `Object.defineProperty` / `Object.defineProperties` — the
+/// single entry `lower_expr_inner` calls. `Some` when handled; `None` to
+/// fall through.
+pub(crate) fn try_lower(
+    ctx: &mut LowerCtx,
+    callee_eid: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    if let Some(v) = try_lower_define_property(ctx, callee_eid, args) {
+        return Some(v);
+    }
+    try_lower_define_properties(ctx, callee_eid, args)
+}
+
+/// Lower `Object.defineProperty(obj, key, descriptor)`. Returns `Some`
+/// when handled; `None` to fall through (non-Any obj+desc shapes keep
+/// the prior "unsupported member call shape" panic).
+fn try_lower_define_property(
+    ctx: &mut LowerCtx,
+    callee_eid: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
     if let Expr::Member {
         obj: ns_id,
         name: m_name,
@@ -267,43 +293,43 @@ pub(crate) fn try_lower_define_property(
         && let Expr::Ident(ns) = ctx.ast.get_expr(*ns_id)
         && ns == "Object"
         && args.len() == 3
+        && emit_define_one(ctx, args[0], DefineKey::Expr(args[1]), args[2])
     {
-        let receiver_ident: Option<String> = if let Expr::Ident(n) = ctx.ast.get_expr(args[0]) {
-            Some(n.clone())
-        } else {
-            None
-        };
-        let obj_op = ctx.lower_expr(args[0]);
-        let obj_ty = ctx.operand_ty(&obj_op);
-        let key_op = ctx.lower_expr(args[1]);
-        let desc_op = ctx.lower_expr(args[2]);
-        let desc_ty = ctx.operand_ty(&desc_op);
-        if matches!(obj_ty, Type::Any) && matches!(desc_ty, Type::Any) {
-            let desc_ptr = ctx.any_unbox_value_as_ptr(desc_op);
-            let dynobj = ctx.any_unbox_value_as_ptr(obj_op);
-            let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-            );
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.dynobj_define_from_desc,
-                    vec![Operand::Value(slot), key_op, Operand::Value(desc_ptr)],
-                ),
-            );
-            // from_desc throws on §10.1.6.3 transition violations.
-            ctx.emit_throw_check(None);
-            ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
-            return Some(Operand::ConstI64(0));
-        }
-        // Non-Any obj or desc — fall through (return None) to the
-        // existing "unsupported member call shape" panic (the pre-C1
-        // behavior for every runtime-descriptor defineProperty). The
-        // args lowered above are discarded when compilation aborts; no
-        // regression vs the prior panic.
+        return Some(Operand::ConstI64(0));
     }
+    None
+}
 
+/// Lower `Object.defineProperties(obj, props)` (RFC C2) by compile-time
+/// unfold: when `props` is an `ObjectLit` and `obj` is an Ident, emit one
+/// `emit_define_one` per field (re-reading `obj` each time so a resize in
+/// one field is seen by the next). Returns `Some` when unfolded; `None`
+/// for other shapes (runtime `props` / non-Ident obj), which the combined
+/// Object-namespace no-op arm eval-drops (prior behavior).
+fn try_lower_define_properties(
+    ctx: &mut LowerCtx,
+    callee_eid: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    if let Expr::Member {
+        obj: ns_id,
+        name: m_name,
+    } = ctx.ast.get_expr(callee_eid)
+        && m_name == "defineProperties"
+        && let Expr::Ident(ns) = ctx.ast.get_expr(*ns_id)
+        && ns == "Object"
+        && args.len() == 2
+        && matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_))
+        && let Expr::ObjectLit { fields } = ctx.ast.get_expr(args[1])
+    {
+        // Clone the (name, desc_eid) list — `emit_define_one` borrows ctx
+        // mutably, so we can't hold the AST borrow across the loop.
+        let field_list: Vec<(String, ExprId)> =
+            fields.iter().map(|(n, e)| (n.clone(), *e)).collect();
+        for (name, desc_eid) in &field_list {
+            emit_define_one(ctx, args[0], DefineKey::Name(name), *desc_eid);
+        }
+        return Some(Operand::ConstI64(0));
+    }
     None
 }

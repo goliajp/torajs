@@ -303,17 +303,15 @@ unsafe fn desc_field(desc: *const c_void, name: &str) -> Option<u64> {
 }
 
 /// `__torajs_dynobj_define_from_desc(obj_slot, key, desc)` — the
-/// runtime-descriptor path for `Object.defineProperty` /
-/// `Object.defineProperties`. Reads the data-descriptor fields
-/// (`value` / `writable` / `enumerable` / `configurable`) from the
-/// `desc` dynobj at runtime, builds the `flags_byte` + `(tag, value)`
-/// the same shape the compile-time literal path produces, and applies
-/// via [`define_apply`].
+/// runtime-descriptor path for `Object.defineProperty`. Reads the
+/// data-descriptor fields (`value` / `writable` / `enumerable` /
+/// `configurable`) off the `desc` dynobj at runtime, builds the
+/// `flags_byte` + `(tag, value)` the compile-time literal path
+/// produces, and applies via [`define_apply`].
 ///
 /// Accessor fields (`get` / `set`) are a follow-up substrate piece
 /// (RFC C3) — a descriptor carrying only accessors currently defines a
-/// generic property with `undefined` value, never worse than the prior
-/// `defineProperties` no-op.
+/// generic property with `undefined` value.
 ///
 /// # Safety
 /// `obj_slot` points at a live `*mut c_void` (dynobj or NULL). `key`
