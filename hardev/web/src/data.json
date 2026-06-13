@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T04:58:06.723Z",
+  "generatedAt": "2026-06-13T06:38:38.006Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "2cf8d623",
-    "commitSubject": "feat(conformance): Test262Error extends Error for renderable assert failures",
+    "commit": "f4527edf",
+    "commitSubject": "feat: Object.defineProperties via compile-time unfold (RFC C2)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,18 @@
   },
   "commits": [
     {
+      "hash": "f4527edf",
+      "subject": "feat: Object.defineProperties via compile-time unfold (RFC C2)"
+    },
+    {
+      "hash": "53361fa7",
+      "subject": "feat: Object.defineProperty runtime-descriptor path (RFC C1)"
+    },
+    {
+      "hash": "c1a664d2",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 2cf8d623 (test262 front A observability: Error/Test262Error render, 1128 opaque corpus now clusterable)"
+    },
+    {
       "hash": "2cf8d623",
       "subject": "feat(conformance): Test262Error extends Error for renderable assert failures"
     },
@@ -653,39 +665,38 @@
     {
       "hash": "8b8ea4ec",
       "subject": "fix: closure-valued args into fn-typed params no longer crash (test262 bug-327 C2)"
-    },
-    {
-      "hash": "7426bc47",
-      "subject": "fix: empty-array pop/shift no longer underflows length (test262 bug-327 C1)"
-    },
-    {
-      "hash": "a4ea9228",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD eded11f (inkwell spike retired, workspace 0 LLVM, README guidance fixed)"
-    },
-    {
-      "hash": "eded11f1",
-      "subject": "chore: retire labs/0002-inkwell-spike and the last LLVM references"
     }
   ],
-  "headSha": "2cf8d623",
+  "headSha": "f4527edf",
   "autorun": {
-    "total": 134,
+    "total": 135,
     "baselineTarget": 10,
-    "bySelf": 132,
+    "bySelf": 133,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781318689-784b",
-      "at": "2026-06-13T02:44:49Z",
-      "ts": 1781318689,
+      "rotationId": "r-1781326709-0c1b",
+      "at": "2026-06-13T04:58:29Z",
+      "ts": 1781326709,
       "trigger": "self",
-      "prevHead": "7358eaa3",
-      "handoffSha": "sha256:5dc00845f6cb053b1dd394d1882fd5739fe61f435d7f016f8ddfe78838cd19af",
-      "handoffAgeSec": 80,
+      "prevHead": "c1a664d2",
+      "handoffSha": "sha256:a66d16c967bbf467b7b3cc7d75706c2d5fdf86177cbc6732ae1ee81a89d0e656",
+      "handoffAgeSec": 254,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781326709-0c1b",
+        "at": "2026-06-13T04:58:29Z",
+        "ts": 1781326709,
+        "trigger": "self",
+        "prevHead": "c1a664d2",
+        "handoffSha": "sha256:a66d16c967bbf467b7b3cc7d75706c2d5fdf86177cbc6732ae1ee81a89d0e656",
+        "handoffAgeSec": 254,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781318689-784b",
         "at": "2026-06-13T02:44:49Z",
@@ -782,17 +793,6 @@
         "prevHead": "975b975",
         "handoffSha": "sha256:f704646e52d452850adc4d420574a670df3ae9b0dfe1d4cff9c46cc21aad1095",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781231520-3f18",
-        "at": "2026-06-12T02:32:00Z",
-        "ts": 1781231520,
-        "trigger": "self",
-        "prevHead": "2ec7f16",
-        "handoffSha": "sha256:240a4850a0325a1d77000cbaeef511dea075621fddbc9651314313364f220325",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
