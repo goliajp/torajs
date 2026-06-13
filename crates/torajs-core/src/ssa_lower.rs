@@ -2982,6 +2982,19 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Bool,
     );
+    // NaN-box-aware isFrozen — takes the raw `Any` (NaN-box i64),
+    // unboxes the tag and dispatches: HEAP → real ptr → obj_is_frozen,
+    // non-HEAP → true (per ES2015 §19.1.2.16). Used when ssa_lower's
+    // Object.isFrozen arm sees Type::Any (raw helper would deref the
+    // sentinel as a heap header → SIGSEGV; see
+    // cases#obj-is-frozen-any-segv).
+    let obj_is_frozen_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_obj_is_frozen_any",
+        &[Type::Any],
+        Type::Bool,
+    );
     let obj_check_not_frozen_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5192,6 +5205,7 @@ fn lower_inner(
         any_to_str: any_to_str_id,
         obj_freeze: obj_freeze_id,
         obj_is_frozen: obj_is_frozen_id,
+        obj_is_frozen_any: obj_is_frozen_any_id,
         obj_check_not_frozen: obj_check_not_frozen_id,
         microtask_drain: microtask_drain_id,
         microtask_enqueue_closure: microtask_enqueue_closure_id,
@@ -5998,6 +6012,7 @@ pub(crate) struct Intrinsics {
     pub(crate) any_to_str: FuncId,
     pub(crate) obj_freeze: FuncId,
     pub(crate) obj_is_frozen: FuncId,
+    pub(crate) obj_is_frozen_any: FuncId,
     pub(crate) obj_check_not_frozen: FuncId,
     /// v0.5 T-15.e — drains the microtask queue. Auto-called at
     /// main exit so chained Promise callbacks run before the
@@ -16699,6 +16714,12 @@ impl<'a> LowerCtx<'a> {
                     }
                     let (fid, ret_ty) = if m_name == "freeze" {
                         (self.intrinsics.obj_freeze, arg_ty)
+                    } else if arg_ty == Type::Any {
+                        // NaN-box-aware path — raw obj_is_frozen
+                        // takes *const c_void and would deref the
+                        // sentinel as a heap header → SIGSEGV
+                        // (cases#obj-is-frozen-any-segv).
+                        (self.intrinsics.obj_is_frozen_any, Type::Bool)
                     } else {
                         (self.intrinsics.obj_is_frozen, Type::Bool)
                     };
@@ -21047,20 +21068,32 @@ impl<'a> LowerCtx<'a> {
                         // (5e-324), not f64::MIN_POSITIVE (the
                         // smallest *normal* double, 2.2250738e-308).
                         "MIN_VALUE" => Operand::ConstF64(5e-324),
-                        // V3-18 m2.c → 2026-05-18 — Number.prototype
-                        // returns an empty Any-box (ANY_NULL=0, value
-                        // null). Sub-`.X` access loads the box's
-                        // value@16 → NULL → dynobj_get returns
-                        // ANY_UNDEF. Sufficient for verifyProperty-
-                        // shim style consumers that just need the
-                        // expression to typecheck and reach call
-                        // arrival.
+                        // Number.prototype — emit a fresh empty
+                        // dynobj boxed as ANY_HEAP. Earlier wedge
+                        // emitted a NULL sentinel; that crashed
+                        // `Object.isFrozen(Number.prototype)`
+                        // because the runtime helper deref'd the
+                        // NaN-box i64 as a heap header (see
+                        // cases#obj-is-frozen-any-segv). An empty
+                        // dynobj makes the value a real (non-frozen)
+                        // Object — Sub-`.X` access still routes
+                        // through dynobj_get → ANY_UNDEF, so
+                        // verifyProperty-shim consumers stay green.
+                        // Identity (`Number.prototype === Number.prototype`)
+                        // is a known L3b wedge until a builtin-
+                        // prototype singleton substrate lands.
                         "prototype" => {
+                            let dynobj = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.dynobj_alloc, vec![]),
+                                Type::Ptr,
+                                None,
+                            );
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.any_box,
-                                    vec![Operand::ConstI64(0), Operand::ConstI64(0)],
+                                    vec![Operand::ConstI64(4), Operand::Value(dynobj)],
                                 ),
                                 Type::Any,
                                 None,
@@ -21075,9 +21108,12 @@ impl<'a> LowerCtx<'a> {
                         other => panic!("ssa-lower: unknown Number constant `{other}`"),
                     };
                 }
-                // V3-18 m2.c — Member access on other constructor
-                // namespaces. `.prototype` returns null (subset stub),
-                // `.name` returns the namespace name, `.length` returns
+                // Member access on other constructor namespaces.
+                // `.prototype` emits an empty dynobj boxed as
+                // ANY_HEAP (real non-frozen Object — see Number
+                // arm above for the cases#obj-is-frozen-any-segv
+                // root-cause + verifyProperty-shim parity); `.name`
+                // returns the namespace name; `.length` returns
                 // the constructor's arity.
                 if let Expr::Ident(n) = self.ast.get_expr(*obj)
                     && matches!(
@@ -21099,11 +21135,17 @@ impl<'a> LowerCtx<'a> {
                 {
                     match name.as_str() {
                         "prototype" => {
+                            let dynobj = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.dynobj_alloc, vec![]),
+                                Type::Ptr,
+                                None,
+                            );
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.any_box,
-                                    vec![Operand::ConstI64(0), Operand::ConstI64(0)],
+                                    vec![Operand::ConstI64(4), Operand::Value(dynobj)],
                                 ),
                                 Type::Any,
                                 None,
