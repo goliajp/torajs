@@ -2620,6 +2620,17 @@ fn lower_inner(
         &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64],
         Type::Void,
     );
+    // RFC 20260613 C1 — runtime-descriptor `Object.defineProperty`
+    // path. Reads value/writable/enumerable/configurable from the
+    // `desc` dynobj at runtime (vs the literal path's compile-time
+    // extraction). `(obj_slot, key, desc)`.
+    let dynobj_define_from_desc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_dynobj_define_from_desc",
+        &[Type::Ptr, Type::Ptr, Type::Ptr],
+        Type::Void,
+    );
     // P3.getOwnPropertyDescriptor — `Object.getOwnPropertyDescriptor`
     // entry. Returns a fresh Any-box wrapping either a dynobj with
     // {value, writable, enumerable, configurable} fields (when the
@@ -5064,6 +5075,7 @@ fn lower_inner(
         dynobj_get_value: dynobj_get_value_id,
         dynobj_set: dynobj_set_id,
         dynobj_define: dynobj_define_id,
+        dynobj_define_from_desc: dynobj_define_from_desc_id,
         get_property_descriptor: get_property_descriptor_id,
         dynobj_has: dynobj_has_id,
         dynobj_delete: dynobj_delete_id,
@@ -5861,6 +5873,7 @@ pub(crate) struct Intrinsics {
     pub(crate) dynobj_get_value: FuncId,
     pub(crate) dynobj_set: FuncId,
     pub(crate) dynobj_define: FuncId,
+    pub(crate) dynobj_define_from_desc: FuncId,
     pub(crate) get_property_descriptor: FuncId,
     pub(crate) dynobj_has: FuncId,
     pub(crate) dynobj_delete: FuncId,
@@ -12664,7 +12677,7 @@ impl<'a> LowerCtx<'a> {
     /// i64 value field) plus an IntToPtr cast, so callers stay
     /// decoupled from the AnyBox struct layout (Step 7d's NaN-box
     /// switch only has to swap the shim impl).
-    fn any_unbox_value_as_ptr(&mut self, obj: Operand) -> ValueId {
+    pub(crate) fn any_unbox_value_as_ptr(&mut self, obj: Operand) -> ValueId {
         let raw = self.f.append_inst(
             self.cur_block,
             InstKind::Call(self.intrinsics.any_unbox_value, vec![obj]),
@@ -12691,7 +12704,11 @@ impl<'a> LowerCtx<'a> {
     /// dangling is a follow-up patch (no current conformance
     /// fixture exercises it under the 7/8 load factor +
     /// `INITIAL_CAP=8`).
-    fn emit_any_dynobj_writeback(&mut self, obj_ident: &Option<String>, dynobj_slot: ValueId) {
+    pub(crate) fn emit_any_dynobj_writeback(
+        &mut self,
+        obj_ident: &Option<String>,
+        dynobj_slot: ValueId,
+    ) {
         let Some(name) = obj_ident else {
             return;
         };
@@ -15487,239 +15504,14 @@ impl<'a> LowerCtx<'a> {
                 // single-char string per byte into a fresh `string[]`.
                 // Result type is interned through the same arr_layouts
                 // path Object.keys uses (element = Type::Str).
-                // P3.3 / P3.attribute-flag-tracking —
-                // `Object.defineProperty(obj, key, descriptor)`. For
-                // dynobj-backed Any obj, routes to dynobj_define so
-                // spec §10.1.6.3 attribute-flag transitions are
-                // enforced (writable / configurable / enumerable +
-                // value-mismatch under writable=false). For Array
-                // obj, the existing arr_set_length_validate /
-                // arrprops_set paths keep their behavior.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && m_name == "defineProperty"
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Object"
-                    && args.len() == 3
-                    && matches!(self.ast.get_expr(args[2]), Expr::ObjectLit { .. })
+                // Object.defineProperty(obj, key, descriptor) — literal
+                // + runtime-descriptor (RFC 20260613 C1) paths, carved
+                // out to ssa_lower_object_define so the Object property-
+                // descriptor trunk grows there, not in this god-fn.
+                if let Some(v) =
+                    crate::ssa_lower_object_define::try_lower_define_property(self, *callee, args)
                 {
-                    let value_eid = match self.ast.get_expr(args[2]) {
-                        Expr::ObjectLit { fields } => {
-                            fields.iter().find(|(n, _)| n == "value").map(|(_, e)| *e)
-                        }
-                        _ => None,
-                    };
-                    // P3.attribute-flag-tracking — extract the three
-                    // data-attribute flags from the descriptor
-                    // ObjectLit. Each is `Bool(true)` / `Bool(false)`
-                    // when present; absent fields stay `None`.
-                    let lookup_bool_field = |field_name: &str| -> Option<bool> {
-                        if let Expr::ObjectLit { fields } = self.ast.get_expr(args[2]) {
-                            for (n, e) in fields {
-                                if n == field_name {
-                                    if let Expr::Bool(b) = self.ast.get_expr(*e) {
-                                        return Some(*b);
-                                    }
-                                    // Non-literal bool (e.g. variable reference)
-                                    // is rare in defineProperty descriptors and
-                                    // hard to evaluate at compile time — bail
-                                    // to None so the validator treats it as
-                                    // absent. Real test262 cases always use
-                                    // literal Bool here.
-                                    return None;
-                                }
-                            }
-                        }
-                        None
-                    };
-                    let desc_writable = lookup_bool_field("writable");
-                    let desc_enumerable = lookup_bool_field("enumerable");
-                    let desc_configurable = lookup_bool_field("configurable");
-                    let mut flags_byte: i64 = 0;
-                    if let Some(b) = desc_writable {
-                        flags_byte |= 1 << 3; // present
-                        if b {
-                            flags_byte |= 1 << 0;
-                        }
-                    }
-                    if let Some(b) = desc_enumerable {
-                        flags_byte |= 1 << 4;
-                        if b {
-                            flags_byte |= 1 << 1;
-                        }
-                    }
-                    if let Some(b) = desc_configurable {
-                        flags_byte |= 1 << 5;
-                        if b {
-                            flags_byte |= 1 << 2;
-                        }
-                    }
-                    if value_eid.is_some() {
-                        flags_byte |= 1 << 6; // value present
-                    }
-                    let is_length_key = matches!(
-                        self.ast.get_expr(args[1]),
-                        Expr::String(s) if s == "length"
-                    );
-                    // Step 7d-A — capture the receiver's Ident name (if any) so
-                    // the dynobj-define Any path below can writeback the
-                    // post-resize ptr to the variable's storage as a fresh
-                    // NaN-box `AnyValue`.
-                    let receiver_ident: Option<String> =
-                        if let Expr::Ident(n) = self.ast.get_expr(args[0]) {
-                            Some(n.clone())
-                        } else {
-                            None
-                        };
-                    let obj_op = self.lower_expr(args[0]);
-                    let obj_ty = self.operand_ty(&obj_op);
-
-                    // Tag-pack helper — same table the BinOp Any===concrete
-                    // arm uses for runtime tag values.
-                    let pack = |this: &mut Self, v_raw: Operand, v_ty: Type| -> (i64, Operand) {
-                        match v_ty {
-                            Type::I64 | Type::I32 => (2, v_raw),
-                            Type::F64 => {
-                                let bits = this.f.append_inst(
-                                    this.cur_block,
-                                    InstKind::BitCastF64ToI64(v_raw),
-                                    Type::I64,
-                                    None,
-                                );
-                                (3, Operand::Value(bits))
-                            }
-                            Type::Bool => {
-                                let zext = this.f.append_inst(
-                                    this.cur_block,
-                                    InstKind::ZExtBoolToI64(v_raw),
-                                    Type::I64,
-                                    None,
-                                );
-                                (1, Operand::Value(zext))
-                            }
-                            _ if v_ty.is_refcounted() => {
-                                this.f.append_void(
-                                    this.cur_block,
-                                    InstKind::Call(this.intrinsics.rc_inc, vec![v_raw.clone()]),
-                                );
-                                (4, v_raw)
-                            }
-                            Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
-                                (0, Operand::ConstI64(0))
-                            }
-                            _ => (0, Operand::ConstI64(0)),
-                        }
-                    };
-
-                    // T-29.b — Array length setter via defineProperty.
-                    // Spec §9.4.2.4: ToUint32(v) must equal ToNumber(v),
-                    // else throw RangeError. tora can't yet resize Array
-                    // storage to a new length, so on valid value we
-                    // silently no-op; on invalid we throw via the
-                    // runtime validator. Sufficient for the test262
-                    // assertion shape (assert.throws on negative / NaN
-                    // / overflow / fractional values).
-                    if matches!(obj_ty, Type::Arr(_)) && is_length_key {
-                        if let Some(val_eid) = value_eid {
-                            let v_raw = self.lower_expr(val_eid);
-                            let v_ty = self.operand_ty(&v_raw);
-                            let (tag, val_op) = pack(self, v_raw, v_ty);
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_set_length_validate,
-                                    vec![Operand::ConstI64(tag), val_op],
-                                ),
-                            );
-                            // Intrinsics auto-skip emit_throw_check (the
-                            // call-site optimizer treats them as
-                            // non-throwing), so we force it here — the
-                            // validator's only side-effect is the
-                            // RangeError throw, which has to propagate
-                            // to the user's `assert.throws` handler.
-                            self.emit_throw_check(None);
-                        }
-                        return Operand::ConstI64(0);
-                    }
-
-                    // Array obj (non-"length" key) — keep the legacy
-                    // arrprops_set path (per-element prop side table)
-                    // when the descriptor has a .value. Without
-                    // .value (e.g. accessor descriptor `{get: ...,
-                    // configurable: true}`), Array attribute tracking
-                    // is still a follow-up substrate piece — silent
-                    // no-op (T-29.b tolerance) instead of falling
-                    // into the dynobj path.
-                    if matches!(obj_ty, Type::Arr(_)) {
-                        if let Some(val_eid) = value_eid {
-                            let key_op = self.lower_expr(args[1]);
-                            let v_raw = self.lower_expr(val_eid);
-                            let v_ty = self.operand_ty(&v_raw);
-                            let (tag, val_op) = pack(self, v_raw, v_ty);
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arrprops_set,
-                                    vec![obj_op, key_op, Operand::ConstI64(tag), val_op],
-                                ),
-                            );
-                        }
-                        return Operand::ConstI64(0);
-                    }
-
-                    // Dynobj-backed Any obj — route through
-                    // dynobj_define so spec §10.1.6.3 validates the
-                    // configurable / writable / enumerable
-                    // transitions and rejects writable=false value
-                    // mismatches. Works whether the descriptor has
-                    // a .value field or not (value-less path stores
-                    // ANY_UNDEF on fresh insert; redefine updates
-                    // only the flags). For non-Any/non-Arr obj types
-                    // (typed Struct etc.), fall through to the
-                    // existing T-29.b silent no-op — those don't have
-                    // a dynobj backing store, so attribute tracking
-                    // is N/A.
-                    if !matches!(obj_ty, Type::Any) {
-                        return Operand::ConstI64(0);
-                    }
-                    let key_op = self.lower_expr(args[1]);
-                    let (tag, val_op) = if let Some(val_eid) = value_eid {
-                        let v_raw = self.lower_expr(val_eid);
-                        let v_ty = self.operand_ty(&v_raw);
-                        pack(self, v_raw, v_ty)
-                    } else {
-                        // No value — dynobj_define ignores tag/value
-                        // when the value-present bit is clear, but we
-                        // still pass concrete I64 zeros for ABI.
-                        (0, Operand::ConstI64(0))
-                    };
-                    let dynobj = self.any_unbox_value_as_ptr(obj_op.clone());
-                    let slot = self.alloca(Type::Ptr, Some("__dynobj_slot"));
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-                    );
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.dynobj_define,
-                            vec![
-                                Operand::Value(slot),
-                                key_op,
-                                Operand::ConstI64(tag),
-                                val_op,
-                                Operand::ConstI64(flags_byte),
-                            ],
-                        ),
-                    );
-                    // dynobj_define throws on spec §10.1.6.3 transition
-                    // violations (configurable / writable-mismatch);
-                    // propagate via __torajs_throw_check.
-                    self.emit_throw_check(None);
-                    self.emit_any_dynobj_writeback(&receiver_ident, slot);
-                    return Operand::ConstI64(0);
+                    return v;
                 }
                 // P3.getOwnPropertyDescriptor — `Object.getOwnPropertyDescriptor(obj, key)`.
                 // Routes to a single runtime helper that constructs the

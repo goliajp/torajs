@@ -41,9 +41,15 @@ unsafe extern "C" {
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    fn __torajs_anyv_to_bool(v: u64) -> bool;
 }
 
 /// `__torajs_dynobj_define(obj_slot, key, tag, value, flags_byte)`.
+///
+/// Thin extern wrapper over [`define_apply`] for the compile-time
+/// literal-descriptor path (ssa_lower extracts the flags + value at
+/// compile time). The runtime-descriptor path
+/// ([`__torajs_dynobj_define_from_desc`]) shares the same apply core.
 ///
 /// # Safety
 /// `obj_slot` is non-NULL and points at a live `*mut c_void` holding
@@ -52,6 +58,25 @@ unsafe extern "C" {
 /// is set. Caller must check for pending throw after return.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_define(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+) {
+    unsafe { define_apply(obj_slot, key, tag, value, flags_byte) }
+}
+
+/// Spec §10.1.6.3 ValidateAndApplyPropertyDescriptor — data-property
+/// subset. Shared core for both the literal
+/// ([`__torajs_dynobj_define`]) and runtime-descriptor
+/// ([`__torajs_dynobj_define_from_desc`]) entries.
+///
+/// # Safety
+/// Same contract as [`__torajs_dynobj_define`]. When `flags_byte` sets
+/// `DEFINE_PRESENT_VALUE` and `tag == ANY_HEAP`, the caller transfers
+/// one rc of `value` (consumed on store / dropped on redefine).
+unsafe fn define_apply(
     obj_slot: *mut *mut c_void,
     key: *mut c_void,
     tag: u64,
@@ -233,4 +258,113 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
             set_count(obj, count(obj) + 1);
         }
     }
+}
+
+/// Stack-allocated Str-shaped probe key. [`probe`] / `hash_str` /
+/// `str_eq` only read `len` (offset 8) and the inline payload (offset
+/// 16) — never the heap header — so a non-heap buffer with those two
+/// fields suffices to look a property name up in a dynobj without
+/// allocating (or interning) a real Str. Field names are short; a
+/// 16-byte inline payload covers every descriptor key.
+#[repr(C, align(8))]
+struct FakeStrKey {
+    _header: u64,
+    len: u64,
+    data: [u8; 16],
+}
+
+impl FakeStrKey {
+    #[inline]
+    fn new(name: &str) -> FakeStrKey {
+        let mut k = FakeStrKey {
+            _header: 0,
+            len: name.len() as u64,
+            data: [0u8; 16],
+        };
+        k.data[..name.len()].copy_from_slice(name.as_bytes());
+        k
+    }
+}
+
+/// Look a property name up in `desc` and return its NaN-box
+/// `value_anyv` if present (the property's stored AnyValue).
+///
+/// # Safety
+/// `desc` points at a live dynobj heap block.
+#[inline]
+unsafe fn desc_field(desc: *const c_void, name: &str) -> Option<u64> {
+    let probe_key = FakeStrKey::new(name);
+    let pr = unsafe { probe(desc, &probe_key as *const FakeStrKey as *const c_void) };
+    if !pr.found {
+        return None;
+    }
+    let ent = unsafe { entries(desc) };
+    Some(unsafe { (*ent.add(pr.entry as usize)).value_anyv })
+}
+
+/// `__torajs_dynobj_define_from_desc(obj_slot, key, desc)` — the
+/// runtime-descriptor path for `Object.defineProperty` /
+/// `Object.defineProperties`. Reads the data-descriptor fields
+/// (`value` / `writable` / `enumerable` / `configurable`) from the
+/// `desc` dynobj at runtime, builds the `flags_byte` + `(tag, value)`
+/// the same shape the compile-time literal path produces, and applies
+/// via [`define_apply`].
+///
+/// Accessor fields (`get` / `set`) are a follow-up substrate piece
+/// (RFC C3) — a descriptor carrying only accessors currently defines a
+/// generic property with `undefined` value, never worse than the prior
+/// `defineProperties` no-op.
+///
+/// # Safety
+/// `obj_slot` points at a live `*mut c_void` (dynobj or NULL). `key`
+/// is a live Str. `desc` is a dynobj heap pointer or NULL. Caller must
+/// check for pending throw after return.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    desc: *const c_void,
+) {
+    if desc.is_null() {
+        return;
+    }
+
+    let mut flags_byte: u64 = 0;
+    let mut out_tag: u64 = 0;
+    let mut out_value: u64 = 0;
+
+    if let Some(v_anyv) = unsafe { desc_field(desc, "value") } {
+        let v_tag = unsafe { __torajs_anyv_unbox_tag(v_anyv) } as u64;
+        let v_val = unsafe { __torajs_anyv_unbox_value(v_anyv) } as u64;
+        // define_apply consumes one rc of a Heap value (it is stored
+        // into `obj` while still owned by `desc`) — mirror the literal
+        // path's `pack` rc_inc.
+        if v_tag == ANY_HEAP && v_val != 0 {
+            unsafe { __torajs_rc_inc(v_val as *mut c_void) };
+        }
+        out_tag = v_tag;
+        out_value = v_val;
+        flags_byte |= DEFINE_PRESENT_VALUE;
+    }
+
+    if let Some(w) = unsafe { desc_field(desc, "writable") } {
+        flags_byte |= DEFINE_PRESENT_WRITABLE;
+        if unsafe { __torajs_anyv_to_bool(w) } {
+            flags_byte |= DEFINE_FLAG_WRITABLE;
+        }
+    }
+    if let Some(e) = unsafe { desc_field(desc, "enumerable") } {
+        flags_byte |= DEFINE_PRESENT_ENUMERABLE;
+        if unsafe { __torajs_anyv_to_bool(e) } {
+            flags_byte |= DEFINE_FLAG_ENUMERABLE;
+        }
+    }
+    if let Some(c) = unsafe { desc_field(desc, "configurable") } {
+        flags_byte |= DEFINE_PRESENT_CONFIGURABLE;
+        if unsafe { __torajs_anyv_to_bool(c) } {
+            flags_byte |= DEFINE_FLAG_CONFIGURABLE;
+        }
+    }
+
+    unsafe { define_apply(obj_slot, key, out_tag, out_value, flags_byte) }
 }

@@ -196,6 +196,7 @@ pub(crate) mod ssa_lower_json_parse;
 pub(crate) mod ssa_lower_logical;
 pub mod ssa_lower_main_exit;
 pub mod ssa_lower_obj_escape;
+pub(crate) mod ssa_lower_object_define;
 pub(crate) mod ssa_lower_objlit_layout;
 pub(crate) mod ssa_lower_parse_type;
 pub mod ssa_lower_process_on;
