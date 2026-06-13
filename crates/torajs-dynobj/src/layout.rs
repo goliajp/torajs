@@ -70,6 +70,13 @@ pub const TAG_DYNOBJ: u16 = 14;
 /// (3-4 overlay) / FROZEN / BUFFERED per torajs-rc's flag table.
 pub const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
 
+/// Heap-header `flags` bit (u16 @6) mirror of
+/// `torajs_rc::FLAG_NON_EXTENSIBLE` (bit 8). Mirrored here so
+/// `__torajs_dynobj_define` can gate fresh-key inserts on a sealed /
+/// `preventExtensions`'d dict without taking a Cargo dep on torajs-rc.
+/// Update both sides if the bit position ever moves.
+pub const DYNOBJ_HDR_FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
+
 /// Offset of the `count` u32 within the heap block.
 pub const DYNOBJ_COUNT_OFF: usize = HEAP_HEADER_SIZE;
 

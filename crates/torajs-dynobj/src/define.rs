@@ -26,7 +26,7 @@ use crate::layout::{
     ANY_HEAP, ANY_UNDEF, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
     BUCKET_KEY_PTR_MASK, BUCKET_TAG_MASK, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE,
     DEFINE_FLAG_WRITABLE, DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE,
-    DEFINE_PRESENT_VALUE, DEFINE_PRESENT_WRITABLE,
+    DEFINE_PRESENT_VALUE, DEFINE_PRESENT_WRITABLE, DYNOBJ_HDR_FLAG_NON_EXTENSIBLE,
 };
 use crate::probe::{
     Entry, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
@@ -228,6 +228,21 @@ unsafe fn define_apply(
             (*e).value_anyv = __torajs_anyv_box_from_pair(new_value_tag as i64, new_value as i64);
         }
     } else {
+        // RFC C5b-4 — Object.defineProperty(O, "newKey", desc) on a
+        // sealed / non-extensible dict must throw TypeError. Existing-
+        // key redefine is gated by the `cur_configurable` branch above;
+        // this catches the "add a new own property" path.
+        let header_flags = unsafe { *(obj.cast::<u8>().add(6) as *const u16) };
+        if header_flags & DYNOBJ_HDR_FLAG_NON_EXTENSIBLE != 0 {
+            // Matches bun's exact wording for cross-runtime parity.
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Attempting to define property on object that is not extensible.".as_ptr()
+                        as *const u8,
+                );
+            }
+            return;
+        }
         // Fresh define: append to the dense array (insertion order).
         // Absent flags default to false (spec §10.1.6.2).
         let mut new_flags: u64 = 0;
