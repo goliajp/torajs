@@ -250,6 +250,39 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     desc as u64
 }
 
+/// RFC C5a — `Object.getOwnPropertyDescriptor(arr, "length")` real
+/// descriptor. Spec ES §10.4.2.4: Array's `length` own property is
+/// `{value: ToNumber(len), writable: true, enumerable: false,
+/// configurable: false}`. Pre-fix tora's gOPD walked dynobj entries
+/// only, so `Array.length` reported undefined.
+///
+/// The helper takes the pre-extracted `len` (SSA Loads it directly
+/// from the array's `len` slot — offset 8 in `torajs-arr::layout`)
+/// so the intrinsic signature stays `(I64) -> Any` instead of
+/// pretending a typed `Arr<_>` Operand is interchangeable with
+/// `Type::Ptr`. bun returns the length as a Number; tagging with
+/// `AnySlotTag::I64=2` keeps small lengths as number imms and lets
+/// `__torajs_dynobj_set` NaN-box overflowing values to f64 wrappers
+/// transparently.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_arr_length_descriptor(len: u64) -> u64 {
+    let mut desc = unsafe { __torajs_dynobj_alloc() };
+    // tag values mirror AnySlotTag: I64=2 (numeric), Bool=1.
+    const ANY_I64: u64 = 2;
+    let entries: [(&[u8], u64, u64); 4] = [
+        (b"value", ANY_I64, len),
+        (b"writable", ANY_BOOL as u64, 1),
+        (b"enumerable", ANY_BOOL as u64, 0),
+        (b"configurable", ANY_BOOL as u64, 0),
+    ];
+    for &(name, t, val) in entries.iter() {
+        let k = unsafe { alloc_str_key(name) };
+        unsafe { __torajs_dynobj_set(&mut desc, k, t, val) };
+        unsafe { __torajs_str_drop(k) };
+    }
+    desc as u64
+}
+
 /// RFC C4b — `Object.defineProperty(O, ...)` / `Object.defineProperties(O, ...)`
 /// step 1: `If Type(O) is not Object, throw a TypeError`. Spec ES §10.1.6.3
 /// is a **strict** Type(O) check — every primitive throws, including

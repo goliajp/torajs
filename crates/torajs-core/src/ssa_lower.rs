@@ -2669,6 +2669,19 @@ fn lower_inner(
         &[Type::Any],
         Type::Void,
     );
+    // RFC C5a — `Object.getOwnPropertyDescriptor(arr, "length")` —
+    // spec §10.4.2.4 builds `{value, writable: true, enumerable:
+    // false, configurable: false}` from a pre-extracted `len` (the
+    // SSA arm Loads it from the array's `len` slot @ offset 8 so the
+    // sig stays `(I64) -> Any` and a typed `Type::Arr(_)` operand
+    // does not get implicitly cast to `Type::Ptr`).
+    let arr_length_descriptor_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_anyv_arr_length_descriptor",
+        &[Type::I64],
+        Type::Any,
+    );
     let dynobj_has_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5107,6 +5120,7 @@ fn lower_inner(
         accessor_invoke_getter: accessor_invoke_getter_id,
         get_property_descriptor: get_property_descriptor_id,
         throw_typeerror_if_not_object: throw_typeerror_if_not_object_id,
+        arr_length_descriptor: arr_length_descriptor_id,
         dynobj_has: dynobj_has_id,
         dynobj_delete: dynobj_delete_id,
         arr_drop_any: arr_drop_any_id,
@@ -5908,6 +5922,7 @@ pub(crate) struct Intrinsics {
     pub(crate) accessor_invoke_getter: FuncId,
     pub(crate) get_property_descriptor: FuncId,
     pub(crate) throw_typeerror_if_not_object: FuncId,
+    pub(crate) arr_length_descriptor: FuncId,
     pub(crate) dynobj_has: FuncId,
     pub(crate) dynobj_delete: FuncId,
     pub(crate) arr_drop_any: FuncId,
@@ -15552,14 +15567,48 @@ impl<'a> LowerCtx<'a> {
                     && ns == "Object"
                     && args.len() == 2
                 {
+                    let obj_raw = self.lower_expr(args[0]);
+                    let obj_ty = self.operand_ty(&obj_raw);
+
+                    // RFC C5a — typed-Array `.length` static fast path.
+                    // Spec §10.4.2.4: Array's `length` own prop is
+                    // `{value, writable: true, enumerable: false,
+                    // configurable: false}`. Routes to a runtime helper
+                    // that builds the desc from arr.len(); bypasses the
+                    // general dynobj-walking path (which would report
+                    // undefined for Array.length).
+                    if matches!(obj_ty, Type::Arr(_))
+                        && let Expr::String(k) = self.ast.get_expr(args[1])
+                        && k == "length"
+                    {
+                        // Load `len: u64` from the array header
+                        // (`torajs-arr::layout::ARR_LEN_OFF = 8`) so
+                        // the helper sig stays `(I64) -> Any`.
+                        let len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, obj_raw, 8),
+                            Type::I64,
+                            None,
+                        );
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_length_descriptor,
+                                vec![Operand::Value(len)],
+                            ),
+                            Type::Any,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+
                     // Box a non-Any receiver to its spec-correct AnyValue
                     // immediate (undefined → ANY_UNDEF, null → ANY_NULL,
                     // number/string → wrapper) so the runtime can
                     // tag-discriminate the `ToObject(undefined|null) →
                     // throw TypeError` case (RFC C4). An already-Any
                     // receiver passes through unchanged.
-                    let obj_raw = self.lower_expr(args[0]);
-                    let obj_op = if matches!(self.operand_ty(&obj_raw), Type::Any) {
+                    let obj_op = if matches!(obj_ty, Type::Any) {
                         obj_raw
                     } else {
                         self.box_to_any_from_expr(args[0], obj_raw)
