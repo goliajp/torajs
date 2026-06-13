@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T12:39:35.298Z",
+  "generatedAt": "2026-06-13T13:00:40.944Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "44d7fd70",
-    "commitSubject": "feat: Object.defineProperty/defineProperties arg-validation TypeError (RFC C4b)",
+    "commit": "21741ab5",
+    "commitSubject": "feat: Object.getOwnPropertyDescriptor(arr, \"length\") real descriptor (RFC C5a)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "21741ab5",
+      "subject": "feat: Object.getOwnPropertyDescriptor(arr, \"length\") real descriptor (RFC C5a)"
+    },
+    {
+      "hash": "5fd0bf57",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC C4b defineProperty/defineProperties arg-validation TypeError, gate 783/0/4"
+    },
+    {
       "hash": "44d7fd70",
       "subject": "feat: Object.defineProperty/defineProperties arg-validation TypeError (RFC C4b)"
     },
@@ -657,17 +665,9 @@
     {
       "hash": "53361fa7",
       "subject": "feat: Object.defineProperty runtime-descriptor path (RFC C1)"
-    },
-    {
-      "hash": "c1a664d2",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD 2cf8d623 (test262 front A observability: Error/Test262Error render, 1128 opaque corpus now clusterable)"
-    },
-    {
-      "hash": "2cf8d623",
-      "subject": "feat(conformance): Test262Error extends Error for renderable assert failures"
     }
   ],
-  "headSha": "44d7fd70",
+  "headSha": "21741ab5",
   "autorun": {
     "total": 138,
     "baselineTarget": 10,
