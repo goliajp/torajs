@@ -42,6 +42,31 @@ unsafe extern "C" {
     /// torajs-anyvalue — NaN-box a `(tag, value)` pair into an
     /// `AnyValue`. `tag`: 0=Null 1=Bool 2=I64 3=F64(bits) 4=Heap(ptr).
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    /// torajs-anyvalue — extract the payload (per-tag value) from a
+    /// NaN-box `AnyValue` (F64 returns the bits, Heap the pointer).
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    /// torajs-anyvalue — NaN-box AnyValue tag decoder (Heap = 4).
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+}
+
+/// `ANY_HEAP` AnySlotTag (mirrors `crate::layout::ANY_HEAP` = 4) — the
+/// tag `unbox_tag` reports for any heap cell, including an AccessorPair.
+const ANY_HEAP_TAG: i64 = 4;
+
+/// True when a dynobj entry's `value_anyv` is an `AccessorPair` cell —
+/// the single accessor-detection predicate shared by the GET (`get.rs`)
+/// and SET (`set.rs`) paths. A non-Heap value (immediate) is never an
+/// accessor, so the pointee `type_tag` read is gated on the Heap tag.
+///
+/// # Safety
+/// `v_anyv` is a dynobj entry value; if it carries the Heap tag its
+/// payload is a live heap pointer.
+pub(crate) unsafe fn value_is_accessor(v_anyv: u64) -> bool {
+    if unsafe { __torajs_anyv_unbox_tag(v_anyv) } != ANY_HEAP_TAG {
+        return false;
+    }
+    let ptr = unsafe { __torajs_anyv_unbox_value(v_anyv) } as *const c_void;
+    !ptr.is_null() && unsafe { *((ptr as *const u8).add(4) as *const u16) } == TAG_ACCESSOR_PAIR
 }
 
 /// Total `AccessorPair` heap-block size.
@@ -214,6 +239,62 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(pair: *const c_void) ->
             }
         }
     }
+}
+
+/// `__torajs_accessor_invoke_setter(pair, value_anyv)` — call the
+/// setter closure with the assigned value, returning `1` when a setter
+/// ran and `0` when the accessor has no setter (the caller raises the
+/// "only a getter" assignment error). The setter is invoked env-first
+/// with the value unboxed per the stored setter param kind (an `F64`
+/// setter takes its argument in `d0`, an `I64` one in `x0`); an `Any`
+/// setter receives the NaN-box `AnyValue` verbatim.
+///
+/// # Safety
+/// `pair` is null or a live `AccessorPair`; its `set_closure` (when
+/// present) is a live closure whose fn at `+8` has the env-first ABI
+/// and the param type encoded by the setter param kind.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
+    pair: *const c_void,
+    value_anyv: u64,
+) -> i32 {
+    if pair.is_null() {
+        return 0;
+    }
+    let setter = unsafe { *((pair as *const u8).add(ACC_SET_OFF) as *const u64) } as *mut c_void;
+    if setter.is_null() {
+        return 0;
+    }
+    let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
+    let param_kind = ((kinds >> 8) & 0xff) as u8;
+    let fn_addr = unsafe { *((setter as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const usize) };
+    unsafe {
+        match param_kind {
+            ACC_KIND_F64 => {
+                let v = f64::from_bits(__torajs_anyv_unbox_value(value_anyv) as u64);
+                let f: unsafe extern "C" fn(*mut c_void, f64) = core::mem::transmute(fn_addr);
+                f(setter, v);
+            }
+            ACC_KIND_BOOL | ACC_KIND_I64 => {
+                let v = __torajs_anyv_unbox_value(value_anyv);
+                let f: unsafe extern "C" fn(*mut c_void, i64) = core::mem::transmute(fn_addr);
+                f(setter, v);
+            }
+            ACC_KIND_PTR => {
+                let v = __torajs_anyv_unbox_value(value_anyv) as *mut c_void;
+                let f: unsafe extern "C" fn(*mut c_void, *mut c_void) =
+                    core::mem::transmute(fn_addr);
+                f(setter, v);
+            }
+            // ACC_KIND_ANY (and any unknown): the setter takes an
+            // AnyValue — pass the NaN-box through verbatim.
+            _ => {
+                let f: unsafe extern "C" fn(*mut c_void, u64) = core::mem::transmute(fn_addr);
+                f(setter, value_anyv);
+            }
+        }
+    }
+    1
 }
 
 /// Release one held closure ref via its per-closure env-drop hook

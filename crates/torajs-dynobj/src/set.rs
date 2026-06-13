@@ -14,6 +14,7 @@
 
 use core::ffi::c_void;
 
+use crate::accessor::{__torajs_accessor_invoke_setter, value_is_accessor};
 use crate::layout::{ANY_HEAP, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT, BUCKET_TAG_MASK};
 use crate::probe::{
     Entry, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
@@ -74,6 +75,28 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
     let ent = unsafe { entries(obj) };
     if pr.found {
         let e = unsafe { ent.add(pr.entry as usize) };
+        let cur_value_anyv = unsafe { (*e).value_anyv };
+        // RFC C3 — accessor entry: dispatch the setter, never a data
+        // write (checked before the writable gate — accessors carry no
+        // writable bit, so the data path would wrongly throw "read
+        // only"). `cur_value_anyv` is the AccessorPair cell verbatim.
+        if unsafe { value_is_accessor(cur_value_anyv) } {
+            let value_anyv = unsafe {
+                __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64)
+            };
+            if unsafe {
+                __torajs_accessor_invoke_setter(cur_value_anyv as *const c_void, value_anyv)
+            } == 0
+            {
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"TypeError: Cannot set property which has only a getter".as_ptr()
+                            as *const u8,
+                    );
+                }
+            }
+            return;
+        }
         let cur_flags = bucket_flags(unsafe { (*e).key_ptr_tagged });
         if cur_flags & BUCKET_FLAG_WRITABLE == 0 {
             unsafe {
@@ -83,7 +106,6 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
             }
             return;
         }
-        let cur_value_anyv = unsafe { (*e).value_anyv };
         let cur_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
         // Drop the old heap value if the current slot was ANY_HEAP.
         // (The NaN-box cell gate in __torajs_value_drop_heap would

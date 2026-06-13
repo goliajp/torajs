@@ -37,7 +37,8 @@ pub mod set;
 
 pub use accessor::{
     __torajs_accessor_drop, __torajs_accessor_get_getter, __torajs_accessor_get_kinds,
-    __torajs_accessor_get_setter, __torajs_accessor_invoke_getter, __torajs_accessor_pair_new,
+    __torajs_accessor_get_setter, __torajs_accessor_invoke_getter, __torajs_accessor_invoke_setter,
+    __torajs_accessor_pair_new,
 };
 pub use alloc::{__torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto};
 pub use define::__torajs_dynobj_define;

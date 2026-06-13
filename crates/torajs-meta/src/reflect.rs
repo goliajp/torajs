@@ -24,6 +24,8 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_tag(dynobj: *const c_void, key: *const u8) -> u64;
     fn __torajs_dynobj_get_value(dynobj: *const c_void, key: *const u8) -> u64;
     fn __torajs_dynobj_get_flags(dynobj: *const c_void, key: *const u8) -> u64;
+    fn __torajs_accessor_get_getter(pair: *const c_void) -> *mut c_void;
+    fn __torajs_accessor_get_setter(pair: *const c_void) -> *mut c_void;
 }
 
 // Tag values mirrored from torajs-anyvalue::AnySlotTag — re-declared
@@ -31,6 +33,9 @@ unsafe extern "C" {
 // Cargo dep; the i64 wire tag is part of the ABI anyway).
 const ANY_BOOL: i64 = 1;
 const ANY_HEAP: i64 = 4;
+const ANY_UNDEF: i64 = 5;
+/// `get_tag` accessor sentinel (mirrors `torajs_dynobj::layout::ANY_ACCESSOR`).
+const ANY_ACCESSOR: u64 = 6;
 
 // Tag::DynObj from torajs-rc — universal heap header at offset 0.
 const TAG_DYNOBJ: u16 = 14;
@@ -167,6 +172,41 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     let v_tag = unsafe { __torajs_dynobj_get_tag(dynobj, k_str) };
     let v_val = unsafe { __torajs_dynobj_get_value(dynobj, k_str) };
     let flags = unsafe { __torajs_dynobj_get_flags(dynobj, k_str) };
+
+    // RFC C3 — accessor entry: report `{ get, set, enumerable,
+    // configurable }` (no value/writable). `v_val` is the AccessorPair
+    // pointer; the getter/setter closures are returned as ANY_HEAP
+    // cells (the desc owns a fresh ref to each) or `undefined`.
+    if v_tag == ANY_ACCESSOR {
+        let pair = v_val as *const c_void;
+        let getter = unsafe { __torajs_accessor_get_getter(pair) };
+        let setter = unsafe { __torajs_accessor_get_setter(pair) };
+        let (get_t, get_v) = if getter.is_null() {
+            (ANY_UNDEF as u64, 0u64)
+        } else {
+            unsafe { __torajs_rc_inc(getter) };
+            (ANY_HEAP as u64, getter as u64)
+        };
+        let (set_t, set_v) = if setter.is_null() {
+            (ANY_UNDEF as u64, 0u64)
+        } else {
+            unsafe { __torajs_rc_inc(setter) };
+            (ANY_HEAP as u64, setter as u64)
+        };
+        let mut desc = unsafe { __torajs_dynobj_alloc() };
+        let acc_entries: [(&[u8], u64, u64); 4] = [
+            (b"get", get_t, get_v),
+            (b"set", set_t, set_v),
+            (b"enumerable", ANY_BOOL as u64, (flags >> 1) & 1),
+            (b"configurable", ANY_BOOL as u64, (flags >> 2) & 1),
+        ];
+        for &(name, t, val) in acc_entries.iter() {
+            let k = unsafe { alloc_str_key(name) };
+            unsafe { __torajs_dynobj_set(&mut desc, k, t, val) };
+            unsafe { __torajs_str_drop(k) };
+        }
+        return desc as u64;
+    }
 
     let mut desc = unsafe { __torajs_dynobj_alloc() };
     if v_tag as i64 == ANY_HEAP && v_val != 0 {
