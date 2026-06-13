@@ -15,7 +15,9 @@ use torajs_codegen::frame::FrameLayout;
 use torajs_codegen::reg::Gpr;
 use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};
 use torajs_core::ssa::{FuncId, Module, Type};
-use torajs_core::{TORAJS_STATICLIBS, ast, check, lexer, modules, parser, ssa_lower};
+use torajs_core::{
+    TORAJS_STATICLIBS, ast, ast_closure_param_tag, check, lexer, modules, parser, ssa_lower,
+};
 use torajs_link::archive_emit::link_to_exec_with_archives;
 use torajs_link::exec::{
     LinkConfig, UserClassLayoutEntry, UserDataGlobalEntry, UserStringEntry, UserStringKind,
@@ -159,6 +161,7 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     ast::tag_struct_field_closure_types(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::infer_anonymous_closure_params(&mut ast);
+    ast_closure_param_tag::tag_closure_arg_params(&mut ast);
     ast::synthesize_forwarders(&mut ast);
     ast::synthesize_fn_to_closure_forwarders(&mut ast);
     ast::desugar_function_prototype_methods(&mut ast);

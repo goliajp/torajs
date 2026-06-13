@@ -13,7 +13,7 @@ use std::env;
 use std::path::Path;
 use std::process::ExitCode;
 
-use torajs_core::{ast, check, lexer, modules, parser, ssa, ssa_lower};
+use torajs_core::{ast, ast_closure_param_tag, check, lexer, modules, parser, ssa, ssa_lower};
 
 use cmd_cache::run_cache_subcmd;
 use cmd_debug::run_debug;
@@ -214,6 +214,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     ast::tag_struct_field_closure_types(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::infer_anonymous_closure_params(&mut ast);
+    ast_closure_param_tag::tag_closure_arg_params(&mut ast);
     ast::synthesize_forwarders(&mut ast);
     ast::synthesize_fn_to_closure_forwarders(&mut ast);
     ast::desugar_function_prototype_methods(&mut ast);
