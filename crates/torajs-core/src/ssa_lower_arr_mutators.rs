@@ -5,7 +5,7 @@
 //! (`raw_slot_arg` / BitCastI64ToF64 on the shift return).
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
+use crate::ssa::{BinOp as SsaBinOp, BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 impl<'a> LowerCtx<'a> {
@@ -36,6 +36,93 @@ impl<'a> LowerCtx<'a> {
             return Some(r);
         }
         self.try_arr_unshift(callee, args)
+    }
+
+    /// bug-327 C1 — shared empty-array guard for `pop` / `shift`.
+    /// Emits `len == 0` CondBr: the empty block stores the ES-spec
+    /// result (undefined for Any elems via the VALUE_UNDEFINED
+    /// NaN-box; the typed-tier zero value otherwise — typed-tier
+    /// truncation bar, same as charAt) into a fresh result slot and
+    /// jumps to the join block. Leaves `cur_block` on the non-empty
+    /// path; the caller emits the mutation there and closes with
+    /// [`Self::emit_pop_shift_join`]. In-bounds cost: one cmp+branch.
+    fn emit_pop_shift_empty_guard(&mut self, len: ValueId, elem_ty: Type) -> (ValueId, BlockId) {
+        let result_slot = self.alloca(elem_ty, Some("__pop_shift_result"));
+        let is_empty = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Eq, Operand::Value(len), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        let empty_blk = self.f.add_block();
+        let nonempty_blk = self.f.add_block();
+        let join_blk = self.f.add_block();
+        let cb = self.cur_block;
+        self.f.set_term(
+            cb,
+            Terminator::CondBr {
+                cond: Operand::Value(is_empty),
+                then_blk: empty_blk,
+                else_blk: nonempty_blk,
+            },
+        );
+        self.cur_block = empty_blk;
+        let empty_val = match elem_ty {
+            Type::Any => {
+                // ANY_UNDEF=5 through the already-declared
+                // `__torajs_anyv_box_from_pair` — tag 5 maps to the
+                // VALUE_UNDEFINED NaN-box immediate.
+                let undef = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.any_box,
+                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                    ),
+                    Type::Any,
+                    None,
+                );
+                Operand::Value(undef)
+            }
+            Type::F64 => Operand::ConstF64(0.0),
+            Type::Bool => Operand::ConstBool(false),
+            t if t.is_refcounted() => Operand::ConstPtrNull,
+            Type::Ptr => Operand::ConstPtrNull,
+            _ => Operand::ConstI64(0),
+        };
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(empty_val, Operand::Value(result_slot), 0),
+        );
+        self.f.set_term(empty_blk, Terminator::Br(join_blk));
+        self.cur_block = nonempty_blk;
+        (result_slot, join_blk)
+    }
+
+    /// Close the non-empty path opened by
+    /// [`Self::emit_pop_shift_empty_guard`]: store the popped /
+    /// shifted element into the result slot, branch to the join
+    /// block, and reload the slot there as the expression result.
+    fn emit_pop_shift_join(
+        &mut self,
+        guard: (ValueId, BlockId),
+        elem: Operand,
+        elem_ty: Type,
+    ) -> Operand {
+        let (result_slot, join_blk) = guard;
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(elem, Operand::Value(result_slot), 0),
+        );
+        let cb = self.cur_block;
+        self.f.set_term(cb, Terminator::Br(join_blk));
+        self.cur_block = join_blk;
+        let result = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(elem_ty, Operand::Value(result_slot), 0),
+            elem_ty,
+            None,
+        );
+        Operand::Value(result)
     }
 
     /// `xs.pop()` — in-place len decrement + tail-slot load.
@@ -102,6 +189,12 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
+                // bug-327 C1 — empty-array guard. ES spec: `[].pop()`
+                // yields undefined and leaves length untouched. The
+                // pre-guard emit decremented len to -1 and loaded
+                // slot[-1] (Any elems: garbage AnyValue deref →
+                // SIGSEGV; typed elems: silent len=-1 corruption).
+                let guard = self.emit_pop_shift_empty_guard(len, elem_ty);
                 let new_len = self.f.append_inst(
                     self.cur_block,
                     InstKind::BinOp(SsaBinOp::Sub, Operand::Value(len), Operand::ConstI64(1)),
@@ -130,7 +223,7 @@ impl<'a> LowerCtx<'a> {
                         ARR_LEN_OFF,
                     ),
                 );
-                return Some(Operand::Value(elem));
+                return Some(self.emit_pop_shift_join(guard, Operand::Value(elem), elem_ty));
             }
         }
         None
@@ -187,6 +280,21 @@ impl<'a> LowerCtx<'a> {
                     _ => unreachable!(),
                 };
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                // bug-327 C1 — empty-array guard, same shape as pop.
+                // The pre-guard emit ran the head-bump helper with
+                // len==0: `*len_p -= 1` underflowed the u64 length to
+                // u64::MAX and the head slot read returned garbage.
+                let cur_arr = match arr_op {
+                    Operand::Value(v) => v,
+                    _ => unreachable!(),
+                };
+                let len = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, Operand::Value(cur_arr), ARR_LEN_OFF),
+                    Type::I64,
+                    None,
+                );
+                let guard = self.emit_pop_shift_empty_guard(len, elem_ty);
                 // W4 — the helper returns the slot's raw 8
                 // bytes in a GPR; decode f64 elems explicitly.
                 let v = self.f.append_inst(
@@ -199,16 +307,18 @@ impl<'a> LowerCtx<'a> {
                     },
                     None,
                 );
-                if elem_ty == Type::F64 {
+                let elem = if elem_ty == Type::F64 {
                     let fv = self.f.append_inst(
                         self.cur_block,
                         InstKind::BitCastI64ToF64(Operand::Value(v)),
                         Type::F64,
                         None,
                     );
-                    return Some(Operand::Value(fv));
-                }
-                return Some(Operand::Value(v));
+                    Operand::Value(fv)
+                } else {
+                    Operand::Value(v)
+                };
+                return Some(self.emit_pop_shift_join(guard, elem, elem_ty));
             }
         }
         None

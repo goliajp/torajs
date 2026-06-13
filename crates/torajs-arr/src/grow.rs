@@ -165,10 +165,15 @@ pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
 /// # Safety
 /// `extern "C"` ABI. `arr` must be a non-empty Array<T> heap block
 /// (8-byte slot stride). Caller's SSA-level shift dispatch guarantees
-/// len > 0.
+/// len > 0 (bug-327 C1: the `emit_pop_shift_empty_guard` CondBr —
+/// the empty path never reaches this helper).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_shift(arr: *mut u8) -> i64 {
     unsafe {
+        debug_assert!(
+            *(arr.add(ARR_HDR_LEN_OFF) as *const u64) > 0,
+            "__torajs_arr_shift on empty array — SSA empty guard missing"
+        );
         let head_p = arr.add(ARR_HDR_HEAD_OFF) as *mut u32;
         let head = *head_p as usize;
         let slot = arr.add(ARR_HDR_DATA_OFF + head * 8) as *const i64;
