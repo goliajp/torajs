@@ -90,8 +90,7 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
             {
                 unsafe {
                     __torajs_throw_type_error(
-                        c"TypeError: Cannot set property which has only a getter".as_ptr()
-                            as *const u8,
+                        c"Attempted to assign to readonly property.".as_ptr() as *const u8,
                     );
                 }
             }
@@ -101,7 +100,7 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
         if cur_flags & BUCKET_FLAG_WRITABLE == 0 {
             unsafe {
                 __torajs_throw_type_error(
-                    c"TypeError: Cannot assign to read only property".as_ptr() as *const u8,
+                    c"Attempted to assign to readonly property.".as_ptr() as *const u8,
                 );
             }
             return;

@@ -96,7 +96,7 @@ pub unsafe extern "C" fn __torajs_obj_check_not_frozen(p: *const c_void) {
     let h = unsafe { header(p) };
     if h.flags & FLAG_FROZEN != 0 {
         unsafe {
-            __torajs_throw_type_error(b"Attempted to assign to readonly property\0".as_ptr())
+            __torajs_throw_type_error(b"Attempted to assign to readonly property.\0".as_ptr())
         };
     }
 }

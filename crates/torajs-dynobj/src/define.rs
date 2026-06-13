@@ -122,8 +122,8 @@ unsafe fn define_apply(
             if has_configurable && desc_configurable && !cur_configurable {
                 unsafe {
                     __torajs_throw_type_error(
-                        c"TypeError: Cannot redefine property: configurable was false".as_ptr()
-                            as *const u8,
+                        c"Attempting to change configurable attribute of unconfigurable property."
+                            .as_ptr() as *const u8,
                     );
                 }
                 return;
@@ -131,8 +131,8 @@ unsafe fn define_apply(
             if has_enumerable && desc_enumerable != cur_enumerable {
                 unsafe {
                     __torajs_throw_type_error(
-                        c"TypeError: Cannot redefine property: enumerable mismatch".as_ptr()
-                            as *const u8,
+                        c"Attempting to change enumerable attribute of unconfigurable property."
+                            .as_ptr() as *const u8,
                     );
                 }
                 return;
@@ -141,8 +141,8 @@ unsafe fn define_apply(
                 if has_writable && desc_writable {
                     unsafe {
                         __torajs_throw_type_error(
-                            c"TypeError: Cannot redefine property: writable was false".as_ptr()
-                                as *const u8,
+                            c"Attempting to change writable attribute of unconfigurable property."
+                                .as_ptr() as *const u8,
                         );
                     }
                     return;
@@ -156,7 +156,8 @@ unsafe fn define_apply(
                     if !same {
                         unsafe {
                             __torajs_throw_type_error(
-                                c"TypeError: Cannot redefine property: writable was false, value mismatch".as_ptr() as *const u8,
+                                c"Attempting to change value of a readonly property.".as_ptr()
+                                    as *const u8,
                             );
                         }
                         return;

@@ -433,7 +433,7 @@ pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_not_object(obj_any: u6
     if obj_any == VALUE_UNDEFINED_IMM || obj_any == VALUE_NULL_IMM || !is_cell_imm(obj_any) {
         // SAFETY: NUL-terminated static C string.
         unsafe {
-            __torajs_throw_type_error(c"Object.defineProperty called on non-object".as_ptr())
+            __torajs_throw_type_error(c"Properties can only be defined on Objects.".as_ptr())
         };
         return;
     }
@@ -443,7 +443,7 @@ pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_not_object(obj_any: u6
     if matches!(tag, TAG_STR | TAG_BIGINT | TAG_SYMBOL) {
         // SAFETY: NUL-terminated static C string.
         unsafe {
-            __torajs_throw_type_error(c"Object.defineProperty called on non-object".as_ptr())
+            __torajs_throw_type_error(c"Properties can only be defined on Objects.".as_ptr())
         };
     }
 }
