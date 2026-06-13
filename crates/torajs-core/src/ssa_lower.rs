@@ -2598,6 +2598,19 @@ fn lower_inner(
         &[Type::I64],
         Type::Ptr,
     );
+    // `<v: any> instanceof <Class>` runtime dispatch — unboxes a
+    // NaN-boxed value, checks ANY_HEAP tag + reads class_tag at
+    // OBJ_CLASS_TAG_OFF, compares to `expected_tag`. ssa_lower's
+    // typed `Type::Obj(_)` path can't see through `Type::Any` (the
+    // common `catch (e: any)` binding shape), so we emit one call
+    // per descendant tag and OR-chain — see torajs-rc::instanceof_any.
+    let instanceof_class_any_tag_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_instanceof_class_any_tag",
+        &[Type::Any, Type::I64],
+        Type::Bool,
+    );
     let dynobj_get_tag_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5173,6 +5186,7 @@ fn lower_inner(
         arr_get_any_value: arr_get_any_value_id,
         dynobj_alloc: dynobj_alloc_id,
         get_builtin_prototype: get_builtin_prototype_id,
+        instanceof_class_any_tag: instanceof_class_any_tag_id,
         fnprops_set: fnprops_set_id,
         fnprops_get_tag: fnprops_get_tag_id,
         fnprops_get_value: fnprops_get_value_id,
@@ -5981,6 +5995,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_get_any_value: FuncId,
     pub(crate) dynobj_alloc: FuncId,
     pub(crate) get_builtin_prototype: FuncId,
+    pub(crate) instanceof_class_any_tag: FuncId,
     pub(crate) fnprops_set: FuncId,
     pub(crate) fnprops_get_tag: FuncId,
     pub(crate) fnprops_get_value: FuncId,
@@ -22524,6 +22539,68 @@ impl<'a> LowerCtx<'a> {
                 };
                 if let Some(r) = result {
                     return Operand::ConstBool(r);
+                }
+                // Type::Any operand (e.g. `catch (e: any) { e instanceof
+                // TypeError }`) — the inline `Type::Obj(_)` path below
+                // can't see through the NaN-box, so emit a runtime
+                // dispatch: one `__torajs_instanceof_class_any_tag`
+                // call per descendant tag, OR-chained. The helper
+                // unboxes the NaN-box, validates ANY_HEAP, reads
+                // class_tag at OBJ_CLASS_TAG_OFF, compares to the
+                // supplied `expected_tag` ConstI64. See
+                // torajs-rc::instanceof_any.
+                if matches!(actual_ty, Type::Any) {
+                    let mut descendant_tags: Vec<u32> = Vec::new();
+                    if self.ast.class_parents.contains_key(class_name) {
+                        for c in self.ast.class_parents.keys() {
+                            let mut cur = Some(c.clone());
+                            let mut depth = 0u32;
+                            while let Some(name) = cur {
+                                if depth > 64 {
+                                    break;
+                                }
+                                if name == *class_name {
+                                    if let Some(tag) = self.class_name_to_tag.get(c) {
+                                        descendant_tags.push(*tag);
+                                    }
+                                    break;
+                                }
+                                cur = self.ast.class_parents.get(&name).and_then(|p| p.clone());
+                                depth += 1;
+                            }
+                        }
+                    }
+                    if descendant_tags.is_empty() {
+                        return Operand::ConstBool(false);
+                    }
+                    descendant_tags.sort();
+                    descendant_tags.dedup();
+                    let mut acc: Option<ValueId> = None;
+                    for &t in &descendant_tags {
+                        let one = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.instanceof_class_any_tag,
+                                vec![v.clone(), Operand::ConstI64(t as i64)],
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        acc = Some(match acc {
+                            None => one,
+                            Some(prev) => self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(
+                                    SsaBinOp::Or,
+                                    Operand::Value(prev),
+                                    Operand::Value(one),
+                                ),
+                                Type::Bool,
+                                None,
+                            ),
+                        });
+                    }
+                    return Operand::Value(acc.unwrap());
                 }
                 if !matches!(actual_ty, Type::Obj(_)) {
                     // Non-object operand: instanceof is trivially false.

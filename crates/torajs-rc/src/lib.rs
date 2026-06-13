@@ -109,6 +109,7 @@ use std::ptr::NonNull;
 pub mod builtin_proto;
 pub mod extensible;
 pub mod freeze;
+pub mod instanceof_any;
 
 // __torajs_value_drop_heap (the universal heap-typed drop dispatch)
 // lives in its own torajs-value-drop sub-crate, NOT in torajs-rc.
