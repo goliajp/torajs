@@ -2682,6 +2682,25 @@ fn lower_inner(
         &[Type::I64],
         Type::Any,
     );
+    // RFC C5b — `Object.preventExtensions(O)` / `Object.isExtensible(O)`.
+    // Anyvalue-shaped guards: primitive imm / null / undef short-circuit
+    // per spec §20.1.2.16 step 1 / §20.1.2.13 step 1 ("not Object → no-op
+    // / false"); real cells route through the raw-pointer setter / reader
+    // that toggles / reads FLAG_NON_EXTENSIBLE on the heap header.
+    let anyv_prevent_extensions_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_anyv_prevent_extensions",
+        &[Type::Any],
+        Type::Any,
+    );
+    let anyv_is_extensible_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_anyv_is_extensible",
+        &[Type::Any],
+        Type::Bool,
+    );
     let dynobj_has_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5121,6 +5140,8 @@ fn lower_inner(
         get_property_descriptor: get_property_descriptor_id,
         throw_typeerror_if_not_object: throw_typeerror_if_not_object_id,
         arr_length_descriptor: arr_length_descriptor_id,
+        anyv_prevent_extensions: anyv_prevent_extensions_id,
+        anyv_is_extensible: anyv_is_extensible_id,
         dynobj_has: dynobj_has_id,
         dynobj_delete: dynobj_delete_id,
         arr_drop_any: arr_drop_any_id,
@@ -5923,6 +5944,8 @@ pub(crate) struct Intrinsics {
     pub(crate) get_property_descriptor: FuncId,
     pub(crate) throw_typeerror_if_not_object: FuncId,
     pub(crate) arr_length_descriptor: FuncId,
+    pub(crate) anyv_prevent_extensions: FuncId,
+    pub(crate) anyv_is_extensible: FuncId,
     pub(crate) dynobj_has: FuncId,
     pub(crate) dynobj_delete: FuncId,
     pub(crate) arr_drop_any: FuncId,
@@ -16666,17 +16689,82 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(box_v);
                 }
-                /* 2026-05-18 — `Object.setPrototypeOf(obj, proto)`
-                 * is a no-op in the subset (tora has no real
-                 * prototype chain for dynobj-backed objects yet).
-                 * Returns the obj per spec. The proto arg is
-                 * evaluated for side effects then discarded. */
+                /* RFC C5b — `Object.preventExtensions(obj)` flips
+                 * FLAG_NON_EXTENSIBLE on the heap header (cell case)
+                 * or returns the primitive as-is (spec §20.1.2.16
+                 * step 1). Box typed receivers to Any so the helper's
+                 * single ABI handles every receiver shape; the cell
+                 * still points at the same heap block so JS-level
+                 * `Object.preventExtensions(o) === o` holds. */
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
+                    && m_name == "preventExtensions"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && !args.is_empty()
+                {
+                    let obj_op = self.lower_expr(args[0]);
+                    let obj_ty = self.operand_ty(&obj_op);
+                    let any_op = if matches!(obj_ty, Type::Any) {
+                        obj_op
+                    } else {
+                        self.box_to_any_from_expr(args[0], obj_op)
+                    };
+                    for a in args.iter().skip(1) {
+                        let _ = self.lower_expr(*a);
+                    }
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.anyv_prevent_extensions, vec![any_op]),
+                        Type::Any,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                /* RFC C5b — `Object.isExtensible(obj)` reads
+                 * FLAG_NON_EXTENSIBLE (cell case) or returns false
+                 * (spec §20.1.2.13 step 1 — primitives / null /
+                 * undefined are not Object). */
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
+                    && m_name == "isExtensible"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && !args.is_empty()
+                {
+                    let obj_op = self.lower_expr(args[0]);
+                    let obj_ty = self.operand_ty(&obj_op);
+                    let any_op = if matches!(obj_ty, Type::Any) {
+                        obj_op
+                    } else {
+                        self.box_to_any_from_expr(args[0], obj_op)
+                    };
+                    for a in args.iter().skip(1) {
+                        let _ = self.lower_expr(*a);
+                    }
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.anyv_is_extensible, vec![any_op]),
+                        Type::Bool,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                /* 2026-05-18 — `Object.setPrototypeOf(obj, proto)` /
+                 * `Object.seal` / `Object.defineProperties` / `Object.assign`
+                 * are no-ops in the subset (tora has no real prototype
+                 * chain for dynobj-backed objects yet; seal substrate
+                 * lands in RFC C5b-3). Returns the obj per spec. Extra
+                 * args are evaluated for side effects then discarded. */
                 if let Expr::Member {
                     obj: ns_id,
                     name: m_name,
                 } = self.ast.get_expr(*callee)
                     && (m_name == "setPrototypeOf"
-                        || m_name == "preventExtensions"
                         || m_name == "seal"
                         || m_name == "defineProperties"
                         || m_name == "assign")
@@ -16690,22 +16778,21 @@ impl<'a> LowerCtx<'a> {
                     }
                     return obj_op;
                 }
-                /* 2026-05-18 — `Object.isExtensible(obj)` /
-                 * `Object.isSealed(obj)` — tora has no extensible /
-                 * sealed bits separate from frozen, so default to
-                 * spec's "extensible=true / sealed=false" until a
-                 * full attribute substrate lands. Eval-drop arg. */
+                /* 2026-05-18 — `Object.isSealed(obj)` — tora has no
+                 * sealed substrate yet (RFC C5b-3); default to spec's
+                 * "false for normal objects" + "true for primitives".
+                 * Eval-drop arg. */
                 if let Expr::Member {
                     obj: ns_id,
                     name: m_name,
                 } = self.ast.get_expr(*callee)
-                    && (m_name == "isExtensible" || m_name == "isSealed")
+                    && m_name == "isSealed"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
                     && !args.is_empty()
                 {
                     let _ = self.lower_expr(args[0]);
-                    return Operand::ConstBool(m_name == "isExtensible");
+                    return Operand::ConstBool(false);
                 }
                 /* T-09.b (v0.4.0) — `Object.entries(obj)` returns
                  * Array<Array<Any>> where each inner is `[key, value]`.

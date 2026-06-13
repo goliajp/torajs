@@ -27,6 +27,11 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_flags(dynobj: *const c_void, key: *const u8) -> u64;
     fn __torajs_accessor_get_getter(pair: *const c_void) -> *mut c_void;
     fn __torajs_accessor_get_setter(pair: *const c_void) -> *mut c_void;
+    // RFC C5b — raw-pointer layer FLAG_NON_EXTENSIBLE setter / reader
+    // from torajs-rc/src/extensible.rs. Cell-only — caller filters out
+    // primitive imms first.
+    fn __torajs_obj_prevent_extensions(p: *mut c_void) -> *mut c_void;
+    fn __torajs_obj_is_extensible(p: *const c_void) -> bool;
 }
 
 // Tag values mirrored from torajs-anyvalue::AnySlotTag — re-declared
@@ -281,6 +286,44 @@ pub unsafe extern "C" fn __torajs_anyv_arr_length_descriptor(len: u64) -> u64 {
         unsafe { __torajs_str_drop(k) };
     }
     desc as u64
+}
+
+/// RFC C5b — `Object.preventExtensions(O)`. Spec ES §20.1.2.16 step 1
+/// `If Type(O) is not Object, return O.` Real objects route through
+/// the raw-pointer setter that flips [`torajs_rc::FLAG_NON_EXTENSIBLE`]
+/// on the universal heap header. The same boxed AnyValue is returned
+/// (identity-preserving — `Object.preventExtensions(o) === o` holds at
+/// the JS level because the cell still points at the same heap block).
+///
+/// # Safety
+///
+/// `obj_any` must carry a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_prevent_extensions(obj_any: u64) -> u64 {
+    if !is_cell_imm(obj_any) {
+        // primitive imm / null / undef — spec returns the value as-is.
+        return obj_any;
+    }
+    // SAFETY: cell pointer to a valid heap object per invariant.
+    unsafe { __torajs_obj_prevent_extensions(obj_any as *mut c_void) };
+    obj_any
+}
+
+/// RFC C5b — `Object.isExtensible(O)`. Spec ES §20.1.2.13 step 1
+/// `If Type(O) is not Object, return false.` Primitives, null, and
+/// undefined report `false`; real cells delegate to the raw-pointer
+/// reader that inspects [`torajs_rc::FLAG_NON_EXTENSIBLE`].
+///
+/// # Safety
+///
+/// `obj_any` must carry a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_is_extensible(obj_any: u64) -> bool {
+    if !is_cell_imm(obj_any) {
+        return false;
+    }
+    // SAFETY: cell pointer to a valid heap object.
+    unsafe { __torajs_obj_is_extensible(obj_any as *const c_void) }
 }
 
 /// RFC C4b — `Object.defineProperty(O, ...)` / `Object.defineProperties(O, ...)`
