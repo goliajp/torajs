@@ -106,6 +106,7 @@
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
+pub mod extensible;
 pub mod freeze;
 
 // __torajs_value_drop_heap (the universal heap-typed drop dispatch)
@@ -163,6 +164,20 @@ pub const FLAG_BUFFERED: u16 = 1 << 5;
 /// tag), so this uses bit 7. Disjoint from the cycle-collector color
 /// bits (3-4) and every other flag user.
 pub const FLAG_ERROR: u16 = 1 << 7;
+
+/// `Object.preventExtensions(obj)` / `Object.seal(obj)` — clear the
+/// `[[Extensible]]` internal slot per spec §10.1. Default 0 means the
+/// object is extensible (the common case), so fresh allocs do not
+/// need to touch this bit. `Object.isExtensible` reads it; `seal` sets
+/// it AND clears every entry's `configurable` flag.
+///
+/// Bit 8 is the first universally-free position on `HeapHeader.flags`
+/// — bits 1-5 / 7 are taken by [`FLAG_SPLIT_BLOCK`] /
+/// [`FLAG_STATIC_LITERAL`] / cycle-color overlay / [`FLAG_FROZEN`] /
+/// [`FLAG_ARR_ANY`] / [`FLAG_BUFFERED`] / [`FLAG_ERROR`]; bit 6 is
+/// `DynObj`-private NULL_PROTO. Disjoint from every prior user
+/// regardless of `type_tag`.
+pub const FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
 
 /// Bit position of the 2-bit cycle-collector color field.
 pub const COLOR_SHIFT: u16 = 3;
