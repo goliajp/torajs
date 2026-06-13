@@ -13,6 +13,13 @@ pub struct Args {
     pub workers: usize,
     pub report_bugs: usize,
     pub json_out: Option<String>,
+    /// `--bugs-ndjson PATH` flag: dump every bug-classified case (the
+    /// full set, not just the `--report-bugs` head) to PATH as one JSON
+    /// object per line (`{"path","kind","msg"}`). Feeds root-cause
+    /// clustering of the bug corpus — `kind` carries the exit code
+    /// (138/139 = silent crash, 1 = loud fail, stdout-mismatch), `msg`
+    /// the stderr first line (the substrate-gap signal).
+    pub bugs_ndjson: Option<String>,
     /// `--no-cache` flag: skip the bun oracle cache (cache::lookup
     /// returns None even on disk hit). Default false → cache enabled.
     /// Useful for benchmarking the runner itself or after a corpus /
@@ -26,6 +33,7 @@ pub fn parse_args() -> Args {
     let mut workers = DEFAULT_WORKERS;
     let mut report_bugs = DEFAULT_REPORT_BUGS;
     let mut json_out: Option<String> = None;
+    let mut bugs_ndjson: Option<String> = None;
     let mut no_cache = false;
     let mut iter = std::env::args().skip(1);
     while let Some(a) = iter.next() {
@@ -43,6 +51,7 @@ pub fn parse_args() -> Args {
                 }
             }
             "--json" => json_out = iter.next(),
+            "--bugs-ndjson" => bugs_ndjson = iter.next(),
             "--no-cache" => no_cache = true,
             "-h" | "--help" => {
                 eprintln!(
@@ -53,6 +62,7 @@ pub fn parse_args() -> Args {
                      --workers N     concurrency (default {DEFAULT_WORKERS})\n  \
                      --report-bugs N list first N bug failures (default {DEFAULT_REPORT_BUGS})\n  \
                      --json PATH     also write machine-readable summary to PATH\n  \
+                     --bugs-ndjson PATH  dump every bug case (path/kind/msg) as ndjson for clustering\n  \
                      --no-cache      bypass the bun oracle cache for this run"
                 );
                 std::process::exit(0);
@@ -69,6 +79,7 @@ pub fn parse_args() -> Args {
         workers,
         report_bugs,
         json_out,
+        bugs_ndjson,
         no_cache,
     }
 }

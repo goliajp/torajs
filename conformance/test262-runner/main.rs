@@ -30,6 +30,7 @@
 //!                     their stderr first line (default 20).
 
 mod args;
+mod bugdump;
 mod cache;
 mod frontmatter;
 mod verdict;
@@ -772,6 +773,13 @@ fn main() {
         for (p, kind, msg) in bugs.iter().take(limit) {
             let rel = p.strip_prefix(root).unwrap_or(p);
             println!("  [{kind}] {}: {msg}", rel.display());
+        }
+    }
+
+    if let Some(out_path) = args.bugs_ndjson.as_deref() {
+        match bugdump::write_bugs_ndjson(Path::new(out_path), root, &bugs) {
+            Ok(()) => println!("\nbugs ndjson: {out_path} ({} cases)", bugs.len()),
+            Err(e) => eprintln!("warn: --bugs-ndjson write to {out_path}: {e}"),
         }
     }
 
