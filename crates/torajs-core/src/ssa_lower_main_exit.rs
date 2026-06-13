@@ -27,12 +27,20 @@ use crate::ssa_lower::{LowerCtx, declare_intrinsic};
 
 const MAIN_EXIT_CODE_SYM: &str = "__torajs_main_exit_code";
 
-/// Declare the `__torajs_main_exit_code` extern at module setup.
-/// Caller passes the module + fn_table being built; we register
-/// the symbol and discard the returned FuncId (it's reachable via
-/// `fn_table[MAIN_EXIT_CODE_SYM]` at `emit_ret` time).
+/// bug-327 C2.5 — uncaught-throw reporter + exit code. Called from
+/// `emit_throw_check`'s main-frame propagate branch (a throw that
+/// escaped every user frame): reports the pending throw to stderr
+/// and returns 1. Runtime lives in torajs-throw.
+const UNCAUGHT_EXIT_CODE_SYM: &str = "__torajs_uncaught_exit_code";
+
+/// Declare the `__torajs_main_exit_code` /
+/// `__torajs_uncaught_exit_code` externs at module setup. Caller
+/// passes the module + fn_table being built; we register the
+/// symbols and discard the returned FuncIds (reachable via
+/// `fn_table[<sym>]` at emit time).
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) {
     declare_intrinsic(module, fn_table, MAIN_EXIT_CODE_SYM, &[], Type::I32);
+    declare_intrinsic(module, fn_table, UNCAUGHT_EXIT_CODE_SYM, &[], Type::I32);
 }
 
 /// Emit the synthesized-main exit sequence — `call

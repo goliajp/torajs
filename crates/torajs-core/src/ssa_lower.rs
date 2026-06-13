@@ -4476,45 +4476,10 @@ fn lower_inner(
     // pattern as arr_layouts: collected during pass 0.5 / 1 / 2 and
     // written into `module.signatures` at the end.
     let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
-    // M4.3.b — may-throw analysis. Compute the set of fn names that
-    // can throw (directly or transitively via call). Per-call-site
-    // `emit_throw_check` skips the check entirely when the callee's
-    // name isn't in this set, recovering the per-call overhead of
-    // M4.1's "throw_check after every user-fn call".
-    //
-    // Algorithm: collect (name, direct_throw, called_names) tuples
-    // first; iterate to fixed-point — a fn is may_throw if
-    // direct_throw OR it calls any may_throw fn. Stops when no
-    // new names get added in a pass.
-    let mut may_throw: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut decl_throw_info: Vec<(String, bool, Vec<String>)> = Vec::new();
-    for stmt in &ast.stmts {
-        if let Stmt::FnDecl { name, body, .. } = stmt {
-            let (direct, called) = ast::fn_throw_info(ast, body, expr_types);
-            if direct {
-                may_throw.insert(name.clone());
-            }
-            decl_throw_info.push((name.clone(), direct, called));
-        }
-    }
-    loop {
-        let mut grew = false;
-        for (name, _direct, called) in &decl_throw_info {
-            if may_throw.contains(name) {
-                continue;
-            }
-            for c in called {
-                if may_throw.contains(c) {
-                    may_throw.insert(name.clone());
-                    grew = true;
-                    break;
-                }
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
+    // M4.3.b — may-throw analysis (collection + fixed-point live in
+    // ast_throw_info.rs). Per-call-site `emit_throw_check` skips the
+    // check entirely when the callee's name isn't in this set.
+    let may_throw = crate::ast_throw_info::compute_may_throw_fns(ast, expr_types);
 
     // M3.4 — generic struct decls indexed by name. parse_type instantiates
     // a fresh `Type::Obj(sid)` on-demand each time it encounters a
@@ -11126,6 +11091,25 @@ impl<'a> LowerCtx<'a> {
                 if let Some(handler) = self.try_stack.last().copied() {
                     let cb = self.cur_block;
                     self.f.set_term(cb, Terminator::Br(handler));
+                } else if self.is_main_fn {
+                    // bug-327 C2.5 — top-level `throw` with no
+                    // enclosing try is an uncaught exception; same
+                    // report-and-exit-1 path as emit_throw_check's
+                    // main-frame propagate branch.
+                    self.emit_drops_for_owned_locals();
+                    let uncaught_fid = *self
+                        .fn_table
+                        .get("__torajs_uncaught_exit_code")
+                        .expect("__torajs_uncaught_exit_code declared in module setup");
+                    let code = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(uncaught_fid, vec![]),
+                        Type::I32,
+                        None,
+                    );
+                    let cb = self.cur_block;
+                    self.f
+                        .set_term(cb, Terminator::Ret(Some(Operand::Value(code))));
                 } else {
                     self.emit_drops_for_owned_locals();
                     let cb = self.cur_block;
@@ -19988,6 +19972,10 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
                         );
+                        // bug-327 C2.5 — indirect targets are unknown
+                        // statically; propagate a pending throw the
+                        // same way direct user-fn calls do.
+                        self.emit_throw_check(None);
                         return Operand::ConstI64(0);
                     }
                     let v = self.f.append_inst(
@@ -19996,6 +19984,7 @@ impl<'a> LowerCtx<'a> {
                         ret_ty,
                         None,
                     );
+                    self.emit_throw_check(None);
                     return Operand::Value(v);
                 }
                 // M2 Phase B Stage 4 — call through a fn-typed local
@@ -20052,6 +20041,7 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
                         );
+                        self.emit_throw_check(None);
                         return Operand::ConstI64(0);
                     }
                     let v = self.f.append_inst(
@@ -20060,6 +20050,7 @@ impl<'a> LowerCtx<'a> {
                         result_ty,
                         None,
                     );
+                    self.emit_throw_check(None);
                     return Operand::Value(v);
                 }
                 // Generalized indirect call: when the callee is itself
@@ -20113,6 +20104,7 @@ impl<'a> LowerCtx<'a> {
                                         argv,
                                     ),
                                 );
+                                self.emit_throw_check(None);
                                 return Operand::ConstI64(0);
                             }
                             let v = self.f.append_inst(
@@ -20121,6 +20113,7 @@ impl<'a> LowerCtx<'a> {
                                 ret_ty,
                                 None,
                             );
+                            self.emit_throw_check(None);
                             return Operand::Value(v);
                         }
                         Type::FnSig(sig_id) => {
@@ -20139,6 +20132,7 @@ impl<'a> LowerCtx<'a> {
                                     self.cur_block,
                                     InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
                                 );
+                                self.emit_throw_check(None);
                                 return Operand::ConstI64(0);
                             }
                             let v = self.f.append_inst(
@@ -20147,6 +20141,7 @@ impl<'a> LowerCtx<'a> {
                                 ret_ty,
                                 None,
                             );
+                            self.emit_throw_check(None);
                             return Operand::Value(v);
                         }
                         _ => {
@@ -25084,6 +25079,27 @@ impl<'a> LowerCtx<'a> {
         // propagate (drop owned locals + ret sentinel).
         if let Some(catch) = self.try_stack.last().copied() {
             self.f.set_term(throw_blk, Terminator::Br(catch));
+        } else if self.is_main_fn {
+            // bug-327 C2.5 — the throw escaped every user frame: this
+            // is an uncaught exception. Pre-fix main ret'd the I32
+            // sentinel 0, so a crashing program exited clean (bun:
+            // error report + exit 1). __torajs_uncaught_exit_code
+            // reports the pending throw to stderr and yields 1.
+            self.cur_block = throw_blk;
+            self.emit_drops_for_owned_locals();
+            let uncaught_fid = *self
+                .fn_table
+                .get("__torajs_uncaught_exit_code")
+                .expect("__torajs_uncaught_exit_code declared in module setup");
+            let code = self.f.append_inst(
+                self.cur_block,
+                InstKind::Call(uncaught_fid, vec![]),
+                Type::I32,
+                None,
+            );
+            let cb2 = self.cur_block;
+            self.f
+                .set_term(cb2, Terminator::Ret(Some(Operand::Value(code))));
         } else {
             self.cur_block = throw_blk;
             self.emit_drops_for_owned_locals();

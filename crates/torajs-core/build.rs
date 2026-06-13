@@ -42,6 +42,8 @@ use std::path::PathBuf;
 const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower.rs",
     "src/ast_refs.rs",
+    "src/ast_closure_param_tag.rs",
+    "src/ast_throw_info.rs",
     "src/num_width/alias.rs",
     "src/num_width/container.rs",
     "src/num_width/container_lookup.rs",

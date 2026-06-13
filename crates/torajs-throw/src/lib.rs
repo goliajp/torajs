@@ -325,6 +325,64 @@ pub unsafe extern "C" fn __torajs_throw_type_error(msg: *const c_char) {
 }
 
 // ============================================================
+// bug-327 C2.5 — uncaught-throw exit path
+// ============================================================
+
+unsafe extern "C" {
+    /// Raw fd write — Layer-0 syscall shim (torajs-syscall).
+    fn __torajs_syscall_write(fd: i32, buf: *const u8, n: usize) -> isize;
+}
+
+/// Heap type_tag discriminant for Str blocks (`torajs_rc::Tag::Str`).
+/// torajs-throw is Layer-1 (no upstream crate deps) so the value is
+/// mirrored, not imported — same convention as [`ANY_TAG_HEAP`].
+const HEAP_TAG_STR: u16 = 0;
+
+/// Report the pending throw to stderr and yield exit code 1. Called
+/// by the synthesized main's throw-propagate branch (a throw that
+/// escaped every user frame — `emit_throw_check` with `is_main_fn`
+/// and an empty try stack). Pre-fix that branch ret'd the I32
+/// sentinel 0: a crashing program exited clean and the silent-wrong
+/// poisoned every exit-code consumer (test262 runner included).
+///
+/// Rendering: a thrown Str prints its payload; every other shape
+/// (Error instances, numbers, ...) prints a placeholder — value
+/// rendering parity with bun's report is tracked in RFC
+/// 20260613-test262-bug327-root-causes.
+///
+/// # Safety
+///
+/// `extern "C"` ABI. When the pending tag says Heap the value slot
+/// must hold a live heap pointer (the throw machinery's invariant).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_uncaught_exit_code() -> i32 {
+    if THROW_ACTIVE.load(Ordering::Relaxed) == 0 {
+        return 0;
+    }
+    const PREFIX: &[u8] = b"error: uncaught ";
+    unsafe { __torajs_syscall_write(2, PREFIX.as_ptr(), PREFIX.len()) };
+    let tag = THROW_TAG.load(Ordering::Relaxed);
+    let value = THROW_VALUE.load(Ordering::Relaxed);
+    let mut printed = false;
+    if tag == ANY_TAG_HEAP && value != 0 {
+        let p = value as *const u8;
+        // type_tag lives at offset +4 in the universal heap header.
+        let heap_tag = unsafe { (p.add(4) as *const u16).read() };
+        if heap_tag == HEAP_TAG_STR {
+            let len = unsafe { (p.add(8) as *const u64).read() } as usize;
+            unsafe { __torajs_syscall_write(2, p.add(STR_HDR_SIZE), len) };
+            printed = true;
+        }
+    }
+    if !printed {
+        const PLACEHOLDER: &[u8] = b"exception";
+        unsafe { __torajs_syscall_write(2, PLACEHOLDER.as_ptr(), PLACEHOLDER.len()) };
+    }
+    unsafe { __torajs_syscall_write(2, b"\n".as_ptr(), 1) };
+    1
+}
+
+// ============================================================
 // Tests
 // ============================================================
 
