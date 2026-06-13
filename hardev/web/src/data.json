@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T15:37:47.874Z",
+  "generatedAt": "2026-06-13T21:55:16.886Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "ba8f4ef4",
-    "commitSubject": "fix: register TypeError factory slot in throw-msg fixture (JIT mode)",
+    "commit": "39ba8b36",
+    "commitSubject": "fix: builtin <Ctor>.prototype isFrozen SIGSEGV (silent-crash cluster)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "39ba8b36",
+      "subject": "fix: builtin <Ctor>.prototype isFrozen SIGSEGV (silent-crash cluster)"
+    },
+    {
+      "hash": "fdc399c5",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - throw helper TypeError msg literals aligned to bun, gate 789/0/4"
+    },
+    {
       "hash": "ba8f4ef4",
       "subject": "fix: register TypeError factory slot in throw-msg fixture (JIT mode)"
     },
@@ -657,35 +665,49 @@
     {
       "hash": "5bab5eb6",
       "subject": "feat: Object.preventExtensions / isExtensible real bit (RFC C5b-2)"
-    },
-    {
-      "hash": "5912b9ec",
-      "subject": "feat: FLAG_NON_EXTENSIBLE bit + raw-ptr layer helpers (RFC C5b-1)"
-    },
-    {
-      "hash": "f8c1060f",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC C5a Object.getOwnPropertyDescriptor(arr, length) real descriptor, gate 784/0/4"
     }
   ],
-  "headSha": "ba8f4ef4",
+  "headSha": "39ba8b36",
   "autorun": {
-    "total": 141,
+    "total": 143,
     "baselineTarget": 10,
-    "bySelf": 139,
+    "bySelf": 141,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781363312-27ae",
-      "at": "2026-06-13T15:08:32Z",
-      "ts": 1781363312,
+      "rotationId": "r-1781381538-158d",
+      "at": "2026-06-13T20:12:18Z",
+      "ts": 1781381538,
       "trigger": "self",
-      "prevHead": "68586b9c",
-      "handoffSha": "sha256:5bbc8b703830af626027ef6ab51c8e51b5fa6ec249af583ad919949eb2f06e0f",
-      "handoffAgeSec": 3,
+      "prevHead": "fdc399c5",
+      "handoffSha": "sha256:05bcb0efe12a3c271fcf24ca814d21ae2426cfda2c69152181219ed1001f6219",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781381538-158d",
+        "at": "2026-06-13T20:12:18Z",
+        "ts": 1781381538,
+        "trigger": "self",
+        "prevHead": "fdc399c5",
+        "handoffSha": "sha256:05bcb0efe12a3c271fcf24ca814d21ae2426cfda2c69152181219ed1001f6219",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1781365151-65d1",
+        "at": "2026-06-13T15:39:11Z",
+        "ts": 1781365151,
+        "trigger": "self",
+        "prevHead": "fdc399c5",
+        "handoffSha": "sha256:168d3e1535ca24ae8e825732c67c92e97e72cf0d2995715c176b7a82b983496e",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781363312-27ae",
         "at": "2026-06-13T15:08:32Z",
@@ -771,28 +793,6 @@
         "prevHead": "7358eaa3",
         "handoffSha": "sha256:5dc00845f6cb053b1dd394d1882fd5739fe61f435d7f016f8ddfe78838cd19af",
         "handoffAgeSec": 80,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781306961-6c07",
-        "at": "2026-06-12T23:29:21Z",
-        "ts": 1781306961,
-        "trigger": "self",
-        "prevHead": "6014fe43",
-        "handoffSha": "sha256:d79ce1f66b76f45982b94688f74ef42b0c67e9118bae0c59f1ced2a2ab88ab5a",
-        "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781303290-4f19",
-        "at": "2026-06-12T22:28:10Z",
-        "ts": 1781303290,
-        "trigger": "self",
-        "prevHead": "af39385",
-        "handoffSha": "sha256:fc85af14de6815fda16fcf4ff7c660b88ddeeae898ca81c6415a1f5d969af3d2",
-        "handoffAgeSec": 58,
         "conformanceBefore": null,
         "commitsInSession": null
       }
