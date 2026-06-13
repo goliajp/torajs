@@ -179,6 +179,18 @@ pub const FLAG_ERROR: u16 = 1 << 7;
 /// regardless of `type_tag`.
 pub const FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
 
+/// `Object.seal(obj)` marker — distinguishes "user explicitly called
+/// `Object.seal`" from "user called `Object.preventExtensions` but not
+/// `seal`". `isSealed` returns true iff this bit OR the DynObj entry
+/// walk reports all-non-configurable; pure prevent-only sets
+/// [`FLAG_NON_EXTENSIBLE`] alone and leaves this clear, matching bun's
+/// "typed class instance after `preventExtensions` is not sealed (own
+/// keys still configurable per spec)" semantics.
+///
+/// Disjoint from every prior user — bit 9 is universally free on
+/// `HeapHeader.flags`.
+pub const FLAG_SEALED: u16 = 1 << 9;
+
 /// Bit position of the 2-bit cycle-collector color field.
 pub const COLOR_SHIFT: u16 = 3;
 /// Mask covering both color bits.

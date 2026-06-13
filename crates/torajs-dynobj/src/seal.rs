@@ -1,0 +1,199 @@
+//! `Object.seal` per-entry configurable walk.
+//!
+//! Spec §10.1.4 / §20.1.2.20: `Object.seal(O)` sets `[[Extensible]] =
+//! false` AND every own property's `[[Configurable]] = false`. The
+//! header-flag part is in `torajs-rc::extensible`; this module owns
+//! the dynobj-entry walk that clears each entry's
+//! [`crate::layout::BUCKET_FLAG_CONFIGURABLE`] bit (and the symmetric
+//! "is everything already non-configurable?" predicate that
+//! `Object.isSealed` reads).
+//!
+//! Pure structural ops over the dense entry array — no rc traffic, no
+//! cross-tier externs, no allocation. NULL / non-DynObj input answers
+//! the safe default (no-op set / vacuously-true read).
+
+use core::ffi::c_void;
+
+use crate::get::type_tag;
+use crate::layout::{BUCKET_FLAG_CONFIGURABLE, DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
+use crate::probe::{entries, entries_len};
+
+/// `__torajs_dynobj_seal_entries(obj)` — clear
+/// `BUCKET_FLAG_CONFIGURABLE` (bit 2 of the `key_ptr_tagged` word) on
+/// every live entry. The accompanying `[[Extensible]] = false` flip on
+/// the heap header lives in `torajs-rc::extensible`; this is the
+/// per-entry half of `Object.seal`.
+///
+/// Holes (`key_ptr_tagged == DYNOBJ_KEY_HOLE`) are skipped — `delete`
+/// already retired their slot.
+///
+/// # Safety
+/// `obj` is null or a live heap pointer with a universal header.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_seal_entries(obj: *mut c_void) {
+    if obj.is_null() {
+        return;
+    }
+    if unsafe { type_tag(obj) } != TAG_DYNOBJ {
+        return;
+    }
+    let n = unsafe { entries_len(obj) };
+    let base = unsafe { entries(obj) };
+    for i in 0..n as usize {
+        let e = unsafe { base.add(i) };
+        let kp = unsafe { (*e).key_ptr_tagged };
+        if kp == DYNOBJ_KEY_HOLE {
+            continue;
+        }
+        unsafe { (*e).key_ptr_tagged = kp & !BUCKET_FLAG_CONFIGURABLE };
+    }
+}
+
+/// `__torajs_dynobj_all_entries_non_configurable(obj) -> bool` — true
+/// iff every live entry has its configurable flag cleared (or the
+/// object has no live entries at all — spec's vacuous `[[OwnProperty]]
+/// = ∅` case).
+///
+/// NULL or non-DynObj cells answer `true`; this matches the
+/// `Object.isSealed` caller, which already has the `[[Extensible]] =
+/// false` gate from the header check and is asking "do all own props
+/// satisfy non-configurable?". For non-dynobj cells (typed-Obj / Arr /
+/// Map / Set / …) there is no observable own-property table in tora,
+/// so the AND-with-`[[Extensible]]` reduces to just the header bit.
+///
+/// # Safety
+/// `obj` is null or a live heap pointer with a universal header.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_all_entries_non_configurable(obj: *const c_void) -> bool {
+    if obj.is_null() {
+        return true;
+    }
+    if unsafe { type_tag(obj) } != TAG_DYNOBJ {
+        return true;
+    }
+    let n = unsafe { entries_len(obj) };
+    let base = unsafe { entries(obj) };
+    for i in 0..n as usize {
+        let e = unsafe { base.add(i) };
+        let kp = unsafe { (*e).key_ptr_tagged };
+        if kp == DYNOBJ_KEY_HOLE {
+            continue;
+        }
+        if kp & BUCKET_FLAG_CONFIGURABLE != 0 {
+            return false;
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::alloc::__torajs_dynobj_alloc;
+    use crate::layout::{
+        BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT, DYNOBJ_INITIAL_CAP,
+        STR_DATA_OFF, STR_LEN_OFF, block_bytes,
+    };
+    use crate::probe::{Entry, bucket_make_key_tagged, entries, set_entries_len};
+
+    unsafe extern "C" {
+        #[link_name = "__torajs_free"]
+        fn free(p: *mut c_void, size: usize);
+    }
+
+    fn make_str(s: &str) -> Vec<u64> {
+        let bytes = STR_DATA_OFF + s.len();
+        let mut v = vec![0u64; bytes.div_ceil(8)];
+        unsafe {
+            let p = v.as_mut_ptr() as *mut u8;
+            *(p.add(STR_LEN_OFF) as *mut u64) = s.len() as u64;
+            core::ptr::copy_nonoverlapping(s.as_ptr(), p.add(STR_DATA_OFF), s.len());
+        }
+        v
+    }
+
+    unsafe fn raw_append(obj: *mut c_void, i: u32, key: *const c_void, flags: u64) {
+        unsafe {
+            *entries(obj).add(i as usize) = Entry {
+                key_ptr_tagged: bucket_make_key_tagged(key as *mut c_void, flags),
+                value_anyv: 0,
+            };
+            set_entries_len(obj, i + 1);
+        }
+    }
+
+    /// Empty dynobj — vacuously sealed; seal walk is a no-op.
+    #[test]
+    fn empty_is_vacuously_sealed() {
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            assert!(__torajs_dynobj_all_entries_non_configurable(obj));
+            __torajs_dynobj_seal_entries(obj);
+            assert!(__torajs_dynobj_all_entries_non_configurable(obj));
+            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+        }
+    }
+
+    /// Default-flag insert reports configurable; post-seal the bit is
+    /// cleared on every entry while writable / enumerable persist.
+    #[test]
+    fn seal_clears_configurable_keeps_other_flags() {
+        let ka = make_str("alpha");
+        let kb = make_str("beta");
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            raw_append(obj, 0, ka.as_ptr() as *const c_void, BUCKET_FLAGS_DEFAULT);
+            raw_append(obj, 1, kb.as_ptr() as *const c_void, BUCKET_FLAGS_DEFAULT);
+            assert!(!__torajs_dynobj_all_entries_non_configurable(obj));
+
+            __torajs_dynobj_seal_entries(obj);
+            assert!(__torajs_dynobj_all_entries_non_configurable(obj));
+
+            // W / E stay; C is gone.
+            let kept = BUCKET_FLAG_WRITABLE | BUCKET_FLAG_ENUMERABLE;
+            for i in 0..2 {
+                let kp = (*entries(obj).add(i)).key_ptr_tagged & (BUCKET_FLAGS_DEFAULT);
+                assert_eq!(kp, kept);
+            }
+            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+        }
+    }
+
+    /// A hole between two live entries does not flip back to
+    /// configurable and does not break the all-non-configurable read.
+    #[test]
+    fn hole_is_skipped_on_walk() {
+        let ka = make_str("a");
+        let kb = make_str("b");
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            raw_append(obj, 0, ka.as_ptr() as *const c_void, BUCKET_FLAGS_DEFAULT);
+            // entry index 1 left as a hole (zeroed by calloc, so
+            // key_ptr_tagged == DYNOBJ_KEY_HOLE).
+            set_entries_len(obj, 2);
+            raw_append(obj, 2, kb.as_ptr() as *const c_void, BUCKET_FLAGS_DEFAULT);
+            __torajs_dynobj_seal_entries(obj);
+            assert!(__torajs_dynobj_all_entries_non_configurable(obj));
+            // The hole's word is still DYNOBJ_KEY_HOLE — seal must
+            // not flip it.
+            assert_eq!((*entries(obj).add(1)).key_ptr_tagged, DYNOBJ_KEY_HOLE);
+            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+        }
+    }
+
+    /// NULL / non-DynObj input is the safe default.
+    #[test]
+    fn null_and_foreign_inputs_are_vacuous() {
+        unsafe {
+            __torajs_dynobj_seal_entries(core::ptr::null_mut());
+            assert!(__torajs_dynobj_all_entries_non_configurable(
+                core::ptr::null()
+            ));
+            // Str-shaped block reads vacuous + walk is no-op.
+            let s = make_str("imposter");
+            let sp = s.as_ptr() as *mut c_void;
+            __torajs_dynobj_seal_entries(sp);
+            assert!(__torajs_dynobj_all_entries_non_configurable(sp));
+        }
+    }
+}

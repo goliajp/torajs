@@ -33,6 +33,7 @@ pub mod iter;
 pub mod layout;
 pub mod probe;
 pub mod resize;
+pub mod seal;
 pub mod set;
 
 pub use accessor::{
@@ -50,6 +51,7 @@ pub use iter::{
     __torajs_dynobj_iter_flags, __torajs_dynobj_iter_key, __torajs_dynobj_iter_len,
     __torajs_dynobj_iter_value,
 };
+pub use seal::{__torajs_dynobj_all_entries_non_configurable, __torajs_dynobj_seal_entries};
 pub use set::__torajs_dynobj_set;
 
 // Cross-tier extern stubs for cargo unit tests — `__torajs_rc_inc`,

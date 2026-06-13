@@ -2701,6 +2701,28 @@ fn lower_inner(
         &[Type::Any],
         Type::Bool,
     );
+    // RFC C5b-3 — `Object.seal(O)` / `Object.isSealed(O)`. Header
+    // flag pair (FLAG_NON_EXTENSIBLE + FLAG_SEALED) plus a DynObj
+    // entry-table walk that clears every entry's BUCKET_FLAG_CONFIGURABLE.
+    // Non-DynObj typed cells carry only the header markers — the
+    // SEALED bit alone disambiguates "user explicitly sealed" from
+    // pure preventExtensions, restoring bun parity for typed class
+    // instances (`Object.isSealed(c)` after `preventExtensions(c)` is
+    // `false` because spec field configurable=true is unchanged).
+    let anyv_seal_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_anyv_seal",
+        &[Type::Any],
+        Type::Any,
+    );
+    let anyv_is_sealed_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_anyv_is_sealed",
+        &[Type::Any],
+        Type::Bool,
+    );
     let dynobj_has_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5142,6 +5164,8 @@ fn lower_inner(
         arr_length_descriptor: arr_length_descriptor_id,
         anyv_prevent_extensions: anyv_prevent_extensions_id,
         anyv_is_extensible: anyv_is_extensible_id,
+        anyv_seal: anyv_seal_id,
+        anyv_is_sealed: anyv_is_sealed_id,
         dynobj_has: dynobj_has_id,
         dynobj_delete: dynobj_delete_id,
         arr_drop_any: arr_drop_any_id,
@@ -5946,6 +5970,8 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_length_descriptor: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,
+    pub(crate) anyv_seal: FuncId,
+    pub(crate) anyv_is_sealed: FuncId,
     pub(crate) dynobj_has: FuncId,
     pub(crate) dynobj_delete: FuncId,
     pub(crate) arr_drop_any: FuncId,
@@ -16754,18 +16780,85 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
+                /* RFC C5b-3 — `Object.seal(obj)` sets both the
+                 * FLAG_NON_EXTENSIBLE + FLAG_SEALED header bits and
+                 * walks the DynObj entry table to clear every entry's
+                 * configurable flag (non-DynObj typed cells carry only
+                 * the header markers — their property table is the
+                 * static field layout). Returns the boxed AnyValue
+                 * (cell still references the same heap block, so
+                 * `Object.seal(o) === o` holds at the JS level). */
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
+                    && m_name == "seal"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && !args.is_empty()
+                {
+                    let obj_op = self.lower_expr(args[0]);
+                    let obj_ty = self.operand_ty(&obj_op);
+                    let any_op = if matches!(obj_ty, Type::Any) {
+                        obj_op
+                    } else {
+                        self.box_to_any_from_expr(args[0], obj_op)
+                    };
+                    for a in args.iter().skip(1) {
+                        let _ = self.lower_expr(*a);
+                    }
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.anyv_seal, vec![any_op]),
+                        Type::Any,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                /* RFC C5b-3 — `Object.isSealed(obj)` is `true` iff
+                 * `[[Extensible]] = false` AND every own property is
+                 * non-configurable. Spec primitives are vacuously
+                 * sealed (`true`); cells dispatch through the runtime
+                 * helper (extensible → false; sealed-marker → true;
+                 * DynObj walk for prevent-only). */
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
+                    && m_name == "isSealed"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && !args.is_empty()
+                {
+                    let obj_op = self.lower_expr(args[0]);
+                    let obj_ty = self.operand_ty(&obj_op);
+                    let any_op = if matches!(obj_ty, Type::Any) {
+                        obj_op
+                    } else {
+                        self.box_to_any_from_expr(args[0], obj_op)
+                    };
+                    for a in args.iter().skip(1) {
+                        let _ = self.lower_expr(*a);
+                    }
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.anyv_is_sealed, vec![any_op]),
+                        Type::Bool,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 /* 2026-05-18 — `Object.setPrototypeOf(obj, proto)` /
-                 * `Object.seal` / `Object.defineProperties` / `Object.assign`
-                 * are no-ops in the subset (tora has no real prototype
-                 * chain for dynobj-backed objects yet; seal substrate
-                 * lands in RFC C5b-3). Returns the obj per spec. Extra
-                 * args are evaluated for side effects then discarded. */
+                 * `Object.defineProperties` / `Object.assign` are no-ops
+                 * in the subset (tora has no real prototype chain for
+                 * dynobj-backed objects yet). Returns the obj per spec.
+                 * Extra args are evaluated for side effects then
+                 * discarded. */
                 if let Expr::Member {
                     obj: ns_id,
                     name: m_name,
                 } = self.ast.get_expr(*callee)
                     && (m_name == "setPrototypeOf"
-                        || m_name == "seal"
                         || m_name == "defineProperties"
                         || m_name == "assign")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
@@ -16777,22 +16870,6 @@ impl<'a> LowerCtx<'a> {
                         let _ = self.lower_expr(*a);
                     }
                     return obj_op;
-                }
-                /* 2026-05-18 — `Object.isSealed(obj)` — tora has no
-                 * sealed substrate yet (RFC C5b-3); default to spec's
-                 * "false for normal objects" + "true for primitives".
-                 * Eval-drop arg. */
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && m_name == "isSealed"
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Object"
-                    && !args.is_empty()
-                {
-                    let _ = self.lower_expr(args[0]);
-                    return Operand::ConstBool(false);
                 }
                 /* T-09.b (v0.4.0) — `Object.entries(obj)` returns
                  * Array<Array<Any>> where each inner is `[key, value]`.

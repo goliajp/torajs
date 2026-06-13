@@ -21,7 +21,7 @@
 
 use core::ffi::c_void;
 
-use crate::{FLAG_NON_EXTENSIBLE, FLAG_STATIC_LITERAL, HeapHeader};
+use crate::{FLAG_NON_EXTENSIBLE, FLAG_SEALED, FLAG_STATIC_LITERAL, HeapHeader};
 
 #[inline]
 unsafe fn header_mut(p: *mut c_void) -> &'static mut HeapHeader {
@@ -70,6 +70,50 @@ pub unsafe extern "C" fn __torajs_obj_is_extensible(p: *const c_void) -> bool {
         return false;
     }
     (h.flags & FLAG_NON_EXTENSIBLE) == 0
+}
+
+/// `Object.seal(p)` header-flag work — set both `FLAG_NON_EXTENSIBLE`
+/// and `FLAG_SEALED` in one shot. The per-entry "clear configurable"
+/// walk is dispatched separately for DynObj cells (see
+/// `torajs-dynobj::__torajs_dynobj_seal_entries`); non-DynObj typed
+/// cells (Tag::Obj structs / Arr / Closure / …) carry only the header
+/// markers because their property table is the static field layout
+/// and has no per-entry configurable bit to flip.
+///
+/// NULL and static-literal blocks short-circuit per the same SIGBUS
+/// constraint that gates `prevent_extensions`. Returns `p` so the
+/// caller can chain the AnyValue cell return through.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_seal_mark(p: *mut c_void) -> *mut c_void {
+    if p.is_null() {
+        return p;
+    }
+    let h = unsafe { header_mut(p) };
+    if h.flags & FLAG_STATIC_LITERAL != 0 {
+        return p;
+    }
+    h.flags |= FLAG_NON_EXTENSIBLE | FLAG_SEALED;
+    p
+}
+
+/// `Object.isSealed(p)`'s typed-cell fast path — has the user explicitly
+/// called `Object.seal` on this cell? Used by the AnyValue dispatch to
+/// short-circuit before the DynObj entry walk; non-DynObj cells answer
+/// `isSealed` purely off this bit (their entry table is the static
+/// field layout, prevent-only does NOT seal per spec / bun parity).
+///
+/// Static-literal blocks report `true` (they were sealed in `.rodata`
+/// at allocation time).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_is_sealed_marked(p: *const c_void) -> bool {
+    if p.is_null() {
+        return false;
+    }
+    let h = unsafe { header(p) };
+    if h.flags & FLAG_STATIC_LITERAL != 0 {
+        return true;
+    }
+    (h.flags & FLAG_SEALED) != 0
 }
 
 #[cfg(test)]
@@ -144,5 +188,47 @@ mod tests {
         unsafe { __torajs_obj_prevent_extensions(p) };
         assert!(h.flags & FLAG_FROZEN != 0);
         assert!(h.flags & FLAG_NON_EXTENSIBLE != 0);
+    }
+
+    #[test]
+    fn seal_mark_sets_both_bits() {
+        let mut h = make_header(0);
+        let p = &mut h as *mut HeapHeader as *mut c_void;
+        let ret = unsafe { __torajs_obj_seal_mark(p) };
+        assert_eq!(ret, p);
+        assert!(h.flags & FLAG_NON_EXTENSIBLE != 0);
+        assert!(h.flags & FLAG_SEALED != 0);
+    }
+
+    #[test]
+    fn is_sealed_marked_reads_bit() {
+        let h = make_header(FLAG_SEALED);
+        let p = &h as *const HeapHeader as *const c_void;
+        assert!(unsafe { __torajs_obj_is_sealed_marked(p) });
+    }
+
+    #[test]
+    fn is_sealed_marked_static_literal_true() {
+        let h = make_header(FLAG_STATIC_LITERAL);
+        let p = &h as *const HeapHeader as *const c_void;
+        assert!(unsafe { __torajs_obj_is_sealed_marked(p) });
+    }
+
+    #[test]
+    fn is_sealed_marked_prevent_only_false() {
+        // pure preventExtensions sets NON_EXTENSIBLE but not SEALED.
+        let h = make_header(FLAG_NON_EXTENSIBLE);
+        let p = &h as *const HeapHeader as *const c_void;
+        assert!(!unsafe { __torajs_obj_is_sealed_marked(p) });
+    }
+
+    #[test]
+    fn seal_mark_static_literal_noop() {
+        let mut h = make_header(FLAG_STATIC_LITERAL);
+        let p = &mut h as *mut HeapHeader as *mut c_void;
+        unsafe { __torajs_obj_seal_mark(p) };
+        // bits NOT added — rodata write would SIGBUS.
+        assert!(h.flags & FLAG_NON_EXTENSIBLE == 0);
+        assert!(h.flags & FLAG_SEALED == 0);
     }
 }
