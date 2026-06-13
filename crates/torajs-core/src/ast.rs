@@ -2548,7 +2548,23 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
     let uses_bigint =
         ast.exprs.iter().any(|e| matches!(e, Expr::BigInt { .. })) || referenced("BigInt");
 
-    // Subclasses to inject: (referenced OR implied) AND not user-shadowed.
+    // Subclasses to inject: (referenced OR implied OR runtime-thrown)
+    // AND not user-shadowed.
+    //
+    // `runtime_thrown` covers TypeError / RangeError — emitted by
+    // runtime helpers (Object.defineProperty on sealed / writes to
+    // frozen / `__torajs_throw_type_error` / bigint `/ %` / Array
+    // length range / numeric radix range / ...) regardless of user
+    // reference. Without auto-inject the native-error registry slot
+    // for that class stays unregistered → the helper falls through
+    // to a bare-Str throw, breaking `e.message` and
+    // `e instanceof TypeError` on the caught value. The fixture
+    // workaround "add `const _t = TypeError;` to the program"
+    // (check-throw-msg-001.ts, ba8f4ef4) is the same gap surfaced
+    // case-by-case; force-inject closes it module-wide. SyntaxError
+    // / ReferenceError are never emitted by runtime helpers (parse-
+    // time / type-check-time only), so their reference-gated path
+    // stays — programs that never mention them pay no cost.
     let want_sub: Vec<&str> = ERROR_SUBCLASSES
         .iter()
         .copied()
@@ -2558,7 +2574,8 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
                 .iter()
                 .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == *n));
             let implied = *n == "RangeError" && uses_bigint;
-            !shadowed && (referenced(n) || implied)
+            let runtime_thrown = matches!(*n, "TypeError" | "RangeError");
+            !shadowed && (runtime_thrown || referenced(n) || implied)
         })
         .collect();
 
@@ -3252,13 +3269,29 @@ pub fn desugar_classes(ast: &mut Ast) {
                     || class_name == "WeakSet"
                     || class_name == "Map"
                     || class_name == "Set"
+                    || class_name == "Array"
                 {
                     /* P6.1 — `new Map()` is the same shape: SSA
                      * intercepts to emit __torajs_map_create.
                      * P6.2 — `new Set()` reuses the same Map storage,
                      * SSA-side typed as Type::Set; the Map runtime
                      * helpers serve add/has/delete/clear/size with
-                     * the value-side pinned to ANY_UNDEF. */
+                     * the value-side pinned to ANY_UNDEF.
+                     * P0.10 — `new Array(n)` 1-arg numeric form
+                     * stays as Expr::New so ssa_lower (line 13107)
+                     * intercepts it directly (the AST-Call route
+                     * can't express Array<Any> with arr_id intern'd
+                     * at lower time). 0-arg / ≥2-arg forms were
+                     * already rewritten to array literals by
+                     * desugar_builtin_new. Before this skip was
+                     * added, the rewrite below sent `new Array(n)`
+                     * to `__new_Array(n)`, an undefined identifier
+                     * — used to be hidden by desugar_classes'
+                     * early-return-on-empty-class_index, but
+                     * inject_builtin_classes can leave Error /
+                     * TypeError / RangeError stmts behind for
+                     * runtime-throw safety, so class_index is no
+                     * longer empty for typical programs. */
                     let _ = args;
                     continue;
                 }
