@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T14:44:12.047Z",
+  "generatedAt": "2026-06-13T15:05:16.330Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 787,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c72939a8",
-    "commitSubject": "feat: Type::Any member read on class instance via inline class-tag dispatch",
+    "commit": "ff848f71",
+    "commitSubject": "fix: top-level const Arr<Any> literal uses Any-tagged alloc + push instead of raw stores",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "ff848f71",
+      "subject": "fix: top-level const Arr<Any> literal uses Any-tagged alloc + push instead of raw stores"
+    },
+    {
+      "hash": "be3b7efa",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC any-class-member-read inline class-tag dispatch, gate 788/0/4"
+    },
+    {
       "hash": "c72939a8",
       "subject": "feat: Type::Any member read on class instance via inline class-tag dispatch"
     },
@@ -657,17 +665,9 @@
     {
       "hash": "44d7fd70",
       "subject": "feat: Object.defineProperty/defineProperties arg-validation TypeError (RFC C4b)"
-    },
-    {
-      "hash": "19d04614",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC C4a gOPD arg-validation TypeError, gate 781/0/4"
-    },
-    {
-      "hash": "1acc42ef",
-      "subject": "feat: Object.getOwnPropertyDescriptor arg-validation TypeError (RFC C4a)"
     }
   ],
-  "headSha": "c72939a8",
+  "headSha": "ff848f71",
   "autorun": {
     "total": 140,
     "baselineTarget": 10,
