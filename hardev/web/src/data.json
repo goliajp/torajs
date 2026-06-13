@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T23:31:02.790Z",
+  "generatedAt": "2026-06-13T23:42:33.583Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c994e53a",
-    "commitSubject": "feat: instanceof Type::Any wedge close via runtime tag dispatch",
+    "commit": "0fbdd60e",
+    "commitSubject": "fix: BigInt divide/mod by 0n RangeError msg literal align bun",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "0fbdd60e",
+      "subject": "fix: BigInt divide/mod by 0n RangeError msg literal align bun"
+    },
+    {
+      "hash": "d062b12e",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - instanceof Type::Any wedge close via runtime tag dispatch, gate 790/0/4 (+1 new)"
+    },
+    {
       "hash": "c994e53a",
       "subject": "feat: instanceof Type::Any wedge close via runtime tag dispatch"
     },
@@ -657,17 +665,9 @@
     {
       "hash": "919ae8db",
       "subject": "fix: align throw helper TypeError msg literals to bun"
-    },
-    {
-      "hash": "68586b9c",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - C5a Arr<Any> + gOPD pre-existing crash fix (top-level const Arr<Any> uses Any-tagged alloc + push), gate 788/0/4"
-    },
-    {
-      "hash": "ff848f71",
-      "subject": "fix: top-level const Arr<Any> literal uses Any-tagged alloc + push instead of raw stores"
     }
   ],
-  "headSha": "c994e53a",
+  "headSha": "0fbdd60e",
   "autorun": {
     "total": 145,
     "baselineTarget": 10,
