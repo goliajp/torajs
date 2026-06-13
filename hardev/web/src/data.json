@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T08:17:42.154Z",
+  "generatedAt": "2026-06-13T12:02:54.735Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 724,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "b4dcce82",
-    "commitSubject": "feat: accessor setter dispatch + getOwnPropertyDescriptor accessor reporting (RFC C3c)",
+    "commit": "1acc42ef",
+    "commitSubject": "feat: Object.getOwnPropertyDescriptor arg-validation TypeError (RFC C4a)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "1acc42ef",
+      "subject": "feat: Object.getOwnPropertyDescriptor arg-validation TypeError (RFC C4a)"
+    },
+    {
+      "hash": "2bb7b1ec",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - RFC C3 accessor trunk complete (C3a substrate + C3b getter + C3c setter/descriptor), gate 780/0/4"
+    },
+    {
       "hash": "b4dcce82",
       "subject": "feat: accessor setter dispatch + getOwnPropertyDescriptor accessor reporting (RFC C3c)"
     },
@@ -657,35 +665,38 @@
     {
       "hash": "af692582",
       "subject": "feat: render Error instances in uncaught-throw reporter"
-    },
-    {
-      "hash": "8be1701a",
-      "subject": "feat(conformance): add --bugs-ndjson per-case bug dump for root-cause clustering"
-    },
-    {
-      "hash": "7358eaa3",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - HEAD a2521d81 (bug-327 four-root-cause fix wave + test262 honesty correction 7579->6730)"
     }
   ],
-  "headSha": "b4dcce82",
+  "headSha": "1acc42ef",
   "autorun": {
-    "total": 136,
+    "total": 137,
     "baselineTarget": 10,
-    "bySelf": 134,
+    "bySelf": 135,
     "byManual": 2,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781332780-1c3c",
-      "at": "2026-06-13T06:39:40Z",
-      "ts": 1781332780,
+      "rotationId": "r-1781338693-0d74",
+      "at": "2026-06-13T08:18:13Z",
+      "ts": 1781338693,
       "trigger": "self",
-      "prevHead": "4fc7a82f",
-      "handoffSha": "sha256:9d84e4d4629ea2362a7b9667f392888e141c9cfb5499bf92387d1aab27fc6139",
-      "handoffAgeSec": 5,
+      "prevHead": "2bb7b1ec",
+      "handoffSha": "sha256:31a1dd025ad4f37aca9a40350188da074b765c3c8ae53e8dd617655db2ce353f",
+      "handoffAgeSec": 43,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781338693-0d74",
+        "at": "2026-06-13T08:18:13Z",
+        "ts": 1781338693,
+        "trigger": "self",
+        "prevHead": "2bb7b1ec",
+        "handoffSha": "sha256:31a1dd025ad4f37aca9a40350188da074b765c3c8ae53e8dd617655db2ce353f",
+        "handoffAgeSec": 43,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781332780-1c3c",
         "at": "2026-06-13T06:39:40Z",
@@ -781,17 +792,6 @@
         "trigger": "self",
         "prevHead": "446a901",
         "handoffSha": "sha256:c2850d1980387a4e890681f42a957bf4da0d782c025addef950df03b7f679a01",
-        "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781253613-454e",
-        "at": "2026-06-12T08:40:13Z",
-        "ts": 1781253613,
-        "trigger": "self",
-        "prevHead": "2557961",
-        "handoffSha": "sha256:f74bada57529c7ecc3d2167a449b82eaaa4374137c8aa81d75af18b852e3d4fc",
         "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
