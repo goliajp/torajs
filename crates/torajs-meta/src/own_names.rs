@@ -13,9 +13,12 @@ use core::ffi::c_void;
 unsafe extern "C" {
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
     fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8;
+    fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
+    fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
     fn __torajs_i64_to_str(n: i64) -> *mut u8;
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_str_at(s: *const u8, i: i64) -> *mut u8;
+    fn __torajs_rc_inc(p: *mut c_void);
 }
 
 #[inline]
@@ -62,6 +65,58 @@ pub unsafe extern "C" fn __torajs_str_index_strs(str_ptr: *const c_void) -> *mut
     // SAFETY: STR_LEN_OFF=8 holds the live u32 length per torajs-str layout.
     let len = unsafe { (str_ptr.cast::<u8>().add(8) as *const u32).read() } as i64;
     unsafe { __torajs_arr_index_strs(len) }
+}
+
+/// W-O-3 — `Object.entries(arr)` runtime entry-pair builder. Spec
+/// §20.1.2.5 + ToObject on an Array exotic enumerates the indexed
+/// own properties as `[[idx_str, value], ...]`. Builds an outer
+/// `Arr<Arr<Any>>` of length `arr.len`; each inner is an
+/// `arr_alloc_any(2)` with `[idx_str_as_ANY_HEAP, value_as_<tag>]`.
+/// `val_tag` is the NaN-box AnyValue tag for the array's element
+/// type (1=Bool, 2=I64, 3=F64, 4=ANY_HEAP); the SSA arm picks the
+/// right tag statically from the typed Arr's element type so this
+/// helper stays element-type agnostic.
+///
+/// rc accounting: ANY_HEAP slot values get an extra rc_inc before
+/// push_any because each inner Arr<Any> owns its share, matching
+/// the push_any owning-ref contract used by every other producer.
+///
+/// # Safety
+///
+/// `arr_ptr` must point at a valid `Array<T>` heap block with
+/// 8-byte slot stride (NOT `Array<Any>` — that needs an entries_any
+/// helper with the 16-byte slot stride).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_entries_by_tag(
+    arr_ptr: *const c_void,
+    val_tag: i64,
+) -> *mut c_void {
+    let base = arr_ptr.cast::<u8>();
+    // SAFETY: ARR_LEN_OFF=8 u64 + ARR_HEAD_OFF=20 u32 per torajs-arr layout.
+    let len = unsafe { (base.add(8) as *const u64).read() } as i64;
+    let head = unsafe { (base.add(20) as *const u32).read() } as i64;
+    let mut outer = unsafe { __torajs_arr_alloc(len.max(0) as u64) };
+    for i in 0..len {
+        // Raw slot value as i64 (8-byte stride; F64 / Ptr round-trip
+        // via i64 bits is ABI-safe since LLVM stores both in the
+        // same machine word).
+        let slot_off = 24 + ((head + i) as usize) * 8;
+        let slot = unsafe { (base.add(slot_off) as *const i64).read() };
+        if val_tag == 4 {
+            // ANY_HEAP — push_any takes an owning ref; bump rc so
+            // the original Arr's drop won't tear the cell out.
+            unsafe { __torajs_rc_inc(slot as *mut c_void) };
+        }
+        let idx_str = unsafe { __torajs_i64_to_str(i) };
+        let inner = unsafe { __torajs_arr_alloc_any(2) };
+        let inner =
+            unsafe { __torajs_arr_push_any(inner as *mut c_void, 4, idx_str as u64) };
+        let inner = unsafe {
+            __torajs_arr_push_any(inner as *mut c_void, val_tag as u64, slot as u64)
+        };
+        outer = unsafe { __torajs_arr_push(outer, inner as i64) };
+    }
+    outer as *mut c_void
 }
 
 /// W-O-2 — `Object.values(str)` per-character Str array. Spec

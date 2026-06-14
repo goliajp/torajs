@@ -2756,6 +2756,18 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Ptr,
     );
+    // W-O-3 — `Object.entries(arr)` runtime entry-pair builder.
+    // Outer Arr<Arr<Any>>; each inner = arr_alloc_any(2) with
+    // [idx_str, value]. Helper is element-type agnostic; the SSA arm
+    // picks the per-element NaN-box tag (1/2/3/4) from the typed
+    // Arr's element type and passes it through `val_tag`.
+    let arr_entries_by_tag_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_entries_by_tag",
+        &[Type::Ptr, Type::I64],
+        Type::Ptr,
+    );
     // W-M-rest — `Object.getOwnPropertyDescriptor(str, "<idx>")` —
     // spec §22.1.5.2 builds `{value: char_at(idx), writable: false,
     // enumerable: true, configurable: false}` (note enumerable=true,
@@ -5270,6 +5282,7 @@ fn lower_inner(
         arr_index_strs: arr_index_strs_id,
         str_index_strs: str_index_strs_id,
         str_to_char_arr: str_to_char_arr_id,
+        arr_entries_by_tag: arr_entries_by_tag_id,
         str_index_descriptor: str_index_descriptor_id,
         anyv_prevent_extensions: anyv_prevent_extensions_id,
         anyv_is_extensible: anyv_is_extensible_id,
@@ -6084,6 +6097,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_index_strs: FuncId,
     pub(crate) str_index_strs: FuncId,
     pub(crate) str_to_char_arr: FuncId,
+    pub(crate) arr_entries_by_tag: FuncId,
     pub(crate) str_index_descriptor: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,
@@ -17195,6 +17209,37 @@ impl<'a> LowerCtx<'a> {
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
+                    // W-O-3 — Array receiver: bun returns Arr<Arr<[idx_str,
+                    // val], 2>>. Routes to a runtime helper that mints the
+                    // outer + inner arrays at runtime; the SSA arm picks the
+                    // per-element NaN-box tag (1=Bool / 2=I64 / 3=F64 /
+                    // 4=ANY_HEAP) from the typed Arr's element type so the
+                    // helper stays element-type agnostic.
+                    if let Type::Arr(arr_id) = arg_ty {
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        let val_tag: i64 = match elem_ty {
+                            Type::Bool => 1,
+                            Type::I64 | Type::I32 => 2,
+                            Type::F64 => 3,
+                            t if t.is_refcounted() => 4,
+                            other => panic!(
+                                "ssa-lower: Object.entries arr element type {other:?} not yet supported"
+                            ),
+                        };
+                        let inner_arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
+                        let outer_arr_id =
+                            intern_arr_layout(self.arr_layouts, Type::Arr(inner_arr_id));
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_entries_by_tag,
+                                vec![arg_op, Operand::ConstI64(val_tag)],
+                            ),
+                            Type::Arr(outer_arr_id),
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                     let layout: Vec<(String, Type)> = match arg_ty {
                         Type::Obj(sid) => self.struct_layouts[sid.0 as usize].clone(),
                         other => {
