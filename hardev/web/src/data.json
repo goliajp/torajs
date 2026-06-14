@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T11:39:20.772Z",
+  "generatedAt": "2026-06-14T13:49:50.790Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "eab88d7c",
-    "commitSubject": "fix(ssa-lower): class-field Map/Set member-call shape — recv_ty_hint reads expr_types",
+    "commit": "a53a11de",
+    "commitSubject": "feat(ssa): W-J Phase A3a — extend ClassLayoutMeta with FieldMetaSpec per-field metadata",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,26 @@
   },
   "commits": [
     {
+      "hash": "a53a11de",
+      "subject": "feat(ssa): W-J Phase A3a — extend ClassLayoutMeta with FieldMetaSpec per-field metadata"
+    },
+    {
+      "hash": "de45bc49",
+      "subject": "feat(link, cycle): W-J Phase A2 — extend class_layouts entry ABI 16B→24B with field_metadata_ptr stub"
+    },
+    {
+      "hash": "20cd5333",
+      "subject": "feat(ssa-lower): W-J Phase A1 — stamp class_tag@+8 on anonymous ObjectLit allocations"
+    },
+    {
+      "hash": "9c3d24d5",
+      "subject": "feat(ssa-lower): W-J Phase A0 — register anonymous ObjectLit struct in class_layouts"
+    },
+    {
+      "hash": "de09e944",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — session 116 close 3 substrate L3b (Any-binding ArrayLit + Tag::Set split + class-field Map/Set dispatch) gate 821→825/0/4"
+    },
+    {
       "hash": "eab88d7c",
       "subject": "fix(ssa-lower): class-field Map/Set member-call shape — recv_ty_hint reads expr_types"
     },
@@ -645,47 +665,38 @@
     {
       "hash": "c459c214",
       "subject": "fix(link): Mach-O leading-underscore for fn_name_table extern syms"
-    },
-    {
-      "hash": "bedcd821",
-      "subject": "feat(nested-print): wire inspect.rs to __torajs_fn_print_inline — Step 5"
-    },
-    {
-      "hash": "377bbbea",
-      "subject": "fix(fnname): switch torajs-fnname to std crate — fix-up for Step 4"
-    },
-    {
-      "hash": "7b78f972",
-      "subject": "feat(fnname): torajs-fnname runtime helper crate — Step 4"
-    },
-    {
-      "hash": "a6dfb507",
-      "subject": "feat(link): fn_name_table chain fixup + payload splice — Step 3b.4 + 3b.5 combined"
-    },
-    {
-      "hash": "aca69ccb",
-      "subject": "fix(link): wire fn_name_table_layout into 3 test-only ArchiveLayout literals — Step 3b.3 fix-up"
     }
   ],
-  "headSha": "eab88d7c",
+  "headSha": "a53a11de",
   "autorun": {
-    "total": 163,
+    "total": 164,
     "baselineTarget": 10,
-    "bySelf": 159,
+    "bySelf": 160,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781434381-2d9c",
-      "at": "2026-06-14T10:53:01Z",
-      "ts": 1781434381,
+      "rotationId": "r-1781437257-3cce",
+      "at": "2026-06-14T11:40:57Z",
+      "ts": 1781437257,
       "trigger": "self",
-      "prevHead": "52348911",
-      "handoffSha": "sha256:acfde881eed3a62ae0c21b80fb9c87c1518424e0605d72ce3a9dbba41c9a003e",
+      "prevHead": "de09e944",
+      "handoffSha": "sha256:bd57c40dfb4218c5571c98c3549edc0e1dd6040912d326f7841537274d906ef1",
       "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781437257-3cce",
+        "at": "2026-06-14T11:40:57Z",
+        "ts": 1781437257,
+        "trigger": "self",
+        "prevHead": "de09e944",
+        "handoffSha": "sha256:bd57c40dfb4218c5571c98c3549edc0e1dd6040912d326f7841537274d906ef1",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781434381-2d9c",
         "at": "2026-06-14T10:53:01Z",
@@ -781,17 +792,6 @@
         "trigger": "self",
         "prevHead": "a156c85a",
         "handoffSha": "sha256:46fb0b20e10561addd392b9e570b48088baabfefc932d8fc6d1478f151fd1db3",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781410328-4371",
-        "at": "2026-06-14T04:12:08Z",
-        "ts": 1781410328,
-        "trigger": "self",
-        "prevHead": "2047a700",
-        "handoffSha": "sha256:d962eeac5c701fedcd14701ff9bac9bb9b167f68ea6fe5f0a21183497b663f1f",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
