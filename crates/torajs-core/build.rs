@@ -41,6 +41,8 @@ use std::path::PathBuf;
 /// ssa_lower edit. Paths are relative to this crate's manifest dir.
 const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower.rs",
+    "src/ssa_lower_parse_type.rs",
+    "src/check_type_ann.rs",
     "src/ast_refs.rs",
     "src/ast_closure_param_tag.rs",
     "src/ast_throw_info.rs",

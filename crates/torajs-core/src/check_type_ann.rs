@@ -204,6 +204,55 @@ fn resolve_type_ann_inner(
                 resolve_type_ann_inner(inner, aliases, type_params, generic_aliases, in_flight)?;
             return Some(Type::Promise(Box::new(inner_ty)));
         }
+        // `Map<K, V>` / `Set<T>` / `WeakMap<K, V>` / `WeakSet<T>` —
+        // builtin container generics whose K / V are erased at the
+        // type-system layer (Type::Map / Type::Set / Type::WeakMap /
+        // Type::WeakSet have no Box payload — typed `.get` / `.set`
+        // arg/return wiring is handled elsewhere via the method-table
+        // arm in check.rs). Validate each type-arg is resolvable so
+        // typos still surface, then return the erased container type.
+        // Mirrors the bare `Map` / `Set` arm below; this arm covers the
+        // parametric spelling users actually write (`Map<number, string>`
+        // becomes the flat ann string `Map<number|string>` from
+        // `parse_type_ann`).
+        if matches!(
+            head,
+            "Map" | "Set" | "WeakMap" | "WeakSet" | "ReadonlyMap" | "ReadonlySet"
+        ) {
+            let inner = &name[open_idx + 1..name.len() - 1];
+            // Depth-aware split of inner at `|` (same shape as the
+            // generic-instantiation decoder above) so nested generics
+            // like `Map<string, Array<number>>` (flat `Map<string|Array<number>>`)
+            // resolve their args correctly.
+            let bytes = inner.as_bytes();
+            let mut depth: i32 = 0;
+            let mut last = 0usize;
+            let mut args: Vec<&str> = Vec::new();
+            for (i, &b) in bytes.iter().enumerate() {
+                match b {
+                    b'<' | b'(' => depth += 1,
+                    b'>' | b')' => depth -= 1,
+                    b'|' if depth == 0 => {
+                        args.push(&inner[last..i]);
+                        last = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            if !inner.is_empty() {
+                args.push(&inner[last..]);
+            }
+            for arg in &args {
+                resolve_type_ann_inner(arg, aliases, type_params, generic_aliases, in_flight)?;
+            }
+            return Some(match head {
+                "Map" | "ReadonlyMap" => Type::Map,
+                "Set" | "ReadonlySet" => Type::Set,
+                "WeakMap" => Type::WeakMap,
+                "WeakSet" => Type::WeakSet,
+                _ => unreachable!(),
+            });
+        }
         return None;
     }
     // M2 — closure env marker `__env(cap0|cap1|...)` injected by

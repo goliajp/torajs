@@ -389,13 +389,8 @@ pub(crate) fn parse_type(
             struct_layouts[id.0 as usize] = layout;
             return Type::Obj(id);
         }
-        // T-15.f.2 — `Promise<T>` is a built-in generic that lowers
-        // to a single ptr-shaped Type::Promise (the inner T is type-
-        // erased at SSA — the runtime block always carries an i64
-        // value slot). Falls through to here when generic_struct_decls
-        // doesn't match (i.e. user didn't shadow `Promise` with a
-        // class declaration). check.rs::resolve_type_ann_full applies
-        // the same ordering on its side.
+        // T-15.f.2 — `Promise<T>` builtin generic. Inner T type-erased
+        // at SSA (mirror of `check.rs::resolve_type_ann_full`).
         if head == "Promise" {
             return Type::Promise;
         }
@@ -417,11 +412,8 @@ pub(crate) fn parse_type(
                 );
             }
         }
-        // P5.1 — `IteratorResult<T>` resolves to `{ value: T, done:
-        // boolean }`. Lowered as a struct; the layout matches the
-        // existing `__step_<gen>` shape that generators already emit
-        // so ssa_lower's struct method-dispatch path reuses without
-        // any new code. check.rs::resolve_type_ann_full mirrors this.
+        // P5.1 — `IteratorResult<T>` → `{ value: T, done: boolean }`
+        // struct (layout reuses `__step_<gen>` generator shape).
         if head == "IteratorResult" {
             let inner = &s[open_idx + 1..s.len() - 1];
             if !inner.contains('|') {
@@ -437,13 +429,21 @@ pub(crate) fn parse_type(
                 );
             }
         }
-        // P5.1 — `Iterator<T>` / `IterableIterator<T>` are opaque
-        // for the SSA layer (resolved to Any). P5.3 Phase B will
-        // emit runtime dispatch through the iterable's class to
-        // call `next()`; until then any annotation typed as Iterator
-        // just opts into the Any-tier slot.
+        // P5.1 — `Iterator<T>` / `IterableIterator<T>` opaque at SSA
+        // (Any-tier slot; P5.3 Phase B dispatches via class runtime).
         if matches!(head, "Iterator" | "IterableIterator") {
             return Type::Any;
+        }
+        // `Map<K,V>` / `Set<T>` / `WeakMap<K,V>` / `WeakSet<T>` — K/V
+        // erased at SSA (mirror of `check_type_ann.rs`).
+        if let Some(t) = match head {
+            "Map" | "ReadonlyMap" => Some(Type::Map),
+            "Set" | "ReadonlySet" => Some(Type::Set),
+            "WeakMap" => Some(Type::WeakMap),
+            "WeakSet" => Some(Type::WeakSet),
+            _ => None,
+        } {
+            return t;
         }
     }
     match s {
