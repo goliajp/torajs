@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T03:10:23.622Z",
+  "generatedAt": "2026-06-14T03:33:42.728Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "a47c74e2",
-    "commitSubject": "test(conformance): W-H Object.getOwnPropertyDescriptor real-object missing-key returns undefined",
+    "commit": "30f635ec",
+    "commitSubject": "feat: W-M Object.getOwnPropertyDescriptor(str, length) real 4-key descriptor",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,22 @@
   },
   "commits": [
     {
+      "hash": "30f635ec",
+      "subject": "feat: W-M Object.getOwnPropertyDescriptor(str, length) real 4-key descriptor"
+    },
+    {
+      "hash": "9859755b",
+      "subject": "test(conformance): W-L Object.getOwnPropertyDescriptor(arr, length) 4-key data descriptor"
+    },
+    {
+      "hash": "5b759d8e",
+      "subject": "test(conformance): W-N-a Object.getOwnPropertyNames(struct-obj) returns own keys"
+    },
+    {
+      "hash": "894e2e53",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - session 103 rotate (2 fixture-only commit ship: getOwnPropertyDescriptor primitive + real-object missing-key parity), gate 795 → expect 797 (2 fixture-only ungated)"
+    },
+    {
       "hash": "a47c74e2",
       "subject": "test(conformance): W-H Object.getOwnPropertyDescriptor real-object missing-key returns undefined"
     },
@@ -649,43 +665,38 @@
     {
       "hash": "b3ef932e",
       "subject": "fix: accept `object` type annotation as Type::Any"
-    },
-    {
-      "hash": "68dff5b4",
-      "subject": "fix: builtin Map/Set/WeakMap/WeakSet generic ann parametric spelling"
-    },
-    {
-      "hash": "b1cebb07",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 99 rotate (4 commit ship: instanceof Type::Any wedge close + BigInt divzero msg align), gate 791/0/4"
-    },
-    {
-      "hash": "db57f794",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - BigInt divzero msg literal align bun, gate 791/0/4 (+1 new)"
-    },
-    {
-      "hash": "0fbdd60e",
-      "subject": "fix: BigInt divide/mod by 0n RangeError msg literal align bun"
     }
   ],
-  "headSha": "a47c74e2",
+  "headSha": "30f635ec",
   "autorun": {
-    "total": 150,
+    "total": 151,
     "baselineTarget": 10,
-    "bySelf": 146,
+    "bySelf": 147,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781405800-1bde",
-      "at": "2026-06-14T02:56:40Z",
-      "ts": 1781405800,
+      "rotationId": "r-1781406764-1339",
+      "at": "2026-06-14T03:12:44Z",
+      "ts": 1781406764,
       "trigger": "self",
-      "prevHead": "15d41ece",
-      "handoffSha": "sha256:3fc3fd79307508e260e4c48834bf2ce76b26ea1305190e680f72ee197d969008",
-      "handoffAgeSec": 4,
+      "prevHead": "894e2e53",
+      "handoffSha": "sha256:622351a428213d9c721f0ccdf88132ec96f775a8bbb37b8159a4d8695c237b77",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781406764-1339",
+        "at": "2026-06-14T03:12:44Z",
+        "ts": 1781406764,
+        "trigger": "self",
+        "prevHead": "894e2e53",
+        "handoffSha": "sha256:622351a428213d9c721f0ccdf88132ec96f775a8bbb37b8159a4d8695c237b77",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781405800-1bde",
         "at": "2026-06-14T02:56:40Z",
@@ -782,17 +793,6 @@
         "prevHead": "fdc399c5",
         "handoffSha": "sha256:168d3e1535ca24ae8e825732c67c92e97e72cf0d2995715c176b7a82b983496e",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781363312-27ae",
-        "at": "2026-06-13T15:08:32Z",
-        "ts": 1781363312,
-        "trigger": "self",
-        "prevHead": "68586b9c",
-        "handoffSha": "sha256:5bbc8b703830af626027ef6ab51c8e51b5fa6ec249af583ad919949eb2f06e0f",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
