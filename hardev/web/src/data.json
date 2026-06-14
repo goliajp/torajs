@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T06:49:57.635Z",
+  "generatedAt": "2026-06-14T08:21:27.148Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "62fcdad5",
-    "commitSubject": "chore(hardev/web): refresh dashboard snapshot - session 112 rotate (fmt-only + 2 positive Any-primitive fixtures; ⑤-c probe 揭 print_anyv obj/arr Tag fallback wedge → nested-print substrate trunk L3b 合一升级)",
+    "commit": "bb9ca39c",
+    "commitSubject": "test(conformance): nested-print substrate trunk acceptance fixtures — Commit 9",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,73 +619,84 @@
   },
   "commits": [
     {
+      "hash": "bb9ca39c",
+      "subject": "test(conformance): nested-print substrate trunk acceptance fixtures — Commit 9"
+    },
+    {
+      "hash": "467890f0",
+      "subject": "feat(nested-print): Tag::Promise typed-receiver wire — Commit 8"
+    },
+    {
+      "hash": "ebda6225",
+      "subject": "feat(nested-print): Map + Set typed-receiver wire — Commit 7"
+    },
+    {
+      "hash": "e3c071b7",
+      "subject": "feat(nested-print): Tag::RegExp typed-receiver wire — Commit 6"
+    },
+    {
+      "hash": "265fa094",
+      "subject": "feat(nested-print): Tag::Date typed-receiver wire — Commit 5"
+    },
+    {
+      "hash": "733fa3c3",
+      "subject": "feat(nested-print): wire Tag::Arr / Tag::DynObj walkers + SSA dispatcher route — Commit 4"
+    },
+    {
+      "hash": "11253c72",
+      "subject": "feat(dynobj): __torajs_obj_print_any walker — nested-print substrate trunk Commit 3"
+    },
+    {
+      "hash": "c2727cd6",
+      "subject": "feat(arr): __torajs_arr_print_any walker — nested-print substrate trunk Commit 2"
+    },
+    {
+      "hash": "f165d266",
+      "subject": "feat(anyvalue): __torajs_print_anyv_inline scaffold — nested-print substrate trunk Commit 1"
+    },
+    {
+      "hash": "0a26eaa3",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - session 113 rotate"
+    },
+    {
       "hash": "62fcdad5",
       "subject": "chore(hardev/web): refresh dashboard snapshot - session 112 rotate (fmt-only + 2 positive Any-primitive fixtures; ⑤-c probe 揭 print_anyv obj/arr Tag fallback wedge → nested-print substrate trunk L3b 合一升级)"
     },
     {
       "hash": "bd0a1695",
       "subject": "test: positive Any-typed primitive console.log fixtures"
-    },
-    {
-      "hash": "e6a95fd6",
-      "subject": "chore: rustfmt own_names.rs (pre-flight bar fix)"
-    },
-    {
-      "hash": "246055a2",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 111 rotate (no substrate ship — nested-print scope audit only; root cause = console.log dispatcher fallback print_i64 for Arr<Any/Arr> elem types)"
-    },
-    {
-      "hash": "a6294f2f",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 110 rotate (W-O-3-arr + W-O-3-str ship: Object.entries(arr/str) by-tag dispatch + per-char fresh Str helpers, gate 806 → 808/0/4)"
-    },
-    {
-      "hash": "6f7f4cf0",
-      "subject": "feat: W-O-3-str Object.entries(str) returns per-char [idx_str, char_str] pairs"
-    },
-    {
-      "hash": "3e59b977",
-      "subject": "feat: W-O-3-arr Object.entries(arr) returns [idx_str, value] pairs"
-    },
-    {
-      "hash": "a4723d67",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 109 rotate (W-O-1 + W-O-2 ship: Object.values(arr) deep-clone via arr_slice + Object.values(str) per-char Str array, gate 804 → 806/0/4)"
-    },
-    {
-      "hash": "bbf284e9",
-      "subject": "feat: W-O-2 Object.values(str) returns per-char Str array"
-    },
-    {
-      "hash": "faad93d7",
-      "subject": "feat: W-O-1 Object.values(arr) returns fresh shallow array copy"
-    },
-    {
-      "hash": "1cbe2551",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 108 rotate (W-N-d ship: Object.getOwnPropertyNames(str) returns indexed strs + length, gate 803 → 804/0/4)"
-    },
-    {
-      "hash": "d3432a67",
-      "subject": "feat: W-N-d Object.getOwnPropertyNames(str) returns indexed strs + length"
     }
   ],
-  "headSha": "62fcdad5",
+  "headSha": "bb9ca39c",
   "autorun": {
-    "total": 160,
+    "total": 161,
     "baselineTarget": 10,
-    "bySelf": 156,
+    "bySelf": 157,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781419022-36b4",
-      "at": "2026-06-14T06:37:02Z",
-      "ts": 1781419022,
+      "rotationId": "r-1781419809-260d",
+      "at": "2026-06-14T06:50:09Z",
+      "ts": 1781419809,
       "trigger": "self",
-      "prevHead": "62fcdad5",
-      "handoffSha": "sha256:3ab0bb90231a87124db22c04ef58b8236ed2ef7e6d23c3f6b0ce270e81686378",
-      "handoffAgeSec": 5,
+      "prevHead": "0a26eaa3",
+      "handoffSha": "sha256:2f53d2202deda194ce07e4bbccaac2ca9499a65f68cda4f441d7c668ad5c75c0",
+      "handoffAgeSec": 17,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781419809-260d",
+        "at": "2026-06-14T06:50:09Z",
+        "ts": 1781419809,
+        "trigger": "self",
+        "prevHead": "0a26eaa3",
+        "handoffSha": "sha256:2f53d2202deda194ce07e4bbccaac2ca9499a65f68cda4f441d7c668ad5c75c0",
+        "handoffAgeSec": 17,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781419022-36b4",
         "at": "2026-06-14T06:37:02Z",
@@ -782,17 +793,6 @@
         "prevHead": "3718f0c1",
         "handoffSha": "sha256:bc193b02ff79819d906756051153b27ef2017c4c13b5e704e6b25493b3a386a3",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781406764-1339",
-        "at": "2026-06-14T03:12:44Z",
-        "ts": 1781406764,
-        "trigger": "self",
-        "prevHead": "894e2e53",
-        "handoffSha": "sha256:622351a428213d9c721f0ccdf88132ec96f775a8bbb37b8159a4d8695c237b77",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
