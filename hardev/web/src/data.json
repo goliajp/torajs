@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T04:45:07.362Z",
+  "generatedAt": "2026-06-14T05:11:31.433Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "d3432a67",
-    "commitSubject": "feat: W-N-d Object.getOwnPropertyNames(str) returns indexed strs + length",
+    "commit": "bbf284e9",
+    "commitSubject": "feat: W-O-2 Object.values(str) returns per-char Str array",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,18 @@
   },
   "commits": [
     {
+      "hash": "bbf284e9",
+      "subject": "feat: W-O-2 Object.values(str) returns per-char Str array"
+    },
+    {
+      "hash": "faad93d7",
+      "subject": "feat: W-O-1 Object.values(arr) returns fresh shallow array copy"
+    },
+    {
+      "hash": "1cbe2551",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - session 108 rotate (W-N-d ship: Object.getOwnPropertyNames(str) returns indexed strs + length, gate 803 → 804/0/4)"
+    },
+    {
       "hash": "d3432a67",
       "subject": "feat: W-N-d Object.getOwnPropertyNames(str) returns indexed strs + length"
     },
@@ -653,39 +665,38 @@
     {
       "hash": "30f635ec",
       "subject": "feat: W-M Object.getOwnPropertyDescriptor(str, length) real 4-key descriptor"
-    },
-    {
-      "hash": "9859755b",
-      "subject": "test(conformance): W-L Object.getOwnPropertyDescriptor(arr, length) 4-key data descriptor"
-    },
-    {
-      "hash": "5b759d8e",
-      "subject": "test(conformance): W-N-a Object.getOwnPropertyNames(struct-obj) returns own keys"
-    },
-    {
-      "hash": "894e2e53",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 103 rotate (2 fixture-only commit ship: getOwnPropertyDescriptor primitive + real-object missing-key parity), gate 795 → expect 797 (2 fixture-only ungated)"
     }
   ],
-  "headSha": "d3432a67",
+  "headSha": "bbf284e9",
   "autorun": {
-    "total": 155,
+    "total": 156,
     "baselineTarget": 10,
-    "bySelf": 151,
+    "bySelf": 152,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781411569-0c49",
-      "at": "2026-06-14T04:32:49Z",
-      "ts": 1781411569,
+      "rotationId": "r-1781412386-514d",
+      "at": "2026-06-14T04:46:26Z",
+      "ts": 1781412386,
       "trigger": "self",
-      "prevHead": "a156c85a",
-      "handoffSha": "sha256:46fb0b20e10561addd392b9e570b48088baabfefc932d8fc6d1478f151fd1db3",
+      "prevHead": "1cbe2551",
+      "handoffSha": "sha256:165ff42064abd3aaaf72ea60f392d685faf684b52bfdd050ef9e86fd6b4f7a39",
       "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781412386-514d",
+        "at": "2026-06-14T04:46:26Z",
+        "ts": 1781412386,
+        "trigger": "self",
+        "prevHead": "1cbe2551",
+        "handoffSha": "sha256:165ff42064abd3aaaf72ea60f392d685faf684b52bfdd050ef9e86fd6b4f7a39",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781411569-0c49",
         "at": "2026-06-14T04:32:49Z",
@@ -782,17 +793,6 @@
         "prevHead": "b1cebb07",
         "handoffSha": "sha256:c31cf0a447e4dabeb41d19d9009fa04374fd2ab201446fe8578b0e7d47f73e46",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781396271-42fb",
-        "at": "2026-06-14T00:17:51Z",
-        "ts": 1781396271,
-        "trigger": "manual",
-        "prevHead": "b1cebb07",
-        "handoffSha": "sha256:c31cf0a447e4dabeb41d19d9009fa04374fd2ab201446fe8578b0e7d47f73e46",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
