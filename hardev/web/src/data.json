@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T04:10:36.538Z",
+  "generatedAt": "2026-06-14T04:31:09.590Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "0c2246bf",
-    "commitSubject": "feat: W-M-rest Object.getOwnPropertyDescriptor(str, numeric) char data descriptor",
+    "commit": "f5330e6e",
+    "commitSubject": "fix: print_anyv dispatches Substr via FLAG_SUBSTR_VIEW bit 10",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "f5330e6e",
+      "subject": "fix: print_anyv dispatches Substr via FLAG_SUBSTR_VIEW bit 10"
+    },
+    {
+      "hash": "2047a700",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - session 106 rotate (W-M-rest ship: Object.getOwnPropertyDescriptor(str, numeric) char data desc, gate 801 → 802/0/4)"
+    },
+    {
       "hash": "0c2246bf",
       "subject": "feat: W-M-rest Object.getOwnPropertyDescriptor(str, numeric) char data descriptor"
     },
@@ -657,35 +665,38 @@
     {
       "hash": "4d49d065",
       "subject": "test(conformance): W-G Object.getOwnPropertyDescriptor primitive missing-key returns undefined"
-    },
-    {
-      "hash": "15d41ece",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 102 rotate (1 commit ship: getOwnPropertyDescriptor undef/null TypeError msg prefix align bun), gate 795/0/4"
-    },
-    {
-      "hash": "bebb45bf",
-      "subject": "fix: getOwnPropertyDescriptor undef/null TypeError msg prefix align bun"
     }
   ],
-  "headSha": "0c2246bf",
+  "headSha": "f5330e6e",
   "autorun": {
-    "total": 153,
+    "total": 154,
     "baselineTarget": 10,
-    "bySelf": 149,
+    "bySelf": 150,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781409261-3358",
-      "at": "2026-06-14T03:54:21Z",
-      "ts": 1781409261,
+      "rotationId": "r-1781410328-4371",
+      "at": "2026-06-14T04:12:08Z",
+      "ts": 1781410328,
       "trigger": "self",
-      "prevHead": "fccaefc4",
-      "handoffSha": "sha256:0cc1461acab90895089432b5f6779a13b67ddb4f380ad48746d809cd68376ceb",
-      "handoffAgeSec": 5,
+      "prevHead": "2047a700",
+      "handoffSha": "sha256:d962eeac5c701fedcd14701ff9bac9bb9b167f68ea6fe5f0a21183497b663f1f",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781410328-4371",
+        "at": "2026-06-14T04:12:08Z",
+        "ts": 1781410328,
+        "trigger": "self",
+        "prevHead": "2047a700",
+        "handoffSha": "sha256:d962eeac5c701fedcd14701ff9bac9bb9b167f68ea6fe5f0a21183497b663f1f",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781409261-3358",
         "at": "2026-06-14T03:54:21Z",
@@ -782,17 +793,6 @@
         "prevHead": "e953d092",
         "handoffSha": "sha256:b86b45aaf537accbd6d03176cbe8a708ab0b8db059165ad7a36beb25d6773691",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781387781-6722",
-        "at": "2026-06-13T21:56:21Z",
-        "ts": 1781387781,
-        "trigger": "self",
-        "prevHead": "6a10c8e4",
-        "handoffSha": "sha256:bcacfc68a67d4ce2f68258bae76fb858791793df91d60e2d6b6dc487325d0bec",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
