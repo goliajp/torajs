@@ -5870,6 +5870,47 @@ fn lower_inner(
         }
     }
 
+    /* W-J Phase A0 (RFC 20260614-w-j-struct-reflect §3) — anonymous
+     * ObjectLit struct also registers a ClassLayoutMeta entry so the
+     * downstream reflection substrate (Phase B `gOPD` struct cell arm /
+     * Phase C `Object.keys`/`values`/`entries` / Phase D `inspect.rs`
+     * Tag::Obj walker) can look up field metadata by `class_tag@+8`.
+     *
+     * A0 keeps stamp paths unchanged — `class_tag@+8` continues to be
+     * 0 for ObjectLit (line ~20970 `unwrap_or(0)`), so these new
+     * entries are dead from the cycle collector's perspective; the
+     * stamp is wired in Phase A1. The only observable here is
+     * `__torajs_n_class_layouts` count grows by `n_anon_sids` =
+     * anonymous-only sid count, validating that the dyld chain-fixup
+     * substrate scales with entry growth (proven separately by the
+     * Phase 2 fn-name table region's same pattern). */
+    {
+        let named_sids: std::collections::HashSet<ssa::StructId> = class_name_to_tag
+            .keys()
+            .filter_map(|cname| match aliases.get(cname) {
+                Some(Type::Obj(sid)) => Some(*sid),
+                _ => None,
+            })
+            .collect();
+        let layouts = module.struct_layouts.clone();
+        for (sid_idx, layout) in layouts.iter().enumerate() {
+            let sid = ssa::StructId(sid_idx as u32);
+            if named_sids.contains(&sid) {
+                continue;
+            }
+            let mut child_offsets: Vec<u32> = Vec::new();
+            for (i, (_, fty)) in layout.iter().enumerate() {
+                if fty.is_refcounted() {
+                    child_offsets.push(OBJ_HEADER_SIZE as u32 + (i as u32) * 8);
+                }
+            }
+            module.class_layouts.push(ssa::ClassLayoutMeta {
+                class_name: format!("__anon_struct_{sid_idx}"),
+                child_offsets,
+            });
+        }
+    }
+
     module
 }
 
