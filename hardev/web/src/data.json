@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T03:33:42.728Z",
+  "generatedAt": "2026-06-14T03:52:41.884Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "30f635ec",
-    "commitSubject": "feat: W-M Object.getOwnPropertyDescriptor(str, length) real 4-key descriptor",
+    "commit": "14bca431",
+    "commitSubject": "feat: W-N-b Object.getOwnPropertyNames(arr) returns indexed strs + length",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "14bca431",
+      "subject": "feat: W-N-b Object.getOwnPropertyNames(arr) returns indexed strs + length"
+    },
+    {
+      "hash": "3718f0c1",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - session 104 rotate (3 commit ship: W-N-a Object.getOwnPropertyNames(struct-obj) + W-L Object.getOwnPropertyDescriptor(arr, length) + W-M (str, length) substrate), gate 795 → 800/0/4"
+    },
+    {
       "hash": "30f635ec",
       "subject": "feat: W-M Object.getOwnPropertyDescriptor(str, length) real 4-key descriptor"
     },
@@ -657,35 +665,38 @@
     {
       "hash": "52dd12a1",
       "subject": "fix: class field Map/Set/WeakMap/WeakSet default init emits ctor not zero"
-    },
-    {
-      "hash": "00fee8bf",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 100 rotate (2 commit ship: builtin Map/Set/WeakMap/WeakSet generic ann + `object` type ann L3b close), gate 793/0/4"
-    },
-    {
-      "hash": "b3ef932e",
-      "subject": "fix: accept `object` type annotation as Type::Any"
     }
   ],
-  "headSha": "30f635ec",
+  "headSha": "14bca431",
   "autorun": {
-    "total": 151,
+    "total": 152,
     "baselineTarget": 10,
-    "bySelf": 147,
+    "bySelf": 148,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781406764-1339",
-      "at": "2026-06-14T03:12:44Z",
-      "ts": 1781406764,
+      "rotationId": "r-1781408133-67cc",
+      "at": "2026-06-14T03:35:33Z",
+      "ts": 1781408133,
       "trigger": "self",
-      "prevHead": "894e2e53",
-      "handoffSha": "sha256:622351a428213d9c721f0ccdf88132ec96f775a8bbb37b8159a4d8695c237b77",
-      "handoffAgeSec": 10,
+      "prevHead": "3718f0c1",
+      "handoffSha": "sha256:bc193b02ff79819d906756051153b27ef2017c4c13b5e704e6b25493b3a386a3",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781408133-67cc",
+        "at": "2026-06-14T03:35:33Z",
+        "ts": 1781408133,
+        "trigger": "self",
+        "prevHead": "3718f0c1",
+        "handoffSha": "sha256:bc193b02ff79819d906756051153b27ef2017c4c13b5e704e6b25493b3a386a3",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781406764-1339",
         "at": "2026-06-14T03:12:44Z",
@@ -782,17 +793,6 @@
         "prevHead": "fdc399c5",
         "handoffSha": "sha256:05bcb0efe12a3c271fcf24ca814d21ae2426cfda2c69152181219ed1001f6219",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781365151-65d1",
-        "at": "2026-06-13T15:39:11Z",
-        "ts": 1781365151,
-        "trigger": "self",
-        "prevHead": "fdc399c5",
-        "handoffSha": "sha256:168d3e1535ca24ae8e825732c67c92e97e72cf0d2995715c176b7a82b983496e",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
