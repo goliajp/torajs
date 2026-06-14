@@ -22,10 +22,13 @@
 //! externs resolve. The table is sorted by `fn_addr` ascending at
 //! emit time so the runtime can binary-search.
 //!
-//! Placement: same `__TEXT,__cstring` parent section as
-//! `user_strings_layout` + `user_vtables_layout`, after vtables
-//! (kernel maps the segment RX; the C runtime treats the section
-//! as RO data).
+//! Placement: `__DATA_CONST` segment, after `user_vtables_layout`
+//! + `user_class_layouts_layout`. The two chain-fixup-target slots
+//! (`fn_addr`, `name_ptr`) require dyld rebase at load time, which
+//! invalidates the codesigned `__TEXT` page hash if placed in
+//! `__TEXT,__cstring` — the same reason `user_vtables_layout`
+//! migrated to `__DATA_CONST`. `SG_READ_ONLY` keeps the runtime
+//! view of the table immutable.
 
 use crate::chained_fixups_starts::RebaseTarget;
 use crate::resolve::SymTable;
@@ -238,12 +241,15 @@ pub fn apply_fn_name_table_overrides(layout: &FnNameTableLayout, sym_table: &mut
 
 /// Sym names to flag as link-defined in the worklist closure (so
 /// the resolver doesn't classify them as undefined dyld imports).
-/// Empty when the layout has no entries.
+/// Takes the raw `cfg.fn_name_globals` slice (mirrors the
+/// `user_vtables_extra_defined_syms` pattern) so the worklist
+/// closure can extend `extra` before the actual layout is computed.
+/// Empty when `fn_name_globals` is empty.
 pub fn fn_name_table_extra_defined_syms(
-    layout: &FnNameTableLayout,
+    fn_name_globals: &[crate::exec::UserFnNameEntry],
 ) -> std::collections::BTreeSet<String> {
     let mut s = std::collections::BTreeSet::new();
-    if !layout.entries.is_empty() {
+    if !fn_name_globals.is_empty() {
         s.insert("__torajs_fn_name_table".to_string());
         s.insert("__torajs_fn_name_table_count".to_string());
     }

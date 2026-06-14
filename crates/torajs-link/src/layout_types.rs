@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use crate::archive::MemberSymtabError;
 use crate::archives_merge::{ArchiveLinkError, ArchiveMergeError};
 use crate::data_section_layout::DataSectionLayout;
+use crate::fn_name_table_layout::FnNameTableLayout;
 use crate::member_apply::MemberRelocApplyError;
 use crate::member_reloc::MemberRelocError;
 use crate::member_text::MemberTextError;
@@ -167,6 +168,14 @@ pub struct ArchiveLayout {
     /// the `apply_user_vtable_overrides` + `build_user_vtables_payload`
     /// emit path that needs the layout directly.
     pub user_vtables_layout: UserVtablesLayout,
+    /// Fn-name registry Phase 2 Step 3b.3 — `__torajs_fn_name_table[]`
+    /// + `__torajs_fn_name_table_count` placement inside `__DATA_CONST`,
+    /// after `user_vtables_layout` + class_layouts. Mirror of
+    /// `data_const_layout.fn_name_table_layout` for the
+    /// `apply_fn_name_table_overrides` / `build_fn_name_table_payload`
+    /// emit path that needs the layout directly. Empty layout
+    /// (`total_size == 0`) when `cfg.fn_name_globals.is_empty()`.
+    pub fn_name_table_layout: FnNameTableLayout,
     /// SD-4c-prereq+e8 — `__DATA_CONST` segment placement +
     /// `has_data_const` flag. When `has_data_const` is false the
     /// emit pass skips every `__DATA_CONST` emit hook so the binary

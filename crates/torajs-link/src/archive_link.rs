@@ -15,6 +15,7 @@ use crate::data_const_layout::compute_data_const_layout;
 use crate::data_section_layout::compute_data_section_layouts;
 use crate::exec::LinkConfig;
 use crate::fn_addr_syms::fn_addr_extra_defined_syms;
+use crate::fn_name_table_layout::fn_name_table_extra_defined_syms;
 pub use crate::layout_types::{ArchiveLayout, ArchiveLayoutError, MemberLayout};
 use crate::lc::{
     APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
@@ -58,6 +59,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         &cfg.class_layouts,
         cfg.force_emit_class_layouts_globals,
     ));
+    extra.extend(fn_name_table_extra_defined_syms(&cfg.fn_name_globals));
     let required =
         compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;
 
@@ -105,7 +107,8 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let has_dyld = !required.dyld_imports.is_empty();
     let has_data_const_seg = !cfg.vtable_globals.is_empty()
         || !cfg.class_layouts.is_empty()
-        || cfg.force_emit_class_layouts_globals;
+        || cfg.force_emit_class_layouts_globals
+        || !cfg.fn_name_globals.is_empty();
     let has_vtable_rebase = cfg
         .vtable_globals
         .iter()
@@ -193,11 +196,12 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let text_segment_file_end = u64::from(stubs_file_offset) + stubs_section_size;
     let text_vmsize = round_up_to(text_segment_file_end, APPLE_SILICON_PAGE_SIZE);
 
-    // e8 __DATA_CONST — vtable + class_layouts rodata.
+    // e8 __DATA_CONST — vtable + class_layouts + fn_name_table rodata.
     let data_const_layout = compute_data_const_layout(
         &cfg.vtable_globals,
         &cfg.class_layouts,
         cfg.force_emit_class_layouts_globals,
+        &cfg.fn_name_globals,
         text_vmsize as u32,
         TEXT_VMADDR_BASE + text_vmsize,
     );
@@ -478,6 +482,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         user_strings_payload,
         user_data_globals_layout,
         user_vtables_layout: data_const_layout.vtable_layout.clone(),
+        fn_name_table_layout: data_const_layout.fn_name_table_layout.clone(),
         data_const_layout,
         text_rebase_link_values,
         vtable_rebase_target_count,
