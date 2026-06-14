@@ -10259,6 +10259,23 @@ impl<'a> LowerCtx<'a> {
                     // ANY_HEAP=4 so the slot holds an Any-box pointing
                     // at the dynobj.
                     self.lower_dynobj_init(*init)
+                } else if ty == Type::Any
+                    && let Expr::Array(els) = self.ast.get_expr(*init)
+                {
+                    // `let x: any = [...]` allocates Arr<Any> (per-slot
+                    // NaN-box AnyValue) directly here, mirroring the
+                    // P3.2 ObjectLit dynobj path. Without this, lower_expr
+                    // routes through the typed Arr<T> fast path (raw
+                    // 8-byte int slot stores at +24/+32/...) and the
+                    // outer box_to_any wraps as ANY_HEAP=4 — inspect.rs
+                    // Tag::Arr arm then walks raw int slots as NaN-box
+                    // AnyValues via __torajs_arr_print_any → deref ptr `1`
+                    // when reading `[1,…]` SIGSEGVs. Same family as the
+                    // `is_main_fn + globals` T-11 Arr<Any> non-empty path
+                    // above (line 10007–10030), but for the local-binding
+                    // case (no global registration).
+                    let ids: Vec<ExprId> = els.clone();
+                    self.lower_array_any_literal(&ids)
                 } else {
                     self.lower_expr(*init)
                 };
@@ -13176,6 +13193,28 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 arr = new_arr;
+                continue;
+            }
+            // Nested Array literal: recurse so the inner array is also
+            // Arr<Any> (per-slot NaN-box). Without this, lower_expr routes
+            // through the typed Arr<T> fast path and the outer slot's
+            // ANY_HEAP unwrap exposes raw 8-byte int slots that
+            // __torajs_arr_print_any decodes as NaN-box AnyValues → deref
+            // `1` SIGSEGV on `[[1,2],[3,4]]`. Same root as the LetDecl
+            // `let x: any = [...]` arm above.
+            if let Expr::Array(inner_ids) = self.ast.get_expr(eid) {
+                let inner_eids: Vec<ExprId> = inner_ids.clone();
+                let inner_arr = self.lower_array_any_literal(&inner_eids);
+                self.emit_rc_inc(inner_arr.clone());
+                arr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.arr_push_any,
+                        vec![Operand::Value(arr), Operand::ConstI64(4), inner_arr],
+                    ),
+                    Type::Arr(arr_id),
+                    None,
+                );
                 continue;
             }
             let val = self.lower_expr(eid);
