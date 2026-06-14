@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T05:46:05.503Z",
+  "generatedAt": "2026-06-14T06:35:18.203Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "a6294f2f",
-    "commitSubject": "chore(hardev/web): refresh dashboard snapshot - session 110 rotate (W-O-3-arr + W-O-3-str ship: Object.entries(arr/str) by-tag dispatch + per-char fresh Str helpers, gate 806 → 808/0/4)",
+    "commit": "bd0a1695",
+    "commitSubject": "test: positive Any-typed primitive console.log fixtures",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,18 @@
   },
   "commits": [
     {
+      "hash": "bd0a1695",
+      "subject": "test: positive Any-typed primitive console.log fixtures"
+    },
+    {
+      "hash": "e6a95fd6",
+      "subject": "chore: rustfmt own_names.rs (pre-flight bar fix)"
+    },
+    {
+      "hash": "246055a2",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - session 111 rotate (no substrate ship — nested-print scope audit only; root cause = console.log dispatcher fallback print_i64 for Arr<Any/Arr> elem types)"
+    },
+    {
       "hash": "a6294f2f",
       "subject": "chore(hardev/web): refresh dashboard snapshot - session 110 rotate (W-O-3-arr + W-O-3-str ship: Object.entries(arr/str) by-tag dispatch + per-char fresh Str helpers, gate 806 → 808/0/4)"
     },
@@ -653,39 +665,38 @@
     {
       "hash": "a156c85a",
       "subject": "chore(hardev/web): refresh dashboard snapshot - session 107 rotate (substr-print fix ship: FLAG_SUBSTR_VIEW bit 10 dispatches Substr in print_anyv, gate 802 → 803/0/4)"
-    },
-    {
-      "hash": "f5330e6e",
-      "subject": "fix: print_anyv dispatches Substr via FLAG_SUBSTR_VIEW bit 10"
-    },
-    {
-      "hash": "2047a700",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 106 rotate (W-M-rest ship: Object.getOwnPropertyDescriptor(str, numeric) char data desc, gate 801 → 802/0/4)"
-    },
-    {
-      "hash": "0c2246bf",
-      "subject": "feat: W-M-rest Object.getOwnPropertyDescriptor(str, numeric) char data descriptor"
     }
   ],
-  "headSha": "a6294f2f",
+  "headSha": "bd0a1695",
   "autorun": {
-    "total": 158,
+    "total": 159,
     "baselineTarget": 10,
-    "bySelf": 154,
+    "bySelf": 155,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781415579-15b0",
-      "at": "2026-06-14T05:39:39Z",
-      "ts": 1781415579,
+      "rotationId": "r-1781416065-4925",
+      "at": "2026-06-14T05:47:45Z",
+      "ts": 1781416065,
       "trigger": "self",
-      "prevHead": "a6294f2f",
-      "handoffSha": "sha256:07e08bd9a051f12115d1de719a76f5c3adfb1d9334be48e5554e18ec14bbac19",
-      "handoffAgeSec": 5,
+      "prevHead": "246055a2",
+      "handoffSha": "sha256:e0a135e4c8757bd419aa188446448818f7a570712f09db987d8341e09d369c5e",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781416065-4925",
+        "at": "2026-06-14T05:47:45Z",
+        "ts": 1781416065,
+        "trigger": "self",
+        "prevHead": "246055a2",
+        "handoffSha": "sha256:e0a135e4c8757bd419aa188446448818f7a570712f09db987d8341e09d369c5e",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781415579-15b0",
         "at": "2026-06-14T05:39:39Z",
@@ -782,17 +793,6 @@
         "prevHead": "15d41ece",
         "handoffSha": "sha256:3fc3fd79307508e260e4c48834bf2ce76b26ea1305190e680f72ee197d969008",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781403417-3eec",
-        "at": "2026-06-14T02:16:57Z",
-        "ts": 1781403417,
-        "trigger": "self",
-        "prevHead": "f4cbd925",
-        "handoffSha": "sha256:9707ba48b08a4a169f8c6e16543b19af8a652f5867be76fe6b9b2da2da975aa1",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
