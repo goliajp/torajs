@@ -420,6 +420,7 @@ mod tests {
             user_data_globals_layout:
                 crate::user_data_globals_layout::UserDataGlobalsLayout::default(),
             user_vtables_layout: crate::user_vtables_layout::UserVtablesLayout::default(),
+            fn_name_table_layout: crate::fn_name_table_layout::FnNameTableLayout::default(),
             data_const_layout: crate::data_const_layout::DataConstLayout::default(),
             text_rebase_link_values: Vec::new(),
             vtable_rebase_target_count: 0,
