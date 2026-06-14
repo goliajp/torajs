@@ -106,27 +106,46 @@ unsafe extern "C" {
     // Commit 8 — Promise wire. Tag::Promise=8 is unambiguous so
     // the AnyValue walker can route directly here.
     fn __torajs_promise_print(p_ptr: *const c_void);
+    // Fn-name registry Phase 2 Step 5 — turns a fn body vaddr into
+    // `[Function: <name>]` (hit) / `[Function (anonymous)]` (miss)
+    // via the rodata `__torajs_fn_name_table[]` from Steps 3b-4.
+    // Defined in `crates/torajs-fnname/src/lib.rs`. Caller appends
+    // the trailing '\n' (top-level prints) or nested separator.
+    fn __torajs_fn_print_inline(fn_addr: u64);
+}
+
+/// Closure heap layout: `HeapHeader` at offset 0, fn body vaddr at
+/// offset 8, drop_fn vaddr at offset 16, then per-captured-env
+/// payload. Mirrors
+/// `crates/torajs-dynobj/src/accessor.rs::CLOSURE_FN_ADDR_OFF` —
+/// the closure ABI is shared substrate, so the two `8`s must move
+/// together if either ever changes.
+const CLOSURE_FN_ADDR_OFF: usize = 8;
+
+/// Read the fn body vaddr out of a closure heap cell at
+/// `closure + CLOSURE_FN_ADDR_OFF`. Same pattern the
+/// accessor-pair drop path uses; both are reading the same word.
+#[inline]
+unsafe fn closure_fn_addr(closure: *const c_void) -> u64 {
+    unsafe { *((closure as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const u64) }
 }
 
 /// SSA dispatcher entry for `console.log(fn_addr: Type::FnSig)` —
-/// emits the bun `[Function]` form plus '\n'. Phase 1 narrow
-/// (fn-name registry Step 3a) — name omitted; the fn_name_globals
-/// scaffold from Steps 1-2 is populated but the link emit (Step 3b)
-/// and runtime binary-search helper (Step 4) that would turn the
-/// fn_addr into a bun-byte-equal `[Function: name]` form aren't
-/// wired yet. This Phase 1 form at least replaces the W-7 raw
-/// pointer decimal fallthrough.
+/// emits the bun `[Function: <name>]` form plus '\n'. Phase 2 wire
+/// (fn-name registry Step 5) — delegates the table lookup to
+/// `__torajs_fn_print_inline` (torajs-fnname) which walks the rodata
+/// `__torajs_fn_name_table[]` set up by torajs-link's
+/// 3b.3 / 3b.4-5 chain-fixup pipeline.
 ///
 /// # Safety
 ///
-/// `_fn_addr` may be any 64-bit pattern (raw code-section pointer
-/// from `InstKind::FnAddr` lowering); not dereferenced.
+/// `fn_addr` is the raw code-section pointer
+/// `InstKind::FnAddr` lowers to; it's compared (not dereferenced)
+/// against the table's `fn_addr` slots.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_fn_print_outer(_fn_addr: u64) {
-    // Phase 1: emit `[Function]\n` directly, skip the binary search
-    // (Step 4 will replace this body with the name-lookup path once
-    // the rodata table from Step 3b is materialized).
-    write_line(b"[Function]\n");
+pub unsafe extern "C" fn __torajs_fn_print_outer(fn_addr: u64) {
+    unsafe { __torajs_fn_print_inline(fn_addr) };
+    unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
 }
 
 /// Mirror of `torajs_str::substr::FLAG_SUBSTR_VIEW` (bit 10 of
@@ -484,13 +503,14 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             unsafe { __torajs_promise_print(child) };
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else if tag == Tag::Closure as u16 {
-            // Phase 1 narrow (fn-name registry Step 3a) — closure
-            // heap object reached via Type::Any binding. Emits
-            // `[Function]` (no name); Phase 2 lookup that turns the
-            // closure's `fn_addr@+8` into `[Function: <name>]` via
-            // the rodata table from Steps 3b-4 lands once the
-            // archive_emit substrate ships.
-            write_line(b"[Function]\n");
+            // Phase 2 wire (fn-name registry Step 5) — top-level
+            // closure print. Read fn body vaddr from the closure
+            // cell's `fn_addr@+8` slot, look it up via the rodata
+            // `__torajs_fn_name_table[]`, emit `[Function: <name>]`
+            // (hit) or `[Function (anonymous)]` (miss) + '\n'.
+            let fn_addr = unsafe { closure_fn_addr(child) };
+            unsafe { __torajs_fn_print_inline(fn_addr) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else {
             write_line(b"[object]\n");
         }
@@ -646,9 +666,12 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
             // SAFETY: Promise layout per torajs-promise::layout.
             unsafe { __torajs_promise_print(child) };
         } else if tag == Tag::Closure as u16 {
-            // Phase 1 narrow — nested closure prints `[Function]`
-            // (no '\n', same wedge as top-level Tag::Closure above).
-            unsafe { put_bytes(b"[Function]") };
+            // Phase 2 wire (fn-name registry Step 5) — nested
+            // closure print. Same table lookup as top-level
+            // (Tag::Closure top-level arm above) but the trailing
+            // '\n' is owned by the nested-format outer walker.
+            let fn_addr = unsafe { closure_fn_addr(child) };
+            unsafe { __torajs_fn_print_inline(fn_addr) };
         } else {
             // All other composite / typed-receiver tags
             // (Tag::Obj / Tag::Closure / Tag::Symbol / Tag::BigInt /
