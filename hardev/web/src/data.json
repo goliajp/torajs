@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T15:54:40.320Z",
+  "generatedAt": "2026-06-14T16:53:13.835Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "953e611e",
-    "commitSubject": "feat(link): W-J Phase A3b — emit per-class field metadata + wire field_metadata_ptr",
+    "commit": "0db3595a",
+    "commitSubject": "feat(meta): W-J Phase B — Object.getOwnPropertyDescriptor struct cell arm",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,18 @@
   },
   "commits": [
     {
+      "hash": "0db3595a",
+      "subject": "feat(meta): W-J Phase B — Object.getOwnPropertyDescriptor struct cell arm"
+    },
+    {
+      "hash": "0c038a10",
+      "subject": "feat(structmeta): W-J Phase A4 — torajs-structmeta crate runtime reflection helpers"
+    },
+    {
+      "hash": "b951146f",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — session 118 W-J A3b ship + Step 1 refactor"
+    },
+    {
       "hash": "953e611e",
       "subject": "feat(link): W-J Phase A3b — emit per-class field metadata + wire field_metadata_ptr"
     },
@@ -653,39 +665,38 @@
     {
       "hash": "de09e944",
       "subject": "chore(hardev/web): refresh dashboard snapshot — session 116 close 3 substrate L3b (Any-binding ArrayLit + Tag::Set split + class-field Map/Set dispatch) gate 821→825/0/4"
-    },
-    {
-      "hash": "eab88d7c",
-      "subject": "fix(ssa-lower): class-field Map/Set member-call shape — recv_ty_hint reads expr_types"
-    },
-    {
-      "hash": "d33861c6",
-      "subject": "feat(runtime): split Tag::Set from Tag::Map — AnyValue tag-walker disambiguation"
-    },
-    {
-      "hash": "022b8734",
-      "subject": "fix(ssa-lower): Any-binding ArrayLit re-lower SIGSEGV — switch to Arr<Any> per-slot NaN-box"
     }
   ],
-  "headSha": "953e611e",
+  "headSha": "0db3595a",
   "autorun": {
-    "total": 165,
+    "total": 166,
     "baselineTarget": 10,
-    "bySelf": 161,
+    "bySelf": 162,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781445106-4bfe",
-      "at": "2026-06-14T13:51:46Z",
-      "ts": 1781445106,
+      "rotationId": "r-1781452595-48d2",
+      "at": "2026-06-14T15:56:35Z",
+      "ts": 1781452595,
       "trigger": "self",
-      "prevHead": "0e100f63",
-      "handoffSha": "sha256:dfd6ba974c8a2752b4aede67923b44aaad2d06d06dd3317a80dd5b6e1e06e051",
-      "handoffAgeSec": 4,
+      "prevHead": "b951146f",
+      "handoffSha": "sha256:f153b13c57d9c9e8043f8c00b61eabf1b0db2639813241068a58fe6de595c152",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781452595-48d2",
+        "at": "2026-06-14T15:56:35Z",
+        "ts": 1781452595,
+        "trigger": "self",
+        "prevHead": "b951146f",
+        "handoffSha": "sha256:f153b13c57d9c9e8043f8c00b61eabf1b0db2639813241068a58fe6de595c152",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781445106-4bfe",
         "at": "2026-06-14T13:51:46Z",
@@ -782,17 +793,6 @@
         "prevHead": "a4723d67",
         "handoffSha": "sha256:af066114b2f983ed6ec7ced734ecc2ac5b480fe265d464356bf6f6e72e6dd38b",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781412386-514d",
-        "at": "2026-06-14T04:46:26Z",
-        "ts": 1781412386,
-        "trigger": "self",
-        "prevHead": "1cbe2551",
-        "handoffSha": "sha256:165ff42064abd3aaaf72ea60f392d685faf684b52bfdd050ef9e86fd6b4f7a39",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
