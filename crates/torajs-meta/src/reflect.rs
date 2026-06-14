@@ -304,6 +304,38 @@ pub unsafe extern "C" fn __torajs_anyv_arr_length_descriptor(len: u64) -> u64 {
     desc as u64
 }
 
+/// W-M — `Object.getOwnPropertyDescriptor(str, "length")` real
+/// descriptor. Spec ES §22.1.5.1: String's `length` own property is
+/// `{value: len, writable: false, enumerable: false, configurable:
+/// false}` — every flag false, unlike Array's `length` which is
+/// writable. Reads `u32` at `torajs-str::layout::STR_LEN_OFF = 8`
+/// (a four-byte len + four-byte pad share the same eight-byte slot;
+/// Load-as-u32 instead of Load-as-u64 keeps the value robust to
+/// future use of the pad word).
+///
+/// # Safety
+///
+/// `str_ptr` must point at a valid Str heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_str_length_descriptor(str_ptr: *const c_void) -> u64 {
+    // SAFETY: STR_LEN_OFF=8 holds the live u32 length per torajs-str layout.
+    let len = unsafe { (str_ptr.cast::<u8>().add(8) as *const u32).read() } as u64;
+    let mut desc = unsafe { __torajs_dynobj_alloc() };
+    const ANY_I64: u64 = 2;
+    let entries: [(&[u8], u64, u64); 4] = [
+        (b"value", ANY_I64, len),
+        (b"writable", ANY_BOOL as u64, 0),
+        (b"enumerable", ANY_BOOL as u64, 0),
+        (b"configurable", ANY_BOOL as u64, 0),
+    ];
+    for &(name, t, val) in entries.iter() {
+        let k = unsafe { alloc_str_key(name) };
+        unsafe { __torajs_dynobj_set(&mut desc, k, t, val) };
+        unsafe { __torajs_str_drop(k) };
+    }
+    desc as u64
+}
+
 /// RFC C5b — `Object.preventExtensions(O)`. Spec ES §20.1.2.16 step 1
 /// `If Type(O) is not Object, return O.` Real objects route through
 /// the raw-pointer setter that flips [`torajs_rc::FLAG_NON_EXTENSIBLE`]

@@ -2708,6 +2708,19 @@ fn lower_inner(
         &[Type::I64],
         Type::Any,
     );
+    // W-M — `Object.getOwnPropertyDescriptor(str, "length")` — spec
+    // §22.1.5.1 builds `{value, writable: false, enumerable: false,
+    // configurable: false}` (every flag false, unlike Array). Sig
+    // takes the Str ptr directly so the helper can Load the u32 len
+    // at `STR_LEN_OFF = 8` without the SSA arm needing to know about
+    // the str header's u32-len + u32-pad packing.
+    let str_length_descriptor_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_anyv_str_length_descriptor",
+        &[Type::Ptr],
+        Type::Any,
+    );
     // RFC C5b — `Object.preventExtensions(O)` / `Object.isExtensible(O)`.
     // Anyvalue-shaped guards: primitive imm / null / undef short-circuit
     // per spec §20.1.2.16 step 1 / §20.1.2.13 step 1 ("not Object → no-op
@@ -5203,6 +5216,7 @@ fn lower_inner(
         get_property_descriptor: get_property_descriptor_id,
         throw_typeerror_if_not_object: throw_typeerror_if_not_object_id,
         arr_length_descriptor: arr_length_descriptor_id,
+        str_length_descriptor: str_length_descriptor_id,
         anyv_prevent_extensions: anyv_prevent_extensions_id,
         anyv_is_extensible: anyv_is_extensible_id,
         anyv_seal: anyv_seal_id,
@@ -6012,6 +6026,7 @@ pub(crate) struct Intrinsics {
     pub(crate) get_property_descriptor: FuncId,
     pub(crate) throw_typeerror_if_not_object: FuncId,
     pub(crate) arr_length_descriptor: FuncId,
+    pub(crate) str_length_descriptor: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,
     pub(crate) anyv_seal: FuncId,
@@ -15695,6 +15710,25 @@ impl<'a> LowerCtx<'a> {
                 {
                     let obj_raw = self.lower_expr(args[0]);
                     let obj_ty = self.operand_ty(&obj_raw);
+
+                    // W-M — typed-Str `.length` static fast path. Spec
+                    // §22.1.5.1: String's `length` own prop is `{value,
+                    // writable: false, enumerable: false, configurable:
+                    // false}` (every flag false — unlike Array's writable
+                    // length). The helper takes the Str ptr and Loads the
+                    // u32 len internally.
+                    if matches!(obj_ty, Type::Str)
+                        && let Expr::String(k) = self.ast.get_expr(args[1])
+                        && k == "length"
+                    {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.str_length_descriptor, vec![obj_raw]),
+                            Type::Any,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
 
                     // RFC C5a — typed-Array `.length` static fast path.
                     // Spec §10.4.2.4: Array's `length` own prop is
