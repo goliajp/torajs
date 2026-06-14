@@ -143,7 +143,12 @@ unsafe fn split_init_inline(
     let header = HeapHeader {
         refcount: 1,
         type_tag: Tag::Str as u16,
-        flags: FLAG_SUBSTR_INLINE,
+        // FLAG_SUBSTR_INLINE keeps the existing drop-path dispatch
+        // (inline drop skips own-rc dec); FLAG_SUBSTR_VIEW lets the
+        // anyvalue print dispatch route to substr_print instead of
+        // the Str print walker (whose +16 inline-bytes read would
+        // garble the substr's parent-ptr@+16 / offset@+24 fields).
+        flags: FLAG_SUBSTR_INLINE | crate::substr::FLAG_SUBSTR_VIEW,
     };
     unsafe {
         (substr_slot as *mut HeapHeader).write(header);

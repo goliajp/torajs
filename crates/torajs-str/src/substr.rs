@@ -91,6 +91,17 @@ pub const SUBSTR_OFFSET_OFF: usize = 24;
 /// SSA type, a Substr view). Mirrors C `__TORAJS_FLAG_SUBSTR_INLINE`.
 pub const FLAG_SUBSTR_INLINE: u16 = 1 << 0;
 
+/// `HeapHeader::flags` bit marking a Substr-shaped heap block (32-byte
+/// `{header, len@8, parent_ptr@16, offset@24}` layout). Set by both
+/// standalone `__torajs_substr_create` and inline split-tail substrs
+/// so dispatch sites that can't otherwise distinguish Str vs Substr
+/// (e.g. `print_anyv` with only the `Tag::Str` type_tag in hand) can
+/// route to the substr-aware print path. Bits 0-9 are taken by
+/// SUBSTR_INLINE / IS_LATIN1 / STATIC_LITERAL / ARR_ANY / FROZEN /
+/// BUFFERED / NULL_PROTO / ERROR / NON_EXTENSIBLE / SEALED; bit 10
+/// is the next free header flag.
+pub const FLAG_SUBSTR_VIEW: u16 = 1 << 10;
+
 // ============================================================
 // SubstrBlock newtype
 // ============================================================
@@ -145,7 +156,7 @@ impl SubstrBlock {
             header_ptr.write(HeapHeader {
                 refcount: 1,
                 type_tag: Tag::Str as u16,
-                flags: 0,
+                flags: FLAG_SUBSTR_VIEW,
             });
             (raw.as_ptr().add(SUBSTR_LEN_OFF) as *mut u64).write(len);
             (raw.as_ptr().add(SUBSTR_PARENT_OFF) as *mut *mut c_void).write(parent);
@@ -431,7 +442,7 @@ mod tests {
             let h = view.header();
             assert_eq!(h.refcount, 1);
             assert_eq!(h.type_tag, Tag::Str as u16);
-            assert_eq!(h.flags, 0);
+            assert_eq!(h.flags, FLAG_SUBSTR_VIEW);
             assert_eq!(view.len(), 5);
             assert_eq!(view.parent(), parent_ptr);
             assert_eq!(view.offset(), 2);

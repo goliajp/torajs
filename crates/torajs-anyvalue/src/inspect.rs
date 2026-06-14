@@ -37,10 +37,24 @@ const STR_HDR_SIZE: usize = 16;
 unsafe extern "C" {
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_str_print(s: *const u8);
+    fn __torajs_substr_print(v: *const u8);
     fn print_i64(n: i64);
     fn print_f64(d: f64);
     fn print_bool(b: bool);
     fn __torajs_io_putc_stdout(c: i32) -> i32;
+}
+
+/// Mirror of `torajs_str::substr::FLAG_SUBSTR_VIEW` (bit 10 of
+/// `HeapHeader::flags`). Hardcoded here to avoid a `torajs-anyvalue
+/// → torajs-str` dep edge; the bit value is part of the substr ABI
+/// (set by `__torajs_substr_create` + split-tail emit) so any future
+/// drift would already break drop-path dispatch. Bits 0-9 are taken
+/// (see torajs-rc + torajs-str flag tables).
+const SUBSTR_VIEW_FLAG: u16 = 1 << 10;
+
+#[inline]
+unsafe fn heap_flags(child: *const c_void) -> u16 {
+    unsafe { (*(child as *const HeapHeader)).flags }
 }
 
 #[inline]
@@ -172,9 +186,24 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
         // SAFETY: live heap ptr per caller invariant.
         let tag = unsafe { heap_type_tag(child) };
         if tag == Tag::Str as u16 {
-            // SAFETY: Tag::Str header layout — print walker reads
-            // len@+8 and bytes@+16.
-            unsafe { __torajs_str_print(child as *const u8) };
+            // Tag::Str covers both real Str (`{len@+8, data@+16}`)
+            // AND Substr view (`{len@+8, parent@+16, offset@+24}`).
+            // Disambiguate via `FLAG_SUBSTR_VIEW`: set on every Substr
+            // (standalone via `__torajs_substr_create`, inline via
+            // split-tail emit) so `__torajs_str_print`'s
+            // "read inline bytes @ +16" walker doesn't garble the
+            // parent-ptr field. The substr-aware printer reads parent
+            // + offset and prints the parent's payload slice.
+            let flags = unsafe { heap_flags(child) };
+            if flags & SUBSTR_VIEW_FLAG != 0 {
+                // SAFETY: Substr layout per torajs-str::substr.
+                // substr_print writes its own trailing newline.
+                unsafe { __torajs_substr_print(child as *const u8) };
+            } else {
+                // SAFETY: Tag::Str header layout — print walker reads
+                // len@+8 and bytes@+16.
+                unsafe { __torajs_str_print(child as *const u8) };
+            }
         } else {
             write_line(b"[object]\n");
         }
