@@ -95,14 +95,15 @@ unsafe extern "C" {
     // the shared stdout writer (no fresh-Str alloc, no rc_dec
     // dance). Same put_byte family this module uses.
     fn __torajs_regex_print_inline(re_ptr: *const c_void);
-    // Commits 7-8 — Map / Set walkers exist in torajs-collections
-    // but the SSA dispatcher routes Type::Map / Type::Set directly
-    // to their `*_print_outer` wrappers (bypassing this AnyValue
-    // tag-walker) because runtime Tag::Map (=15) covers BOTH Map
-    // and Set heap blocks — there is no separate Tag::Set. Calling
-    // __torajs_map_print on a Set heap object would print the bun
-    // `Map(...)` form for what should be `Set(...)`. Runtime tag
-    // disambiguation is a follow-up substrate (L3b).
+    // Map / Set walkers — Tag::Set (=19, runtime tag substrate)
+    // discriminates Set heap cells from Map (=15), so the AnyValue
+    // tag-walker routes each branch to its bun-correct printer
+    // (`Map(N) {…}` / `Set(N) {…}` non-empty;`Map {}` / `Set {}`
+    // empty). Inline form (no trailing '\n'); the top-level
+    // `__torajs_print_anyv` arm appends '\n', the
+    // `__torajs_print_anyv_inline` arm leaves it off.
+    fn __torajs_map_print(m_ptr: *const c_void);
+    fn __torajs_set_print(s_ptr: *const c_void);
     // Commit 8 — Promise wire. Tag::Promise=8 is unambiguous so
     // the AnyValue walker can route directly here.
     fn __torajs_promise_print(p_ptr: *const c_void);
@@ -502,6 +503,17 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // SAFETY: Promise layout per torajs-promise::layout.
             unsafe { __torajs_promise_print(child) };
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::Map as u16 {
+            // Runtime Tag::Set substrate — Type::Any `console.log(m)`
+            // routes here once Tag::Set (=19) split Set from Map.
+            // SAFETY: Map layout per torajs-collections::layout.
+            unsafe { __torajs_map_print(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::Set as u16 {
+            // SAFETY: Set shares the Map layout (same struct, just
+            // TAG_SET stamped on the heap header by __torajs_set_create).
+            unsafe { __torajs_set_print(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else if tag == Tag::Closure as u16 {
             // Phase 2 wire (fn-name registry Step 5) — top-level
             // closure print. Read fn body vaddr from the closure
@@ -672,14 +684,21 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
             // '\n' is owned by the nested-format outer walker.
             let fn_addr = unsafe { closure_fn_addr(child) };
             unsafe { __torajs_fn_print_inline(fn_addr) };
+        } else if tag == Tag::Map as u16 {
+            // Runtime Tag::Set substrate — nested Map cell prints
+            // inline (`Map {}` / `Map(N) {…}` form, no trailing '\n').
+            // SAFETY: Map layout per torajs-collections::layout.
+            unsafe { __torajs_map_print(child) };
+        } else if tag == Tag::Set as u16 {
+            // SAFETY: Set shares Map layout, just stamped TAG_SET.
+            unsafe { __torajs_set_print(child) };
         } else {
             // All other composite / typed-receiver tags
-            // (Tag::Obj / Tag::Closure / Tag::Symbol / Tag::BigInt /
-            // Tag::Map / Tag::Set / Tag::Promise / Tag::Date /
-            // Tag::RegExp / Tag::Response / Tag::Weak* /
-            // Tag::MapIter / Tag::ArrIter / Tag::AccessorPair / etc)
-            // fall back to `[object]` (no '\n'). Commits 5-8 wire
-            // each tag to its typed walker.
+            // (Tag::Obj / Tag::Symbol / Tag::BigInt / Tag::Response /
+            // Tag::Weak* / Tag::MapIter / Tag::ArrIter /
+            // Tag::AccessorPair / etc) fall back to `[object]`
+            // (no '\n'). Wire each into its typed walker as the
+            // corresponding substrate lands.
             unsafe { put_bytes(b"[object]") };
         }
         return;

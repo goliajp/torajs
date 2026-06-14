@@ -3447,6 +3447,13 @@ fn lower_inner(
         &[],
         Type::Map,
     );
+    let set_create_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_set_create",
+        &[],
+        Type::Set,
+    );
     let map_set_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5419,6 +5426,7 @@ fn lower_inner(
         weakmap_delete: weakmap_delete_id,
         weakmap_drop: weakmap_drop_id,
         map_create: map_create_id,
+        set_create: set_create_id,
         map_set: map_set_id,
         map_get: map_get_id,
         map_has: map_has_id,
@@ -6290,6 +6298,11 @@ pub(crate) struct Intrinsics {
     pub(crate) weakmap_drop: FuncId,
     /* P6.1 — strong-ref Map<K,V> intrinsics. */
     pub(crate) map_create: FuncId,
+    /* `__torajs_set_create()` — fresh Set heap (Map layout + TAG_SET).
+     * Tag::Set discriminates Set from Map for the AnyValue tag-walker
+     * (inspect.rs) so `const s: any = new Set()` console.log can route
+     * to the bun `Set(N) {…}` printer instead of the Map walker. */
+    pub(crate) set_create: FuncId,
     pub(crate) map_set: FuncId,
     pub(crate) map_get: FuncId,
     pub(crate) map_has: FuncId,
@@ -13352,15 +13365,15 @@ impl<'a> LowerCtx<'a> {
             }
             Expr::New { class_name, .. } if class_name == "Set" => {
                 /* P6.2 — `new Set()` reuses the P6.1 Map runtime
-                 * struct. The value side of each entry stays pinned
-                 * at ANY_UNDEF (the Map.set arm in `add` lowering
-                 * writes that). At the SSA layer the result carries
-                 * Type::Set so method dispatch routes through the
-                 * Set arm (single-arg `add` etc.) instead of Map's
-                 * 2-arg set. */
+                 * struct (layout-identical; entries' value side stays
+                 * pinned at ANY_UNDEF). Heap header carries TAG_SET
+                 * so the AnyValue tag-walker can distinguish Set from
+                 * Map (runtime Tag::Set substrate, 2026-06-14): the
+                 * `set_create` intrinsic stamps TAG_SET on the freshly
+                 * allocated block. */
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.map_create, vec![]),
+                    InstKind::Call(self.intrinsics.set_create, vec![]),
                     Type::Set,
                     None,
                 );

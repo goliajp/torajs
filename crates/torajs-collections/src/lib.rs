@@ -66,9 +66,9 @@ pub mod print;
 pub mod probe;
 pub mod query;
 
-pub use create::__torajs_map_create;
+pub use create::{__torajs_map_create, __torajs_set_create};
 pub use delete::{__torajs_map_clear, __torajs_map_delete};
-pub use drop::__torajs_map_drop;
+pub use drop::{__torajs_map_drop, __torajs_set_drop};
 pub use iter::{
     __torajs_map_iter_create_entries, __torajs_map_iter_create_keys,
     __torajs_map_iter_create_set_entries, __torajs_map_iter_create_values, __torajs_map_iter_drop,

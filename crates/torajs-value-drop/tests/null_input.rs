@@ -39,6 +39,7 @@ per_tag_drop_stub!(
     __torajs_weakmap_drop,
     __torajs_weakset_drop,
     __torajs_map_drop,
+    __torajs_set_drop,
     __torajs_map_iter_drop,
     __torajs_arr_iter_drop,
     __torajs_dynobj_drop,

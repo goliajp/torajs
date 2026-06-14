@@ -286,6 +286,12 @@ pub enum Tag {
     /// the pointee's `HeapHeader::type_tag` (the NaN-box itself has no
     /// free tag space — V8/JSC AccessorPair model).
     AccessorPair = 18,
+    /// Strong-ref `Set<T>` — shares the `Map` heap layout
+    /// (`torajs-collections::layout::Map`, Set stores entries with
+    /// `value_anyv = ANY_UNDEF`) but gets its own type_tag so the
+    /// AnyValue tag-walker (inspect.rs) can route to the bun-correct
+    /// `Set(N) {…}` / `Set {}` printer instead of mis-printing as Map.
+    Set = 19,
 }
 
 // ============================================================
@@ -628,6 +634,8 @@ mod tests {
         assert_eq!(Tag::Map as u16, 15);
         assert_eq!(Tag::MapIter as u16, 16);
         assert_eq!(Tag::ArrIter as u16, 17);
+        assert_eq!(Tag::AccessorPair as u16, 18);
+        assert_eq!(Tag::Set as u16, 19);
     }
 
     #[test]

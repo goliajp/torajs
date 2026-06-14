@@ -26,6 +26,7 @@
 //! | `WeakMap`       | `__torajs_weakmap_drop`         | torajs-weak       |
 //! | `WeakSet`       | `__torajs_weakset_drop`         | torajs-weak       |
 //! | `Map`           | `__torajs_map_drop`             | torajs-collections|
+//! | `Set`           | `__torajs_set_drop`             | torajs-collections|
 //! | `MapIter`       | `__torajs_map_iter_drop`        | torajs-collections|
 //! | `ArrIter`       | `__torajs_arr_iter_drop`        | torajs-arr        |
 //! | `DynObj`        | `__torajs_dynobj_drop`          | torajs-dynobj     |
@@ -62,6 +63,7 @@ unsafe extern "C" {
     fn __torajs_weakmap_drop(p: *mut c_void);
     fn __torajs_weakset_drop(p: *mut c_void);
     fn __torajs_map_drop(p: *mut c_void);
+    fn __torajs_set_drop(p: *mut c_void);
     fn __torajs_map_iter_drop(p: *mut c_void);
     fn __torajs_arr_iter_drop(p: *mut c_void);
     fn __torajs_dynobj_drop(p: *mut c_void);
@@ -113,6 +115,7 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
         t if t == Tag::WeakMap as u16 => unsafe { __torajs_weakmap_drop(child) },
         t if t == Tag::WeakSet as u16 => unsafe { __torajs_weakset_drop(child) },
         t if t == Tag::Map as u16 => unsafe { __torajs_map_drop(child) },
+        t if t == Tag::Set as u16 => unsafe { __torajs_set_drop(child) },
         t if t == Tag::MapIter as u16 => unsafe { __torajs_map_iter_drop(child) },
         t if t == Tag::ArrIter as u16 => unsafe { __torajs_arr_iter_drop(child) },
         t if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_drop(child) },

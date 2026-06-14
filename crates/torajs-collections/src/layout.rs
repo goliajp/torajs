@@ -40,10 +40,15 @@
 
 use core::ffi::c_void;
 
-/// `type_tag` value for Map/Set heap blocks (matches
-/// `torajs_rc::Tag::Map` = 15; pre-rewrite `__TORAJS_TAG_MAP`).
-/// Set wears the same tag — Set vs Map distinction is SSA-side only.
+/// `type_tag` value for Map heap blocks (matches `torajs_rc::Tag::Map`
+/// = 15; pre-rewrite `__TORAJS_TAG_MAP`).
 pub const TAG_MAP: u16 = 15;
+
+/// `type_tag` value for Set heap blocks (matches `torajs_rc::Tag::Set`
+/// = 19). Set heap layout is identical to Map (same `Map` struct), but
+/// gets its own type_tag so the AnyValue tag-walker can route to the
+/// `Set(N) {…}` printer instead of mis-printing as Map.
+pub const TAG_SET: u16 = 19;
 
 /// ANY-slot tag values (mirror of `torajs_rc::AnySlotTag`).
 pub const ANY_NULL: u8 = 0;

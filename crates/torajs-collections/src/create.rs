@@ -4,14 +4,15 @@
 //! Allocates a fresh `Map` struct + `slots[16]` array (all empty) +
 //! `entries[8]` array (zero-init). Returns a `+1`-rc heap pointer.
 //!
-//! Set and Map share this entry point — Set is purely an SSA-side
-//! distinction (same layout, same TAG_MAP).
+//! Set shares the `Map` struct layout but stamps its own
+//! [`crate::layout::TAG_SET`] so the AnyValue tag-walker can route
+//! Set heap cells to the `Set(N) {…}` printer.
 
 use core::ffi::c_void;
 
 use crate::layout::{
     HeapHeader, MAP_ENTRIES_INITIAL, MAP_SLOTS_INITIAL, Map, MapEntry, MapSlot, SLOT_EMPTY,
-    TAG_MAP, slot_make,
+    TAG_MAP, TAG_SET, slot_make,
 };
 
 unsafe extern "C" {
@@ -66,6 +67,23 @@ pub unsafe extern "C" fn __torajs_map_create() -> *mut c_void {
     m as *mut c_void
 }
 
+/// `__torajs_set_create()` — allocate a fresh empty Set. Same layout
+/// as Map; only the heap header's `type_tag` differs (TAG_SET so the
+/// AnyValue tag-walker routes to the bun-correct `Set(N) {…}` printer).
+///
+/// # Safety
+/// Returned pointer is owned by the caller; release via
+/// `__torajs_set_drop` (universal `__torajs_value_drop_heap` routes
+/// `Tag::Set` here).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_set_create() -> *mut c_void {
+    let p = unsafe { __torajs_map_create() };
+    unsafe {
+        (*(p as *mut Map)).header.type_tag = TAG_SET;
+    }
+    p
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,6 +114,23 @@ mod tests {
 
             // Hand the arrays + struct back to mmalloc (test-only path —
             // production drop is map_drop in drop.rs).
+            unsafe extern "C" {
+                #[link_name = "__torajs_libc_free"]
+                fn free(p: *mut c_void);
+            }
+            free((*p).slots as *mut c_void);
+            free((*p).entries as *mut c_void);
+            free(p as *mut c_void);
+        }
+    }
+
+    #[test]
+    fn set_create_stamps_tag_set() {
+        let p = unsafe { __torajs_set_create() } as *mut Map;
+        assert!(!p.is_null());
+        unsafe {
+            assert_eq!((*p).header.type_tag, TAG_SET);
+            assert_eq!((*p).header.refcount, 1);
             unsafe extern "C" {
                 #[link_name = "__torajs_libc_free"]
                 fn free(p: *mut c_void);

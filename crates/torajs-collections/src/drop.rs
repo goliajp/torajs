@@ -71,3 +71,16 @@ pub unsafe extern "C" fn __torajs_map_drop(p: *mut c_void) {
         free(p);
     }
 }
+
+/// `__torajs_set_drop(s)` — Set is layout-identical to Map (same
+/// `entries[]` / `slots[]` shape, Set's `value_anyv` is always
+/// ANY_UNDEF so the value-side `__torajs_value_drop_heap` walk is a
+/// no-op). Routed via `value_drop_heap`'s `Tag::Set` case; delegates
+/// straight to `__torajs_map_drop` for the actual walk + free.
+///
+/// # Safety
+/// `p` is null or a live Set heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_set_drop(p: *mut c_void) {
+    unsafe { __torajs_map_drop(p) }
+}
