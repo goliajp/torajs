@@ -67,6 +67,37 @@ pub unsafe extern "C" fn __torajs_str_index_strs(str_ptr: *const c_void) -> *mut
     unsafe { __torajs_arr_index_strs(len) }
 }
 
+/// W-O-3-str — `Object.entries(str)` per-character entry pairs.
+/// Spec §22.1.5.2 + §20.1.2.5: ToObject on a primitive string +
+/// own-keys walk enumerates the per-char indexed view as
+/// `[["0", s[0]], ["1", s[1]], ...]`. Outer Arr<Arr<Any>> length
+/// = str.length; each inner = `arr_alloc_any(2)` with
+/// `[idx_str_as_ANY_HEAP, char_str_as_ANY_HEAP]`. Uses
+/// `__torajs_str_at` (fresh Str via alloc_str_slice) so the
+/// resulting Strs round-trip cleanly through console.log + dynobj
+/// stores — same materialize choice as W-O-2 and W-M-rest.
+///
+/// # Safety
+///
+/// `str_ptr` must point at a valid Str heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_entries(str_ptr: *const c_void) -> *mut c_void {
+    // SAFETY: STR_LEN_OFF=8 holds the live u32 length per torajs-str layout.
+    let len = unsafe { (str_ptr.cast::<u8>().add(8) as *const u32).read() } as i64;
+    let mut outer = unsafe { __torajs_arr_alloc(len.max(0) as u64) };
+    for i in 0..len {
+        let idx_str = unsafe { __torajs_i64_to_str(i) };
+        let ch = unsafe { __torajs_str_at(str_ptr.cast::<u8>(), i) };
+        let inner = unsafe { __torajs_arr_alloc_any(2) };
+        let inner =
+            unsafe { __torajs_arr_push_any(inner as *mut c_void, 4, idx_str as u64) };
+        let inner =
+            unsafe { __torajs_arr_push_any(inner as *mut c_void, 4, ch as u64) };
+        outer = unsafe { __torajs_arr_push(outer, inner as i64) };
+    }
+    outer as *mut c_void
+}
+
 /// W-O-3 — `Object.entries(arr)` runtime entry-pair builder. Spec
 /// §20.1.2.5 + ToObject on an Array exotic enumerates the indexed
 /// own properties as `[[idx_str, value], ...]`. Builds an outer

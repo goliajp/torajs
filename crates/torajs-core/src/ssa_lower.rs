@@ -2768,6 +2768,16 @@ fn lower_inner(
         &[Type::Ptr, Type::I64],
         Type::Ptr,
     );
+    // W-O-3-str — `Object.entries(str)` per-char entry pairs. Wrapper
+    // in torajs-meta::own_names that reads u32 len at STR_LEN_OFF=8,
+    // then loops `__torajs_str_at` to mint fresh Strs per code unit.
+    let str_entries_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_entries",
+        &[Type::Ptr],
+        Type::Ptr,
+    );
     // W-M-rest — `Object.getOwnPropertyDescriptor(str, "<idx>")` —
     // spec §22.1.5.2 builds `{value: char_at(idx), writable: false,
     // enumerable: true, configurable: false}` (note enumerable=true,
@@ -5283,6 +5293,7 @@ fn lower_inner(
         str_index_strs: str_index_strs_id,
         str_to_char_arr: str_to_char_arr_id,
         arr_entries_by_tag: arr_entries_by_tag_id,
+        str_entries: str_entries_id,
         str_index_descriptor: str_index_descriptor_id,
         anyv_prevent_extensions: anyv_prevent_extensions_id,
         anyv_is_extensible: anyv_is_extensible_id,
@@ -6098,6 +6109,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_index_strs: FuncId,
     pub(crate) str_to_char_arr: FuncId,
     pub(crate) arr_entries_by_tag: FuncId,
+    pub(crate) str_entries: FuncId,
     pub(crate) str_index_descriptor: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,
@@ -17235,6 +17247,24 @@ impl<'a> LowerCtx<'a> {
                                 self.intrinsics.arr_entries_by_tag,
                                 vec![arg_op, Operand::ConstI64(val_tag)],
                             ),
+                            Type::Arr(outer_arr_id),
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // W-O-3-str — String receiver: returns Arr<Arr<2>>
+                    // of [idx_str, char_str] pairs. Delegates to the
+                    // runtime helper that reads u32 length at
+                    // STR_LEN_OFF=8 and loops __torajs_str_at to mint
+                    // fresh Strs per code unit (same materialize choice
+                    // as W-O-2 / W-M-rest).
+                    if matches!(arg_ty, Type::Str) {
+                        let inner_arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
+                        let outer_arr_id =
+                            intern_arr_layout(self.arr_layouts, Type::Arr(inner_arr_id));
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.str_entries, vec![arg_op]),
                             Type::Arr(outer_arr_id),
                             None,
                         );
