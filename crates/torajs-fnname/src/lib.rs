@@ -32,8 +32,17 @@
 //! - `__torajs_fn_name_table` / `__torajs_fn_name_table_count`
 //!   from torajs-link's emit pass (registered via
 //!   `apply_fn_name_table_overrides`).
-
-#![no_std]
+//!
+//! ## Why `std` (not `no_std`)
+//!
+//! Same reason `torajs-rc` / `torajs-anyvalue` chose `std`: Layer-1+
+//! staticlibs each declaring their own `#[panic_handler]` would
+//! conflict on the lang item, and `std` is the cheapest way to
+//! satisfy rustc's panic-handler requirement on the rlib build that
+//! cargo workspace tests / `cargo build` produce. The user binary
+//! never pulls the panic infrastructure because the staticlib has
+//! no panic sites; `torajs-panic-runtime` provides the final binary's
+//! `#[panic_handler]` instead.
 
 /// One row of the `__torajs_fn_name_table[]` rodata array.
 ///
