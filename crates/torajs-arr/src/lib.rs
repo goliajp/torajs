@@ -46,6 +46,7 @@ pub mod layout;
 pub mod ops;
 pub mod pool;
 pub mod print;
+pub mod print_any;
 mod print_props;
 pub mod props;
 pub mod slice;

@@ -1,0 +1,92 @@
+//! `console.log(arr: Array<Any>)` and `Array<Array<...>>` recursive
+//! pretty-printer — nested-print substrate trunk Commit 2.
+//!
+//! Walks an `Arr` whose slots hold NaN-box `AnyValue`s (8 bytes
+//! each, encoded as `i64` in the slot view) and emits each cell via
+//! the inline `__torajs_print_anyv_inline` substrate from
+//! `torajs-anyvalue::inspect`. Recursion happens **inside**
+//! `__torajs_print_anyv_inline`'s Tag::Arr branch (wired in Commit 4),
+//! so `__torajs_arr_print_any` itself stays flat and emits a
+//! single-line `[ a, b, c ]` shape that matches bun for
+//! `Array<Any>` / `Array<Array<_>>`.
+//!
+//! Output shape (bun-parity for these element types):
+//! - `null` (no newline) for NULL arr (regex no-match arr never
+//!   reaches Arr<Any>, but defensive same as `print::print_header`)
+//! - `[]` (no newline) for empty arr
+//! - `[ a, b, c ]` (no newline) for non-empty
+//!
+//! ## Newline policy
+//!
+//! Commit 2 emits **no trailing newline** — this helper is the
+//! Tag::Arr branch of `__torajs_print_anyv_inline` (Commit 1) and the
+//! arr-elem path of the SSA console.log dispatcher (Commit 4); both
+//! callers add the '\n' themselves when the outer console.log call
+//! terminates. The Commit 4 `__torajs_print_anyv` Tag::Arr arm
+//! appends '\n' after this call returns.
+//!
+//! ## arrprops
+//!
+//! Composite trailing `, key: value` props (set on regex exec
+//! results, etc) are NOT emitted here — those are the
+//! `__torajs_arr_print_*` per-element-type printers' job
+//! (`print_props::put_arrprops`), not the generic Any walker.
+//! Arr<Any> arrays produced by Object.entries / spread / etc do not
+//! carry arrprops by construction.
+
+use core::ffi::c_void;
+
+use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
+use crate::print::{put_byte, put_bytes};
+
+const ARR_HEAD_OFF: usize = 20;
+
+unsafe extern "C" {
+    /// Inline AnyValue printer from `torajs-anyvalue::inspect`
+    /// (nested-print substrate trunk Commit 1). Cross-staticlib
+    /// extern — resolved at `tr build` link time. Takes the raw 8
+    /// bytes of an `AnyValue` slot as `u64` and writes its bun-form
+    /// rendering through `__torajs_io_putc_stdout` with no trailing
+    /// newline.
+    fn __torajs_print_anyv_inline(v: u64);
+}
+
+/// `console.log(arr: Array<Any>)` — inline (no trailing newline)
+/// recursive walker. Each slot is treated as a NaN-box `AnyValue`
+/// and dispatched through `__torajs_print_anyv_inline`.
+///
+/// # Safety
+///
+/// `arr` must be either NULL or a valid `Arr` heap object whose
+/// slots hold NaN-box `AnyValue`s. Each slot is read as `i64` and
+/// re-interpreted as `AnyValue` for the inline printer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_print_any(arr: *const c_void) {
+    unsafe {
+        let p = arr as *const u8;
+        if p.is_null() {
+            put_bytes(b"null");
+            return;
+        }
+        let len = *(p.add(ARR_LEN_OFF) as *const u64);
+        if len == 0 {
+            put_bytes(b"[]");
+            return;
+        }
+        let head = *(p.add(ARR_HEAD_OFF) as *const u32);
+        put_bytes(b"[ ");
+        for i in 0..len {
+            if i > 0 {
+                put_bytes(b", ");
+            }
+            let slot_addr = p.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8);
+            let v = *(slot_addr as *const u64);
+            __torajs_print_anyv_inline(v);
+        }
+        // Trailing " ]" — bun emits a space before the closing
+        // bracket only when the array is non-empty (the empty arm
+        // above already short-circuited with `[]`).
+        put_byte(b' ');
+        put_byte(b']');
+    }
+}
