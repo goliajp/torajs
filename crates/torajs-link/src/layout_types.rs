@@ -195,6 +195,16 @@ pub struct ArchiveLayout {
     /// (= total `Some` slot_syms across all entries in
     /// `user_vtables_layout`).
     pub vtable_rebase_target_count: usize,
+    /// Fn-name registry Phase 2 Step 3b.4 — count of fn_name_table
+    /// chain-fixup slots (= `2 × fn_name_globals.len()` for the
+    /// `fn_addr` + `name_ptr` slot pair per entry; 0 when
+    /// `fn_name_globals.is_empty()`). archive_emit.rs uses this as
+    /// the third split point so the 3-way split of
+    /// `text_rebase_link_values` lines up:
+    /// `vtable_lv[..vtable_rebase_target_count]`,
+    /// `class_lv[vtable_rebase_target_count..total - fn_name_rebase_target_count]`,
+    /// `fn_name_lv[total - fn_name_rebase_target_count..]`.
+    pub fn_name_rebase_target_count: usize,
 }
 
 /// Failures `compute_archive_layout` can report.

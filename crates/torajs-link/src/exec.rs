@@ -121,10 +121,10 @@ pub struct UserVtableEntry {
 /// `register_fn_addr_syms` materializes from `fn_vaddrs`. Resolves
 /// to the user fn's body vaddr at link time.
 ///
-/// `name_ptr_sym` is `__user_string_<sid>` — the alias
-/// `apply_user_string_overrides` registers for an interned string
-/// literal in `__TEXT,__cstring`. Resolves to the Str cell's
-/// payload vaddr.
+/// `name_ptr_sym` is `__torajs_str_dyn_<sid>` — the RawBytes
+/// flavour `apply_user_string_overrides` registers for an interned
+/// string literal. Points at the raw char payload (no 16-byte Str
+/// header) so the runtime helper can `putc` each byte directly.
 ///
 /// `name_len` is the source-text code-unit count per ES
 /// `String.length` — written as a literal `u32` next to the two

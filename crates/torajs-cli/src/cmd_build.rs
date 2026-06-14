@@ -368,23 +368,25 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
         // class-free programs — force-emit a 4-byte count global (= 0)
         // and register both syms so the staticlib resolves.
         force_emit_class_layouts_globals: true,
-        // Fn-name registry Phase 2 Step 3b.2 — converted from
+        // Fn-name registry Phase 2 Step 3b.4 — converted from
         // `ssa_module.fn_name_globals` (populated by Step 2 at
         // fn-decl lowering, with the name already interned into
         // `ssa_module.strings[entry.name_sid.0]` and the StringId
         // recorded alongside). Each link-layer entry pairs the fn's
-        // `__torajs_fn_<fid>` alias with its name's
-        // `__user_string_<sid>` alias (both registered downstream
-        // by `register_fn_addr_syms` / `apply_user_string_overrides`).
-        // Empty when no top-level fn declarations landed an entry
-        // (or when every decl was filtered as a mangled /
-        // closure-lifted name).
+        // `__torajs_fn_<fid>` alias (registered by
+        // `register_fn_addr_syms`) with its name's
+        // `__torajs_str_dyn_<sid>` alias — the RawBytes flavour
+        // points at the raw char payload without the 16-byte Str
+        // header so the runtime helper can putc each byte directly.
+        // `apply_user_string_overrides` registers both flavours
+        // downstream. Empty when no top-level fn declarations landed
+        // an entry (every decl filtered as mangled / closure-lifted).
         fn_name_globals: ssa_module
             .fn_name_globals
             .iter()
             .map(|e| UserFnNameEntry {
                 fn_addr_sym: format!("__torajs_fn_{}", e.fn_id.0),
-                name_ptr_sym: format!("__user_string_{}", e.name_sid.0),
+                name_ptr_sym: format!("__torajs_str_dyn_{}", e.name_sid.0),
                 name_len: e.name.chars().count() as u32,
             })
             .collect(),

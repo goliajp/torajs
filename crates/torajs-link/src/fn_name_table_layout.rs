@@ -32,6 +32,7 @@
 
 use crate::chained_fixups_starts::RebaseTarget;
 use crate::resolve::SymTable;
+use crate::user_strings_layout::UserStringsLayout;
 
 /// Per-entry layout — one row of the `__torajs_fn_name_table[]`
 /// rodata array.
@@ -40,11 +41,12 @@ pub struct FnNameTableEntryLayout {
     /// `__torajs_fn_<fid>` alias sym (resolves to the user fn's
     /// vaddr after `register_fn_addr_syms`).
     pub fn_addr_sym: String,
-    /// `__user_string_<sid>` alias sym (resolves to the
-    /// `__TEXT,__cstring` byte payload's vaddr after
-    /// `apply_user_string_overrides`). The user_strings_layout
-    /// substrate already places the actual bytes; we just need
-    /// the sym for the chain-fixup.
+    /// `__torajs_str_dyn_<sid>` alias sym (RawBytes flavour
+    /// registered by `apply_user_string_overrides`). Resolves
+    /// to the raw char payload's vaddr — no 16-byte Str header
+    /// in front, so the runtime helper can `putc` each byte
+    /// directly. The user_strings_layout substrate places the
+    /// actual bytes; we just need the sym for the chain-fixup.
     pub name_ptr_sym: String,
     /// Code-unit count per ES `String.length`. Lives in the
     /// `name_len: u32` field (NOT a chain-fixup target).
@@ -320,4 +322,35 @@ pub fn build_fn_name_table_region(
         file_offset,
         text_vmaddr_base + u64::from(file_offset),
     )
+}
+
+/// archive_link-side helper — mirror of
+/// [`crate::user_vtables_layout::vtable_rebase_targets_from_fn_vaddrs`].
+/// Builds a mini sym table containing fn_addr aliases
+/// (`__torajs_fn_<fid>` → `fn_vaddrs[fid]`) + user-string aliases
+/// (`entry.sym` → `entry.vaddr` for every `user_strings_layout` entry)
+/// so [`compute_fn_name_table_rebase_targets`] resolves both slot
+/// targets without needing the full archive_emit-side
+/// `effective_sym_table`. Returns the per-slot
+/// `(slot_off_in_seg, target_off_in_image)` pairs the chained-fixup
+/// pipeline feeds into `build_chained_fixups` so dyld rebases each
+/// `fn_addr` + `name_ptr` slot at image load.
+pub fn fn_name_table_rebase_targets_from_layouts(
+    layout: &FnNameTableLayout,
+    fn_vaddrs: &[u64],
+    user_strings_layout: &UserStringsLayout,
+    seg_vmaddr_base: u64,
+    image_vmaddr_base: u64,
+) -> Vec<RebaseTarget> {
+    if layout.entries.is_empty() {
+        return Vec::new();
+    }
+    let mut sym_table = SymTable::new();
+    for (fid, vaddr) in fn_vaddrs.iter().enumerate() {
+        sym_table.insert(format!("__torajs_fn_{fid}"), *vaddr);
+    }
+    for entry in &user_strings_layout.entries {
+        sym_table.insert(entry.sym.clone(), entry.vaddr);
+    }
+    compute_fn_name_table_rebase_targets(layout, &sym_table, seg_vmaddr_base, image_vmaddr_base)
 }

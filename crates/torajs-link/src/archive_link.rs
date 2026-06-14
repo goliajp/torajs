@@ -15,7 +15,9 @@ use crate::data_const_layout::compute_data_const_layout;
 use crate::data_section_layout::compute_data_section_layouts;
 use crate::exec::LinkConfig;
 use crate::fn_addr_syms::fn_addr_extra_defined_syms;
-use crate::fn_name_table_layout::fn_name_table_extra_defined_syms;
+use crate::fn_name_table_layout::{
+    fn_name_table_extra_defined_syms, fn_name_table_rebase_targets_from_layouts,
+};
 pub use crate::layout_types::{ArchiveLayout, ArchiveLayoutError, MemberLayout};
 use crate::lc::{
     APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
@@ -117,7 +119,13 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         .class_layouts
         .iter()
         .any(|e| !e.child_offsets.is_empty());
-    let has_chained_fixups = has_dyld || has_vtable_rebase || has_class_layouts_rebase;
+    // Step 3b.4 — each fn_name_table entry contributes 2 chain-fixup
+    // slots (fn_addr + name_ptr) so any non-empty fn_name_globals
+    // triggers the chain pipeline even on otherwise vtable-free
+    // programs (e.g. plain `function foo() {}` user TS).
+    let has_fn_name_table_rebase = !cfg.fn_name_globals.is_empty();
+    let has_chained_fixups =
+        has_dyld || has_vtable_rebase || has_class_layouts_rebase || has_fn_name_table_rebase;
     let has_libcurl_lc = required.dyld_imports.values().any(|&o| o == 2);
     let load_dylib_size = if has_dyld {
         LOAD_DYLIB_LIBSYSTEM_CMDSIZE
@@ -379,7 +387,11 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         .iter()
         .map(|d| d.thunk_slot_vaddr - data_vmaddr)
         .collect();
-    // e7b/e8-2b: concat vtable + class_layouts rebase in walk order.
+    // e7b/e8-2b + Step 3b.4: concat vtable + class_layouts + fn_name_table
+    // rebase in walk order. Each region appends its targets so the
+    // chained-fixup encoder buckets every slot by __DATA_CONST page;
+    // the per-slot link values come back in input order so archive_emit
+    // can 3-way split via vtable_rebase_target_count + fn_name_rebase_target_count.
     let vtable_rebase_targets = vtable_rebase_targets_from_fn_vaddrs(
         &data_const_layout.vtable_layout,
         &fn_vaddrs,
@@ -391,9 +403,18 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         data_const_layout.segment_vmaddr,
         TEXT_VMADDR_BASE,
     );
+    let fn_name_table_rebase_targets = fn_name_table_rebase_targets_from_layouts(
+        &data_const_layout.fn_name_table_layout,
+        &fn_vaddrs,
+        &user_strings_layout,
+        data_const_layout.segment_vmaddr,
+        TEXT_VMADDR_BASE,
+    );
     let vtable_rebase_target_count = vtable_rebase_targets.len();
+    let fn_name_rebase_target_count = fn_name_table_rebase_targets.len();
     let mut combined_text_rebase_targets = vtable_rebase_targets;
     combined_text_rebase_targets.extend(class_layouts_rebase_targets);
+    combined_text_rebase_targets.extend(fn_name_table_rebase_targets);
 
     // e8: __DATA_CONST idx=2; __DATA shifts to idx 3 when has_data_const.
     let data_seg_idx: u32 = if has_data_const { 3 } else { 2 };
@@ -486,6 +507,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         data_const_layout,
         text_rebase_link_values,
         vtable_rebase_target_count,
+        fn_name_rebase_target_count,
     })
 }
 

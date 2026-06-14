@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use crate::chained_fixups::{TextRebaseScope, build_chained_fixups};
 use crate::chained_fixups_starts::RebaseTarget;
 use crate::data_const_layout::DataConstLayout;
+use crate::fn_name_table_layout::fn_name_table_rebase_targets_from_layouts;
 use crate::layout_types::ArchiveLayout;
 use crate::lc::TEXT_VMADDR_BASE;
 use crate::user_class_layouts_layout::compute_class_layouts_rebase_targets;
@@ -111,8 +112,20 @@ pub fn recompute_chained_fixups_with_data_rebase(
         layout.data_const_layout.segment_vmaddr,
         TEXT_VMADDR_BASE,
     );
+    // Step 3b.4 — mirror archive_link.rs walk order: vtable + class_layouts
+    // + fn_name_table. The recompute path must produce the same combined
+    // list so per-slot link values stay indexed-aligned with
+    // text_rebase_link_values after the data-rebase round-trip.
+    let fn_name_table_rebase_targets = fn_name_table_rebase_targets_from_layouts(
+        &layout.data_const_layout.fn_name_table_layout,
+        &layout.fn_vaddrs,
+        &layout.user_strings_layout,
+        layout.data_const_layout.segment_vmaddr,
+        TEXT_VMADDR_BASE,
+    );
     let mut combined_text_rebase = vtable_rebase_targets;
     combined_text_rebase.extend(class_layouts_rebase_targets);
+    combined_text_rebase.extend(fn_name_table_rebase_targets);
     let tlv_thunk_offsets: Vec<u64> = layout
         .tlv_descriptors
         .iter()

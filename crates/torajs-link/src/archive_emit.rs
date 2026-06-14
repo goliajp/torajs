@@ -22,6 +22,7 @@ use crate::dyld_emit::{
 };
 use crate::exec::LinkConfig;
 use crate::fn_addr_syms::register_fn_addr_syms;
+use crate::fn_name_table_layout::{apply_fn_name_table_overrides, build_fn_name_table_payload};
 use crate::lc::{
     BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLIB_LIBCURL_CMDSIZE,
     LOAD_DYLIB_LIBSYSTEM_CMDSIZE, LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE,
@@ -80,6 +81,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &layout.data_const_layout.class_layouts_layout,
         &mut effective_sym_table,
     );
+    apply_fn_name_table_overrides(&layout.fn_name_table_layout, &mut effective_sym_table);
 
     // chunk 2b-4: dyld-rebase member `__DATA,*` slots under ASLR.
     let data_rebase_targets = compute_member_data_rebase_targets(
@@ -96,13 +98,26 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     let data_rebase_link_values =
         recompute_chained_fixups_with_data_rebase(&mut layout, &data_rebase_targets);
 
-    // e7b-4/e8-2b: split text_rebase_link_values = vtable + class_layouts.
-    let (vtable_lv, class_lv) = layout
-        .text_rebase_link_values
-        .split_at(layout.vtable_rebase_target_count);
+    // e7b-4/e8-2b + Step 3b.4-5: 3-way split text_rebase_link_values =
+    // vtable | class_layouts | fn_name_table. Tail count is the
+    // fn_name_table contribution; class_layouts count is the
+    // middle slice computed by subtraction so the split arithmetic
+    // stays single-source-of-truth even if vtable / fn_name_table
+    // counts drift.
+    let total_text_rebase = layout.text_rebase_link_values.len();
+    let vtable_count = layout.vtable_rebase_target_count;
+    let fn_name_count = layout.fn_name_rebase_target_count;
+    let class_count = total_text_rebase
+        .checked_sub(vtable_count + fn_name_count)
+        .expect("text_rebase_link_values has fewer entries than vtable + fn_name combined");
+    let (vtable_lv, rest) = layout.text_rebase_link_values.split_at(vtable_count);
+    let (class_lv, fn_name_lv) = rest.split_at(class_count);
+    debug_assert_eq!(fn_name_lv.len(), fn_name_count);
     let user_vtables_payload = build_user_vtables_payload(&layout.user_vtables_layout, vtable_lv);
     let user_class_layouts_payload =
         build_user_class_layouts_payload(&layout.data_const_layout.class_layouts_layout, class_lv);
+    let fn_name_table_payload =
+        build_fn_name_table_payload(&layout.fn_name_table_layout, fn_name_lv);
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
 
     // S7-C5 — patch each member's __text in place against effective sym table.
@@ -148,6 +163,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &resolved,
         &user_vtables_payload,
         &user_class_layouts_payload,
+        &fn_name_table_payload,
     );
     Ok(bytes)
 }
@@ -163,6 +179,7 @@ fn emit_binary(
     resolved: &[crate::resolve::ResolvedFunction],
     user_vtables_payload: &[u8],
     user_class_layouts_payload: &[u8],
+    fn_name_table_payload: &[u8],
 ) -> Vec<u8> {
     // dyld imports → LC_LOAD_DYLIB + __stubs/__la_symbol_ptr;
     // e8 text rebase → LC_DYLD_CHAINED_FIXUPS even without la-ptr.
@@ -399,6 +416,7 @@ fn emit_binary(
         &layout.data_const_layout,
         user_vtables_payload,
         user_class_layouts_payload,
+        fn_name_table_payload,
     );
     if has_dyld {
         write_la_ptr_section(&mut buf, layout);
@@ -796,7 +814,7 @@ mod tests {
         // Drive emit_binary directly — apply_relocs is happy
         // because cfg.sym_table covers `_malloc`.
         let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &cfg.sym_table);
-        let bytes = emit_binary(&cfg, &layout, &[], &[], &[], &resolved, &[], &[]);
+        let bytes = emit_binary(&cfg, &layout, &[], &[], &[], &resolved, &[], &[], &[]);
 
         assert_eq!(
             bytes.len() as u32,

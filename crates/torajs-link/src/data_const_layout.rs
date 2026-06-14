@@ -197,6 +197,7 @@ pub fn write_data_const_payload(
     layout: &DataConstLayout,
     user_vtables_payload: &[u8],
     user_class_layouts_payload: &[u8],
+    fn_name_table_payload: &[u8],
 ) {
     if !layout.has_data_const {
         return;
@@ -207,6 +208,7 @@ pub fn write_data_const_payload(
     }
     buf.extend_from_slice(user_vtables_payload);
     buf.extend_from_slice(user_class_layouts_payload);
+    buf.extend_from_slice(fn_name_table_payload);
 }
 
 #[cfg(test)]
