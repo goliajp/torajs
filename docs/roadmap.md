@@ -181,6 +181,67 @@ pipeline, no JIT, no interpreter.
 
 ---
 
+## Checkpoints (project-state snapshots)
+
+> **Why**: the `## Status snapshot` block above is a one-shot historical
+> mark from 2026-05-18; it does not stay current. Long-running trunks
+> (P10 Promise / P11 Unicode / multi-chunk substrate trunks like W-J /
+> fn-name registry) need periodic ground-truth snapshots so trend
+> direction is visible at a glance — not buried in 200+ commit history
+> + 1500-line plan-state.
+>
+> Checkpoints are NOT inline in this file. They live in
+> [`docs/checkpoints/`](checkpoints/) as one self-contained MD per
+> checkpoint, plus a `README.md` trend table that stacks every
+> checkpoint's key metrics into columns for mechanical diff.
+
+### Trigger conditions
+
+A checkpoint is produced when ANY of these fires (mechanical commit
+count is **not** a trigger — substrate shape matters, not volume):
+
+1. **roadmap phase transition** — a `## Pn` section moves CURRENT → DONE
+   (e.g. P9 → P10, P10 → P11). Capture before opening the next phase.
+2. **substrate trunk close** — a multi-chunk trunk in
+   `.claude/plan-state.md` L3a finishes all chunks (W-J A0→D close,
+   Phase 2 fn-name close, RegExp UCD trunk close, etc.).
+3. **roadmap framing change** — takagi reframes a phase scope / order /
+   acceptance criterion (a v5 → v6 rewrite, axis insertion, etc.).
+4. **takagi explicit ask** — "做个 checkpoint" / "全面汇报" / `/checkpoint`.
+
+### Fixed 4-section template
+
+Each checkpoint MUST have these 4 sections in order, with the same
+data shape — so cross-checkpoint diffs are mechanical:
+
+1. **整体进度 / 当前位置** — HEAD short hash, branch, roadmap phase,
+   active L3a hot trunk (chunk N of M), this-period ship summary +
+   last 5 commits.
+2. **Metal 化 / 全自研** — workspace crate count, metal-core ext dep
+   audit (target 0), grandfathered scope (cli + cloud-api only), C
+   runtime status (`find crates -name '*.c'` count).
+3. **test262** — in-scope passRate (passTotal / 53174), top blocking
+   bucket + size, next-trunk plan reference, in-house conformance
+   gate baseline `N / F / S`.
+4. **Benchmark** — bench JSON path + git sha + host + timestamp,
+   representative 10-15 case TR vs BUN-AOT run_ms table, artifact
+   size (tr vs bun-aot vs rust), known regression follow-up.
+
+Every number must be sourced (file:line, command output, or jq query)
+per `.claude/rules/common/anti-hallucination.md` — no recall, no
+estimate.
+
+### Most recent
+
+- 📄 [`2026-06-14-w-j-a3a.md`](checkpoints/2026-06-14-w-j-a3a.md) — W-J
+  substrate trunk Phase A3a close (4/9 chunk). First checkpoint after
+  the protocol was established; baseline for future diffs.
+
+See [`docs/checkpoints/README.md`](checkpoints/README.md) for the full
+trend table and the "how to add" instructions.
+
+---
+
 ## Trunk
 
 The trunk is **P0 → P13 (v1.0 gate) + P14 / P15 post-v1.0**, executed
