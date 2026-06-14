@@ -55,6 +55,8 @@ const ANY_ACCESSOR: u64 = 6;
 
 // Tag::DynObj from torajs-rc — universal heap header at offset 0.
 const TAG_DYNOBJ: u16 = 14;
+// Tag::Obj — static-layout struct cell (W-J Phase B struct arm).
+const TAG_OBJ: u16 = 1;
 /// Tag::Str / Tag::Symbol / Tag::BigInt from `torajs-rc` — primitive-in-spec
 /// heap cells. RFC C4b throws TypeError on these because `Object.defineProperty(O, ...)`
 /// step 1 is a strict `Type(O) is Object` check (no ToObject wrapper boxing).
@@ -201,7 +203,14 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     }
     let dynobj = obj_any as *const c_void;
     // SAFETY: cell pointer to valid heap object.
-    if unsafe { heap_type_tag(dynobj) } != TAG_DYNOBJ {
+    let htag = unsafe { heap_type_tag(dynobj) };
+    // W-J Phase B — static-layout struct cell reads the field via the
+    // class_layouts metadata instead of the dynobj hash table. SAFETY:
+    // `dynobj` is a live Tag::Obj cell; `key` is non-NULL (checked above).
+    if htag == TAG_OBJ {
+        return unsafe { crate::struct_reflect::struct_cell_descriptor(dynobj, key) };
+    }
+    if htag != TAG_DYNOBJ {
         return VALUE_UNDEFINED_IMM;
     }
     let k_str = key as *const u8;

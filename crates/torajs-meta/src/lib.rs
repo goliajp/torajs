@@ -28,6 +28,7 @@ pub mod fnprops;
 pub mod own_names;
 pub mod reflect;
 pub mod str_descriptor;
+pub mod struct_reflect;
 
 pub use classmeta::{
     __torajs_anyv_class_get, __torajs_anyv_class_register, __torajs_anyv_proto_get,
