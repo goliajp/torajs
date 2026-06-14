@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T00:16:10.420Z",
+  "generatedAt": "2026-06-14T01:13:42.385Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "db57f794",
-    "commitSubject": "chore(hardev/web): refresh dashboard snapshot - BigInt divzero msg literal align bun, gate 791/0/4 (+1 new)",
+    "commit": "b3ef932e",
+    "commitSubject": "fix: accept `object` type annotation as Type::Any",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,18 @@
   },
   "commits": [
     {
+      "hash": "b3ef932e",
+      "subject": "fix: accept `object` type annotation as Type::Any"
+    },
+    {
+      "hash": "68dff5b4",
+      "subject": "fix: builtin Map/Set/WeakMap/WeakSet generic ann parametric spelling"
+    },
+    {
+      "hash": "b1cebb07",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - session 99 rotate (4 commit ship: instanceof Type::Any wedge close + BigInt divzero msg align), gate 791/0/4"
+    },
+    {
       "hash": "db57f794",
       "subject": "chore(hardev/web): refresh dashboard snapshot - BigInt divzero msg literal align bun, gate 791/0/4 (+1 new)"
     },
@@ -653,39 +665,49 @@
     {
       "hash": "6a10c8e4",
       "subject": "chore(hardev/web): refresh dashboard snapshot - isFrozen <Ctor>.prototype cluster ×6 close, gate 789/0/4 hold"
-    },
-    {
-      "hash": "39ba8b36",
-      "subject": "fix: builtin <Ctor>.prototype isFrozen SIGSEGV (silent-crash cluster)"
-    },
-    {
-      "hash": "fdc399c5",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - throw helper TypeError msg literals aligned to bun, gate 789/0/4"
-    },
-    {
-      "hash": "ba8f4ef4",
-      "subject": "fix: register TypeError factory slot in throw-msg fixture (JIT mode)"
     }
   ],
-  "headSha": "db57f794",
+  "headSha": "b3ef932e",
   "autorun": {
-    "total": 145,
+    "total": 147,
     "baselineTarget": 10,
     "bySelf": 143,
-    "byManual": 2,
+    "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781392314-0a7d",
-      "at": "2026-06-13T23:11:54Z",
-      "ts": 1781392314,
-      "trigger": "self",
-      "prevHead": "e953d092",
-      "handoffSha": "sha256:b86b45aaf537accbd6d03176cbe8a708ab0b8db059165ad7a36beb25d6773691",
-      "handoffAgeSec": 3,
+      "rotationId": "r-1781396274-6992",
+      "at": "2026-06-14T00:17:54Z",
+      "ts": 1781396274,
+      "trigger": "manual",
+      "prevHead": "b1cebb07",
+      "handoffSha": "sha256:c31cf0a447e4dabeb41d19d9009fa04374fd2ab201446fe8578b0e7d47f73e46",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781396274-6992",
+        "at": "2026-06-14T00:17:54Z",
+        "ts": 1781396274,
+        "trigger": "manual",
+        "prevHead": "b1cebb07",
+        "handoffSha": "sha256:c31cf0a447e4dabeb41d19d9009fa04374fd2ab201446fe8578b0e7d47f73e46",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1781396271-42fb",
+        "at": "2026-06-14T00:17:51Z",
+        "ts": 1781396271,
+        "trigger": "manual",
+        "prevHead": "b1cebb07",
+        "handoffSha": "sha256:c31cf0a447e4dabeb41d19d9009fa04374fd2ab201446fe8578b0e7d47f73e46",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781392314-0a7d",
         "at": "2026-06-13T23:11:54Z",
@@ -771,28 +793,6 @@
         "prevHead": "19d04614",
         "handoffSha": "sha256:8bff346554d8e2733648796339aabeb2441e68b3a72e8404db75f1371231a8ba",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781338693-0d74",
-        "at": "2026-06-13T08:18:13Z",
-        "ts": 1781338693,
-        "trigger": "self",
-        "prevHead": "2bb7b1ec",
-        "handoffSha": "sha256:31a1dd025ad4f37aca9a40350188da074b765c3c8ae53e8dd617655db2ce353f",
-        "handoffAgeSec": 43,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781332780-1c3c",
-        "at": "2026-06-13T06:39:40Z",
-        "ts": 1781332780,
-        "trigger": "self",
-        "prevHead": "4fc7a82f",
-        "handoffSha": "sha256:9d84e4d4629ea2362a7b9667f392888e141c9cfb5499bf92387d1aab27fc6139",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
