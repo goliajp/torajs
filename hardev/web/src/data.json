@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T01:13:42.385Z",
+  "generatedAt": "2026-06-14T02:15:22.448Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "b3ef932e",
-    "commitSubject": "fix: accept `object` type annotation as Type::Any",
+    "commit": "52dd12a1",
+    "commitSubject": "fix: class field Map/Set/WeakMap/WeakSet default init emits ctor not zero",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "52dd12a1",
+      "subject": "fix: class field Map/Set/WeakMap/WeakSet default init emits ctor not zero"
+    },
+    {
+      "hash": "00fee8bf",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - session 100 rotate (2 commit ship: builtin Map/Set/WeakMap/WeakSet generic ann + `object` type ann L3b close), gate 793/0/4"
+    },
+    {
       "hash": "b3ef932e",
       "subject": "fix: accept `object` type annotation as Type::Any"
     },
@@ -657,35 +665,38 @@
     {
       "hash": "8485b93e",
       "subject": "chore(hardev/web): refresh dashboard snapshot - identity wedge close via builtin-prototype singleton substrate, gate 789/0/4 hold"
-    },
-    {
-      "hash": "2c8064ce",
-      "subject": "feat: builtin <Ctor>.prototype singleton substrate (identity wedge close)"
-    },
-    {
-      "hash": "6a10c8e4",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - isFrozen <Ctor>.prototype cluster ×6 close, gate 789/0/4 hold"
     }
   ],
-  "headSha": "b3ef932e",
+  "headSha": "52dd12a1",
   "autorun": {
-    "total": 147,
+    "total": 148,
     "baselineTarget": 10,
-    "bySelf": 143,
+    "bySelf": 144,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781396274-6992",
-      "at": "2026-06-14T00:17:54Z",
-      "ts": 1781396274,
-      "trigger": "manual",
-      "prevHead": "b1cebb07",
-      "handoffSha": "sha256:c31cf0a447e4dabeb41d19d9009fa04374fd2ab201446fe8578b0e7d47f73e46",
-      "handoffAgeSec": 7,
+      "rotationId": "r-1781399738-14c0",
+      "at": "2026-06-14T01:15:38Z",
+      "ts": 1781399738,
+      "trigger": "self",
+      "prevHead": "00fee8bf",
+      "handoffSha": "sha256:a55efe8e54bebf283297eb11c1e539ded40d2aa6c7637c2ee5de9ee1a27f5f15",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781399738-14c0",
+        "at": "2026-06-14T01:15:38Z",
+        "ts": 1781399738,
+        "trigger": "self",
+        "prevHead": "00fee8bf",
+        "handoffSha": "sha256:a55efe8e54bebf283297eb11c1e539ded40d2aa6c7637c2ee5de9ee1a27f5f15",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781396274-6992",
         "at": "2026-06-14T00:17:54Z",
@@ -781,17 +792,6 @@
         "trigger": "self",
         "prevHead": "f8c1060f",
         "handoffSha": "sha256:b287d4e8428955ab3163199919f252b06868f1b057be01fb0ffe1db50b48b4b0",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781352343-37e6",
-        "at": "2026-06-13T12:05:43Z",
-        "ts": 1781352343,
-        "trigger": "self",
-        "prevHead": "19d04614",
-        "handoffSha": "sha256:8bff346554d8e2733648796339aabeb2441e68b3a72e8404db75f1371231a8ba",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
