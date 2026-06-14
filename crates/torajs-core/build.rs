@@ -162,6 +162,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_value_drop", // Layer-1: universal heap-typed drop dispatch — type_tag → per-type _drop (P7.i-drop)
     "torajs_abort", // Layer-0: panic-free abort helper — write(2)+abort(); replaces Rust panic infra (polish A3a)
     "torajs_print", // Layer-0: console primitives (print_bool / print_i64 / print_f64) — co-linked by torajs-link at `tr build`.
+    "torajs_fnname", // Layer-1: fn-name registry runtime helper — looks up fn body vaddr in __torajs_fn_name_table[] and emits [Function: <name>] / [Function (anonymous)] for inspect (fn-name registry Phase 2 Step 4).
 ];
 
 fn main() {

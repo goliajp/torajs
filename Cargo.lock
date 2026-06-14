@@ -1734,6 +1734,10 @@ name = "torajs-fmt"
 version = "0.1.0"
 
 [[package]]
+name = "torajs-fnname"
+version = "0.1.0"
+
+[[package]]
 name = "torajs-fs"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,21 @@
+[package]
+name = "torajs-fnname"
+description = "Runtime fn-name registry helper — looks up a fn body vaddr in the `__torajs_fn_name_table[]` rodata global that torajs-link emits at link time and prints `[Function: <name>]` for `console.log(fn)` / closure inspect calls. Powers fn-name registry Phase 2."
+keywords = ["torajs", "fn-name", "console-log", "inspect", "no-libc"]
+categories = ["no-std", "external-ffi-bindings"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# `__torajs_io_putc_stdout` resolves at staticlib link time. Vision
+# #4 (0 Cargo deps) preserved.
