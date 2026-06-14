@@ -368,6 +368,14 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
         // class-free programs — force-emit a 4-byte count global (= 0)
         // and register both syms so the staticlib resolves.
         force_emit_class_layouts_globals: true,
+        // Fn-name registry Phase 2 Step 5 — same rationale as
+        // `force_emit_class_layouts_globals`. Every staticlib bundle
+        // now pulls `libtorajs_fnname.a` transitively (inspect.rs's
+        // Tag::Closure / Type::FnSig arms reference
+        // `__torajs_fn_print_inline`), and that helper crate
+        // unconditionally references the table extern statics —
+        // force-emit a zero-count global so they always resolve.
+        force_emit_fn_name_globals: true,
         // Fn-name registry Phase 2 Step 3b.4 — converted from
         // `ssa_module.fn_name_globals` (populated by Step 2 at
         // fn-decl lowering, with the name already interned into

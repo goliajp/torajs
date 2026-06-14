@@ -92,6 +92,14 @@ pub struct LinkConfig {
     /// class_layouts syms even on class-free programs. `tr build` sets
     /// this because it pulls libtorajs_cycle.a; probes default `false`.
     pub force_emit_class_layouts_globals: bool,
+    /// Fn-name registry Phase 2 Step 5 — `true` emits the 8-byte count
+    /// global (= 0) + registers both fn_name_table syms even on
+    /// declaration-free programs. `tr build` sets this because every
+    /// staticlib bundle now pulls `libtorajs_fnname.a` transitively
+    /// (inspect.rs's Tag::Closure / Type::FnSig arms reference
+    /// `__torajs_fn_print_inline`, whose definition pulls the table
+    /// extern statics into the worklist). Probes default `false`.
+    pub force_emit_fn_name_globals: bool,
     /// Fn-name registry Phase 2 Step 3b.2 — `ssa::Module.fn_name_globals`
     /// materialized as the `__torajs_fn_name_table[]` rodata global
     /// per `fn_name_table_layout.rs`. Each entry pairs a fn body's
@@ -539,6 +547,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let layout = compute_layout(&cfg);
 
@@ -595,6 +604,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let bytes = link_to_exec(&cfg);
         let layout = compute_layout(&cfg);
@@ -616,6 +626,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let bytes = link_to_exec(&cfg);
         // mach_header_64.filetype @ offset 12..16
@@ -646,6 +657,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let bytes = link_to_exec(&cfg);
         // The first 16 bytes after the page boundary should match
@@ -674,6 +686,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let bytes = link_to_exec(&cfg);
 
@@ -799,6 +812,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let bytes = link_to_exec(&cfg);
 

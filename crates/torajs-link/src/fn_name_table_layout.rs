@@ -89,8 +89,16 @@ pub fn compute_fn_name_table_layout(
     entries: Vec<FnNameTableEntryLayout>,
     cursor: u32,
     vaddr_base: u64,
+    force_emit_globals: bool,
 ) -> FnNameTableLayout {
-    if entries.is_empty() {
+    // entries empty + !force_emit → no bytes / no syms. Self-contained
+    // probes (no libtorajs_fnname.a) take this path so the pre-Step-5
+    // byte stream survives.
+    //
+    // entries empty + force_emit → emit only the 8-byte count global
+    // (= 0). table_vaddr aliases count_vaddr; the runtime reads count
+    // first and skips the empty-array walk so the alias is safe.
+    if entries.is_empty() && !force_emit_globals {
         return FnNameTableLayout {
             entries,
             table_vaddr: vaddr_base,
@@ -98,6 +106,21 @@ pub fn compute_fn_name_table_layout(
             count_vaddr: vaddr_base,
             count_file_offset: cursor,
             total_size: 0,
+        };
+    }
+    if entries.is_empty() {
+        // 8-align cursor + vaddr so the count global lands on an
+        // 8-aligned address (u64 load).
+        let align_pad = (8 - (cursor % 8)) % 8;
+        let cursor = cursor + align_pad;
+        let vaddr_base = vaddr_base + u64::from(align_pad);
+        return FnNameTableLayout {
+            entries,
+            table_vaddr: vaddr_base,
+            table_file_offset: cursor,
+            count_vaddr: vaddr_base,
+            count_file_offset: cursor,
+            total_size: align_pad + COUNT_SIZE,
         };
     }
     // 8-byte align cursor + vaddr so the first entry (and every
@@ -139,14 +162,15 @@ mod tests {
 
     #[test]
     fn empty_input_zero_total() {
-        let layout = compute_fn_name_table_layout(Vec::new(), 0x4000, 0x1_0000_4000);
+        let layout = compute_fn_name_table_layout(Vec::new(), 0x4000, 0x1_0000_4000, false);
         assert!(layout.entries.is_empty());
         assert_eq!(layout.total_size, 0);
     }
 
     #[test]
     fn single_entry_layout() {
-        let layout = compute_fn_name_table_layout(vec![entry(0, 0, 3)], 0x4000, 0x1_0000_4000);
+        let layout =
+            compute_fn_name_table_layout(vec![entry(0, 0, 3)], 0x4000, 0x1_0000_4000, false);
         assert_eq!(layout.entries.len(), 1);
         assert_eq!(layout.table_vaddr, 0x1_0000_4000);
         assert_eq!(layout.table_file_offset, 0x4000);
@@ -160,7 +184,7 @@ mod tests {
     #[test]
     fn multi_entry_layout() {
         let entries = vec![entry(0, 0, 3), entry(1, 1, 5), entry(2, 2, 7)];
-        let layout = compute_fn_name_table_layout(entries, 0x4000, 0x1_0000_4000);
+        let layout = compute_fn_name_table_layout(entries, 0x4000, 0x1_0000_4000, false);
         assert_eq!(layout.entries.len(), 3);
         assert_eq!(layout.table_vaddr, 0x1_0000_4000);
         // count placed right after 3 × 24 = 72 byte entries.
@@ -173,7 +197,8 @@ mod tests {
     #[test]
     fn unaligned_cursor_gets_pad() {
         // Cursor 0x4001 needs +7 align pad → entries start at 0x4008.
-        let layout = compute_fn_name_table_layout(vec![entry(0, 0, 3)], 0x4001, 0x1_0000_4001);
+        let layout =
+            compute_fn_name_table_layout(vec![entry(0, 0, 3)], 0x4001, 0x1_0000_4001, false);
         assert_eq!(layout.table_vaddr, 0x1_0000_4008);
         assert_eq!(layout.table_file_offset, 0x4008);
         assert_eq!(layout.count_vaddr, 0x1_0000_4020);
@@ -198,7 +223,19 @@ pub fn build_fn_name_table_payload(
     slot_link_values: &[u64],
 ) -> Vec<u8> {
     let mut buf = Vec::with_capacity(layout.total_size as usize);
+    if layout.entries.is_empty() && layout.total_size == 0 {
+        // Empty + !force_emit — no bytes.
+        return buf;
+    }
     if layout.entries.is_empty() {
+        // Empty + force_emit — leading 8-align pad then count global
+        // (= 0). The table sym aliases the count sym so the empty-
+        // array walk in the runtime helper short-circuits via the
+        // 0-count read before any slot deref.
+        let leading_pad = layout.total_size as usize - COUNT_SIZE as usize;
+        buf.resize(leading_pad, 0);
+        buf.extend_from_slice(&0u64.to_le_bytes());
+        debug_assert_eq!(buf.len() as u32, layout.total_size);
         return buf;
     }
     let entries_total = (layout.entries.len() as u32) * ENTRY_SIZE;
@@ -234,7 +271,8 @@ pub fn build_fn_name_table_payload(
 /// Register the table + count sym names with their final vaddrs in
 /// the effective sym table so the runtime helper's externs resolve.
 pub fn apply_fn_name_table_overrides(layout: &FnNameTableLayout, sym_table: &mut SymTable) {
-    if layout.entries.is_empty() {
+    if layout.total_size == 0 {
+        // Empty + !force_emit case — nothing to register.
         return;
     }
     // Triple underscore — mirrors the strtab byte sequence Rust emits
@@ -254,9 +292,10 @@ pub fn apply_fn_name_table_overrides(layout: &FnNameTableLayout, sym_table: &mut
 /// Empty when `fn_name_globals` is empty.
 pub fn fn_name_table_extra_defined_syms(
     fn_name_globals: &[crate::exec::UserFnNameEntry],
+    force_emit_globals: bool,
 ) -> std::collections::BTreeSet<String> {
     let mut s = std::collections::BTreeSet::new();
-    if !fn_name_globals.is_empty() {
+    if !fn_name_globals.is_empty() || force_emit_globals {
         // Triple underscore = Mach-O leading-`_` convention applied
         // to Rust's `extern "C" static __torajs_fn_name_table`. The
         // worklist closure compares against the strtab byte sequence
@@ -329,11 +368,13 @@ pub fn build_fn_name_table_region(
     entries: Vec<FnNameTableEntryLayout>,
     text_vmaddr_base: u64,
     file_offset: u32,
+    force_emit_globals: bool,
 ) -> FnNameTableLayout {
     compute_fn_name_table_layout(
         entries,
         file_offset,
         text_vmaddr_base + u64::from(file_offset),
+        force_emit_globals,
     )
 }
 

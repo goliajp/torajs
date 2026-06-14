@@ -61,7 +61,10 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         &cfg.class_layouts,
         cfg.force_emit_class_layouts_globals,
     ));
-    extra.extend(fn_name_table_extra_defined_syms(&cfg.fn_name_globals));
+    extra.extend(fn_name_table_extra_defined_syms(
+        &cfg.fn_name_globals,
+        cfg.force_emit_fn_name_globals,
+    ));
     let required =
         compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;
 
@@ -110,7 +113,8 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let has_data_const_seg = !cfg.vtable_globals.is_empty()
         || !cfg.class_layouts.is_empty()
         || cfg.force_emit_class_layouts_globals
-        || !cfg.fn_name_globals.is_empty();
+        || !cfg.fn_name_globals.is_empty()
+        || cfg.force_emit_fn_name_globals;
     let has_vtable_rebase = cfg
         .vtable_globals
         .iter()
@@ -123,7 +127,8 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     // slots (fn_addr + name_ptr) so any non-empty fn_name_globals
     // triggers the chain pipeline even on otherwise vtable-free
     // programs (e.g. plain `function foo() {}` user TS).
-    let has_fn_name_table_rebase = !cfg.fn_name_globals.is_empty();
+    let has_fn_name_table_rebase =
+        !cfg.fn_name_globals.is_empty() || cfg.force_emit_fn_name_globals;
     let has_chained_fixups =
         has_dyld || has_vtable_rebase || has_class_layouts_rebase || has_fn_name_table_rebase;
     let has_libcurl_lc = required.dyld_imports.values().any(|&o| o == 2);
@@ -210,6 +215,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         &cfg.class_layouts,
         cfg.force_emit_class_layouts_globals,
         &cfg.fn_name_globals,
+        cfg.force_emit_fn_name_globals,
         text_vmsize as u32,
         TEXT_VMADDR_BASE + text_vmsize,
     );
@@ -606,6 +612,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         let base = crate::exec::compute_layout(&cfg);
@@ -651,6 +658,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 1);
@@ -711,6 +719,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 3);
@@ -752,6 +761,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -815,6 +825,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -853,6 +864,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         match err {
@@ -884,6 +896,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         assert!(matches!(

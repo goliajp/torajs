@@ -89,6 +89,7 @@ fn main() {
         }],
         force_emit_class_layouts_globals: false,
         fn_name_globals: Vec::new(),
+        force_emit_fn_name_globals: false,
     };
 
     match link_to_exec_with_archives(&cfg) {

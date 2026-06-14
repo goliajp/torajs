@@ -626,6 +626,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let archive_bytes = link_to_exec_with_archives(&cfg).unwrap();
         let baseline_bytes = link_to_exec(&cfg);
@@ -669,6 +670,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -738,6 +740,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -805,6 +808,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let layout = compute_archive_layout(&cfg).expect("layout");
         assert!(!layout.dyld_imports.is_empty(), "dyld_imports populated");
@@ -898,6 +902,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         // SD-2b — link must succeed even though cfg.sym_table is
         // empty. SD-2a's plumbing populates `layout.stub_vaddrs`;
@@ -983,6 +988,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let link_bytes =
             link_to_exec_with_archives(&cfg).expect("link must succeed against mixed externs");
@@ -1021,6 +1027,7 @@ mod tests {
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
         };
         let bytes = link_to_exec_with_archives(&cfg).unwrap();
 
