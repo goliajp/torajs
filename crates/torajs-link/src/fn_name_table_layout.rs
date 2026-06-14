@@ -237,8 +237,13 @@ pub fn apply_fn_name_table_overrides(layout: &FnNameTableLayout, sym_table: &mut
     if layout.entries.is_empty() {
         return;
     }
-    sym_table.insert("__torajs_fn_name_table".into(), layout.table_vaddr);
-    sym_table.insert("__torajs_fn_name_table_count".into(), layout.count_vaddr);
+    // Triple underscore — mirrors the strtab byte sequence Rust emits
+    // for `extern "C" static __torajs_fn_name_table` (Mach-O leading-`_`
+    // convention). The member reloc encoder consults sym_table with
+    // the strtab key directly, so the key here must match too. See
+    // `fn_name_table_extra_defined_syms` doc for the worklist symmetry.
+    sym_table.insert("___torajs_fn_name_table".into(), layout.table_vaddr);
+    sym_table.insert("___torajs_fn_name_table_count".into(), layout.count_vaddr);
 }
 
 /// Sym names to flag as link-defined in the worklist closure (so
@@ -252,8 +257,16 @@ pub fn fn_name_table_extra_defined_syms(
 ) -> std::collections::BTreeSet<String> {
     let mut s = std::collections::BTreeSet::new();
     if !fn_name_globals.is_empty() {
-        s.insert("__torajs_fn_name_table".to_string());
-        s.insert("__torajs_fn_name_table_count".to_string());
+        // Triple underscore = Mach-O leading-`_` convention applied
+        // to Rust's `extern "C" static __torajs_fn_name_table`. The
+        // worklist closure compares against the strtab byte sequence
+        // verbatim (no prefix-stripping), and Rust adds the leading
+        // `_` on Apple platforms — see `rewrite_extern_relocs` in
+        // `crates/torajs-cli/src/cmd_build.rs` for the symmetric
+        // codegen-side rewrite that fixes up `extern fn` reloc
+        // targets so they line up with strtab too.
+        s.insert("___torajs_fn_name_table".to_string());
+        s.insert("___torajs_fn_name_table_count".to_string());
     }
     s
 }
