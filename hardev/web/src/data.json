@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T13:49:50.790Z",
+  "generatedAt": "2026-06-14T15:54:40.320Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "a53a11de",
-    "commitSubject": "feat(ssa): W-J Phase A3a — extend ClassLayoutMeta with FieldMetaSpec per-field metadata",
+    "commit": "953e611e",
+    "commitSubject": "feat(link): W-J Phase A3b — emit per-class field metadata + wire field_metadata_ptr",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,22 @@
   },
   "commits": [
     {
+      "hash": "953e611e",
+      "subject": "feat(link): W-J Phase A3b — emit per-class field metadata + wire field_metadata_ptr"
+    },
+    {
+      "hash": "ce6ddfd3",
+      "subject": "refactor(link): split user_class_layouts_layout.rs into module submodules"
+    },
+    {
+      "hash": "8f0b0970",
+      "subject": "docs(roadmap): add checkpoint protocol + first project-state snapshot 2026-06-14 W-J A3a"
+    },
+    {
+      "hash": "0e100f63",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — W-J substrate trunk Phase A0+A1+A2+A3a close 4 commit gate 825/0/4 baseline hold"
+    },
+    {
       "hash": "a53a11de",
       "subject": "feat(ssa): W-J Phase A3a — extend ClassLayoutMeta with FieldMetaSpec per-field metadata"
     },
@@ -649,43 +665,38 @@
     {
       "hash": "022b8734",
       "subject": "fix(ssa-lower): Any-binding ArrayLit re-lower SIGSEGV — switch to Arr<Any> per-slot NaN-box"
-    },
-    {
-      "hash": "52348911",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — fn-name registry Phase 2 全 5/10 step + 3 fix-up close 8 commit (gate 818→821/0/4)"
-    },
-    {
-      "hash": "c6beb79e",
-      "subject": "test(conformance): fn-name registry Phase 2 acceptance fixtures — Step 6"
-    },
-    {
-      "hash": "16dd0308",
-      "subject": "fix(link): force_emit_fn_name_globals — register table syms when libtorajs_fnname.a is pulled but no fn decls — Step 5 fix-up"
-    },
-    {
-      "hash": "c459c214",
-      "subject": "fix(link): Mach-O leading-underscore for fn_name_table extern syms"
     }
   ],
-  "headSha": "a53a11de",
+  "headSha": "953e611e",
   "autorun": {
-    "total": 164,
+    "total": 165,
     "baselineTarget": 10,
-    "bySelf": 160,
+    "bySelf": 161,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781437257-3cce",
-      "at": "2026-06-14T11:40:57Z",
-      "ts": 1781437257,
+      "rotationId": "r-1781445106-4bfe",
+      "at": "2026-06-14T13:51:46Z",
+      "ts": 1781445106,
       "trigger": "self",
-      "prevHead": "de09e944",
-      "handoffSha": "sha256:bd57c40dfb4218c5571c98c3549edc0e1dd6040912d326f7841537274d906ef1",
-      "handoffAgeSec": 3,
+      "prevHead": "0e100f63",
+      "handoffSha": "sha256:dfd6ba974c8a2752b4aede67923b44aaad2d06d06dd3317a80dd5b6e1e06e051",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781445106-4bfe",
+        "at": "2026-06-14T13:51:46Z",
+        "ts": 1781445106,
+        "trigger": "self",
+        "prevHead": "0e100f63",
+        "handoffSha": "sha256:dfd6ba974c8a2752b4aede67923b44aaad2d06d06dd3317a80dd5b6e1e06e051",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781437257-3cce",
         "at": "2026-06-14T11:40:57Z",
@@ -781,17 +792,6 @@
         "trigger": "self",
         "prevHead": "1cbe2551",
         "handoffSha": "sha256:165ff42064abd3aaaf72ea60f392d685faf684b52bfdd050ef9e86fd6b4f7a39",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781411569-0c49",
-        "at": "2026-06-14T04:32:49Z",
-        "ts": 1781411569,
-        "trigger": "self",
-        "prevHead": "a156c85a",
-        "handoffSha": "sha256:46fb0b20e10561addd392b9e570b48088baabfefc932d8fc6d1478f151fd1db3",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
