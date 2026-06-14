@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T02:15:22.448Z",
+  "generatedAt": "2026-06-14T02:54:48.617Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "52dd12a1",
-    "commitSubject": "fix: class field Map/Set/WeakMap/WeakSet default init emits ctor not zero",
+    "commit": "bebb45bf",
+    "commitSubject": "fix: getOwnPropertyDescriptor undef/null TypeError msg prefix align bun",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "bebb45bf",
+      "subject": "fix: getOwnPropertyDescriptor undef/null TypeError msg prefix align bun"
+    },
+    {
+      "hash": "f4cbd925",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - session 101 rotate (1 commit ship: class field Map/Set/WeakMap/WeakSet default init emits ctor not zero), gate 794/0/4"
+    },
+    {
       "hash": "52dd12a1",
       "subject": "fix: class field Map/Set/WeakMap/WeakSet default init emits ctor not zero"
     },
@@ -657,35 +665,38 @@
     {
       "hash": "e953d092",
       "subject": "chore(hardev/web): refresh dashboard snapshot - auto-inject TypeError/RangeError for runtime-thrown native errors, gate 789/0/4 hold"
-    },
-    {
-      "hash": "0447b58b",
-      "subject": "feat: auto-inject TypeError / RangeError for runtime-thrown native errors"
-    },
-    {
-      "hash": "8485b93e",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - identity wedge close via builtin-prototype singleton substrate, gate 789/0/4 hold"
     }
   ],
-  "headSha": "52dd12a1",
+  "headSha": "bebb45bf",
   "autorun": {
-    "total": 148,
+    "total": 149,
     "baselineTarget": 10,
-    "bySelf": 144,
+    "bySelf": 145,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781399738-14c0",
-      "at": "2026-06-14T01:15:38Z",
-      "ts": 1781399738,
+      "rotationId": "r-1781403417-3eec",
+      "at": "2026-06-14T02:16:57Z",
+      "ts": 1781403417,
       "trigger": "self",
-      "prevHead": "00fee8bf",
-      "handoffSha": "sha256:a55efe8e54bebf283297eb11c1e539ded40d2aa6c7637c2ee5de9ee1a27f5f15",
-      "handoffAgeSec": 4,
+      "prevHead": "f4cbd925",
+      "handoffSha": "sha256:9707ba48b08a4a169f8c6e16543b19af8a652f5867be76fe6b9b2da2da975aa1",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781403417-3eec",
+        "at": "2026-06-14T02:16:57Z",
+        "ts": 1781403417,
+        "trigger": "self",
+        "prevHead": "f4cbd925",
+        "handoffSha": "sha256:9707ba48b08a4a169f8c6e16543b19af8a652f5867be76fe6b9b2da2da975aa1",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781399738-14c0",
         "at": "2026-06-14T01:15:38Z",
@@ -782,17 +793,6 @@
         "prevHead": "f1421c40",
         "handoffSha": "sha256:92c1c433fb8bcaeabe7214352acdef9a472e48810288e6a2c1dea7ddf89d00b4",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781355734-3c7d",
-        "at": "2026-06-13T13:02:14Z",
-        "ts": 1781355734,
-        "trigger": "self",
-        "prevHead": "f8c1060f",
-        "handoffSha": "sha256:b287d4e8428955ab3163199919f252b06868f1b057be01fb0ffe1db50b48b4b0",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
