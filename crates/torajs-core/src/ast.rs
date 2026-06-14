@@ -3868,23 +3868,23 @@ fn default_init_for_field(
 }
 
 fn default_init_for_type(ann: &str) -> Expr {
+    #[rustfmt::skip]
+    fn ctor(name: &str) -> Expr { Expr::New { class_name: name.into(), args: vec![] } }
     match ann {
         "number" => Expr::Number(0.0),
         "string" => Expr::String(String::new()),
         "boolean" => Expr::Bool(false),
-        // Array types `T[]` and named types (other classes / aliases) are
-        // not legally default-zero in TS — for M5.1 we punt and emit a
-        // typed zero anyway; field types beyond primitive are deferred to
-        // M5.2 alongside inheritance.
+        // T[] / __nullable(T) — typed zero / null (M5.2 inheritance follow-up).
         _ if ann.ends_with("[]") => Expr::Array(Vec::new()),
-        // V3-05 — `T | null` field default is `null`, not zero. Catches
-        // self-referential class fields (`next: Node | null`) where there
-        // is no legal recursive zero. Parser encodes `T | null` as the
-        // flat string `__nullable(T)`.
+        // V3-05 — `T | null` field default null (parser flat `__nullable(T)`).
         _ if ann.starts_with("__nullable(") && ann.ends_with(')') => Expr::Null,
-        // TypeVar field (heuristic: short all-uppercase identifier — T,
-        // U, K, V, A, B …). Emit a marker Ident that the monomorphizer
-        // rewrites to the concrete default once the type is bound.
+        // class W { m: Map<K,V>; } default → `new Map()` so SSA-lower intercepts
+        // to __torajs_map_create; same for Set/WeakMap/WeakSet (bare or generic).
+        _ if ann == "Map" || ann.starts_with("Map<") => ctor("Map"),
+        _ if ann == "Set" || ann.starts_with("Set<") => ctor("Set"),
+        _ if ann == "WeakMap" || ann.starts_with("WeakMap<") => ctor("WeakMap"),
+        _ if ann == "WeakSet" || ann.starts_with("WeakSet<") => ctor("WeakSet"),
+        // TypeVar (short all-uppercase T/U/K/V…) — monomorphizer-resolved marker.
         _ if is_likely_typevar(ann) => Expr::Ident(format!("__tvdefault__{ann}")),
         _ => Expr::Number(0.0),
     }
