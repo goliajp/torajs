@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T23:42:33.583Z",
+  "generatedAt": "2026-06-14T00:16:10.420Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "0fbdd60e",
-    "commitSubject": "fix: BigInt divide/mod by 0n RangeError msg literal align bun",
+    "commit": "db57f794",
+    "commitSubject": "chore(hardev/web): refresh dashboard snapshot - BigInt divzero msg literal align bun, gate 791/0/4 (+1 new)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,10 @@
   },
   "commits": [
     {
+      "hash": "db57f794",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - BigInt divzero msg literal align bun, gate 791/0/4 (+1 new)"
+    },
+    {
       "hash": "0fbdd60e",
       "subject": "fix: BigInt divide/mod by 0n RangeError msg literal align bun"
     },
@@ -661,13 +665,9 @@
     {
       "hash": "ba8f4ef4",
       "subject": "fix: register TypeError factory slot in throw-msg fixture (JIT mode)"
-    },
-    {
-      "hash": "919ae8db",
-      "subject": "fix: align throw helper TypeError msg literals to bun"
     }
   ],
-  "headSha": "0fbdd60e",
+  "headSha": "db57f794",
   "autorun": {
     "total": 145,
     "baselineTarget": 10,
