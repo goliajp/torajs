@@ -5079,6 +5079,15 @@ impl Checker {
                     && args.len() == 1
                 {
                     let arg_ty = self.type_of(ast, args[0])?;
+                    // W-O — Array receiver: bun returns a new shallow
+                    // array (spec §20.1.2.20 step 2 ToObject + own-keys
+                    // walk on an Array-exotic — values are the slot
+                    // contents in numeric order). The SSA-lower arm
+                    // emits the same deep-clone pattern used for typed
+                    // struct field copies of an `Arr<T>` field.
+                    if let Type::Array(elem) = &arg_ty {
+                        return Ok(Type::Array(elem.clone()));
+                    }
                     let Type::Struct(fields) = &arg_ty else {
                         return Err(format!(
                             "Object.values requires a struct arg, got {arg_ty:?}"

@@ -16239,6 +16239,43 @@ impl<'a> LowerCtx<'a> {
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
+                    // W-O — Array receiver: bun returns a fresh shallow
+                    // array of slot values. Reuses the deep-clone pattern
+                    // (arr_slice + per-element rc_inc for refcounted
+                    // elem types) that powers typed-struct Arr-field
+                    // copy below — production-tested rc balance.
+                    if let Type::Arr(arr_id) = arg_ty {
+                        let len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, arg_op, ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        let cloned = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_slice,
+                                vec![arg_op, Operand::ConstI64(0), Operand::Value(len)],
+                            ),
+                            Type::Arr(arr_id),
+                            None,
+                        );
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        if elem_ty.is_refcounted() {
+                            let cloned_len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, Operand::Value(cloned), ARR_LEN_OFF),
+                                Type::I64,
+                                None,
+                            );
+                            self.emit_arr_rc_inc_range(
+                                Operand::Value(cloned),
+                                Operand::ConstI64(0),
+                                Operand::Value(cloned_len),
+                            );
+                        }
+                        return Operand::Value(cloned);
+                    }
                     let Type::Obj(sid) = arg_ty else {
                         panic!("ssa-lower: Object.values requires a struct arg, got {arg_ty:?}");
                     };
