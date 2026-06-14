@@ -18435,8 +18435,19 @@ impl<'a> LowerCtx<'a> {
                             | "entries"
                     );
                     if set_method {
+                        // Receiver Set detection — mirror the Map arm
+                        // below: class-field / index / call receivers
+                        // (Expr::Member / Index / Call) fall back to
+                        // the checked type.
                         let recv_ty_hint = match self.ast.get_expr(*obj) {
                             Expr::Ident(n) => self.locals.get(n).map(|info| info.ty),
+                            Expr::Member { .. } | Expr::Index { .. } | Expr::Call { .. } => {
+                                match self.expr_types.get(obj) {
+                                    Some(check_mod::Type::Map) => Some(Type::Map),
+                                    Some(check_mod::Type::Set) => Some(Type::Set),
+                                    _ => None,
+                                }
+                            }
                             _ => None,
                         };
                         if recv_ty_hint == Some(Type::Set) {
@@ -18861,8 +18872,23 @@ impl<'a> LowerCtx<'a> {
                             | "entries"
                     );
                     if map_method {
+                        // Receiver Map detection — local Ident is the
+                        // common shape; class-field receiver
+                        // (`new W().m.set(...)` where `m: Map<K,V>`) is
+                        // an Expr::Member whose checked type is
+                        // `check::Type::Map`. Without the second branch
+                        // the Member receiver falls through to the
+                        // module.method dispatch below and panics
+                        // "unsupported member call shape: set".
                         let recv_ty_hint = match self.ast.get_expr(*obj) {
                             Expr::Ident(n) => self.locals.get(n).map(|info| info.ty),
+                            Expr::Member { .. } | Expr::Index { .. } | Expr::Call { .. } => {
+                                match self.expr_types.get(obj) {
+                                    Some(check_mod::Type::Map) => Some(Type::Map),
+                                    Some(check_mod::Type::Set) => Some(Type::Set),
+                                    _ => None,
+                                }
+                            }
                             _ => None,
                         };
                         if recv_ty_hint == Some(Type::Map) {
