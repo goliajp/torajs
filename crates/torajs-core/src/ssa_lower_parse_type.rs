@@ -458,18 +458,13 @@ pub(crate) fn parse_type(
         "void" => Type::Void,
         "regex" | "RegExp" => Type::RegExp,
         "date" => Type::Date,
-        // T-21 (v0.6.0) — `fetch(url)` Response heap struct. Maps
-        // to a plain heap pointer at SSA (Type::Ptr); field access
-        // (status @ 8, body Str* @ 16) is via direct Load with
-        // hardcoded offsets at the call site. Drop is routed via
-        // value_drop_heap's TAG_RESPONSE case.
+        // T-21 — `fetch(url)` Response heap struct; ptr at SSA.
         "Response" => Type::Ptr,
-        // T-10.a (v0.4.0) — Any plumbing. Lowers to a single 64-bit
-        // pointer slot at codegen (same as Ptr); the runtime carries
-        // the type tag via the universal heap header. T-10.a only
-        // wires empty-Array<Any>; T-10.c lands the heterogeneous
-        // literal codegen.
+        // T-10.a — Any plumbing; single 64B ptr slot, tag via heap header.
         "any" => Type::Any,
+        // TS `object` collapses to Type::Any (non-primitive constraint
+        // is independent substrate; mirror of `check_type_ann.rs`).
+        "object" => Type::Any,
         // T-13.a (v0.4.0) — Symbol value. Heap-allocated 16-byte
         // block, identity is pointer identity. Lowers to ptr.
         "symbol" => Type::Symbol,

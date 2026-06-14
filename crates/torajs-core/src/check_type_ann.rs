@@ -414,6 +414,17 @@ fn resolve_type_ann_inner(
         // accept it rather than reject so the surface stays self-
         // consistent.
         "any" => Some(Type::Any),
+        // TS `object` — the non-primitive heap-shape (per TS spec
+        // §3.2.8: any value except `null` / `undefined` / `number` /
+        // `string` / `boolean` / `bigint` / `symbol`). The subset
+        // collapses it to `Type::Any` since the "non-primitive only"
+        // narrowing constraint is independent substrate work
+        // (typecheck would need to reject `let x: object = 5`); for
+        // ann-resolution surface this lets `WeakMap<object, V>` keys
+        // and common `function f(o: object)` signatures parse without
+        // forcing users into `any`. Independent L3b: enforce the
+        // non-primitive constraint at assignment-check time.
+        "object" => Some(Type::Any),
         // T-13.a (v0.4.0) — `symbol` is a primitive type alias for
         // Type::Symbol. Lower-case `symbol` is the spec spelling
         // (`typeof Symbol() === "symbol"`); `Symbol` is the constructor
