@@ -1,6 +1,6 @@
 //! W-J Phase C — struct-cell enumeration arms for `Object.keys`
-//! (Phase C1) and `Object.values` (Phase C2), with `entries`
-//! following in C3.
+//! (Phase C1), `Object.values` (Phase C2), and `Object.entries`
+//! (Phase C3).
 //!
 //! tora lowers `Object.keys(o)` to a compile-time field-name literal
 //! when `o`'s static type is a struct (`Type::Obj`). When `o` is
@@ -186,4 +186,62 @@ pub unsafe extern "C" fn __torajs_anyv_struct_values(v: u64) -> *mut c_void {
         i += 1;
     }
     out as *mut c_void
+}
+
+/// `Object.entries(v)` arm for a `Tag::Obj` struct cell. Returns an
+/// owned (`+1`-rc) `Arr<Arr<Any>>` of `[name, value]` pairs in
+/// declaration order — outer slot per field, each inner an
+/// `Arr<Any>` of length 2 (`[name_str, boxed_value]`). Mirrors
+/// `own_names::__torajs_arr_entries_by_tag`'s pair shape, with the
+/// field name as the key instead of a numeric index. A class with no
+/// layout yields an empty array (shared A1 anon-stamp gap).
+///
+/// # Safety
+/// `extern "C"` ABI. `v` is a NaN-box AnyValue immediate; for a struct
+/// instance it is the raw cell pointer. The caller transfers the
+/// returned array's ownership into the SSA value flow and runs a
+/// `throw_check` so the non-struct throw propagates.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
+    // Narrow surface: only a live `Tag::Obj` struct cell is claimed.
+    if !is_cell_imm(v) || unsafe { heap_type_tag(v as *const c_void) } != TAG_OBJ {
+        unsafe { __torajs_throw_type_error(NON_STRUCT_MSG.as_ptr() as *const c_char) };
+        return core::ptr::null_mut();
+    }
+    let cell = v as *const c_void;
+    let class_tag = unsafe {
+        cell.cast::<u8>()
+            .add(OBJ_CLASS_TAG_OFF)
+            .cast::<u32>()
+            .read()
+    };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    let n = unsafe { __torajs_struct_field_count(layout) };
+
+    let mut outer = unsafe { __torajs_arr_alloc(n as u64) };
+    let mut i = 0;
+    while i < n {
+        let name = unsafe { __torajs_struct_field_name(layout, i) };
+        // The freshly minted name Str (rc=1) is consumed by push_any.
+        let name_s = unsafe { alloc_str_from_raw(name.ptr, name.len) };
+        let info = unsafe { __torajs_struct_field_info(layout, i) };
+        let raw = unsafe {
+            cell.cast::<u8>()
+                .add(info.field_byte_offset as usize)
+                .cast::<u64>()
+                .read()
+        };
+        let (tag, val) = unsafe { field_slot_to_pair(info.type_tag, raw) };
+        // The value is borrowed from the struct slot; the inner pair
+        // owns its share.
+        if tag == ANY_HEAP && val != 0 {
+            unsafe { __torajs_rc_inc(val as *mut c_void) };
+        }
+        let inner = unsafe { __torajs_arr_alloc_any(2) };
+        let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, ANY_HEAP, name_s as u64) };
+        let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, tag, val) };
+        outer = unsafe { __torajs_arr_push(outer, inner as i64) };
+        i += 1;
+    }
+    outer as *mut c_void
 }
