@@ -5590,6 +5590,49 @@ fn lower_inner(
     data_globals_out.sort_by(|a, b| a.name.cmp(&b.name));
     module.data_globals = data_globals_out;
 
+    /* W-J Phase A1 (RFC 20260614-w-j-struct-reflect §3) — anon_sid_to_tag
+     * snapshot for ObjectLit alloc stamping. Build at Pass 1.5 boundary
+     * (just after collect_toplevel_globals) so the Pass 2 lowerers can
+     * stamp `class_tag@+8` on anonymous ObjectLit allocations via the map.
+     *
+     * MVP scope: sids visible at snapshot time get their stamp; sids
+     * interned later inside Pass 2 (e.g. generic mono spawning a fresh
+     * `{a:1}` shape per specialization) fall back to `unwrap_or(0)` and
+     * stay anon-untagged. The downstream reflection consumers (Phase B+)
+     * see those as "no struct layout" — graceful degradation, not a crash.
+     *
+     * Tag space layout (must align with the class_layouts emit loop's
+     * push order — A0 + this anon push both walk `struct_layouts.iter()
+     * .enumerate().filter(|(idx,_)| !named_sids.contains(idx))`):
+     *   - [1 .. n_named]                                = named classes
+     *   - [n_named+1 .. n_named+n_anon] (per anon_idx)  = anonymous structs
+     * Cycle visitor indexes class_layouts via `class_tag - 1`, so the
+     * vec push order must mirror this enumeration. */
+    let anon_sid_to_tag: HashMap<ssa::StructId, u32> = {
+        let named_sids: std::collections::HashSet<ssa::StructId> = class_name_to_tag
+            .keys()
+            .filter_map(|cname| match aliases.get(cname) {
+                Some(Type::Obj(sid)) => Some(*sid),
+                _ => None,
+            })
+            .collect();
+        let n_named = class_name_to_tag.len() as u32;
+        struct_layouts
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, _)| {
+                let sid = ssa::StructId(idx as u32);
+                if named_sids.contains(&sid) {
+                    None
+                } else {
+                    Some(sid)
+                }
+            })
+            .enumerate()
+            .map(|(anon_idx, sid)| (sid, n_named + anon_idx as u32 + 1))
+            .collect()
+    };
+
     // Pass 2: lower user FnDecl bodies. Each call returns the lowered
     // function plus any string literals interned during its body; we
     // append those into module.strings before the next call so the
@@ -5625,6 +5668,7 @@ fn lower_inner(
                 &call_retargets,
                 &may_throw,
                 &class_name_to_tag,
+                &anon_sid_to_tag,
                 &globals,
                 expr_types,
                 arity_pad_count,
@@ -5699,6 +5743,7 @@ fn lower_inner(
             &call_retargets,
             &may_throw,
             &class_name_to_tag,
+            &anon_sid_to_tag,
             &globals,
             expr_types,
             arity_pad_count,
@@ -5748,6 +5793,7 @@ fn lower_inner(
                 &call_retargets,
                 &may_throw,
                 &class_name_to_tag,
+                &anon_sid_to_tag,
                 &globals,
                 expr_types,
                 arity_pad_count,
@@ -6565,6 +6611,7 @@ fn synthesize_main(
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
     class_name_to_tag: &HashMap<String, u32>,
+    anon_sid_to_tag: &HashMap<ssa::StructId, u32>,
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
@@ -6593,6 +6640,7 @@ fn synthesize_main(
             inst_memo,
             generic_struct_decls,
             class_name_to_tag,
+            anon_sid_to_tag,
             try_stack: Vec::new(),
             try_finally_stack: Vec::new(),
             pending_return_slot: None,
@@ -6840,6 +6888,7 @@ fn lower_fn(
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
     class_name_to_tag: &HashMap<String, u32>,
+    anon_sid_to_tag: &HashMap<ssa::StructId, u32>,
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
@@ -6945,6 +6994,7 @@ fn lower_fn(
         inst_memo,
         generic_struct_decls,
         class_name_to_tag,
+        anon_sid_to_tag,
         try_stack: Vec::new(),
         try_finally_stack: Vec::new(),
         try_finally_loop_depth: Vec::new(),
@@ -7299,6 +7349,14 @@ pub(crate) struct LowerCtx<'a> {
     /// mis-route `__dispatch_<M>`. Plain `type` aliases aren't keys
     /// here (they get a 0 tag at allocation time).
     pub(crate) class_name_to_tag: &'a HashMap<String, u32>,
+    /// W-J Phase A1 — `anonymous-ObjectLit sid → runtime tag`. Snapshot
+    /// built at Pass 1.5 boundary; sids interned later inside Pass 2
+    /// (e.g. generic mono) miss this map and stamp tag 0 (MVP fallback).
+    /// Tag space starts at `class_name_to_tag.len() + 1` so it doesn't
+    /// collide with named class tags; cycle visitor / reflection helper
+    /// indexes class_layouts via `class_tag - 1`, push order in the
+    /// class_layouts emit loop mirrors this map's enumeration.
+    pub(crate) anon_sid_to_tag: &'a HashMap<ssa::StructId, u32>,
     /// M4 — innermost-active try block's catch-block target. Each
     /// `Stmt::Try` lowering pushes the catch BlockId before lowering its
     /// body and pops after; user-fn calls in scope insert a cond_br on
@@ -21003,12 +21061,24 @@ impl<'a> LowerCtx<'a> {
                  * outside any `__new_*` and stay tagged 0). Looking
                  * up by name avoids the sid-collision aliasing that
                  * silently broke `__dispatch_<M>` for sibling classes
-                 * with identical fields. */
-                let tag = self
+                 * with identical fields.
+                 *
+                 * W-J Phase A1: ObjectLit allocations outside any
+                 * `__new_<C>` factory are anonymous structs — stamp
+                 * `class_tag@+8` from `anon_sid_to_tag[sid]` so the
+                 * reflection consumers (Phase B `gOPD` / Phase C
+                 * `Object.keys`/`values`/`entries` / Phase D
+                 * `inspect.rs` Tag::Obj walker) can look up the
+                 * field-metadata entry in class_layouts. Falls back
+                 * to 0 for sids interned during Pass 2 (MVP scope
+                 * per RFC 20260614-w-j-struct-reflect §3 A1). */
+                let factory_tag = self
                     .f
                     .name
                     .strip_prefix("__new_")
-                    .and_then(|cname| self.class_name_to_tag.get(cname).copied())
+                    .and_then(|cname| self.class_name_to_tag.get(cname).copied());
+                let tag = factory_tag
+                    .or_else(|| self.anon_sid_to_tag.get(&sid).copied())
                     .unwrap_or(0);
                 self.f.append_void(
                     self.cur_block,
