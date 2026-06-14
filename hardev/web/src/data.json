@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T09:10:17.801Z",
+  "generatedAt": "2026-06-14T10:51:04.847Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "86697de9",
-    "commitSubject": "feat(link): LinkConfig::fn_name_globals + UserFnNameEntry + cmd_build wire — Step 3b.2",
+    "commit": "c6beb79e",
+    "commitSubject": "test(conformance): fn-name registry Phase 2 acceptance fixtures — Step 6",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,73 +619,84 @@
   },
   "commits": [
     {
+      "hash": "c6beb79e",
+      "subject": "test(conformance): fn-name registry Phase 2 acceptance fixtures — Step 6"
+    },
+    {
+      "hash": "16dd0308",
+      "subject": "fix(link): force_emit_fn_name_globals — register table syms when libtorajs_fnname.a is pulled but no fn decls — Step 5 fix-up"
+    },
+    {
+      "hash": "c459c214",
+      "subject": "fix(link): Mach-O leading-underscore for fn_name_table extern syms"
+    },
+    {
+      "hash": "bedcd821",
+      "subject": "feat(nested-print): wire inspect.rs to __torajs_fn_print_inline — Step 5"
+    },
+    {
+      "hash": "377bbbea",
+      "subject": "fix(fnname): switch torajs-fnname to std crate — fix-up for Step 4"
+    },
+    {
+      "hash": "7b78f972",
+      "subject": "feat(fnname): torajs-fnname runtime helper crate — Step 4"
+    },
+    {
+      "hash": "a6dfb507",
+      "subject": "feat(link): fn_name_table chain fixup + payload splice — Step 3b.4 + 3b.5 combined"
+    },
+    {
+      "hash": "aca69ccb",
+      "subject": "fix(link): wire fn_name_table_layout into 3 test-only ArchiveLayout literals — Step 3b.3 fix-up"
+    },
+    {
+      "hash": "df44621b",
+      "subject": "feat(link): wire fn_name_globals through DataConstLayout — Step 3b.3"
+    },
+    {
+      "hash": "41e9f79d",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — fn-name registry Phase 2 5/10 step ship"
+    },
+    {
       "hash": "86697de9",
       "subject": "feat(link): LinkConfig::fn_name_globals + UserFnNameEntry + cmd_build wire — Step 3b.2"
     },
     {
       "hash": "a91b1dea",
       "subject": "feat(link): fn_name_table_layout scaffold — fn-name registry Step 3b.1"
-    },
-    {
-      "hash": "a599c48b",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — fn-name registry Phase 1 narrow ship (3 commit, [Function] print, gate 818/0/4 hold)"
-    },
-    {
-      "hash": "4a67c2bb",
-      "subject": "feat(nested-print): Type::FnSig + Tag::Closure print `[Function]` — fn-name registry Step 3a (Phase 1 narrow)"
-    },
-    {
-      "hash": "0f373411",
-      "subject": "feat(ssa-lower): populate fn_name_globals at fn-decl lowering — fn-name registry Step 2"
-    },
-    {
-      "hash": "ad0d0149",
-      "subject": "feat(ssa): Module::fn_name_globals scaffold — fn-name registry substrate Step 1"
-    },
-    {
-      "hash": "ca4488ec",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — nested-print substrate trunk ship complete (8 wedges close, gate 810 → 818/0/4)"
-    },
-    {
-      "hash": "bb9ca39c",
-      "subject": "test(conformance): nested-print substrate trunk acceptance fixtures — Commit 9"
-    },
-    {
-      "hash": "467890f0",
-      "subject": "feat(nested-print): Tag::Promise typed-receiver wire — Commit 8"
-    },
-    {
-      "hash": "ebda6225",
-      "subject": "feat(nested-print): Map + Set typed-receiver wire — Commit 7"
-    },
-    {
-      "hash": "e3c071b7",
-      "subject": "feat(nested-print): Tag::RegExp typed-receiver wire — Commit 6"
-    },
-    {
-      "hash": "265fa094",
-      "subject": "feat(nested-print): Tag::Date typed-receiver wire — Commit 5"
     }
   ],
-  "headSha": "86697de9",
+  "headSha": "c6beb79e",
   "autorun": {
-    "total": 161,
+    "total": 162,
     "baselineTarget": 10,
-    "bySelf": 157,
+    "bySelf": 158,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781419809-260d",
-      "at": "2026-06-14T06:50:09Z",
-      "ts": 1781419809,
+      "rotationId": "r-1781428503-77b7",
+      "at": "2026-06-14T09:15:03Z",
+      "ts": 1781428503,
       "trigger": "self",
-      "prevHead": "0a26eaa3",
-      "handoffSha": "sha256:2f53d2202deda194ce07e4bbccaac2ca9499a65f68cda4f441d7c668ad5c75c0",
-      "handoffAgeSec": 17,
+      "prevHead": "41e9f79d",
+      "handoffSha": "sha256:8067b54893fb4ad5a5889841c28c5bc89487651dab4c3a1d1165d8dd08ab2d31",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781428503-77b7",
+        "at": "2026-06-14T09:15:03Z",
+        "ts": 1781428503,
+        "trigger": "self",
+        "prevHead": "41e9f79d",
+        "handoffSha": "sha256:8067b54893fb4ad5a5889841c28c5bc89487651dab4c3a1d1165d8dd08ab2d31",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781419809-260d",
         "at": "2026-06-14T06:50:09Z",
@@ -782,17 +793,6 @@
         "prevHead": "fccaefc4",
         "handoffSha": "sha256:0cc1461acab90895089432b5f6779a13b67ddb4f380ad48746d809cd68376ceb",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781408133-67cc",
-        "at": "2026-06-14T03:35:33Z",
-        "ts": 1781408133,
-        "trigger": "self",
-        "prevHead": "3718f0c1",
-        "handoffSha": "sha256:bc193b02ff79819d906756051153b27ef2017c4c13b5e704e6b25493b3a386a3",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
