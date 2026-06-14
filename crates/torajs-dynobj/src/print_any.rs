@@ -47,6 +47,11 @@ unsafe extern "C" {
     /// Per-byte stdout writer (`libtorajs_io.a`). Same buffer
     /// shared with IR-emitted `print_*` and Str / Arr printers.
     fn __torajs_io_putc_stdout(c: i32) -> i32;
+    /// Emit a Str / Substr cell's bytes WITHOUT the `"..."` quote
+    /// wrapper — for dynobj keys which bun renders unquoted
+    /// (`{ a: 1 }` not `{ "a": 1 }`). Commit 4 substrate helper
+    /// in `torajs-anyvalue::inspect`.
+    fn __torajs_print_str_cell_unquoted(cell: *const c_void);
 }
 
 #[inline]
@@ -98,11 +103,13 @@ pub unsafe extern "C" fn __torajs_obj_print_any(obj: *const c_void) {
             } else {
                 put_bytes(b",\n  ");
             }
-            // Key — borrowed Str cell ptr → raw NaN-box cell
-            // encoding (top16=0, bit1=0 are satisfied by any
-            // 8-byte-aligned malloc'd ptr). Inline printer routes
-            // to its Tag::Str arm and emits unquoted bytes.
-            __torajs_print_anyv_inline(key as u64);
+            // Key — borrowed Str cell ptr. Dynobj keys are always
+            // Tag::Str (dynobj symbol-keyed entries are not yet
+            // supported per W-N-c L3b). bun renders obj keys
+            // unquoted (`{ a: 1 }`) so we use the unquoted helper
+            // instead of __torajs_print_anyv_inline (which adds
+            // `"..."` for nested-context strings).
+            __torajs_print_str_cell_unquoted(key);
             put_bytes(b": ");
             // Value — already a NaN-box AnyValue per iter_value's
             // u64 return contract.

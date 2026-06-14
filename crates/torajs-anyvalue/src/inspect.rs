@@ -80,6 +80,12 @@ unsafe extern "C" {
     // shape `torajs-arr::print` uses (same staticlib provider).
     fn __torajs_fmt_itoa(n: i64, out_buf: *mut u8, out_cap: usize) -> i32;
     fn __torajs_fmt_dtoa(d: f64, out_buf: *mut u8, out_cap: usize) -> i32;
+    // Nested-print substrate trunk Commit 4 wire — cross-staticlib
+    // externs to `torajs-arr` and `torajs-dynobj` walkers added in
+    // Commits 2 and 3. The Tag::Arr / Tag::Obj branches below
+    // delegate to these for the pretty form.
+    fn __torajs_arr_print_any(arr: *const c_void);
+    fn __torajs_obj_print_any(obj: *const c_void);
 }
 
 /// Mirror of `torajs_str::substr::FLAG_SUBSTR_VIEW` (bit 10 of
@@ -383,12 +389,66 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
                 // len@+8 and bytes@+16.
                 unsafe { __torajs_str_print(child as *const u8) };
             }
+        } else if tag == Tag::Arr as u16 {
+            // Nested-print substrate trunk Commit 4 — Tag::Arr
+            // (typed Arr<T> heap cell) renders as bun's
+            // `[ a, b, c ]` form via the Commit 2 walker. Closes
+            // `Any-print arr fallback` wedge (`const a:any = [1,2,3]`).
+            // SAFETY: Arr heap layout per torajs-arr::layout.
+            unsafe { __torajs_arr_print_any(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::DynObj as u16 {
+            // Nested-print substrate trunk Commit 4 — Tag::DynObj
+            // (object literal / Object.entries row) renders as
+            // bun's `{\n  k: v,\n}` form via the Commit 3 walker.
+            // Closes `Any-print obj fallback` wedge
+            // (`const o:any = {a:1}`). Tag::Obj (static-layout
+            // class instance) keeps the `[object]` fallback —
+            // class-instance pretty-print requires struct_layouts
+            // metadata and is a separate substrate trunk (W-J).
+            // SAFETY: dynobj layout per torajs-dynobj::layout.
+            unsafe { __torajs_obj_print_any(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else {
             write_line(b"[object]\n");
         }
         return;
     }
     write_line(b"[unknown-any-tag]\n");
+}
+
+/// Emit the bytes of a Str / Substr heap cell **unquoted** —
+/// nested-print substrate trunk Commit 4 helper for dynobj-key /
+/// Map-key / Set-elem-string callers that need raw key bytes without
+/// the `"..."` wrapper [`__torajs_print_anyv_inline`] adds for
+/// nested-context string values.
+///
+/// `cell` must point to a Tag::Str heap object (real Str layout
+/// `{len@+8, data@+16}` OR Substr view `{len@+8, parent@+16,
+/// offset@+24}`); the inspect path picks via `FLAG_SUBSTR_VIEW`.
+/// Non-Str tags emit nothing (callers feed Str ptrs from
+/// `__torajs_dynobj_iter_key` / Map key slots / etc by contract).
+///
+/// # Safety
+///
+/// `cell` must point to a valid Tag::Str heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_print_str_cell_unquoted(cell: *const c_void) {
+    unsafe {
+        if cell.is_null() {
+            return;
+        }
+        let tag = heap_type_tag(cell);
+        if tag != Tag::Str as u16 {
+            return;
+        }
+        let flags = heap_flags(cell);
+        if flags & SUBSTR_VIEW_FLAG != 0 {
+            put_substr_cell_inline(cell);
+        } else {
+            put_str_cell_inline(cell);
+        }
+    }
 }
 
 /// `console.log(...)` inline-print entry — same NaN-box dispatch
@@ -433,11 +493,19 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
         return;
     }
     if is_short_str(v) {
+        // Nested context — strings get `"..."` quotes (bun inspect
+        // form, e.g. `[ "hi" ]` not `[ hi ]`). Top-level
+        // `__torajs_print_anyv` skips the quoting (matches bun's
+        // `console.log("hi")` → `hi`).  Escapes (`"`, `\`, control
+        // chars) not yet honoured — pure-ASCII fixtures only for
+        // this commit; full bun escape table is a later commit.
         let len = short_str_len(v) as usize;
         let bytes = short_str_bytes(v);
+        unsafe { put_byte(b'"') };
         for &b in &bytes[..len] {
             unsafe { put_byte(b) };
         }
+        unsafe { put_byte(b'"') };
         return;
     }
     if is_cell(v) {
@@ -446,17 +514,42 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
         let tag = unsafe { heap_type_tag(child) };
         if tag == Tag::Str as u16 {
             // Substr vs real Str — flag bit 10 disambiguates same as
-            // the standalone print_anyv path above.
+            // the standalone print_anyv path above. Nested context
+            // → `"..."` quotes (see ShortStr arm above for rationale
+            // and escape caveat).
             let flags = unsafe { heap_flags(child) };
+            unsafe { put_byte(b'"') };
             if flags & SUBSTR_VIEW_FLAG != 0 {
                 unsafe { put_substr_cell_inline(child) };
             } else {
                 unsafe { put_str_cell_inline(child) };
             }
+            unsafe { put_byte(b'"') };
+        } else if tag == Tag::Arr as u16 {
+            // Commit 4 — recursion enable. Nested Arr<Any> /
+            // Arr<Arr<_>> walks via this branch (the outer
+            // __torajs_arr_print_any calls
+            // __torajs_print_anyv_inline on each slot; if that slot
+            // is itself a Tag::Arr cell, we land here and recurse
+            // back into __torajs_arr_print_any). No '\n' (inline
+            // contract). Cyclic graphs trigger SO with no
+            // `[Circular]` sentinel — known limitation tracked in
+            // L3b (bun emits `[Circular *N]`, v0.7 doesn't).
+            // SAFETY: Tag::Arr layout per torajs-arr::layout.
+            unsafe { __torajs_arr_print_any(child) };
+        } else if tag == Tag::DynObj as u16 {
+            // Commit 4 — Tag::DynObj nested. Same recursion form
+            // as Tag::Arr above.
+            // SAFETY: dynobj layout per torajs-dynobj::layout.
+            unsafe { __torajs_obj_print_any(child) };
         } else {
-            // All composite / typed-receiver tags fall back to
-            // `[object]` for Commit 1. Commits 2-8 wire each tag to
-            // its real walker.
+            // All other composite / typed-receiver tags
+            // (Tag::Obj / Tag::Closure / Tag::Symbol / Tag::BigInt /
+            // Tag::Map / Tag::Set / Tag::Promise / Tag::Date /
+            // Tag::RegExp / Tag::Response / Tag::Weak* /
+            // Tag::MapIter / Tag::ArrIter / Tag::AccessorPair / etc)
+            // fall back to `[object]` (no '\n'). Commits 5-8 wire
+            // each tag to its typed walker.
             unsafe { put_bytes(b"[object]") };
         }
         return;

@@ -7907,8 +7907,13 @@ impl<'a> LowerCtx<'a> {
             // partial behavior on rare types).
             (Type::Symbol, _) => self.intrinsics.symbol_print,
             // V3-18 m1.h.12 — `console.log(arr)` array pretty-print.
-            // Per element type: I64 / F64 / Bool / Str. Other elem
-            // types still fall through to the i64-pointer print.
+            // Per element type: I64 / F64 / Bool / Str / Substr; any
+            // other elem type (Any / Arr<...> / Obj / Map / Set /
+            // Closure / etc) routes through the tag-aware
+            // __torajs_print_anyv (Commit 4 wired its Tag::Arr +
+            // Tag::DynObj walkers; Commits 5-8 wire the remaining
+            // typed Tag walkers). Closes W-O-1 (`const a:any[]=[]`),
+            // W-O-3-nested (`console.log(Object.entries(o))`).
             (Type::Arr(arr_id), false) => {
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
                 match elem_ty {
@@ -7921,10 +7926,35 @@ impl<'a> LowerCtx<'a> {
                     // parent-pointer bytes as data and printed garbage.
                     Type::Str => self.intrinsics.arr_print_str,
                     Type::Substr => self.intrinsics.arr_print_substr,
-                    _ => self.intrinsics.print_i64,
+                    // Nested-print substrate trunk Commit 4.
+                    _ => self.intrinsics.print_any,
                 }
             }
-            (Type::Arr(_), true) => self.intrinsics.print_i64_err,
+            (Type::Arr(_), true) => self.intrinsics.print_any,
+            // Nested-print substrate trunk Commit 4 — typed heap
+            // receivers (Type::Obj / Map / Set / Promise / Date /
+            // RegExp / Closure / WeakRef / WeakMap / WeakSet /
+            // MapIter / ArrIter) route through __torajs_print_anyv,
+            // which reads HeapHeader::type_tag and dispatches to its
+            // Commit 4 Tag::DynObj walker, or for the remaining
+            // tags falls back to `[object]\n` until Commits 5-8
+            // wire each typed walker (Date / RegExp / Function in 5,
+            // Map / Set / Promise in 6-8). Pre-Commit 4 these all
+            // fell through to print_i64 below, which emitted the
+            // raw heap pointer as a decimal — the typed-receiver
+            // console.log fallback wedge.
+            (Type::Obj(_), _)
+            | (Type::Map, _)
+            | (Type::Set, _)
+            | (Type::Promise, _)
+            | (Type::Date, _)
+            | (Type::RegExp, _)
+            | (Type::Closure(_), _)
+            | (Type::WeakRef, _)
+            | (Type::WeakMap, _)
+            | (Type::WeakSet, _)
+            | (Type::MapIter, _)
+            | (Type::ArrIter, _) => self.intrinsics.print_any,
             (_, false) => self.intrinsics.print_i64,
             (_, true) => self.intrinsics.print_i64_err,
         }
