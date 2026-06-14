@@ -11,8 +11,14 @@
 //! 1. `N` inner `.__class_offsets_<i>` arrays — `[K x i32]` (private
 //!    naming; never enters the public sym table). Empty entry → no
 //!    inner global allocated, the outer slot packs `(0, NULL)`.
-//! 2. `__torajs_class_layouts` outer table — `[N x { u32 n; ptr }]`
-//!    laid out as 16-byte entries (`n` + 4-byte pad + 8-byte ptr).
+//! 2. `__torajs_class_layouts` outer table — `[N x { u32 n; ptr;
+//!    ptr field_metadata }]` laid out as 24-byte entries (`n` +
+//!    4-byte pad + 8-byte child_offsets ptr + 8-byte field_metadata
+//!    ptr). W-J Phase A2: the field_metadata slot is reserved + NULL;
+//!    A3 will fill it with a pointer to per-class field-name/offset/
+//!    type-tag metadata so the reflection consumers (Phase B `gOPD`
+//!    struct arm / Phase C `Object.keys`/`values`/`entries` / Phase D
+//!    `inspect.rs` Tag::Obj walker) can do struct cell reflection.
 //! 3. `__torajs_n_class_layouts` count — `u32 = N`.
 //!
 //! Each non-empty entry's outer ptr slot needs an `LC_DYLD_CHAINED_FIXUPS`
@@ -32,9 +38,14 @@ use crate::resolve::SymTable;
 pub const CLASS_LAYOUTS_SYM: &str = "___torajs_class_layouts";
 pub const N_CLASS_LAYOUTS_SYM: &str = "___torajs_n_class_layouts";
 
-/// On-disk size of one outer-table entry:
-///   `u32 n_children` (4) + 4-byte pad + `ptr offsets` (8) = 16
-const OUTER_ENTRY_SIZE: u32 = 16;
+/// On-disk size of one outer-table entry. W-J Phase A2 extended
+/// 16 → 24 to carry a reserved `field_metadata` ptr slot (NULL until
+/// Phase A3 fills it). Must stay in lockstep with
+/// `torajs_cycle::layout::ClassLayout`'s `size_of` (24B, asserted in
+/// that crate's `class_layout_struct` test).
+///   `u32 n_children` (4) + 4-byte pad + `ptr child_offsets` (8) +
+///   `ptr field_metadata` (8) = 24
+const OUTER_ENTRY_SIZE: u32 = 24;
 /// Outer-table entry alignment — derived from the `ptr` field's
 /// 8-byte alignment requirement. Matches LLVM's struct layout for
 /// `{ i32, ptr }` packed=false.
@@ -237,7 +248,12 @@ pub fn build_user_class_layouts_payload(
     while buf.len() < (layout.outer_file_offset - layout.file_offset) as usize {
         buf.push(0);
     }
-    // Outer table — 16 bytes per entry: u32 n + 4 pad + u64 inner_link_value.
+    // Outer table — 24 bytes per entry: u32 n + 4 pad + u64
+    // inner_link_value + u64 field_metadata_link_value. W-J Phase A2:
+    // field_metadata is a NULL stub (Phase A3 will populate it);
+    // since it's NULL there's no chained-fixup rebase target for it
+    // (the rebase target list still has one entry per non-empty
+    // child_offsets — compute_class_layouts_rebase_targets unchanged).
     let mut link_idx = 0usize;
     for entry in &layout.entries {
         buf.extend_from_slice(&entry.n_children.to_le_bytes());
@@ -256,6 +272,8 @@ pub fn build_user_class_layouts_payload(
             0
         };
         buf.extend_from_slice(&link_value.to_le_bytes());
+        // W-J Phase A2: field_metadata_ptr stub (NULL).
+        buf.extend_from_slice(&0u64.to_le_bytes());
     }
     debug_assert_eq!(
         link_idx,
@@ -381,8 +399,9 @@ mod tests {
 
     #[test]
     fn single_entry_two_offsets() {
-        // 1 entry, 2 child offsets → inner 8 bytes + outer 16 bytes +
-        // count 4 bytes = 28 bytes. cursor 0x4000 is 8-aligned so no
+        // 1 entry, 2 child offsets → inner 8 bytes + outer 24 bytes +
+        // count 4 bytes = 36 bytes (W-J Phase A2: was 28 pre-A2 when
+        // OUTER_ENTRY_SIZE was 16). cursor 0x4000 is 8-aligned so no
         // leading pads needed.
         let class_layouts = [entry(&[24, 32])];
         let layout =
@@ -394,23 +413,24 @@ mod tests {
         // Outer past 8-byte inner.
         assert_eq!(layout.outer_file_offset, 0x4008);
         assert_eq!(layout.outer_vaddr, 0x1_0000_4008);
-        // Count past 16-byte outer.
-        assert_eq!(layout.count_file_offset, 0x4018);
-        assert_eq!(layout.count_vaddr, 0x1_0000_4018);
-        // Total = 8 + 16 + 4 = 28.
-        assert_eq!(layout.total_size, 28);
+        // Count past 24-byte outer.
+        assert_eq!(layout.count_file_offset, 0x4020);
+        assert_eq!(layout.count_vaddr, 0x1_0000_4020);
+        // Total = 8 + 24 + 4 = 36.
+        assert_eq!(layout.total_size, 36);
     }
 
     #[test]
     fn empty_child_offsets_skips_inner_global() {
-        // 1 entry, 0 child offsets → no inner; outer 16 bytes (n=0,
-        // ptr=0) + count 4 bytes = 20 bytes.
+        // 1 entry, 0 child offsets → no inner; outer 24 bytes (n=0,
+        // ptr=0, field_meta=0) + count 4 bytes = 28 bytes (W-J Phase A2:
+        // was 20 pre-A2 with 16B entry).
         let class_layouts = [entry(&[])];
         let layout =
             compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
         assert!(layout.entries[0].inner_vaddr.is_none());
         assert_eq!(layout.outer_file_offset, 0x4000);
-        assert_eq!(layout.total_size, 20);
+        assert_eq!(layout.total_size, 28);
     }
 
     #[test]
@@ -429,9 +449,9 @@ mod tests {
         // Total inner = 4 + 8 = 12 bytes; outer 8-align pad = 4 bytes.
         // Outer starts at 0x4010.
         assert_eq!(layout.outer_file_offset, 0x4010);
-        // 3 outer entries × 16 = 48 bytes; count at 0x4040.
-        assert_eq!(layout.count_file_offset, 0x4040);
-        assert_eq!(layout.total_size, 4 + 8 + 4 + 48 + 4); // 68
+        // W-J Phase A2: 3 outer entries × 24 = 72 bytes; count at 0x4058.
+        assert_eq!(layout.count_file_offset, 0x4058);
+        assert_eq!(layout.total_size, 4 + 8 + 4 + 72 + 4); // 92
     }
 
     #[test]
@@ -441,7 +461,8 @@ mod tests {
             compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
         let link_values = [0xDEAD_BEEFu64];
         let payload = build_user_class_layouts_payload(&layout, &link_values);
-        assert_eq!(payload.len(), 28);
+        // W-J Phase A2: 8 inner + 24 outer + 4 count = 36 (was 28).
+        assert_eq!(payload.len(), 36);
         // [0..8]   inner [16, 24] LE
         assert_eq!(u32::from_le_bytes(payload[0..4].try_into().unwrap()), 16);
         assert_eq!(u32::from_le_bytes(payload[4..8].try_into().unwrap()), 24);
@@ -454,8 +475,10 @@ mod tests {
             u64::from_le_bytes(payload[16..24].try_into().unwrap()),
             0xDEAD_BEEF
         );
-        // [24..28] count = 1
-        assert_eq!(u32::from_le_bytes(payload[24..28].try_into().unwrap()), 1);
+        // W-J Phase A2: [24..32] outer entry field_metadata_ptr = NULL stub
+        assert_eq!(u64::from_le_bytes(payload[24..32].try_into().unwrap()), 0);
+        // [32..36] count = 1
+        assert_eq!(u32::from_le_bytes(payload[32..36].try_into().unwrap()), 1);
     }
 
     #[test]
@@ -464,13 +487,16 @@ mod tests {
         let layout =
             compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
         let payload = build_user_class_layouts_payload(&layout, &[]);
-        assert_eq!(payload.len(), 20);
+        // W-J Phase A2: 24 outer + 4 count = 28 (was 20).
+        assert_eq!(payload.len(), 28);
         // outer entry n_children = 0
         assert_eq!(u32::from_le_bytes(payload[0..4].try_into().unwrap()), 0);
         // outer entry inner-ptr = NULL
         assert_eq!(u64::from_le_bytes(payload[8..16].try_into().unwrap()), 0);
+        // W-J Phase A2: field_metadata_ptr NULL stub
+        assert_eq!(u64::from_le_bytes(payload[16..24].try_into().unwrap()), 0);
         // count = 1
-        assert_eq!(u32::from_le_bytes(payload[16..20].try_into().unwrap()), 1);
+        assert_eq!(u32::from_le_bytes(payload[24..28].try_into().unwrap()), 1);
     }
 
     #[test]

@@ -77,10 +77,25 @@ pub struct HeapHeader {
 /// `class_tag - 1`. `child_offsets` is a C array of `u32` byte
 /// offsets pointing at refcounted-pointer fields within the class
 /// instance.
+///
+/// W-J Phase A2 (RFC 20260614-w-j-struct-reflect §3 A2): added the
+/// `field_metadata_ptr` slot reserved for the field-name + offset +
+/// type-tag table that the reflection consumers (Phase B `gOPD` struct
+/// arm / Phase C `Object.keys`/`values`/`entries` / Phase D
+/// `inspect.rs` Tag::Obj walker) will populate. A2 ships the slot as
+/// a NULL stub — no inner field-metadata rodata is emitted yet, and
+/// no new chain-fixup rebase target is added (the slot stays as a raw
+/// NULL u64 in the on-disk image). Phase A3 will fill it.
+///
+/// Entry layout: `{ u32 n_children; u32 _pad; *const u32 child_offsets;
+/// *const c_void field_metadata_ptr }` — 24 bytes, 8-aligned (matches
+/// LLVM struct rule for `{ i32, i32, ptr, ptr }`).
 #[repr(C)]
 pub struct ClassLayout {
     pub n_children: u32,
     pub child_offsets: *const u32,
+    /// W-J Phase A2 reserved slot — NULL until A3 fills it.
+    pub field_metadata_ptr: *const c_void,
 }
 
 // SAFETY: `ClassLayout` carries a raw `*const u32` so the auto-derived
@@ -114,6 +129,7 @@ pub static __torajs_n_class_layouts: u32 = 0;
 pub static __torajs_class_layouts: ClassLayout = ClassLayout {
     n_children: 0,
     child_offsets: core::ptr::null(),
+    field_metadata_ptr: core::ptr::null(),
 };
 
 #[inline]
@@ -222,8 +238,11 @@ mod tests {
 
     #[test]
     fn class_layout_struct() {
-        // ClassLayout: u32 + 4B pad + ptr = 16B, align 8 (ptr alignment).
-        assert_eq!(core::mem::size_of::<ClassLayout>(), 16);
+        // W-J Phase A2: ClassLayout = u32 + 4B pad + 2 ptr = 24B, align 8.
+        // (Was 16B pre-A2 — see torajs-link/src/user_class_layouts_layout.rs
+        // OUTER_ENTRY_SIZE for the on-disk emit side that must stay in
+        // lockstep with this struct's size.)
+        assert_eq!(core::mem::size_of::<ClassLayout>(), 24);
         assert_eq!(core::mem::align_of::<ClassLayout>(), 8);
     }
 
