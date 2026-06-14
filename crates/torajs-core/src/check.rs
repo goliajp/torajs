@@ -5063,12 +5063,9 @@ impl Checker {
                     }
                     return Err("flat depth must be a number literal".into());
                 }
-                // `Object.values(obj)` — return type depends on the
-                // arg's struct shape. Only valid when all fields share
-                // a single type T; result is Array<T>. Heterogeneous
-                // structs error here. Static-resolved at lower time
-                // exactly like Object.keys, just packing values
-                // instead of names.
+                // `Object.values(obj)` — result Array<T> for a
+                // homogeneous struct (T = shared field type), resolved
+                // at lower time like Object.keys but packing values.
                 if let Expr::Member {
                     obj: ns_id,
                     name: m_name,
@@ -5079,12 +5076,9 @@ impl Checker {
                     && args.len() == 1
                 {
                     let arg_ty = self.type_of(ast, args[0])?;
-                    // W-O — Array receiver: bun returns a new shallow
-                    // array (spec §20.1.2.20 step 2 ToObject + own-keys
-                    // walk on an Array-exotic — values are the slot
-                    // contents in numeric order). The SSA-lower arm
-                    // emits the same deep-clone pattern used for typed
-                    // struct field copies of an `Arr<T>` field.
+                    // W-O — Array receiver: bun returns a fresh shallow
+                    // array of slot values (spec §20.1.2.20); SSA-lower
+                    // reuses the typed-struct Arr-field deep-clone arm.
                     if let Type::Array(elem) = &arg_ty {
                         return Ok(Type::Array(elem.clone()));
                     }
@@ -5093,6 +5087,12 @@ impl Checker {
                     // on a primitive string → indexed-properties walk).
                     if matches!(arg_ty, Type::String) {
                         return Ok(Type::Array(Box::new(Type::String)));
+                    }
+                    // W-J Phase C2 — `any` receiver: struct identity
+                    // (per-field types) known only at runtime → Array<Any>
+                    // (SSA-lower routes through the struct_enum walker).
+                    if matches!(arg_ty, Type::Any) {
+                        return Ok(Type::Array(Box::new(Type::Any)));
                     }
                     let Type::Struct(fields) = &arg_ty else {
                         return Err(format!(

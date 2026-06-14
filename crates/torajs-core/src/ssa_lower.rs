@@ -2793,6 +2793,17 @@ fn lower_inner(
         &[Type::Any],
         Type::Ptr,
     );
+    // W-J Phase C2 — `Object.values(v)` where `v: any` carries a struct
+    // cell. Walks the field metadata reading each slot, boxing per the
+    // field's type_tag into an `Arr<Any>`. Same runtime-dispatch shape
+    // as `anyv_struct_keys`; non-struct cells throw loudly.
+    let anyv_struct_values_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_anyv_struct_values",
+        &[Type::Any],
+        Type::Ptr,
+    );
     // W-M-rest — `Object.getOwnPropertyDescriptor(str, "<idx>")` —
     // spec §22.1.5.2 builds `{value: char_at(idx), writable: false,
     // enumerable: true, configurable: false}` (note enumerable=true,
@@ -5350,6 +5361,7 @@ fn lower_inner(
         arr_entries_by_tag: arr_entries_by_tag_id,
         str_entries: str_entries_id,
         anyv_struct_keys: anyv_struct_keys_id,
+        anyv_struct_values: anyv_struct_values_id,
         str_index_descriptor: str_index_descriptor_id,
         anyv_prevent_extensions: anyv_prevent_extensions_id,
         anyv_is_extensible: anyv_is_extensible_id,
@@ -6318,6 +6330,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_entries_by_tag: FuncId,
     pub(crate) str_entries: FuncId,
     pub(crate) anyv_struct_keys: FuncId,
+    pub(crate) anyv_struct_values: FuncId,
     pub(crate) str_index_descriptor: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,
@@ -16638,6 +16651,23 @@ impl<'a> LowerCtx<'a> {
                             Type::Arr(arr_id),
                             None,
                         );
+                        return Operand::Value(v);
+                    }
+                    // W-J Phase C2 — `any` receiver: struct identity is
+                    // only known at runtime. Route through the
+                    // struct_enum walker, which reads each field slot
+                    // and boxes it per its metadata type_tag into an
+                    // `Arr<Any>`. A non-struct cell throws loudly inside
+                    // the helper — propagate it.
+                    if matches!(arg_ty, Type::Any) {
+                        let arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.anyv_struct_values, vec![arg_op]),
+                            Type::Arr(arr_id),
+                            None,
+                        );
+                        self.emit_throw_check(None);
                         return Operand::Value(v);
                     }
                     let Type::Obj(sid) = arg_ty else {

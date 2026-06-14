@@ -100,7 +100,7 @@ unsafe fn alloc_str_key(name: &[u8]) -> *mut u8 {
 /// - `4..=21` (`Str` / `Arr` / `Obj` / `Map` / ... heap cells): raw
 ///   heap pointer.
 #[inline]
-unsafe fn field_slot_to_pair(type_tag: u8, raw: u64) -> (u64, u64) {
+pub(crate) unsafe fn field_slot_to_pair(type_tag: u8, raw: u64) -> (u64, u64) {
     match type_tag {
         0 => {
             let t = unsafe { __torajs_anyv_unbox_tag(raw) } as u64;
