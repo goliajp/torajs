@@ -2734,6 +2734,21 @@ fn lower_inner(
         &[Type::I64],
         Type::Ptr,
     );
+    // W-M-rest — `Object.getOwnPropertyDescriptor(str, "<idx>")` —
+    // spec §22.1.5.2 builds `{value: char_at(idx), writable: false,
+    // enumerable: true, configurable: false}` (note enumerable=true,
+    // unlike `length`). Bounds check happens in the helper; OOB /
+    // negative returns VALUE_UNDEFINED_IMM. SSA-lower constrains the
+    // fast path to canonical integer-string keys at compile time;
+    // non-canonical shapes fall through (spec-correctly returning
+    // undefined too).
+    let str_index_descriptor_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_anyv_str_index_descriptor",
+        &[Type::Ptr, Type::I64],
+        Type::Any,
+    );
     // RFC C5b — `Object.preventExtensions(O)` / `Object.isExtensible(O)`.
     // Anyvalue-shaped guards: primitive imm / null / undef short-circuit
     // per spec §20.1.2.16 step 1 / §20.1.2.13 step 1 ("not Object → no-op
@@ -5231,6 +5246,7 @@ fn lower_inner(
         arr_length_descriptor: arr_length_descriptor_id,
         str_length_descriptor: str_length_descriptor_id,
         arr_index_strs: arr_index_strs_id,
+        str_index_descriptor: str_index_descriptor_id,
         anyv_prevent_extensions: anyv_prevent_extensions_id,
         anyv_is_extensible: anyv_is_extensible_id,
         anyv_seal: anyv_seal_id,
@@ -6042,6 +6058,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_length_descriptor: FuncId,
     pub(crate) str_length_descriptor: FuncId,
     pub(crate) arr_index_strs: FuncId,
+    pub(crate) str_index_descriptor: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,
     pub(crate) anyv_seal: FuncId,
@@ -15739,6 +15756,44 @@ impl<'a> LowerCtx<'a> {
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(self.intrinsics.str_length_descriptor, vec![obj_raw]),
+                            Type::Any,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+
+                    // W-M-rest — typed-Str numeric-indexed access. Spec
+                    // §22.1.5.2: `s[i]` own is `{value: char_at(i),
+                    // writable: false, enumerable: true, configurable:
+                    // false}` for in-range `i`. Only canonical decimal-
+                    // integer string keys ("0".."N" w/o leading zero
+                    // except literal "0") take the fast path; other
+                    // shapes fall through to the general path (which
+                    // spec-correctly returns undefined for missing keys).
+                    fn is_canonical_index_key(k: &str) -> bool {
+                        let bytes = k.as_bytes();
+                        if bytes.is_empty() || bytes.len() > 20 {
+                            return false;
+                        }
+                        if bytes == b"0" {
+                            return true;
+                        }
+                        if bytes[0] == b'0' {
+                            return false;
+                        }
+                        bytes.iter().all(|&b| b.is_ascii_digit())
+                    }
+                    if matches!(obj_ty, Type::Str)
+                        && let Expr::String(k) = self.ast.get_expr(args[1])
+                        && is_canonical_index_key(k)
+                        && let Ok(idx) = k.parse::<i64>()
+                    {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.str_index_descriptor,
+                                vec![obj_raw, Operand::ConstI64(idx)],
+                            ),
                             Type::Any,
                             None,
                         );
