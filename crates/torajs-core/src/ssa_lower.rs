@@ -29,8 +29,8 @@ use crate::ast::{self, Ast, BinOp as AstBinOp, Expr, ExprId, Param, Stmt};
 use crate::check::{self as check_mod, GenericCallSites, type_to_ann};
 use crate::short_str_encode::encode_short_str_literal;
 use crate::ssa::{
-    self, BinOp as SsaBinOp, BlockId, FPred, FuncId, IPred, InstKind, Module, Operand, Terminator,
-    Type, ValueId,
+    self, BinOp as SsaBinOp, BlockId, FPred, FnNameEntry, FuncId, IPred, InstKind, Module, Operand,
+    Terminator, Type, ValueId,
 };
 use crate::ssa_lower_body_returns_closure::body_returns_closure;
 use crate::ssa_lower_closure_captures::collect_closure_captures_in_stmt;
@@ -5612,6 +5612,32 @@ fn lower_inner(
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
                 module.strings.push(s);
+            }
+            // Fn-name registry Step 2 — record the (FuncId, name)
+            // pair for the link-time __torajs_fn_name_table emit
+            // (Step 3) + the runtime __torajs_fn_print_inline binary
+            // search (Step 4). Skip the desugared class-method
+            // mangled forms (`__cm_<C>__<m>`, `__dispatch_<m>`,
+            // `__new_<C>`) — bun reports the user-visible method
+            // name on those, not the mangled name, and we get
+            // there in Step 5's wire by stripping the prefix when
+            // emitting. Skip generic-mono specialized names too
+            // (`<fn>__<typeargs>__<idx>`) — they share the source
+            // fn's user-visible name; the entry already exists for
+            // the generic form. Closure-lifted bodies
+            // (`__closure_*`) are anonymous from the user's point
+            // of view; runtime falls back to
+            // `[Function (anonymous)]` if no entry is found.
+            if !name.starts_with("__cm_")
+                && !name.starts_with("__dispatch_")
+                && !name.starts_with("__new_")
+                && !name.starts_with("__closure_")
+                && !name.contains("__mono_")
+            {
+                module.fn_name_globals.push(FnNameEntry {
+                    fn_id: fid,
+                    name: name.clone(),
+                });
             }
         }
     }

@@ -28,7 +28,7 @@ mod module_methods;
 mod op_impls;
 
 pub use module_methods::{
-    ClassLayoutMeta, DataGlobal, Module, StringLiteral, VtableGlobal, demo_fib40,
+    ClassLayoutMeta, DataGlobal, FnNameEntry, Module, StringLiteral, VtableGlobal, demo_fib40,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
