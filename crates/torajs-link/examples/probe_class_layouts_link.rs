@@ -88,6 +88,7 @@ fn main() {
             child_offsets: vec![42],
         }],
         force_emit_class_layouts_globals: false,
+        fn_name_globals: Vec::new(),
     };
 
     match link_to_exec_with_archives(&cfg) {

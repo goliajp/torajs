@@ -92,6 +92,14 @@ pub struct LinkConfig {
     /// class_layouts syms even on class-free programs. `tr build` sets
     /// this because it pulls libtorajs_cycle.a; probes default `false`.
     pub force_emit_class_layouts_globals: bool,
+    /// Fn-name registry Phase 2 Step 3b.2 — `ssa::Module.fn_name_globals`
+    /// materialized as the `__torajs_fn_name_table[]` rodata global
+    /// per `fn_name_table_layout.rs`. Each entry pairs a fn body's
+    /// `__torajs_fn_<fid>` alias with its name's
+    /// `__user_string_<sid>` alias so the link-time chain-fixup
+    /// pipeline can resolve both into final vaddrs. Empty default
+    /// keeps pre-Phase-2 byte streams unchanged.
+    pub fn_name_globals: Vec<UserFnNameEntry>,
 }
 
 /// SD-4c-prereq+e7 — one `[N x ptr]` vtable. `sym` is what codegen's
@@ -101,6 +109,31 @@ pub struct LinkConfig {
 pub struct UserVtableEntry {
     pub sym: String,
     pub slot_syms: Vec<Option<String>>,
+}
+
+/// Fn-name registry Phase 2 Step 3b.2 — one row of the
+/// `__torajs_fn_name_table[]` rodata array. The link layer pairs
+/// each fn body with its source-text name so the runtime
+/// `__torajs_fn_print_inline` can binary-search a fn_addr into a
+/// `[Function: <name>]` print.
+///
+/// `fn_addr_sym` is `__torajs_fn_<fid>` — the same alias
+/// `register_fn_addr_syms` materializes from `fn_vaddrs`. Resolves
+/// to the user fn's body vaddr at link time.
+///
+/// `name_ptr_sym` is `__user_string_<sid>` — the alias
+/// `apply_user_string_overrides` registers for an interned string
+/// literal in `__TEXT,__cstring`. Resolves to the Str cell's
+/// payload vaddr.
+///
+/// `name_len` is the source-text code-unit count per ES
+/// `String.length` — written as a literal `u32` next to the two
+/// chain-fixup-encoded `u64`s in the rodata entry.
+#[derive(Debug, Clone)]
+pub struct UserFnNameEntry {
+    pub fn_addr_sym: String,
+    pub name_ptr_sym: String,
+    pub name_len: u32,
 }
 
 /// e8 — per-class `child_offsets` for the cycle collector (T-26.C);
@@ -505,6 +538,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let layout = compute_layout(&cfg);
 
@@ -560,6 +594,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         let layout = compute_layout(&cfg);
@@ -580,6 +615,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // mach_header_64.filetype @ offset 12..16
@@ -609,6 +645,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // The first 16 bytes after the page boundary should match
@@ -636,6 +673,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 
@@ -760,6 +798,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 

@@ -578,6 +578,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         let base = crate::exec::compute_layout(&cfg);
@@ -622,6 +623,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 1);
@@ -681,6 +683,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 3);
@@ -721,6 +724,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -783,6 +787,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -820,6 +825,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         match err {
@@ -850,6 +856,7 @@ mod tests {
             vtable_globals: Vec::new(),
             class_layouts: Vec::new(),
             force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         assert!(matches!(

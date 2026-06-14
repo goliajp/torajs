@@ -5627,10 +5627,10 @@ fn lower_inner(
             for s in new_strings {
                 module.strings.push(s);
             }
-            // Fn-name registry Step 2 — record the (FuncId, name)
-            // pair for the link-time __torajs_fn_name_table emit
-            // (Step 3) + the runtime __torajs_fn_print_inline binary
-            // search (Step 4). Skip the desugared class-method
+            // Fn-name registry Step 2 — record the (FuncId, name,
+            // name_sid) triple for the link-time __torajs_fn_name_table
+            // emit (Step 3) + the runtime __torajs_fn_print_inline
+            // binary search (Step 4). Skip the desugared class-method
             // mangled forms (`__cm_<C>__<m>`, `__dispatch_<m>`,
             // `__new_<C>`) — bun reports the user-visible method
             // name on those, not the mangled name, and we get
@@ -5648,9 +5648,18 @@ fn lower_inner(
                 && !name.starts_with("__closure_")
                 && !name.contains("__mono_")
             {
+                // Intern the name as a Module-level string literal so
+                // the link layer can resolve `__user_string_<sid>` to
+                // the rodata cstring entry. encode_from_str picks
+                // Latin-1 / UTF-16 to match the upstream string-literal
+                // encoding contract (TS allows non-ASCII fn names).
+                let lit = ssa::StringLiteral::encode_from_str(name);
+                let name_sid = ssa::StringId(module.strings.len() as u32);
+                module.strings.push(lit);
                 module.fn_name_globals.push(FnNameEntry {
                     fn_id: fid,
                     name: name.clone(),
+                    name_sid,
                 });
             }
         }

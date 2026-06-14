@@ -102,6 +102,7 @@ fn main() {
         vtable_globals: Vec::new(),
         class_layouts: Vec::new(),
         force_emit_class_layouts_globals: false,
+        fn_name_globals: Vec::new(),
     };
 
     match link_to_exec_with_archives(&cfg) {

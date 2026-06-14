@@ -86,6 +86,11 @@ pub struct FnNameEntry {
     /// binding name `"f"`; anonymous closures don't get an entry
     /// (runtime falls back to `[Function (anonymous)]`).
     pub name: String,
+    /// String table id where the name's raw byte payload lives —
+    /// `Module::strings[name_sid.0]`. The link layer turns this into
+    /// the `__user_string_<sid>` alias for the rodata table's
+    /// name_ptr chain-fixup target.
+    pub name_sid: StringId,
 }
 
 #[derive(Debug, Clone)]
