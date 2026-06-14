@@ -91,6 +91,10 @@ unsafe extern "C" {
     // rc_dec's the temporary Str to balance allocation.
     fn __torajs_date_to_iso_string(d_ptr: *const c_void) -> *mut u8;
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
+    // Commit 6 — RegExp wire. Emits `/source/flags` directly via
+    // the shared stdout writer (no fresh-Str alloc, no rc_dec
+    // dance). Same put_byte family this module uses.
+    fn __torajs_regex_print_inline(re_ptr: *const c_void);
 }
 
 /// Mirror of `torajs_str::substr::FLAG_SUBSTR_VIEW` (bit 10 of
@@ -432,6 +436,13 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
                 unsafe { __torajs_rc_dec(iso as *mut c_void) };
             }
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::RegExp as u16 {
+            // Commit 6 — RegExp wire. Bun prints RegExp values as
+            // `/source/flags` (unquoted, both top-level and nested,
+            // unlike Str which gains `"..."` inside arr / obj).
+            // SAFETY: RegExp layout per torajs-regex::regex.
+            unsafe { __torajs_regex_print_inline(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else {
             write_line(b"[object]\n");
         }
@@ -577,6 +588,11 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
                 unsafe { put_str_cell_inline(iso as *const c_void) };
                 unsafe { __torajs_rc_dec(iso as *mut c_void) };
             }
+        } else if tag == Tag::RegExp as u16 {
+            // Commit 6 — nested RegExp prints unquoted same as
+            // top-level (bun: `[ /abc/g ]` not `[ "/abc/g" ]`).
+            // SAFETY: RegExp layout per torajs-regex::regex.
+            unsafe { __torajs_regex_print_inline(child) };
         } else {
             // All other composite / typed-receiver tags
             // (Tag::Obj / Tag::Closure / Tag::Symbol / Tag::BigInt /

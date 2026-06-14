@@ -24,6 +24,7 @@ pub mod compile;
 pub mod lifecycle;
 pub mod match_all;
 pub mod match_op;
+pub mod print;
 pub mod replace;
 pub mod replace_fn;
 pub mod replace_fn_dispatch;
