@@ -5904,14 +5904,27 @@ fn lower_inner(
             };
             let layout = &module.struct_layouts[sid];
             let mut child_offsets: Vec<u32> = Vec::new();
-            for (i, (_, fty)) in layout.iter().enumerate() {
+            let mut field_metadata: Vec<ssa::FieldMetaSpec> = Vec::new();
+            for (i, (fname, fty)) in layout.iter().enumerate() {
+                let off = OBJ_HEADER_SIZE as u32 + (i as u32) * 8;
                 if fty.is_refcounted() {
-                    child_offsets.push(OBJ_HEADER_SIZE as u32 + (i as u32) * 8);
+                    child_offsets.push(off);
                 }
+                // W-J Phase A3: per-field metadata for the reflection
+                // consumers (Phase B `gOPD` struct cell arm / Phase C
+                // `Object.keys`/`values`/`entries` / Phase D
+                // `inspect.rs` Tag::Obj walker). Carried through to
+                // Phase A3b's `.__class_fields_<i>` rodata emit.
+                field_metadata.push(ssa::FieldMetaSpec {
+                    name: fname.clone(),
+                    offset: off,
+                    type_tag: ssa::field_type_tag_of(*fty),
+                });
             }
             module.class_layouts.push(ssa::ClassLayoutMeta {
                 class_name: (*cname).clone(),
                 child_offsets,
+                field_metadata,
             });
         }
     }
@@ -5945,14 +5958,26 @@ fn lower_inner(
                 continue;
             }
             let mut child_offsets: Vec<u32> = Vec::new();
-            for (i, (_, fty)) in layout.iter().enumerate() {
+            let mut field_metadata: Vec<ssa::FieldMetaSpec> = Vec::new();
+            for (i, (fname, fty)) in layout.iter().enumerate() {
+                let off = OBJ_HEADER_SIZE as u32 + (i as u32) * 8;
                 if fty.is_refcounted() {
-                    child_offsets.push(OBJ_HEADER_SIZE as u32 + (i as u32) * 8);
+                    child_offsets.push(off);
                 }
+                // W-J Phase A3 — same per-field metadata population
+                // as the named-class branch above. Anonymous structs
+                // share the reflection consumer surface (`{a:1}` as
+                // `gOPD` target, `Object.keys({a:1})` etc.).
+                field_metadata.push(ssa::FieldMetaSpec {
+                    name: fname.clone(),
+                    offset: off,
+                    type_tag: ssa::field_type_tag_of(*fty),
+                });
             }
             module.class_layouts.push(ssa::ClassLayoutMeta {
                 class_name: format!("__anon_struct_{sid_idx}"),
                 child_offsets,
+                field_metadata,
             });
         }
     }

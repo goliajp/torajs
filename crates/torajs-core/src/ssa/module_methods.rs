@@ -281,6 +281,30 @@ mod string_literal_tests {
     }
 }
 
+/// W-J Phase A3 (RFC 20260614-w-j-struct-reflect §3 A3) — per-field
+/// metadata for the reflection consumers (Phase B `gOPD` struct cell
+/// arm / Phase C `Object.keys`/`values`/`entries` / Phase D
+/// `inspect.rs` Tag::Obj walker). Carried by `ClassLayoutMeta` and
+/// later lowered by the link layer into a per-class
+/// `.__class_fields_<i>` rodata array (Phase A3b — emit substrate +
+/// chain-fixup wiring is a separate chunk).
+///
+/// `type_tag` is a coarse [`Type`] discriminator (Any / I64 / F64 /
+/// Bool / Str / Substr / Arr / Obj / Closure / Map / Set / Date /
+/// RegExp / Promise / Symbol / BigInt / Ptr / …). 8-bit fits the
+/// current ~24 variants per RFC §6 R3; future refinement (Arr<I64>
+/// vs Arr<Str> precision) can either widen to 16-bit or fall back
+/// to a tag-walker second lookup.
+#[derive(Debug, Clone)]
+pub struct FieldMetaSpec {
+    /// Field name as it appears in the struct literal / class decl.
+    pub name: String,
+    /// Byte offset within the instance (`OBJ_HEADER_SIZE + i*8`).
+    pub offset: u32,
+    /// Coarse type discriminator; see [`field_type_tag_of`].
+    pub type_tag: u8,
+}
+
 #[derive(Debug, Clone)]
 pub struct ClassLayoutMeta {
     /// Class name (informational; useful for naming a per-class
@@ -291,6 +315,48 @@ pub struct ClassLayoutMeta {
     /// the cycle collector's per-tag visitor to enumerate children
     /// during mark/scan/collect.
     pub child_offsets: Vec<u32>,
+    /// W-J Phase A3 — per-field name + offset + type_tag for the
+    /// reflection consumers. Populated in `ssa_lower` at every
+    /// `ClassLayoutMeta::push` site (named class + anonymous
+    /// ObjectLit). Empty Vec means no metadata available; Phase A3b
+    /// will turn this into a `__torajs_class_layouts` entry's
+    /// `field_metadata_ptr` slot via per-class rodata emit.
+    pub field_metadata: Vec<FieldMetaSpec>,
+}
+
+/// W-J Phase A3 — coarse `Type` → 8-bit `type_tag` for [`FieldMetaSpec`].
+/// Discriminator values are kept stable across builds so the link layer
+/// + runtime helper can decode in lockstep. Unknown variants fold to
+/// `0` (Any) — reflection sees them as opaque NaN-box cells and the
+/// downstream consumer can do its own second-lookup via the heap
+/// header's `type_tag` if it needs precision.
+pub fn field_type_tag_of(ty: super::Type) -> u8 {
+    use super::Type;
+    match ty {
+        Type::Any => 0,
+        Type::I32 | Type::I64 => 1,
+        Type::F64 => 2,
+        Type::Bool => 3,
+        Type::Str => 4,
+        Type::Substr => 5,
+        Type::Arr(_) => 6,
+        Type::Obj(_) => 7,
+        Type::Closure(_) => 8,
+        Type::Map => 9,
+        Type::Set => 10,
+        Type::Date => 11,
+        Type::RegExp => 12,
+        Type::Promise => 13,
+        Type::Symbol => 14,
+        Type::BigInt => 15,
+        Type::WeakRef => 16,
+        Type::WeakMap => 17,
+        Type::WeakSet => 18,
+        Type::MapIter => 19,
+        Type::ArrIter => 20,
+        Type::Ptr => 21,
+        _ => 0,
+    }
 }
 
 #[derive(Debug, Clone)]
