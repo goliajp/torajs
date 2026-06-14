@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T04:31:09.590Z",
+  "generatedAt": "2026-06-14T04:45:07.362Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "f5330e6e",
-    "commitSubject": "fix: print_anyv dispatches Substr via FLAG_SUBSTR_VIEW bit 10",
+    "commit": "d3432a67",
+    "commitSubject": "feat: W-N-d Object.getOwnPropertyNames(str) returns indexed strs + length",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "d3432a67",
+      "subject": "feat: W-N-d Object.getOwnPropertyNames(str) returns indexed strs + length"
+    },
+    {
+      "hash": "a156c85a",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - session 107 rotate (substr-print fix ship: FLAG_SUBSTR_VIEW bit 10 dispatches Substr in print_anyv, gate 802 → 803/0/4)"
+    },
+    {
       "hash": "f5330e6e",
       "subject": "fix: print_anyv dispatches Substr via FLAG_SUBSTR_VIEW bit 10"
     },
@@ -657,35 +665,38 @@
     {
       "hash": "894e2e53",
       "subject": "chore(hardev/web): refresh dashboard snapshot - session 103 rotate (2 fixture-only commit ship: getOwnPropertyDescriptor primitive + real-object missing-key parity), gate 795 → expect 797 (2 fixture-only ungated)"
-    },
-    {
-      "hash": "a47c74e2",
-      "subject": "test(conformance): W-H Object.getOwnPropertyDescriptor real-object missing-key returns undefined"
-    },
-    {
-      "hash": "4d49d065",
-      "subject": "test(conformance): W-G Object.getOwnPropertyDescriptor primitive missing-key returns undefined"
     }
   ],
-  "headSha": "f5330e6e",
+  "headSha": "d3432a67",
   "autorun": {
-    "total": 154,
+    "total": 155,
     "baselineTarget": 10,
-    "bySelf": 150,
+    "bySelf": 151,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781410328-4371",
-      "at": "2026-06-14T04:12:08Z",
-      "ts": 1781410328,
+      "rotationId": "r-1781411569-0c49",
+      "at": "2026-06-14T04:32:49Z",
+      "ts": 1781411569,
       "trigger": "self",
-      "prevHead": "2047a700",
-      "handoffSha": "sha256:d962eeac5c701fedcd14701ff9bac9bb9b167f68ea6fe5f0a21183497b663f1f",
+      "prevHead": "a156c85a",
+      "handoffSha": "sha256:46fb0b20e10561addd392b9e570b48088baabfefc932d8fc6d1478f151fd1db3",
       "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781411569-0c49",
+        "at": "2026-06-14T04:32:49Z",
+        "ts": 1781411569,
+        "trigger": "self",
+        "prevHead": "a156c85a",
+        "handoffSha": "sha256:46fb0b20e10561addd392b9e570b48088baabfefc932d8fc6d1478f151fd1db3",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781410328-4371",
         "at": "2026-06-14T04:12:08Z",
@@ -782,17 +793,6 @@
         "prevHead": "b1cebb07",
         "handoffSha": "sha256:c31cf0a447e4dabeb41d19d9009fa04374fd2ab201446fe8578b0e7d47f73e46",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781392314-0a7d",
-        "at": "2026-06-13T23:11:54Z",
-        "ts": 1781392314,
-        "trigger": "self",
-        "prevHead": "e953d092",
-        "handoffSha": "sha256:b86b45aaf537accbd6d03176cbe8a708ab0b8db059165ad7a36beb25d6773691",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
