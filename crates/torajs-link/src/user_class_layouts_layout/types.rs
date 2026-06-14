@@ -1,4 +1,4 @@
-//! W-J A3b prep — types + ABI consts for the class-layouts region.
+//! W-J A3b — types + ABI consts for the class-layouts region.
 //! See parent module doc (`user_class_layouts_layout.rs`) for the
 //! per-block layout diagram.
 
@@ -12,48 +12,99 @@ pub const CLASS_LAYOUTS_SYM: &str = "___torajs_class_layouts";
 pub const N_CLASS_LAYOUTS_SYM: &str = "___torajs_n_class_layouts";
 
 /// On-disk size of one outer-table entry. W-J Phase A2 extended
-/// 16 → 24 to carry a reserved `field_metadata` ptr slot (NULL until
-/// Phase A3 fills it). Must stay in lockstep with
-/// `torajs_cycle::layout::ClassLayout`'s `size_of` (24B, asserted in
-/// that crate's `class_layout_struct` test).
+/// 16 → 24 to carry a reserved `field_metadata_ptr` slot. W-J Phase
+/// A3b populates that slot with the vaddr of the per-class
+/// `.__class_fields_<i>` inner global (or NULL when the class has
+/// no field metadata).
 ///   `u32 n_children` (4) + 4-byte pad + `ptr child_offsets` (8) +
 ///   `ptr field_metadata` (8) = 24
 pub(super) const OUTER_ENTRY_SIZE: u32 = 24;
-/// Outer-table entry alignment — derived from the `ptr` field's
-/// 8-byte alignment requirement. Matches LLVM's struct layout for
-/// `{ i32, ptr }` packed=false.
+/// Outer-table entry alignment.
 pub(super) const OUTER_ENTRY_ALIGN: u32 = 8;
-/// Inner-array element size — `i32`.
+/// Inner child_offsets array element size — `i32`.
 pub(super) const INNER_ELEM_SIZE: u32 = 4;
-/// Inner-array element alignment — `i32`.
+/// Inner child_offsets array element alignment.
 pub(super) const INNER_ELEM_ALIGN: u32 = 4;
+/// W-J A3b — inner FieldMeta array header size (`u32 n_fields` +
+/// `u32 _pad`). Sits at the top of every non-empty
+/// `.__class_fields_<i>` global so the runtime helper can read N
+/// before walking the body.
+pub(super) const INNER_FIELD_META_HEADER_SIZE: u32 = 8;
+/// W-J A3b — on-disk size of one FieldMeta entry:
+///   `ptr name (8)` + `u32 name_len (4)` + `u32 field_byte_offset (4)`
+///   + `u8 type_tag (1)` + `u8[7] pad (7)` = 24 bytes.
+pub(super) const INNER_FIELD_META_ELEM_SIZE: u32 = 24;
+/// W-J A3b — alignment of the inner FieldMeta global (header + body).
+pub(super) const INNER_FIELD_META_ALIGN: u32 = 8;
+/// W-J A3b — byte offset of `name_ptr` inside one FieldMeta entry.
+pub(super) const FIELD_META_NAME_PTR_OFFSET_IN_ELEM: u32 = 0;
+/// W-J A3b — byte offset of `name_len` inside one FieldMeta entry.
+pub(super) const FIELD_META_NAME_LEN_OFFSET_IN_ELEM: u32 = 8;
+/// W-J A3b — byte offset of `field_byte_offset` inside one FieldMeta entry.
+pub(super) const FIELD_META_FIELD_OFFSET_OFFSET_IN_ELEM: u32 = 12;
+/// W-J A3b — byte offset of `type_tag` inside one FieldMeta entry.
+pub(super) const FIELD_META_TYPE_TAG_OFFSET_IN_ELEM: u32 = 16;
 /// Count global on-disk size — `u32`.
 pub(super) const COUNT_SIZE: u32 = 4;
 /// Count global alignment — `u32`.
 pub(super) const COUNT_ALIGN: u32 = 4;
-/// Outer-entry byte offset where the inner-ptr field lives
+/// Outer-entry byte offset where the `child_offsets_ptr` field lives
 /// (4 bytes `n_children` + 4 bytes padding).
-pub(super) const OUTER_PTR_OFFSET_IN_ENTRY: u32 = 8;
+pub(super) const OUTER_CHILD_OFFSETS_PTR_OFFSET_IN_ENTRY: u32 = 8;
+/// W-J A3b — outer-entry byte offset where the `field_metadata_ptr`
+/// field lives (after child_offsets_ptr).
+pub(super) const OUTER_FIELD_META_PTR_OFFSET_IN_ENTRY: u32 = 16;
 
-/// Per-entry placement — both the inner `.__class_offsets_<i>` global
-/// (if `child_offsets` is non-empty) and the outer-table slot.
+/// W-J A3b — placement record for one per-field name byte string and
+/// its FieldMeta descriptor. Both live in the inner globals region; the
+/// FieldMeta's `name_ptr` slot points at `name_vaddr` (rebased at load
+/// time via a chained-fixup rebase target).
+#[derive(Debug, Clone)]
+pub struct UserFieldMetaPlacement {
+    /// UTF-8 bytes of the field name (no NUL terminator) — copied at
+    /// layout time so `build_user_class_layouts_payload` can splice
+    /// them into the inner globals region without re-reading the
+    /// caller's `UserClassLayoutEntry`.
+    pub name_bytes: Vec<u8>,
+    /// Absolute vaddr of `.__class_field_name_<i>_<j>` (used as the
+    /// chained-fixup rebase target for the FieldMeta's `name_ptr` slot).
+    pub name_vaddr: u64,
+    /// File offset of `.__class_field_name_<i>_<j>`.
+    pub name_file_offset: u32,
+    /// Byte offset within the instance (= `OBJ_HEADER_SIZE + i*8`).
+    pub field_byte_offset: u32,
+    /// Coarse 8-bit Type discriminator (`ssa::field_type_tag_of`).
+    pub type_tag: u8,
+}
+
+/// Per-entry placement — inner child_offsets global, per-field name
+/// strings + FieldMeta inner global, and the outer-table slot.
 #[derive(Debug, Clone)]
 pub struct UserClassLayoutEntryLayout {
-    /// Number of refcounted-pointer fields the entry advertises.
-    /// Mirrors `child_offsets.len()`; cached for the build pass.
+    /// Number of refcounted-pointer fields the entry advertises
+    /// (= `child_offsets.len()` — cycle collector consumer).
     pub n_children: u32,
     /// Cloned offsets for the build pass — written little-endian
-    /// into the inner global.
+    /// into `.__class_offsets_<i>`.
     pub child_offsets: Vec<u32>,
-    /// `None` when `child_offsets` is empty: no inner global is
-    /// allocated and the outer slot packs `(0, NULL)`. `Some(vaddr)`
-    /// is the absolute vaddr of `.__class_offsets_<i>`.
+    /// `None` when `child_offsets` is empty: no `.__class_offsets_<i>`
+    /// global allocated and the outer slot packs `child_offsets_ptr = 0`.
+    /// `Some(vaddr)` is the absolute vaddr of `.__class_offsets_<i>`.
     pub inner_vaddr: Option<u64>,
-    /// File offset of the inner global (or `0` when no inner is
+    /// File offset of `.__class_offsets_<i>` (or `0` when no inner is
     /// emitted — caller never indexes it in that case).
     pub inner_file_offset: u32,
-    /// Outer-table entry vaddr (= `outer_vaddr + i * 16`). Inner ptr
-    /// slot lives at `entry_vaddr + OUTER_PTR_OFFSET_IN_ENTRY`.
+    /// W-J A3b — per-field name + offset + type_tag placement. Empty
+    /// Vec means the class has no field metadata; no
+    /// `.__class_fields_<i>` global is emitted and the outer entry's
+    /// `field_metadata_ptr` slot stays NULL.
+    pub field_metadata: Vec<UserFieldMetaPlacement>,
+    /// W-J A3b — vaddr of the per-class FieldMeta array
+    /// `.__class_fields_<i>` (header + body). `None` ↔ `field_metadata.is_empty()`.
+    pub field_meta_array_vaddr: Option<u64>,
+    /// W-J A3b — file offset of `.__class_fields_<i>`.
+    pub field_meta_array_file_offset: u32,
+    /// Outer-table entry vaddr (= `outer_vaddr + i * OUTER_ENTRY_SIZE`).
     pub entry_vaddr: u64,
     /// Outer-table entry file offset.
     pub entry_file_offset: u32,
@@ -66,8 +117,7 @@ pub struct UserClassLayoutsLayout {
     /// Region's first byte file offset (= leading-pad start, before
     /// any inner globals).
     pub file_offset: u32,
-    /// Region's first byte vaddr (matches `file_offset` after the
-    /// caller-supplied `vaddr_base` translation).
+    /// Region's first byte vaddr.
     pub vaddr: u64,
     /// `__torajs_class_layouts` outer-table vaddr (= sym vaddr for
     /// `apply_user_class_layouts_overrides`).
@@ -78,8 +128,8 @@ pub struct UserClassLayoutsLayout {
     pub count_vaddr: u64,
     /// `__torajs_n_class_layouts` count global file offset.
     pub count_file_offset: u32,
-    /// Total cumulative byte size = leading pad + inner globals +
-    /// outer/count alignment pads + outer table + count u32. Caller
-    /// adds this to the segment cursor.
+    /// Total cumulative byte size = leading pad + inner globals
+    /// (child_offsets + field name strings + field meta arrays) +
+    /// outer/count alignment pads + outer table + count u32.
     pub total_size: u32,
 }

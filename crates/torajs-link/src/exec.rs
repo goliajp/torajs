@@ -144,12 +144,33 @@ pub struct UserFnNameEntry {
     pub name_len: u32,
 }
 
-/// e8 — per-class `child_offsets` for the cycle collector (T-26.C);
-/// mirrors `ssa::ClassLayoutMeta` minus `class_name`.
+/// e8 + W-J A3b — per-class `child_offsets` for the cycle collector
+/// (T-26.C) + per-field name/offset/type_tag metadata for the reflection
+/// consumers (Phase B gOPD struct arm / Phase C Object.keys/values/entries
+/// / Phase D inspect.rs Tag::Obj walker). Mirrors `ssa::ClassLayoutMeta`
+/// minus `class_name`.
 #[derive(Debug, Clone)]
 pub struct UserClassLayoutEntry {
     /// Byte offsets of refcounted heap-ptr fields (post `OBJ_HEADER_SIZE`).
     pub child_offsets: Vec<u32>,
+    /// W-J A3b — per-field metadata (one entry per struct field, in
+    /// declaration order). Empty Vec means no metadata available; the
+    /// outer entry's `field_metadata_ptr` slot stays NULL and the
+    /// reflection helper short-circuits.
+    pub fields: Vec<UserFieldMetaEntry>,
+}
+
+/// W-J A3b — one per-field metadata row carried into the link layer.
+/// Mirrors `ssa::FieldMetaSpec`; lowered into the per-class
+/// `.__class_fields_<i>` inner global at link time.
+#[derive(Debug, Clone)]
+pub struct UserFieldMetaEntry {
+    /// Field name as it appears in the struct literal / class decl.
+    pub name: String,
+    /// Byte offset within the instance (= `OBJ_HEADER_SIZE + i*8`).
+    pub offset: u32,
+    /// Coarse 8-bit `Type` discriminator (`ssa::field_type_tag_of`).
+    pub type_tag: u8,
 }
 
 /// e4 — user-binary top-level mutable global slot. `__DATA,__bss`

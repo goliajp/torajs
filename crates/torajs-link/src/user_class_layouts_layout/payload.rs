@@ -1,76 +1,135 @@
-//! Byte payload emit — inner globals, outer-table entries, count.
+//! Byte payload emit — inner region (child_offsets globals + per-field
+//! name strings + per-class FieldMeta arrays) + outer table + count.
+//!
+//! `class_layouts_link_values` is the chained-fixup link value slice
+//! the e7b pipeline produced for this region's rebase targets. The
+//! consumption order MUST match `compute_class_layouts_rebase_targets`:
+//!   1. Per-class FieldMeta `name_ptr` slots (one LV per field, across
+//!      all classes in entry-major order).
+//!   2. Per-class outer-entry slots, in entry-major order: at most one
+//!      `child_offsets_ptr` LV and one `field_metadata_ptr` LV per entry,
+//!      skipped when the corresponding inner global is absent.
 
-use super::types::UserClassLayoutsLayout;
+use super::types::{
+    FIELD_META_FIELD_OFFSET_OFFSET_IN_ELEM, FIELD_META_NAME_LEN_OFFSET_IN_ELEM,
+    FIELD_META_NAME_PTR_OFFSET_IN_ELEM, FIELD_META_TYPE_TAG_OFFSET_IN_ELEM,
+    INNER_FIELD_META_ELEM_SIZE, UserClassLayoutsLayout,
+};
 
-/// Build the contiguous byte payload: inner globals, leading pad,
-/// outer-table entries (each filled from `outer_inner_link_values`
-/// for entries with a `Some(inner_vaddr)`; `None` entries pack
-/// `(0, NULL)`), trailing pad, then the count u32. `outer_inner_link_values`
-/// carries one entry per non-empty `child_offsets` — the chained-fixup
-/// link value the e7b path produces for each inner-ptr rebase target.
-///
-/// Returns a buffer of exactly `layout.total_size` bytes. The caller
-/// splices it into `__DATA_CONST` at `layout.file_offset`.
 pub fn build_user_class_layouts_payload(
     layout: &UserClassLayoutsLayout,
-    outer_inner_link_values: &[u64],
+    class_layouts_link_values: &[u64],
 ) -> Vec<u8> {
     let mut buf: Vec<u8> = Vec::with_capacity(layout.total_size as usize);
     if layout.total_size == 0 {
-        debug_assert!(outer_inner_link_values.is_empty());
+        debug_assert!(class_layouts_link_values.is_empty());
         return buf;
     }
-    // Inner globals — concatenated `[K x i32]` little-endian.
-    for entry in &layout.entries {
-        if entry.inner_vaddr.is_none() {
-            continue;
-        }
-        for &off in &entry.child_offsets {
-            buf.extend_from_slice(&off.to_le_bytes());
-        }
-    }
-    // Pad to outer-table alignment.
-    while buf.len() < (layout.outer_file_offset - layout.file_offset) as usize {
-        buf.push(0);
-    }
-    // Outer table — 24 bytes per entry: u32 n + 4 pad + u64
-    // inner_link_value + u64 field_metadata_link_value. W-J Phase A2:
-    // field_metadata is a NULL stub (Phase A3 will populate it);
-    // since it's NULL there's no chained-fixup rebase target for it
-    // (the rebase target list still has one entry per non-empty
-    // child_offsets — compute_class_layouts_rebase_targets unchanged).
+    let region_start = layout.file_offset;
     let mut link_idx = 0usize;
+
+    // Phase 1: inner region per class.
+    for entry in &layout.entries {
+        // .__class_offsets_<i>
+        if entry.inner_vaddr.is_some() {
+            pad_buf_to(&mut buf, region_start, entry.inner_file_offset);
+            for &off in &entry.child_offsets {
+                buf.extend_from_slice(&off.to_le_bytes());
+            }
+        }
+        // .__class_field_name_<i>_<j>
+        for fm in &entry.field_metadata {
+            pad_buf_to(&mut buf, region_start, fm.name_file_offset);
+            buf.extend_from_slice(&fm.name_bytes);
+        }
+        // .__class_fields_<i> (header + body)
+        if entry.field_meta_array_vaddr.is_some() {
+            pad_buf_to(&mut buf, region_start, entry.field_meta_array_file_offset);
+            // Header: u32 n_fields + u32 _pad.
+            buf.extend_from_slice(&(entry.field_metadata.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&[0u8; 4]);
+            // Body: N x FieldMeta (24B each).
+            for fm in &entry.field_metadata {
+                let elem_start = buf.len();
+                // name_ptr u64 (chain-fixup link value).
+                let lv = take_link_value(class_layouts_link_values, &mut link_idx);
+                buf.extend_from_slice(&lv.to_le_bytes());
+                debug_assert_eq!(
+                    buf.len() - elem_start,
+                    FIELD_META_NAME_LEN_OFFSET_IN_ELEM as usize
+                );
+                // name_len u32.
+                buf.extend_from_slice(&(fm.name_bytes.len() as u32).to_le_bytes());
+                debug_assert_eq!(
+                    buf.len() - elem_start,
+                    FIELD_META_FIELD_OFFSET_OFFSET_IN_ELEM as usize
+                );
+                // field_byte_offset u32.
+                buf.extend_from_slice(&fm.field_byte_offset.to_le_bytes());
+                debug_assert_eq!(
+                    buf.len() - elem_start,
+                    FIELD_META_TYPE_TAG_OFFSET_IN_ELEM as usize
+                );
+                // type_tag u8 + u8[7] pad.
+                buf.push(fm.type_tag);
+                buf.extend_from_slice(&[0u8; 7]);
+                debug_assert_eq!(buf.len() - elem_start, INNER_FIELD_META_ELEM_SIZE as usize);
+                let _ = FIELD_META_NAME_PTR_OFFSET_IN_ELEM; // = 0, asserted by construction
+            }
+        }
+    }
+
+    // Phase 2: outer table.
+    pad_buf_to(&mut buf, region_start, layout.outer_file_offset);
     for entry in &layout.entries {
         buf.extend_from_slice(&entry.n_children.to_le_bytes());
         buf.extend_from_slice(&[0u8; 4]);
-        let link_value: u64 = if entry.inner_vaddr.is_some() {
-            let v = *outer_inner_link_values.get(link_idx).unwrap_or_else(|| {
-                panic!(
-                    "outer_inner_link_values too short — expected at least {} entries, got {}",
-                    link_idx + 1,
-                    outer_inner_link_values.len(),
-                )
-            });
-            link_idx += 1;
-            v
+        let child_offsets_lv: u64 = if entry.inner_vaddr.is_some() {
+            take_link_value(class_layouts_link_values, &mut link_idx)
         } else {
             0
         };
-        buf.extend_from_slice(&link_value.to_le_bytes());
-        // W-J Phase A2: field_metadata_ptr stub (NULL).
-        buf.extend_from_slice(&0u64.to_le_bytes());
+        buf.extend_from_slice(&child_offsets_lv.to_le_bytes());
+        let field_meta_lv: u64 = if entry.field_meta_array_vaddr.is_some() {
+            take_link_value(class_layouts_link_values, &mut link_idx)
+        } else {
+            0
+        };
+        buf.extend_from_slice(&field_meta_lv.to_le_bytes());
     }
     debug_assert_eq!(
         link_idx,
-        outer_inner_link_values.len(),
-        "outer_inner_link_values carries extras the layout did not consume — caller misalignment",
+        class_layouts_link_values.len(),
+        "class_layouts_link_values carries extras the layout did not consume — caller misalignment",
     );
-    // Pad to count alignment.
-    while buf.len() < (layout.count_file_offset - layout.file_offset) as usize {
-        buf.push(0);
-    }
-    // Count u32.
+
+    // Phase 3: count.
+    pad_buf_to(&mut buf, region_start, layout.count_file_offset);
     buf.extend_from_slice(&(layout.entries.len() as u32).to_le_bytes());
+
     debug_assert_eq!(buf.len() as u32, layout.total_size);
     buf
+}
+
+fn pad_buf_to(buf: &mut Vec<u8>, region_start: u32, target_file_offset: u32) {
+    debug_assert!(
+        target_file_offset >= region_start,
+        "target offset {target_file_offset:#x} precedes region start {region_start:#x}",
+    );
+    let target = (target_file_offset - region_start) as usize;
+    while buf.len() < target {
+        buf.push(0);
+    }
+}
+
+fn take_link_value(values: &[u64], idx: &mut usize) -> u64 {
+    let v = *values.get(*idx).unwrap_or_else(|| {
+        panic!(
+            "class_layouts_link_values too short — expected at least {} entries, got {}",
+            *idx + 1,
+            values.len(),
+        )
+    });
+    *idx += 1;
+    v
 }

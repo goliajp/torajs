@@ -86,6 +86,10 @@ fn main() {
         vtable_globals: Vec::new(),
         class_layouts: vec![UserClassLayoutEntry {
             child_offsets: vec![42],
+            // W-J A3b — probe exercises only the child_offsets ptr path
+            // (LDR x2, [x1, #8]); empty fields = NULL field_metadata_ptr,
+            // no inner field-meta global, no extra rebase target.
+            fields: Vec::new(),
         }],
         force_emit_class_layouts_globals: false,
         fn_name_globals: Vec::new(),

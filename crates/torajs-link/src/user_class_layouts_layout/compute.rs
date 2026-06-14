@@ -1,33 +1,24 @@
-//! Per-class placement math — inner globals, outer table, count.
+//! Per-class placement math — inner child_offsets globals + W-J A3b
+//! per-field name strings + per-class FieldMeta array, then outer
+//! table, then count.
 
 use super::types::{
-    COUNT_ALIGN, COUNT_SIZE, INNER_ELEM_ALIGN, INNER_ELEM_SIZE, OUTER_ENTRY_ALIGN,
-    OUTER_ENTRY_SIZE, UserClassLayoutEntryLayout, UserClassLayoutsLayout,
+    COUNT_ALIGN, COUNT_SIZE, INNER_ELEM_ALIGN, INNER_ELEM_SIZE, INNER_FIELD_META_ALIGN,
+    INNER_FIELD_META_ELEM_SIZE, INNER_FIELD_META_HEADER_SIZE, OUTER_ENTRY_ALIGN, OUTER_ENTRY_SIZE,
+    UserClassLayoutEntryLayout, UserClassLayoutsLayout, UserFieldMetaPlacement,
 };
 use crate::exec::UserClassLayoutEntry;
 
 /// Compute placements for the inner globals, outer table, and count
 /// global. Returns an empty layout (no entries, `total_size = 0`) when
 /// `class_layouts` is empty so callers can short-circuit before
-/// touching any segment bytes (mirrors `compute_user_vtables_layout`).
+/// touching any segment bytes.
 pub fn compute_user_class_layouts_layout(
     class_layouts: &[UserClassLayoutEntry],
     cursor: u32,
     vaddr_base: u64,
     force_emit_globals: bool,
 ) -> UserClassLayoutsLayout {
-    // class_layouts empty + force_emit_globals=false → no bytes, no
-    // sym registration. Self-contained probes (no `libtorajs_cycle.a`
-    // dep) take this path and stay byte-identical to the pre-e8
-    // baseline.
-    //
-    // class_layouts empty + force_emit_globals=true → emit a 4-byte
-    // count global (= 0) and register both syms aliased to it; the
-    // empty outer table has zero bytes so `outer_vaddr` sharing the
-    // count slot is safe (runtime reads count first, only walks the
-    // outer table when N > 0). `tr build` takes this path because
-    // every staticlib bundle pulls `libtorajs_cycle.a`, which
-    // unconditionally references these syms.
     if class_layouts.is_empty() && !force_emit_globals {
         return UserClassLayoutsLayout {
             entries: Vec::new(),
@@ -40,43 +31,80 @@ pub fn compute_user_class_layouts_layout(
             total_size: 0,
         };
     }
-    // Inner globals come first — they need 4-byte alignment, which
-    // matches the caller's cursor when the prior region ended on a
-    // 4-aligned boundary (vtables end on an 8-aligned boundary, which
-    // is also 4-aligned).
+
+    // Inner region starts at 4-align (child_offsets's tighter requirement
+    // is 4; per-field FieldMeta array bumps to 8 within the region).
     let align_pad_to_inner = pad_to(cursor, INNER_ELEM_ALIGN);
     let region_file_offset = cursor + align_pad_to_inner;
     let region_vaddr = vaddr_base + u64::from(align_pad_to_inner);
 
     let mut entries: Vec<UserClassLayoutEntryLayout> = Vec::with_capacity(class_layouts.len());
-    let mut cumulative: u32 = 0;
+    // Inner region cursor relative to `region_file_offset` / `region_vaddr`.
+    let mut inner_cursor: u32 = 0;
     for entry in class_layouts {
         let n_children = entry.child_offsets.len() as u32;
-        let (inner_vaddr, inner_file_offset, inner_size) = if entry.child_offsets.is_empty() {
-            (None, 0u32, 0u32)
+        // .__class_offsets_<i>  ([K x i32], 4-align)
+        let (inner_vaddr, inner_file_offset) = if entry.child_offsets.is_empty() {
+            (None, 0u32)
         } else {
-            let inner_file_offset = region_file_offset + cumulative;
-            let inner_vaddr = region_vaddr + u64::from(cumulative);
-            (
-                Some(inner_vaddr),
-                inner_file_offset,
-                n_children * INNER_ELEM_SIZE,
-            )
+            let pad = pad_to(inner_cursor, INNER_ELEM_ALIGN);
+            inner_cursor += pad;
+            let inner_file_offset = region_file_offset + inner_cursor;
+            let inner_vaddr = region_vaddr + u64::from(inner_cursor);
+            inner_cursor += n_children * INNER_ELEM_SIZE;
+            (Some(inner_vaddr), inner_file_offset)
         };
-        cumulative += inner_size;
+
+        // Per-field name byte strings (.__class_field_name_<i>_<j>,
+        // 1-align). Place them before the FieldMeta array so the
+        // array's name_ptr slots have higher file offsets than their
+        // targets (file-byte ascending rebase layout).
+        let mut field_metadata: Vec<UserFieldMetaPlacement> =
+            Vec::with_capacity(entry.fields.len());
+        for fm in &entry.fields {
+            let name_bytes = fm.name.as_bytes().to_vec();
+            let name_byte_len = name_bytes.len() as u32;
+            let name_file_offset = region_file_offset + inner_cursor;
+            let name_vaddr = region_vaddr + u64::from(inner_cursor);
+            inner_cursor += name_byte_len;
+            field_metadata.push(UserFieldMetaPlacement {
+                name_bytes,
+                name_vaddr,
+                name_file_offset,
+                field_byte_offset: fm.offset,
+                type_tag: fm.type_tag,
+            });
+        }
+
+        // .__class_fields_<i>  (header 8B + N x 24B, 8-align).
+        let (field_meta_array_vaddr, field_meta_array_file_offset) = if entry.fields.is_empty() {
+            (None, 0u32)
+        } else {
+            let pad = pad_to(inner_cursor, INNER_FIELD_META_ALIGN);
+            inner_cursor += pad;
+            let array_file_offset = region_file_offset + inner_cursor;
+            let array_vaddr = region_vaddr + u64::from(inner_cursor);
+            inner_cursor += INNER_FIELD_META_HEADER_SIZE
+                + (entry.fields.len() as u32) * INNER_FIELD_META_ELEM_SIZE;
+            (Some(array_vaddr), array_file_offset)
+        };
+
         entries.push(UserClassLayoutEntryLayout {
             n_children,
             child_offsets: entry.child_offsets.clone(),
             inner_vaddr,
             inner_file_offset,
+            field_metadata,
+            field_meta_array_vaddr,
+            field_meta_array_file_offset,
             entry_vaddr: 0, // filled in below once outer placement is known
             entry_file_offset: 0,
         });
     }
 
-    // Outer table — 8-aligned past the inner globals.
-    let inner_end_file_offset = region_file_offset + cumulative;
-    let inner_end_vaddr = region_vaddr + u64::from(cumulative);
+    // Outer table — 8-aligned past the inner region.
+    let inner_end_file_offset = region_file_offset + inner_cursor;
+    let inner_end_vaddr = region_vaddr + u64::from(inner_cursor);
     let outer_align_pad = pad_to(inner_end_file_offset, OUTER_ENTRY_ALIGN);
     let outer_file_offset = inner_end_file_offset + outer_align_pad;
     let outer_vaddr = inner_end_vaddr + u64::from(outer_align_pad);
@@ -113,7 +141,7 @@ pub(super) fn pad_to(cursor: u32, align: u32) -> u32 {
 }
 
 /// Pipeline helper — derive vaddr_base from segment base + cursor and
-/// compute the layout in one call. Mirrors `build_user_vtables_region`.
+/// compute the layout in one call.
 pub fn build_user_class_layouts_region(
     class_layouts: &[UserClassLayoutEntry],
     seg_vmaddr_base: u64,

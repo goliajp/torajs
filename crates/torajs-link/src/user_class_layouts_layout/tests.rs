@@ -2,12 +2,28 @@
 //! re-exported from the parent module.
 
 use super::*;
-use crate::exec::UserClassLayoutEntry;
+use crate::exec::{UserClassLayoutEntry, UserFieldMetaEntry};
 use crate::resolve::SymTable;
 
 fn entry(offsets: &[u32]) -> UserClassLayoutEntry {
     UserClassLayoutEntry {
         child_offsets: offsets.to_vec(),
+        fields: Vec::new(),
+    }
+}
+
+fn fmeta(name: &str, offset: u32, type_tag: u8) -> UserFieldMetaEntry {
+    UserFieldMetaEntry {
+        name: name.into(),
+        offset,
+        type_tag,
+    }
+}
+
+fn entry_with_fields(offsets: &[u32], fields: Vec<UserFieldMetaEntry>) -> UserClassLayoutEntry {
+    UserClassLayoutEntry {
+        child_offsets: offsets.to_vec(),
+        fields,
     }
 }
 
@@ -20,9 +36,6 @@ fn empty_input_zero_total() {
 
 #[test]
 fn empty_input_force_emit_yields_4byte_count_global() {
-    // tr build path — staticlib references the syms even when the
-    // program has no classes; force_emit_globals lands a 4-byte u32
-    // count = 0 + aliases both sym vaddrs to it.
     let layout = compute_user_class_layouts_layout(&[], 0x4000, 0x1_0000_4000, true);
     assert!(layout.entries.is_empty());
     assert_eq!(layout.total_size, 4);
@@ -39,66 +52,59 @@ fn empty_input_force_emit_yields_4byte_count_global() {
 }
 
 #[test]
-fn single_entry_two_offsets() {
-    // 1 entry, 2 child offsets → inner 8 bytes + outer 24 bytes +
-    // count 4 bytes = 36 bytes (W-J Phase A2: was 28 pre-A2 when
-    // OUTER_ENTRY_SIZE was 16). cursor 0x4000 is 8-aligned so no
-    // leading pads needed.
+fn single_entry_two_offsets_no_fields() {
     let class_layouts = [entry(&[24, 32])];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
     assert_eq!(layout.entries.len(), 1);
-    // Inner starts at base.
     assert_eq!(layout.entries[0].inner_file_offset, 0x4000);
     assert_eq!(layout.entries[0].inner_vaddr, Some(0x1_0000_4000));
+    // No fields → no .__class_fields_<i> inner.
+    assert!(layout.entries[0].field_meta_array_vaddr.is_none());
+    assert!(layout.entries[0].field_metadata.is_empty());
     // Outer past 8-byte inner.
     assert_eq!(layout.outer_file_offset, 0x4008);
     assert_eq!(layout.outer_vaddr, 0x1_0000_4008);
-    // Count past 24-byte outer.
     assert_eq!(layout.count_file_offset, 0x4020);
     assert_eq!(layout.count_vaddr, 0x1_0000_4020);
-    // Total = 8 + 24 + 4 = 36.
+    // Total = 8 (inner) + 24 (outer) + 4 (count) = 36.
     assert_eq!(layout.total_size, 36);
 }
 
 #[test]
-fn empty_child_offsets_skips_inner_global() {
-    // 1 entry, 0 child offsets → no inner; outer 24 bytes (n=0,
-    // ptr=0, field_meta=0) + count 4 bytes = 28 bytes (W-J Phase A2:
-    // was 20 pre-A2 with 16B entry).
+fn empty_child_offsets_no_fields_skips_all_inner() {
     let class_layouts = [entry(&[])];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
     assert!(layout.entries[0].inner_vaddr.is_none());
+    assert!(layout.entries[0].field_meta_array_vaddr.is_none());
     assert_eq!(layout.outer_file_offset, 0x4000);
+    // 24 (outer) + 4 (count) = 28.
     assert_eq!(layout.total_size, 28);
 }
 
 #[test]
 fn mixed_empty_and_nonempty_pack_back_to_back() {
-    // Entry 0: 1 offset (inner 4 bytes + pad 4 to outer 8-align)
-    // Entry 1: empty (no inner)
-    // Entry 2: 2 offsets (inner 8 bytes back-to-back after entry 0's 4)
     let class_layouts = [entry(&[16]), entry(&[]), entry(&[32, 40])];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
     assert_eq!(layout.entries[0].inner_file_offset, 0x4000);
     assert_eq!(layout.entries[0].inner_vaddr, Some(0x1_0000_4000));
     assert!(layout.entries[1].inner_vaddr.is_none());
-    // Entry 2 inner sits at 0x4004 (right after entry 0's 4 bytes).
+    // Entry 2 inner sits at 0x4004 (right after entry 0's 4 bytes; entry
+    // 0's child_offsets is 4-aligned already, no pad needed).
     assert_eq!(layout.entries[2].inner_file_offset, 0x4004);
     // Total inner = 4 + 8 = 12 bytes; outer 8-align pad = 4 bytes.
-    // Outer starts at 0x4010.
     assert_eq!(layout.outer_file_offset, 0x4010);
-    // W-J Phase A2: 3 outer entries × 24 = 72 bytes; count at 0x4058.
+    // 3 outer entries × 24 = 72 bytes; count at 0x4058.
     assert_eq!(layout.count_file_offset, 0x4058);
     assert_eq!(layout.total_size, 4 + 8 + 4 + 72 + 4); // 92
 }
 
 #[test]
-fn build_payload_emits_inner_outer_count_in_order() {
+fn build_payload_emits_inner_outer_count_in_order_no_fields() {
     let class_layouts = [entry(&[16, 24])];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
     let link_values = [0xDEAD_BEEFu64];
     let payload = build_user_class_layouts_payload(&layout, &link_values);
-    // W-J Phase A2: 8 inner + 24 outer + 4 count = 36 (was 28).
+    // 8 inner + 24 outer + 4 count = 36.
     assert_eq!(payload.len(), 36);
     // [0..8]   inner [16, 24] LE
     assert_eq!(u32::from_le_bytes(payload[0..4].try_into().unwrap()), 16);
@@ -107,12 +113,12 @@ fn build_payload_emits_inner_outer_count_in_order() {
     assert_eq!(u32::from_le_bytes(payload[8..12].try_into().unwrap()), 2);
     // [12..16] outer entry pad = 0
     assert_eq!(u32::from_le_bytes(payload[12..16].try_into().unwrap()), 0);
-    // [16..24] outer entry inner-ptr = link value
+    // [16..24] outer entry child_offsets_ptr = link value
     assert_eq!(
         u64::from_le_bytes(payload[16..24].try_into().unwrap()),
         0xDEAD_BEEF
     );
-    // W-J Phase A2: [24..32] outer entry field_metadata_ptr = NULL stub
+    // [24..32] outer entry field_metadata_ptr = NULL (no fields)
     assert_eq!(u64::from_le_bytes(payload[24..32].try_into().unwrap()), 0);
     // [32..36] count = 1
     assert_eq!(u32::from_le_bytes(payload[32..36].try_into().unwrap()), 1);
@@ -123,15 +129,11 @@ fn build_payload_zeroes_empty_entry_outer_slot() {
     let class_layouts = [entry(&[])];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
     let payload = build_user_class_layouts_payload(&layout, &[]);
-    // W-J Phase A2: 24 outer + 4 count = 28 (was 20).
+    // 24 outer + 4 count = 28.
     assert_eq!(payload.len(), 28);
-    // outer entry n_children = 0
     assert_eq!(u32::from_le_bytes(payload[0..4].try_into().unwrap()), 0);
-    // outer entry inner-ptr = NULL
     assert_eq!(u64::from_le_bytes(payload[8..16].try_into().unwrap()), 0);
-    // W-J Phase A2: field_metadata_ptr NULL stub
     assert_eq!(u64::from_le_bytes(payload[16..24].try_into().unwrap()), 0);
-    // count = 1
     assert_eq!(u32::from_le_bytes(payload[24..28].try_into().unwrap()), 1);
 }
 
@@ -173,19 +175,199 @@ fn extra_defined_syms_two_when_nonempty_or_force_emit() {
 }
 
 #[test]
-fn rebase_targets_emit_one_per_nonempty_entry() {
+fn rebase_targets_only_child_offsets_when_no_fields() {
     let class_layouts = [entry(&[16]), entry(&[]), entry(&[24, 32])];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
     let targets = compute_class_layouts_rebase_targets(&layout, 0x1_0000_0000, 0x1_0000_0000);
-    // 2 non-empty entries → 2 rebase targets.
+    // 2 non-empty entries → 2 rebase targets (no fields, no name_ptr
+    // rebases, no field_metadata_ptr rebases).
     assert_eq!(targets.len(), 2);
-    // Entry 0 slot vaddr = entry_vaddr + 8 (ptr offset), target =
-    // entry 0's inner_vaddr.
     let entry0_slot_off = (layout.entries[0].entry_vaddr - 0x1_0000_0000) + 8;
     let entry0_target_off = layout.entries[0].inner_vaddr.unwrap() - 0x1_0000_0000;
     assert_eq!(targets[0], (entry0_slot_off, entry0_target_off));
-    // Entry 2 (skipping empty entry 1).
     let entry2_slot_off = (layout.entries[2].entry_vaddr - 0x1_0000_0000) + 8;
     let entry2_target_off = layout.entries[2].inner_vaddr.unwrap() - 0x1_0000_0000;
     assert_eq!(targets[1], (entry2_slot_off, entry2_target_off));
+}
+
+// ---------------- W-J A3b — field metadata tests ----------------
+
+#[test]
+fn single_entry_with_one_field_layout_shape() {
+    // 1 class, 0 child_offsets, 1 field "x" at offset 24, type_tag 1.
+    // Inner region: name string "x" (1B) + pad to 8 (7B) + field_meta
+    //   header (8B) + 1 FieldMeta (24B) = 40B.
+    // Outer: 24B. Count: 4B. Total = 40 + 24 + 4 = 68.
+    let fields = vec![fmeta("x", 24, 1)];
+    let class_layouts = [entry_with_fields(&[], fields)];
+    let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
+    assert_eq!(layout.entries.len(), 1);
+    let e = &layout.entries[0];
+    assert!(e.inner_vaddr.is_none()); // no child_offsets
+    assert_eq!(e.field_metadata.len(), 1);
+    assert_eq!(e.field_metadata[0].name_bytes, b"x");
+    assert_eq!(e.field_metadata[0].name_byte_offset_check(), 0x4000);
+    // Field_meta array sits at 0x4008 (after name+pad).
+    assert_eq!(e.field_meta_array_file_offset, 0x4008);
+    assert_eq!(e.field_meta_array_vaddr, Some(0x1_0000_4008));
+    // Outer past inner = 0x4008 + 8 + 24 = 0x4028.
+    assert_eq!(layout.outer_file_offset, 0x4028);
+    // Count past outer = 0x4028 + 24 = 0x4040.
+    assert_eq!(layout.count_file_offset, 0x4040);
+    assert_eq!(layout.total_size, 40 + 24 + 4);
+}
+
+#[test]
+fn single_entry_with_fields_payload_emits_in_order() {
+    let fields = vec![fmeta("x", 24, 1)];
+    let class_layouts = [entry_with_fields(&[], fields)];
+    let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
+    // Two link values consumed: 1 name_ptr (FieldMeta x.name) + 1
+    // outer field_metadata_ptr (entry.field_meta_array_vaddr). No
+    // child_offsets_ptr (entry has no child_offsets).
+    let lvs = [0xAAAAu64, 0xBBBBu64];
+    let payload = build_user_class_layouts_payload(&layout, &lvs);
+    assert_eq!(payload.len() as u32, layout.total_size);
+    // [0..1]   name "x"
+    assert_eq!(&payload[0..1], b"x");
+    // [1..8]   pad to 8-align before field_meta array
+    assert_eq!(&payload[1..8], &[0u8; 7]);
+    // [8..12]  FieldMeta array header: n_fields = 1
+    assert_eq!(u32::from_le_bytes(payload[8..12].try_into().unwrap()), 1);
+    // [12..16] header pad
+    assert_eq!(u32::from_le_bytes(payload[12..16].try_into().unwrap()), 0);
+    // [16..24] FieldMeta name_ptr = 0xAAAA (LV)
+    assert_eq!(
+        u64::from_le_bytes(payload[16..24].try_into().unwrap()),
+        0xAAAA
+    );
+    // [24..28] FieldMeta name_len = 1
+    assert_eq!(u32::from_le_bytes(payload[24..28].try_into().unwrap()), 1);
+    // [28..32] FieldMeta field_byte_offset = 24
+    assert_eq!(u32::from_le_bytes(payload[28..32].try_into().unwrap()), 24);
+    // [32]     FieldMeta type_tag = 1
+    assert_eq!(payload[32], 1);
+    // [33..40] FieldMeta tail pad
+    assert_eq!(&payload[33..40], &[0u8; 7]);
+    // [40..44] outer entry n_children = 0
+    assert_eq!(u32::from_le_bytes(payload[40..44].try_into().unwrap()), 0);
+    // [44..48] outer entry pad
+    assert_eq!(u32::from_le_bytes(payload[44..48].try_into().unwrap()), 0);
+    // [48..56] outer entry child_offsets_ptr = NULL (no child_offsets)
+    assert_eq!(u64::from_le_bytes(payload[48..56].try_into().unwrap()), 0);
+    // [56..64] outer entry field_metadata_ptr = 0xBBBB (LV)
+    assert_eq!(
+        u64::from_le_bytes(payload[56..64].try_into().unwrap()),
+        0xBBBB
+    );
+    // [64..68] count = 1
+    assert_eq!(u32::from_le_bytes(payload[64..68].try_into().unwrap()), 1);
+}
+
+#[test]
+fn fields_with_child_offsets_rebase_target_order() {
+    // 2 classes:
+    //   class 0: child_offsets=[16], fields=[("a", 24, 1)]
+    //   class 1: child_offsets=[],   fields=[("b", 24, 4), ("cd", 32, 6)]
+    //
+    // Expected rebase targets in order:
+    //   Phase 1 (name_ptr): class 0 "a", class 1 "b", class 1 "cd"
+    //   Phase 2 (outer slots):
+    //     class 0: child_offsets_ptr, field_metadata_ptr
+    //     class 1: no child_offsets_ptr (no inner), field_metadata_ptr
+    // Total: 3 + 3 = 6.
+    let class_layouts = [
+        entry_with_fields(&[16], vec![fmeta("a", 24, 1)]),
+        entry_with_fields(&[], vec![fmeta("b", 24, 4), fmeta("cd", 32, 6)]),
+    ];
+    let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
+    let targets = compute_class_layouts_rebase_targets(&layout, 0x1_0000_0000, 0x1_0000_0000);
+    assert_eq!(targets.len(), 6);
+
+    // class 0 has child_offsets [16] (4B), then name "a" (1B), then pad
+    // to 8 (3B), then field_meta array (8B header + 24B body).
+    // class 1 has no child_offsets; names "b" (1B) + "cd" (2B) = 3B;
+    // pad to 8 (5B); field_meta array (8B header + 48B body).
+    let class0_fm_array = layout.entries[0].field_meta_array_vaddr.unwrap();
+    let class1_fm_array = layout.entries[1].field_meta_array_vaddr.unwrap();
+    // Target 0: class 0 "a" name_ptr slot inside class0 array @ +8
+    assert_eq!(
+        targets[0],
+        (
+            (class0_fm_array + 8) - 0x1_0000_0000,
+            layout.entries[0].field_metadata[0].name_vaddr - 0x1_0000_0000
+        )
+    );
+    // Target 1: class 1 "b" name_ptr slot @ +8 in class1 array
+    assert_eq!(
+        targets[1],
+        (
+            (class1_fm_array + 8) - 0x1_0000_0000,
+            layout.entries[1].field_metadata[0].name_vaddr - 0x1_0000_0000
+        )
+    );
+    // Target 2: class 1 "cd" name_ptr slot @ +32 (8 header + 24 elem 0)
+    assert_eq!(
+        targets[2],
+        (
+            (class1_fm_array + 8 + 24) - 0x1_0000_0000,
+            layout.entries[1].field_metadata[1].name_vaddr - 0x1_0000_0000
+        )
+    );
+    // Target 3: class 0 outer child_offsets_ptr @ entry_vaddr + 8
+    assert_eq!(
+        targets[3],
+        (
+            (layout.entries[0].entry_vaddr + 8) - 0x1_0000_0000,
+            layout.entries[0].inner_vaddr.unwrap() - 0x1_0000_0000
+        )
+    );
+    // Target 4: class 0 outer field_metadata_ptr @ entry_vaddr + 16
+    assert_eq!(
+        targets[4],
+        (
+            (layout.entries[0].entry_vaddr + 16) - 0x1_0000_0000,
+            class0_fm_array - 0x1_0000_0000
+        )
+    );
+    // Target 5: class 1 outer field_metadata_ptr @ entry_vaddr + 16
+    // (no child_offsets_ptr rebase since class 1 inner_vaddr is None)
+    assert_eq!(
+        targets[5],
+        (
+            (layout.entries[1].entry_vaddr + 16) - 0x1_0000_0000,
+            class1_fm_array - 0x1_0000_0000
+        )
+    );
+}
+
+#[test]
+fn round_trip_payload_total_size_matches_layout() {
+    // Sanity: feed a mixed shape into compute + payload and verify byte
+    // count matches `layout.total_size` exactly.
+    let class_layouts = [
+        entry_with_fields(&[16, 32], vec![fmeta("x", 24, 1), fmeta("yz", 32, 4)]),
+        entry(&[]),
+        entry_with_fields(&[], vec![fmeta("alpha", 24, 0)]),
+    ];
+    let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
+    // Link value count = total rebase target count.
+    let targets = compute_class_layouts_rebase_targets(&layout, 0x1_0000_0000, 0x1_0000_0000);
+    let lvs: Vec<u64> = (0..targets.len() as u64).map(|i| 0xC000 + i).collect();
+    let payload = build_user_class_layouts_payload(&layout, &lvs);
+    assert_eq!(payload.len() as u32, layout.total_size);
+}
+
+// Helper trait so the layout-shape test can sanity-check the name
+// string's file_offset without exposing the field name across modules
+// (the placement struct's name_file_offset is `pub` already, this just
+// keeps the test assertion explicit).
+trait FieldMetaPlacementExt {
+    fn name_byte_offset_check(&self) -> u32;
+}
+
+impl FieldMetaPlacementExt for super::types::UserFieldMetaPlacement {
+    fn name_byte_offset_check(&self) -> u32 {
+        self.name_file_offset
+    }
 }

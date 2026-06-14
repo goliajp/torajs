@@ -328,6 +328,19 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
         .iter()
         .map(|cl| UserClassLayoutEntry {
             child_offsets: cl.child_offsets.clone(),
+            // W-J A3b — plumb FieldMetaSpec through to the link layer so
+            // it can emit the per-class `.__class_fields_<i>` inner
+            // global + per-field name strings + wire the outer entry's
+            // field_metadata_ptr slot to the inner global's vaddr.
+            fields: cl
+                .field_metadata
+                .iter()
+                .map(|fm| torajs_link::exec::UserFieldMetaEntry {
+                    name: fm.name.clone(),
+                    offset: fm.offset,
+                    type_tag: fm.type_tag,
+                })
+                .collect(),
         })
         .collect();
 
