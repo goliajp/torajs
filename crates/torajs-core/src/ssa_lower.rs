@@ -2778,6 +2778,21 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Ptr,
     );
+    // W-J Phase C1 — `Object.keys(v)` where `v: any` carries a struct
+    // cell. The struct identity is only known at runtime, so this
+    // routes through torajs-meta::struct_enum, which reads the
+    // `class_tag@+8`, looks the layout up in `__torajs_class_layouts`
+    // (Phase A4 helpers), and builds an `Arr<Str>` of field names in
+    // declaration order. Non-struct `any` cells throw loudly (see the
+    // helper) — the caller runs a `throw_check`. Sig takes the Any
+    // value directly (cell-imm encoding == raw cell ptr for structs).
+    let anyv_struct_keys_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_anyv_struct_keys",
+        &[Type::Any],
+        Type::Ptr,
+    );
     // W-M-rest — `Object.getOwnPropertyDescriptor(str, "<idx>")` —
     // spec §22.1.5.2 builds `{value: char_at(idx), writable: false,
     // enumerable: true, configurable: false}` (note enumerable=true,
@@ -5334,6 +5349,7 @@ fn lower_inner(
         str_to_char_arr: str_to_char_arr_id,
         arr_entries_by_tag: arr_entries_by_tag_id,
         str_entries: str_entries_id,
+        anyv_struct_keys: anyv_struct_keys_id,
         str_index_descriptor: str_index_descriptor_id,
         anyv_prevent_extensions: anyv_prevent_extensions_id,
         anyv_is_extensible: anyv_is_extensible_id,
@@ -6301,6 +6317,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_to_char_arr: FuncId,
     pub(crate) arr_entries_by_tag: FuncId,
     pub(crate) str_entries: FuncId,
+    pub(crate) anyv_struct_keys: FuncId,
     pub(crate) str_index_descriptor: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,
@@ -16742,6 +16759,24 @@ impl<'a> LowerCtx<'a> {
                             Type::Arr(intern_arr_layout(self.arr_layouts, Type::Str)),
                             None,
                         );
+                        return Operand::Value(v);
+                    }
+                    // W-J Phase C1 — `any` receiver: the struct identity
+                    // is only known at runtime. Route through the
+                    // struct_enum helper, which reads `class_tag@+8`,
+                    // looks the layout up, and walks the field names.
+                    // `keys` and `getOwnPropertyNames` coincide for a
+                    // struct (no prototype chain, no array `length`), so
+                    // both surfaces share this arm. A non-struct cell
+                    // throws loudly inside the helper — propagate it.
+                    if matches!(arg_ty, Type::Any) {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.anyv_struct_keys, vec![arg_op]),
+                            Type::Arr(intern_arr_layout(self.arr_layouts, Type::Str)),
+                            None,
+                        );
+                        self.emit_throw_check(None);
                         return Operand::Value(v);
                     }
                     let field_names: Vec<String> = match arg_ty {

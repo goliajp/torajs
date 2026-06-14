@@ -55,8 +55,9 @@ const ANY_ACCESSOR: u64 = 6;
 
 // Tag::DynObj from torajs-rc — universal heap header at offset 0.
 const TAG_DYNOBJ: u16 = 14;
-// Tag::Obj — static-layout struct cell (W-J Phase B struct arm).
-const TAG_OBJ: u16 = 1;
+// Tag::Obj — static-layout struct cell (W-J Phase B struct arm /
+// Phase C struct enumeration arms in `struct_enum.rs`).
+pub(crate) const TAG_OBJ: u16 = 1;
 /// Tag::Str / Tag::Symbol / Tag::BigInt from `torajs-rc` — primitive-in-spec
 /// heap cells. RFC C4b throws TypeError on these because `Object.defineProperty(O, ...)`
 /// step 1 is a strict `Type(O) is Object` check (no ToObject wrapper boxing).
@@ -65,7 +66,7 @@ const TAG_SYMBOL: u16 = 7;
 const TAG_BIGINT: u16 = 10;
 
 #[inline]
-unsafe fn heap_type_tag(child: *const c_void) -> u16 {
+pub(crate) unsafe fn heap_type_tag(child: *const c_void) -> u16 {
     // Universal heap header: refcount u32 at +0, type_tag u16 at +4.
     unsafe { child.cast::<u8>().add(4).cast::<u16>().read() }
 }
@@ -94,7 +95,7 @@ const DOUBLE_ENCODE_OFFSET: u64 = 0x0007_0000_0000_0000;
 const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
 
 #[inline]
-const fn is_cell_imm(v: u64) -> bool {
+pub(crate) const fn is_cell_imm(v: u64) -> bool {
     (v & TOP_16_MASK) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0 && v != 0
 }
 

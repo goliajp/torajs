@@ -376,6 +376,24 @@ pub unsafe extern "C" fn __torajs_struct_field_info(
     }
 }
 
+/// Number of field-metadata records in a layout. Returns `0` for a
+/// NULL layout or a class with no field metadata. W-J Phase C's
+/// `Object.keys`/`values`/`entries` struct arms call this to size the
+/// declaration-order walk (`__torajs_struct_field_name` /
+/// `__torajs_struct_field_info` for each `idx` in `0..count`).
+///
+/// # Safety
+/// `layout` must be NULL or a pointer returned by
+/// [`__torajs_struct_layout_lookup`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_field_count(layout: *const StructLayoutEntry) -> u32 {
+    if layout.is_null() {
+        return 0;
+    }
+    // SAFETY: caller contract — `layout` is a live lookup result.
+    unsafe { &*layout }.n_fields()
+}
+
 /// Find a field index by name. Returns `u32::MAX` when the layout is
 /// NULL, the name pointer is NULL, or no field matches.
 ///
@@ -467,6 +485,28 @@ mod tests {
             assert_eq!(
                 __torajs_struct_field_find(p, NAME_ALPHA.as_ptr(), 3),
                 u32::MAX
+            );
+        }
+    }
+
+    #[test]
+    fn field_count_round_trip() {
+        let image = make_image();
+        let entry = two_field_entry(&image);
+        let p = &entry as *const StructLayoutEntry;
+        unsafe {
+            assert_eq!(__torajs_struct_field_count(p), 2);
+            // NULL layout → 0.
+            assert_eq!(__torajs_struct_field_count(core::ptr::null()), 0);
+            // Entry with NULL field_metadata_ptr → 0.
+            let empty = StructLayoutEntry {
+                n_children: 0,
+                child_offsets: core::ptr::null(),
+                field_metadata_ptr: core::ptr::null(),
+            };
+            assert_eq!(
+                __torajs_struct_field_count(&empty as *const StructLayoutEntry),
+                0
             );
         }
     }
