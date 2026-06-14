@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T16:53:13.835Z",
+  "generatedAt": "2026-06-14T17:36:27.765Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "0db3595a",
-    "commitSubject": "feat(meta): W-J Phase B — Object.getOwnPropertyDescriptor struct cell arm",
+    "commit": "c5329eef",
+    "commitSubject": "feat(meta): W-J Phase C3 — Object.entries struct-via-any runtime arm",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,22 @@
   },
   "commits": [
     {
+      "hash": "c5329eef",
+      "subject": "feat(meta): W-J Phase C3 — Object.entries struct-via-any runtime arm"
+    },
+    {
+      "hash": "d0afaf72",
+      "subject": "feat(meta): W-J Phase C2 — Object.values struct-via-any runtime arm"
+    },
+    {
+      "hash": "429d0a15",
+      "subject": "feat(meta): W-J Phase C1 — Object.keys struct-via-any runtime arm"
+    },
+    {
+      "hash": "62b1f692",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — session 119 W-J A4 + B ship close"
+    },
+    {
       "hash": "0db3595a",
       "subject": "feat(meta): W-J Phase B — Object.getOwnPropertyDescriptor struct cell arm"
     },
@@ -649,43 +665,38 @@
     {
       "hash": "a53a11de",
       "subject": "feat(ssa): W-J Phase A3a — extend ClassLayoutMeta with FieldMetaSpec per-field metadata"
-    },
-    {
-      "hash": "de45bc49",
-      "subject": "feat(link, cycle): W-J Phase A2 — extend class_layouts entry ABI 16B→24B with field_metadata_ptr stub"
-    },
-    {
-      "hash": "20cd5333",
-      "subject": "feat(ssa-lower): W-J Phase A1 — stamp class_tag@+8 on anonymous ObjectLit allocations"
-    },
-    {
-      "hash": "9c3d24d5",
-      "subject": "feat(ssa-lower): W-J Phase A0 — register anonymous ObjectLit struct in class_layouts"
-    },
-    {
-      "hash": "de09e944",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — session 116 close 3 substrate L3b (Any-binding ArrayLit + Tag::Set split + class-field Map/Set dispatch) gate 821→825/0/4"
     }
   ],
-  "headSha": "0db3595a",
+  "headSha": "c5329eef",
   "autorun": {
-    "total": 166,
+    "total": 167,
     "baselineTarget": 10,
-    "bySelf": 162,
+    "bySelf": 163,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781452595-48d2",
-      "at": "2026-06-14T15:56:35Z",
-      "ts": 1781452595,
+      "rotationId": "r-1781456079-77df",
+      "at": "2026-06-14T16:54:39Z",
+      "ts": 1781456079,
       "trigger": "self",
-      "prevHead": "b951146f",
-      "handoffSha": "sha256:f153b13c57d9c9e8043f8c00b61eabf1b0db2639813241068a58fe6de595c152",
-      "handoffAgeSec": 15,
+      "prevHead": "62b1f692",
+      "handoffSha": "sha256:9e2c4cd82427f52085593ddec8ee656d4cb4e822dbe5e22c13b5621ff502d15f",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781456079-77df",
+        "at": "2026-06-14T16:54:39Z",
+        "ts": 1781456079,
+        "trigger": "self",
+        "prevHead": "62b1f692",
+        "handoffSha": "sha256:9e2c4cd82427f52085593ddec8ee656d4cb4e822dbe5e22c13b5621ff502d15f",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781452595-48d2",
         "at": "2026-06-14T15:56:35Z",
@@ -781,17 +792,6 @@
         "trigger": "self",
         "prevHead": "a6294f2f",
         "handoffSha": "sha256:07e08bd9a051f12115d1de719a76f5c3adfb1d9334be48e5554e18ec14bbac19",
-        "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781413984-37f8",
-        "at": "2026-06-14T05:13:04Z",
-        "ts": 1781413984,
-        "trigger": "self",
-        "prevHead": "a4723d67",
-        "handoffSha": "sha256:af066114b2f983ed6ec7ced734ecc2ac5b480fe265d464356bf6f6e72e6dd38b",
         "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
