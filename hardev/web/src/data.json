@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T08:21:27.148Z",
+  "generatedAt": "2026-06-14T08:38:52.273Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "bb9ca39c",
-    "commitSubject": "test(conformance): nested-print substrate trunk acceptance fixtures — Commit 9",
+    "commit": "4a67c2bb",
+    "commitSubject": "feat(nested-print): Type::FnSig + Tag::Closure print `[Function]` — fn-name registry Step 3a (Phase 1 narrow)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,22 @@
   },
   "commits": [
     {
+      "hash": "4a67c2bb",
+      "subject": "feat(nested-print): Type::FnSig + Tag::Closure print `[Function]` — fn-name registry Step 3a (Phase 1 narrow)"
+    },
+    {
+      "hash": "0f373411",
+      "subject": "feat(ssa-lower): populate fn_name_globals at fn-decl lowering — fn-name registry Step 2"
+    },
+    {
+      "hash": "ad0d0149",
+      "subject": "feat(ssa): Module::fn_name_globals scaffold — fn-name registry substrate Step 1"
+    },
+    {
+      "hash": "ca4488ec",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — nested-print substrate trunk ship complete (8 wedges close, gate 810 → 818/0/4)"
+    },
+    {
       "hash": "bb9ca39c",
       "subject": "test(conformance): nested-print substrate trunk acceptance fixtures — Commit 9"
     },
@@ -649,25 +665,9 @@
     {
       "hash": "c2727cd6",
       "subject": "feat(arr): __torajs_arr_print_any walker — nested-print substrate trunk Commit 2"
-    },
-    {
-      "hash": "f165d266",
-      "subject": "feat(anyvalue): __torajs_print_anyv_inline scaffold — nested-print substrate trunk Commit 1"
-    },
-    {
-      "hash": "0a26eaa3",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 113 rotate"
-    },
-    {
-      "hash": "62fcdad5",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 112 rotate (fmt-only + 2 positive Any-primitive fixtures; ⑤-c probe 揭 print_anyv obj/arr Tag fallback wedge → nested-print substrate trunk L3b 合一升级)"
-    },
-    {
-      "hash": "bd0a1695",
-      "subject": "test: positive Any-typed primitive console.log fixtures"
     }
   ],
-  "headSha": "bb9ca39c",
+  "headSha": "4a67c2bb",
   "autorun": {
     "total": 161,
     "baselineTarget": 10,
