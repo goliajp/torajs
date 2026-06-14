@@ -86,6 +86,11 @@ unsafe extern "C" {
     // delegate to these for the pretty form.
     fn __torajs_arr_print_any(arr: *const c_void);
     fn __torajs_obj_print_any(obj: *const c_void);
+    // Commit 5 — Date wire. Returns a fresh rc=1 Str holding the
+    // ISO-8601 form. The Tag::Date branch prints the payload then
+    // rc_dec's the temporary Str to balance allocation.
+    fn __torajs_date_to_iso_string(d_ptr: *const c_void) -> *mut u8;
+    fn __torajs_rc_dec(p: *mut c_void) -> i32;
 }
 
 /// Mirror of `torajs_str::substr::FLAG_SUBSTR_VIEW` (bit 10 of
@@ -409,6 +414,24 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // SAFETY: dynobj layout per torajs-dynobj::layout.
             unsafe { __torajs_obj_print_any(child) };
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::Date as u16 {
+            // Commit 5 — Date wire. Reuses the existing
+            // __torajs_date_to_iso_string which returns a fresh
+            // rc=1 Str holding `YYYY-MM-DDTHH:MM:SS.sssZ` (24
+            // bytes). The Str payload is walked directly through
+            // `put_str_cell_inline` (no quotes — bun prints Date
+            // values unquoted, e.g. `1970-01-01T00:00:00.000Z`
+            // not `"1970-..."`), then rc_dec'd to balance the
+            // fresh allocation. Cell ptr cast as *mut for rc_dec
+            // (rc operations don't actually mutate the pointee
+            // beyond the refcount header).
+            // SAFETY: Date layout per torajs-date::layout.
+            let iso = unsafe { __torajs_date_to_iso_string(child) };
+            if !iso.is_null() {
+                unsafe { put_str_cell_inline(iso as *const c_void) };
+                unsafe { __torajs_rc_dec(iso as *mut c_void) };
+            }
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else {
             write_line(b"[object]\n");
         }
@@ -542,6 +565,18 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
             // as Tag::Arr above.
             // SAFETY: dynobj layout per torajs-dynobj::layout.
             unsafe { __torajs_obj_print_any(child) };
+        } else if tag == Tag::Date as u16 {
+            // Commit 5 — nested Date prints unquoted (bun:
+            // `[ 1970-01-01T00:00:00.000Z ]` not
+            // `[ "1970-..." ]`). Same fresh-Str + rc_dec dance as
+            // the top-level Tag::Date arm above, minus the
+            // trailing '\n'.
+            // SAFETY: Date layout per torajs-date::layout.
+            let iso = unsafe { __torajs_date_to_iso_string(child) };
+            if !iso.is_null() {
+                unsafe { put_str_cell_inline(iso as *const c_void) };
+                unsafe { __torajs_rc_dec(iso as *mut c_void) };
+            }
         } else {
             // All other composite / typed-receiver tags
             // (Tag::Obj / Tag::Closure / Tag::Symbol / Tag::BigInt /
