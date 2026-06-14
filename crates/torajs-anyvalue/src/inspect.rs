@@ -108,6 +108,27 @@ unsafe extern "C" {
     fn __torajs_promise_print(p_ptr: *const c_void);
 }
 
+/// SSA dispatcher entry for `console.log(fn_addr: Type::FnSig)` —
+/// emits the bun `[Function]` form plus '\n'. Phase 1 narrow
+/// (fn-name registry Step 3a) — name omitted; the fn_name_globals
+/// scaffold from Steps 1-2 is populated but the link emit (Step 3b)
+/// and runtime binary-search helper (Step 4) that would turn the
+/// fn_addr into a bun-byte-equal `[Function: name]` form aren't
+/// wired yet. This Phase 1 form at least replaces the W-7 raw
+/// pointer decimal fallthrough.
+///
+/// # Safety
+///
+/// `_fn_addr` may be any 64-bit pattern (raw code-section pointer
+/// from `InstKind::FnAddr` lowering); not dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fn_print_outer(_fn_addr: u64) {
+    // Phase 1: emit `[Function]\n` directly, skip the binary search
+    // (Step 4 will replace this body with the name-lookup path once
+    // the rodata table from Step 3b is materialized).
+    write_line(b"[Function]\n");
+}
+
 /// Mirror of `torajs_str::substr::FLAG_SUBSTR_VIEW` (bit 10 of
 /// `HeapHeader::flags`). Hardcoded here to avoid a `torajs-anyvalue
 /// → torajs-str` dep edge; the bit value is part of the substr ABI
@@ -462,6 +483,14 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // SAFETY: Promise layout per torajs-promise::layout.
             unsafe { __torajs_promise_print(child) };
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::Closure as u16 {
+            // Phase 1 narrow (fn-name registry Step 3a) — closure
+            // heap object reached via Type::Any binding. Emits
+            // `[Function]` (no name); Phase 2 lookup that turns the
+            // closure's `fn_addr@+8` into `[Function: <name>]` via
+            // the rodata table from Steps 3b-4 lands once the
+            // archive_emit substrate ships.
+            write_line(b"[Function]\n");
         } else {
             write_line(b"[object]\n");
         }
@@ -616,6 +645,10 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
             // Commit 8 — nested Promise prints same minimal form.
             // SAFETY: Promise layout per torajs-promise::layout.
             unsafe { __torajs_promise_print(child) };
+        } else if tag == Tag::Closure as u16 {
+            // Phase 1 narrow — nested closure prints `[Function]`
+            // (no '\n', same wedge as top-level Tag::Closure above).
+            unsafe { put_bytes(b"[Function]") };
         } else {
             // All other composite / typed-receiver tags
             // (Tag::Obj / Tag::Closure / Tag::Symbol / Tag::BigInt /

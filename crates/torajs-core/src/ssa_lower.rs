@@ -3080,6 +3080,19 @@ fn lower_inner(
         &[Type::Set],
         Type::Void,
     );
+    // Fn-name registry Phase 1 narrow — Type::FnSig
+    // console.log dispatch goes through `__torajs_fn_print_outer`
+    // which currently emits `[Function]\n` (no name). Phase 2 ships
+    // the rodata `__torajs_fn_name_table[]` (Step 3b) and rewrites
+    // the helper body to do a binary search for the bun-byte-equal
+    // `[Function: name]` form.
+    let fn_print_outer_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_fn_print_outer",
+        &[Type::I64],
+        Type::Void,
+    );
     /* P-CONSOLE follow-up — `__torajs_any_to_str(tag, value)` —
      * route an Any-boxed value (split into tag + value via
      * `any_unbox_tag` + `any_unbox_value`) into the runtime's
@@ -5344,6 +5357,7 @@ fn lower_inner(
         print_any: print_any_id,
         map_print_outer: map_print_outer_id,
         set_print_outer: set_print_outer_id,
+        fn_print_outer: fn_print_outer_id,
         any_to_str: any_to_str_id,
         obj_freeze: obj_freeze_id,
         obj_is_frozen: obj_is_frozen_id,
@@ -6188,6 +6202,7 @@ pub(crate) struct Intrinsics {
     pub(crate) print_any: FuncId,
     pub(crate) map_print_outer: FuncId,
     pub(crate) set_print_outer: FuncId,
+    pub(crate) fn_print_outer: FuncId,
     pub(crate) any_to_str: FuncId,
     pub(crate) obj_freeze: FuncId,
     pub(crate) obj_is_frozen: FuncId,
@@ -7999,6 +8014,15 @@ impl<'a> LowerCtx<'a> {
             // print_any would print Sets as `Map(...)`.
             (Type::Map, _) => self.intrinsics.map_print_outer,
             (Type::Set, _) => self.intrinsics.set_print_outer,
+            // Fn-name registry Phase 1 narrow — Type::FnSig is a
+            // raw code-section pointer (not a heap object) so it
+            // can't go through print_any's NaN-box tag-walker
+            // (top16 of __TEXT vaddr is usually nonzero, so
+            // `is_cell` returns false → `[unknown-any-tag]`
+            // fallthrough). The dedicated outer wrapper emits
+            // `[Function]\n` directly; Phase 2 swaps the body for
+            // the rodata table binary-search.
+            (Type::FnSig(_), _) => self.intrinsics.fn_print_outer,
             (Type::Obj(_), _)
             | (Type::Promise, _)
             | (Type::Date, _)
