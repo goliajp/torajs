@@ -183,11 +183,17 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     // `undefined` / `null` throws a TypeError; every other primitive
     // (number / boolean / string) boxes to a wrapper and falls through
     // to the no-property `undefined` return below (bun parity).
-    if obj_any == VALUE_UNDEFINED_IMM || obj_any == VALUE_NULL_IMM {
+    // bun JSC msg shape: `<type> is not an object (evaluating '...')`.
+    // We align the prefix; the `(evaluating ...)` suffix needs source-text
+    // threading through the throw helper (substrate work, deferred).
+    if obj_any == VALUE_UNDEFINED_IMM {
         // SAFETY: NUL-terminated static C string.
-        unsafe {
-            __torajs_throw_type_error(c"Cannot convert undefined or null to object".as_ptr())
-        };
+        unsafe { __torajs_throw_type_error(c"undefined is not an object".as_ptr()) };
+        return VALUE_UNDEFINED_IMM;
+    }
+    if obj_any == VALUE_NULL_IMM {
+        // SAFETY: NUL-terminated static C string.
+        unsafe { __torajs_throw_type_error(c"null is not an object".as_ptr()) };
         return VALUE_UNDEFINED_IMM;
     }
     if !is_cell_imm(obj_any) || key.is_null() {
