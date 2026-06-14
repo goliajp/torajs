@@ -59,6 +59,33 @@ pub struct Module {
     /// fns. Empty array => no class declared in the program (cycle
     /// collection is a no-op).
     pub class_layouts: Vec<ClassLayoutMeta>,
+    /// Function-address → declared-name registry. Populated by
+    /// `ssa_lower` for every top-level `function foo()` declaration
+    /// (and arrow / named function expressions with a knowable
+    /// binding context). torajs-link materializes this as a sorted
+    /// `__torajs_fn_name_table[]` rodata global so the runtime
+    /// helper `__torajs_fn_print_inline(fn_addr)` (see
+    /// torajs-anyvalue::inspect Tag::Closure arm + the SSA
+    /// dispatcher's Type::FnSig case) can do a binary search and
+    /// emit the bun `[Function: name]` form instead of the raw
+    /// pointer fallthrough. fn-addr resolution happens at link time
+    /// via the same chain-fixup pipeline `user_vtables_layout`
+    /// uses, so ASLR slide is honoured on macOS PIE binaries.
+    pub fn_name_globals: Vec<FnNameEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FnNameEntry {
+    /// Which fn this entry names. The link-time emitter resolves
+    /// this to the fn's final vaddr through the standard symbol
+    /// table + chain-fixup path.
+    pub fn_id: FuncId,
+    /// Surface name as the user wrote it. For top-level `function foo()`
+    /// declarations this is `"foo"`; for `let f = () => {}` arrow
+    /// expressions assigned to a single binding context, it's the
+    /// binding name `"f"`; anonymous closures don't get an entry
+    /// (runtime falls back to `[Function (anonymous)]`).
+    pub name: String,
 }
 
 #[derive(Debug, Clone)]
