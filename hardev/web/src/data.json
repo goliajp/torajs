@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T08:38:52.273Z",
+  "generatedAt": "2026-06-14T09:10:17.801Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "4a67c2bb",
-    "commitSubject": "feat(nested-print): Type::FnSig + Tag::Closure print `[Function]` — fn-name registry Step 3a (Phase 1 narrow)",
+    "commit": "86697de9",
+    "commitSubject": "feat(link): LinkConfig::fn_name_globals + UserFnNameEntry + cmd_build wire — Step 3b.2",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,18 @@
   },
   "commits": [
     {
+      "hash": "86697de9",
+      "subject": "feat(link): LinkConfig::fn_name_globals + UserFnNameEntry + cmd_build wire — Step 3b.2"
+    },
+    {
+      "hash": "a91b1dea",
+      "subject": "feat(link): fn_name_table_layout scaffold — fn-name registry Step 3b.1"
+    },
+    {
+      "hash": "a599c48b",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — fn-name registry Phase 1 narrow ship (3 commit, [Function] print, gate 818/0/4 hold)"
+    },
+    {
       "hash": "4a67c2bb",
       "subject": "feat(nested-print): Type::FnSig + Tag::Closure print `[Function]` — fn-name registry Step 3a (Phase 1 narrow)"
     },
@@ -653,21 +665,9 @@
     {
       "hash": "265fa094",
       "subject": "feat(nested-print): Tag::Date typed-receiver wire — Commit 5"
-    },
-    {
-      "hash": "733fa3c3",
-      "subject": "feat(nested-print): wire Tag::Arr / Tag::DynObj walkers + SSA dispatcher route — Commit 4"
-    },
-    {
-      "hash": "11253c72",
-      "subject": "feat(dynobj): __torajs_obj_print_any walker — nested-print substrate trunk Commit 3"
-    },
-    {
-      "hash": "c2727cd6",
-      "subject": "feat(arr): __torajs_arr_print_any walker — nested-print substrate trunk Commit 2"
     }
   ],
-  "headSha": "4a67c2bb",
+  "headSha": "86697de9",
   "autorun": {
     "total": 161,
     "baselineTarget": 10,
