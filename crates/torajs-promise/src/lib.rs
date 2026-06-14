@@ -36,6 +36,7 @@ pub mod combinator;
 pub mod layout;
 pub mod micro;
 pub mod pool;
+pub mod print;
 pub mod state;
 pub mod then;
 pub mod unhandled;

@@ -103,6 +103,9 @@ unsafe extern "C" {
     // __torajs_map_print on a Set heap object would print the bun
     // `Map(...)` form for what should be `Set(...)`. Runtime tag
     // disambiguation is a follow-up substrate (L3b).
+    // Commit 8 — Promise wire. Tag::Promise=8 is unambiguous so
+    // the AnyValue walker can route directly here.
+    fn __torajs_promise_print(p_ptr: *const c_void);
 }
 
 /// Mirror of `torajs_str::substr::FLAG_SUBSTR_VIEW` (bit 10 of
@@ -451,6 +454,14 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // SAFETY: RegExp layout per torajs-regex::regex.
             unsafe { __torajs_regex_print_inline(child) };
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::Promise as u16 {
+            // Commit 8 — Promise wire. Emits the bun minimal form
+            // `Promise { <pending|resolved|rejected> }` — bun
+            // deliberately doesn't surface value / reason in the
+            // default console.log inspect.
+            // SAFETY: Promise layout per torajs-promise::layout.
+            unsafe { __torajs_promise_print(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else {
             write_line(b"[object]\n");
         }
@@ -601,6 +612,10 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
             // top-level (bun: `[ /abc/g ]` not `[ "/abc/g" ]`).
             // SAFETY: RegExp layout per torajs-regex::regex.
             unsafe { __torajs_regex_print_inline(child) };
+        } else if tag == Tag::Promise as u16 {
+            // Commit 8 — nested Promise prints same minimal form.
+            // SAFETY: Promise layout per torajs-promise::layout.
+            unsafe { __torajs_promise_print(child) };
         } else {
             // All other composite / typed-receiver tags
             // (Tag::Obj / Tag::Closure / Tag::Symbol / Tag::BigInt /
