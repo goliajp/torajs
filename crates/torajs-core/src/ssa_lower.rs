@@ -2746,6 +2746,16 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Ptr,
     );
+    // W-O-2 — `Object.values(str)` per-character Str array. Wrapper
+    // in torajs-meta::own_names that reads u32 len at STR_LEN_OFF=8
+    // then loops `__torajs_str_at` to mint fresh Strs per code unit.
+    let str_to_char_arr_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_to_char_arr",
+        &[Type::Ptr],
+        Type::Ptr,
+    );
     // W-M-rest — `Object.getOwnPropertyDescriptor(str, "<idx>")` —
     // spec §22.1.5.2 builds `{value: char_at(idx), writable: false,
     // enumerable: true, configurable: false}` (note enumerable=true,
@@ -5259,6 +5269,7 @@ fn lower_inner(
         str_length_descriptor: str_length_descriptor_id,
         arr_index_strs: arr_index_strs_id,
         str_index_strs: str_index_strs_id,
+        str_to_char_arr: str_to_char_arr_id,
         str_index_descriptor: str_index_descriptor_id,
         anyv_prevent_extensions: anyv_prevent_extensions_id,
         anyv_is_extensible: anyv_is_extensible_id,
@@ -6072,6 +6083,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_length_descriptor: FuncId,
     pub(crate) arr_index_strs: FuncId,
     pub(crate) str_index_strs: FuncId,
+    pub(crate) str_to_char_arr: FuncId,
     pub(crate) str_index_descriptor: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,
@@ -16275,6 +16287,22 @@ impl<'a> LowerCtx<'a> {
                             );
                         }
                         return Operand::Value(cloned);
+                    }
+                    // W-O-2 — String receiver: bun returns the per-char
+                    // Str array (spec §22.1.5.2 + §20.1.2.20). Loops
+                    // `__torajs_str_at` to mint one fresh Str per code
+                    // unit; same materialize path as W-M-rest so the
+                    // resulting Strs round-trip through console.log /
+                    // dynobj stores.
+                    if matches!(arg_ty, Type::Str) {
+                        let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.str_to_char_arr, vec![arg_op]),
+                            Type::Arr(arr_id),
+                            None,
+                        );
+                        return Operand::Value(v);
                     }
                     let Type::Obj(sid) = arg_ty else {
                         panic!("ssa-lower: Object.values requires a struct arg, got {arg_ty:?}");

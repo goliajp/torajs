@@ -15,6 +15,7 @@ unsafe extern "C" {
     fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8;
     fn __torajs_i64_to_str(n: i64) -> *mut u8;
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    fn __torajs_str_at(s: *const u8, i: i64) -> *mut u8;
 }
 
 #[inline]
@@ -61,4 +62,27 @@ pub unsafe extern "C" fn __torajs_str_index_strs(str_ptr: *const c_void) -> *mut
     // SAFETY: STR_LEN_OFF=8 holds the live u32 length per torajs-str layout.
     let len = unsafe { (str_ptr.cast::<u8>().add(8) as *const u32).read() } as i64;
     unsafe { __torajs_arr_index_strs(len) }
+}
+
+/// W-O-2 — `Object.values(str)` per-character Str array. Spec
+/// §22.1.5.2 + §20.1.2.20: ToObject on a primitive string materializes
+/// the indexed-property view, whose values are the per-char fresh
+/// Strs. Loops `__torajs_str_at(str_ptr, i)` to mint one fresh Str
+/// per code unit (the same materialize path used by W-M-rest's
+/// numeric-index descriptor — avoids the Substr view dynobj-store
+/// round-trip trap that L3b had to fix separately for FLAG_SUBSTR_VIEW).
+///
+/// # Safety
+///
+/// `str_ptr` must point at a valid Str heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_to_char_arr(str_ptr: *const c_void) -> *mut c_void {
+    // SAFETY: STR_LEN_OFF=8 holds the live u32 length per torajs-str layout.
+    let len = unsafe { (str_ptr.cast::<u8>().add(8) as *const u32).read() } as i64;
+    let mut out = unsafe { __torajs_arr_alloc(len.max(0) as u64) };
+    for i in 0..len {
+        let ch = unsafe { __torajs_str_at(str_ptr.cast::<u8>(), i) };
+        out = unsafe { __torajs_arr_push(out, ch as i64) };
+    }
+    out as *mut c_void
 }

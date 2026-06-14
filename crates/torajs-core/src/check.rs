@@ -5088,6 +5088,12 @@ impl Checker {
                     if let Type::Array(elem) = &arg_ty {
                         return Ok(Type::Array(elem.clone()));
                     }
+                    // W-O-2 — String receiver: bun returns the per-char
+                    // Str array (spec §22.1.5.2 + §20.1.2.20 + ToObject
+                    // on a primitive string → indexed-properties walk).
+                    if matches!(arg_ty, Type::String) {
+                        return Ok(Type::Array(Box::new(Type::String)));
+                    }
                     let Type::Struct(fields) = &arg_ty else {
                         return Err(format!(
                             "Object.values requires a struct arg, got {arg_ty:?}"
