@@ -3060,6 +3060,26 @@ fn lower_inner(
         &[Type::Any],
         Type::Void,
     );
+    // Nested-print substrate trunk Commit 7 — Type::Map / Type::Set
+    // console.log dispatch goes through dedicated wrappers (not the
+    // tag-aware __torajs_print_anyv, which would print Sets as
+    // `Map(...)` since both share runtime Tag::Map=15). The
+    // `*_outer` helpers emit the Map(...) / Set(...) form plus the
+    // trailing '\n'.
+    let map_print_outer_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_print_outer",
+        &[Type::Map],
+        Type::Void,
+    );
+    let set_print_outer_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_set_print_outer",
+        &[Type::Set],
+        Type::Void,
+    );
     /* P-CONSOLE follow-up — `__torajs_any_to_str(tag, value)` —
      * route an Any-boxed value (split into tag + value via
      * `any_unbox_tag` + `any_unbox_value`) into the runtime's
@@ -5322,6 +5342,8 @@ fn lower_inner(
         any_unbox_value: any_unbox_value_id,
         any_box_drop: any_box_drop_id,
         print_any: print_any_id,
+        map_print_outer: map_print_outer_id,
+        set_print_outer: set_print_outer_id,
         any_to_str: any_to_str_id,
         obj_freeze: obj_freeze_id,
         obj_is_frozen: obj_is_frozen_id,
@@ -6138,6 +6160,8 @@ pub(crate) struct Intrinsics {
     pub(crate) any_unbox_value: FuncId,
     pub(crate) any_box_drop: FuncId,
     pub(crate) print_any: FuncId,
+    pub(crate) map_print_outer: FuncId,
+    pub(crate) set_print_outer: FuncId,
     pub(crate) any_to_str: FuncId,
     pub(crate) obj_freeze: FuncId,
     pub(crate) obj_is_frozen: FuncId,
@@ -7943,9 +7967,13 @@ impl<'a> LowerCtx<'a> {
             // fell through to print_i64 below, which emitted the
             // raw heap pointer as a decimal — the typed-receiver
             // console.log fallback wedge.
+            // Commit 7 — Map / Set route through dedicated wrappers
+            // because runtime Tag::Map=15 covers BOTH Map and Set
+            // heap blocks (no separate Tag::Set). Going through
+            // print_any would print Sets as `Map(...)`.
+            (Type::Map, _) => self.intrinsics.map_print_outer,
+            (Type::Set, _) => self.intrinsics.set_print_outer,
             (Type::Obj(_), _)
-            | (Type::Map, _)
-            | (Type::Set, _)
             | (Type::Promise, _)
             | (Type::Date, _)
             | (Type::RegExp, _)

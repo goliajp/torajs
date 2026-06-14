@@ -95,6 +95,14 @@ unsafe extern "C" {
     // the shared stdout writer (no fresh-Str alloc, no rc_dec
     // dance). Same put_byte family this module uses.
     fn __torajs_regex_print_inline(re_ptr: *const c_void);
+    // Commits 7-8 — Map / Set walkers exist in torajs-collections
+    // but the SSA dispatcher routes Type::Map / Type::Set directly
+    // to their `*_print_outer` wrappers (bypassing this AnyValue
+    // tag-walker) because runtime Tag::Map (=15) covers BOTH Map
+    // and Set heap blocks — there is no separate Tag::Set. Calling
+    // __torajs_map_print on a Set heap object would print the bun
+    // `Map(...)` form for what should be `Set(...)`. Runtime tag
+    // disambiguation is a follow-up substrate (L3b).
 }
 
 /// Mirror of `torajs_str::substr::FLAG_SUBSTR_VIEW` (bit 10 of

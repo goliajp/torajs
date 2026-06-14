@@ -62,6 +62,7 @@ pub mod hash;
 pub mod iter;
 pub mod layout;
 pub mod mutate;
+pub mod print;
 pub mod probe;
 pub mod query;
 
