@@ -89,10 +89,8 @@ pub unsafe extern "C" fn __torajs_str_entries(str_ptr: *const c_void) -> *mut c_
         let idx_str = unsafe { __torajs_i64_to_str(i) };
         let ch = unsafe { __torajs_str_at(str_ptr.cast::<u8>(), i) };
         let inner = unsafe { __torajs_arr_alloc_any(2) };
-        let inner =
-            unsafe { __torajs_arr_push_any(inner as *mut c_void, 4, idx_str as u64) };
-        let inner =
-            unsafe { __torajs_arr_push_any(inner as *mut c_void, 4, ch as u64) };
+        let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, 4, idx_str as u64) };
+        let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, 4, ch as u64) };
         outer = unsafe { __torajs_arr_push(outer, inner as i64) };
     }
     outer as *mut c_void
@@ -140,11 +138,9 @@ pub unsafe extern "C" fn __torajs_arr_entries_by_tag(
         }
         let idx_str = unsafe { __torajs_i64_to_str(i) };
         let inner = unsafe { __torajs_arr_alloc_any(2) };
+        let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, 4, idx_str as u64) };
         let inner =
-            unsafe { __torajs_arr_push_any(inner as *mut c_void, 4, idx_str as u64) };
-        let inner = unsafe {
-            __torajs_arr_push_any(inner as *mut c_void, val_tag as u64, slot as u64)
-        };
+            unsafe { __torajs_arr_push_any(inner as *mut c_void, val_tag as u64, slot as u64) };
         outer = unsafe { __torajs_arr_push(outer, inner as i64) };
     }
     outer as *mut c_void
