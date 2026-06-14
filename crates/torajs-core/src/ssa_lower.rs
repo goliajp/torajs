@@ -2721,6 +2721,19 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Any,
     );
+    // W-N-b — `Object.getOwnPropertyNames(arr)` runtime name-list
+    // builder. Spec §22.1.3.5 returns `["0", ..., "<len-1>",
+    // "length"]`. SSA-lower pre-Loads `arr.len` from
+    // `ARR_LEN_OFF=8` and routes through this helper so the loop
+    // (alloc `Arr<Str>` cap = len+1, push N i64-to-str + final
+    // "length") lives in torajs-meta::own_names.
+    let arr_index_strs_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_index_strs",
+        &[Type::I64],
+        Type::Ptr,
+    );
     // RFC C5b — `Object.preventExtensions(O)` / `Object.isExtensible(O)`.
     // Anyvalue-shaped guards: primitive imm / null / undef short-circuit
     // per spec §20.1.2.16 step 1 / §20.1.2.13 step 1 ("not Object → no-op
@@ -5217,6 +5230,7 @@ fn lower_inner(
         throw_typeerror_if_not_object: throw_typeerror_if_not_object_id,
         arr_length_descriptor: arr_length_descriptor_id,
         str_length_descriptor: str_length_descriptor_id,
+        arr_index_strs: arr_index_strs_id,
         anyv_prevent_extensions: anyv_prevent_extensions_id,
         anyv_is_extensible: anyv_is_extensible_id,
         anyv_seal: anyv_seal_id,
@@ -6027,6 +6041,7 @@ pub(crate) struct Intrinsics {
     pub(crate) throw_typeerror_if_not_object: FuncId,
     pub(crate) arr_length_descriptor: FuncId,
     pub(crate) str_length_descriptor: FuncId,
+    pub(crate) arr_index_strs: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,
     pub(crate) anyv_seal: FuncId,
@@ -16237,6 +16252,30 @@ impl<'a> LowerCtx<'a> {
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
+                    // W-N-b — Arr<T> receiver: spec §22.1.3.5 returns
+                    // `["0", ..., "<len-1>", "length"]`. Length is
+                    // runtime-dynamic, so we Load `arr.len` at
+                    // `ARR_LEN_OFF=8` and route through the
+                    // `arr_index_strs` helper instead of building a
+                    // compile-time literal name list.
+                    if matches!(arg_ty, Type::Arr(_)) {
+                        let len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, arg_op, 8),
+                            Type::I64,
+                            None,
+                        );
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_index_strs,
+                                vec![Operand::Value(len)],
+                            ),
+                            Type::Arr(intern_arr_layout(self.arr_layouts, Type::Str)),
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                     let field_names: Vec<String> = match arg_ty {
                         Type::Obj(sid) => self.struct_layouts[sid.0 as usize]
                             .iter()

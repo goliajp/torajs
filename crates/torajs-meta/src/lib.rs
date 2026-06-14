@@ -25,6 +25,7 @@
 
 pub mod classmeta;
 pub mod fnprops;
+pub mod own_names;
 pub mod reflect;
 
 pub use classmeta::{
