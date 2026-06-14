@@ -1685,6 +1685,7 @@ dependencies = [
  "torajs-rc",
  "torajs-regex",
  "torajs-str",
+ "torajs-structmeta",
  "torajs-syscall",
  "torajs-throw",
  "torajs-value-drop",
@@ -1903,6 +1904,10 @@ dependencies = [
  "torajs-rc",
  "torajs-syscall",
 ]
+
+[[package]]
+name = "torajs-structmeta"
+version = "0.1.0"
 
 [[package]]
 name = "torajs-syscall"

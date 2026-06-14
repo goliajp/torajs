@@ -29,6 +29,7 @@ members = [
     "crates/torajs-capture-box",
     "crates/torajs-fs",
     "crates/torajs-meta",
+    "crates/torajs-structmeta",
     "crates/torajs-process",
     "crates/torajs-panic",
     "crates/torajs-panic-runtime",

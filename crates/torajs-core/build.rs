@@ -156,6 +156,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_capture_box", // Layer-1: refcounted 16B capture box for escape-captured let slots (P6.5)
     "torajs_fs", // Layer-3: synchronous filesystem substrate (readFileSync / writeFileSync / mkdirSync / ...) (P7.d)
     "torajs_meta", // Layer-3: runtime metadata + reflection — fnprops side table + class/proto registries + getPropertyDescriptor / getPrototypeOf (P7.g)
+    "torajs_structmeta", // Layer-3: struct-layout reflection read-side over __torajs_class_layouts — layout_lookup / field_name / field_info / field_find (W-J Phase A4)
     "torajs_process", // Layer-3: process surface — exit / cwd / env / argv / platform / stdout.write / stderr.write (P7.h-proc)
     "torajs_panic", // Layer-1: central fatal-error helper — stderr msg + symbolicated backtrace + exit (P7.i-panic)
     "torajs_panic_runtime", // Layer-0: custom #![panic_runtime] + #[panic_handler] replacing std default — strips ~150 KiB backtrace/demangle/path/io/Thread tree from user binaries (v0.7 Step 9b)

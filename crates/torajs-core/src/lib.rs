@@ -131,6 +131,10 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
         include_bytes!(env!("TORAJS_META_STATICLIB_PATH")),
     ),
     (
+        "libtorajs_structmeta.a",
+        include_bytes!(env!("TORAJS_STRUCTMETA_STATICLIB_PATH")),
+    ),
+    (
         "libtorajs_process.a",
         include_bytes!(env!("TORAJS_PROCESS_STATICLIB_PATH")),
     ),

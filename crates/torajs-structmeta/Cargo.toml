@@ -1,0 +1,30 @@
+[package]
+name = "torajs-structmeta"
+description = "Struct-layout reflection substrate for the torajs AOT TypeScript runtime — read-side helpers over the toolchain-emitted `__torajs_class_layouts` table (W-J Phase A4). Looks up a class/anonymous-struct layout by its `class_tag`, walks per-field name + byte-offset + type-tag metadata, and resolves a field index by name. Consumed by the reflection ops (Object.getOwnPropertyDescriptor / keys / values / entries struct arms + inspect.rs Tag::Obj walker). Layer-3 substrate; 0 external + 0 internal dep (metal-core)."
+keywords = ["torajs", "reflection", "struct-layout", "runtime", "ffi"]
+categories = ["data-structures", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-structmeta"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_structmeta.a so the in-house link pipeline (torajs-link)
+# bakes it into every `tr build` AOT user binary alongside the other
+# Layer-1+ staticlibs. The `__torajs_class_layouts` / `__torajs_n_class_layouts`
+# externs this crate reads are emitted by torajs-link at `tr build` link
+# time (same producer the cycle collector resolves against).
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# Intentionally empty — metal-core 0-dep. The helpers read raw on-disk
+# rodata (no alloc) and the `__torajs_class_layouts` table is resolved
+# at `tr build` link time, not via a Cargo dep.

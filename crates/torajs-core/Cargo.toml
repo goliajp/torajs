@@ -101,6 +101,15 @@ torajs-promise = { path = "../torajs-promise" }
 # fnprops_set/get + proto_register/get + class_register/get +
 # get_property_descriptor / get_proto_of_any resolve at `tr build`.
 torajs-meta = { path = "../torajs-meta" }
+# Layer-3: struct-layout reflection read-side (W-J Phase A4). Dual
+# rlib+staticlib; libtorajs_structmeta.a co-links so
+# __torajs_struct_layout_lookup / field_name / field_info / field_find
+# resolve at `tr build` (called from the reflect.rs gOPD / Object.keys
+# struct arms in Phase B+). Reads the same link-emitted
+# __torajs_class_layouts table the cycle collector consumes. Listed as a
+# torajs-core dep purely for build-ordering so build.rs sees a fresh
+# libtorajs_structmeta.a (same rationale as torajs-meta above).
+torajs-structmeta = { path = "../torajs-structmeta" }
 # Layer-3: process surface — exit / cwd / env / argv / platform /
 # stdout.write / stderr.write (P7.h-proc). Dual rlib+staticlib;
 # libtorajs_process.a co-links so process_* fns resolve at
