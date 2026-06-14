@@ -2734,6 +2734,18 @@ fn lower_inner(
         &[Type::I64],
         Type::Ptr,
     );
+    // W-N-d — `Object.getOwnPropertyNames(str)` runtime name-list
+    // builder. Same shape as the Arr arm (`["0", ..., "<len-1>",
+    // "length"]`) per spec §22.1.5.2.4. Thin wrapper in
+    // torajs-meta::own_names that reads u32 len at STR_LEN_OFF=8
+    // then delegates to `arr_index_strs`.
+    let str_index_strs_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_index_strs",
+        &[Type::Ptr],
+        Type::Ptr,
+    );
     // W-M-rest — `Object.getOwnPropertyDescriptor(str, "<idx>")` —
     // spec §22.1.5.2 builds `{value: char_at(idx), writable: false,
     // enumerable: true, configurable: false}` (note enumerable=true,
@@ -5246,6 +5258,7 @@ fn lower_inner(
         arr_length_descriptor: arr_length_descriptor_id,
         str_length_descriptor: str_length_descriptor_id,
         arr_index_strs: arr_index_strs_id,
+        str_index_strs: str_index_strs_id,
         str_index_descriptor: str_index_descriptor_id,
         anyv_prevent_extensions: anyv_prevent_extensions_id,
         anyv_is_extensible: anyv_is_extensible_id,
@@ -6058,6 +6071,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_length_descriptor: FuncId,
     pub(crate) str_length_descriptor: FuncId,
     pub(crate) arr_index_strs: FuncId,
+    pub(crate) str_index_strs: FuncId,
     pub(crate) str_index_descriptor: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,
@@ -16326,6 +16340,21 @@ impl<'a> LowerCtx<'a> {
                                 self.intrinsics.arr_index_strs,
                                 vec![Operand::Value(len)],
                             ),
+                            Type::Arr(intern_arr_layout(self.arr_layouts, Type::Str)),
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // W-N-d — Str receiver: spec §22.1.5.2.4 returns
+                    // the same `["0", ..., "<len-1>", "length"]` shape
+                    // as the Arr arm. The helper reads the u32 length
+                    // at `STR_LEN_OFF=8` internally and delegates to
+                    // `arr_index_strs`, so the SSA arm just passes the
+                    // Str ptr through.
+                    if matches!(arg_ty, Type::Str) {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.str_index_strs, vec![arg_op]),
                             Type::Arr(intern_arr_layout(self.arr_layouts, Type::Str)),
                             None,
                         );

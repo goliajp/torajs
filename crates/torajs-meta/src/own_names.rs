@@ -46,3 +46,19 @@ pub unsafe extern "C" fn __torajs_arr_index_strs(len: i64) -> *mut c_void {
     out = unsafe { __torajs_arr_push(out, s_len as i64) };
     out as *mut c_void
 }
+
+/// W-N-d — `Object.getOwnPropertyNames(str)` Str-receiver path.
+/// Same result shape as the Arr arm (`["0", ..., "<len-1>", "length"]`,
+/// spec §22.1.5.2.4: string's own enumerable properties are the index
+/// chars + the inherited-but-listed `length`). Thin wrapper that
+/// reads the u32 length at `STR_LEN_OFF=8` then delegates.
+///
+/// # Safety
+///
+/// `str_ptr` must point at a valid Str heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_index_strs(str_ptr: *const c_void) -> *mut c_void {
+    // SAFETY: STR_LEN_OFF=8 holds the live u32 length per torajs-str layout.
+    let len = unsafe { (str_ptr.cast::<u8>().add(8) as *const u32).read() } as i64;
+    unsafe { __torajs_arr_index_strs(len) }
+}
