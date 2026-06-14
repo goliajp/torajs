@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T05:11:31.433Z",
+  "generatedAt": "2026-06-14T05:38:10.289Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "bbf284e9",
-    "commitSubject": "feat: W-O-2 Object.values(str) returns per-char Str array",
+    "commit": "6f7f4cf0",
+    "commitSubject": "feat: W-O-3-str Object.entries(str) returns per-char [idx_str, char_str] pairs",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,18 @@
   },
   "commits": [
     {
+      "hash": "6f7f4cf0",
+      "subject": "feat: W-O-3-str Object.entries(str) returns per-char [idx_str, char_str] pairs"
+    },
+    {
+      "hash": "3e59b977",
+      "subject": "feat: W-O-3-arr Object.entries(arr) returns [idx_str, value] pairs"
+    },
+    {
+      "hash": "a4723d67",
+      "subject": "chore(hardev/web): refresh dashboard snapshot - session 109 rotate (W-O-1 + W-O-2 ship: Object.values(arr) deep-clone via arr_slice + Object.values(str) per-char Str array, gate 804 → 806/0/4)"
+    },
+    {
       "hash": "bbf284e9",
       "subject": "feat: W-O-2 Object.values(str) returns per-char Str array"
     },
@@ -653,39 +665,38 @@
     {
       "hash": "fccaefc4",
       "subject": "chore(hardev/web): refresh dashboard snapshot - session 105 rotate (W-N-b ship: Object.getOwnPropertyNames(arr) returns indexed strs + length, gate 800 → 801/0/4)"
-    },
-    {
-      "hash": "14bca431",
-      "subject": "feat: W-N-b Object.getOwnPropertyNames(arr) returns indexed strs + length"
-    },
-    {
-      "hash": "3718f0c1",
-      "subject": "chore(hardev/web): refresh dashboard snapshot - session 104 rotate (3 commit ship: W-N-a Object.getOwnPropertyNames(struct-obj) + W-L Object.getOwnPropertyDescriptor(arr, length) + W-M (str, length) substrate), gate 795 → 800/0/4"
-    },
-    {
-      "hash": "30f635ec",
-      "subject": "feat: W-M Object.getOwnPropertyDescriptor(str, length) real 4-key descriptor"
     }
   ],
-  "headSha": "bbf284e9",
+  "headSha": "6f7f4cf0",
   "autorun": {
-    "total": 156,
+    "total": 157,
     "baselineTarget": 10,
-    "bySelf": 152,
+    "bySelf": 153,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781412386-514d",
-      "at": "2026-06-14T04:46:26Z",
-      "ts": 1781412386,
+      "rotationId": "r-1781413984-37f8",
+      "at": "2026-06-14T05:13:04Z",
+      "ts": 1781413984,
       "trigger": "self",
-      "prevHead": "1cbe2551",
-      "handoffSha": "sha256:165ff42064abd3aaaf72ea60f392d685faf684b52bfdd050ef9e86fd6b4f7a39",
-      "handoffAgeSec": 4,
+      "prevHead": "a4723d67",
+      "handoffSha": "sha256:af066114b2f983ed6ec7ced734ecc2ac5b480fe265d464356bf6f6e72e6dd38b",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781413984-37f8",
+        "at": "2026-06-14T05:13:04Z",
+        "ts": 1781413984,
+        "trigger": "self",
+        "prevHead": "a4723d67",
+        "handoffSha": "sha256:af066114b2f983ed6ec7ced734ecc2ac5b480fe265d464356bf6f6e72e6dd38b",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781412386-514d",
         "at": "2026-06-14T04:46:26Z",
@@ -782,17 +793,6 @@
         "prevHead": "00fee8bf",
         "handoffSha": "sha256:a55efe8e54bebf283297eb11c1e539ded40d2aa6c7637c2ee5de9ee1a27f5f15",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781396274-6992",
-        "at": "2026-06-14T00:17:54Z",
-        "ts": 1781396274,
-        "trigger": "manual",
-        "prevHead": "b1cebb07",
-        "handoffSha": "sha256:c31cf0a447e4dabeb41d19d9009fa04374fd2ab201446fe8578b0e7d47f73e46",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
