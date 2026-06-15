@@ -1,0 +1,281 @@
+//! Top-level `console.log(v)` / `typeof v` entries — NaN-box
+//! [`AnyValue`] dispatch with the trailing newline owned by this
+//! module. Composite tags delegate to typed walkers
+//! (`__torajs_arr_print_any`, `__torajs_map_print`, etc) declared in
+//! [`super::formatters`]; nested cells inside a composite come back
+//! through [`super::tag_dispatch::__torajs_print_anyv_inline`].
+
+use core::ffi::c_void;
+
+use super::formatters::{
+    __torajs_arr_print_any, __torajs_date_to_iso_string, __torajs_fn_print_inline,
+    __torajs_io_putc_stdout, __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print,
+    __torajs_rc_dec, __torajs_regex_print_inline, __torajs_set_print, __torajs_str_print,
+    __torajs_substr_print, SUBSTR_VIEW_FLAG, alloc_literal, closure_fn_addr, heap_flags,
+    heap_type_tag, print_bool, print_f64, print_i64, put_str_cell_inline, put_substr_cell_inline,
+    write_line,
+};
+use crate::nanbox::{
+    AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
+    is_null, is_short_str, is_undefined, short_str_bytes, short_str_len,
+};
+use torajs_rc::Tag;
+
+/// SSA dispatcher entry for `console.log(fn_addr: Type::FnSig)` —
+/// emits the bun `[Function: <name>]` form plus '\n'. Phase 2 wire
+/// (fn-name registry Step 5) — delegates the table lookup to
+/// `__torajs_fn_print_inline` (torajs-fnname) which walks the rodata
+/// `__torajs_fn_name_table[]` set up by torajs-link's
+/// 3b.3 / 3b.4-5 chain-fixup pipeline.
+///
+/// # Safety
+///
+/// `fn_addr` is the raw code-section pointer
+/// `InstKind::FnAddr` lowers to; it's compared (not dereferenced)
+/// against the table's `fn_addr` slots.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fn_print_outer(fn_addr: u64) {
+    unsafe { __torajs_fn_print_inline(fn_addr) };
+    unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+}
+
+/// `typeof v` per ES §13.5.3 — NaN-box [`AnyValue`] entry point.
+/// Returns a fresh Str. Dispatches on the immediate NaN-box
+/// predicates (no heap struct read).
+///
+/// # Safety
+///
+/// Cell case: encoded pointer must point to a valid heap object
+/// (only the `HeapHeader::type_tag` at +4 is read).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_typeof(v: AnyValue) -> *mut u8 {
+    if is_null(v) {
+        return alloc_literal(b"object");
+    }
+    if is_undefined(v) {
+        return alloc_literal(b"undefined");
+    }
+    if is_bool(v) {
+        return alloc_literal(b"boolean");
+    }
+    if is_int32(v) || is_double(v) {
+        return alloc_literal(b"number");
+    }
+    // Step 8c — ShortStr is a string at the JS surface even though
+    // its bits live inline in the AnyValue immediate; report
+    // `typeof` as `"string"` BEFORE the cell-pointer branch (which
+    // would mis-dispatch to `"object"` via the fall-through arm).
+    if is_short_str(v) {
+        return alloc_literal(b"string");
+    }
+    if is_cell(v) {
+        let child = as_void_ptr(v) as *const c_void;
+        // SAFETY: cell pointer is non-null per is_cell guarantee +
+        // caller invariant says it points to a live heap object.
+        let tag = unsafe { heap_type_tag(child) };
+        let kind: &[u8] = if tag == Tag::Str as u16 {
+            b"string"
+        } else if tag == Tag::Closure as u16 {
+            b"function"
+        } else if tag == Tag::Symbol as u16 {
+            b"symbol"
+        } else if tag == Tag::BigInt as u16 {
+            b"bigint"
+        } else {
+            // OBJ / ARR / REGEX / DATE / WEAK* / DYNOBJ / MAP* /
+            // ARR_ITER → "object"
+            b"object"
+        };
+        return alloc_literal(kind);
+    }
+    // Defensive — uninitialized slot (v == 0) reads as "object"
+    // (matches `typeof null` per spec).
+    alloc_literal(b"object")
+}
+
+/// `console.log(v)` single-arg dispatch — NaN-box [`AnyValue`]
+/// entry point. Dispatches on the immediate NaN-box predicates.
+///
+/// # Safety
+///
+/// Cell case: encoded pointer must point to a valid heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
+    if is_null(v) {
+        write_line(b"null\n");
+        return;
+    }
+    if is_undefined(v) {
+        write_line(b"undefined\n");
+        return;
+    }
+    if is_bool(v) {
+        // SAFETY: extern fn callable from this no_std-ish module.
+        unsafe { print_bool(as_bool(v)) };
+        return;
+    }
+    if is_int32(v) {
+        let n = as_int32(v) as i64;
+        // SAFETY: as above.
+        unsafe { print_i64(n) };
+        return;
+    }
+    if is_double(v) {
+        let d = as_double(v);
+        // SAFETY: as above.
+        unsafe { print_f64(d) };
+        return;
+    }
+    // Step 8c — ShortStr inline-print path. No heap alloc: read the
+    // 8-bit length + 5-byte payload off the immediate and dump
+    // bytes through `putchar`. Mirrors how `__torajs_str_print`
+    // emits Heap+Str bytes, but skips the materialize round-trip
+    // entirely (Heap+Str path goes through __torajs_str_print
+    // below).
+    if is_short_str(v) {
+        let len = short_str_len(v) as usize;
+        let bytes = short_str_bytes(v);
+        for &b in &bytes[..len] {
+            // SAFETY: __torajs_io_putc_stdout takes any i32 byte value.
+            unsafe { __torajs_io_putc_stdout(b as i32) };
+        }
+        unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        return;
+    }
+    if is_cell(v) {
+        let child = as_void_ptr(v) as *const c_void;
+        // SAFETY: live heap ptr per caller invariant.
+        let tag = unsafe { heap_type_tag(child) };
+        if tag == Tag::Str as u16 {
+            // Tag::Str covers both real Str (`{len@+8, data@+16}`)
+            // AND Substr view (`{len@+8, parent@+16, offset@+24}`).
+            // Disambiguate via `FLAG_SUBSTR_VIEW`: set on every Substr
+            // (standalone via `__torajs_substr_create`, inline via
+            // split-tail emit) so `__torajs_str_print`'s
+            // "read inline bytes @ +16" walker doesn't garble the
+            // parent-ptr field. The substr-aware printer reads parent
+            // + offset and prints the parent's payload slice.
+            let flags = unsafe { heap_flags(child) };
+            if flags & SUBSTR_VIEW_FLAG != 0 {
+                // SAFETY: Substr layout per torajs-str::substr.
+                // substr_print writes its own trailing newline.
+                unsafe { __torajs_substr_print(child as *const u8) };
+            } else {
+                // SAFETY: Tag::Str header layout — print walker reads
+                // len@+8 and bytes@+16.
+                unsafe { __torajs_str_print(child as *const u8) };
+            }
+        } else if tag == Tag::Arr as u16 {
+            // Nested-print substrate trunk Commit 4 — Tag::Arr
+            // (typed Arr<T> heap cell) renders as bun's
+            // `[ a, b, c ]` form via the Commit 2 walker. Closes
+            // `Any-print arr fallback` wedge (`const a:any = [1,2,3]`).
+            // SAFETY: Arr heap layout per torajs-arr::layout.
+            unsafe { __torajs_arr_print_any(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::DynObj as u16 {
+            // Nested-print substrate trunk Commit 4 — Tag::DynObj
+            // (object literal / Object.entries row) renders as
+            // bun's `{\n  k: v,\n}` form via the Commit 3 walker.
+            // Closes `Any-print obj fallback` wedge
+            // (`const o:any = {a:1}`). Tag::Obj (static-layout
+            // class instance) keeps the `[object]` fallback —
+            // class-instance pretty-print requires struct_layouts
+            // metadata and is a separate substrate trunk (W-J).
+            // SAFETY: dynobj layout per torajs-dynobj::layout.
+            unsafe { __torajs_obj_print_any(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::Date as u16 {
+            // Commit 5 — Date wire. Reuses the existing
+            // __torajs_date_to_iso_string which returns a fresh
+            // rc=1 Str holding `YYYY-MM-DDTHH:MM:SS.sssZ` (24
+            // bytes). The Str payload is walked directly through
+            // `put_str_cell_inline` (no quotes — bun prints Date
+            // values unquoted, e.g. `1970-01-01T00:00:00.000Z`
+            // not `"1970-..."`), then rc_dec'd to balance the
+            // fresh allocation. Cell ptr cast as *mut for rc_dec
+            // (rc operations don't actually mutate the pointee
+            // beyond the refcount header).
+            // SAFETY: Date layout per torajs-date::layout.
+            let iso = unsafe { __torajs_date_to_iso_string(child) };
+            if !iso.is_null() {
+                unsafe { put_str_cell_inline(iso as *const c_void) };
+                unsafe { __torajs_rc_dec(iso as *mut c_void) };
+            }
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::RegExp as u16 {
+            // Commit 6 — RegExp wire. Bun prints RegExp values as
+            // `/source/flags` (unquoted, both top-level and nested,
+            // unlike Str which gains `"..."` inside arr / obj).
+            // SAFETY: RegExp layout per torajs-regex::regex.
+            unsafe { __torajs_regex_print_inline(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::Promise as u16 {
+            // Commit 8 — Promise wire. Emits the bun minimal form
+            // `Promise { <pending|resolved|rejected> }` — bun
+            // deliberately doesn't surface value / reason in the
+            // default console.log inspect.
+            // SAFETY: Promise layout per torajs-promise::layout.
+            unsafe { __torajs_promise_print(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::Map as u16 {
+            // Runtime Tag::Set substrate — Type::Any `console.log(m)`
+            // routes here once Tag::Set (=19) split Set from Map.
+            // SAFETY: Map layout per torajs-collections::layout.
+            unsafe { __torajs_map_print(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::Set as u16 {
+            // SAFETY: Set shares the Map layout (same struct, just
+            // TAG_SET stamped on the heap header by __torajs_set_create).
+            unsafe { __torajs_set_print(child) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::Closure as u16 {
+            // Phase 2 wire (fn-name registry Step 5) — top-level
+            // closure print. Read fn body vaddr from the closure
+            // cell's `fn_addr@+8` slot, look it up via the rodata
+            // `__torajs_fn_name_table[]`, emit `[Function: <name>]`
+            // (hit) or `[Function (anonymous)]` (miss) + '\n'.
+            let fn_addr = unsafe { closure_fn_addr(child) };
+            unsafe { __torajs_fn_print_inline(fn_addr) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else {
+            write_line(b"[object]\n");
+        }
+        return;
+    }
+    write_line(b"[unknown-any-tag]\n");
+}
+
+/// Emit the bytes of a Str / Substr heap cell **unquoted** —
+/// nested-print substrate trunk Commit 4 helper for dynobj-key /
+/// Map-key / Set-elem-string callers that need raw key bytes without
+/// the `"..."` wrapper [`super::tag_dispatch::__torajs_print_anyv_inline`]
+/// adds for nested-context string values.
+///
+/// `cell` must point to a Tag::Str heap object (real Str layout
+/// `{len@+8, data@+16}` OR Substr view `{len@+8, parent@+16,
+/// offset@+24}`); the inspect path picks via `FLAG_SUBSTR_VIEW`.
+/// Non-Str tags emit nothing (callers feed Str ptrs from
+/// `__torajs_dynobj_iter_key` / Map key slots / etc by contract).
+///
+/// # Safety
+///
+/// `cell` must point to a valid Tag::Str heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_print_str_cell_unquoted(cell: *const c_void) {
+    unsafe {
+        if cell.is_null() {
+            return;
+        }
+        let tag = heap_type_tag(cell);
+        if tag != Tag::Str as u16 {
+            return;
+        }
+        let flags = heap_flags(cell);
+        if flags & SUBSTR_VIEW_FLAG != 0 {
+            put_substr_cell_inline(cell);
+        } else {
+            put_str_cell_inline(cell);
+        }
+    }
+}
