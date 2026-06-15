@@ -50,6 +50,7 @@ pub mod archive;
 pub mod archive_emit;
 pub mod archive_emit_lc_meta;
 pub mod archive_link;
+pub mod archive_link_member_scan;
 pub mod archives_merge;
 pub mod chained_fixups;
 pub(crate) mod chained_fixups_call;

@@ -8,7 +8,7 @@ use torajs_obj::{
     MachHeader64, NLIST_64_SIZE, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE, SYMTAB_COMMAND_SIZE,
 };
 
-use crate::archive::parse_member_defined_externs;
+use crate::archive_link_member_scan::{MemberScanLayouts, scan_member_text_and_symbols};
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
 use crate::chained_fixups_call::{ChainedFixupsInputs, compute_chained_fixups_outputs};
 use crate::data_const_layout::compute_data_const_layout;
@@ -72,30 +72,11 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let mut member_keys: Vec<(usize, usize)> = required.members.iter().copied().collect();
     member_keys.sort();
 
-    // Phase 2: per-member __text size + defined symbols.
-    let mut member_text_sizes: Vec<u32> = Vec::with_capacity(member_keys.len());
-    let mut member_text_offsets: Vec<u32> = Vec::with_capacity(member_keys.len());
-    let mut member_defined_syms: Vec<Vec<(String, u64, u8)>> =
-        Vec::with_capacity(member_keys.len());
-    for &(a_idx, m_idx) in &member_keys {
-        let member = &merged.per_archive_members[a_idx][m_idx];
-        let (text_off, text_size) =
-            parse_member_text_section(member).map_err(|err| ArchiveLayoutError::MemberText {
-                archive_idx: a_idx,
-                member_idx: m_idx,
-                err,
-            })?;
-        member_text_offsets.push(text_off);
-        member_text_sizes.push(text_size);
-        let defs = parse_member_defined_externs(member).map_err(|err| {
-            ArchiveLayoutError::MemberSymtab {
-                archive_idx: a_idx,
-                member_idx: m_idx,
-                err,
-            }
-        })?;
-        member_defined_syms.push(defs);
-    }
+    let MemberScanLayouts {
+        text_sizes: member_text_sizes,
+        text_offsets: member_text_offsets,
+        defined_syms: mut member_defined_syms,
+    } = scan_member_text_and_symbols(&merged, &member_keys)?;
 
     // Entry must be a user fn — member fns can be called, not entry.
     let entry_idx = cfg
