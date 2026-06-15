@@ -8,12 +8,12 @@
 use core::ffi::c_void;
 
 use super::formatters::{
-    __torajs_arr_print_any, __torajs_date_to_iso_string, __torajs_fn_print_inline,
-    __torajs_io_putc_stdout, __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print,
-    __torajs_rc_dec, __torajs_regex_print_inline, __torajs_set_print, __torajs_str_print,
-    __torajs_substr_print, SUBSTR_VIEW_FLAG, alloc_literal, closure_fn_addr, heap_flags,
-    heap_type_tag, print_bool, print_f64, print_i64, put_str_cell_inline, put_substr_cell_inline,
-    write_line,
+    __torajs_anyv_struct_print_inline, __torajs_arr_print_any, __torajs_date_to_iso_string,
+    __torajs_fn_print_inline, __torajs_io_putc_stdout, __torajs_map_print, __torajs_obj_print_any,
+    __torajs_promise_print, __torajs_rc_dec, __torajs_regex_print_inline, __torajs_set_print,
+    __torajs_str_print, __torajs_substr_print, SUBSTR_VIEW_FLAG, alloc_literal, closure_fn_addr,
+    heap_flags, heap_type_tag, print_bool, print_f64, print_i64, put_str_cell_inline,
+    put_substr_cell_inline, write_line,
 };
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
@@ -237,6 +237,17 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // (hit) or `[Function (anonymous)]` (miss) + '\n'.
             let fn_addr = unsafe { closure_fn_addr(child) };
             unsafe { __torajs_fn_print_inline(fn_addr) };
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::Obj as u16 {
+            // W-J Phase D — Tag::Obj struct-cell pretty print. The
+            // walker reads class_tag@+8, looks up the link-emitted
+            // `__torajs_class_name_table` (W-J A3c chunk 2 substrate)
+            // for the `Name {…}` prefix, then walks declared fields
+            // via the W-J A4 readers (`__torajs_struct_field_*`).
+            // Anonymous / A1-anon-stamp-miss cells fall through to
+            // the no-prefix `{…}` form so empty layouts degrade
+            // cleanly instead of stalling on `[object]`.
+            unsafe { __torajs_anyv_struct_print_inline(v as u64) };
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else {
             write_line(b"[object]\n");

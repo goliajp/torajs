@@ -13,11 +13,11 @@
 use core::ffi::c_void;
 
 use super::formatters::{
-    __torajs_arr_print_any, __torajs_date_to_iso_string, __torajs_fn_print_inline,
-    __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print, __torajs_rc_dec,
-    __torajs_regex_print_inline, __torajs_set_print, SUBSTR_VIEW_FLAG, closure_fn_addr, heap_flags,
-    heap_type_tag, put_byte, put_bytes, put_f64_inline, put_i64_inline, put_str_cell_inline,
-    put_substr_cell_inline,
+    __torajs_anyv_struct_print_inline, __torajs_arr_print_any, __torajs_date_to_iso_string,
+    __torajs_fn_print_inline, __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print,
+    __torajs_rc_dec, __torajs_regex_print_inline, __torajs_set_print, SUBSTR_VIEW_FLAG,
+    closure_fn_addr, heap_flags, heap_type_tag, put_byte, put_bytes, put_f64_inline,
+    put_i64_inline, put_str_cell_inline, put_substr_cell_inline,
 };
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
@@ -152,9 +152,14 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
         } else if tag == Tag::Set as u16 {
             // SAFETY: Set shares Map layout, just stamped TAG_SET.
             unsafe { __torajs_set_print(child) };
+        } else if tag == Tag::Obj as u16 {
+            // W-J Phase D — nested Tag::Obj struct cell prints the
+            // same `Name {…}` form as top-level (no trailing '\n';
+            // outer walker owns separators).
+            unsafe { __torajs_anyv_struct_print_inline(v) };
         } else {
             // All other composite / typed-receiver tags
-            // (Tag::Obj / Tag::Symbol / Tag::BigInt / Tag::Response /
+            // (Tag::Symbol / Tag::BigInt / Tag::Response /
             // Tag::Weak* / Tag::MapIter / Tag::ArrIter /
             // Tag::AccessorPair / etc) fall back to `[object]`
             // (no '\n'). Wire each into its typed walker as the

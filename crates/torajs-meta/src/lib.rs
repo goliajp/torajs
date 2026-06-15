@@ -29,6 +29,7 @@ pub mod own_names;
 pub mod reflect;
 pub mod str_descriptor;
 pub mod struct_enum;
+pub mod struct_print;
 pub mod struct_reflect;
 
 pub use classmeta::{

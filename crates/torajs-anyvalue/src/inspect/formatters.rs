@@ -96,6 +96,15 @@ unsafe extern "C" {
     // Defined in `crates/torajs-fnname/src/lib.rs`. Caller appends
     // the trailing '\n' (top-level prints) or nested separator.
     pub(super) fn __torajs_fn_print_inline(fn_addr: u64);
+    // W-J Phase D — Tag::Obj struct-cell walker. Reads class_tag@+8,
+    // looks up `__torajs_class_name_table` (W-J A3c chunk 2 substrate)
+    // for the bun `Name { k: v, ... }` prefix, walks declared fields
+    // via `__torajs_struct_field_{count,name,info}` (W-J A4 readers),
+    // emits each value through `__torajs_print_anyv_inline`. Defined
+    // in `crates/torajs-meta/src/struct_print.rs`. Inline form (no
+    // trailing '\n'); `__torajs_print_anyv`'s Tag::Obj arm appends
+    // '\n' at the top-level boundary.
+    pub(super) fn __torajs_anyv_struct_print_inline(v: u64);
 }
 
 /// Read the fn body vaddr out of a closure heap cell at
