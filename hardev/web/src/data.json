@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-14T17:36:27.765Z",
+  "generatedAt": "2026-06-15T02:15:32.073Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c5329eef",
-    "commitSubject": "feat(meta): W-J Phase C3 — Object.entries struct-via-any runtime arm",
+    "commit": "6ab72354",
+    "commitSubject": "refactor(anyvalue): split inspect.rs into formatters/any/tag_dispatch (file-size debt)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "6ab72354",
+      "subject": "refactor(anyvalue): split inspect.rs into formatters/any/tag_dispatch (file-size debt)"
+    },
+    {
+      "hash": "d0e544f8",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — session 120 W-J Phase C close"
+    },
+    {
       "hash": "c5329eef",
       "subject": "feat(meta): W-J Phase C3 — Object.entries struct-via-any runtime arm"
     },
@@ -657,35 +665,38 @@
     {
       "hash": "8f0b0970",
       "subject": "docs(roadmap): add checkpoint protocol + first project-state snapshot 2026-06-14 W-J A3a"
-    },
-    {
-      "hash": "0e100f63",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — W-J substrate trunk Phase A0+A1+A2+A3a close 4 commit gate 825/0/4 baseline hold"
-    },
-    {
-      "hash": "a53a11de",
-      "subject": "feat(ssa): W-J Phase A3a — extend ClassLayoutMeta with FieldMetaSpec per-field metadata"
     }
   ],
-  "headSha": "c5329eef",
+  "headSha": "6ab72354",
   "autorun": {
-    "total": 167,
+    "total": 168,
     "baselineTarget": 10,
-    "bySelf": 163,
+    "bySelf": 164,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781456079-77df",
-      "at": "2026-06-14T16:54:39Z",
-      "ts": 1781456079,
+      "rotationId": "r-1781458703-74cd",
+      "at": "2026-06-14T17:38:23Z",
+      "ts": 1781458703,
       "trigger": "self",
-      "prevHead": "62b1f692",
-      "handoffSha": "sha256:9e2c4cd82427f52085593ddec8ee656d4cb4e822dbe5e22c13b5621ff502d15f",
-      "handoffAgeSec": 4,
+      "prevHead": "d0e544f8",
+      "handoffSha": "sha256:695f4dc3837cd82f12618118db179d89a33da2910393cf526601cb05b70a24ed",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781458703-74cd",
+        "at": "2026-06-14T17:38:23Z",
+        "ts": 1781458703,
+        "trigger": "self",
+        "prevHead": "d0e544f8",
+        "handoffSha": "sha256:695f4dc3837cd82f12618118db179d89a33da2910393cf526601cb05b70a24ed",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781456079-77df",
         "at": "2026-06-14T16:54:39Z",
@@ -782,17 +793,6 @@
         "prevHead": "246055a2",
         "handoffSha": "sha256:e0a135e4c8757bd419aa188446448818f7a570712f09db987d8341e09d369c5e",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781415579-15b0",
-        "at": "2026-06-14T05:39:39Z",
-        "ts": 1781415579,
-        "trigger": "self",
-        "prevHead": "a6294f2f",
-        "handoffSha": "sha256:07e08bd9a051f12115d1de719a76f5c3adfb1d9334be48e5554e18ec14bbac19",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
