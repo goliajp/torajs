@@ -6391,11 +6391,14 @@ impl Checker {
                         // if its truthiness selects the short-circuit
                         // path, else the right. Result type is whichever
                         // side could be returned. Typed tora supports the
-                        // same-type case (T && T → T) statically; mixed-
-                        // type pairs need a wider result type and ship
-                        // with implicit-any (m1.h) once that lands.
+                        // same-type case (T && T → T) statically; the
+                        // mixed-Any pair (`(x: any) || "default"`) widens
+                        // to Any — ssa-lower NaN-boxes the non-Any side
+                        // so the shared slot type stays uniform.
                         if l == r {
                             Ok(l)
+                        } else if matches!(l, Type::Any) || matches!(r, Type::Any) {
+                            Ok(Type::Any)
                         } else {
                             Err(format!(
                                 "`&&` / `||` require matching operand types, got {l:?} and {r:?}"

@@ -7381,7 +7381,7 @@ pub(crate) struct LowerCtx<'a> {
     /// pre-T-15.g.6.b await-result-type-erased behavior (await on
     /// a heap-typed Promise yields i64 at SSA, breaking
     /// console.log direct-form dispatch).
-    expr_types: &'a HashMap<ExprId, crate::check::Type>,
+    pub(crate) expr_types: &'a HashMap<ExprId, crate::check::Type>,
     /// T-28 — per-Call ExprId count of trailing args to pad with
     /// ANY_UNDEF Any-box at the call site (caller passed fewer args
     /// than callee's param count, trailing missing params all

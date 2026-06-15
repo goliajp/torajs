@@ -30,8 +30,23 @@ impl LowerCtx<'_> {
     pub(crate) fn lower_logical_and(&mut self, left: ExprId, right: ExprId) -> Operand {
         let a = self.lower_expr(left);
         let a_ty = self.operand_ty(&a);
-        let truthy = self.coerce_to_bool(a);
-        let slot = self.alloca(a_ty, None);
+        let truthy = self.coerce_to_bool(a.clone());
+        // V3-18 m1.g mixed-Any case — when either side is typed
+        // Any in check, widen the slot to Any and NaN-box the
+        // non-Any operand. Pre-fix `alloca(a_ty)` truncated the
+        // non-matching side into a typed slot and the next Load
+        // decoded garbage. Right's check-time type is peeked
+        // before lowering since lowering b is observable (it
+        // happens inside the eval_b block); detecting the mix
+        // up-front keeps the slot alloca uniform.
+        let widen_to_any = matches!(a_ty, Type::Any) || self.right_is_any(right);
+        let slot_ty = if widen_to_any { Type::Any } else { a_ty };
+        let a_for_slot = if widen_to_any && a_ty != Type::Any {
+            self.box_to_any(a)
+        } else {
+            a
+        };
+        let slot = self.alloca(slot_ty, None);
         let eval_b = self.f.add_block();
         let false_blk = self.f.add_block();
         let merge = self.f.add_block();
@@ -45,23 +60,42 @@ impl LowerCtx<'_> {
         );
         self.cur_block = eval_b;
         let b = self.lower_expr(right);
-        self.f
-            .append_void(self.cur_block, InstKind::Store(b, Operand::Value(slot), 0));
+        let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
+            self.box_to_any(b)
+        } else {
+            b
+        };
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(b_for_slot, Operand::Value(slot), 0),
+        );
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = false_blk;
         // a is the falsy value — return it directly (matches JS:
         // `0 && expr` returns 0, not false; `"" && expr` returns "").
-        self.f
-            .append_void(self.cur_block, InstKind::Store(a, Operand::Value(slot), 0));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(a_for_slot, Operand::Value(slot), 0),
+        );
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = merge;
         let v = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(a_ty, Operand::Value(slot), 0),
-            a_ty,
+            InstKind::Load(slot_ty, Operand::Value(slot), 0),
+            slot_ty,
             None,
         );
         Operand::Value(v)
+    }
+
+    /// Peek whether `right` was typed as Any by check.rs without
+    /// lowering it (the right side of `&&` / `||` is evaluated
+    /// lazily — lowering it eagerly would emit IR onto the wrong
+    /// block). Used to decide whether to widen the result slot to
+    /// Any so a non-Any short-circuit value and an Any
+    /// continuation share a uniform slot type.
+    fn right_is_any(&self, right: ExprId) -> bool {
+        matches!(self.expr_types.get(&right), Some(crate::check::Type::Any))
     }
 
     /// V3-18 m1.g — JS spec §13.13: `a || b` returns `a` if truthy,
@@ -69,8 +103,17 @@ impl LowerCtx<'_> {
     pub(crate) fn lower_logical_or(&mut self, left: ExprId, right: ExprId) -> Operand {
         let a = self.lower_expr(left);
         let a_ty = self.operand_ty(&a);
-        let truthy = self.coerce_to_bool(a);
-        let slot = self.alloca(a_ty, None);
+        let truthy = self.coerce_to_bool(a.clone());
+        // V3-18 m1.g mixed-Any case — mirror of `&&` above; widen
+        // to Any so both short-circuit values share a uniform slot.
+        let widen_to_any = matches!(a_ty, Type::Any) || self.right_is_any(right);
+        let slot_ty = if widen_to_any { Type::Any } else { a_ty };
+        let a_for_slot = if widen_to_any && a_ty != Type::Any {
+            self.box_to_any(a)
+        } else {
+            a
+        };
+        let slot = self.alloca(slot_ty, None);
         let true_blk = self.f.add_block();
         let eval_b = self.f.add_block();
         let merge = self.f.add_block();
@@ -85,19 +128,28 @@ impl LowerCtx<'_> {
         self.cur_block = true_blk;
         // a is truthy — return it directly (matches JS: `5 || 0`
         // returns 5; `"x" || ""` returns "x").
-        self.f
-            .append_void(self.cur_block, InstKind::Store(a, Operand::Value(slot), 0));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(a_for_slot, Operand::Value(slot), 0),
+        );
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = eval_b;
         let b = self.lower_expr(right);
-        self.f
-            .append_void(self.cur_block, InstKind::Store(b, Operand::Value(slot), 0));
+        let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
+            self.box_to_any(b)
+        } else {
+            b
+        };
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(b_for_slot, Operand::Value(slot), 0),
+        );
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = merge;
         let v = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(a_ty, Operand::Value(slot), 0),
-            a_ty,
+            InstKind::Load(slot_ty, Operand::Value(slot), 0),
+            slot_ty,
             None,
         );
         Operand::Value(v)
