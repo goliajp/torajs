@@ -5648,30 +5648,11 @@ fn lower_inner(
      *   - [n_named+1 .. n_named+n_anon] (per anon_idx)  = anonymous structs
      * Cycle visitor indexes class_layouts via `class_tag - 1`, so the
      * vec push order must mirror this enumeration. */
-    let anon_sid_to_tag: HashMap<ssa::StructId, u32> = {
-        let named_sids: std::collections::HashSet<ssa::StructId> = class_name_to_tag
-            .keys()
-            .filter_map(|cname| match aliases.get(cname) {
-                Some(Type::Obj(sid)) => Some(*sid),
-                _ => None,
-            })
-            .collect();
-        let n_named = class_name_to_tag.len() as u32;
-        struct_layouts
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, _)| {
-                let sid = ssa::StructId(idx as u32);
-                if named_sids.contains(&sid) {
-                    None
-                } else {
-                    Some(sid)
-                }
-            })
-            .enumerate()
-            .map(|(anon_idx, sid)| (sid, n_named + anon_idx as u32 + 1))
-            .collect()
-    };
+    let anon_stamp_pool = crate::ssa_lower_anon_stamp::build_snapshot_pool(
+        &class_name_to_tag,
+        &aliases,
+        &struct_layouts,
+    );
 
     // Pass 2: lower user FnDecl bodies. Each call returns the lowered
     // function plus any string literals interned during its body; we
@@ -5708,7 +5689,7 @@ fn lower_inner(
                 &call_retargets,
                 &may_throw,
                 &class_name_to_tag,
-                &anon_sid_to_tag,
+                &anon_stamp_pool,
                 &globals,
                 expr_types,
                 arity_pad_count,
@@ -5783,7 +5764,7 @@ fn lower_inner(
             &call_retargets,
             &may_throw,
             &class_name_to_tag,
-            &anon_sid_to_tag,
+            &anon_stamp_pool,
             &globals,
             expr_types,
             arity_pad_count,
@@ -5833,7 +5814,7 @@ fn lower_inner(
                 &call_retargets,
                 &may_throw,
                 &class_name_to_tag,
-                &anon_sid_to_tag,
+                &anon_stamp_pool,
                 &globals,
                 expr_types,
                 arity_pad_count,
@@ -6021,6 +6002,14 @@ fn lower_inner(
             });
         }
     }
+
+    // W-J Phase A1 follow-up — append `ClassLayoutMeta` rows for
+    // each Pass 2 fresh sid recorded in `anon_stamp_pool`.
+    crate::ssa_lower_anon_stamp::append_fresh_class_layouts(
+        &anon_stamp_pool,
+        &module.struct_layouts.clone(),
+        &mut module.class_layouts,
+    );
 
     module
 }
@@ -6679,7 +6668,7 @@ fn synthesize_main(
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
     class_name_to_tag: &HashMap<String, u32>,
-    anon_sid_to_tag: &HashMap<ssa::StructId, u32>,
+    anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
@@ -6708,7 +6697,7 @@ fn synthesize_main(
             inst_memo,
             generic_struct_decls,
             class_name_to_tag,
-            anon_sid_to_tag,
+            anon_stamp_pool,
             try_stack: Vec::new(),
             try_finally_stack: Vec::new(),
             pending_return_slot: None,
@@ -6956,7 +6945,7 @@ fn lower_fn(
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
     class_name_to_tag: &HashMap<String, u32>,
-    anon_sid_to_tag: &HashMap<ssa::StructId, u32>,
+    anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
@@ -7062,7 +7051,7 @@ fn lower_fn(
         inst_memo,
         generic_struct_decls,
         class_name_to_tag,
-        anon_sid_to_tag,
+        anon_stamp_pool,
         try_stack: Vec::new(),
         try_finally_stack: Vec::new(),
         try_finally_loop_depth: Vec::new(),
@@ -7424,7 +7413,7 @@ pub(crate) struct LowerCtx<'a> {
     /// collide with named class tags; cycle visitor / reflection helper
     /// indexes class_layouts via `class_tag - 1`, push order in the
     /// class_layouts emit loop mirrors this map's enumeration.
-    pub(crate) anon_sid_to_tag: &'a HashMap<ssa::StructId, u32>,
+    pub(crate) anon_stamp_pool: &'a crate::ssa_lower_anon_stamp::AnonStampPoolCell,
     /// M4 — innermost-active try block's catch-block target. Each
     /// `Stmt::Try` lowering pushes the catch BlockId before lowering its
     /// body and pops after; user-fn calls in scope insert a cond_br on
@@ -21184,23 +21173,24 @@ impl<'a> LowerCtx<'a> {
                  * silently broke `__dispatch_<M>` for sibling classes
                  * with identical fields.
                  *
-                 * W-J Phase A1: ObjectLit allocations outside any
-                 * `__new_<C>` factory are anonymous structs — stamp
-                 * `class_tag@+8` from `anon_sid_to_tag[sid]` so the
-                 * reflection consumers (Phase B `gOPD` / Phase C
-                 * `Object.keys`/`values`/`entries` / Phase D
-                 * `inspect.rs` Tag::Obj walker) can look up the
-                 * field-metadata entry in class_layouts. Falls back
-                 * to 0 for sids interned during Pass 2 (MVP scope
-                 * per RFC 20260614-w-j-struct-reflect §3 A1). */
+                 * W-J Phase A1 follow-up: ObjectLit allocations outside
+                 * any `__new_<C>` factory are anonymous structs — route
+                 * the sid through `AnonStampPool` so Pass 2 fresh sids
+                 * (inline `{x:1,y:2}` literals + generic mono shapes)
+                 * also receive a deterministic tag. `lower_module` walks
+                 * `pool.fresh_sids()` after Pass 2 to append matching
+                 * `ClassLayoutMeta` rows so the reflection consumers
+                 * (Phase B `gOPD` / Phase C `Object.keys`/`values`/
+                 * `entries` / Phase D `inspect.rs` Tag::Obj walker) see
+                 * a dense class_layouts indexed by `class_tag - 1`. The
+                 * MVP `unwrap_or(0)` fall-through is retired. */
                 let factory_tag = self
                     .f
                     .name
                     .strip_prefix("__new_")
                     .and_then(|cname| self.class_name_to_tag.get(cname).copied());
                 let tag = factory_tag
-                    .or_else(|| self.anon_sid_to_tag.get(&sid).copied())
-                    .unwrap_or(0);
+                    .unwrap_or_else(|| self.anon_stamp_pool.borrow_mut().assign_or_get(sid));
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Store(

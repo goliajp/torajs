@@ -53,6 +53,16 @@ pub fn build_class_names(
         if meta.class_name.is_empty() {
             continue;
         }
+        // W-J Phase A1 follow-up — anonymous ObjectLit class_layouts
+        // entries use the link-layer-internal sym pattern
+        // `__anon_struct_<sid_idx>` (ssa_lower::lower_module's anon
+        // snapshot + fresh-sid loops). Skip them here so the runtime
+        // `__torajs_struct_class_name(tag)` returns NULL for anon tags
+        // → `struct_print` walker emits the no-prefix `{…}` form bun
+        // uses for object literals.
+        if meta.class_name.starts_with("__anon_struct_") {
+            continue;
+        }
         let class_tag = (i + 1) as u32;
         let name_bytes = meta.class_name.as_bytes().to_vec();
         let name_len = meta.class_name.chars().count() as u32;
