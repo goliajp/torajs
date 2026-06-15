@@ -183,7 +183,6 @@ fn emit_binary(
 ) -> Vec<u8> {
     let EmitLcMeta {
         has_dyld,
-        has_data_const,
         has_chained_fixups,
         has_libcurl_lc,
         has_libsystem_lc,

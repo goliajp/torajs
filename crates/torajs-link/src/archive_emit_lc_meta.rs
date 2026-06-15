@@ -16,7 +16,6 @@ use crate::lc::{
 /// emit branches. All `pub(crate)`; the struct is internal.
 pub(crate) struct EmitLcMeta {
     pub has_dyld: bool,
-    pub has_data_const: bool,
     pub has_chained_fixups: bool,
     pub has_libcurl_lc: bool,
     pub has_libsystem_lc: bool,
@@ -87,7 +86,6 @@ pub(crate) fn compute_emit_lc_meta(layout: &ArchiveLayout) -> EmitLcMeta {
     };
     EmitLcMeta {
         has_dyld,
-        has_data_const,
         has_chained_fixups,
         has_libcurl_lc,
         has_libsystem_lc,
