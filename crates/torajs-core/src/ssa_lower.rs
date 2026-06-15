@@ -20352,11 +20352,23 @@ impl<'a> LowerCtx<'a> {
                     };
                     let acc_slot = if method == "reduce" {
                         let init_v = self.lower_expr(args[1]);
-                        let init_v = if acc_ty == Type::F64 && self.operand_ty(&init_v) == Type::I64
-                        {
-                            self.coerce_to_f64(init_v)
-                        } else {
-                            init_v
+                        let init_ty = self.operand_ty(&init_v);
+                        let init_v = match (acc_ty, init_ty) {
+                            (Type::F64, Type::I64) => self.coerce_to_f64(init_v),
+                            // W-J follow-up — Array<Any>.reduce with a
+                            // callback whose ret is Any (e.g.
+                            // `(a, b) => a`) gets acc_ty = Type::Any,
+                            // but the user's `initial` literal lowers
+                            // to raw bits (I64 / F64 / Bool / Str).
+                            // Pre-fix `Store(init_v, acc_slot)` wrote
+                            // a raw 100 into the 8-byte AnyValue slot
+                            // — the next `Load any, acc_slot` decoded
+                            // it as garbage NaN-box bits and inspect
+                            // SIGSEGV'd. NaN-box pack matches the
+                            // callback ret path which already returns
+                            // a real AnyValue.
+                            (Type::Any, src) if src != Type::Any => self.box_to_any(init_v),
+                            _ => init_v,
                         };
                         let slot = self.alloca(acc_ty, Some("__iter_acc"));
                         self.f.append_void(
