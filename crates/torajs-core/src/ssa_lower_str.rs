@@ -730,6 +730,7 @@ pub(crate) fn try_lower_method_call(
             Type::I64 => ctx.intrinsics.arr_join_i64,
             Type::F64 => ctx.intrinsics.arr_join_f64,
             Type::Bool => ctx.intrinsics.arr_join_bool,
+            Type::Any => ctx.intrinsics.arr_join_any, // S126-4
             _ => ctx.intrinsics.arr_join,
         };
         let mut argv = Vec::with_capacity(2);

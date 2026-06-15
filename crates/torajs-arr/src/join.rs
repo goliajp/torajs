@@ -36,12 +36,31 @@ unsafe extern "C" {
     /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
+    /// libc-compat free — pair with `malloc` for transient buffers.
+    #[link_name = "__torajs_libc_free"]
+    fn free(p: *mut c_void);
     // v0.7-A4 Step 15-d: 0-libc f64 → shortest decimal + i64 →
     // decimal via torajs-fmt. Replaces libc snprintf %.*g loop +
     // snprintf "%lld" for the i64-join path.
     fn __torajs_fmt_dtoa(d: f64, out_buf: *mut u8, out_cap: usize) -> i32;
     fn __torajs_fmt_itoa(n: i64, out_buf: *mut u8, out_cap: usize) -> i32;
+    /// `ToString(v)` per ES §7.1.17. Returns a freshly-owned Str ptr
+    /// the caller must drop. Defined in `torajs-anyvalue::nanbox_ffi`.
+    fn __torajs_anyv_to_str(v: u64) -> *mut c_void;
+    /// Drop a Str (rc_dec; free if rc reaches 0). Defined in
+    /// `torajs-str::drop` (Layer-2 sibling).
+    #[link_name = "__torajs_str_drop"]
+    fn str_drop(s: *mut c_void);
 }
+
+// AnyValue NaN-box constants — match `torajs-anyvalue::nanbox`
+// (VALUE_NULL = TAG_BIT_TYPE_OTHER, VALUE_UNDEFINED =
+// TAG_BIT_TYPE_OTHER | TAG_BIT_UNDEFINED). Spec §22.1.3.15.5:
+// undefined / null → empty String. Detect at the tag level to skip
+// the alloc+drop round-trip — `__torajs_anyv_to_str` follows ES
+// §7.1.17 ToString and returns "undefined" / "null" literally.
+const VALUE_NULL_IMM: u64 = 0x0000_0000_0000_0002;
+const VALUE_UNDEFINED_IMM: u64 = 0x0000_0000_0000_000A;
 
 // ============================================================
 // Helpers
@@ -305,6 +324,83 @@ pub unsafe extern "C" fn __torajs_arr_join_bool(arr: *const u8, sep: *const u8) 
                 cursor += 5;
             }
         }
+        p
+    }
+}
+
+// ============================================================
+// arr_join_any — Array<Any>
+// ============================================================
+
+/// `Array<Any>.join(sep)`. Each slot is a NaN-box `AnyValue` u64
+/// (Step 7e-A — 8-byte stride matches the typed-tier helpers, so
+/// `slot_addr` reuses without a custom stride helper).
+///
+/// Spec §22.1.3.15.5: per-element ToString is delegated to
+/// `__torajs_anyv_to_str` (`torajs-anyvalue::nanbox_ffi`), which
+/// honors ES §7.1.17 — but Array.join overrides ToString for
+/// undefined / null to the empty string, so this layer special-
+/// cases the two sentinels before the helper call to skip the
+/// "undefined" / "null" literal that `anyv_to_str` would produce
+/// and to elide the alloc+drop round-trip.
+///
+/// Per-element Str alloc must be dropped after copy — the joined
+/// result owns the final bytes; the temporaries are transient.
+/// Holds the temp ptrs in a heap Vec (rather than a second pass
+/// recomputing each ToString) so each slot's ToString runs once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_join_any(arr: *const u8, sep: *const u8) -> *mut u8 {
+    unsafe {
+        let len = arr_len(arr);
+        let sep_len = str_len(sep);
+        let sep_data = str_data(sep);
+        if len == 0 {
+            return str_alloc_pooled(0);
+        }
+        // pass 1: ToString each slot, cache the resulting Str ptrs
+        // (NULL for undefined/null which contribute the empty string).
+        let tmp_bytes = (len as usize) * core::mem::size_of::<*mut c_void>();
+        let tmp = malloc(tmp_bytes) as *mut *mut c_void;
+        let mut total: u64 = 0;
+        for i in 0..len {
+            let av = *(slot_addr(arr, i) as *const u64);
+            if av == VALUE_NULL_IMM || av == VALUE_UNDEFINED_IMM {
+                *tmp.add(i as usize) = core::ptr::null_mut();
+            } else {
+                let s = __torajs_anyv_to_str(av);
+                *tmp.add(i as usize) = s;
+                total += str_len(s as *const u8);
+            }
+        }
+        total += sep_len * (len - 1);
+        let p = str_alloc_pooled(total);
+        let p_data = p.add(STR_DATA_OFF);
+        let mut cursor: u64 = 0;
+        for i in 0..len {
+            if i > 0 && sep_len > 0 {
+                core::ptr::copy_nonoverlapping(
+                    sep_data,
+                    p_data.add(cursor as usize),
+                    sep_len as usize,
+                );
+                cursor += sep_len;
+            }
+            let s = *tmp.add(i as usize);
+            if !s.is_null() {
+                let s_u8 = s as *const u8;
+                let elem_len = str_len(s_u8);
+                if elem_len > 0 {
+                    core::ptr::copy_nonoverlapping(
+                        str_data(s_u8),
+                        p_data.add(cursor as usize),
+                        elem_len as usize,
+                    );
+                    cursor += elem_len;
+                }
+                str_drop(s);
+            }
+        }
+        free(tmp as *mut c_void);
         p
     }
 }

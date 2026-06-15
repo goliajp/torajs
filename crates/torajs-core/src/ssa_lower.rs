@@ -4290,6 +4290,13 @@ fn lower_inner(
         &[Type::Ptr, Type::Ptr],
         Type::Str,
     );
+    let arr_join_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_join_any",
+        &[Type::Ptr, Type::Ptr],
+        Type::Str,
+    );
     let symbol_to_str_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5528,6 +5535,7 @@ fn lower_inner(
         arr_join_i64: arr_join_i64_id,
         arr_join_f64: arr_join_f64_id,
         arr_join_bool: arr_join_bool_id,
+        arr_join_any: arr_join_any_id,
         symbol_to_str: symbol_to_str_id,
         str_index_of_from: str_index_of_from_id,
         str_last_index_of_from: str_last_index_of_from_id,
@@ -6508,6 +6516,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_join_i64: FuncId,
     pub(crate) arr_join_f64: FuncId,
     pub(crate) arr_join_bool: FuncId,
+    pub(crate) arr_join_any: FuncId,
     pub(crate) symbol_to_str: FuncId,
     pub(crate) str_index_of_from: FuncId,
     pub(crate) str_last_index_of_from: FuncId,

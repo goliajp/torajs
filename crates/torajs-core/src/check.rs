@@ -3990,15 +3990,15 @@ impl Checker {
                     // runtime helper). sep borrowed; result freshly
                     // allocated.
                     (Type::Array(elem), "join")
-                        if matches!(**elem, Type::String | Type::Number | Type::Boolean) => {
+                        if matches!(**elem, Type::String | Type::Number | Type::Boolean | Type::Any) => {
                         Ok(Type::Function(vec![Type::String], Box::new(Type::String)))
                     }
                     // V3-18 wedge — Array.prototype.toString. Per JS
                     // spec §22.1.3.30, equivalent to `arr.join(",")`.
-                    // Subset constrains to element types the join
-                    // intrinsic already handles (Str / Number / Bool).
+                    // Subset matches the join intrinsic's element-type
+                    // dispatch (Str / Number / Bool / Any — S126-4).
                     (Type::Array(elem), "toString" | "toLocaleString")
-                        if matches!(**elem, Type::String | Type::Number | Type::Boolean) => {
+                        if matches!(**elem, Type::String | Type::Number | Type::Boolean | Type::Any) => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
                     // M1.2 — `xs.push(v)`: takes one element-typed arg,
@@ -5925,7 +5925,10 @@ impl Checker {
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if let Type::Array(elem) = &src_ty
-                        && matches!(**elem, Type::String | Type::Number | Type::Boolean)
+                        && matches!(
+                            **elem,
+                            Type::String | Type::Number | Type::Boolean | Type::Any
+                        )
                     {
                         return Ok(Type::String);
                     }
