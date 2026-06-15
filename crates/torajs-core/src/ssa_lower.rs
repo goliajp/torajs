@@ -2517,6 +2517,18 @@ fn lower_inner(
         &[Type::Ptr, Type::I64, Type::I64],
         Type::Ptr,
     );
+    // L3b Array<Any>.fill — write a NaN-boxed (tag, value) into each
+    // slot in [start, end). Mirrors __torajs_arr_fill's contract but
+    // for the 8-byte AnyValue slot stride; drops each pre-existing
+    // slot and rc_inc's the fill value per replaced slot so heap
+    // ownership stays balanced. (arr, tag, value, start, end) → arr.
+    let arr_fill_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_fill_any",
+        &[Type::Ptr, Type::I64, Type::I64, Type::I64, Type::I64],
+        Type::Ptr,
+    );
     // P5.6 — extend dst's tagged-slot tail with src's slots. (dst,
     // src) → new_dst_ptr. Mirrors arr_extend_unchecked for the
     // Array<Any> 16-byte slot layout; bumps src's heap children's
@@ -5347,6 +5359,7 @@ fn lower_inner(
         process_stderr_write: process_stderr_write_id,
         arr_alloc_any: arr_alloc_any_id,
         arr_push_any: arr_push_any_id,
+        arr_fill_any: arr_fill_any_id,
         arr_extend_any: arr_extend_any_id,
         arr_set_any: arr_set_any_id,
         arr_set_any_grow: arr_set_any_grow_id,
@@ -6307,6 +6320,7 @@ pub(crate) struct Intrinsics {
     pub(crate) process_stderr_write: FuncId,
     pub(crate) arr_alloc_any: FuncId,
     pub(crate) arr_push_any: FuncId,
+    pub(crate) arr_fill_any: FuncId,
     pub(crate) arr_extend_any: FuncId,
     pub(crate) arr_set_any: FuncId,
     pub(crate) arr_set_any_grow: FuncId,

@@ -1492,10 +1492,19 @@ pub(crate) fn try_lower_method_call(
         && method == "fill"
         && (args.len() >= 1 && args.len() <= 3)
     {
+        let fill_elem = ctx.arr_layouts[arr_id.0 as usize];
+        // L3b Array<Any>.fill — NaN-box the value and route through
+        // `__torajs_arr_fill_any`. Pre-fix the non-Copy per-slot
+        // loop below wrote raw bits into the 8-byte AnyValue slot
+        // (StoreDyn(value, off) with value still raw), which
+        // SIGSEGV'd the next decode pass. Mirror of the
+        // local-Ident / K.8 / (b) Array<Any>.push helper family.
+        if matches!(fill_elem, Type::Any) {
+            return Some(ctx.emit_arr_any_fill_at(recv_op, args, recv_ty));
+        }
         let mut value = ctx.lower_expr(args[0]);
         // W4 — align with the elem width, then cross the i64-param
         // intrinsic boundary as raw bits.
-        let fill_elem = ctx.arr_layouts[arr_id.0 as usize];
         if fill_elem == Type::F64 && ctx.operand_ty(&value) == Type::I64 {
             value = ctx.coerce_to_f64(value);
         }

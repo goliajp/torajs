@@ -5555,7 +5555,12 @@ impl Checker {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if let Type::Array(elem) = &src_ty {
                         let v_ty = self.type_of(ast, args[0])?;
-                        if v_ty != **elem {
+                        // Array<Any>.fill accepts a cross-type fill
+                        // value — ssa-lower routes through
+                        // arr_fill_any which NaN-boxes the value
+                        // regardless of type. Mirror of S127-4
+                        // indexOf 2-arg dedicated-arm Any-escape.
+                        if v_ty != **elem && !matches!(**elem, Type::Any) {
                             return Err(format!(
                                 "Array.fill arg 0 must match elem type {:?}, got {v_ty:?}",
                                 **elem
