@@ -5713,7 +5713,17 @@ impl Checker {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if let Type::Array(elem) = &src_ty {
                         let needle_ty = self.type_of(ast, args[0])?;
-                        if needle_ty != **elem {
+                        // S127-4: Array<Any> accepts cross-type needle —
+                        // ssa-lower's strict-eq packing arm already
+                        // handles I64/F64/Bool/Ptr/refcounted/Any
+                        // (ssa_lower_str.rs §arr.indexOf needle pack).
+                        // The 1-arg path falls through the generic arg-
+                        // unify which skips equality when param is Any,
+                        // but this dedicated 2-arg branch hand-wrote a
+                        // strict-eq compare with no Any escape. Bring it
+                        // in line with the 1-arg case + spec §22.1.3.x
+                        // (no static type restriction on needle).
+                        if needle_ty != **elem && !matches!(**elem, Type::Any) {
                             return Err(format!(
                                 "Array.{m_name} arg 0 must match elem type {:?}, got {needle_ty:?}",
                                 **elem
