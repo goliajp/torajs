@@ -23596,6 +23596,13 @@ impl<'a> LowerCtx<'a> {
                 // "undefined").
                 let obj_op = self.lower_expr(*obj);
                 let obj_ty = self.operand_ty(&obj_op);
+                // Type::Any receiver — NaN-box tag-discriminated
+                // nullish check + Any.Member dispatch. Carved to
+                // `ssa_lower_optchain.rs` to keep the ssa_lower.rs
+                // file-size debt only shrinking.
+                if matches!(obj_ty, Type::Any) {
+                    return self.lower_optchain_any(obj_op, name);
+                }
                 let res_slot = self.alloca_in_entry(Type::Any, Some("__optchain"));
                 // Compute the cond — null obj for the typed-tier
                 // pointer-shaped path. For non-pointer obj_ty (e.g.
