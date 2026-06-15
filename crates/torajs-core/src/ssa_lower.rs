@@ -24567,6 +24567,66 @@ impl<'a> LowerCtx<'a> {
         if matches!(op, AstBinOp::LooseEq | AstBinOp::LooseNeq) {
             let a_is_null = matches!(a, Operand::ConstPtrNull);
             let b_is_null = matches!(b, Operand::ConstPtrNull);
+            // S127-2 — `v == null` for `v: Any`. spec §7.2.13: true iff
+            // v is null or undefined (both nullish). Both `null` and
+            // `undefined` literals lower to ConstPtrNull, so the static
+            // shape is (Any, ConstPtrNull) regardless of which literal
+            // appears on the right. Emit
+            //   or(strict_eq_imm_pair(v, ANY_NULL, 0),
+            //      strict_eq_imm_pair(v, ANY_UNDEF, 0))
+            // — uses existing intrinsics, no new runtime helper. Common
+            // idiom in callbacks over Array<Any> (.some / .every / etc).
+            if a_is_null ^ b_is_null {
+                let (any_op, any_ty) = if a_is_null {
+                    (b.clone(), self.operand_ty(&b))
+                } else {
+                    (a.clone(), self.operand_ty(&a))
+                };
+                if matches!(any_ty, Type::Any) {
+                    let eq_null = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_strict_eq,
+                            vec![any_op.clone(), Operand::ConstI64(0), Operand::ConstI64(0)],
+                        ),
+                        Type::Bool,
+                        None,
+                    );
+                    let eq_undef = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_strict_eq,
+                            vec![any_op, Operand::ConstI64(5), Operand::ConstI64(0)],
+                        ),
+                        Type::Bool,
+                        None,
+                    );
+                    let or_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Or,
+                            Operand::Value(eq_null),
+                            Operand::Value(eq_undef),
+                        ),
+                        Type::Bool,
+                        None,
+                    );
+                    if matches!(op, AstBinOp::LooseNeq) {
+                        let inv = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(
+                                IPred::Eq,
+                                Operand::Value(or_v),
+                                Operand::ConstBool(false),
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        return Operand::Value(inv);
+                    }
+                    return Operand::Value(or_v);
+                }
+            }
             if a_is_null || b_is_null {
                 let result = a_is_null && b_is_null;
                 let answer = match op {

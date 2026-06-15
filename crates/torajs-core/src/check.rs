@@ -735,8 +735,19 @@ fn js_truthy_acceptable(t: &Type) -> bool {
 /// pairs go through ToPrimitive → numeric and ship in a later
 /// wedge.
 fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
-    matches!(l, Type::Number | Type::Boolean | Type::Null)
+    if matches!(l, Type::Number | Type::Boolean | Type::Null)
         && matches!(r, Type::Number | Type::Boolean | Type::Null)
+    {
+        return true;
+    }
+    // S127-2 — Any vs Null (covers both `null` and `undefined` literals,
+    // which both lower to Type::Null at check time). spec §7.2.13
+    // IsLooselyEqual: `v == null` is true iff `v` is null or undefined,
+    // for any runtime type of `v`. ssa_lower folds this into a nullish
+    // check via `any_strict_eq_imm_pair` against tag=0 (ANY_NULL) and
+    // tag=5 (ANY_UNDEF). The standard idiom `v == null` is widespread in
+    // callbacks over Array<Any> (.some / .every / .find / .reduce).
+    matches!((l, r), (Type::Any, Type::Null) | (Type::Null, Type::Any))
 }
 
 /// V3-05 — substitute `Type::ClassRef(name)` with whatever the
