@@ -216,6 +216,60 @@ they need production-traffic flagging (a dogfood pane has no
 "first user message after rotation" to evaluate); those numbers
 graduate once a few real `--apply` rotations have been observed.
 
+### Baseline observation @2026-06-15 (171-row review · recent-drift surface)
+
+takagi 2026-06-15 flagged "rotate 又都很短" — `stats.sh` (this commit, P0
+of TRIG-1..4 gate work) confirms with measured drift. Full 166-interval
+distribution + recent-30 vs all-time comparison emitted by
+`hardev/autorun/stats.sh --tail 15`. Headline numbers `[M]`:
+
+| Metric | all-time (166) | recent-30 | Δ |
+|---|---|---|---|
+| wall p50 (self→self interval) | **5878 s** (98.0 min) | **2876 s** (47.9 min) | **−51 %** |
+| wall p75 | 10443 s (174.1 min) | 5878 s (98.0 min) | −44 % |
+| commits p50 | 4 | 3 | −25 % |
+| commits p75 | 6 | 4 | −33 % |
+
+The drift mode is the **`rotate-as-prep-procrastination` pattern** (see
+`.claude/cases/incidents.md`): file-size HARD-limit single-file clear was
+being framed as "phase 收口" → rotation. Three back-to-back sessions
+(121/122/123 @ 2026-06-15 02:15-03:05 UTC) each clocked
+**10–13 min wall · 2–3 commits**, all justified by the same
+file-size-prep framing. autorun-pipeline §rotation's ① "phase 收口"
+trigger is fuzzy enough that any sub-prep can be re-framed as
+phase-close — exactly the same root cause as #rotate-as-procrastination
+(2026-06-14), now with a different surface.
+
+**TRIG-1..4 candidate thresholds (takagi framing — "1/2–3/4 ctx 至少")**:
+
+- **TRIG-1** N = 5 commits per session (matches autorun-pipeline ④)
+- **TRIG-2** M = 5400 s (90 min) wall time per self→self interval
+
+**Historical pass rate under candidates** (`stats.sh` 2026-06-15):
+
+- ≥ TRIG-1 alone: 37.3 % (62 / 166 sessions)
+- ≥ TRIG-2 alone: 53.6 % (89 / 166)
+- ≥ BOTH:        31.3 % (52 / 166)
+
+Read: under the candidate gate, **~2 / 3 of historical self-rotations
+would have been rejected** — the gate's job is exactly that. The 31.3 %
+that already pass are the rotations like W-J substrate trunk runs
+(sessions 157–161 in `stats.sh --tail 15`: 5–17 commits, 60–145 min)
+that represent the genuine "phase substrate-completeness" rhythm the
+pillar wants to preserve.
+
+**TRIG slot status**: candidate; finalized after 1-week measure under
+the gate (P5 of TRIG work). `[D]` here means "needs production usage
+data to lock"; this row will land an `[M]` value with the same
+measurement pipeline (`stats.sh` against post-gate `rotations.jsonl`).
+
+| Metric (TRIG-track) | now @ 2026-06-15 | after v1 (1 wk under gate) | after v2 |
+|---|---|---|---|
+| TRIG-1 N | **5 candidate** `[D]` | locked from baseline | adapts per project |
+| TRIG-2 M | **5400 s candidate** `[D]` | locked from baseline | adapts per project |
+| self-rotation pass rate | **31.3 % historical** `[M]` | target ≥ 80 % (gate effective, not punitive) | ≥ 95 % (rare reject = real procrastination) |
+| recent-30 wall p50 drift | **−51 % vs all-time** `[M]` | ≤ ±20 % (no drift signal) | observability-driven self-tune |
+
 ## How to keep this file honest
 
 1. Never write an untagged number. `[M]` must cite the command/log.
