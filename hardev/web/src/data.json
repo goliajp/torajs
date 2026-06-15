@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-15T02:15:32.073Z",
+  "generatedAt": "2026-06-15T02:41:33.779Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "6ab72354",
-    "commitSubject": "refactor(anyvalue): split inspect.rs into formatters/any/tag_dispatch (file-size debt)",
+    "commit": "0c6006ca",
+    "commitSubject": "fix(link): drop unused has_data_const from EmitLcMeta",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,18 @@
   },
   "commits": [
     {
+      "hash": "0c6006ca",
+      "subject": "fix(link): drop unused has_data_const from EmitLcMeta"
+    },
+    {
+      "hash": "2427a5d2",
+      "subject": "refactor(link): extract emit_binary LC meta into archive_emit_lc_meta"
+    },
+    {
+      "hash": "22bcdc32",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — session 121 inspect.rs split + D scope correction"
+    },
+    {
       "hash": "6ab72354",
       "subject": "refactor(anyvalue): split inspect.rs into formatters/any/tag_dispatch (file-size debt)"
     },
@@ -653,39 +665,38 @@
     {
       "hash": "b951146f",
       "subject": "chore(hardev/web): refresh dashboard snapshot — session 118 W-J A3b ship + Step 1 refactor"
-    },
-    {
-      "hash": "953e611e",
-      "subject": "feat(link): W-J Phase A3b — emit per-class field metadata + wire field_metadata_ptr"
-    },
-    {
-      "hash": "ce6ddfd3",
-      "subject": "refactor(link): split user_class_layouts_layout.rs into module submodules"
-    },
-    {
-      "hash": "8f0b0970",
-      "subject": "docs(roadmap): add checkpoint protocol + first project-state snapshot 2026-06-14 W-J A3a"
     }
   ],
-  "headSha": "6ab72354",
+  "headSha": "0c6006ca",
   "autorun": {
-    "total": 168,
+    "total": 169,
     "baselineTarget": 10,
-    "bySelf": 164,
+    "bySelf": 165,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781458703-74cd",
-      "at": "2026-06-14T17:38:23Z",
-      "ts": 1781458703,
+      "rotationId": "r-1781489758-1b6b",
+      "at": "2026-06-15T02:15:58Z",
+      "ts": 1781489758,
       "trigger": "self",
-      "prevHead": "d0e544f8",
-      "handoffSha": "sha256:695f4dc3837cd82f12618118db179d89a33da2910393cf526601cb05b70a24ed",
-      "handoffAgeSec": 15,
+      "prevHead": "22bcdc32",
+      "handoffSha": "sha256:f6d4f09956986821f15e3517304a1a363ebdb73da7ee1d75f52e6d00e98e7d62",
+      "handoffAgeSec": 32,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781489758-1b6b",
+        "at": "2026-06-15T02:15:58Z",
+        "ts": 1781489758,
+        "trigger": "self",
+        "prevHead": "22bcdc32",
+        "handoffSha": "sha256:f6d4f09956986821f15e3517304a1a363ebdb73da7ee1d75f52e6d00e98e7d62",
+        "handoffAgeSec": 32,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781458703-74cd",
         "at": "2026-06-14T17:38:23Z",
@@ -782,17 +793,6 @@
         "prevHead": "62fcdad5",
         "handoffSha": "sha256:3ab0bb90231a87124db22c04ef58b8236ed2ef7e6d23c3f6b0ce270e81686378",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781416065-4925",
-        "at": "2026-06-14T05:47:45Z",
-        "ts": 1781416065,
-        "trigger": "self",
-        "prevHead": "246055a2",
-        "handoffSha": "sha256:e0a135e4c8757bd419aa188446448818f7a570712f09db987d8341e09d369c5e",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
