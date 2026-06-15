@@ -1,35 +1,38 @@
-//! `Array<Any>.push(v)` lowering — emit the tagged-slot push at a
-//! given slot ptr operand, shared by the local-Ident dispatch arm
-//! (alloca slot) and the K.8 const-global Ident arm (GlobalRef
-//! slot). Pre-fix K.8 routed Array<Any>.push through typed
+//! `Array<Any>.push(v)` lowering — emit the tagged-slot push for
+//! an array pointer that lives at `base + offset`. Shared by the
+//! local-Ident dispatch arm (alloca slot, offset=0), the K.8
+//! const-global Ident arm (GlobalRef slot, offset=0), and the (b)
+//! struct-field receiver arm (obj ptr, offset=field). Pre-fix the
+//! K.8 and (b) sites routed Array<Any>.push through typed
 //! `arr_push` + a stray `rc_inc(ConstI64(1))` (Type::Any reads as
 //! refcounted), wrote raw int into the 16-byte slot allocated by
-//! K.6 (`arr_alloc_any(0)`), and SIGSEGV'd on the next decode.
-//! Lifted out of `ssa_lower.rs` so both dispatch sites share one
-//! implementation and the file-size debt rule is honoured.
+//! K.6 `arr_alloc_any(0)` / class field default, and SIGSEGV'd on
+//! the next decode. Lifted out of `ssa_lower.rs` so all three
+//! dispatch sites share one implementation and the file-size debt
+//! rule is honoured.
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 impl<'a> LowerCtx<'a> {
-    /// `xs.push(v)` for `Array<Any>` — load cur arr from `slot_op`,
-    /// NaN-box-encode `v` into a (tag,value) pair, append via
-    /// `__torajs_arr_push_any` (16-byte tagged-slot stride), store
-    /// the realloc'd ptr back into `slot_op`, return the new length
-    /// per spec §22.1.3.20. `slot_op` is either an alloca ValueId
-    /// (local-receiver path) or a GlobalRef ValueId (top-level
-    /// const-global-receiver path); both shapes carry the array ptr
-    /// at offset 0.
+    /// `xs.push(v)` for `Array<Any>` — load cur arr from `base +
+    /// offset`, NaN-box-encode `v` into a (tag,value) pair, append
+    /// via `__torajs_arr_push_any` (16-byte tagged-slot stride),
+    /// store the realloc'd ptr back at the same site, return the
+    /// new length per spec §22.1.3.20. `base + offset` covers:
+    /// alloca slot (local), GlobalRef slot (const global), and
+    /// struct field (obj + field offset).
     pub(crate) fn emit_arr_any_push_at_slot(
         &mut self,
-        slot_op: Operand,
+        base: Operand,
+        offset: u64,
         arg_id: ExprId,
         arr_ty: Type,
     ) -> Operand {
         let cur_arr = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(arr_ty, slot_op.clone(), 0),
+            InstKind::Load(arr_ty, base.clone(), offset),
             arr_ty,
             None,
         );
@@ -100,7 +103,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(Operand::Value(new_arr), slot_op, 0),
+                    InstKind::Store(Operand::Value(new_arr), base, offset),
                 );
                 let new_len = self.f.append_inst(
                     self.cur_block,
@@ -123,7 +126,7 @@ impl<'a> LowerCtx<'a> {
         );
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(Operand::Value(new_arr), slot_op, 0),
+            InstKind::Store(Operand::Value(new_arr), base, offset),
         );
         let new_len = self.f.append_inst(
             self.cur_block,

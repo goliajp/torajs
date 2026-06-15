@@ -18081,6 +18081,7 @@ impl<'a> LowerCtx<'a> {
                         if matches!(elem_ty, Type::Any) {
                             return self.emit_arr_any_push_at_slot(
                                 Operand::Value(info.slot),
+                                0,
                                 args[0],
                                 arr_ty,
                             );
@@ -18279,6 +18280,7 @@ impl<'a> LowerCtx<'a> {
                         if matches!(elem_ty, Type::Any) {
                             return self.emit_arr_any_push_at_slot(
                                 Operand::Value(slot_ptr),
+                                0,
                                 args[0],
                                 arr_ty,
                             );
@@ -18349,6 +18351,25 @@ impl<'a> LowerCtx<'a> {
                             {
                                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
                                 let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
+                                // P0.10 mirror for (b) struct field
+                                // — `class W { items: any[] = [] }`
+                                // / ctor `this.items = []` allocates
+                                // via arr_alloc_any (16B tagged
+                                // slots), so push must use
+                                // arr_push_any too. Pre-fix this arm
+                                // fell through to typed `arr_push`
+                                // (8B stride) + a stray
+                                // rc_inc(ConstI64(1)) (Type::Any
+                                // reads as refcounted), wrote raw
+                                // int into the Any slot, and
+                                // SIGSEGV'd on the next decode.
+                                // Same family as the local-Ident /
+                                // K.8 const-global push arms.
+                                if matches!(elem_ty, Type::Any) {
+                                    return self.emit_arr_any_push_at_slot(
+                                        obj_val, offset, args[0], field_ty,
+                                    );
+                                }
                                 let cur_arr = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::Load(field_ty, obj_val, offset),
