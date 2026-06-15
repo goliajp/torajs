@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-15T14:40:52.542Z",
+  "generatedAt": "2026-06-15T23:10:47.425Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "5ae443eb",
-    "commitSubject": "fix(object-assign): allow Object.assign(target) zero-source identity per §20.1.2.1",
+    "commit": "d56336a0",
+    "commitSubject": "feat(logical): mixed-Any && / || widens slot to Any via NaN-box",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,30 @@
   },
   "commits": [
     {
+      "hash": "d56336a0",
+      "subject": "feat(logical): mixed-Any && / || widens slot to Any via NaN-box"
+    },
+    {
+      "hash": "37312169",
+      "subject": "fix(ssa-lower): Array<Any>.reduce init must NaN-box when acc_ty is Any"
+    },
+    {
+      "hash": "470088cf",
+      "subject": "feat(arr-any): Array<Any>.fill cross-type via __torajs_arr_fill_any"
+    },
+    {
+      "hash": "c58eb815",
+      "subject": "fix(ssa-lower): struct field Array<Any>.push routes through arr_push_any"
+    },
+    {
+      "hash": "72747147",
+      "subject": "fix(ssa-lower): const Array<Any> global Ident.push routes through arr_push_any"
+    },
+    {
+      "hash": "d798a753",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — session 127 +S127-6"
+    },
+    {
       "hash": "5ae443eb",
       "subject": "fix(object-assign): allow Object.assign(target) zero-source identity per §20.1.2.1"
     },
@@ -641,51 +665,38 @@
     {
       "hash": "d80090a7",
       "subject": "feat(loose-eq): Any vs null/undefined per §7.2.13 nullish check"
-    },
-    {
-      "hash": "05e1b715",
-      "subject": "fix(ssa-lower): Array<Any>.indexOf/lastIndexOf/includes + literal preserve ANY_UNDEF tag"
-    },
-    {
-      "hash": "da514108",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — session 126 W-D + W-J narrow trunk close"
-    },
-    {
-      "hash": "ffc786c4",
-      "subject": "fix(ssa-lower): anon-struct-cell-via-Any IC dispatch (W-D follow-up)"
-    },
-    {
-      "hash": "ec94ae18",
-      "subject": "feat(arr): Array<Any>.join + Array<Any>.toString (W-J follow-up)"
-    },
-    {
-      "hash": "9327153e",
-      "subject": "fix(ssa-lower): fn-call arg box preserves ANY_UNDEF vs ANY_NULL tag"
-    },
-    {
-      "hash": "0391c5be",
-      "subject": "feat(ssa-lower): OptChain `obj?.field` on Type::Any receiver"
     }
   ],
-  "headSha": "5ae443eb",
+  "headSha": "d56336a0",
   "autorun": {
-    "total": 173,
+    "total": 174,
     "baselineTarget": 10,
-    "bySelf": 168,
+    "bySelf": 169,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781528566-2ade",
-      "at": "2026-06-15T13:02:46Z",
-      "ts": 1781528566,
+      "rotationId": "r-1781534537-51ba",
+      "at": "2026-06-15T14:42:17Z",
+      "ts": 1781534537,
       "trigger": "self",
-      "prevHead": "da514108",
-      "handoffSha": "sha256:5e27f1c48f63f2b0374625bc7df9c96536daa1f23e88f907a018bd2ae4cb2661",
-      "handoffAgeSec": 18,
+      "prevHead": "d798a753",
+      "handoffSha": "sha256:597e4b5de3bd79f5ea584593bad15801028428a7e68a20858ccef8fac8341da6",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781534537-51ba",
+        "at": "2026-06-15T14:42:17Z",
+        "ts": 1781534537,
+        "trigger": "self",
+        "prevHead": "d798a753",
+        "handoffSha": "sha256:597e4b5de3bd79f5ea584593bad15801028428a7e68a20858ccef8fac8341da6",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781528566-2ade",
         "at": "2026-06-15T13:02:46Z",
@@ -782,17 +793,6 @@
         "prevHead": "0e100f63",
         "handoffSha": "sha256:dfd6ba974c8a2752b4aede67923b44aaad2d06d06dd3317a80dd5b6e1e06e051",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781437257-3cce",
-        "at": "2026-06-14T11:40:57Z",
-        "ts": 1781437257,
-        "trigger": "self",
-        "prevHead": "de09e944",
-        "handoffSha": "sha256:bd57c40dfb4218c5571c98c3549edc0e1dd6040912d326f7841537274d906ef1",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
