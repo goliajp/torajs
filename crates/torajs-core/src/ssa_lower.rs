@@ -13438,7 +13438,21 @@ impl<'a> LowerCtx<'a> {
                 Type::Ptr => {
                     // Ptr that's null (Type::Null lowers to ConstPtrNull
                     // → Type::Ptr). Tag as ANY_NULL with value 0.
-                    (0, Operand::ConstI64(0))
+                    // S127-1: `undefined` literal also lowers to
+                    // ConstPtrNull (Type::Ptr). Recover the original
+                    // AST shape so the slot tags ANY_UNDEF=5, else
+                    // `[undefined]` collapses to `[null]` and
+                    // strict-eq / .indexOf(undefined) mis-fires.
+                    // Same root as W-D narrow trunk's box_to_any
+                    // ConstPtrNull arm (S126-1/-3).
+                    if matches!(
+                        self.ast.get_expr(eid),
+                        Expr::Ident(n) if n == "undefined"
+                    ) {
+                        (5, Operand::ConstI64(0))
+                    } else {
+                        (0, Operand::ConstI64(0))
+                    }
                 }
                 other => panic!(
                     "not yet supported: lower_array_any_literal element type {other:?} \

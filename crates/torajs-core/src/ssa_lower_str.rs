@@ -1988,31 +1988,49 @@ pub(crate) fn try_lower_method_call(
                 } else {
                     // Pack needle as (tag, value-as-i64) — same
                     // shape as the BinOp Any === concrete arm.
-                    let (tag, value): (i64, Operand) = match needle_ty {
-                        Type::I64 | Type::I32 => (2, needle.clone()),
-                        Type::F64 => {
-                            let bits = ctx.f.append_inst(
-                                ctx.cur_block,
-                                InstKind::BitCastF64ToI64(needle.clone()),
-                                Type::I64,
-                                None,
-                            );
-                            (3, Operand::Value(bits))
+                    // S127-1: `undefined` literal lowers to
+                    // ConstPtrNull (Type::Ptr) — identical shape
+                    // to the `null` literal. Recover the original
+                    // AST distinction so strict_eq packs tag=5
+                    // (ANY_UNDEF) instead of tag=0 (ANY_NULL).
+                    // Without this, `xs.indexOf(undefined)` /
+                    // `.lastIndexOf(undefined)` / `.includes(undefined)`
+                    // wrongly match the first null slot — same
+                    // ANY_UNDEF vs ANY_NULL collapse seen in W-D
+                    // narrow trunk (S126-1/-3).
+                    let is_undef_lit = matches!(
+                        ctx.ast.get_expr(args[0]),
+                        Expr::Ident(n) if n == "undefined"
+                    );
+                    let (tag, value): (i64, Operand) = if is_undef_lit {
+                        (5, Operand::ConstI64(0))
+                    } else {
+                        match needle_ty {
+                            Type::I64 | Type::I32 => (2, needle.clone()),
+                            Type::F64 => {
+                                let bits = ctx.f.append_inst(
+                                    ctx.cur_block,
+                                    InstKind::BitCastF64ToI64(needle.clone()),
+                                    Type::I64,
+                                    None,
+                                );
+                                (3, Operand::Value(bits))
+                            }
+                            Type::Bool => {
+                                let zext = ctx.f.append_inst(
+                                    ctx.cur_block,
+                                    InstKind::ZExtBoolToI64(needle.clone()),
+                                    Type::I64,
+                                    None,
+                                );
+                                (1, Operand::Value(zext))
+                            }
+                            Type::Ptr if matches!(needle, Operand::ConstPtrNull) => {
+                                (0, Operand::ConstI64(0))
+                            }
+                            t if t.is_refcounted() => (4, needle.clone()),
+                            _ => (0, Operand::ConstI64(0)),
                         }
-                        Type::Bool => {
-                            let zext = ctx.f.append_inst(
-                                ctx.cur_block,
-                                InstKind::ZExtBoolToI64(needle.clone()),
-                                Type::I64,
-                                None,
-                            );
-                            (1, Operand::Value(zext))
-                        }
-                        Type::Ptr if matches!(needle, Operand::ConstPtrNull) => {
-                            (0, Operand::ConstI64(0))
-                        }
-                        t if t.is_refcounted() => (4, needle.clone()),
-                        _ => (0, Operand::ConstI64(0)),
                     };
                     ctx.f.append_inst(
                         ctx.cur_block,
