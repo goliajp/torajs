@@ -488,6 +488,13 @@ fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
     if t == e {
         return Some(t.clone());
     }
+    // S129-1 mixed-Any wedge — mirror of S128-5 LAnd/LOr / S127-4
+    // indexOf 2-arg Any-escape. `b ? typed : (x: any)` widens the
+    // result to Any; ssa-lower NaN-boxes the non-Any branch so the
+    // shared __tern slot stays uniform.
+    if matches!(t, Type::Any) || matches!(e, Type::Any) {
+        return Some(Type::Any);
+    }
     match (t, e) {
         (Type::Null, other) | (other, Type::Null) => Some(Type::Nullable(Box::new(other.clone()))),
         (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {

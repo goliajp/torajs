@@ -22925,6 +22925,25 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block = then_end;
                     let t = self.coerce_to_f64(then_val);
                     (t, else_val, Type::F64)
+                } else if tt == Type::Any || et == Type::Any {
+                    // S129-1 mixed-Any wedge — check.rs unify_ternary
+                    // widens to Any when either arm is Any; the slot
+                    // must be Any-typed and the non-Any branch
+                    // NaN-boxed via box_to_any so Load decodes a
+                    // proper AnyValue. Same shape as the S128-5
+                    // logical mixed-Any widen and the S128-4 reduce
+                    // init box-coerce.
+                    if tt != Type::Any {
+                        self.cur_block = then_end;
+                        let t = self.box_to_any(then_val);
+                        (t, else_val, Type::Any)
+                    } else if et != Type::Any {
+                        self.cur_block = else_end;
+                        let e = self.box_to_any(else_val);
+                        (then_val, e, Type::Any)
+                    } else {
+                        (then_val, else_val, Type::Any)
+                    }
                 } else {
                     (then_val, else_val, tt)
                 };
