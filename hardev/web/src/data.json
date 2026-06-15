@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-15T02:41:33.779Z",
+  "generatedAt": "2026-06-15T03:02:45.665Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "0c6006ca",
-    "commitSubject": "fix(link): drop unused has_data_const from EmitLcMeta",
+    "commit": "5a6740ae",
+    "commitSubject": "refactor(link): extract compute_archive_layout Phase 2 member scan into sibling module",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "5a6740ae",
+      "subject": "refactor(link): extract compute_archive_layout Phase 2 member scan into sibling module"
+    },
+    {
+      "hash": "6b88bd11",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — session 122 emit_binary LC meta extract + gate 829/0/4"
+    },
+    {
       "hash": "0c6006ca",
       "subject": "fix(link): drop unused has_data_const from EmitLcMeta"
     },
@@ -657,35 +665,38 @@
     {
       "hash": "0db3595a",
       "subject": "feat(meta): W-J Phase B — Object.getOwnPropertyDescriptor struct cell arm"
-    },
-    {
-      "hash": "0c038a10",
-      "subject": "feat(structmeta): W-J Phase A4 — torajs-structmeta crate runtime reflection helpers"
-    },
-    {
-      "hash": "b951146f",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — session 118 W-J A3b ship + Step 1 refactor"
     }
   ],
-  "headSha": "0c6006ca",
+  "headSha": "5a6740ae",
   "autorun": {
-    "total": 169,
+    "total": 170,
     "baselineTarget": 10,
-    "bySelf": 165,
+    "bySelf": 166,
     "byManual": 4,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781489758-1b6b",
-      "at": "2026-06-15T02:15:58Z",
-      "ts": 1781489758,
+      "rotationId": "r-1781491405-6f9d",
+      "at": "2026-06-15T02:43:25Z",
+      "ts": 1781491405,
       "trigger": "self",
-      "prevHead": "22bcdc32",
-      "handoffSha": "sha256:f6d4f09956986821f15e3517304a1a363ebdb73da7ee1d75f52e6d00e98e7d62",
+      "prevHead": "6b88bd11",
+      "handoffSha": "sha256:950f81598ac8a6a5b2438a7575c869ca351ff54e4fac131a46bc70c98ab8e587",
       "handoffAgeSec": 32,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781491405-6f9d",
+        "at": "2026-06-15T02:43:25Z",
+        "ts": 1781491405,
+        "trigger": "self",
+        "prevHead": "6b88bd11",
+        "handoffSha": "sha256:950f81598ac8a6a5b2438a7575c869ca351ff54e4fac131a46bc70c98ab8e587",
+        "handoffAgeSec": 32,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781489758-1b6b",
         "at": "2026-06-15T02:15:58Z",
@@ -782,17 +793,6 @@
         "prevHead": "0a26eaa3",
         "handoffSha": "sha256:2f53d2202deda194ce07e4bbccaac2ca9499a65f68cda4f441d7c668ad5c75c0",
         "handoffAgeSec": 17,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781419022-36b4",
-        "at": "2026-06-14T06:37:02Z",
-        "ts": 1781419022,
-        "trigger": "self",
-        "prevHead": "62fcdad5",
-        "handoffSha": "sha256:3ab0bb90231a87124db22c04ef58b8236ed2ef7e6d23c3f6b0ce270e81686378",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
