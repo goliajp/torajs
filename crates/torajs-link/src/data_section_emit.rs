@@ -182,10 +182,12 @@ mod tests {
             user_data_globals_layout: Default::default(),
             user_vtables_layout: Default::default(),
             fn_name_table_layout: Default::default(),
+            class_name_table_layout: Default::default(),
             data_const_layout: Default::default(),
             text_rebase_link_values: Vec::new(),
             vtable_rebase_target_count: 0,
             fn_name_rebase_target_count: 0,
+            class_name_rebase_target_count: 0,
         }
     }
 

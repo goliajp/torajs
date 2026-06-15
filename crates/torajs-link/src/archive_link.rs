@@ -9,15 +9,15 @@ use torajs_obj::{
 };
 
 use crate::archive_link_member_scan::{MemberScanLayouts, scan_member_text_and_symbols};
+use crate::archive_link_rebase_assembly::{TextRebaseAssembly, assemble_text_rebase_targets};
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
 use crate::chained_fixups_call::{ChainedFixupsInputs, compute_chained_fixups_outputs};
+use crate::class_name_table_layout::class_name_table_extra_defined_syms;
 use crate::data_const_layout::compute_data_const_layout;
 use crate::data_section_layout::compute_data_section_layouts;
 use crate::exec::LinkConfig;
 use crate::fn_addr_syms::fn_addr_extra_defined_syms;
-use crate::fn_name_table_layout::{
-    fn_name_table_extra_defined_syms, fn_name_table_rebase_targets_from_layouts,
-};
+use crate::fn_name_table_layout::fn_name_table_extra_defined_syms;
 pub use crate::layout_types::{ArchiveLayout, ArchiveLayoutError, MemberLayout};
 use crate::lc::{
     APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
@@ -29,16 +29,12 @@ use crate::non_text_layout::{NonTextLayoutError, compute_non_text_layouts};
 use crate::sign::adhoc_codesign_blob_size;
 use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
 use crate::tlv_descriptor_layout::compute_tlv_descriptor_layouts;
-use crate::user_class_layouts_layout::{
-    compute_class_layouts_rebase_targets, user_class_layouts_extra_defined_syms,
-};
+use crate::user_class_layouts_layout::user_class_layouts_extra_defined_syms;
 use crate::user_data_globals_layout::{
     build_user_data_globals_region, user_data_globals_extra_defined_syms,
 };
 use crate::user_strings_layout::{build_user_strings_region, user_strings_extra_defined_syms};
-use crate::user_vtables_layout::{
-    user_vtables_extra_defined_syms, vtable_rebase_targets_from_fn_vaddrs,
-};
+use crate::user_vtables_layout::user_vtables_extra_defined_syms;
 use std::collections::BTreeMap;
 
 fn round_up_to(value: u64, align: u64) -> u64 {
@@ -64,6 +60,10 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     extra.extend(fn_name_table_extra_defined_syms(
         &cfg.fn_name_globals,
         cfg.force_emit_fn_name_globals,
+    ));
+    extra.extend(class_name_table_extra_defined_syms(
+        &cfg.class_names,
+        cfg.force_emit_class_names_globals,
     ));
     let required =
         compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;
@@ -110,8 +110,13 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     // programs (e.g. plain `function foo() {}` user TS).
     let has_fn_name_table_rebase =
         !cfg.fn_name_globals.is_empty() || cfg.force_emit_fn_name_globals;
-    let has_chained_fixups =
-        has_dyld || has_vtable_rebase || has_class_layouts_rebase || has_fn_name_table_rebase;
+    let has_class_names_table_rebase =
+        !cfg.class_names.is_empty() || cfg.force_emit_class_names_globals;
+    let has_chained_fixups = has_dyld
+        || has_vtable_rebase
+        || has_class_layouts_rebase
+        || has_fn_name_table_rebase
+        || has_class_names_table_rebase;
     let has_libcurl_lc = required.dyld_imports.values().any(|&o| o == 2);
     let load_dylib_size = if has_dyld {
         LOAD_DYLIB_LIBSYSTEM_CMDSIZE
@@ -190,13 +195,16 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let text_segment_file_end = u64::from(stubs_file_offset) + stubs_section_size;
     let text_vmsize = round_up_to(text_segment_file_end, APPLE_SILICON_PAGE_SIZE);
 
-    // e8 __DATA_CONST — vtable + class_layouts + fn_name_table rodata.
+    // e8 + W-J A3c __DATA_CONST — vtable + class_layouts +
+    // fn_name_table + class_name_table rodata.
     let data_const_layout = compute_data_const_layout(
         &cfg.vtable_globals,
         &cfg.class_layouts,
         cfg.force_emit_class_layouts_globals,
         &cfg.fn_name_globals,
         cfg.force_emit_fn_name_globals,
+        &cfg.class_names,
+        cfg.force_emit_class_names_globals,
         text_vmsize as u32,
         TEXT_VMADDR_BASE + text_vmsize,
     );
@@ -374,34 +382,15 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         .iter()
         .map(|d| d.thunk_slot_vaddr - data_vmaddr)
         .collect();
-    // e7b/e8-2b + Step 3b.4: concat vtable + class_layouts + fn_name_table
-    // rebase in walk order. Each region appends its targets so the
-    // chained-fixup encoder buckets every slot by __DATA_CONST page;
-    // the per-slot link values come back in input order so archive_emit
-    // can 3-way split via vtable_rebase_target_count + fn_name_rebase_target_count.
-    let vtable_rebase_targets = vtable_rebase_targets_from_fn_vaddrs(
-        &data_const_layout.vtable_layout,
-        &fn_vaddrs,
-        data_const_layout.segment_vmaddr,
-        TEXT_VMADDR_BASE,
-    );
-    let class_layouts_rebase_targets = compute_class_layouts_rebase_targets(
-        &data_const_layout.class_layouts_layout,
-        data_const_layout.segment_vmaddr,
-        TEXT_VMADDR_BASE,
-    );
-    let fn_name_table_rebase_targets = fn_name_table_rebase_targets_from_layouts(
-        &data_const_layout.fn_name_table_layout,
-        &fn_vaddrs,
-        &user_strings_layout,
-        data_const_layout.segment_vmaddr,
-        TEXT_VMADDR_BASE,
-    );
-    let vtable_rebase_target_count = vtable_rebase_targets.len();
-    let fn_name_rebase_target_count = fn_name_table_rebase_targets.len();
-    let mut combined_text_rebase_targets = vtable_rebase_targets;
-    combined_text_rebase_targets.extend(class_layouts_rebase_targets);
-    combined_text_rebase_targets.extend(fn_name_table_rebase_targets);
+    // Phase 3 — concat vtable | class_layouts | fn_name_table |
+    // class_name_table rebase in walk order so dyld + archive_emit
+    // can per-region split via the recorded counts.
+    let TextRebaseAssembly {
+        combined: combined_text_rebase_targets,
+        vtable_rebase_target_count,
+        fn_name_rebase_target_count,
+        class_name_rebase_target_count,
+    } = assemble_text_rebase_targets(&data_const_layout, &fn_vaddrs, &user_strings_layout);
 
     // e8: __DATA_CONST idx=2; __DATA shifts to idx 3 when has_data_const.
     let data_seg_idx: u32 = if has_data_const { 3 } else { 2 };
@@ -491,10 +480,12 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         user_data_globals_layout,
         user_vtables_layout: data_const_layout.vtable_layout.clone(),
         fn_name_table_layout: data_const_layout.fn_name_table_layout.clone(),
+        class_name_table_layout: data_const_layout.class_name_table_layout.clone(),
         data_const_layout,
         text_rebase_link_values,
         vtable_rebase_target_count,
         fn_name_rebase_target_count,
+        class_name_rebase_target_count,
     })
 }
 
@@ -594,6 +585,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         let base = crate::exec::compute_layout(&cfg);
@@ -640,6 +633,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 1);
@@ -701,6 +696,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 3);
@@ -743,6 +740,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -807,6 +806,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let layout = compute_archive_layout(&cfg).unwrap();
 
@@ -846,6 +847,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         match err {
@@ -878,6 +881,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let err = compute_archive_layout(&cfg).unwrap_err();
         assert!(matches!(

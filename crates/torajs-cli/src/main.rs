@@ -1,4 +1,5 @@
 mod cmd_build;
+mod cmd_build_ssa_string_registries;
 mod cmd_cache;
 mod cmd_debug;
 mod cmd_fmt;

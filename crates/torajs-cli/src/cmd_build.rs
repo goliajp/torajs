@@ -8,6 +8,9 @@
 
 use std::process::ExitCode;
 
+use crate::cmd_build_ssa_string_registries::{
+    build_class_names, build_fn_name_globals, build_user_strings,
+};
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::compile_function_with_sigs;
 use torajs_codegen::enc::{add_imm, b_imm26, bl_imm26, ret as enc_ret, str_x_imm12};
@@ -19,10 +22,7 @@ use torajs_core::{
     TORAJS_STATICLIBS, ast, ast_closure_param_tag, check, lexer, modules, parser, ssa_lower,
 };
 use torajs_link::archive_emit::link_to_exec_with_archives;
-use torajs_link::exec::{
-    LinkConfig, UserClassLayoutEntry, UserDataGlobalEntry, UserFnNameEntry, UserStringEntry,
-    UserStringKind, UserVtableEntry,
-};
+use torajs_link::exec::{LinkConfig, UserClassLayoutEntry, UserDataGlobalEntry, UserVtableEntry};
 use torajs_link::resolve::SymTable;
 
 use crate::util::{base_dir_for, read_source};
@@ -280,28 +280,8 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
     }
     funcs.push(synthesize_main_argv_wrapper());
 
-    // ssa::Module.strings → both UserStringKind flavours per literal.
-    // Codegen emits StaticStrRef (`__torajs_str_lit_<i>`) for `"x"`
-    // expressions and StringRef (`__torajs_str_dyn_<i>`) for raw-byte
-    // consumers (e.g. obj field-name matching). Emit both so either
-    // resolves at link time without a per-call usage scan.
-    let mut strings: Vec<UserStringEntry> = Vec::with_capacity(ssa_module.strings.len() * 2);
-    for (i, lit) in ssa_module.strings.iter().enumerate() {
-        strings.push(UserStringEntry {
-            sym: format!("__torajs_str_lit_{i}"),
-            bytes: lit.bytes.clone(),
-            is_latin1: lit.is_latin1,
-            length: lit.length,
-            kind: UserStringKind::StaticStr,
-        });
-        strings.push(UserStringEntry {
-            sym: format!("__torajs_str_dyn_{i}"),
-            bytes: lit.bytes.clone(),
-            is_latin1: lit.is_latin1,
-            length: lit.length,
-            kind: UserStringKind::RawBytes,
-        });
-    }
+    let mut strings = build_user_strings(ssa_module);
+    let class_names = build_class_names(ssa_module, &mut strings);
 
     let data_globals: Vec<UserDataGlobalEntry> = ssa_module
         .data_globals
@@ -402,15 +382,18 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
         // `apply_user_string_overrides` registers both flavours
         // downstream. Empty when no top-level fn declarations landed
         // an entry (every decl filtered as mangled / closure-lifted).
-        fn_name_globals: ssa_module
-            .fn_name_globals
-            .iter()
-            .map(|e| UserFnNameEntry {
-                fn_addr_sym: format!("__torajs_fn_{}", e.fn_id.0),
-                name_ptr_sym: format!("__torajs_str_dyn_{}", e.name_sid.0),
-                name_len: e.name.chars().count() as u32,
-            })
-            .collect(),
+        fn_name_globals: build_fn_name_globals(ssa_module),
+        // W-J Phase A3c — class-name registry built upstream from
+        // `ssa_module.class_layouts`. Empty when no named class
+        // entries land in the layout array (probes / anonymous-only
+        // programs).
+        class_names,
+        // W-J Phase A3c — same rationale as
+        // `force_emit_class_layouts_globals`:
+        // `libtorajs_structmeta.a` references the table extern
+        // statics unconditionally so `tr build` must emit the
+        // zero-count global on class-name-free programs.
+        force_emit_class_names_globals: true,
     }
 }
 

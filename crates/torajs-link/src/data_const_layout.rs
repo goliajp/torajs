@@ -18,6 +18,9 @@
 //! - Apple dyld source `dyld3/Loader.cpp` walks segments with
 //!   `SG_READ_ONLY` and applies the post-fixup mprotect
 
+use crate::class_name_table_layout::{
+    ClassNameTableEntryLayout, ClassNameTableLayout, compute_class_name_table_layout,
+};
 use crate::fn_name_table_layout::{
     FnNameTableEntryLayout, FnNameTableLayout, compute_fn_name_table_layout,
 };
@@ -56,6 +59,13 @@ pub struct DataConstLayout {
     /// vtables hosts this region too. Empty layout (`total_size == 0`)
     /// when `cfg.fn_name_globals.is_empty()`.
     pub fn_name_table_layout: FnNameTableLayout,
+    /// W-J Phase A3c — `__torajs_class_name_table[]` +
+    /// `__torajs_n_class_names` placed after fn_name_table inside
+    /// the same `__DATA_CONST` segment. One chain-fixup slot
+    /// (`name_ptr`) per entry needs dyld rebase at load time, so
+    /// the `SG_READ_ONLY` host pattern carries over. Empty layout
+    /// (`total_size == 0`) when `cfg.class_names.is_empty()`.
+    pub class_name_table_layout: ClassNameTableLayout,
     /// File offset of the `__DATA_CONST` segment's first byte.
     /// Equals `text_segment_file_offset + text_vmsize` in our layout.
     pub segment_file_offset: u32,
@@ -92,6 +102,8 @@ pub fn compute_data_const_layout(
     force_emit_class_layouts_globals: bool,
     fn_name_globals: &[crate::exec::UserFnNameEntry],
     force_emit_fn_name_globals: bool,
+    class_names: &[crate::exec::UserClassNameEntry],
+    force_emit_class_names_globals: bool,
     segment_file_offset_base: u32,
     segment_vmaddr_base: u64,
 ) -> DataConstLayout {
@@ -100,11 +112,14 @@ pub fn compute_data_const_layout(
         && !force_emit_class_layouts_globals
         && fn_name_globals.is_empty()
         && !force_emit_fn_name_globals
+        && class_names.is_empty()
+        && !force_emit_class_names_globals
     {
         return DataConstLayout {
             vtable_layout: UserVtablesLayout::default(),
             class_layouts_layout: UserClassLayoutsLayout::default(),
             fn_name_table_layout: FnNameTableLayout::default(),
+            class_name_table_layout: ClassNameTableLayout::default(),
             segment_file_offset: segment_file_offset_base,
             segment_vmaddr: segment_vmaddr_base,
             segment_filesize: 0,
@@ -149,9 +164,29 @@ pub fn compute_data_const_layout(
         fn_name_vaddr,
         force_emit_fn_name_globals,
     );
+    let class_name_cursor = fn_name_cursor + fn_name_table_layout.total_size;
+    let class_name_vaddr = fn_name_vaddr + u64::from(fn_name_table_layout.total_size);
+    let mut class_name_entries: Vec<ClassNameTableEntryLayout> = class_names
+        .iter()
+        .map(|e| ClassNameTableEntryLayout {
+            class_tag: e.class_tag,
+            name_ptr_sym: e.name_ptr_sym.clone(),
+            name_len: e.name_len,
+        })
+        .collect();
+    // Sorted by class_tag asc so the runtime binary-search invariant
+    // holds. Empty Vec sort is a no-op.
+    class_name_entries.sort_by_key(|e| e.class_tag);
+    let class_name_table_layout = compute_class_name_table_layout(
+        class_name_entries,
+        class_name_cursor,
+        class_name_vaddr,
+        force_emit_class_names_globals,
+    );
     let total_region_size = vtable_layout.total_size
         + class_layouts_layout.total_size
-        + fn_name_table_layout.total_size;
+        + fn_name_table_layout.total_size
+        + class_name_table_layout.total_size;
     // Page-align so dyld's chained-fixup page walker can index from
     // the segment base — `page_start[]` always covers whole pages.
     let segment_vmsize =
@@ -160,6 +195,7 @@ pub fn compute_data_const_layout(
         vtable_layout,
         class_layouts_layout,
         fn_name_table_layout,
+        class_name_table_layout,
         segment_file_offset: segment_file_offset_base,
         segment_vmaddr: segment_vmaddr_base,
         segment_filesize: segment_vmsize,
@@ -204,6 +240,7 @@ pub fn write_data_const_payload(
     user_vtables_payload: &[u8],
     user_class_layouts_payload: &[u8],
     fn_name_table_payload: &[u8],
+    class_name_table_payload: &[u8],
 ) {
     if !layout.has_data_const {
         return;
@@ -215,6 +252,7 @@ pub fn write_data_const_payload(
     buf.extend_from_slice(user_vtables_payload);
     buf.extend_from_slice(user_class_layouts_payload);
     buf.extend_from_slice(fn_name_table_payload);
+    buf.extend_from_slice(class_name_table_payload);
 }
 
 #[cfg(test)]
@@ -239,7 +277,17 @@ mod tests {
 
     #[test]
     fn empty_input_marks_segment_absent() {
-        let layout = compute_data_const_layout(&[], &[], false, &[], false, 0x4000, 0x1_0000_4000);
+        let layout = compute_data_const_layout(
+            &[],
+            &[],
+            false,
+            &[],
+            false,
+            &[],
+            false,
+            0x4000,
+            0x1_0000_4000,
+        );
         assert!(!layout.has_data_const);
         assert_eq!(layout.segment_vmsize, 0);
         assert_eq!(layout.segment_filesize, 0);
@@ -249,8 +297,17 @@ mod tests {
     #[test]
     fn single_vtable_fits_in_one_page() {
         let vtables = [entry("__vtable_A", vec![Some("fn_0")])];
-        let layout =
-            compute_data_const_layout(&vtables, &[], false, &[], false, 0x4000, 0x1_0000_4000);
+        let layout = compute_data_const_layout(
+            &vtables,
+            &[],
+            false,
+            &[],
+            false,
+            &[],
+            false,
+            0x4000,
+            0x1_0000_4000,
+        );
         assert!(layout.has_data_const);
         // 8 bytes vtable -> one page after alignment.
         assert_eq!(layout.segment_vmsize, 0x4000);
@@ -271,8 +328,17 @@ mod tests {
             entry("__vtable_B", vec![Some("b0"); 8]),
             entry("__vtable_C", vec![Some("c0"); 8]),
         ];
-        let layout =
-            compute_data_const_layout(&vtables, &[], false, &[], false, 0x4000, 0x1_0000_4000);
+        let layout = compute_data_const_layout(
+            &vtables,
+            &[],
+            false,
+            &[],
+            false,
+            &[],
+            false,
+            0x4000,
+            0x1_0000_4000,
+        );
         assert!(layout.has_data_const);
         assert_eq!(layout.segment_vmsize, 0x4000);
         // 3 vtables × 64 bytes payload = 192 bytes total_size.
@@ -284,8 +350,17 @@ mod tests {
         // file_offset_base / vmaddr_base mismatch — checks the helper
         // doesn't re-derive them from anywhere else.
         let vtables = [entry("__vtable_A", vec![Some("fn_0"), Some("fn_1")])];
-        let layout =
-            compute_data_const_layout(&vtables, &[], false, &[], false, 0x8000, 0x1_0000_8000);
+        let layout = compute_data_const_layout(
+            &vtables,
+            &[],
+            false,
+            &[],
+            false,
+            &[],
+            false,
+            0x8000,
+            0x1_0000_8000,
+        );
         assert_eq!(layout.segment_file_offset, 0x8000);
         assert_eq!(layout.segment_vmaddr, 0x1_0000_8000);
         assert_eq!(layout.vtable_layout.entries[0].vaddr, 0x1_0000_8000);
@@ -298,8 +373,17 @@ mod tests {
         // Segment must still emit so the runtime helper's externs
         // resolve to a defined region.
         let fn_names = [fn_name_entry(0, 0, 3), fn_name_entry(1, 1, 5)];
-        let layout =
-            compute_data_const_layout(&[], &[], false, &fn_names, false, 0x4000, 0x1_0000_4000);
+        let layout = compute_data_const_layout(
+            &[],
+            &[],
+            false,
+            &fn_names,
+            false,
+            &[],
+            false,
+            0x4000,
+            0x1_0000_4000,
+        );
         assert!(layout.has_data_const);
         assert_eq!(layout.fn_name_table_layout.entries.len(), 2);
         // 2 × 24 entries + 8 count = 56; page-aligned to 0x4000.
@@ -322,6 +406,8 @@ mod tests {
             false,
             &fn_names,
             false,
+            &[],
+            false,
             0x4000,
             0x1_0000_4000,
         );
@@ -338,8 +424,17 @@ mod tests {
         // Empty fn_name_globals next to vtable-only path produces
         // the same byte stream as the pre-3b.3 baseline.
         let vtables = [entry("__vtable_A", vec![Some("fn_0")])];
-        let layout =
-            compute_data_const_layout(&vtables, &[], false, &[], false, 0x4000, 0x1_0000_4000);
+        let layout = compute_data_const_layout(
+            &vtables,
+            &[],
+            false,
+            &[],
+            false,
+            &[],
+            false,
+            0x4000,
+            0x1_0000_4000,
+        );
         assert!(layout.has_data_const);
         assert_eq!(layout.fn_name_table_layout.total_size, 0);
         assert!(layout.fn_name_table_layout.entries.is_empty());

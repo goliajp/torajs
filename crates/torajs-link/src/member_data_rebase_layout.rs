@@ -421,10 +421,13 @@ mod tests {
                 crate::user_data_globals_layout::UserDataGlobalsLayout::default(),
             user_vtables_layout: crate::user_vtables_layout::UserVtablesLayout::default(),
             fn_name_table_layout: crate::fn_name_table_layout::FnNameTableLayout::default(),
+            class_name_table_layout: crate::class_name_table_layout::ClassNameTableLayout::default(
+            ),
             data_const_layout: crate::data_const_layout::DataConstLayout::default(),
             text_rebase_link_values: Vec::new(),
             vtable_rebase_target_count: 0,
             fn_name_rebase_target_count: 0,
+            class_name_rebase_target_count: 0,
         }
     }
 }

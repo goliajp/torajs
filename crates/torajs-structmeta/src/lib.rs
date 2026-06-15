@@ -75,6 +75,9 @@ const FIELD_META_TYPE_TAG_OFFSET: usize = 16;
 // On-disk struct mirrors
 // ---------------------------------------------------------------------------
 
+mod class_name;
+pub use class_name::{__torajs_struct_class_name, ClassNameTableEntry};
+
 /// One outer-table entry — the same 24-byte record `torajs-cycle`'s
 /// `ClassLayout` mirrors. `n_children` + `child_offsets` belong to the
 /// cycle collector; this crate reads `field_metadata_ptr`.

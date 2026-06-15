@@ -13,6 +13,9 @@ use crate::archive_emit_lc_meta::{EmitLcMeta, compute_emit_lc_meta};
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError, compute_archive_layout};
 use crate::archives_merge::merge_archive_indexes;
 use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
+use crate::class_name_table_layout::{
+    apply_class_name_table_overrides, build_class_name_table_payload,
+};
 use crate::data_section_emit::{
     build_data_non_text_section_64_entries, write_data_non_text_file_payloads,
 };
@@ -82,6 +85,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &mut effective_sym_table,
     );
     apply_fn_name_table_overrides(&layout.fn_name_table_layout, &mut effective_sym_table);
+    apply_class_name_table_overrides(&layout.class_name_table_layout, &mut effective_sym_table);
 
     // chunk 2b-4: dyld-rebase member `__DATA,*` slots under ASLR.
     let data_rebase_targets = compute_member_data_rebase_targets(
@@ -98,26 +102,29 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     let data_rebase_link_values =
         recompute_chained_fixups_with_data_rebase(&mut layout, &data_rebase_targets);
 
-    // e7b-4/e8-2b + Step 3b.4-5: 3-way split text_rebase_link_values =
-    // vtable | class_layouts | fn_name_table. Tail count is the
-    // fn_name_table contribution; class_layouts count is the
+    // e7b-4/e8-2b + Step 3b.4-5 + W-J A3c: 4-way split
+    // text_rebase_link_values = vtable | class_layouts |
+    // fn_name_table | class_name_table. class_layouts count is the
     // middle slice computed by subtraction so the split arithmetic
-    // stays single-source-of-truth even if vtable / fn_name_table
-    // counts drift.
+    // stays single-source-of-truth even if other counts drift.
     let total_text_rebase = layout.text_rebase_link_values.len();
     let vtable_count = layout.vtable_rebase_target_count;
     let fn_name_count = layout.fn_name_rebase_target_count;
+    let class_name_count = layout.class_name_rebase_target_count;
     let class_count = total_text_rebase
-        .checked_sub(vtable_count + fn_name_count)
-        .expect("text_rebase_link_values has fewer entries than vtable + fn_name combined");
+        .checked_sub(vtable_count + fn_name_count + class_name_count)
+        .expect("text_rebase_link_values has fewer entries than the 3 fixed regions combined");
     let (vtable_lv, rest) = layout.text_rebase_link_values.split_at(vtable_count);
-    let (class_lv, fn_name_lv) = rest.split_at(class_count);
-    debug_assert_eq!(fn_name_lv.len(), fn_name_count);
+    let (class_lv, rest) = rest.split_at(class_count);
+    let (fn_name_lv, class_name_lv) = rest.split_at(fn_name_count);
+    debug_assert_eq!(class_name_lv.len(), class_name_count);
     let user_vtables_payload = build_user_vtables_payload(&layout.user_vtables_layout, vtable_lv);
     let user_class_layouts_payload =
         build_user_class_layouts_payload(&layout.data_const_layout.class_layouts_layout, class_lv);
     let fn_name_table_payload =
         build_fn_name_table_payload(&layout.fn_name_table_layout, fn_name_lv);
+    let class_name_table_payload =
+        build_class_name_table_payload(&layout.class_name_table_layout, class_name_lv);
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
 
     // S7-C5 — patch each member's __text in place against effective sym table.
@@ -164,6 +171,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &user_vtables_payload,
         &user_class_layouts_payload,
         &fn_name_table_payload,
+        &class_name_table_payload,
     );
     Ok(bytes)
 }
@@ -180,6 +188,7 @@ fn emit_binary(
     user_vtables_payload: &[u8],
     user_class_layouts_payload: &[u8],
     fn_name_table_payload: &[u8],
+    class_name_table_payload: &[u8],
 ) -> Vec<u8> {
     let EmitLcMeta {
         has_dyld,
@@ -367,6 +376,7 @@ fn emit_binary(
         user_vtables_payload,
         user_class_layouts_payload,
         fn_name_table_payload,
+        class_name_table_payload,
     );
     if has_dyld {
         write_la_ptr_section(&mut buf, layout);
@@ -577,6 +587,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let archive_bytes = link_to_exec_with_archives(&cfg).unwrap();
         let baseline_bytes = link_to_exec(&cfg);
@@ -621,6 +633,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -691,6 +705,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -759,6 +775,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let layout = compute_archive_layout(&cfg).expect("layout");
         assert!(!layout.dyld_imports.is_empty(), "dyld_imports populated");
@@ -768,7 +786,7 @@ mod tests {
         // Drive emit_binary directly — apply_relocs is happy
         // because cfg.sym_table covers `_malloc`.
         let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &cfg.sym_table);
-        let bytes = emit_binary(&cfg, &layout, &[], &[], &[], &resolved, &[], &[], &[]);
+        let bytes = emit_binary(&cfg, &layout, &[], &[], &[], &resolved, &[], &[], &[], &[]);
 
         assert_eq!(
             bytes.len() as u32,
@@ -853,6 +871,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         // SD-2b — link must succeed even though cfg.sym_table is
         // empty. SD-2a's plumbing populates `layout.stub_vaddrs`;
@@ -939,6 +959,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let link_bytes =
             link_to_exec_with_archives(&cfg).expect("link must succeed against mixed externs");
@@ -978,6 +1000,8 @@ mod tests {
             force_emit_class_layouts_globals: false,
             fn_name_globals: Vec::new(),
             force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
         };
         let bytes = link_to_exec_with_archives(&cfg).unwrap();
 

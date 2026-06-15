@@ -112,6 +112,8 @@ fn main() {
         force_emit_class_layouts_globals: false,
         fn_name_globals: Vec::new(),
         force_emit_fn_name_globals: false,
+        class_names: Vec::new(),
+        force_emit_class_names_globals: false,
     };
 
     // Pre-link: query compute_archive_layout directly so we can see

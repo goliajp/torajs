@@ -176,6 +176,14 @@ pub struct ArchiveLayout {
     /// emit path that needs the layout directly. Empty layout
     /// (`total_size == 0`) when `cfg.fn_name_globals.is_empty()`.
     pub fn_name_table_layout: FnNameTableLayout,
+    /// W-J Phase A3c — `__torajs_class_name_table[]` +
+    /// `__torajs_n_class_names` placement inside `__DATA_CONST`,
+    /// after `fn_name_table_layout`. Mirror of
+    /// `data_const_layout.class_name_table_layout` for the
+    /// `apply_class_name_table_overrides` /
+    /// `build_class_name_table_payload` emit path. Empty layout
+    /// (`total_size == 0`) when `cfg.class_names.is_empty()`.
+    pub class_name_table_layout: super::class_name_table_layout::ClassNameTableLayout,
     /// SD-4c-prereq+e8 — `__DATA_CONST` segment placement +
     /// `has_data_const` flag. When `has_data_const` is false the
     /// emit pass skips every `__DATA_CONST` emit hook so the binary
@@ -205,6 +213,13 @@ pub struct ArchiveLayout {
     /// `class_lv[vtable_rebase_target_count..total - fn_name_rebase_target_count]`,
     /// `fn_name_lv[total - fn_name_rebase_target_count..]`.
     pub fn_name_rebase_target_count: usize,
+    /// W-J Phase A3c — count of class_name_table chain-fixup slots
+    /// (= `1 × class_names.len()` for the single `name_ptr` slot
+    /// per entry; 0 when `class_names.is_empty()`). archive_emit.rs
+    /// uses this as the fourth split point so the 4-way split of
+    /// `text_rebase_link_values` lines up:
+    /// `vtable_lv | class_lv | fn_name_lv | class_name_lv`.
+    pub class_name_rebase_target_count: usize,
 }
 
 /// Failures `compute_archive_layout` can report.
