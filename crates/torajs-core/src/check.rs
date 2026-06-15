@@ -5000,12 +5000,16 @@ impl Checker {
                     };
                     return Ok(result);
                 }
-                // `Object.assign(target, source)` — single-source MVP.
-                // Subset constraint: both args must be the same struct
-                // type (no field-superset / partial / multi-source yet).
-                // Static-resolved at lower time as a field-by-field copy.
+                // `Object.assign(target, ...sources)` per §20.1.2.1 —
+                // copy own enumerable properties from each source into
+                // target, left-to-right. Subset constraint: target and
+                // every source must be the SAME struct type (no field-
+                // superset / partial / mismatched-shape yet). Static-
+                // resolved at lower time as N×(field-by-field copy).
                 // Returns target so chains like `let r = Object.assign(...)`
-                // type-check.
+                // type-check. S127-3 extends prior single-source MVP to
+                // N sources (closes the most common Object.assign idiom
+                // — `assign({}, a, b)` merge — without runtime shape work).
                 if let Expr::Member {
                     obj: ns_id,
                     name: m_name,
@@ -5014,23 +5018,25 @@ impl Checker {
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
                     && ns == "Object"
                 {
-                    if args.len() != 2 {
+                    if args.len() < 2 {
                         return Err(format!(
-                            "Object.assign expects 2 args (single-source MVP), got {}",
+                            "Object.assign expects at least 2 args (target + ≥1 source), got {}",
                             args.len()
                         ));
                     }
                     let target_ty = self.type_of(ast, args[0])?;
-                    let source_ty = self.type_of(ast, args[1])?;
                     let Type::Struct(_) = &target_ty else {
                         return Err(format!(
                             "Object.assign target must be a struct, got {target_ty:?}"
                         ));
                     };
-                    if target_ty != source_ty {
-                        return Err(format!(
-                            "Object.assign requires identical struct types in this subset; target={target_ty:?}, source={source_ty:?}"
-                        ));
+                    for (i, src_id) in args[1..].iter().enumerate() {
+                        let source_ty = self.type_of(ast, *src_id)?;
+                        if target_ty != source_ty {
+                            return Err(format!(
+                                "Object.assign requires identical struct types in this subset; target={target_ty:?}, source[{i}]={source_ty:?}"
+                            ));
+                        }
                     }
                     return Ok(target_ty);
                 }
