@@ -45,6 +45,26 @@ pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: 
             candidates.push((*ctag, offset, *fty));
         }
     }
+    // S126-5 — anonymous ObjectLit Pass 1.5 / Pass 2 fresh-sid stamps
+    // also land in `class_tag@+8` (W-J A1 follow-up `cc6416a6`) but
+    // don't show up in `class_name_to_tag`. Enumerate the anon pool
+    // separately so `const da: any = {x:1,y:2}; da.x` resolves via
+    // the same monomorphic IC arm instead of falling through to the
+    // dynobj path (which returns ANY_UNDEF for struct-cell receivers).
+    {
+        let pool = ctx.anon_stamp_pool.borrow();
+        for (sid, atag) in pool.sid_to_tag_iter() {
+            let layout_idx = sid.0 as usize;
+            if layout_idx >= ctx.struct_layouts.len() {
+                continue;
+            }
+            let layout = &ctx.struct_layouts[layout_idx];
+            if let Some((idx, (_, fty))) = layout.iter().enumerate().find(|(_, (n, _))| n == name) {
+                let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
+                candidates.push((atag, offset, *fty));
+            }
+        }
+    }
 
     let dynobj = ctx.any_unbox_value_as_ptr(obj_val);
     let key_str = ctx.intern_string_literal(name);

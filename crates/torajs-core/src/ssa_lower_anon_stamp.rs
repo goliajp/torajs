@@ -79,6 +79,14 @@ impl AnonStampPool {
     pub fn fresh_sids(&self) -> &[ssa::StructId] {
         &self.fresh_sids
     }
+
+    /// Read-only iterator over `(sid, class_tag)` pairs. S126-5 —
+    /// `lower_any_member_read` enumerates this alongside
+    /// `class_name_to_tag` so anon-stamped class instances dispatch
+    /// through the same monomorphic IC arm as named classes.
+    pub fn sid_to_tag_iter(&self) -> impl Iterator<Item = (ssa::StructId, u32)> + '_ {
+        self.sid_to_tag.iter().map(|(&sid, &tag)| (sid, tag))
+    }
 }
 
 /// Wrap the pool in a `RefCell` so the per-fn `LowerCtx` can borrow it
