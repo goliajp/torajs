@@ -9,6 +9,7 @@ use torajs_obj::{
     VM_PROT_READ,
 };
 
+use crate::archive_emit_lc_meta::{EmitLcMeta, compute_emit_lc_meta};
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError, compute_archive_layout};
 use crate::archives_merge::merge_archive_indexes;
 use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
@@ -24,9 +25,8 @@ use crate::exec::LinkConfig;
 use crate::fn_addr_syms::register_fn_addr_syms;
 use crate::fn_name_table_layout::{apply_fn_name_table_overrides, build_fn_name_table_payload};
 use crate::lc::{
-    BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLIB_LIBCURL_CMDSIZE,
-    LOAD_DYLIB_LIBSYSTEM_CMDSIZE, LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE,
-    MH_NOUNDEFS, MH_PIE, MH_TWOLEVEL, PAGEZERO_VMSIZE, write_build_version, write_code_signature,
+    BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLINKER_CMDSIZE,
+    MAIN_CMDSIZE, MH_EXECUTE, PAGEZERO_VMSIZE, write_build_version, write_code_signature,
     write_dyld_chained_fixups, write_dysymtab, write_lc_main, write_load_dylib_libcurl,
     write_load_dylib_libsystem, write_load_dylinker,
 };
@@ -181,65 +181,16 @@ fn emit_binary(
     user_class_layouts_payload: &[u8],
     fn_name_table_payload: &[u8],
 ) -> Vec<u8> {
-    // dyld imports → LC_LOAD_DYLIB + __stubs/__la_symbol_ptr;
-    // e8 text rebase → LC_DYLD_CHAINED_FIXUPS even without la-ptr.
-    let has_dyld = !layout.dyld_imports.is_empty();
-    let has_data_const = layout.data_const_layout.has_data_const;
-    let has_text_rebase = !layout.text_rebase_link_values.is_empty();
-    let has_chained_fixups = has_dyld || has_text_rebase;
-    let ordinals_used: std::collections::BTreeSet<u8> =
-        layout.dyld_imports.values().copied().collect();
-    // dyld assigns ordinals by LC_LOAD_DYLIB position; chain encoder
-    // hard-codes ord 1 = libSystem, so emit libSystem first.
-    let has_libcurl_lc = ordinals_used.contains(&2);
-    let has_libsystem_lc = has_dyld; // every dyld-using binary forces libSystem at ord 1
-    let load_dylib_count = u32::from(has_libsystem_lc) + u32::from(has_libcurl_lc);
-    let load_dylib_size = (if has_libsystem_lc {
-        LOAD_DYLIB_LIBSYSTEM_CMDSIZE
-    } else {
-        0
-    }) + (if has_libcurl_lc {
-        LOAD_DYLIB_LIBCURL_CMDSIZE
-    } else {
-        0
-    });
-    // ncmds delta: LC_LOAD_DYLIBs + (__DATA when has_dyld) +
-    // (__DATA_CONST when has_data_const) + LC_DYLD_CHAINED_FIXUPS.
-    let extra_lc_count = if has_dyld { load_dylib_count + 1 } else { 0 }
-        + u32::from(has_data_const)
-        + u32::from(has_chained_fixups);
-    // c-fix-c4 — each member `__DATA,*` section + 1 section_64 entry.
-    let data_non_text_section_count: u32 = layout
-        .data_non_text_layouts
-        .iter()
-        .map(|v| v.len() as u32)
-        .sum::<u32>()
-        + u32::from(layout.user_data_globals_layout.total_vmsize > 0);
-    let extra_lc_size = (if has_dyld {
-        // load_dylibs + __TEXT __stubs section + __DATA seg + its
-        // __la_symbol_ptr section + member __DATA,* sections.
-        load_dylib_size
-            + SECTION_64_SIZE
-            + SEGMENT_COMMAND_64_SIZE
-            + SECTION_64_SIZE
-            + (SECTION_64_SIZE * data_non_text_section_count)
-    } else {
-        0
-    }) + (if has_data_const {
-        SEGMENT_COMMAND_64_SIZE
-    } else {
-        0
-    }) + (if has_chained_fixups {
-        LINKEDIT_DATA_CMDSIZE
-    } else {
-        0
-    });
-    // has_dyld clears MH_NOUNDEFS (link-time unresolved syms allowed).
-    let mh_flags = if has_dyld {
-        MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
-    } else {
-        MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
-    };
+    let EmitLcMeta {
+        has_dyld,
+        has_data_const,
+        has_chained_fixups,
+        has_libcurl_lc,
+        has_libsystem_lc,
+        extra_lc_count,
+        extra_lc_size,
+        mh_flags,
+    } = compute_emit_lc_meta(layout);
 
     let header = MachHeader64 {
         magic: MH_MAGIC_64,
