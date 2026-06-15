@@ -125,12 +125,38 @@ print(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
 PY
 }
 
+# Extract the body of the handoff.md "rotate 触发" markdown section.
+# Lines between `## ...rotate 触发` and the next `## ` heading. Empty if
+# section absent or handoff missing. Used by TRIG-3 / TRIG-4 (trig_gate.sh)
+# and by autorun_record_rotation to populate the jsonl `triggerReason` field.
+autorun_handoff_trigger_section() {
+  if [ ! -f "$HANDOFF_FILE" ]; then
+    return
+  fi
+  awk '
+    /^## .*rotate 触发/ { in_section = 1; next }
+    in_section && /^## / { in_section = 0 }
+    in_section { print }
+  ' "$HANDOFF_FILE"
+}
+
+# Extract the closed-enum letter from the `reason: <a|b|c|d>` line inside
+# the handoff trigger section. Outputs single lowercase letter or empty.
+autorun_trigger_reason() {
+  autorun_handoff_trigger_section \
+    | grep -iE '^[[:space:]]*reason:[[:space:]]*[abcd][[:space:]]*$' \
+    | head -1 \
+    | awk '{ gsub(/[[:space:]]/, ""); sub(/^[Rr][Ee][Aa][Ss][Oo][Nn]:/, ""); print tolower($0) }'
+}
+
 # Append a rotation line to rotations.jsonl. Creates the file on first
-# write. trigger= self | manual | hook | daemon (future).
+# write. trigger= self | manual | hook | daemon (future). triggerReason
+# is best-effort from handoff; null when absent (manual triggers may
+# legitimately have no handoff reason).
 autorun_record_rotation() {
   local rotation_id=$1
   local trigger=$2
-  local at ts head handoff_sha handoff_age conf
+  local at ts head handoff_sha handoff_age conf reason
 
   at=$(autorun_now_iso)
   ts=$(date +%s)
@@ -138,6 +164,7 @@ autorun_record_rotation() {
   handoff_sha=$(autorun_handoff_sha)
   handoff_age=$(autorun_file_age_sec "$HANDOFF_FILE")
   conf=$(autorun_conformance_now)
+  reason=$(autorun_trigger_reason)
 
   local line
   line=$(autorun_emit_jsonl \
@@ -150,7 +177,8 @@ autorun_record_rotation() {
     "handoffSha=$handoff_sha" \
     "handoffAgeSec=${handoff_age:+int:$handoff_age}" \
     "conformanceBefore=$conf" \
-    "commitsInSession=null")
+    "commitsInSession=null" \
+    "triggerReason=$reason")
 
   mkdir -p "$(dirname "$ROTATIONS_LOG")"
   printf '%s\n' "$line" >> "$ROTATIONS_LOG"

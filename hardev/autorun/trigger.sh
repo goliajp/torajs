@@ -39,6 +39,19 @@ if [ ! -d "$CLAUDE_DIR" ]; then
   exit 2
 fi
 
+# TRIG-1..4 pre-gate (P2.0 SHIPPED). Only self-triggered rotations are
+# gated — manual = takagi override path (cases#rotate-as-procrastination
+# decision authority remains with the user). See `README.md` → "TRIG-1..4
+# spec" + `metrics.md` §6 baseline @2026-06-15.
+if [ "$TRIGGER" = "self" ]; then
+  if ! "$SCRIPT_DIR/trig_gate.sh"; then
+    echo "trigger.sh: self trigger BLOCKED by TRIG gate (see lines above)" >&2
+    echo "  · ship more substrate first, or wait wall time, or fix handoff reason." >&2
+    echo "  · manual override (takagi only): hardev/autorun/trigger.sh manual" >&2
+    exit 1
+  fi
+fi
+
 rotation_id=$(autorun_new_id)
 
 # 1. intent file (used by P1 Stop hook; also a discoverable trace in P0).
