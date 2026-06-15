@@ -21,6 +21,22 @@ impl crate::ssa_lower::LowerCtx<'_> {
             if is_primitive {
                 return self.box_to_any_from_expr(inner, inner_op);
             }
+            // RFC C4 — `undefined as any` / `null as any` arg-validation:
+            // `Object.getOwnPropertyDescriptor(undefined as any, ...)` must
+            // throw "undefined is not an object" (spec §10.1.6 ToObject).
+            // SSA-lower collapses both `undefined` and `null` to
+            // ConstPtrNull (Type::Ptr) at the value level; without this
+            // path the call-site sees an un-boxed Ptr and the spec ANY_UNDEF
+            // vs ANY_NULL discrimination collapses (both fall to
+            // `box_to_any`'s `ConstPtrNull → ANY_NULL=0` arm, making
+            // undefined misreport as null at runtime). Routing through
+            // `box_to_any_from_expr` reads the `inner` expression's
+            // `expr_types` (which still says Type::Undefined / Type::Null
+            // before the As cast erased it to Any) and emits the
+            // correct tag.
+            if matches!(inner_ty, Type::Ptr) {
+                return self.box_to_any_from_expr(inner, inner_op);
+            }
         }
         // Unbox direction (b1) — `<Any-valued> as number` must
         // materialize the numeric face. Pre-fix the boxed AnyValue
