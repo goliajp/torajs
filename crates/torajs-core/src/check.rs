@@ -5022,11 +5022,8 @@ impl Checker {
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
                     && ns == "Object"
                 {
-                    if args.len() < 2 {
-                        return Err(format!(
-                            "Object.assign expects at least 2 args (target + ≥1 source), got {}",
-                            args.len()
-                        ));
+                    if args.is_empty() {
+                        return Err("Object.assign requires at least a target arg".to_string());
                     }
                     let target_ty = self.type_of(ast, args[0])?;
                     let Type::Struct(_) = &target_ty else {

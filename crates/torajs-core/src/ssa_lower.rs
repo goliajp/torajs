@@ -16527,7 +16527,7 @@ impl<'a> LowerCtx<'a> {
                     && m_name == "assign"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
-                    && args.len() >= 2
+                    && !args.is_empty()
                 {
                     let target_op = self.lower_expr(args[0]);
                     let target_ty = self.operand_ty(&target_op);
