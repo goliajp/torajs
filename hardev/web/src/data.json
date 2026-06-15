@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-15T09:08:30.777Z",
+  "generatedAt": "2026-06-15T13:00:32.514Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "cc6416a6",
-    "commitSubject": "feat(ssa-lower, cli): W-J A1 follow-up — Pass 2 fresh-sid anon ObjectLit stamp",
+    "commit": "ffc786c4",
+    "commitSubject": "fix(ssa-lower): anon-struct-cell-via-Any IC dispatch (W-D follow-up)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,30 @@
   },
   "commits": [
     {
+      "hash": "ffc786c4",
+      "subject": "fix(ssa-lower): anon-struct-cell-via-Any IC dispatch (W-D follow-up)"
+    },
+    {
+      "hash": "ec94ae18",
+      "subject": "feat(arr): Array<Any>.join + Array<Any>.toString (W-J follow-up)"
+    },
+    {
+      "hash": "9327153e",
+      "subject": "fix(ssa-lower): fn-call arg box preserves ANY_UNDEF vs ANY_NULL tag"
+    },
+    {
+      "hash": "0391c5be",
+      "subject": "feat(ssa-lower): OptChain `obj?.field` on Type::Any receiver"
+    },
+    {
+      "hash": "f01b8589",
+      "subject": "fix(ssa-lower): RFC C4 — `undefined as any` preserves ANY_UNDEF tag"
+    },
+    {
+      "hash": "f21dcf83",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — session 124 W-J trunk 100% close + hardev autorun TRIG-1..4 gate ship"
+    },
+    {
       "hash": "cc6416a6",
       "subject": "feat(ssa-lower, cli): W-J A1 follow-up — Pass 2 fresh-sid anon ObjectLit stamp"
     },
@@ -641,51 +665,38 @@
     {
       "hash": "baf5d27a",
       "subject": "docs(hardev/autorun): P1 TRIG-1..4 spec — rotation 触发不变量"
-    },
-    {
-      "hash": "010d74fa",
-      "subject": "feat(hardev/autorun): P0 stats.sh + rotation drift baseline @ 2026-06-15"
-    },
-    {
-      "hash": "7d6f5929",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — session 123 archive_link member scan extract + gate 829/0/4"
-    },
-    {
-      "hash": "5a6740ae",
-      "subject": "refactor(link): extract compute_archive_layout Phase 2 member scan into sibling module"
-    },
-    {
-      "hash": "6b88bd11",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — session 122 emit_binary LC meta extract + gate 829/0/4"
-    },
-    {
-      "hash": "0c6006ca",
-      "subject": "fix(link): drop unused has_data_const from EmitLcMeta"
-    },
-    {
-      "hash": "2427a5d2",
-      "subject": "refactor(link): extract emit_binary LC meta into archive_emit_lc_meta"
     }
   ],
-  "headSha": "cc6416a6",
+  "headSha": "ffc786c4",
   "autorun": {
-    "total": 171,
+    "total": 172,
     "baselineTarget": 10,
     "bySelf": 167,
-    "byManual": 4,
+    "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781492704-4491",
-      "at": "2026-06-15T03:05:04Z",
-      "ts": 1781492704,
-      "trigger": "self",
-      "prevHead": "7d6f5929",
-      "handoffSha": "sha256:ec1bc8feef3b28bf39b69aa48cb57145bc43624a5b8719bc2932e2787d537075",
-      "handoffAgeSec": 3,
+      "rotationId": "r-1781514638-58b1",
+      "at": "2026-06-15T09:10:38Z",
+      "ts": 1781514638,
+      "trigger": "manual",
+      "prevHead": "f21dcf83",
+      "handoffSha": "sha256:37dc167868e30e23fcc592d04ef52810fd68616d5a769f5f72bd770a3e5c7f10",
+      "handoffAgeSec": 22,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781514638-58b1",
+        "at": "2026-06-15T09:10:38Z",
+        "ts": 1781514638,
+        "trigger": "manual",
+        "prevHead": "f21dcf83",
+        "handoffSha": "sha256:37dc167868e30e23fcc592d04ef52810fd68616d5a769f5f72bd770a3e5c7f10",
+        "handoffAgeSec": 22,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781492704-4491",
         "at": "2026-06-15T03:05:04Z",
@@ -782,17 +793,6 @@
         "prevHead": "52348911",
         "handoffSha": "sha256:acfde881eed3a62ae0c21b80fb9c87c1518424e0605d72ce3a9dbba41c9a003e",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781428503-77b7",
-        "at": "2026-06-14T09:15:03Z",
-        "ts": 1781428503,
-        "trigger": "self",
-        "prevHead": "41e9f79d",
-        "handoffSha": "sha256:8067b54893fb4ad5a5889841c28c5bc89487651dab4c3a1d1165d8dd08ab2d31",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
