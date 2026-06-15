@@ -3541,15 +3541,16 @@ impl Checker {
                     /* P6.1 — Map<K,V> methods. set takes (key, value)
                      * both type-erased to Any (the runtime stores
                      * tagged-Any slots regardless); set returns the
-                     * map itself per spec §23.1.3.9, but the current
-                     * SSA / value_drop_heap path is simpler if the
-                     * call slot is Void — chained `m.set(...).set(...)`
-                     * isn't observed in conformance fixtures yet.
+                     * map itself per spec §23.1.3.9 enabling chained
+                     * `m.set(k,v).set(k2,v2)` idiom (S127-5). ssa-lower
+                     * mirrors with an emit_rc_inc on the receiver
+                     * before returning so the chained value owns its
+                     * own ref independent of the source binding.
                      * get returns Nullable<Any>. has / delete return
                      * Boolean. clear returns Void. */
                     (Type::Map, "set") => Ok(Type::Function(
                         vec![Type::Any, Type::Any],
-                        Box::new(Type::Void),
+                        Box::new(Type::Map),
                     )),
                     (Type::Map, "get") => Ok(Type::Function(
                         vec![Type::Any],
@@ -3627,10 +3628,13 @@ impl Checker {
                     )),
                     /* P6.2 — Set<T> methods. add takes a single Any-
                      * typed value; storage piggy-backs on Map<T,
-                     * undef> at runtime. */
+                     * undef> at runtime. S127-5 — add returns the set
+                     * itself per spec §24.2.3.1 to enable chained
+                     * `s.add(v1).add(v2)` idiom. ssa-lower mirrors
+                     * with emit_rc_inc + receiver return. */
                     (Type::Set, "add") => Ok(Type::Function(
                         vec![Type::Any],
-                        Box::new(Type::Void),
+                        Box::new(Type::Set),
                     )),
                     (Type::Set, "has") => Ok(Type::Function(
                         vec![Type::Any],

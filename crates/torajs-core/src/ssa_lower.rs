@@ -18707,6 +18707,10 @@ impl<'a> LowerCtx<'a> {
                                      * needs a value tag so the
                                      * existing helper signature
                                      * stays uniform. */
+                                    /* S127-5 — recv_op captured before
+                                     * the Call moves it; will rc_inc +
+                                     * return below for chain support. */
+                                    let recv_for_ret = recv_op;
                                     self.f.append_void(
                                         self.cur_block,
                                         InstKind::Call(
@@ -18720,7 +18724,13 @@ impl<'a> LowerCtx<'a> {
                                             ],
                                         ),
                                     );
-                                    return Operand::ConstI64(0);
+                                    // S127-5 — spec §24.2.3.1: return
+                                    // the set itself for chained
+                                    // `s.add(v1).add(v2)`. rc_inc the
+                                    // captured receiver so the caller
+                                    // owns its own ref.
+                                    self.emit_rc_inc(recv_for_ret);
+                                    return recv_for_ret;
                                 }
                                 "has" => {
                                     debug_assert_eq!(args.len(), 1);
@@ -19149,7 +19159,14 @@ impl<'a> LowerCtx<'a> {
                                             vec![recv_op, k_tag, k_val, v_tag, v_val],
                                         ),
                                     );
-                                    return Operand::ConstI64(0);
+                                    // S127-5 — spec §23.1.3.9: return
+                                    // the map itself for chained
+                                    // `m.set(k,v).set(k2,v2)`. rc_inc
+                                    // so the returned value owns its
+                                    // own ref (caller's binding still
+                                    // owns the original).
+                                    self.emit_rc_inc(recv_op);
+                                    return recv_op;
                                 }
                                 "has" => {
                                     debug_assert_eq!(args.len(), 1);
