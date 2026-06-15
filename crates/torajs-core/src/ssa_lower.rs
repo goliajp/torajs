@@ -23535,6 +23535,32 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(r);
                 }
+                // S129-2 mixed-Any nullish — `typed ?? any` short-
+                // circuits to lhs unconditionally per §13.4.2 (typed
+                // non-nullable lhs is never null/undef). Don't lower
+                // rhs (spec mandates rhs unevaluated) and don't slot;
+                // direct return. check.rs allows this pair narrowly
+                // by returning lhs_ty as the result type. Pre-fix
+                // the fall-through path would ICmp lhs_op (i64) vs
+                // ConstPtrNull, a typed-mismatch the typecheck wall
+                // previously blocked.
+                //
+                // Nullability lives at the check layer (ssa::Type has
+                // no Nullable/Null/Undefined variant), so peek
+                // expr_types for both sides — same pattern as the
+                // S128-5 logical right_is_any helper.
+                let lhs_check_ty = self.expr_types.get(lhs).cloned();
+                let rhs_check_ty = self.expr_types.get(rhs).cloned();
+                let lhs_non_nullable = !matches!(
+                    lhs_check_ty,
+                    Some(crate::check::Type::Nullable(_))
+                        | Some(crate::check::Type::Null)
+                        | Some(crate::check::Type::Undefined)
+                        | Some(crate::check::Type::Any)
+                );
+                if lhs_non_nullable && matches!(rhs_check_ty, Some(crate::check::Type::Any)) {
+                    return lhs_op;
+                }
                 let res_slot = self.alloca_in_entry(lhs_ty, Some("__nullish"));
                 // Save lhs into the slot so the non-null branch can
                 // reuse it without re-eval.

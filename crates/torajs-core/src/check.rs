@@ -7107,6 +7107,19 @@ impl Checker {
                     Type::Null => None,
                     Type::Undefined => None,
                     other => {
+                        // S129-2 mixed-Any nullish — `typed ?? any`
+                        // is a static no-op per §13.4.2: a typed
+                        // non-nullable lhs short-circuits to itself
+                        // unconditionally, rhs is never evaluated.
+                        // Narrow allow when rhs is Any to keep
+                        // bun-parity (`v(): number ?? getAny()`)
+                        // without softening strict reject for the
+                        // typed-typed misuse (caller likely meant
+                        // `||` or has a stale type ann). Same S128-5
+                        // / S129-1 mixed-Any series shape.
+                        if matches!(rhs_ty, Type::Any) {
+                            return Ok(other.clone());
+                        }
                         return Err(format!("`??` left operand must be nullable, got {other:?}"));
                     }
                 };
