@@ -20655,11 +20655,8 @@ impl<'a> LowerCtx<'a> {
                     env_first_params.extend(user_params.iter().copied());
                     let env_first_sig = intern_fn_sig(self.fn_sigs, env_first_params, ret_ty);
 
-                    // P0.5 mirror — when the closure's user-facing param
-                    // at position i is Type::Any, box the concrete arg
-                    // before passing. Matches the FnSig path below so
-                    // closures defaulted to Any-typed params (e.g.
-                    // `var f = function(a, b){...}`) work uniformly.
+                    // P0.5 mirror — Type::Any param boxes the concrete
+                    // arg. S126-3 see direct fn-call P0.9 below.
                     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
                     argv.push(Operand::Value(env_ptr));
                     for (i, a) in args.iter().enumerate() {
@@ -20668,7 +20665,7 @@ impl<'a> LowerCtx<'a> {
                             && matches!(user_params[i], Type::Any)
                             && !matches!(self.operand_ty(&raw), Type::Any)
                         {
-                            self.box_to_any(raw)
+                            self.box_to_any_from_expr(*a, raw)
                         } else {
                             raw
                         };
@@ -20723,12 +20720,10 @@ impl<'a> LowerCtx<'a> {
                         info.ty,
                         None,
                     );
-                    // P0.5 — box concrete args into Any when the target
-                    // param at that index is declared Any. The closure-
-                    // lift desugar (P0.5 ast.rs change) defaults
-                    // unannotated closure params to Type::Any so the
-                    // sig is concrete; call sites pass concrete args
-                    // and we wrap them at the boundary.
+                    // P0.5 — Type::Any target param boxes concrete arg
+                    // (closure-lift desugar defaults unannotated
+                    // closure params to Type::Any).
+                    // S126-3 see direct fn-call P0.9 below.
                     let target_params = self.fn_sigs[sig_id.0 as usize].0.clone();
                     let argv: Vec<Operand> = args
                         .iter()
@@ -20739,7 +20734,7 @@ impl<'a> LowerCtx<'a> {
                                 && matches!(target_params[i], Type::Any)
                                 && !matches!(self.operand_ty(&raw), Type::Any)
                             {
-                                self.box_to_any(raw)
+                                self.box_to_any_from_expr(*a, raw)
                             } else {
                                 raw
                             }
@@ -20976,12 +20971,14 @@ impl<'a> LowerCtx<'a> {
                             // P0.9 — global FnDecl with Any param +
                             // concrete arg: box the concrete value
                             // into Any at the call boundary. Mirror
-                            // of the closure-call path (P0.5) so the
-                            // same target-param-Any → arg-box rule
-                            // fires regardless of how the callee was
-                            // declared.
+                            // of the closure-call path (P0.5).
+                            // S126-3 `box_to_any_from_expr` reads
+                            // `args[i]` expr_types so undefined/null
+                            // literals keep their ANY_UNDEF/ANY_NULL
+                            // tags (bare `box_to_any` collapsed
+                            // undef → null via ConstPtrNull arm).
                             (Type::Any, got_ty) if got_ty != Type::Any => {
-                                argv[i] = self.box_to_any(argv[i].clone());
+                                argv[i] = self.box_to_any_from_expr(args[i], argv[i].clone());
                             }
                             _ => {}
                         }
