@@ -183,6 +183,94 @@ if "$AUTORUN_DIR/check.sh" >&2; then
 fi
 ```
 
+## TRIG-1..4 spec（rotation 触发不变量,P2.0 SHIPPED — `trig_gate.sh`）
+
+INV-1..5 治 rotation _执行_(stop_hook 之前、watcherd 之前 act 前),TRIG-1..4
+治 rotation _触发_(trigger.sh self 入口);两侧 gate 互相独立、机器化、
+零模型自评估。
+
+**背景**:`metrics.md` §6 "Baseline @2026-06-15 (171-row drift surface)"
+量化 — 近期 self rotation wall p50 从 98 min 退到 48 min(−51 %),3 个
+连续 10–13 min session 用 "file-size 单文件 clear = phase 收口" 当 trigger,
+本质是 `cases#rotate-as-procrastination` 的 surface 变体(file-size prep
+当 phase 收口)。autorun-pipeline §rotation ① "phase 收口" / ③
+"silent-wrong 风险升高" 两条 fuzzy,可被滥用绕开 ④ commit ≥ 5 硬条件。
+TRIG-1..4 把"是否该 rotation 触发"机器化,删 fuzzy 自评估。
+
+| ID | 不变量 | 失败 = 什么风险 | 实现 |
+|----|--------|----------------|------|
+| **TRIG-1** | `git rev-list --count <last-self-rotation-prevHead>..HEAD` ≥ **N** (= 5 候选) | session 工作量不足以构成合法 rotation — 把 substrate prep 切小段每段 rotate 一次,**等于 rotate-as-procrastination** | git rev-list |
+| **TRIG-2** | 当前 `ts` − 上次 self rotation 行 `ts` ≥ **M** 秒 (= 5400 = 90 min 候选,takagi framing "1/2-3/4 ctx 至少") | wall time 太短 = context 未充分利用 = rotation 频繁不必要 | rotations.jsonl tail self filter |
+| **TRIG-3** | handoff.md 末段含 `^## .*rotate 触发` heading,且段内含 closed enum 之一: `(a)` phase substrate-completeness 完整字串 `Phase [A-Z][0-9a-z]* close`(W-J/W-N 系列)/ `(b)` HARD RULE break + recovery / `(c)` measurable silent-wrong signal(fabricated tool output / 中文规则破裂 evidence) / `(d)` commit ≥ TRIG-1 且自然 chunk 边界 | reason fuzzy = 借口空间太大 = TRIG-4 绕过路径 | handoff.md grep -E |
+| **TRIG-4** | handoff.md "rotate 触发" 段 grep -i 不含 blacklist 借口 phrase:`file-size .* clear` / `prep work done` / `audit complete` / `fresh session 更稳` / `subagent prep 完整` / `ROI` / `工程量大` / `complexity` / `substantial work` | 这些是已知 procrastination 借口,触发者会用这些字眼包装 "phase 收口" 假象 | handoff.md grep -iE |
+
+调用约定:
+
+```
+hardev/autorun/trig_gate.sh
+```
+
+- 退出 0:全部 PASS;适合作为 `&&` 链 gate(trigger.sh self 前置)
+- 退出 1:至少一个 FAIL;stderr 末尾一行 `TRIG-FAILED: TRIG-N [TRIG-M ...]`
+- 退出 2:内部错误(lib.sh 缺、git 不可用、rotations.jsonl 缺、handoff.md 缺)
+
+stdout 每条 TRIG 一行 `TRIG-N STATE detail`,行格式稳定供下游解析。
+
+**Trigger.sh 接线**:
+
+```
+trigger.sh self   → 调 trig_gate.sh
+                    · PASS → 走原有 autorun_new_id + intent + record_rotation
+                    · FAIL → exit 1,不 append jsonl 不写 intent
+trigger.sh manual → 不调 trig_gate(takagi override 一切;cases#rotate-as-procrastination
+                    决断权属用户)
+```
+
+**reason 表达约定**(handoff.md 写作纪律):agent 写 handoff 末尾必须有
+精确格式段:
+
+```markdown
+## rotate 触发
+
+reason: <a|b|c|d>
+
+<具体 evidence,引用 commit hash / line:col / cases#xxx>
+```
+
+TRIG-3 解析 `reason: a` 等抓 closed enum;TRIG-4 grep -i 全段 blacklist。
+
+**例子**(GREEN):
+
+```markdown
+## rotate 触发
+
+reason: a
+
+Phase A3c close — chunk 2(`5a6740ae`)+ chunk 3 D walker(`ab12cd34`)
+ship + conformance 829 → 832/0/4(+3 named-class 新 fixture)。8 commit /
+2h35min wall,跨 torajs-link + torajs-structmeta + torajs-meta + ssa
++ cmd_build 5 crate substrate 改动。
+```
+
+→ TRIG-1 8≥5 PASS · TRIG-2 9300s≥5400s PASS · TRIG-3 "Phase A3c close" match (a) PASS · TRIG-4 0 blacklist hit PASS。
+
+**例子**(RED — 本次根治的 ground-truth):
+
+```markdown
+## rotate 触发
+
+archive_link.rs file-size HARD limit clear sub-milestone,chunk 2 是
+substantial work fresh session 起手更稳,subagent prep 完整。
+```
+
+→ TRIG-1 2<5 FAIL · TRIG-2 1299s<5400s FAIL · TRIG-3 无 `reason: <a|b|c|d>` 段 FAIL · TRIG-4 hit `file-size .* clear` + `substantial work` + `fresh session 更稳` + `subagent prep 完整` 4 个 phrase FAIL。**4/4 FAIL = rotation 非法**。
+
+**第 1 周 measure 节奏**(`metrics.md` §6 TRIG slot 表):
+
+- 上线后 trig_gate 默认 ENABLED(不 dry-run — gate 设计意图就是要拒 fuzzy rotation)
+- `stats.sh` 跑 1 周,看 (a) self rotation 总数下降到合理范围 (b) drift 信号消失
+- 1 周后 takagi review,根据数据调 N / M(可能 N 偏严 ↓ 4 或 M 偏严 ↑ 7200)
+
 ## Stop hook（P1.2 SHIPPED — `stop_hook.sh`）
 
 P1.2 把 trigger.sh 写的 `autorun-intent` 接到 Claude Code 的 `Stop`
