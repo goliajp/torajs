@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-15T14:25:54.903Z",
+  "generatedAt": "2026-06-15T14:40:52.542Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "d00318a1",
-    "commitSubject": "feat(set/map): .add / .set return self per §24.2.3.1 / §23.1.3.9 for chain",
+    "commit": "5ae443eb",
+    "commitSubject": "fix(object-assign): allow Object.assign(target) zero-source identity per §20.1.2.1",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,14 @@
   },
   "commits": [
     {
+      "hash": "5ae443eb",
+      "subject": "fix(object-assign): allow Object.assign(target) zero-source identity per §20.1.2.1"
+    },
+    {
+      "hash": "358f2aea",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — session 127 S127-1..5 narrow trunk close"
+    },
+    {
       "hash": "d00318a1",
       "subject": "feat(set/map): .add / .set return self per §24.2.3.1 / §23.1.3.9 for chain"
     },
@@ -657,17 +665,9 @@
     {
       "hash": "0391c5be",
       "subject": "feat(ssa-lower): OptChain `obj?.field` on Type::Any receiver"
-    },
-    {
-      "hash": "f01b8589",
-      "subject": "fix(ssa-lower): RFC C4 — `undefined as any` preserves ANY_UNDEF tag"
-    },
-    {
-      "hash": "f21dcf83",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — session 124 W-J trunk 100% close + hardev autorun TRIG-1..4 gate ship"
     }
   ],
-  "headSha": "d00318a1",
+  "headSha": "5ae443eb",
   "autorun": {
     "total": 173,
     "baselineTarget": 10,
