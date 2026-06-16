@@ -16820,6 +16820,34 @@ impl<'a> LowerCtx<'a> {
                     let layout = self.struct_layouts[sid.0 as usize].clone();
                     let n = layout.len() as i64;
                     let elem_ty = layout[0].1;
+                    // S132 — heterogeneous-via-`as any` guard. check.rs
+                    // enforces homogeneous fields when arg type is
+                    // Struct (5172 reject-loud), but `<typed> as any`
+                    // makes check see Type::Any (走 Array<Any> arm)
+                    // while ssa-lower still sees Type::Obj(sid) because
+                    // `lower_as_cast` is a no-op for refcounted inner
+                    // types. Falling through the homogeneous fast path
+                    // (`elem_ty = layout[0].1`) emits a wrong-type Load
+                    // for every field — `Object.values(mx as any)`
+                    // where `class Mixed { n: number; s: string }`
+                    // reads the str ptr through layout[0]=I64 and
+                    // returns the raw VA as a Number. Detect the
+                    // mismatch + box the typed operand + route through
+                    // the W-J walker (the same Any-arm above), which
+                    // per-field decodes via the field_metadata's
+                    // type_tag — the correct heterogeneous path.
+                    if !layout.iter().all(|(_, t)| *t == elem_ty) {
+                        let boxed = self.box_to_any(arg_op);
+                        let arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.anyv_struct_values, vec![boxed]),
+                            Type::Arr(arr_id),
+                            None,
+                        );
+                        self.emit_throw_check(None);
+                        return Operand::Value(v);
+                    }
                     let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
                     let arr_ptr = self.f.append_inst(
                         self.cur_block,
