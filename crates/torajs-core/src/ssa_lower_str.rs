@@ -766,6 +766,19 @@ pub(crate) fn try_lower_method_call(
             1
         } else if let Expr::Number(d) = ctx.ast.get_expr(args[0]) {
             *d as i64
+        } else if let Expr::Ident(name) = ctx.ast.get_expr(args[0])
+            && name == "Infinity"
+        {
+            // S129-5 `xs.flat(Infinity)` — ES §23.1.3.13 spec form
+            // for full-depth flatten. ssa-lower unrolls flat-1
+            // calls; the typed branch early-breaks once cur_ty
+            // stops being Arr<Arr<T>>, and the Array<Any> branch's
+            // arr_flat_any is a no-op shallow clone when no slot
+            // wraps an inner Array<Any>. Using i64::MAX would
+            // explode loop bookkeeping at lower-time — 64 unrolls
+            // are plenty for realistic nesting (matches V8 / JSC
+            // arbitrary limits in spec-test fixtures).
+            64
         } else {
             panic!("ssa-lower: flat depth must be a number literal");
         };

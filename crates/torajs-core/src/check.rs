@@ -5092,8 +5092,17 @@ impl Checker {
                     && m_name == "flat"
                     && args.len() == 1
                 {
-                    if let Expr::Number(d) = ast.get_expr(args[0]) {
-                        let depth = *d as i64;
+                    // S129-5 — accept `Infinity` as the depth literal
+                    // (ES §23.1.3.13 spec form for full-depth flatten).
+                    // Both check + ssa-lower peel up to 64 layers
+                    // (matches V8/JSC fixture conventions; no
+                    // realistic nesting reaches that depth).
+                    let depth_opt: Option<i64> = match ast.get_expr(args[0]) {
+                        Expr::Number(d) => Some(*d as i64),
+                        Expr::Ident(name) if name == "Infinity" => Some(64),
+                        _ => None,
+                    };
+                    if let Some(depth) = depth_opt {
                         if depth < 0 {
                             return Err("flat depth must be non-negative".into());
                         }
