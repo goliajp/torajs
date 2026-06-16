@@ -4290,16 +4290,21 @@ impl Checker {
                         );
                         Ok(Type::Function(vec![fn_ty], Box::new(Type::Void)))
                     }
-                    /* P6.4c-C3 / P5.4 — Array<Any>.keys / .values /
-                     * .entries returning ArrIter. Typed Array<T> for
-                     * non-Any T uses a different slot layout (i64 /
-                     * Str ptr / etc., 8B per slot vs Array<Any>'s 16B
-                     * tagged slot) so the runtime helper would
-                     * mis-walk; restrict to Array<Any> for now.
-                     * Typed-T support is a follow-up. */
-                    (Type::Array(elem), "keys")
-                    | (Type::Array(elem), "values")
-                    | (Type::Array(elem), "entries")
+                    /* P6.4c-C3 / P5.4 — Array.keys / .values / .entries
+                     * returning ArrIter. Array<Any> walks its 16B
+                     * tagged-slot layout directly; typed Array<T> for
+                     * non-Any T uses an 8B-per-slot layout the runtime
+                     * step helper can't unbox. S132 narrow: typed-T
+                     * .keys() yields 0..length-1 indices independent
+                     * of the slot encoding, so runtime
+                     * `arr_iter_create_keys` works uniformly — accept
+                     * any typed Array<T> for `.keys()`. .values() /
+                     * .entries() still need a box-the-slot walker
+                     * follow-up (independent trunk). */
+                    (Type::Array(_), "keys") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::ArrIter)))
+                    }
+                    (Type::Array(elem), "values") | (Type::Array(elem), "entries")
                         if matches!(**elem, Type::Any) =>
                     {
                         Ok(Type::Function(Vec::new(), Box::new(Type::ArrIter)))
