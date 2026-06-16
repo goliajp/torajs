@@ -4269,7 +4269,11 @@ impl Checker {
                     // `(acc: T, x: T) => T` and an initial T value;
                     // returns T. Two-arg reduce; the no-initial overload
                     // is deferred.
-                    (Type::Array(elem), "reduce") => {
+                    // S132 — reduceRight: identical signature to reduce,
+                    // but walks last → first (spec §22.1.3.22). ssa-lower
+                    // shares the loop scaffold with `reduce`, differing
+                    // only in the cursor init / cmp / inc direction.
+                    (Type::Array(elem), "reduce") | (Type::Array(elem), "reduceRight") => {
                         let inner = (**elem).clone();
                         let fn_ty = Type::Function(
                             vec![inner.clone(), inner.clone()],

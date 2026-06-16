@@ -20425,7 +20425,10 @@ impl<'a> LowerCtx<'a> {
                 // for i in 0..xs.length and let each method specialize
                 // the per-element work / accumulator.
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && matches!(name.as_str(), "map" | "filter" | "reduce" | "forEach")
+                    && matches!(
+                        name.as_str(),
+                        "map" | "filter" | "reduce" | "reduceRight" | "forEach"
+                    )
                 {
                     // Lower receiver expr — only proceed if it produces
                     // a Type::Arr value. Other shapes (e.g. Math.sqrt)
@@ -20525,7 +20528,7 @@ impl<'a> LowerCtx<'a> {
                         Type::FnSig(s) | Type::Closure(s) => self.fn_sigs[s.0 as usize].1,
                         _ => elem_ty,
                     };
-                    let acc_slot = if method == "reduce" {
+                    let acc_slot = if matches!(method.as_str(), "reduce" | "reduceRight") {
                         let init_v = self.lower_expr(args[1]);
                         let init_ty = self.operand_ty(&init_v);
                         let init_v = match (acc_ty, init_ty) {
@@ -20559,15 +20562,34 @@ impl<'a> LowerCtx<'a> {
                     let body_blk = self.f.add_block();
                     let after_blk = self.f.add_block();
                     let i_slot = self.alloca(Type::I64, Some("__iter_i"));
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
-                    );
                     let len = self.f.append_inst(
                         self.cur_block,
                         InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
                         Type::I64,
                         None,
+                    );
+                    // S132 — reduceRight walks last → first (spec
+                    // §22.1.3.22): init cursor to `len - 1`, header
+                    // checks `i > -1`, body decrements `i = i - 1`.
+                    // map/filter/reduce/forEach keep the 0..len walk.
+                    let init_i: Operand = if method == "reduceRight" {
+                        let i_init = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Sub,
+                                Operand::Value(len),
+                                Operand::ConstI64(1),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        Operand::Value(i_init)
+                    } else {
+                        Operand::ConstI64(0)
+                    };
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(init_i, Operand::Value(i_slot), 0),
                     );
                     // M6.2 fast-path — for map/filter, reserve dst
                     // capacity equal to src.length up front so the
@@ -20605,12 +20627,26 @@ impl<'a> LowerCtx<'a> {
                         Type::I64,
                         None,
                     );
-                    let cmp = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(len)),
-                        Type::Bool,
-                        None,
-                    );
+                    // S132 — reduceRight: i > -1 (Sgt). Other methods: i < len (Slt).
+                    let cmp = if method == "reduceRight" {
+                        self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(
+                                IPred::Sgt,
+                                Operand::Value(i_now),
+                                Operand::ConstI64(-1),
+                            ),
+                            Type::Bool,
+                            None,
+                        )
+                    } else {
+                        self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(len)),
+                            Type::Bool,
+                            None,
+                        )
+                    };
                     self.f.set_term(
                         self.cur_block,
                         Terminator::CondBr {
@@ -20720,7 +20756,7 @@ impl<'a> LowerCtx<'a> {
                             self.f.set_term(self.cur_block, Terminator::Br(next_blk));
                             self.cur_block = next_blk;
                         }
-                        "reduce" => {
+                        "reduce" | "reduceRight" => {
                             let acc_now = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Load(acc_ty, Operand::Value(acc_slot.unwrap()), 0),
@@ -20750,10 +20786,15 @@ impl<'a> LowerCtx<'a> {
                         Type::I64,
                         None,
                     );
+                    // S132 — reduceRight decrements; others increment.
                     let i_next = self.f.append_inst(
                         self.cur_block,
                         InstKind::BinOp(
-                            SsaBinOp::Add,
+                            if method == "reduceRight" {
+                                SsaBinOp::Sub
+                            } else {
+                                SsaBinOp::Add
+                            },
                             Operand::Value(i_then),
                             Operand::ConstI64(1),
                         ),
@@ -20777,7 +20818,7 @@ impl<'a> LowerCtx<'a> {
                             );
                             Operand::Value(v)
                         }
-                        "reduce" => {
+                        "reduce" | "reduceRight" => {
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Load(acc_ty, Operand::Value(acc_slot.unwrap()), 0),
