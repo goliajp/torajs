@@ -16376,17 +16376,55 @@ impl<'a> LowerCtx<'a> {
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
-                    if !matches!(arg_ty, Type::Str) {
-                        panic!("ssa-lower: Array.from requires a string arg, got {arg_ty:?}");
+                    if matches!(arg_ty, Type::Str) {
+                        let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.arr_from_string, vec![arg_op]),
+                            Type::Arr(arr_id),
+                            None,
+                        );
+                        return Operand::Value(v);
                     }
-                    let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.arr_from_string, vec![arg_op]),
-                        Type::Arr(arr_id),
-                        None,
+                    // S132 — `Array.from(<typed Array<T>>)` shallow copy.
+                    // Same deep-clone pattern as Object.values's Arr arm
+                    // (arr_slice(0, len) + per-element rc_inc for
+                    // refcounted elem types). Bun spec §23.1.2.1.
+                    if let Type::Arr(arr_id) = arg_ty {
+                        let len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, arg_op, ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        let cloned = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_slice,
+                                vec![arg_op, Operand::ConstI64(0), Operand::Value(len)],
+                            ),
+                            Type::Arr(arr_id),
+                            None,
+                        );
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        if elem_ty.is_refcounted() {
+                            let cloned_len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, Operand::Value(cloned), ARR_LEN_OFF),
+                                Type::I64,
+                                None,
+                            );
+                            self.emit_arr_rc_inc_range(
+                                Operand::Value(cloned),
+                                Operand::ConstI64(0),
+                                Operand::Value(cloned_len),
+                            );
+                        }
+                        return Operand::Value(cloned);
+                    }
+                    panic!(
+                        "ssa-lower: Array.from requires a string or Array<T> arg, got {arg_ty:?}"
                     );
-                    return Operand::Value(v);
                 }
                 // `console.log(arg)` — works in any expression context
                 // (top-level stmt, inside a block, inside an if-body).

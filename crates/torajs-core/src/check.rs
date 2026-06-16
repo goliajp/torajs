@@ -5182,6 +5182,31 @@ impl Checker {
                     }
                     return Ok(Type::Array(Box::new(first.clone())));
                 }
+                // S132 — `Array.from(arrLike)` polymorphic over receiver.
+                // The static fn-sig (2993) is fixed to `(String) → Array<String>`
+                // for compile-time arrayLike-from-string lowering; for a
+                // typed Array<T> input, return Array<T> directly so a
+                // shallow-copy emit can pick it up. This Call-level
+                // override mirrors Object.values's polymorphic dispatch
+                // (above) and lets `Array.from([1,2,3])` typecheck
+                // through with the original element type preserved.
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "from"
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Array"
+                    && args.len() == 1
+                {
+                    let arg_ty = self.type_of(ast, args[0])?;
+                    if let Type::Array(elem) = &arg_ty {
+                        return Ok(Type::Array(elem.clone()));
+                    }
+                    // Fall through to the static-sig path; the String
+                    // overload already covered there throws a sensible
+                    // arity / type mismatch otherwise.
+                }
                 // M3 — generic call inference. If callee is a bare Ident
                 // naming a generic FnDecl, walk param/arg pairs unifying
                 // each TypeVar against the actual arg type, then
