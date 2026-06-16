@@ -18551,9 +18551,25 @@ impl<'a> LowerCtx<'a> {
                     let weakset_method = matches!(m_name.as_str(), "add" | "has" | "delete");
                     if weakmap_method || weakset_method {
                         /* peek at receiver type without lowering
-                         * effects */
+                         * effects. Local Ident is the common shape;
+                         * class-field receiver (`new W().m.set(k, v)`
+                         * where `m: WeakMap<K,V>`) is an Expr::Member
+                         * whose checked type is `check::Type::WeakMap`
+                         * — mirror the P6.1 Map / P6.2 Set fix
+                         * (commit eab88d7c). Without the Member /
+                         * Index / Call branch the receiver falls
+                         * through to the module.method dispatch and
+                         * panics "unsupported member call shape:
+                         * set". */
                         let recv_ty_hint = match self.ast.get_expr(*obj) {
                             Expr::Ident(n) => self.locals.get(n).map(|info| info.ty),
+                            Expr::Member { .. } | Expr::Index { .. } | Expr::Call { .. } => {
+                                match self.expr_types.get(obj) {
+                                    Some(check_mod::Type::WeakMap) => Some(Type::WeakMap),
+                                    Some(check_mod::Type::WeakSet) => Some(Type::WeakSet),
+                                    _ => None,
+                                }
+                            }
                             _ => None,
                         };
                         let do_weakmap = weakmap_method && recv_ty_hint == Some(Type::WeakMap);
