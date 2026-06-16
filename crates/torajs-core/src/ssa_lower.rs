@@ -13638,7 +13638,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 return Operand::Value(v);
             }
-            Expr::New { class_name, .. } if class_name == "Set" => {
+            Expr::New { class_name, args } if class_name == "Set" => {
                 /* P6.2 — `new Set()` reuses the P6.1 Map runtime
                  * struct (layout-identical; entries' value side stays
                  * pinned at ANY_UNDEF). Heap header carries TAG_SET
@@ -13652,7 +13652,34 @@ impl<'a> LowerCtx<'a> {
                     Type::Set,
                     None,
                 );
-                return Operand::Value(v);
+                let set_op = Operand::Value(v);
+                // S133-4 — static `new Set([a, b, c])` initializer:
+                // check.rs accepts the form when args[0] is an
+                // `Expr::Array` of non-Spread elements; here we emit
+                // one `map_set(set, k_tag, k_val, ANY_UNDEF=5, 0)`
+                // call per element (the same shape `s.add(v)` lowers
+                // to). General iterable initializers still need P5.
+                if let Some(arg0) = args.first()
+                    && let Expr::Array(elems) = self.ast.get_expr(*arg0).clone()
+                {
+                    for elem in &elems {
+                        let (k_tag, k_val) = self.lower_to_tag_value(*elem);
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.map_set,
+                                vec![
+                                    set_op.clone(),
+                                    k_tag,
+                                    k_val,
+                                    Operand::ConstI64(5),
+                                    Operand::ConstI64(0),
+                                ],
+                            ),
+                        );
+                    }
+                }
+                return set_op;
             }
             // P0.10 — `new Array(n)` 1-arg numeric form. Allocates
             // an Array<Any> of length n with all slots set to

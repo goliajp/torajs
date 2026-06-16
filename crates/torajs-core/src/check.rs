@@ -7059,6 +7059,24 @@ impl Checker {
                 Ok(Type::Map)
             }
             Expr::New { class_name, args } if class_name == "Set" => {
+                // S133-4 — `new Set([a, b, c])` static array-literal
+                // initializer. Spec §24.2.1 takes any iterable, but the
+                // common idiom (`new Set([…literals])`) is statically
+                // an `Expr::Array` of non-Spread elements — ssa-lower
+                // unrolls it into `set_create + set.add` per element,
+                // sidestepping the full P5 iterator-protocol plumbing.
+                // General iterable initializers stay deferred (handoff
+                // L3b — needs the same P5 substrate Map.entries
+                // initializer wants).
+                if args.len() == 1
+                    && let Expr::Array(elems) = ast.get_expr(args[0])
+                    && elems.iter().all(|e| !matches!(ast.get_expr(*e), Expr::Spread { .. }))
+                {
+                    for elem in elems {
+                        let _ = self.type_of(ast, *elem)?;
+                    }
+                    return Ok(Type::Set);
+                }
                 if !args.is_empty() {
                     return Err(format!(
                         "`new Set(...)` with iterable initializer not yet supported (got {} args)",
