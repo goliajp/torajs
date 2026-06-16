@@ -4125,6 +4125,21 @@ impl Checker {
                     // `a.concat(b)` — fresh array of a's elements then b's.
                     // Subset: binary only, both arrays must share element type.
                     (Type::Array(elem), "concat") => {
+                        // S129-4 Array<Any>.concat — Any receiver accepts
+                        // any Array<U> arg (typed slots get NaN-boxed at
+                        // runtime via __torajs_arr_extend_typed_into_any
+                        // when the SSA arg type isn't Array<Any>).
+                        // Param sig is Type::Any so dispatch typecheck
+                        // doesn't reject typed Array<U>; ssa-lower peeks
+                        // expr_types to derive the elem tag. Result
+                        // stays Array<Any>. Same S128-5 / S129-1 / S129-3
+                        // mixed-Any series shape.
+                        if matches!(**elem, Type::Any) {
+                            return Ok(Type::Function(
+                                vec![Type::Any],
+                                Box::new(Type::Array(Box::new(Type::Any))),
+                            ));
+                        }
                         let inner = (**elem).clone();
                         Ok(Type::Function(
                             vec![Type::Array(Box::new(inner.clone()))],

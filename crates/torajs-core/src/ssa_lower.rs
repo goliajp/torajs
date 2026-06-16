@@ -4727,6 +4727,13 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Ptr,
     );
+    let arr_extend_typed_into_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_extend_typed_into_any",
+        &[Type::Ptr, Type::Ptr, Type::I64],
+        Type::Ptr,
+    );
     let arr_concat_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5613,6 +5620,7 @@ fn lower_inner(
         str_print_err: str_print_err_id,
         arr_flat: arr_flat_id,
         arr_flat_any: arr_flat_any_id,
+        arr_extend_typed_into_any: arr_extend_typed_into_any_id,
         arr_concat: arr_concat_id,
         arr_reverse: arr_reverse_id,
         arr_fill: arr_fill_id,
@@ -6600,6 +6608,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_print_err: FuncId,
     pub(crate) arr_flat: FuncId,
     pub(crate) arr_flat_any: FuncId,
+    pub(crate) arr_extend_typed_into_any: FuncId,
     pub(crate) arr_concat: FuncId,
     pub(crate) arr_reverse: FuncId,
     pub(crate) arr_fill: FuncId,
@@ -25956,6 +25965,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.num_to_precision_i
             || fid == i.arr_flat
             || fid == i.arr_flat_any
+            || fid == i.arr_extend_typed_into_any
             || fid == i.arr_concat
             || fid == i.arr_reverse
             || fid == i.arr_fill

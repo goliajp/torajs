@@ -1201,14 +1201,53 @@ pub(crate) fn try_lower_method_call(
         } else {
             recv_op
         };
+        let recv_elem = ctx.arr_layouts[arr_id.0 as usize];
         for a in args {
             let other = ctx.lower_expr(*a);
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.arr_concat, vec![acc, other]),
-                Type::Arr(arr_id),
-                None,
-            );
+            let other_ty = ctx.operand_ty(&other);
+            // S129-4 Array<Any>.concat(Array<typed>) — receiver elem
+            // is Any (NaN-box AnyValue per slot), arg is a typed
+            // Array<T>. The classic arr_concat is a raw 8B-stride
+            // memcpy which would copy T's raw bits straight into
+            // Array<Any> slots — wrong (NaN-box expects tag/value
+            // pairs). Route to arr_extend_typed_into_any with the
+            // T-derived elem_tag so the runtime pairs each raw slot
+            // with the right ANY_* tag before append. Heap T's
+            // rc_inc is handled inside the helper. Same Array<Any>
+            // mixed-typed escape series as S128-1..3 push / fill.
+            let typed_into_any = matches!(recv_elem, Type::Any)
+                && matches!(other_ty, Type::Arr(oid) if !matches!(ctx.arr_layouts[oid.0 as usize], Type::Any));
+            let v = if typed_into_any {
+                let Type::Arr(oid) = other_ty else {
+                    unreachable!()
+                };
+                let oet = ctx.arr_layouts[oid.0 as usize];
+                let elem_tag = match oet {
+                    Type::Bool => 1,
+                    Type::I64 | Type::I32 => 2,
+                    Type::F64 => 3,
+                    t if t.is_refcounted() => 4,
+                    other => panic!(
+                        "ssa-lower: Array<Any>.concat typed-arg elem {other:?} not supported"
+                    ),
+                };
+                ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.arr_extend_typed_into_any,
+                        vec![acc, other, Operand::ConstI64(elem_tag)],
+                    ),
+                    Type::Arr(arr_id),
+                    None,
+                )
+            } else {
+                ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.arr_concat, vec![acc, other]),
+                    Type::Arr(arr_id),
+                    None,
+                )
+            };
             acc = Operand::Value(v);
         }
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];

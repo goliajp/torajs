@@ -392,6 +392,64 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
     }
 }
 
+/// `acc.concat(src, elem_tag)` — fresh `Array<Any>` of `acc`'s
+/// slots followed by `src`'s slots paired with `elem_tag` and
+/// NaN-boxed. Matches `__torajs_arr_concat`'s **fresh-array**
+/// contract (concat never mutates the receiver) — caller can
+/// chain `xs.concat(...).concat(...)` without acc aliasing.
+///
+/// The tag mirrors `box_to_any`'s scheme — 1=ANY_BOOL, 2=ANY_I64,
+/// 3=ANY_F64, 4=ANY_HEAP. F64 src slots already hold raw IEEE bits
+/// in u64 form (BitCastF64ToI64 form box_to_any uses); Bool src
+/// slots hold 0/1 as i1 / u8 (ssa-lower `store i1` emits 1B; the
+/// helper reads 1B to skip the upper 7 bytes of arr_alloc garbage).
+///
+/// No per-slot rc_inc here — caller emits a single
+/// `emit_arr_rc_inc_range` over the merged dst (mirror of
+/// arr_concat's caller-side pattern), so each appended heap slot's
+/// refcount is bumped exactly once at the merge site, not twice.
+///
+/// # Safety
+/// `acc` must be Array<Any> (FLAG_ARR_ANY, 8-byte AnyValue slots).
+/// `src` must be a typed Array<T> with 8-byte slot stride (every
+/// elem type — I64/F64/Bool/Heap — stores in 8B per slot, confirmed
+/// via ssa-lower emit). `elem_tag` must match T's actual SSA type.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_extend_typed_into_any(
+    acc: *const u8,
+    src: *const u8,
+    elem_tag: u64,
+) -> *mut u8 {
+    unsafe {
+        let acc_len = *(acc.add(ARR_LEN_OFF) as *const u64);
+        let src_len = *(src.add(ARR_LEN_OFF) as *const u64);
+        let total = acc_len + src_len;
+        let dst = __torajs_arr_alloc_any(total);
+        // Copy acc slots verbatim (acc is already Array<Any> — slots
+        // are well-formed NaN-box AnyValue u64's, 8B stride matches
+        // dst directly).
+        if acc_len > 0 {
+            core::ptr::copy_nonoverlapping(
+                acc.add(ARR_SLOTS_OFF),
+                dst.add(ARR_SLOTS_OFF),
+                (acc_len as usize) * ANY_SLOT_BYTES,
+            );
+        }
+        // Box each typed src slot per the tag scheme.
+        for i in 0..src_len {
+            let slot_ptr = src.add(ARR_SLOTS_OFF + (i as usize) * 8);
+            let raw = match elem_tag {
+                1 => (slot_ptr as *const u8).read() as u64, // Bool — 1B store
+                _ => (slot_ptr as *const u64).read(),       // I64 / F64 / Heap — 8B
+            };
+            let av = __torajs_anyv_box_from_pair(elem_tag as i64, raw as i64);
+            *slot_anyvalue_ptr(dst, acc_len + i) = av;
+        }
+        *(dst.add(ARR_LEN_OFF) as *mut u64) = total;
+        dst
+    }
+}
+
 /// `arr.flat()` depth-1 for Array<Any> outer. Each outer slot is
 /// decoded — when it wraps an inner Array<Any> heap (tag = ANY_HEAP,
 /// inner type_tag = TAG_ARR, inner FLAG_ARR_ANY set) the inner's
