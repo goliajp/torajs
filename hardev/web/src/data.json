@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-16T11:52:52.302Z",
+  "generatedAt": "2026-06-16T14:32:56.186Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "b1a33819",
-    "commitSubject": "feat(typeann): accept TS-spelled `MapIter<T>` / `ArrIter<T>` generic anns",
+    "commit": "667ca646",
+    "commitSubject": "feat(array-reduceRight): typed `Array<T>.reduceRight(fn, init)`",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,30 @@
   },
   "commits": [
     {
+      "hash": "667ca646",
+      "subject": "feat(array-reduceRight): typed `Array<T>.reduceRight(fn, init)`"
+    },
+    {
+      "hash": "c3f422a6",
+      "subject": "feat(array-from): accept typed `Array.from(<Array<T>>)` shallow copy"
+    },
+    {
+      "hash": "b7eb9ac9",
+      "subject": "feat(check): accept typed `Array<T>.keys()` for non-Any T"
+    },
+    {
+      "hash": "69f01e08",
+      "subject": "fix(ssa-lower): narrow Object.values typed-Obj arm — heterogeneous struct via `as any`"
+    },
+    {
+      "hash": "5b4b07b0",
+      "subject": "fix(any-cast): box refcounted on `as any` — close struct reflect cast bridge"
+    },
+    {
+      "hash": "eabdd68a",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — S131 typeann + in-op-any narrow trunk close (rotation r-1781610755-5d92)"
+    },
+    {
       "hash": "b1a33819",
       "subject": "feat(typeann): accept TS-spelled `MapIter<T>` / `ArrIter<T>` generic anns"
     },
@@ -641,51 +665,38 @@
     {
       "hash": "38433346",
       "subject": "feat(hardev/autorun): wait_mini_gate.sh — robust mini conformance watcher"
-    },
-    {
-      "hash": "aeabba61",
-      "subject": "feat(ssa-lower): <v: any> instanceof Object / Function runtime dispatch"
-    },
-    {
-      "hash": "d4e6c389",
-      "subject": "feat(ssa-lower): <v: any> instanceof <Builtin> runtime tag dispatch"
-    },
-    {
-      "hash": "e36a511c",
-      "subject": "feat(inspect): Tag::Symbol / BigInt nested + Any cell-tag print arms"
-    },
-    {
-      "hash": "28db363b",
-      "subject": "feat(inspect): Tag::WeakMap / WeakSet print fixed `WeakMap {}` / `WeakSet {}` form"
-    },
-    {
-      "hash": "aa78c940",
-      "subject": "fix(ssa-lower): class-field WeakMap/WeakSet member-call shape — recv_ty_hint reads expr_types"
-    },
-    {
-      "hash": "0e6e15de",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — session 129 mixed-Any narrow trunk"
     }
   ],
-  "headSha": "b1a33819",
+  "headSha": "667ca646",
   "autorun": {
-    "total": 178,
+    "total": 179,
     "baselineTarget": 10,
-    "bySelf": 173,
+    "bySelf": 174,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781610755-5d92",
-      "at": "2026-06-16T11:52:35Z",
-      "ts": 1781610755,
+      "rotationId": "r-1781620248-2a74",
+      "at": "2026-06-16T14:30:48Z",
+      "ts": 1781620248,
       "trigger": "self",
-      "prevHead": "b1a33819",
-      "handoffSha": "sha256:1b38eb1e83e3b6bdc3aabc611c4c1a88ec8ac308dce1351fce2178be21929dac",
-      "handoffAgeSec": 15533,
+      "prevHead": "667ca646",
+      "handoffSha": "sha256:65edb438f5d3dab72399e173056635f36b509a7d276a85e65d136b9f707770d1",
+      "handoffAgeSec": 9372,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781620248-2a74",
+        "at": "2026-06-16T14:30:48Z",
+        "ts": 1781620248,
+        "trigger": "self",
+        "prevHead": "667ca646",
+        "handoffSha": "sha256:65edb438f5d3dab72399e173056635f36b509a7d276a85e65d136b9f707770d1",
+        "handoffAgeSec": 9372,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781610755-5d92",
         "at": "2026-06-16T11:52:35Z",
@@ -781,17 +792,6 @@
         "trigger": "self",
         "prevHead": "6b88bd11",
         "handoffSha": "sha256:950f81598ac8a6a5b2438a7575c869ca351ff54e4fac131a46bc70c98ab8e587",
-        "handoffAgeSec": 32,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781489758-1b6b",
-        "at": "2026-06-15T02:15:58Z",
-        "ts": 1781489758,
-        "trigger": "self",
-        "prevHead": "22bcdc32",
-        "handoffSha": "sha256:f6d4f09956986821f15e3517304a1a363ebdb73da7ee1d75f52e6d00e98e7d62",
         "handoffAgeSec": 32,
         "conformanceBefore": null,
         "commitsInSession": null
