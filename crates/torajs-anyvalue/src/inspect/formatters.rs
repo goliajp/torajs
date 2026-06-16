@@ -105,6 +105,13 @@ unsafe extern "C" {
     // trailing '\n'); `__torajs_print_anyv`'s Tag::Obj arm appends
     // '\n' at the top-level boundary.
     pub(super) fn __torajs_anyv_struct_print_inline(v: u64);
+    // Tag::Symbol / Tag::BigInt nested-context inline printers —
+    // emit `Symbol(<desc>)` / `<decimal>n` with no trailing '\n'.
+    // Top-level `__torajs_symbol_print` / IR-emitted BigInt print
+    // append the newline themselves. Defined in
+    // `torajs-str/src/symbol.rs` and `torajs-bigint/src/tostring.rs`.
+    pub(super) fn __torajs_symbol_print_inline(p: *const c_void);
+    pub(super) fn __torajs_bigint_print_inline(b_ptr: *const c_void);
 }
 
 /// Read the fn body vaddr out of a closure heap cell at

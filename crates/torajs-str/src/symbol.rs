@@ -187,16 +187,20 @@ pub unsafe extern "C" fn __torajs_symbol_description(p: *const c_void) -> *mut c
     desc
 }
 
-/// `console.log(sym)` dispatch → `"Symbol(<desc>)\n"` /
-/// `"Symbol()\n"`.
+/// `console.log(sym)` nested-context inline-print —
+/// `"Symbol(<desc>)"` / `"Symbol()"` with no trailing '\n'.
+/// Top-level `__torajs_symbol_print` calls this then emits '\n'.
+/// Used by the [`torajs_anyvalue::inspect`] nested + Any cell-tag
+/// dispatchers to format Symbol cells embedded in
+/// `[…]` / `{…}` / Any containers without breaking line layout.
 ///
 /// # Safety
 ///
 /// `p` is null or a `*Symbol`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_symbol_print(p: *const c_void) {
+pub unsafe extern "C" fn __torajs_symbol_print_inline(p: *const c_void) {
     if p.is_null() {
-        unsafe { __torajs_io_write_stdout(b"undefined\n".as_ptr(), 10) };
+        unsafe { __torajs_io_write_stdout(b"undefined".as_ptr(), 9) };
         return;
     }
     let desc = unsafe { symbol_desc(p) };
@@ -209,9 +213,19 @@ pub unsafe extern "C" fn __torajs_symbol_print(p: *const c_void) {
             }
         }
     }
-    // `)\n` — close paren + newline triggers buffer flush.
+    unsafe { __torajs_io_putc_stdout(b')' as i32) };
+}
+
+/// `console.log(sym)` dispatch → `"Symbol(<desc>)\n"` /
+/// `"Symbol()\n"`.
+///
+/// # Safety
+///
+/// `p` is null or a `*Symbol`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_print(p: *const c_void) {
     unsafe {
-        __torajs_io_putc_stdout(b')' as i32);
+        __torajs_symbol_print_inline(p);
         __torajs_io_putc_stdout(b'\n' as i32);
     }
 }

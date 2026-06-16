@@ -13,11 +13,12 @@
 use core::ffi::c_void;
 
 use super::formatters::{
-    __torajs_anyv_struct_print_inline, __torajs_arr_print_any, __torajs_date_to_iso_string,
-    __torajs_fn_print_inline, __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print,
-    __torajs_rc_dec, __torajs_regex_print_inline, __torajs_set_print, SUBSTR_VIEW_FLAG,
-    closure_fn_addr, heap_flags, heap_type_tag, put_byte, put_bytes, put_f64_inline,
-    put_i64_inline, put_str_cell_inline, put_substr_cell_inline,
+    __torajs_anyv_struct_print_inline, __torajs_arr_print_any, __torajs_bigint_print_inline,
+    __torajs_date_to_iso_string, __torajs_fn_print_inline, __torajs_map_print,
+    __torajs_obj_print_any, __torajs_promise_print, __torajs_rc_dec, __torajs_regex_print_inline,
+    __torajs_set_print, __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, closure_fn_addr,
+    heap_flags, heap_type_tag, put_byte, put_bytes, put_f64_inline, put_i64_inline,
+    put_str_cell_inline, put_substr_cell_inline,
 };
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
@@ -166,6 +167,19 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
             unsafe { put_bytes(b"WeakMap {}") };
         } else if tag == Tag::WeakSet as u16 {
             unsafe { put_bytes(b"WeakSet {}") };
+        } else if tag == Tag::Symbol as u16 {
+            // Nested-context Symbol — `Symbol(<desc>)` form (no
+            // trailing '\n'; outer walker owns separators). Same
+            // bytes the top-level `__torajs_symbol_print` emits,
+            // minus the '\n'.
+            unsafe { __torajs_symbol_print_inline(child) };
+        } else if tag == Tag::BigInt as u16 {
+            // Nested-context BigInt — `<decimal>n` form (no
+            // trailing '\n'). Allocates a temporary decimal Str
+            // via `__torajs_bigint_to_string`, emits its bytes,
+            // appends the literal `n` suffix per JS BigInt
+            // notation.
+            unsafe { __torajs_bigint_print_inline(child) };
         } else {
             // All other composite / typed-receiver tags
             // (Tag::Symbol / Tag::BigInt / Tag::Response /

@@ -75,7 +75,7 @@ pub use divmod::{
 pub use drop::{__torajs_bigint_drop, __torajs_bigint_drop_rc};
 pub use mul::__torajs_bigint_mul;
 pub use shift::{__torajs_bigint_shl, __torajs_bigint_shr};
-pub use tostring::__torajs_bigint_to_string;
+pub use tostring::{__torajs_bigint_print_inline, __torajs_bigint_to_string};
 
 // `__torajs_str_alloc_pooled` is provided by `libtorajs_str.a` at
 // `tr build` link time. cargo unit tests of torajs-bigint don't link
