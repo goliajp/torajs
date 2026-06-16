@@ -441,6 +441,11 @@ pub(crate) fn parse_type(
             "Set" | "ReadonlySet" => Some(Type::Set),
             "WeakMap" => Some(Type::WeakMap),
             "WeakSet" => Some(Type::WeakSet),
+            // P6.4b/c generic-ann form `MapIter<T>` / `ArrIter<T>` —
+            // the type-arg is erased at SSA the same way Map/Set
+            // generics erase to Type::Map / Type::Set above.
+            "MapIter" | "mapiter" => Some(Type::MapIter),
+            "ArrIter" | "arriter" => Some(Type::ArrIter),
             _ => None,
         } {
             return t;

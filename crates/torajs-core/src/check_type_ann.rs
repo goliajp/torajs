@@ -217,7 +217,16 @@ fn resolve_type_ann_inner(
         // `parse_type_ann`).
         if matches!(
             head,
-            "Map" | "Set" | "WeakMap" | "WeakSet" | "ReadonlyMap" | "ReadonlySet"
+            "Map"
+                | "Set"
+                | "WeakMap"
+                | "WeakSet"
+                | "ReadonlyMap"
+                | "ReadonlySet"
+                | "MapIter"
+                | "mapiter"
+                | "ArrIter"
+                | "arriter"
         ) {
             let inner = &name[open_idx + 1..name.len() - 1];
             // Depth-aware split of inner at `|` (same shape as the
@@ -250,6 +259,8 @@ fn resolve_type_ann_inner(
                 "Set" | "ReadonlySet" => Type::Set,
                 "WeakMap" => Type::WeakMap,
                 "WeakSet" => Type::WeakSet,
+                "MapIter" | "mapiter" => Type::MapIter,
+                "ArrIter" | "arriter" => Type::ArrIter,
                 _ => unreachable!(),
             });
         }
