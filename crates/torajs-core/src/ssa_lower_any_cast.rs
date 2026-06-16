@@ -37,6 +37,24 @@ impl crate::ssa_lower::LowerCtx<'_> {
             if matches!(inner_ty, Type::Ptr) {
                 return self.box_to_any_from_expr(inner, inner_op);
             }
+            // S132 — refcounted typed reference (Obj / Arr / Str / Map /
+            // Set / Date / RegExp / ...) `<v> as any`: TS spec is a
+            // type-erase, but tora's materialize tier needs a real
+            // box → NaN-box AnyValue cell-imm so downstream Any-arm
+            // dispatchers (Object.values / Object.keys / Object.entries /
+            // gOPD / inspect / etc.) see Type::Any and route through
+            // the W-J walker. Without this branch the typed Obj fast
+            // path in `Object.values` runs against a heterogeneous
+            // struct (check.rs erased it to Type::Any but ssa-lower
+            // still saw Type::Obj(sid)), silently reading every field
+            // through `layout[0].1` and emitting wrong-type loads —
+            // `Object.values({n:1, s:"x"} as any)` returns the str ptr
+            // as a Number. Routing refcounted types through
+            // `box_to_any_from_expr` reuses the existing primitive
+            // path's tag-aware emit (ShortStr literal shortcut, etc.).
+            if inner_ty.is_refcounted() && !matches!(inner_ty, Type::Any) {
+                return self.box_to_any_from_expr(inner, inner_op);
+            }
         }
         // Unbox direction (b1) — `<Any-valued> as number` must
         // materialize the numeric face. Pre-fix the boxed AnyValue
