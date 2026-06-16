@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-16T14:32:56.186Z",
+  "generatedAt": "2026-06-16T16:06:34.702Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "667ca646",
-    "commitSubject": "feat(array-reduceRight): typed `Array<T>.reduceRight(fn, init)`",
+    "commit": "9f192aef",
+    "commitSubject": "feat(map): `new Map([[k, v], ...])` static array-of-pairs initializer",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,30 @@
   },
   "commits": [
     {
+      "hash": "9f192aef",
+      "subject": "feat(map): `new Map([[k, v], ...])` static array-of-pairs initializer"
+    },
+    {
+      "hash": "378537d3",
+      "subject": "feat(set): `new Set([a, b, c])` static array-literal initializer"
+    },
+    {
+      "hash": "f26afe98",
+      "subject": "feat(arr): `arr.length = N` routes through spec validate path"
+    },
+    {
+      "hash": "ceed50d9",
+      "subject": "feat(check): String(Any) / Number(Any) callable coercion"
+    },
+    {
+      "hash": "ccd232b4",
+      "subject": "feat(check): callback Function subtype — accept shorter callback arity"
+    },
+    {
+      "hash": "da437cc6",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — S132 narrow surface sweep (rotation r-1781620248-2a74)"
+    },
+    {
       "hash": "667ca646",
       "subject": "feat(array-reduceRight): typed `Array<T>.reduceRight(fn, init)`"
     },
@@ -641,51 +665,38 @@
     {
       "hash": "eabdd68a",
       "subject": "chore(hardev/web): refresh dashboard snapshot — S131 typeann + in-op-any narrow trunk close (rotation r-1781610755-5d92)"
-    },
-    {
-      "hash": "b1a33819",
-      "subject": "feat(typeann): accept TS-spelled `MapIter<T>` / `ArrIter<T>` generic anns"
-    },
-    {
-      "hash": "ba1fa498",
-      "subject": "feat(typeann): accept TS-spelled `Date` annotation top-level"
-    },
-    {
-      "hash": "54f6c2ea",
-      "subject": "feat(in-op-any): DynObj numeric-key spec ToString — closes in-op-any trunk"
-    },
-    {
-      "hash": "8c38f483",
-      "subject": "feat(in-op-any): spec canonical-numeric-index Array str-keyed dispatch"
-    },
-    {
-      "hash": "a4f39cf9",
-      "subject": "fix(ssa-lower): <key> in <obj: any> SIGSEGV — runtime tag dispatch helpers"
-    },
-    {
-      "hash": "38433346",
-      "subject": "feat(hardev/autorun): wait_mini_gate.sh — robust mini conformance watcher"
     }
   ],
-  "headSha": "667ca646",
+  "headSha": "9f192aef",
   "autorun": {
-    "total": 179,
+    "total": 180,
     "baselineTarget": 10,
-    "bySelf": 174,
+    "bySelf": 175,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781620248-2a74",
-      "at": "2026-06-16T14:30:48Z",
-      "ts": 1781620248,
+      "rotationId": "r-1781625988-78dd",
+      "at": "2026-06-16T16:06:28Z",
+      "ts": 1781625988,
       "trigger": "self",
-      "prevHead": "667ca646",
-      "handoffSha": "sha256:65edb438f5d3dab72399e173056635f36b509a7d276a85e65d136b9f707770d1",
-      "handoffAgeSec": 9372,
+      "prevHead": "9f192aef",
+      "handoffSha": "sha256:dc02a2a0b3e27b5f51ad3431d7ce0100de4b0828eddb2e175ee7818e544d9c94",
+      "handoffAgeSec": 138,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781625988-78dd",
+        "at": "2026-06-16T16:06:28Z",
+        "ts": 1781625988,
+        "trigger": "self",
+        "prevHead": "9f192aef",
+        "handoffSha": "sha256:dc02a2a0b3e27b5f51ad3431d7ce0100de4b0828eddb2e175ee7818e544d9c94",
+        "handoffAgeSec": 138,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781620248-2a74",
         "at": "2026-06-16T14:30:48Z",
@@ -782,17 +793,6 @@
         "prevHead": "7d6f5929",
         "handoffSha": "sha256:ec1bc8feef3b28bf39b69aa48cb57145bc43624a5b8719bc2932e2787d537075",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781491405-6f9d",
-        "at": "2026-06-15T02:43:25Z",
-        "ts": 1781491405,
-        "trigger": "self",
-        "prevHead": "6b88bd11",
-        "handoffSha": "sha256:950f81598ac8a6a5b2438a7575c869ca351ff54e4fac131a46bc70c98ab8e587",
-        "handoffAgeSec": 32,
         "conformanceBefore": null,
         "commitsInSession": null
       }
