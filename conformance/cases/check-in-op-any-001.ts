@@ -24,8 +24,21 @@ console.log("foo" in obj);
 console.log("bar" in obj);
 console.log("baz" in obj);
 
-// Cross-tag negative — number-key vs DynObj rhs / string-key vs Array
-// rhs both collapse to false in this narrow ship (DynObj numeric-key
-// and Array numeric-string-coercion both deferred to L3b).
+// Cross-tag negative — number-key vs DynObj rhs collapses to false
+// in this narrow ship (DynObj numeric-key ToString deferred to L3b).
 console.log(0 in obj);
 console.log(1 in obj);
+
+// Spec ECMA-262 §7.1.21 CanonicalNumericIndexString — `"0" in arr`
+// is true because `"0"` is the canonical index-string of 0 and Array
+// `[[HasProperty]]` accepts canonical index strings. Non-canonical
+// shapes ("01", "+0", "-0", "1.5", "foo", "") all collapse to false.
+console.log("0" in arr);
+console.log("2" in arr);
+console.log("3" in arr);
+console.log("01" in arr);
+console.log("+0" in arr);
+console.log("-0" in arr);
+console.log("1.5" in arr);
+console.log("foo" in arr);
+console.log("" in arr);

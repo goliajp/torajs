@@ -46,6 +46,66 @@ const ANY_TAG_HEAP: i64 = 4;
 const TAG_ARR: u16 = 2;
 const TAG_DYNOBJ: u16 = 14;
 
+// Str heap layout (mirrors `torajs_str::layout`):
+//   plain Str:   [hdr@0..8][len:u32@+8][pad@+12..16][data@+16]
+//   Substr:     same hdr, FLAG_SUBSTR_INLINE (bit 0 of flags@+6)
+//                set, followed by [len:u64@+8][parent:*@+16][off:u64@+24].
+const STR_LEN_OFF: usize = 8;
+const STR_DATA_OFF: usize = 16;
+const SUBSTR_LEN_OFF: usize = 8;
+const SUBSTR_PARENT_OFF: usize = 16;
+const SUBSTR_OFFSET_OFF: usize = 24;
+const HDR_FLAGS_OFF: usize = 6;
+const FLAG_SUBSTR_INLINE: u16 = 1;
+
+// Read the canonical-shape byte view of a Str/Substr heap block.
+//
+// # Safety
+// `str_ptr` must point at a live torajs-str heap block (plain Str or
+// Substr — both branches read inside the block's own header).
+unsafe fn str_view(str_ptr: *const u8) -> (*const u8, usize) {
+    let flags = unsafe { *(str_ptr.add(HDR_FLAGS_OFF) as *const u16) };
+    if flags & FLAG_SUBSTR_INLINE != 0 {
+        let len = unsafe { *(str_ptr.add(SUBSTR_LEN_OFF) as *const u64) } as usize;
+        let parent = unsafe { *(str_ptr.add(SUBSTR_PARENT_OFF) as *const *const u8) };
+        let off = unsafe { *(str_ptr.add(SUBSTR_OFFSET_OFF) as *const u64) } as usize;
+        (unsafe { parent.add(STR_DATA_OFF + off) }, len)
+    } else {
+        let len = unsafe { *(str_ptr.add(STR_LEN_OFF) as *const u32) } as usize;
+        (unsafe { str_ptr.add(STR_DATA_OFF) }, len)
+    }
+}
+
+// Spec ECMA-262 §7.1.21 CanonicalNumericIndexString — accepts the
+// canonical-shape integer-index strings the Array `[[HasProperty]]`
+// path treats as indexes: `"0" / "1" / ... / "4294967294"`. Rejects
+// every non-canonical roundtrip — `""`, leading-`+`, leading-`-`,
+// leading-`0` followed by another digit, embedded non-digit, and
+// values ≥ 2^32-1 (Array max length minus 1).
+//
+// Returns `Some(idx)` for an accepted index, `None` otherwise.
+unsafe fn parse_canonical_array_index(str_ptr: *const u8) -> Option<i64> {
+    let (data, len) = unsafe { str_view(str_ptr) };
+    if len == 0 || len > 10 {
+        return None;
+    }
+    if len > 1 && unsafe { *data } == b'0' {
+        return None;
+    }
+    let mut acc: u64 = 0;
+    for i in 0..len {
+        let b = unsafe { *data.add(i) };
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        acc = acc * 10 + (b - b'0') as u64;
+    }
+    if acc >= u32::MAX as u64 {
+        return None;
+    }
+    Some(acc as i64)
+}
+
 /// `<key:number> in <v:any>` — Number-keyed dispatch.
 ///
 /// Returns `true` iff `v` is a NaN-boxed heap pointer to a live Array
@@ -94,11 +154,17 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
         return false;
     }
     let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
-    if type_tag != TAG_DYNOBJ {
-        return false;
+    if type_tag == TAG_DYNOBJ {
+        let r = unsafe { __torajs_dynobj_has(ptr, key) };
+        return r != 0;
     }
-    let r = unsafe { __torajs_dynobj_has(ptr, key) };
-    r != 0
+    if type_tag == TAG_ARR
+        && let Some(idx) = unsafe { parse_canonical_array_index(key) }
+    {
+        let len = unsafe { *((ptr as *const u8).add(ARR_LEN_OFF) as *const i64) };
+        return idx >= 0 && idx < len;
+    }
+    false
 }
 
 // Cargo-test stubs for the NaN-box / dynobj externs. Real symbols
@@ -235,5 +301,73 @@ mod tests {
         let boxed = nan_box(ANY_TAG_HEAP, 0);
         let key = b"foo\0".as_ptr();
         assert!(!unsafe { __torajs_in_op_any_str(boxed, key) });
+    }
+
+    fn make_str_heap_block(s: &str) -> Vec<u8> {
+        // Plain Str: [hdr 0..8][len u32 @+8][pad @+12..16][data @+16].
+        let bytes = s.as_bytes();
+        let mut block = vec![0u8; STR_DATA_OFF + bytes.len()];
+        // type_tag=0 (Tag::Str), flags=0 (not Substr).
+        // refcount slot stays 0 for the test stub.
+        let len = bytes.len() as u32;
+        block[STR_LEN_OFF..STR_LEN_OFF + 4].copy_from_slice(&len.to_ne_bytes());
+        block[STR_DATA_OFF..].copy_from_slice(bytes);
+        block
+    }
+
+    #[test]
+    fn str_arr_canonical_index_in_bounds_true() {
+        let arr_block = make_arr_heap_block(3);
+        let arr_ptr = arr_block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, arr_ptr);
+        let key_block = make_str_heap_block("0");
+        assert!(unsafe { __torajs_in_op_any_str(boxed, key_block.as_ptr()) });
+        let key_block2 = make_str_heap_block("2");
+        assert!(unsafe { __torajs_in_op_any_str(boxed, key_block2.as_ptr()) });
+    }
+
+    #[test]
+    fn str_arr_canonical_index_out_of_bounds_false() {
+        let arr_block = make_arr_heap_block(3);
+        let arr_ptr = arr_block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, arr_ptr);
+        let key_block = make_str_heap_block("3");
+        assert!(!unsafe { __torajs_in_op_any_str(boxed, key_block.as_ptr()) });
+    }
+
+    #[test]
+    fn str_arr_leading_zero_non_canonical_false() {
+        let arr_block = make_arr_heap_block(3);
+        let arr_ptr = arr_block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, arr_ptr);
+        let key_block = make_str_heap_block("01");
+        assert!(!unsafe { __torajs_in_op_any_str(boxed, key_block.as_ptr()) });
+    }
+
+    #[test]
+    fn str_arr_empty_string_false() {
+        let arr_block = make_arr_heap_block(3);
+        let arr_ptr = arr_block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, arr_ptr);
+        let key_block = make_str_heap_block("");
+        assert!(!unsafe { __torajs_in_op_any_str(boxed, key_block.as_ptr()) });
+    }
+
+    #[test]
+    fn str_arr_non_digit_false() {
+        let arr_block = make_arr_heap_block(3);
+        let arr_ptr = arr_block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, arr_ptr);
+        let key_block = make_str_heap_block("foo");
+        assert!(!unsafe { __torajs_in_op_any_str(boxed, key_block.as_ptr()) });
+    }
+
+    #[test]
+    fn str_arr_zero_idx_zero_len_false() {
+        let arr_block = make_arr_heap_block(0);
+        let arr_ptr = arr_block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, arr_ptr);
+        let key_block = make_str_heap_block("0");
+        assert!(!unsafe { __torajs_in_op_any_str(boxed, key_block.as_ptr()) });
     }
 }
