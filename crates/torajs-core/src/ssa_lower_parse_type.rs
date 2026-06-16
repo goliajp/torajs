@@ -457,7 +457,9 @@ pub(crate) fn parse_type(
         "string" => Type::Str,
         "void" => Type::Void,
         "regex" | "RegExp" => Type::RegExp,
-        "date" => Type::Date,
+        // `Date` is the TS-spelled annotation; `date` is the internal
+        // spelling type_to_ann emits. Mirrors the check_type_ann arm.
+        "date" | "Date" => Type::Date,
         // T-21 — `fetch(url)` Response heap struct; ptr at SSA.
         "Response" => Type::Ptr,
         // T-10.a — Any plumbing; single 64B ptr slot, tag via heap header.

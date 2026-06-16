@@ -399,6 +399,14 @@ fn resolve_type_ann_inner(
         // type (`const re: RegExp = /a/`); `regex` is the internal
         // spelling type_to_ann emits, accepted for round-tripping.
         "regex" | "RegExp" => Some(Type::RegExp),
+        // `Date` is the TS-spelled annotation for `Type::Date`;
+        // `date` is the internal spelling type_to_ann emits, accepted
+        // for round-tripping. Without this arm, `class W { d: Date }`
+        // is rejected as "unknown type Date" because class-field ann
+        // resolution flows through this registry rather than the
+        // user-class lookup. Date method dispatch (getTime / getUTC*
+        // / toISOString …) already exists on `Type::Date` in check.rs.
+        "date" | "Date" => Some(Type::Date),
         "weakref" | "WeakRef" => Some(Type::WeakRef),
         "weakmap" | "WeakMap" => Some(Type::WeakMap),
         "weakset" | "WeakSet" => Some(Type::WeakSet),
