@@ -4071,6 +4071,20 @@ impl Checker {
                     // be `T[][]`; result is `T[]`. v0 supports depth=1
                     // only (no `.flat(2)` arg).
                     (Type::Array(elem), "flat") => {
+                        // S129-3 Array<Any>.flat — Any elem bypasses
+                        // the typed Array<Array<T>> shape check: any
+                        // outer slot can wrap an inner Array<Any>
+                        // (or a scalar that passes through). Routes
+                        // to `__torajs_arr_flat_any` at ssa-lower
+                        // which decodes each slot's NaN-box tag.
+                        // Result stays Array<Any> (depth=1 only —
+                        // mirror typed flat's v0 limit).
+                        if matches!(**elem, Type::Any) {
+                            return Ok(Type::Function(
+                                Vec::new(),
+                                Box::new(Type::Array(Box::new(Type::Any))),
+                            ));
+                        }
                         let Type::Array(inner) = (**elem).clone() else {
                             return Err(format!(
                                 "Array.flat requires Array<Array<T>>, receiver is Array<{:?}>",

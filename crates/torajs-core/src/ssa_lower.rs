@@ -4720,6 +4720,13 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Ptr,
     );
+    let arr_flat_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_flat_any",
+        &[Type::Ptr],
+        Type::Ptr,
+    );
     let arr_concat_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5605,6 +5612,7 @@ fn lower_inner(
         print_bool_err: print_bool_err_id,
         str_print_err: str_print_err_id,
         arr_flat: arr_flat_id,
+        arr_flat_any: arr_flat_any_id,
         arr_concat: arr_concat_id,
         arr_reverse: arr_reverse_id,
         arr_fill: arr_fill_id,
@@ -6591,6 +6599,7 @@ pub(crate) struct Intrinsics {
     pub(crate) print_bool_err: FuncId,
     pub(crate) str_print_err: FuncId,
     pub(crate) arr_flat: FuncId,
+    pub(crate) arr_flat_any: FuncId,
     pub(crate) arr_concat: FuncId,
     pub(crate) arr_reverse: FuncId,
     pub(crate) arr_fill: FuncId,
@@ -12741,6 +12750,16 @@ impl<'a> LowerCtx<'a> {
                 Expr::String(_) => Some(3),
                 Expr::Bool(_) => Some(4),
                 Expr::Null => Some(5),
+                // S129-3 — nested Array literal counts as its own
+                // kind so `[[1,2], 6]` (array + scalar) classifies
+                // as heterogeneous → Array<Any> codegen. Pre-fix
+                // nested arrays returned None, leaving the anchor
+                // pinned to the scalar's kind; the array slots then
+                // got raw-stored as i64 ptrs into a typed Array<T>,
+                // breaking arr_flat_any's NaN-box decode. Homogeneous
+                // nested literals (`[[1,2],[3,4]]`) still anchor to
+                // the same kind = 2 → typed Array<Array<T>>.
+                Expr::Array(_) => Some(2),
                 Expr::Unary { expr, .. } => classify(ast, *expr),
                 _ => None, // unknown kind — fall back to homogeneous path
             }
@@ -25936,6 +25955,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.num_to_precision_f
             || fid == i.num_to_precision_i
             || fid == i.arr_flat
+            || fid == i.arr_flat_any
             || fid == i.arr_concat
             || fid == i.arr_reverse
             || fid == i.arr_fill

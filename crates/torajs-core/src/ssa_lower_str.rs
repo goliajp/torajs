@@ -812,6 +812,23 @@ pub(crate) fn try_lower_method_call(
                 break;
             };
             let outer_elem = ctx.arr_layouts[outer_id.0 as usize];
+            // S129-3 Array<Any>.flat — outer_elem is Type::Any
+            // (NaN-box AnyValue per slot). Routes to the Any-aware
+            // runtime helper which decodes each slot's tag and
+            // extends inner Array<Any> via arr_extend_any (rc-safe)
+            // / passes other slots through as a single push. Result
+            // type stays Array<Any> (depth=N unrolls N flat-1 calls,
+            // mirror of the typed branch below).
+            if matches!(outer_elem, Type::Any) {
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.arr_flat_any, vec![cur]),
+                    cur_ty,
+                    None,
+                );
+                cur = Operand::Value(v);
+                continue;
+            }
             let Type::Arr(_) = outer_elem else {
                 break;
             };
