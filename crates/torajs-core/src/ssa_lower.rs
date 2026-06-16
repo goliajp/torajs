@@ -14792,6 +14792,10 @@ impl<'a> LowerCtx<'a> {
                                 );
                                 Operand::Value(v)
                             }
+                            // S133-2 — `Number(Any)`: tag-dispatched
+                            // ToNumber via runtime helper. Returns f64
+                            // (NaN passes through).
+                            Type::Any => self.coerce_any_to_number(arg_op, Type::F64),
                             _ => panic!(
                                 "ssa-lower: Number() with arg type {arg_ty:?} not yet supported"
                             ),
@@ -14825,6 +14829,11 @@ impl<'a> LowerCtx<'a> {
                                     None,
                                 ))
                             }
+                            // S133-2 — `String(Any)`: tag-dispatched
+                            // ToString via runtime helper (reuses the
+                            // existing `coerce_to_str(_, Type::Any)`
+                            // path used by console.log multi-arg).
+                            Type::Any => self.coerce_to_str(arg_op, Type::Any),
                             _ => panic!(
                                 "ssa-lower: String() with arg type {arg_ty:?} not yet supported"
                             ),

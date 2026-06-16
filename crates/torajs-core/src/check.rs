@@ -4858,6 +4858,7 @@ impl Checker {
                                     | Type::Null
                                     | Type::Undefined
                                     | Type::String
+                                    | Type::Any
                             ),
                             "String" => matches!(
                                 arg_ty,
@@ -4866,6 +4867,7 @@ impl Checker {
                                     | Type::Null
                                     | Type::Undefined
                                     | Type::String
+                                    | Type::Any
                             ),
                             _ => false,
                         };
