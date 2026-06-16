@@ -40,6 +40,39 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 // `ANY_TAG_HEAP = 4` from torajs-anyvalue / ssa_lower).
 const ANY_TAG_HEAP: i64 = 4;
 
+/// `<v> instanceof Object` for `Type::Any` operands — returns true
+/// for every NaN-boxed heap object **except** the primitive-wrapper
+/// tags `Tag::Str` / `Tag::Symbol` / `Tag::BigInt`, which represent
+/// JS primitive values stored on the heap (tr's subset doesn't ship
+/// boxed-primitive wrappers, so all string / symbol / bigint cells
+/// here come from primitive literals — `"x" instanceof Object` is
+/// false per spec).
+///
+/// Mirrors `__torajs_instanceof_builtin_any_tag` but inverts the
+/// per-tag matching shape (any tag accepted, primitive tags
+/// rejected) so the ssa-lower Type::Any branch can route `Object`
+/// without enumerating every Tag::* the runtime can construct.
+///
+/// # Safety
+/// `v` is an unconstrained i64. Defensive on every step
+/// (non-ANY_HEAP / NULL ptr) so unexpected runtime layouts never UB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_instanceof_object_any(v: i64) -> bool {
+    let tag = unsafe { __torajs_anyv_unbox_tag(v) };
+    if tag != ANY_TAG_HEAP {
+        return false;
+    }
+    let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
+    if ptr.is_null() {
+        return false;
+    }
+    let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
+    // Tag values mirror `torajs_rc::Tag` (Str=0, Symbol=7, BigInt=10).
+    // Cannot import the enum here without a circular-dep — the
+    // values are stable ABI per the assert_eq! suite in lib.rs.
+    !matches!(type_tag, 0 | 7 | 10)
+}
+
 /// Built-in `instanceof` for `Type::Any` operands — compares the
 /// universal `HeapHeader::type_tag` (u16 at +4) to `expected_type_tag`.
 ///
@@ -215,6 +248,55 @@ mod tests {
     fn builtin_null_ptr_returns_false() {
         let boxed = nan_box(ANY_TAG_HEAP, 0);
         assert!(!unsafe { __torajs_instanceof_builtin_any_tag(boxed, 2) });
+    }
+
+    #[test]
+    fn object_arr_heap_returns_true() {
+        // Tag::Arr=2 — Array is an Object.
+        let block = make_test_heap_block(2);
+        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        assert!(unsafe { __torajs_instanceof_object_any(boxed) });
+    }
+
+    #[test]
+    fn object_str_heap_returns_false() {
+        // Tag::Str=0 — primitive string, NOT an object per spec.
+        let block = make_test_heap_block(0);
+        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        assert!(!unsafe { __torajs_instanceof_object_any(boxed) });
+    }
+
+    #[test]
+    fn object_symbol_heap_returns_false() {
+        // Tag::Symbol=7 — primitive Symbol.
+        let block = make_test_heap_block(7);
+        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        assert!(!unsafe { __torajs_instanceof_object_any(boxed) });
+    }
+
+    #[test]
+    fn object_bigint_heap_returns_false() {
+        // Tag::BigInt=10 — primitive BigInt.
+        let block = make_test_heap_block(10);
+        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        assert!(!unsafe { __torajs_instanceof_object_any(boxed) });
+    }
+
+    #[test]
+    fn object_primitive_tag_returns_false() {
+        // non-ANY_HEAP tag (e.g. ANY_I64=2 in box scheme) — not an object.
+        let boxed = nan_box(2, 0x1234_5678);
+        assert!(!unsafe { __torajs_instanceof_object_any(boxed) });
+    }
+
+    #[test]
+    fn object_null_ptr_returns_false() {
+        let boxed = nan_box(ANY_TAG_HEAP, 0);
+        assert!(!unsafe { __torajs_instanceof_object_any(boxed) });
     }
 
     fn _check_c_void_used(_: *const c_void) {}

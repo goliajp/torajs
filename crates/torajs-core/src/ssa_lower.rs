@@ -2637,6 +2637,18 @@ fn lower_inner(
         &[Type::Any, Type::I64],
         Type::Bool,
     );
+    // `<v:any> instanceof Object` — accepts every NaN-boxed heap
+    // cell except the primitive-wrapper tags Tag::Str / Symbol /
+    // BigInt (tr's subset doesn't ship boxed primitives so the
+    // heap-stored cells of those tags are spec primitives, hence
+    // false). See torajs-rc::instanceof_any.
+    let instanceof_object_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_instanceof_object_any",
+        &[Type::Any],
+        Type::Bool,
+    );
     let dynobj_get_tag_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5398,6 +5410,7 @@ fn lower_inner(
         get_builtin_prototype: get_builtin_prototype_id,
         instanceof_class_any_tag: instanceof_class_any_tag_id,
         instanceof_builtin_any_tag: instanceof_builtin_any_tag_id,
+        instanceof_object_any: instanceof_object_any_id,
         fnprops_set: fnprops_set_id,
         fnprops_get_tag: fnprops_get_tag_id,
         fnprops_get_value: fnprops_get_value_id,
@@ -6362,6 +6375,7 @@ pub(crate) struct Intrinsics {
     pub(crate) get_builtin_prototype: FuncId,
     pub(crate) instanceof_class_any_tag: FuncId,
     pub(crate) instanceof_builtin_any_tag: FuncId,
+    pub(crate) instanceof_object_any: FuncId,
     pub(crate) fnprops_set: FuncId,
     pub(crate) fnprops_get_tag: FuncId,
     pub(crate) fnprops_get_value: FuncId,
@@ -23363,6 +23377,10 @@ impl<'a> LowerCtx<'a> {
                     // Set=19).
                     let builtin_type_tag: Option<i64> = match class_name_str {
                         "Array" => Some(2),
+                        // Function instances live on Tag::Closure=3
+                        // — they don't carry a class_tag@+8 either,
+                        // so the per-tag builtin helper is correct.
+                        "Function" => Some(3),
                         "RegExp" => Some(4),
                         "Date" => Some(5),
                         "Promise" => Some(8),
@@ -23379,6 +23397,17 @@ impl<'a> LowerCtx<'a> {
                                 self.intrinsics.instanceof_builtin_any_tag,
                                 vec![v.clone(), Operand::ConstI64(t)],
                             ),
+                            Type::Bool,
+                            None,
+                        );
+                        return Operand::Value(r);
+                    }
+                    // `<v:any> instanceof Object` — accept any
+                    // heap cell whose tag isn't a primitive wrapper.
+                    if class_name_str == "Object" {
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.instanceof_object_any, vec![v.clone()]),
                             Type::Bool,
                             None,
                         );
