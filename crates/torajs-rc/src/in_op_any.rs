@@ -30,6 +30,10 @@ unsafe extern "C" {
     fn __torajs_anyv_unbox_tag(v: i64) -> i64;
     fn __torajs_anyv_unbox_value(v: i64) -> i64;
     fn __torajs_dynobj_has(obj: *const c_void, key: *const u8) -> i32;
+    // torajs-num runtime symbol — resolved at `tr build` link time;
+    // torajs-rc keeps 0 Cargo deps (vision §2). Same pattern as
+    // dynobj_has / anyv_unbox above.
+    fn __torajs_num_to_string_radix_i(n: i64, radix: i64) -> *mut u8;
 }
 
 // Offset of the i64 `len` slot inside the Array heap block — matches
@@ -126,11 +130,40 @@ pub unsafe extern "C" fn __torajs_in_op_any_num(v: i64, key: i64) -> bool {
         return false;
     }
     let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
-    if type_tag != TAG_ARR {
-        return false;
+    if type_tag == TAG_ARR {
+        let len = unsafe { *((ptr as *const u8).add(ARR_LEN_OFF) as *const i64) };
+        return key >= 0 && key < len;
     }
-    let len = unsafe { *((ptr as *const u8).add(ARR_LEN_OFF) as *const i64) };
-    key >= 0 && key < len
+    if type_tag == TAG_DYNOBJ {
+        // Spec: dynamic property lookup ToString(key) — `0 in obj`
+        // when `obj["0"]` exists is true. Alloc the canonical
+        // decimal-string of `key` via torajs-num, query dynobj_has,
+        // and rc_dec the temporary (refcount=1 from alloc_str → 0
+        // after dec, slot freed).
+        let key_str = unsafe { __torajs_num_to_string_radix_i(key, 10) };
+        if key_str.is_null() {
+            return false;
+        }
+        let r = unsafe { __torajs_dynobj_has(ptr, key_str) };
+        unsafe { rc_dec_temp_str(key_str) };
+        return r != 0;
+    }
+    false
+}
+
+#[cfg(not(test))]
+unsafe fn rc_dec_temp_str(p: *mut u8) {
+    unsafe {
+        crate::__torajs_rc_dec(p as *mut c_void);
+    }
+}
+
+#[cfg(test)]
+unsafe fn rc_dec_temp_str(_p: *mut u8) {
+    // Tests construct mock str blocks on the stack via the
+    // `make_str_heap_block` Vec — they're not refcount-managed and
+    // the rc_dec path would underflow into the drop dispatch. No-op
+    // here mirrors the test stubs above (unbox / dynobj_has).
 }
 
 /// `<key:string> in <v:any>` — String-keyed dispatch.
@@ -191,6 +224,19 @@ unsafe fn __torajs_dynobj_has(_obj: *const c_void, _key: *const u8) -> i32 {
 #[cfg(test)]
 thread_local! {
     static DYNOBJ_HAS_RESULT: core::cell::Cell<i32> = const { core::cell::Cell::new(0) };
+}
+
+// Test stub for the cross-crate num→str alloc. Returns a static-
+// buffer pointer the dynobj_has stub never deref-reads (it consults
+// the thread-local result instead). Pairs with rc_dec_temp_str's
+// cfg(test) no-op above so the mock pointer never enters the
+// drop-dispatch path.
+#[cfg(test)]
+static TEST_NUM_TO_STR_BUF: [u8; 16] = [0u8; 16];
+
+#[cfg(test)]
+unsafe fn __torajs_num_to_string_radix_i(_n: i64, _radix: i64) -> *mut u8 {
+    TEST_NUM_TO_STR_BUF.as_ptr() as *mut u8
 }
 
 #[cfg(test)]
@@ -360,6 +406,25 @@ mod tests {
         let boxed = nan_box(ANY_TAG_HEAP, arr_ptr);
         let key_block = make_str_heap_block("foo");
         assert!(!unsafe { __torajs_in_op_any_str(boxed, key_block.as_ptr()) });
+    }
+
+    #[test]
+    fn num_dynobj_dynobj_has_true_returns_true() {
+        DYNOBJ_HAS_RESULT.with(|r| r.set(1));
+        let block = make_dynobj_heap_block();
+        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        assert!(unsafe { __torajs_in_op_any_num(boxed, 0) });
+        assert!(unsafe { __torajs_in_op_any_num(boxed, 42) });
+    }
+
+    #[test]
+    fn num_dynobj_dynobj_has_false_returns_false() {
+        DYNOBJ_HAS_RESULT.with(|r| r.set(0));
+        let block = make_dynobj_heap_block();
+        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        assert!(!unsafe { __torajs_in_op_any_num(boxed, 0) });
     }
 
     #[test]

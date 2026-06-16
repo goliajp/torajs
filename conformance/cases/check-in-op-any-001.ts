@@ -24,10 +24,29 @@ console.log("foo" in obj);
 console.log("bar" in obj);
 console.log("baz" in obj);
 
-// Cross-tag negative — number-key vs DynObj rhs collapses to false
-// in this narrow ship (DynObj numeric-key ToString deferred to L3b).
+// Spec dynamic property lookup ToString(key) — `0 in obj` is true
+// when `obj["0"]` exists. `__torajs_in_op_any_num` Tag::DynObj
+// branch ToString-coerces the i64 key via `__torajs_num_to_string`
+// and queries dynobj_has, mirroring the symmetric Array str-numeric-
+// coerce path above. Use defineProperty to install numeric-string
+// keys (`obj["0"] = …` would be rejected by check.rs's strict index
+// rule when obj is Any-typed).
+Object.defineProperty(obj, "0", {
+    value: "zero",
+    writable: true,
+    enumerable: true,
+    configurable: true,
+});
+Object.defineProperty(obj, "42", {
+    value: "fortytwo",
+    writable: true,
+    enumerable: true,
+    configurable: true,
+});
 console.log(0 in obj);
+console.log(42 in obj);
 console.log(1 in obj);
+console.log(-1 in obj);
 
 // Spec ECMA-262 §7.1.21 CanonicalNumericIndexString — `"0" in arr`
 // is true because `"0"` is the canonical index-string of 0 and Array
