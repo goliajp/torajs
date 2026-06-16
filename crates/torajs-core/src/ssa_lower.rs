@@ -13624,7 +13624,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 return Operand::Value(v);
             }
-            Expr::New { class_name, .. } if class_name == "Map" => {
+            Expr::New { class_name, args } if class_name == "Map" => {
                 /* P6.1 — `new Map()`. Spec also accepts an iterable
                  * initializer (`new Map([[k, v], ...])`); plumbing
                  * that requires the P5 iterator protocol fanning
@@ -13636,7 +13636,31 @@ impl<'a> LowerCtx<'a> {
                     Type::Map,
                     None,
                 );
-                return Operand::Value(v);
+                let map_op = Operand::Value(v);
+                // S133-5 — static `new Map([[k, v], ...])` initializer:
+                // check accepts the literal-array-of-pair-arrays form;
+                // emit one `map_set(map, k_tag, k_val, v_tag, v_val)`
+                // per pair (same encoding `m.set(k, v)` lowers to).
+                if let Some(arg0) = args.first()
+                    && let Expr::Array(elems) = self.ast.get_expr(*arg0).clone()
+                {
+                    for pair_eid in &elems {
+                        if let Expr::Array(pair) = self.ast.get_expr(*pair_eid).clone()
+                            && pair.len() == 2
+                        {
+                            let (k_tag, k_val) = self.lower_to_tag_value(pair[0]);
+                            let (v_tag, v_val) = self.lower_to_tag_value(pair[1]);
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.map_set,
+                                    vec![map_op.clone(), k_tag, k_val, v_tag, v_val],
+                                ),
+                            );
+                        }
+                    }
+                }
+                return map_op;
             }
             Expr::New { class_name, args } if class_name == "Set" => {
                 /* P6.2 — `new Set()` reuses the P6.1 Map runtime

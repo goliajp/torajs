@@ -7050,6 +7050,38 @@ impl Checker {
              * (P5) is plumbed into the ctor desugar. For now: zero-arg
              * only. */
             Expr::New { class_name, args } if class_name == "Map" => {
+                // S133-5 — `new Map([[k, v], [k, v], ...])` static
+                // array-literal-of-pair-arrays initializer. Mirrors
+                // the S133-4 Set narrow: when args[0] is a literal
+                // `Expr::Array` of `[k, v]` 2-element arrays (no
+                // Spread anywhere), ssa-lower unrolls into
+                // `map_create + map_set` per pair. Full iterable
+                // initializers (Map.entries chain, custom
+                // Symbol.iterator) stay deferred behind P5.
+                if args.len() == 1
+                    && let Expr::Array(elems) = ast.get_expr(args[0])
+                    && elems.iter().all(|e| {
+                        if matches!(ast.get_expr(*e), Expr::Spread { .. }) {
+                            return false;
+                        }
+                        if let Expr::Array(pair) = ast.get_expr(*e) {
+                            pair.len() == 2
+                                && pair
+                                    .iter()
+                                    .all(|p| !matches!(ast.get_expr(*p), Expr::Spread { .. }))
+                        } else {
+                            false
+                        }
+                    })
+                {
+                    for pair_eid in elems {
+                        if let Expr::Array(pair) = ast.get_expr(*pair_eid) {
+                            let _ = self.type_of(ast, pair[0])?;
+                            let _ = self.type_of(ast, pair[1])?;
+                        }
+                    }
+                    return Ok(Type::Map);
+                }
                 if !args.is_empty() {
                     return Err(format!(
                         "`new Map(...)` with iterable initializer not yet supported (got {} args)",
