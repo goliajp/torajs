@@ -157,10 +157,19 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
             // same `Name {…}` form as top-level (no trailing '\n';
             // outer walker owns separators).
             unsafe { __torajs_anyv_struct_print_inline(v) };
+        } else if tag == Tag::WeakMap as u16 {
+            // WeakMap / WeakSet are non-enumerable per spec
+            // (§24.4 / §24.5 — no `forEach`, no iterators), so
+            // bun's default inspect prints the fixed `WeakMap {}` /
+            // `WeakSet {}` form regardless of entry count. No
+            // trailing '\n' (inline contract).
+            unsafe { put_bytes(b"WeakMap {}") };
+        } else if tag == Tag::WeakSet as u16 {
+            unsafe { put_bytes(b"WeakSet {}") };
         } else {
             // All other composite / typed-receiver tags
             // (Tag::Symbol / Tag::BigInt / Tag::Response /
-            // Tag::Weak* / Tag::MapIter / Tag::ArrIter /
+            // Tag::WeakRef / Tag::MapIter / Tag::ArrIter /
             // Tag::AccessorPair / etc) fall back to `[object]`
             // (no '\n'). Wire each into its typed walker as the
             // corresponding substrate lands.

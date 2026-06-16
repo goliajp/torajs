@@ -249,6 +249,14 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // cleanly instead of stalling on `[object]`.
             unsafe { __torajs_anyv_struct_print_inline(v as u64) };
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if tag == Tag::WeakMap as u16 {
+            // WeakMap / WeakSet are non-enumerable per spec
+            // (§24.4 / §24.5 — no `forEach`, no iterators), so
+            // bun's default inspect prints the fixed `WeakMap {}` /
+            // `WeakSet {}` form regardless of entry count.
+            write_line(b"WeakMap {}\n");
+        } else if tag == Tag::WeakSet as u16 {
+            write_line(b"WeakSet {}\n");
         } else {
             write_line(b"[object]\n");
         }
