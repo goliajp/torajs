@@ -2649,6 +2649,26 @@ fn lower_inner(
         &[Type::Any],
         Type::Bool,
     );
+    // `<key:number> in <v:any>` — Number-keyed dispatch on the rhs
+    // Any-cell tag. Tag::Arr → bounds check; else → false. See
+    // torajs-rc::in_op_any.
+    let in_op_any_num_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_in_op_any_num",
+        &[Type::Any, Type::I64],
+        Type::Bool,
+    );
+    // `<key:string> in <v:any>` — String-keyed dispatch on the rhs
+    // Any-cell tag. Tag::DynObj → __torajs_dynobj_has; else → false.
+    // See torajs-rc::in_op_any.
+    let in_op_any_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_in_op_any_str",
+        &[Type::Any, Type::Ptr],
+        Type::Bool,
+    );
     let dynobj_get_tag_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5411,6 +5431,8 @@ fn lower_inner(
         instanceof_class_any_tag: instanceof_class_any_tag_id,
         instanceof_builtin_any_tag: instanceof_builtin_any_tag_id,
         instanceof_object_any: instanceof_object_any_id,
+        in_op_any_num: in_op_any_num_id,
+        in_op_any_str: in_op_any_str_id,
         fnprops_set: fnprops_set_id,
         fnprops_get_tag: fnprops_get_tag_id,
         fnprops_get_value: fnprops_get_value_id,
@@ -6376,6 +6398,8 @@ pub(crate) struct Intrinsics {
     pub(crate) instanceof_class_any_tag: FuncId,
     pub(crate) instanceof_builtin_any_tag: FuncId,
     pub(crate) instanceof_object_any: FuncId,
+    pub(crate) in_op_any_num: FuncId,
+    pub(crate) in_op_any_str: FuncId,
     pub(crate) fnprops_set: FuncId,
     pub(crate) fnprops_get_tag: FuncId,
     pub(crate) fnprops_get_value: FuncId,
@@ -14663,30 +14687,41 @@ impl<'a> LowerCtx<'a> {
                         return Operand::Value(r);
                     }
                     if matches!(obj_ty, Type::Any) {
-                        // Any-box → dynobj: decode the boxed heap
-                        // payload back to a ptr via the layout-
-                        // independent shim. Coerce key to Str (callers
-                        // typically pass a String literal or numeric
-                        // → string). For the supported shape the key
-                        // arrives as Type::Str already.
-                        let dynobj = self.any_unbox_value_as_ptr(obj_op);
-                        let r = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.dynobj_has,
-                                vec![Operand::Value(dynobj), key_op],
-                            ),
-                            Type::I32,
-                            None,
-                        );
-                        // dynobj_has returns int32; coerce to bool.
-                        let b = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(0)),
-                            Type::Bool,
-                            None,
-                        );
-                        return Operand::Value(b);
+                        // Dispatch on the **key**'s static SSA type:
+                        //   Number → __torajs_in_op_any_num — helper
+                        //     reads HeapHeader::type_tag@+4; Tag::Arr
+                        //     → bounds check, else → false.
+                        //   String → __torajs_in_op_any_str — helper
+                        //     reads the same type_tag; Tag::DynObj
+                        //     → `__torajs_dynobj_has`, else → false.
+                        // The old single-path arm called dynobj_has
+                        // unconditionally and SIGSEGV'd when the Any
+                        // cell was actually an Array. See
+                        // torajs-rc::in_op_any.
+                        let key_ty = self.operand_ty(&key_op);
+                        if matches!(key_ty, Type::I64 | Type::F64) {
+                            let key_i64 = self.coerce_to_i64(key_op);
+                            let r = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.in_op_any_num,
+                                    vec![obj_op, key_i64],
+                                ),
+                                Type::Bool,
+                                None,
+                            );
+                            return Operand::Value(r);
+                        }
+                        if matches!(key_ty, Type::Str) {
+                            let r = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.in_op_any_str, vec![obj_op, key_op]),
+                                Type::Bool,
+                                None,
+                            );
+                            return Operand::Value(r);
+                        }
+                        panic!("ssa-lower: `<key> in <obj:any>` unsupported key type {key_ty:?}");
                     }
                     panic!("ssa-lower: `in` rhs unsupported type {obj_ty:?}");
                 }
