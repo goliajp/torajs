@@ -40,6 +40,43 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 // `ANY_TAG_HEAP = 4` from torajs-anyvalue / ssa_lower).
 const ANY_TAG_HEAP: i64 = 4;
 
+/// Built-in `instanceof` for `Type::Any` operands — compares the
+/// universal `HeapHeader::type_tag` (u16 at +4) to `expected_type_tag`.
+///
+/// Mirrors `__torajs_instanceof_class_any_tag` (which compares the
+/// per-class `class_tag@+8` slot used by user-declared classes) but
+/// targets the built-in heap-cell tags Tag::Arr / Tag::Date /
+/// Tag::RegExp / Tag::Promise / Tag::Map / Tag::Set / Tag::WeakMap /
+/// Tag::WeakSet — none of those carry a class_tag slot, so the
+/// existing user-class helper always returns false for them.
+///
+/// Returns `true` iff `v` is a NaN-boxed heap pointer (ANY_HEAP) to
+/// a live heap cell whose universal type tag equals `expected_type_tag`.
+///
+/// # Safety
+/// `v` is an unconstrained i64. The fn is defensive on every step
+/// (non-heap tag / NULL ptr) and only dereferences after both
+/// invariants pass, matching the per-class helper's discipline.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_instanceof_builtin_any_tag(
+    v: i64,
+    expected_type_tag: i64,
+) -> bool {
+    let tag = unsafe { __torajs_anyv_unbox_tag(v) };
+    if tag != ANY_TAG_HEAP {
+        return false;
+    }
+    let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
+    if ptr.is_null() {
+        return false;
+    }
+    // HeapHeader layout (torajs-rc): `{ refcount: u32@0, type_tag:
+    // u16@+4, flags: u16@+6 }`. We read the u16 type_tag and
+    // zero-extend to i64 for the comparison.
+    let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) } as i64;
+    type_tag == expected_type_tag
+}
+
 /// `<v> instanceof <expected_tag>` for `Type::Any` operands.
 ///
 /// Returns `true` iff `v` is a NaN-boxed heap pointer to a class
@@ -139,6 +176,45 @@ mod tests {
     #[test]
     fn zero_v_returns_false() {
         assert!(!unsafe { __torajs_instanceof_class_any_tag(0, 42) });
+    }
+
+    fn make_test_heap_block(type_tag: u16) -> Vec<u8> {
+        // 16 bytes: 4B refcount + 2B type_tag + 2B flags + 8B padding
+        // (slot the builtin variant does not read).
+        let mut block = vec![0u8; 16];
+        let tag_bytes = type_tag.to_ne_bytes();
+        block[4..6].copy_from_slice(&tag_bytes);
+        block
+    }
+
+    #[test]
+    fn builtin_matching_type_tag_returns_true() {
+        // Tag::Arr = 2 — pretend this heap cell is an Array.
+        let block = make_test_heap_block(2);
+        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        assert!(unsafe { __torajs_instanceof_builtin_any_tag(boxed, 2) });
+    }
+
+    #[test]
+    fn builtin_mismatched_type_tag_returns_false() {
+        // Heap is Tag::Arr=2 but we ask "instanceof Date" (Tag::Date=5).
+        let block = make_test_heap_block(2);
+        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        assert!(!unsafe { __torajs_instanceof_builtin_any_tag(boxed, 5) });
+    }
+
+    #[test]
+    fn builtin_non_heap_tag_returns_false() {
+        let boxed = nan_box(2, 0x1234_5678);
+        assert!(!unsafe { __torajs_instanceof_builtin_any_tag(boxed, 2) });
+    }
+
+    #[test]
+    fn builtin_null_ptr_returns_false() {
+        let boxed = nan_box(ANY_TAG_HEAP, 0);
+        assert!(!unsafe { __torajs_instanceof_builtin_any_tag(boxed, 2) });
     }
 
     fn _check_c_void_used(_: *const c_void) {}

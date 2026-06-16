@@ -2623,6 +2623,20 @@ fn lower_inner(
         &[Type::Any, Type::I64],
         Type::Bool,
     );
+    // Built-in `instanceof` for `Type::Any` operands — reads the
+    // universal HeapHeader `type_tag` (u16@+4) instead of the
+    // per-class `class_tag@+8` slot. Targets the heap-cell tags
+    // for Array / Date / RegExp / Promise / Map / Set / WeakMap /
+    // WeakSet (none of which carry a class_tag slot, so the
+    // per-class helper above always returns false for them). See
+    // torajs-rc::instanceof_any.
+    let instanceof_builtin_any_tag_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_instanceof_builtin_any_tag",
+        &[Type::Any, Type::I64],
+        Type::Bool,
+    );
     let dynobj_get_tag_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5383,6 +5397,7 @@ fn lower_inner(
         dynobj_alloc: dynobj_alloc_id,
         get_builtin_prototype: get_builtin_prototype_id,
         instanceof_class_any_tag: instanceof_class_any_tag_id,
+        instanceof_builtin_any_tag: instanceof_builtin_any_tag_id,
         fnprops_set: fnprops_set_id,
         fnprops_get_tag: fnprops_get_tag_id,
         fnprops_get_value: fnprops_get_value_id,
@@ -6346,6 +6361,7 @@ pub(crate) struct Intrinsics {
     pub(crate) dynobj_alloc: FuncId,
     pub(crate) get_builtin_prototype: FuncId,
     pub(crate) instanceof_class_any_tag: FuncId,
+    pub(crate) instanceof_builtin_any_tag: FuncId,
     pub(crate) fnprops_set: FuncId,
     pub(crate) fnprops_get_tag: FuncId,
     pub(crate) fnprops_get_value: FuncId,
@@ -23273,33 +23289,53 @@ impl<'a> LowerCtx<'a> {
                 // boxed `new Number(5)` would be true (subset doesn't
                 // ship boxed primitives so they're always false).
                 let class_name_str = class_name.as_str();
-                let result = match (class_name_str, &actual_ty) {
-                    ("Array", Type::Arr(_)) => Some(true),
-                    ("Array", _) => Some(false),
-                    ("Function", Type::Closure(_)) | ("Function", Type::FnSig(_)) => Some(true),
-                    ("Function", _) => Some(false),
-                    // Object instanceof: any class instance is an
-                    // Object; every Type::Obj qualifies. Primitives
-                    // do NOT qualify per spec.
-                    ("Object", Type::Obj(_)) => Some(true),
-                    ("Object", Type::Arr(_)) => Some(true),
-                    ("Object", Type::Date) => Some(true),
-                    ("Object", Type::RegExp) => Some(true),
-                    ("Object", Type::Promise) => Some(true),
-                    ("Object", Type::Closure(_)) | ("Object", Type::FnSig(_)) => Some(true), // functions are Objects in JS
-                    ("Object", _) => Some(false),
-                    ("Number" | "String" | "Boolean" | "BigInt" | "Symbol", _) => {
-                        // Primitives never satisfy these (subset has no
-                        // boxed counterparts).
-                        Some(false)
+                // Gate the static-fold catch-all arms on `actual_ty
+                // != Type::Any` — Any operands carry runtime tag
+                // dispatch (handled below) and pre-fold to `false`
+                // here would mask `arrAny instanceof Array` (and the
+                // sibling built-in cases) as a constant false. Same
+                // shape user-class instanceof on `:any` operands
+                // already uses (the `descendant_tags` arm below).
+                let result: Option<bool> = if matches!(actual_ty, Type::Any) {
+                    // Primitives boxed via NaN-box: built-in
+                    // `instanceof Number/String/Boolean/BigInt/Symbol`
+                    // is always false in tr's subset (no boxed
+                    // wrappers ship). Defer Array / Date / RegExp /
+                    // Promise / Map / Set / WeakMap / WeakSet /
+                    // Function / Object to the runtime arms below.
+                    match class_name_str {
+                        "Number" | "String" | "Boolean" | "BigInt" | "Symbol" => Some(false),
+                        _ => None,
                     }
-                    ("Date", Type::Date) => Some(true),
-                    ("Date", _) => Some(false),
-                    ("RegExp", Type::RegExp) => Some(true),
-                    ("RegExp", _) => Some(false),
-                    ("Promise", Type::Promise) => Some(true),
-                    ("Promise", _) => Some(false),
-                    _ => None,
+                } else {
+                    match (class_name_str, &actual_ty) {
+                        ("Array", Type::Arr(_)) => Some(true),
+                        ("Array", _) => Some(false),
+                        ("Function", Type::Closure(_)) | ("Function", Type::FnSig(_)) => Some(true),
+                        ("Function", _) => Some(false),
+                        // Object instanceof: any class instance is an
+                        // Object; every Type::Obj qualifies. Primitives
+                        // do NOT qualify per spec.
+                        ("Object", Type::Obj(_)) => Some(true),
+                        ("Object", Type::Arr(_)) => Some(true),
+                        ("Object", Type::Date) => Some(true),
+                        ("Object", Type::RegExp) => Some(true),
+                        ("Object", Type::Promise) => Some(true),
+                        ("Object", Type::Closure(_)) | ("Object", Type::FnSig(_)) => Some(true), // functions are Objects in JS
+                        ("Object", _) => Some(false),
+                        ("Number" | "String" | "Boolean" | "BigInt" | "Symbol", _) => {
+                            // Primitives never satisfy these (subset has no
+                            // boxed counterparts).
+                            Some(false)
+                        }
+                        ("Date", Type::Date) => Some(true),
+                        ("Date", _) => Some(false),
+                        ("RegExp", Type::RegExp) => Some(true),
+                        ("RegExp", _) => Some(false),
+                        ("Promise", Type::Promise) => Some(true),
+                        ("Promise", _) => Some(false),
+                        _ => None,
+                    }
                 };
                 if let Some(r) = result {
                     return Operand::ConstBool(r);
@@ -23314,6 +23350,40 @@ impl<'a> LowerCtx<'a> {
                 // supplied `expected_tag` ConstI64. See
                 // torajs-rc::instanceof_any.
                 if matches!(actual_ty, Type::Any) {
+                    // Built-in `instanceof` first — Tag::Arr / Date /
+                    // RegExp / Promise / Map / Set / WeakMap / WeakSet
+                    // cells don't carry a class_tag@+8 slot (only
+                    // user-declared classes do), so the user-class
+                    // OR-chain below would always emit `false`.
+                    // Mirrors the static Type::Obj-path arms above
+                    // (line ~23277 onward) — values from
+                    // `torajs-rc::Tag` (Tag::Arr=2 / RegExp=4 /
+                    // Date=5 / Closure=3 / Symbol=7 / Promise=8 /
+                    // BigInt=10 / WeakMap=12 / WeakSet=13 / Map=15 /
+                    // Set=19).
+                    let builtin_type_tag: Option<i64> = match class_name_str {
+                        "Array" => Some(2),
+                        "RegExp" => Some(4),
+                        "Date" => Some(5),
+                        "Promise" => Some(8),
+                        "Map" => Some(15),
+                        "Set" => Some(19),
+                        "WeakMap" => Some(12),
+                        "WeakSet" => Some(13),
+                        _ => None,
+                    };
+                    if let Some(t) = builtin_type_tag {
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.instanceof_builtin_any_tag,
+                                vec![v.clone(), Operand::ConstI64(t)],
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        return Operand::Value(r);
+                    }
                     let mut descendant_tags: Vec<u32> = Vec::new();
                     if self.ast.class_parents.contains_key(class_name) {
                         for c in self.ast.class_parents.keys() {
