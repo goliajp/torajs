@@ -14355,6 +14355,34 @@ impl<'a> LowerCtx<'a> {
                         // (keyed by ptr). arr_drop / arr_drop_any's
                         // drop_entry hook walks the bucket on
                         // refcount==0.
+                        //
+                        // S133-3 — `arr.length = N` is the spec
+                        // §9.4.2.4 length setter, not an arbitrary
+                        // prop write: ToUint32(v) must equal
+                        // ToNumber(v) (RangeError otherwise) before
+                        // anything else. Route through the same
+                        // `arr_set_length_validate` helper that
+                        // `Object.defineProperty(arr, "length", ...)`
+                        // already uses (T-29.b). The runtime still
+                        // can't shrink the storage so a valid value
+                        // is a silent no-op — that's a follow-up,
+                        // recorded in plan-state L3b — but at least
+                        // the invalid-value RangeError path matches
+                        // spec and `arr.length` isn't quietly stashed
+                        // in props_dynobj as a string key.
+                        if matches!(obj_ty, Type::Arr(_)) && field == "length" {
+                            let (tag, val_op) = self.lower_to_tag_value(*value);
+                            self.consume_if_ident(*value);
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_set_length_validate,
+                                    vec![tag, val_op],
+                                ),
+                            );
+                            self.emit_throw_check(None);
+                            return Operand::ConstI64(0);
+                        }
                         if matches!(obj_ty, Type::Arr(_)) {
                             // lower_to_tag_value keeps `undefined` ANY_UNDEF (plain pair would collapse to null)
                             let (tag, val_op) = self.lower_to_tag_value(*value);
