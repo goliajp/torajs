@@ -170,6 +170,8 @@ pub(crate) fn try_lower_method_call(
                     | "localeCompare"
                     | "copyWithin"
                     | "normalize"
+                    | "isWellFormed"
+                    | "toWellFormed"
                     | "search"
                     | "toString"
                     | "toLocaleString"
@@ -479,6 +481,19 @@ pub(crate) fn try_lower_method_call(
         );
         ctx.emit_throw_check(None);
         return Some(Operand::Value(v));
+    }
+    // ES2024 §22.1.3.10 / §22.1.3.30 — `isWellFormed()` / `toWellFormed()`.
+    // torajs strings are internally UTF-8 so lone surrogates can't be
+    // encoded at all: every reachable Str is well-formed by construction.
+    // `isWellFormed` returns true; `toWellFormed` is the identity. Both
+    // arms drop the receiver dependency at the caller per existing
+    // method-call ownership rules.
+    if recv_ty == Type::Str && method == "isWellFormed" {
+        return Some(Operand::ConstBool(true));
+    }
+    if recv_ty == Type::Str && method == "toWellFormed" {
+        ctx.emit_rc_inc(recv_op.clone());
+        return Some(recv_op);
     }
     // String methods.
     if recv_ty == Type::Str
