@@ -127,10 +127,18 @@ pub fn to_fixed_i(n: i64, digits: i64) -> Vec<u8> {
     to_fixed_f(n as f64, digits)
 }
 
-/// `n.toExponential(digits)` core. `digits` clamped to `[0, 100]`.
+/// `n.toExponential(digits)` core. `digits` clamped to `[0, 100]`,
+/// or `digits < 0` selects the shortest-roundtrip form (ES
+/// §22.1.3.5 — fractionDigits undefined → spec defers to Number's
+/// shortest representation). Rust `format!("{:e}", _)` is ryu-shortest;
+/// `normalize_exp` then aligns the exponent shape to JS spec
+/// (insert '+' on positive, strip leading zeros).
 pub fn to_exp_f(n: f64, digits: i64) -> Vec<u8> {
     if let Some(s) = special_value(n) {
         return s;
+    }
+    if digits < 0 {
+        return normalize_exp(format!("{:e}", n).as_bytes());
     }
     let digits = digits.clamp(0, 100);
     let raw = format!("{:.*e}", digits as usize, n);
@@ -425,6 +433,22 @@ mod tests {
     }
 
     // ---- to_precision ----
+
+    #[test]
+    fn to_exponential_negative_digits_picks_shortest() {
+        // ES §22.1.3.5 — `n.toExponential()` (no arg) returns
+        // shortest representation. `digits < 0` sentinel routes
+        // through Rust's ryu-shortest `{:e}` formatter.
+        assert_eq!(to_exp_f(1234567890.0, -1), b"1.23456789e+9".to_vec());
+        assert_eq!(to_exp_f(0.1, -1), b"1e-1".to_vec());
+        assert_eq!(to_exp_f(1234.5678, -1), b"1.2345678e+3".to_vec());
+        assert_eq!(to_exp_f(1.5, -1), b"1.5e+0".to_vec());
+        // Special values pass through.
+        assert_eq!(to_exp_f(f64::NAN, -1), b"nan".to_vec());
+        assert_eq!(to_exp_f(f64::INFINITY, -1), b"inf".to_vec());
+        // Positive digits path unchanged.
+        assert_eq!(to_exp_f(1234.5678, 2), b"1.23e+3".to_vec());
+    }
 
     #[test]
     fn to_precision_uses_f_form_in_range() {

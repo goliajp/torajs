@@ -15826,10 +15826,20 @@ impl<'a> LowerCtx<'a> {
                         // (toExponential/toPrecision with 0 still
                         // gives reasonable output even if not exact
                         // spec — covered case-by-case in fixtures).
-                        if matches!(m_name.as_str(), "toFixed" | "toExponential" | "toPrecision")
-                            && args.is_empty()
-                        {
+                        if matches!(m_name.as_str(), "toFixed" | "toPrecision") && args.is_empty() {
                             argv.push(Operand::ConstI64(0));
+                        }
+                        // ES §22.1.3.5 — `toExponential()` with no
+                        // arg means "shortest representation" (defer
+                        // to Number::toString), not toExponential(0)
+                        // which gives a 1-sig-digit mantissa. Pre-fix
+                        // tr padded to 0, so `(1234567890).toExponential()`
+                        // returned "1e+9" instead of bun's
+                        // "1.23456789e+9". Pass a `-1` sentinel; the
+                        // runtime helper routes that through Rust's
+                        // shortest-roundtrip `{:e}` formatter.
+                        if m_name == "toExponential" && args.is_empty() {
+                            argv.push(Operand::ConstI64(-1));
                         }
                         let v = self.f.append_inst(
                             self.cur_block,
