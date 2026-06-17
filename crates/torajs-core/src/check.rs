@@ -2566,6 +2566,12 @@ impl Checker {
                     "Boolean" => Ok(Type::Object("Boolean")),
                     "JSON" => Ok(Type::Object("JSON")),
                     "Array" => Ok(Type::Object("Array")),
+                    // ES6 §28.1 — `Reflect` namespace. Subset wires
+                    // `Reflect.has(obj, key)` to `Object.hasOwn` and
+                    // `Reflect.ownKeys(obj)` to `Object.keys` at lower
+                    // time (tr has no prototype chain / symbol keys, so
+                    // the spec gap collapses).
+                    "Reflect" => Ok(Type::Object("Reflect")),
                     "Date" => Ok(Type::Object("Date")),
                     /* T-26 (v0.7) — WeakRef global. As a constructor
                      * (`new WeakRef(target)`) it's handled in the
@@ -3006,7 +3012,11 @@ impl Checker {
                     (Type::Object("Object"), "keys")
                     // tr has no prototype chain, so own == all; alias
                     // getOwnPropertyNames to keys at lower time.
-                    | (Type::Object("Object"), "getOwnPropertyNames") => Ok(Type::Function(
+                    | (Type::Object("Object"), "getOwnPropertyNames")
+                    // ES6 §28.1.11 — `Reflect.ownKeys` shares this
+                    // signature; the ssa_lower dispatch routes both
+                    // through the same struct-keys emit.
+                    | (Type::Object("Reflect"), "ownKeys") => Ok(Type::Function(
                         vec![Type::Any],
                         Box::new(Type::Array(Box::new(Type::String))),
                     )),
@@ -3019,7 +3029,9 @@ impl Checker {
                      * `Object.isFrozen(Object.freeze(o)) === true`
                      * test262 cases. Real implementation needs a
                      * frozen bit on the universal heap header (v0.3). */
-                    (Type::Object("Object"), "hasOwn") => Ok(Type::Function(
+                    (Type::Object("Object"), "hasOwn")
+                    // ES6 §28.1.9 — `Reflect.has` shares this signature.
+                    | (Type::Object("Reflect"), "has") => Ok(Type::Function(
                         vec![Type::Any, Type::String],
                         Box::new(Type::Boolean),
                     )),

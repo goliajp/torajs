@@ -17309,9 +17309,12 @@ impl<'a> LowerCtx<'a> {
                     obj: ns_id,
                     name: m_name,
                 } = self.ast.get_expr(*callee)
-                    && m_name == "hasOwn"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Object"
+                    && ((m_name == "hasOwn" && ns == "Object")
+                        // `Reflect.has(obj, key)` aliases to the same
+                        // emit — tr has no prototype chain so own == all
+                        // and the spec gap with `in` is empty.
+                        || (m_name == "has" && ns == "Reflect"))
                     && args.len() == 2
                     && let Expr::String(key_lit) = self.ast.get_expr(args[1])
                 {
@@ -17341,9 +17344,12 @@ impl<'a> LowerCtx<'a> {
                     obj: ns_id,
                     name: m_name,
                 } = self.ast.get_expr(*callee)
-                    && (m_name == "keys" || m_name == "getOwnPropertyNames")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Object"
+                    && ((ns == "Object" && (m_name == "keys" || m_name == "getOwnPropertyNames"))
+                        // `Reflect.ownKeys(obj)` aliases to the same emit
+                        // — tr has no symbol keys + no prototype chain so
+                        // own-string-keys == all-own-keys.
+                        || (ns == "Reflect" && m_name == "ownKeys"))
                     && args.len() == 1
                 {
                     let arg_op = self.lower_expr(args[0]);
