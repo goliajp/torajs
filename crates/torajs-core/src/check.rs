@@ -6302,6 +6302,20 @@ impl Checker {
                             // side through __torajs_bool_to_str /
                             // __torajs_null_to_str before concat.
                             Ok(Type::String)
+                        } else if (l == Type::String && matches!(r, Type::Any))
+                            || (matches!(l, Type::Any) && r == Type::String)
+                        {
+                            // Spec §13.15.3: when either operand is a
+                            // String, ApplyStringOrNumericBinaryOperator
+                            // routes through the StringConcat branch
+                            // (ToPrimitive(Default) + ToString on the
+                            // non-String side), and the result is always
+                            // a String. Pre-fix this fell into the Any
+                            // catch-all below, which forced callers like
+                            // `new Error('msg: ' + e.message)` (where
+                            // `e: any` makes `e.message: Any`) to add a
+                            // redundant `as string` cast.
+                            Ok(Type::String)
                         } else if matches!(l, Type::Any) || matches!(r, Type::Any) {
                             // P0.6 — Any operand on either side per
                             // JS spec §13.15.3 ApplyStringOrNumeric
