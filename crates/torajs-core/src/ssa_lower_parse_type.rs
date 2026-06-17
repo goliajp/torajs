@@ -472,6 +472,10 @@ pub(crate) fn parse_type(
         // TS `object` collapses to Type::Any (non-primitive constraint
         // is independent substrate; mirror of `check_type_ann.rs`).
         "object" => Type::Any,
+        // TS `unknown` — top type, alias of Type::Any at the runtime
+        // layer (mirror of `check_type_ann.rs`). No-access-without-
+        // narrow constraint is independent L3b.
+        "unknown" => Type::Any,
         // T-13.a (v0.4.0) — Symbol value. Heap-allocated 16-byte
         // block, identity is pointer identity. Lowers to ptr.
         "symbol" => Type::Symbol,

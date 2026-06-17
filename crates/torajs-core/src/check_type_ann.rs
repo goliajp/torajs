@@ -444,6 +444,17 @@ fn resolve_type_ann_inner(
         // forcing users into `any`. Independent L3b: enforce the
         // non-primitive constraint at assignment-check time.
         "object" => Some(Type::Any),
+        // TS `unknown` — top type (per TS §2.7.2): any value, but
+        // the type-checker rejects member access / arithmetic without
+        // a narrowing guard first. The subset collapses to `Type::Any`
+        // — runtime behaviour is identical, and the narrowing
+        // requirement is independent substrate work (mirror of the
+        // `object` non-primitive constraint above). Enables common
+        // patterns like `function isStr(x: unknown): x is string` and
+        // `const v: unknown = JSON.parse(s)` without forcing `any`.
+        // L3b: enforce the no-access-without-narrow at member-access
+        // / type-guard checking time.
+        "unknown" => Some(Type::Any),
         // T-13.a (v0.4.0) — `symbol` is a primitive type alias for
         // Type::Symbol. Lower-case `symbol` is the spec spelling
         // (`typeof Symbol() === "symbol"`); `Symbol` is the constructor
