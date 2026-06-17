@@ -146,8 +146,43 @@ pub fn to_exp_f(n: f64, digits: i64) -> Vec<u8> {
         return normalize_exp(format!("{:e}", n).as_bytes());
     }
     let digits = digits.clamp(0, 100);
-    let raw = format!("{:.*e}", digits as usize, n);
+    // Pre-round in mantissa basis half-away-from-zero (matches `to_fixed_f`
+    // lines 116-121 wedge for %f form). Rust `{:.*e}` rounds half-to-even
+    // (banker), but ES §22.1.3.5 ties go to the larger m — same fix shape
+    // `to_fixed_f` / `to_precision_f` %f arm already neutralize. Without
+    // this `(1.25).toExponential(1)` was "1.2e+0" (banker, 2 even) instead
+    // of the spec "1.3e+0".
+    let value = round_e_form(n, digits as usize);
+    let raw = format!("{:.*e}", digits as usize, value);
     normalize_exp(raw.as_bytes())
+}
+
+/// Pre-round `n` in mantissa basis so a subsequent `format!("{:.*e}", _, _)`
+/// produces a half-away-from-zero rounded mantissa (spec) instead of Rust's
+/// default half-to-even (banker). `mantissa_digits` is the number of frac
+/// digits kept after the decimal point in the mantissa (e.g. `precision - 1`).
+///
+/// Mechanism: format `n` once with `{:e}` to recover the decimal exponent
+/// `x`, then scale to `mantissa_digits - x` decimal grid and `.round()`
+/// (Rust `f64::round` is half-away-from-zero). For `|scale_pow|` outside
+/// the f64 exact-power-of-ten range, fall through to raw — same guard
+/// shape as `to_fixed_f` line 116 / `to_precision_f` line 187.
+fn round_e_form(n: f64, mantissa_digits: usize) -> f64 {
+    if !n.is_finite() || n == 0.0 {
+        return n;
+    }
+    let raw = format!("{n:e}");
+    // Rust `{:e}` always emits an 'e'; unchecked keeps the panic path out
+    // of the user binary (mirrors `to_precision_f` line 173 polish A3).
+    let e_pos = unsafe { raw.find('e').unwrap_unchecked() };
+    let x: i32 = raw[e_pos + 1..].parse().unwrap_or(0);
+    let scale_pow = mantissa_digits as i32 - x;
+    if (-15..=15).contains(&scale_pow) {
+        let scale = 10f64.powi(scale_pow);
+        (n * scale).round() / scale
+    } else {
+        n
+    }
 }
 
 /// `n.toExponential(digits)` core for integer receivers.
@@ -192,7 +227,12 @@ pub fn to_precision_f(n: f64, digits: i64) -> Vec<u8> {
         };
         format!("{:.*}", frac_digits, value).into_bytes()
     } else {
-        e_form.into_bytes()
+        // %e form: mirror the %f arm's pre-round (lines 187-192) in
+        // mantissa basis. Without this `(125).toPrecision(2)` was
+        // "1.2e+2" (Rust banker, mantissa 1.25 → 2 even) instead of the
+        // spec "1.3e+2". Same `round_e_form` helper as `to_exp_f`.
+        let value = round_e_form(n, mantissa_digits);
+        format!("{:.*e}", mantissa_digits, value).into_bytes()
     };
     // Per ES §22.1.3.36 — toPrecision MUST emit exactly `precision`
     // significant digits, including trailing zeros. Do NOT strip
@@ -405,11 +445,30 @@ mod tests {
     fn to_exp_basic_positive_exp() {
         assert_eq!(to_exp_f(100.0, 0), b"1e+2".to_vec());
         assert_eq!(to_exp_f(100.0, 2), b"1.00e+2".to_vec());
-        // 12345 = 1.2345e4; half-even tie at last digit picks 4
-        // (even), giving "1.234e+4". Matches JS §21.1.3.3.
-        assert_eq!(to_exp_f(12345.0, 3), b"1.234e+4".to_vec());
-        // 12355 = 1.2355e4; half-even tie picks 6 (even) → 1.236.
+        // 12345 = 1.2345e4; ES §22.1.3.5 ties go to the larger m
+        // (half-away-from-zero), giving "1.235e+4" (not banker
+        // "1.234"). Pre-round neutralizes Rust `{:.*e}`'s default
+        // half-to-even.
+        assert_eq!(to_exp_f(12345.0, 3), b"1.235e+4".to_vec());
+        // 12355 = 1.2355e4; banker and away agree → "1.236e+4".
         assert_eq!(to_exp_f(12355.0, 3), b"1.236e+4".to_vec());
+    }
+
+    #[test]
+    fn to_exp_half_away_from_zero() {
+        // ES §22.1.3.5 tie rounding — Rust `{:.*e}` default would
+        // pick the banker neighbour (even mantissa digit stays).
+        // 1.25 → 1 frac: banker "1.2e+0" / spec "1.3e+0".
+        assert_eq!(to_exp_f(1.25, 1), b"1.3e+0".to_vec());
+        assert_eq!(to_exp_f(-1.25, 1), b"-1.3e+0".to_vec());
+        // 2.5 → 0 frac: banker "2e+0" / spec "3e+0".
+        assert_eq!(to_exp_f(2.5, 0), b"3e+0".to_vec());
+        assert_eq!(to_exp_f(-2.5, 0), b"-3e+0".to_vec());
+        // 125 mantissa 1.25 with x=2: banker "1.2e+2" / spec "1.3e+2".
+        assert_eq!(to_exp_f(125.0, 1), b"1.3e+2".to_vec());
+        // Non-tie regression guard: 1.6 → 1 frac is not a tie at
+        // mantissa position 1, both rules round to "1.6e+0".
+        assert_eq!(to_exp_f(1.6, 1), b"1.6e+0".to_vec());
     }
 
     #[test]
@@ -475,6 +534,24 @@ mod tests {
         // X = -5, precision = 6, -5 NOT in [-4, 6) → %e form.
         // 0.00001234 = 1.234e-5 → mantissa 6 digits = "1.23400".
         assert_eq!(to_precision_f(0.00001234, 6), b"1.23400e-5".to_vec());
+    }
+
+    #[test]
+    fn to_precision_e_form_rounds_half_away_from_zero() {
+        // ES §22.1.3.36 ties go to the larger m on the %e branch
+        // too. Follow-up to the %f-form fix (a5255701) — Rust
+        // `{:.*e}` rounds half-to-even (banker); pre-round in
+        // mantissa basis neutralizes it. Without the fix `(125)
+        // .toPrecision(2)` returned banker "1.2e+2" instead of the
+        // spec "1.3e+2".
+        assert_eq!(to_precision_f(125.0, 2), b"1.3e+2".to_vec());
+        assert_eq!(to_precision_f(-125.0, 2), b"-1.3e+2".to_vec());
+        // 1.245e+3 at 2 frac → banker "1.24e+3" / spec "1.25e+3".
+        assert_eq!(to_precision_f(1245.0, 3), b"1.25e+3".to_vec());
+        assert_eq!(to_precision_f(-1245.0, 3), b"-1.25e+3".to_vec());
+        // Non-tie regression guard on the %e path: 1.255 at 1 frac
+        // is not a tie, both rules give "1.3e+3".
+        assert_eq!(to_precision_f(1255.0, 2), b"1.3e+3".to_vec());
     }
 
     #[test]
