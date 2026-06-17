@@ -3731,6 +3731,21 @@ impl Checker {
                         Vec::new(),
                         Box::new(Type::String),
                     )),
+                    // ES §21.4.4.37 — `d.toJSON(key?)` returns the
+                    // canonical JSON serialization, defined as
+                    // `this.toISOString()` for any finite Date. The
+                    // optional `key` argument is ignored per spec
+                    // (only meaningful to Object.toJSON callers). MVP
+                    // collapses to toISOString without the non-finite
+                    // null short-circuit; non-finite Dates are an
+                    // independent substrate (the underlying ms field
+                    // already rejects non-finite ToNumber). The
+                    // `key` arg is silently dropped here — the
+                    // ssa_lower-side arm doesn't pass it through.
+                    (Type::Date, "toJSON") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::String),
+                    )),
                     // v0.2 #2 Phase 2.0b — UTC getters. Local-time
                     // siblings (getFullYear etc.) collapse to UTC
                     // until timezone awareness ships in Phase 2.0c.

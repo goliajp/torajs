@@ -19959,6 +19959,7 @@ impl<'a> LowerCtx<'a> {
                         "getTime"
                             | "valueOf"
                             | "toISOString"
+                            | "toJSON"
                             | "getFullYear"
                             | "getUTCFullYear"
                             | "getMonth"
@@ -19996,7 +19997,9 @@ impl<'a> LowerCtx<'a> {
                         };
                         let (target, ret_ty) = match method.as_str() {
                             "getTime" | "valueOf" => (self.intrinsics.date_get_time, Type::I64),
-                            "toISOString" => (self.intrinsics.date_to_iso_string, Type::Str),
+                            "toISOString" | "toJSON" => {
+                                (self.intrinsics.date_to_iso_string, Type::Str)
+                            }
                             "getFullYear" => (self.intrinsics.date_get_full_year, Type::I64),
                             "getUTCFullYear" => (self.intrinsics.date_get_utc_full_year, Type::I64),
                             "getMonth" => (self.intrinsics.date_get_month, Type::I64),
