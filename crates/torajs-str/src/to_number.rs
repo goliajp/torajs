@@ -78,29 +78,35 @@ pub fn parse_number(bytes: &[u8]) -> f64 {
         return f64::NAN;
     }
 
-    // Hex prefix per ES spec §7.1.4.1.1 HexIntegerLiteral:
-    // `0x` / `0X` followed by ≥ 1 hex digit. C `strtod` accepted
-    // these natively; `f64::from_str` doesn't. JS Number is f64 so
-    // values past `u64::MAX` lose precision the same way `strtod`
-    // would. Empty digit string → NaN (matches strtod's "no
+    // Hex / binary / octal prefix per ES spec §7.1.4.1.1
+    // (HexIntegerLiteral / BinaryIntegerLiteral / OctalIntegerLiteral):
+    // `0x` / `0X` + ≥1 hex digit, `0b` / `0B` + ≥1 binary digit,
+    // `0o` / `0O` + ≥1 octal digit. C `strtod` accepted hex natively;
+    // `f64::from_str` doesn't recognize any of the three. JS Number is
+    // f64 so values past `u64::MAX` lose precision the same way
+    // `strtod` would. Empty digit string → NaN (matches strtod's "no
     // conversion performed" → end pointer unchanged → NaN here).
-    //
-    // Binary (`0b..`) and octal (`0o..`) prefixes are a separate
-    // substrate item — Number("0b10") currently returns NaN even
-    // pre-rewrite; the test fixture's own comment calls that out.
-    if slice.len() > 2 && slice[0] == b'0' && (slice[1] == b'x' || slice[1] == b'X') {
-        let hex = &slice[2..];
-        if hex.is_empty() {
-            return f64::NAN;
+    if slice.len() > 2 && slice[0] == b'0' {
+        let radix = match slice[1] {
+            b'x' | b'X' => Some(16),
+            b'b' | b'B' => Some(2),
+            b'o' | b'O' => Some(8),
+            _ => None,
+        };
+        if let Some(r) = radix {
+            let digits = &slice[2..];
+            if digits.is_empty() {
+                return f64::NAN;
+            }
+            let digits_str = match core::str::from_utf8(digits) {
+                Ok(s) => s,
+                Err(_) => return f64::NAN,
+            };
+            return match u64::from_str_radix(digits_str, r) {
+                Ok(n) => n as f64,
+                Err(_) => f64::NAN,
+            };
         }
-        let hex_str = match core::str::from_utf8(hex) {
-            Ok(s) => s,
-            Err(_) => return f64::NAN,
-        };
-        return match u64::from_str_radix(hex_str, 16) {
-            Ok(n) => n as f64,
-            Err(_) => f64::NAN,
-        };
     }
 
     // Decode bytes as ASCII (per the str-pool ABI, all source
@@ -266,5 +272,40 @@ mod tests {
     fn hex_prefix_invalid_digit() {
         assert_to_number(b"0xZZ", f64::NAN);
         assert_to_number(b"0x12g", f64::NAN);
+    }
+
+    #[test]
+    fn binary_prefix() {
+        // ES §7.1.4.1.1 BinaryIntegerLiteral.
+        assert_to_number(b"0b101", 5.0);
+        assert_to_number(b"0B101", 5.0);
+        assert_to_number(b"0b0", 0.0);
+        assert_to_number(b"0b11111111", 255.0);
+        assert_to_number(b"  0b101  ", 5.0);
+    }
+
+    #[test]
+    fn binary_prefix_empty_or_invalid() {
+        assert_to_number(b"0b", f64::NAN);
+        assert_to_number(b"0b2", f64::NAN);
+        assert_to_number(b"0bff", f64::NAN);
+    }
+
+    #[test]
+    fn octal_prefix() {
+        // ES §7.1.4.1.1 OctalIntegerLiteral.
+        assert_to_number(b"0o17", 15.0);
+        assert_to_number(b"0O17", 15.0);
+        assert_to_number(b"0o0", 0.0);
+        assert_to_number(b"0o777", 511.0);
+        assert_to_number(b"  0o17  ", 15.0);
+    }
+
+    #[test]
+    fn octal_prefix_empty_or_invalid() {
+        assert_to_number(b"0o", f64::NAN);
+        assert_to_number(b"0o8", f64::NAN);
+        assert_to_number(b"0o9", f64::NAN);
+        assert_to_number(b"0oZ", f64::NAN);
     }
 }
