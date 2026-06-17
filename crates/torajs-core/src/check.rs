@@ -4524,6 +4524,11 @@ impl Checker {
                                 // protocol; matches Array.from(str) shape).
                                 // ssa_lower wires str_split + materialize.
                                 Type::String => Ok(Some(Type::String)),
+                                // S141 — `[...set]` spread (ES iterator
+                                // protocol) yields Array<Any> per the
+                                // Array.from(set) shape; ssa_lower routes
+                                // through the shared map-iter walker.
+                                Type::Set => Ok(Some(Type::Any)),
                                 other => Err(format!(
                                     "array spread source must be an array, got {other:?}"
                                 )),

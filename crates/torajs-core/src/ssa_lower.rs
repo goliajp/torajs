@@ -13564,8 +13564,15 @@ impl<'a> LowerCtx<'a> {
             // (defer; reject with subset-boundary msg).
             if let Expr::Spread { expr: inner } = self.ast.get_expr(eid) {
                 let inner_eid = *inner;
-                let src_op = self.lower_expr(inner_eid);
-                let src_ty = self.operand_ty(&src_op);
+                let mut src_op = self.lower_expr(inner_eid);
+                let mut src_ty = self.operand_ty(&src_op);
+                // S141 — `[...set]` inside Array<Any> literal: route
+                // through the shared Array.from(set) helper to land an
+                // Arr<Any> the existing arr_extend_any path can splice.
+                if matches!(src_ty, Type::Set) {
+                    src_op = crate::ssa_lower_arr_from_set::emit(self, src_op);
+                    src_ty = self.operand_ty(&src_op);
+                }
                 let inner_is_any_arr = match src_ty {
                     Type::Arr(src_arr_id) => {
                         matches!(self.arr_layouts[src_arr_id.0 as usize], Type::Any)
@@ -16679,134 +16686,11 @@ impl<'a> LowerCtx<'a> {
                         }
                         return Operand::Value(cloned);
                     }
-                    // S141 — `Array.from(set)` per ES §23.1.2.1 + §24.2.3.13.
-                    // Set storage is hashmap-bucket tagged (kt, kv); walk
-                    // via the shared `map_iter_next` runtime contract and
-                    // push each tagged pair into a fresh `Array<Any>` via
-                    // `arr_push_any`. Mirrors the Set.forEach walk shape
-                    // at line 19207 minus the closure dispatch.
+                    // `Array.from(set)` substrate (ES §23.1.2.1 + §24.2.3.13)
+                    // shares its map-iter walk with `[...set]` spread; the
+                    // helper lives in `ssa_lower_arr_from_set`.
                     if matches!(arg_ty, Type::Set) {
-                        let arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
-                        let mut dst = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_alloc_any,
-                                vec![Operand::ConstI64(0)],
-                            ),
-                            Type::Arr(arr_id),
-                            None,
-                        );
-                        let dst_slot = self.alloca(Type::Arr(arr_id), Some("__from_set_dst"));
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(dst), Operand::Value(dst_slot), 0),
-                        );
-                        let i_slot = self.alloca(Type::I64, Some("__from_set_i"));
-                        // -1 sentinel: signals "fresh" to map_iter_next
-                        // (which initializes the bucket cursor on first
-                        // call). Same protocol as Set.forEach.
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::ConstI64(-1), Operand::Value(i_slot), 0),
-                        );
-                        let kt_slot = self.alloca(Type::I64, Some("__from_set_kt"));
-                        let kv_slot = self.alloca(Type::I64, Some("__from_set_kv"));
-                        let vt_slot = self.alloca(Type::I64, Some("__from_set_vt"));
-                        let vv_slot = self.alloca(Type::I64, Some("__from_set_vv"));
-                        let header_blk = self.f.add_block();
-                        let body_blk = self.f.add_block();
-                        let after_blk = self.f.add_block();
-                        self.f.set_term(self.cur_block, Terminator::Br(header_blk));
-                        self.cur_block = header_blk;
-                        let live = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.map_iter_next,
-                                vec![
-                                    arg_op.clone(),
-                                    Operand::Value(i_slot),
-                                    Operand::Value(kt_slot),
-                                    Operand::Value(kv_slot),
-                                    Operand::Value(vt_slot),
-                                    Operand::Value(vv_slot),
-                                ],
-                            ),
-                            Type::I64,
-                            None,
-                        );
-                        let cond = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ICmp(IPred::Ne, Operand::Value(live), Operand::ConstI64(0)),
-                            Type::Bool,
-                            None,
-                        );
-                        self.f.set_term(
-                            self.cur_block,
-                            Terminator::CondBr {
-                                cond: Operand::Value(cond),
-                                then_blk: body_blk,
-                                else_blk: after_blk,
-                            },
-                        );
-                        self.cur_block = body_blk;
-                        let kt_v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(kt_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        let kv_v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(kv_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        // Heap-tagged entries (Str / Obj / Arr) must
-                        // rc_inc before being copied — the Set keeps
-                        // its own owning ref, so the new Array slot
-                        // needs an independent one. `any_payload_rc_inc`
-                        // dispatches on tag at runtime (tag == ANY_HEAP=4
-                        // → rc_inc value as ptr; other tags → no-op),
-                        // letting us skip the inline ICmp + branch.
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.any_payload_rc_inc,
-                                vec![Operand::Value(kt_v), Operand::Value(kv_v)],
-                            ),
-                        );
-                        let cur_dst = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::Arr(arr_id), Operand::Value(dst_slot), 0),
-                            Type::Arr(arr_id),
-                            None,
-                        );
-                        let new_dst = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_push_any,
-                                vec![
-                                    Operand::Value(cur_dst),
-                                    Operand::Value(kt_v),
-                                    Operand::Value(kv_v),
-                                ],
-                            ),
-                            Type::Arr(arr_id),
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(new_dst), Operand::Value(dst_slot), 0),
-                        );
-                        self.f.set_term(self.cur_block, Terminator::Br(header_blk));
-                        self.cur_block = after_blk;
-                        dst = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::Arr(arr_id), Operand::Value(dst_slot), 0),
-                            Type::Arr(arr_id),
-                            None,
-                        );
-                        return Operand::Value(dst);
+                        return crate::ssa_lower_arr_from_set::emit(self, arg_op);
                     }
                     panic!(
                         "ssa-lower: Array.from requires a string, Array<T>, or Set arg, got {arg_ty:?}"
@@ -23174,6 +23058,16 @@ impl<'a> LowerCtx<'a> {
                                 Type::Arr(str_arr_id),
                             );
                             v_ty = Type::Arr(str_arr_id);
+                        }
+                        // `[...set]` reuses the Array.from(set) helper to
+                        // walk the map-iter bucket chain into a fresh
+                        // Arr<Any>; the result then flows through the same
+                        // Arr-merge path that handles any other array
+                        // spread source.
+                        if matches!(v_ty, Type::Set) {
+                            let arr_any_id = intern_arr_layout(self.arr_layouts, Type::Any);
+                            v = crate::ssa_lower_arr_from_set::emit(self, v);
+                            v_ty = Type::Arr(arr_any_id);
                         }
                         if let Type::Arr(arr_id) = v_ty
                             && elem_ty.is_none()
