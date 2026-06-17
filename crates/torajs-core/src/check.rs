@@ -3477,6 +3477,16 @@ impl Checker {
                     (Type::Number, "valueOf") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::Number)))
                     }
+                    // ES §23.1.3.34 — `arr.valueOf()` returns the
+                    // Array itself (identity). The default Object
+                    // protocol applies — Array doesn't override
+                    // valueOf with its own coercion. ssa_lower folds
+                    // the call to the receiver operand without a
+                    // runtime helper.
+                    (Type::Array(elem), "valueOf") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Array(elem.clone())),
+                    )),
                     (Type::String, "valueOf")
                     // V3-18 wedge — String.prototype.toString /
                     // toLocaleString / valueOf all return the

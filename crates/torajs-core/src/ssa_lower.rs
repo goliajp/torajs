@@ -15454,6 +15454,14 @@ impl<'a> LowerCtx<'a> {
                             | Type::Symbol
                     );
                     let is_obj = matches!(recv_ty, Type::Obj(_));
+                    // ES §23.1.3.34 — `arr.valueOf()` returns the
+                    // Array itself (identity). Narrow: handled here
+                    // BEFORE the prim/obj fold so other Array.toString
+                    // / Array.hasOwnProperty dispatch arms further
+                    // down remain reachable for non-valueOf calls.
+                    if matches!(recv_ty, Type::Arr(_)) && m_name == "valueOf" {
+                        return recv_op;
+                    }
                     if is_prim || is_obj {
                         // valueOf returns the receiver as-is (identity).
                         if m_name == "valueOf" {
