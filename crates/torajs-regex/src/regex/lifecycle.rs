@@ -85,3 +85,64 @@ pub unsafe extern "C" fn __torajs_regex_set_last_index(re_ptr: *mut c_void, idx:
     }
     unsafe { as_regex_mut(re_ptr) }.last_index = idx;
 }
+
+/// `re.flags` — returns the spec-ordered flag string ("g" / "im" /
+/// "gimsuy" / etc.) per ES §22.2.6.4. Order is fixed: g, i, m, s, u, y
+/// (we don't support the `d` hasIndices flag). NULL receiver returns
+/// an empty string.
+///
+/// # Safety
+///
+/// `re_ptr` is null or a live `*RegExp`. Returned pointer is a
+/// pool-Str with rc=1; caller takes ownership.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_get_flags(re_ptr: *const c_void) -> *mut c_void {
+    if re_ptr.is_null() {
+        return unsafe { __torajs_str_alloc_pooled(0) as *mut c_void };
+    }
+    let f = unsafe { as_regex(re_ptr) }.flags;
+    // Build the canonical 6-byte buffer at most, ordered g, i, m, s, u, y.
+    // Mirrors `flags::flag_bit_for_char` / `parse_flags` source of truth.
+    let mut buf = [0u8; 6];
+    let mut n = 0usize;
+    let bits: [(u8, u8); 6] = [
+        (crate::parser::RE_FLAG_G, b'g'),
+        (crate::parser::RE_FLAG_I, b'i'),
+        (crate::parser::RE_FLAG_M, b'm'),
+        (crate::parser::RE_FLAG_S, b's'),
+        (crate::parser::RE_FLAG_U, b'u'),
+        (crate::parser::RE_FLAG_Y, b'y'),
+    ];
+    for (bit, ch) in bits {
+        if f & bit != 0 {
+            buf[n] = ch;
+            n += 1;
+        }
+    }
+    let s = unsafe { __torajs_str_alloc_pooled(n as u64) };
+    if n > 0 {
+        unsafe {
+            core::ptr::copy_nonoverlapping(buf.as_ptr(), s.add(STR_HDR_SIZE), n);
+        }
+    }
+    s as *mut c_void
+}
+
+/// `re.global` / `.ignoreCase` / `.multiline` / `.dotAll` / `.unicode`
+/// / `.sticky` — boolean flag getters per ES §22.2.6.5-10. Returns 1
+/// when the corresponding bit is set in `re.flags`, 0 otherwise. NULL
+/// receiver returns 0 for every flag (no live RegExp = no flags).
+/// `flag_bit` is the `RE_FLAG_*` byte constant the caller emits at
+/// compile time so the ssa_lower side doesn't have to re-derive the
+/// bit-to-name map.
+///
+/// # Safety
+///
+/// `re_ptr` is null or a live `*RegExp`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_has_flag(re_ptr: *const c_void, flag_bit: i64) -> bool {
+    if re_ptr.is_null() {
+        return false;
+    }
+    (unsafe { as_regex(re_ptr) }.flags & (flag_bit as u8)) != 0
+}

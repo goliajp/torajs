@@ -2117,6 +2117,25 @@ fn lower_inner(
         &[Type::RegExp],
         Type::Str,
     );
+    // ES §22.2.6.4 — `re.flags` returns spec-ordered flag string. See
+    // torajs-regex::regex::lifecycle::__torajs_regex_get_flags.
+    let regex_get_flags_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_regex_get_flags",
+        &[Type::RegExp],
+        Type::Str,
+    );
+    // ES §22.2.6.5-10 — boolean flag accessors. Shared helper takes a
+    // `RE_FLAG_*` byte constant; per-arm emit picks the right bit.
+    // See torajs-regex::regex::lifecycle::__torajs_regex_has_flag.
+    let regex_has_flag_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_regex_has_flag",
+        &[Type::RegExp, Type::I64],
+        Type::Bool,
+    );
     // Phase 1c.3 — s.matchAll(re) returns Array<Array<Str>> (one
     // exec-shape array per match). Iterator protocol stand-in.
     let regex_match_all_id = declare_intrinsic(
@@ -5460,6 +5479,8 @@ fn lower_inner(
         regex_compile: regex_compile_id,
         regex_test: regex_test_id,
         regex_get_source: regex_get_source_id,
+        regex_get_flags: regex_get_flags_id,
+        regex_has_flag: regex_has_flag_id,
         regex_drop: regex_drop_id,
         regex_match: regex_match_id,
         regex_replace: regex_replace_id,
@@ -6430,6 +6451,8 @@ pub(crate) struct Intrinsics {
     pub(crate) regex_compile: FuncId,
     pub(crate) regex_test: FuncId,
     pub(crate) regex_get_source: FuncId,
+    pub(crate) regex_get_flags: FuncId,
+    pub(crate) regex_has_flag: FuncId,
     pub(crate) regex_drop: FuncId,
     pub(crate) regex_match: FuncId,
     pub(crate) regex_replace: FuncId,
@@ -22594,6 +22617,46 @@ impl<'a> LowerCtx<'a> {
                         None,
                     );
                     return Operand::Value(v);
+                }
+                // ES §22.2.6.4 — `re.flags` returns the spec-ordered
+                // flag string built by __torajs_regex_get_flags.
+                if obj_ty == Type::RegExp && name == "flags" {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.regex_get_flags, vec![obj_val]),
+                        Type::Str,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                // ES §22.2.6.5-10 — boolean flag accessors. Each
+                // routes through the shared `__torajs_regex_has_flag`
+                // helper with the matching RE_FLAG_* byte constant.
+                // The bit values mirror torajs-regex::parser:
+                //   RE_FLAG_I=0x01, _G=0x02, _M=0x04, _S=0x08,
+                //   _U=0x10, _Y=0x20.
+                if obj_ty == Type::RegExp {
+                    let bit: Option<i64> = match name.as_str() {
+                        "global" => Some(0x02),
+                        "ignoreCase" => Some(0x01),
+                        "multiline" => Some(0x04),
+                        "dotAll" => Some(0x08),
+                        "unicode" => Some(0x10),
+                        "sticky" => Some(0x20),
+                        _ => None,
+                    };
+                    if let Some(bit) = bit {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.regex_has_flag,
+                                vec![obj_val, Operand::ConstI64(bit)],
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                 }
                 // P9.4 — `re.lastIndex` reads the int64 field on the
                 // RegExp heap object via the runtime accessor. The

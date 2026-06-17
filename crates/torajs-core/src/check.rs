@@ -3529,6 +3529,23 @@ impl Checker {
                     // time wires through a runtime intrinsic that
                     // wraps re->src_bytes in a Str.
                     (Type::RegExp, "source") => Ok(Type::String),
+                    // ES §22.2.6.4 — `re.flags` returns the spec-
+                    // ordered flag string ("" / "g" / "im" / "gimsuy"
+                    // / etc.). Order is fixed: g, i, m, s, u, y. The
+                    // runtime helper `__torajs_regex_get_flags` builds
+                    // the canonical string.
+                    (Type::RegExp, "flags") => Ok(Type::String),
+                    // ES §22.2.6.5-10 — boolean flag instance accessors.
+                    // Each maps to a single bit test on `re.flags`;
+                    // the runtime helper `__torajs_regex_has_flag(re,
+                    // flag_bit)` does the AND. ssa_lower emits the
+                    // appropriate `RE_FLAG_*` byte constant per arm.
+                    (Type::RegExp, "global")
+                    | (Type::RegExp, "ignoreCase")
+                    | (Type::RegExp, "multiline")
+                    | (Type::RegExp, "dotAll")
+                    | (Type::RegExp, "unicode")
+                    | (Type::RegExp, "sticky") => Ok(Type::Boolean),
                     // P9.4 — `re.lastIndex` is a writable Number per
                     // spec §22.2.6.9. ssa_lower routes reads through
                     // __torajs_regex_get_last_index; writes through
