@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-17T07:19:19.494Z",
+  "generatedAt": "2026-06-17T09:11:33.513Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "b0462593",
-    "commitSubject": "fix(check): `String + Any` returns String per spec §13.15.3",
+    "commit": "dff6e535",
+    "commitSubject": "feat(str): `toLocaleLowerCase` / `toLocaleUpperCase` per ES §22.1.3.21 / §22.1.3.23",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,6 +619,38 @@
   },
   "commits": [
     {
+      "hash": "dff6e535",
+      "subject": "feat(str): `toLocaleLowerCase` / `toLocaleUpperCase` per ES §22.1.3.21 / §22.1.3.23"
+    },
+    {
+      "hash": "813f78ac",
+      "subject": "feat(num): `Number.toLocaleString()` en-US grouping per ES §21.1.3.4"
+    },
+    {
+      "hash": "c3fe3736",
+      "subject": "fix(binop): `String + Array` / `String + Struct` per ES §13.15.3"
+    },
+    {
+      "hash": "729aacb7",
+      "subject": "feat(coerce): `String(arr)` and `String(struct)` per ES §22.1.3.30 / §20.1.4.4"
+    },
+    {
+      "hash": "e0cfa8ae",
+      "subject": "feat(arr-ctor): `Array(...)` without `new` per ES §23.1.1.1"
+    },
+    {
+      "hash": "00e6f13b",
+      "subject": "fix(arr.map/filter): pre-size dst to src.len before push_unchecked"
+    },
+    {
+      "hash": "41414e3a",
+      "subject": "feat(arr-spread): `[...str]` per-codeunit spread into Array<string> (ES iterator protocol)"
+    },
+    {
+      "hash": "62441dd1",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow substrate sweep ×5 (rotation 末)"
+    },
+    {
       "hash": "b0462593",
       "subject": "fix(check): `String + Any` returns String per spec §13.15.3"
     },
@@ -633,59 +665,38 @@
     {
       "hash": "902eaf97",
       "subject": "fix(console-log): share multi-arg inspect path with try-body / nested-block stmts"
-    },
-    {
-      "hash": "4b4a824b",
-      "subject": "feat(arr): `arr.toSpliced(start, deleteCount)` immutable splice (ES2023)"
-    },
-    {
-      "hash": "cba0c536",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — B134 multi-arg console.log inspect substrate (rotation r-1781659622-1b76)"
-    },
-    {
-      "hash": "3a6dc820",
-      "subject": "feat(console-log): multi-arg `console.log` per-arg inspect dispatch"
-    },
-    {
-      "hash": "c4226f8e",
-      "subject": "chore(fmt): rustfmt-clean check.rs pre-existing drift"
-    },
-    {
-      "hash": "b0a12b33",
-      "subject": "feat(conformance): RFC C5 array.length descriptor + seal/extensible close-mark fixture"
-    },
-    {
-      "hash": "f3b2dd87",
-      "subject": "feat(conformance): RFC C4 arg-validation TypeError close-mark fixture"
-    },
-    {
-      "hash": "f361d687",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — S133 narrow surface sweep (rotation r-1781625988-78dd)"
-    },
-    {
-      "hash": "9f192aef",
-      "subject": "feat(map): `new Map([[k, v], ...])` static array-of-pairs initializer"
     }
   ],
-  "headSha": "b0462593",
+  "headSha": "dff6e535",
   "autorun": {
-    "total": 181,
+    "total": 182,
     "baselineTarget": 10,
-    "bySelf": 176,
+    "bySelf": 177,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781659622-1b76",
-      "at": "2026-06-17T01:27:02Z",
-      "ts": 1781659622,
+      "rotationId": "r-1781680782-4530",
+      "at": "2026-06-17T07:19:42Z",
+      "ts": 1781680782,
       "trigger": "self",
-      "prevHead": "3a6dc820",
-      "handoffSha": "sha256:e0db2dc700b919cc79f8db89fa21199e8d416f3ad2b3ebd764557e2000166517",
-      "handoffAgeSec": 8,
+      "prevHead": "62441dd1",
+      "handoffSha": "sha256:844c881c71ec459282589432ece45ca2dae687a4caa4fca6a947dafa4a406f9a",
+      "handoffAgeSec": 71,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781680782-4530",
+        "at": "2026-06-17T07:19:42Z",
+        "ts": 1781680782,
+        "trigger": "self",
+        "prevHead": "62441dd1",
+        "handoffSha": "sha256:844c881c71ec459282589432ece45ca2dae687a4caa4fca6a947dafa4a406f9a",
+        "handoffAgeSec": 71,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781659622-1b76",
         "at": "2026-06-17T01:27:02Z",
@@ -782,17 +793,6 @@
         "prevHead": "da514108",
         "handoffSha": "sha256:5e27f1c48f63f2b0374625bc7df9c96536daa1f23e88f907a018bd2ae4cb2661",
         "handoffAgeSec": 18,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781514638-58b1",
-        "at": "2026-06-15T09:10:38Z",
-        "ts": 1781514638,
-        "trigger": "manual",
-        "prevHead": "f21dcf83",
-        "handoffSha": "sha256:37dc167868e30e23fcc592d04ef52810fd68616d5a769f5f72bd770a3e5c7f10",
-        "handoffAgeSec": 22,
         "conformanceBefore": null,
         "commitsInSession": null
       }
