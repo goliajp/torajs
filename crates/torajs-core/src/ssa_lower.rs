@@ -18427,6 +18427,9 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(removed);
                 }
+                if let Some(v) = crate::ssa_lower_tospliced::try_lower(self, *callee, args) {
+                    return v;
+                }
                 // (b) Ident-receiver where xs is a K.8 top-level refcount
                 // global — load cur ptr via GlobalRef, splice (no realloc,
                 // in-place shrink), no slot writeback.

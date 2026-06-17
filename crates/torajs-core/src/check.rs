@@ -4060,7 +4060,7 @@ impl Checker {
                     // in-place + return removed slice as a fresh
                     // Array<T>. Per JS spec §23.1.3.31. v0 subset: no
                     // `...items` rest-arg insert form (deferred).
-                    (Type::Array(elem), "splice") => {
+                    (Type::Array(elem), "splice") | (Type::Array(elem), "toSpliced") => {
                         let inner = (**elem).clone();
                         Ok(Type::Function(
                             vec![Type::Number, Type::Number],

@@ -220,5 +220,6 @@ pub mod ssa_lower_push_loop_detect;
 pub mod ssa_lower_str;
 pub mod ssa_lower_substr_trim_into;
 pub mod ssa_lower_toplevel_globals;
+pub(crate) mod ssa_lower_tospliced;
 pub(crate) mod ssa_lower_unary;
 pub mod ssa_lower_while_push_fast;
