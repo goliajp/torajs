@@ -200,6 +200,32 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
     false
 }
 
+/// `Array.isArray(v)` for a `Type::Any` argument — runtime tag dispatch.
+///
+/// Compile-time `Array.isArray(x)` resolves statically when `x: Array<T>`
+/// (→ true) or when `x` is any other concrete SSA type (→ false). For
+/// `x: any` the static answer would always be "false" even when the boxed
+/// value at runtime is an Array — wrong per ES §22.1.2.2. This helper
+/// peeks the NaN-box: tag must be `ANY_HEAP`, the heap header's
+/// `type_tag@+4` must be `TAG_ARR`. Same `instanceof_any` discipline as
+/// the rest of this module.
+///
+/// # Safety
+/// `v` is an unconstrained i64; helper is defensive on every step.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_is_arr(v: i64) -> bool {
+    let tag = unsafe { __torajs_anyv_unbox_tag(v) };
+    if tag != ANY_TAG_HEAP {
+        return false;
+    }
+    let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
+    if ptr.is_null() {
+        return false;
+    }
+    let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
+    type_tag == TAG_ARR
+}
+
 // Cargo-test stubs for the NaN-box / dynobj externs. Real symbols
 // live in torajs-anyvalue / torajs-dynobj; unit tests in this crate
 // hand-roll a NaN-box + dynobj_has stub so dispatch logic verifies
@@ -347,6 +373,35 @@ mod tests {
         let boxed = nan_box(ANY_TAG_HEAP, 0);
         let key = b"foo\0".as_ptr();
         assert!(!unsafe { __torajs_in_op_any_str(boxed, key) });
+    }
+
+    #[test]
+    fn is_arr_any_wrapped_array_returns_true() {
+        let block = make_arr_heap_block(3);
+        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        assert!(unsafe { __torajs_any_is_arr(boxed) });
+    }
+
+    #[test]
+    fn is_arr_any_wrapped_dynobj_returns_false() {
+        let block = make_dynobj_heap_block();
+        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        assert!(!unsafe { __torajs_any_is_arr(boxed) });
+    }
+
+    #[test]
+    fn is_arr_non_heap_tag_returns_false() {
+        // Int32 boxed
+        let boxed = nan_box(2, 0x42);
+        assert!(!unsafe { __torajs_any_is_arr(boxed) });
+    }
+
+    #[test]
+    fn is_arr_null_heap_ptr_returns_false() {
+        let boxed = nan_box(ANY_TAG_HEAP, 0);
+        assert!(!unsafe { __torajs_any_is_arr(boxed) });
     }
 
     fn make_str_heap_block(s: &str) -> Vec<u8> {

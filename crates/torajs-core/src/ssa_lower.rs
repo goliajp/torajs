@@ -2683,6 +2683,19 @@ fn lower_inner(
         &[Type::Any, Type::Ptr],
         Type::Bool,
     );
+    // `Array.isArray(v: any)` — runtime tag dispatch when the arg's SSA
+    // type is `Type::Any`. Compile-time static fast paths (Type::Arr →
+    // true / non-Arr typed → false) still fire above; this helper closes
+    // the Any-wrapped Array gap so `(x: any) => Array.isArray(x)` and
+    // typed-Any params holding arrays answer per ES §22.1.2.2.
+    // See torajs-rc::in_op_any::__torajs_any_is_arr.
+    let any_is_arr_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_is_arr",
+        &[Type::Any],
+        Type::Bool,
+    );
     let dynobj_get_tag_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5520,6 +5533,7 @@ fn lower_inner(
         instanceof_object_any: instanceof_object_any_id,
         in_op_any_num: in_op_any_num_id,
         in_op_any_str: in_op_any_str_id,
+        any_is_arr: any_is_arr_id,
         fnprops_set: fnprops_set_id,
         fnprops_get_tag: fnprops_get_tag_id,
         fnprops_get_value: fnprops_get_value_id,
@@ -6497,6 +6511,7 @@ pub(crate) struct Intrinsics {
     pub(crate) instanceof_object_any: FuncId,
     pub(crate) in_op_any_num: FuncId,
     pub(crate) in_op_any_str: FuncId,
+    pub(crate) any_is_arr: FuncId,
     pub(crate) fnprops_set: FuncId,
     pub(crate) fnprops_get_tag: FuncId,
     pub(crate) fnprops_get_value: FuncId,
@@ -15832,8 +15847,24 @@ impl<'a> LowerCtx<'a> {
                     }
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
-                    let result = matches!(arg_ty, Type::Arr(_));
-                    return Operand::ConstBool(result);
+                    // Static fast paths: known `Type::Arr(_)` → true;
+                    // any other concrete typed value → false. Only
+                    // `Type::Any` requires the runtime tag dispatch
+                    // below (per ES §22.1.2.2 — answer follows the
+                    // boxed value's heap tag, not the static type).
+                    if matches!(arg_ty, Type::Arr(_)) {
+                        return Operand::ConstBool(true);
+                    }
+                    if matches!(arg_ty, Type::Any) {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.any_is_arr, vec![arg_op]),
+                            Type::Bool,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    return Operand::ConstBool(false);
                 }
                 // `JSON.stringify(value)` — recursive type-aware serializer.
                 // Each call site is monomorphized inline based on the static
