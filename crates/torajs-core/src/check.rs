@@ -4865,6 +4865,12 @@ impl Checker {
                                     | Type::String
                                     | Type::Any
                             ),
+                            // S137 — `String(arr)` routes to arr_join
+                            // (ES §22.1.3.30 same path as `arr.toString`);
+                            // `String(struct)` is the generic Object
+                            // `[object Object]` per §20.1.4.4. Generic
+                            // dynobj branch lands when the dynobj-toString
+                            // substrate ships.
                             "String" => matches!(
                                 arg_ty,
                                 Type::Number
@@ -4873,6 +4879,8 @@ impl Checker {
                                     | Type::Undefined
                                     | Type::String
                                     | Type::Any
+                                    | Type::Array(_)
+                                    | Type::Struct(_)
                             ),
                             _ => false,
                         };

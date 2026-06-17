@@ -15002,6 +15002,36 @@ impl<'a> LowerCtx<'a> {
                             // existing `coerce_to_str(_, Type::Any)`
                             // path used by console.log multi-arg).
                             Type::Any => self.coerce_to_str(arg_op, Type::Any),
+                            // S137 — `String(arr)` per ES §22.1.3.30
+                            // ToString of Array = `arr.join(",")`. Element
+                            // type picks the matching arr_join intrinsic
+                            // (same dispatch table as `arr.toString()` in
+                            // ssa_lower_str).
+                            Type::Arr(elem_arr_id) => {
+                                let elem_ty = self.arr_layouts[elem_arr_id.0 as usize];
+                                let join_fid = match elem_ty {
+                                    Type::Substr => self.intrinsics.arr_join_substr,
+                                    Type::I64 => self.intrinsics.arr_join_i64,
+                                    Type::F64 => self.intrinsics.arr_join_f64,
+                                    Type::Bool => self.intrinsics.arr_join_bool,
+                                    Type::Any => self.intrinsics.arr_join_any,
+                                    _ => self.intrinsics.arr_join,
+                                };
+                                let sep = self.intern_string_literal(",");
+                                Operand::Value(self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(join_fid, vec![arg_op, Operand::Value(sep)]),
+                                    Type::Str,
+                                    None,
+                                ))
+                            }
+                            // S137 — `String(struct)` per ES §20.1.4.4
+                            // generic Object toString = `"[object Object]"`.
+                            // Typed Obj has no per-instance toString slot;
+                            // the literal is the spec-correct emit.
+                            Type::Obj(_) => {
+                                Operand::Value(self.intern_string_literal("[object Object]"))
+                            }
                             _ => panic!(
                                 "ssa-lower: String() with arg type {arg_ty:?} not yet supported"
                             ),
