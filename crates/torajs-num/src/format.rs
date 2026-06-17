@@ -163,8 +163,21 @@ pub fn to_precision_f(n: f64, digits: i64) -> Vec<u8> {
 
     let formatted = if x >= -4 && x < precision {
         // %f form: precision - 1 - X digits after the decimal.
+        // Pre-round half-away-from-zero (matches `to_fixed_f` lines
+        // 116-121): Rust `format!("{:.*}", _, _)` rounds half-to-even
+        // (banker's), but ES §22.1.3.36 ties go to the larger m —
+        // same wedge `to_fixed_f` already neutralizes. Without this
+        // `(1234.5).toPrecision(4)` was "1234" (banker, 4 even)
+        // instead of the spec "1235". Guarded `frac_digits < 16` for
+        // the same overflow reason as `to_fixed_f`.
         let frac_digits = (precision - 1 - x).max(0) as usize;
-        format!("{:.*}", frac_digits, n).into_bytes()
+        let value = if frac_digits < 16 {
+            let scale = 10f64.powi(frac_digits as i32);
+            (n * scale).round() / scale
+        } else {
+            n
+        };
+        format!("{:.*}", frac_digits, value).into_bytes()
     } else {
         e_form.into_bytes()
     };
@@ -433,6 +446,21 @@ mod tests {
         // X = -5, precision = 6, -5 NOT in [-4, 6) → %e form.
         // 0.00001234 = 1.234e-5 → mantissa 6 digits = "1.23400".
         assert_eq!(to_precision_f(0.00001234, 6), b"1.23400e-5".to_vec());
+    }
+
+    #[test]
+    fn to_precision_rounds_half_away_from_zero() {
+        // ES §22.1.3.36 ties go to the larger m. Banker (Rust default
+        // `{:.0}`) would round 1234.5 → "1234" (4 even); spec / bun
+        // gives "1235". Same wedge `to_fixed_f` already neutralizes
+        // via explicit pre-rounding.
+        assert_eq!(to_precision_f(1234.5, 4), b"1235".to_vec());
+        // 2.5 round-half-to-even → "2"; away-from-zero → "3".
+        assert_eq!(to_precision_f(2.5, 1), b"3".to_vec());
+        // Negative ties: -1234.5 with banker → "-1234"; away → "-1235".
+        assert_eq!(to_precision_f(-1234.5, 4), b"-1235".to_vec());
+        // Non-tie value unaffected: 1234.6 rounds to 1235 either way.
+        assert_eq!(to_precision_f(1234.6, 4), b"1235".to_vec());
     }
 
     #[test]
