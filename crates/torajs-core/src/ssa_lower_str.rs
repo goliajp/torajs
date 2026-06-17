@@ -2029,6 +2029,57 @@ pub(crate) fn try_lower_method_call(
             )
         };
         let eq = match elem_ty {
+            // ES §23.1.3.16: `includes` uses SameValueZero, which
+            // treats NaN as equal to NaN. IEEE 754 `fcmp oeq` is
+            // unordered-rejects-NaN, so plain `Oeq(NaN, NaN)` would
+            // wrongly miss. `indexOf` / `lastIndexOf` keep
+            // StrictEqualityComparison (NaN never matches) — so
+            // only the `includes` arm widens to SameValueZero.
+            // +0 / -0: IEEE 754 fcmp oeq treats them equal already,
+            // matching SameValueZero's +0 === -0.
+            Type::F64 if want_bool => {
+                let eq_ord = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::FCmp(FPred::Oeq, Operand::Value(elem), needle.clone()),
+                    Type::Bool,
+                    None,
+                );
+                // x != x is true exactly when x is NaN (FPred::Une
+                // = unordered or not equal; on a self-compare the
+                // unordered bit is the only source of truth).
+                let elem_nan = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::FCmp(FPred::Une, Operand::Value(elem), Operand::Value(elem)),
+                    Type::Bool,
+                    None,
+                );
+                let needle_nan = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::FCmp(FPred::Une, needle.clone(), needle),
+                    Type::Bool,
+                    None,
+                );
+                let both_nan = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::And,
+                        Operand::Value(elem_nan),
+                        Operand::Value(needle_nan),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::Or,
+                        Operand::Value(eq_ord),
+                        Operand::Value(both_nan),
+                    ),
+                    Type::Bool,
+                    None,
+                )
+            }
             Type::F64 => ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::FCmp(FPred::Oeq, Operand::Value(elem), needle),
