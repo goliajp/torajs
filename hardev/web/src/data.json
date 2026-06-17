@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-17T09:11:33.513Z",
+  "generatedAt": "2026-06-17T13:18:33.654Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 789,
@@ -31,8 +31,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "dff6e535",
-    "commitSubject": "feat(str): `toLocaleLowerCase` / `toLocaleUpperCase` per ES §22.1.3.21 / §22.1.3.23",
+    "commit": "9aa90ed4",
+    "commitSubject": "feat(arr-spread-set): `[...set]` Array<Any> spread (ES iter protocol)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -619,73 +619,95 @@
   },
   "commits": [
     {
+      "hash": "9aa90ed4",
+      "subject": "feat(arr-spread-set): `[...set]` Array<Any> spread (ES iter protocol)"
+    },
+    {
+      "hash": "355a4034",
+      "subject": "feat(arr.reduce): no-init overload `xs.reduce(cb)` / `xs.reduceRight(cb)` per ES §23.1.3.24/25"
+    },
+    {
+      "hash": "050c100c",
+      "subject": "feat(reflect): `Reflect.has(obj, key)` / `Reflect.ownKeys(obj)` (ES6 §28.1.9 / §28.1.11)"
+    },
+    {
+      "hash": "c43d0b8c",
+      "subject": "revert: drop unintended S145 `Array.from({length: N}, mapFn)` type-check fragment"
+    },
+    {
+      "hash": "bf21a7c7",
+      "subject": "feat(str): `String.prototype.{isWellFormed,toWellFormed}` (ES2024)"
+    },
+    {
+      "hash": "c5ab3e98",
+      "subject": "feat(num): `Number(\"0b...\" / \"0o...\")` per ES §7.1.4.1.1"
+    },
+    {
+      "hash": "8bfdbfcc",
+      "subject": "feat(class): method return-type inference when no annotation"
+    },
+    {
+      "hash": "02ba1067",
+      "subject": "feat(binop): `String + Undefined` per ES §13.15.3"
+    },
+    {
+      "hash": "a97fef24",
+      "subject": "feat(arr-from-set): `Array.from(set)` per ES §23.1.2.1 + §24.2.3.13"
+    },
+    {
+      "hash": "2e978d09",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow substrate sweep ×7 (rotation 末)"
+    },
+    {
       "hash": "dff6e535",
       "subject": "feat(str): `toLocaleLowerCase` / `toLocaleUpperCase` per ES §22.1.3.21 / §22.1.3.23"
     },
     {
       "hash": "813f78ac",
       "subject": "feat(num): `Number.toLocaleString()` en-US grouping per ES §21.1.3.4"
-    },
-    {
-      "hash": "c3fe3736",
-      "subject": "fix(binop): `String + Array` / `String + Struct` per ES §13.15.3"
-    },
-    {
-      "hash": "729aacb7",
-      "subject": "feat(coerce): `String(arr)` and `String(struct)` per ES §22.1.3.30 / §20.1.4.4"
-    },
-    {
-      "hash": "e0cfa8ae",
-      "subject": "feat(arr-ctor): `Array(...)` without `new` per ES §23.1.1.1"
-    },
-    {
-      "hash": "00e6f13b",
-      "subject": "fix(arr.map/filter): pre-size dst to src.len before push_unchecked"
-    },
-    {
-      "hash": "41414e3a",
-      "subject": "feat(arr-spread): `[...str]` per-codeunit spread into Array<string> (ES iterator protocol)"
-    },
-    {
-      "hash": "62441dd1",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow substrate sweep ×5 (rotation 末)"
-    },
-    {
-      "hash": "b0462593",
-      "subject": "fix(check): `String + Any` returns String per spec §13.15.3"
-    },
-    {
-      "hash": "a5212faf",
-      "subject": "fix(arr.push): materialize Substr to owned Str for Arr<Str> slot"
-    },
-    {
-      "hash": "a7f5bb8c",
-      "subject": "fix(arr.includes): SameValueZero for F64 NaN (ES §23.1.3.16)"
-    },
-    {
-      "hash": "902eaf97",
-      "subject": "fix(console-log): share multi-arg inspect path with try-body / nested-block stmts"
     }
   ],
-  "headSha": "dff6e535",
+  "headSha": "9aa90ed4",
   "autorun": {
-    "total": 182,
+    "total": 184,
     "baselineTarget": 10,
-    "bySelf": 177,
+    "bySelf": 179,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781680782-4530",
-      "at": "2026-06-17T07:19:42Z",
-      "ts": 1781680782,
+      "rotationId": "r-1781702182-2dd9",
+      "at": "2026-06-17T13:16:22Z",
+      "ts": 1781702182,
       "trigger": "self",
-      "prevHead": "62441dd1",
-      "handoffSha": "sha256:844c881c71ec459282589432ece45ca2dae687a4caa4fca6a947dafa4a406f9a",
-      "handoffAgeSec": 71,
+      "prevHead": "9aa90ed4",
+      "handoffSha": "sha256:2974e1e02765ee1df8c5ca027256100317b15509ae64e3f34b613f1139150956",
+      "handoffAgeSec": 14583,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781702182-2dd9",
+        "at": "2026-06-17T13:16:22Z",
+        "ts": 1781702182,
+        "trigger": "self",
+        "prevHead": "9aa90ed4",
+        "handoffSha": "sha256:2974e1e02765ee1df8c5ca027256100317b15509ae64e3f34b613f1139150956",
+        "handoffAgeSec": 14583,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1781687604-501f",
+        "at": "2026-06-17T09:13:24Z",
+        "ts": 1781687604,
+        "trigger": "self",
+        "prevHead": "2e978d09",
+        "handoffSha": "sha256:2974e1e02765ee1df8c5ca027256100317b15509ae64e3f34b613f1139150956",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781680782-4530",
         "at": "2026-06-17T07:19:42Z",
@@ -771,28 +793,6 @@
         "prevHead": "cc64eb1b",
         "handoffSha": "sha256:e4d55becf60f915299feaa04d78310c38aab873bd7f292641316f80f46296d5c",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781534537-51ba",
-        "at": "2026-06-15T14:42:17Z",
-        "ts": 1781534537,
-        "trigger": "self",
-        "prevHead": "d798a753",
-        "handoffSha": "sha256:597e4b5de3bd79f5ea584593bad15801028428a7e68a20858ccef8fac8341da6",
-        "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781528566-2ade",
-        "at": "2026-06-15T13:02:46Z",
-        "ts": 1781528566,
-        "trigger": "self",
-        "prevHead": "da514108",
-        "handoffSha": "sha256:5e27f1c48f63f2b0374625bc7df9c96536daa1f23e88f907a018bd2ae4cb2661",
-        "handoffAgeSec": 18,
         "conformanceBefore": null,
         "commitsInSession": null
       }
