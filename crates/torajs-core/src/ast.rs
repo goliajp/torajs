@@ -9594,6 +9594,26 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
                     *return_type = Some(inferred);
                 }
             }
+            // S143 — class method synthesized FnDecls (`__cm_<C>__<m>`
+            // with `__this` as first param) need the same return-ann
+            // sniff as top-level FnDecls when the user wrote no
+            // explicit annotation. Prior comment ("already has explicit
+            // declared return types in practice") was overoptimistic —
+            // `class B { foo() { return 1; } }` typechecked as
+            // `foo(): Void` and the implicit `return 1` blew up with
+            // "return type mismatch: function expects Void, got
+            // Number". Mirrors the `__env` arm above; `__this` is
+            // already declared and provides its own outer binding.
+            if first_kind.as_deref() == Some("__this")
+                && return_type.is_none()
+                && body_has_value_return(body)
+            {
+                if let Some(inferred) =
+                    infer_return_ann_seeded(ast_exprs_view, body, params, &outer_binds, &fn_sigs)
+                {
+                    *return_type = Some(inferred);
+                }
+            }
             continue;
         }
         // P0.5 — lifted arrow / function-expression bodies
