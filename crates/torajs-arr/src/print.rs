@@ -32,21 +32,21 @@ use core::ffi::c_void;
 
 use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
 
-const ARR_HEAD_OFF: usize = 20;
+pub(crate) const ARR_HEAD_OFF: usize = 20;
 
 // Str layout (mirror torajs-str::layout::{STR_LEN_OFF, STR_DATA_OFF,
 // STR_FLAG_IS_LATIN1}). Duplicated to avoid Layer-3 → Layer-2
 // sibling Cargo dep; same cross-tier extern pattern as torajs-num /
 // torajs-bigint use.
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
-const STR_FLAG_IS_LATIN1: u16 = 0x0002;
-const HDR_FLAGS_OFF: usize = 6;
+pub(crate) const STR_LEN_OFF: usize = 8;
+pub(crate) const STR_DATA_OFF: usize = 16;
+pub(crate) const STR_FLAG_IS_LATIN1: u16 = 0x0002;
+pub(crate) const HDR_FLAGS_OFF: usize = 6;
 
 // Substr layout (mirror torajs-str's substr module).
-const SUBSTR_LEN_OFF: usize = 8;
-const SUBSTR_PARENT_OFF: usize = 16;
-const SUBSTR_OFFSET_OFF: usize = 24;
+pub(crate) const SUBSTR_LEN_OFF: usize = 8;
+pub(crate) const SUBSTR_PARENT_OFF: usize = 16;
+pub(crate) const SUBSTR_OFFSET_OFF: usize = 24;
 
 // ============================================================
 // Str payload transcoding helpers (P11.1-S2.1)
@@ -143,7 +143,7 @@ pub(crate) unsafe fn put_bytes(s: &[u8]) {
 
 /// Emit `[ ` prefix.
 #[inline]
-unsafe fn put_open_bracket() {
+pub(crate) unsafe fn put_open_bracket() {
     unsafe { put_bytes(b"[ ") };
 }
 
@@ -153,9 +153,35 @@ unsafe fn put_close_bracket() {
     unsafe { put_bytes(b" ]\n") };
 }
 
+/// Emit ` ]` suffix (no trailing newline) — used by the no-\n
+/// inline typed-walker family in `print_inline.rs`.
+#[inline]
+pub(crate) unsafe fn put_close_bracket_inline() {
+    unsafe { put_bytes(b" ]") };
+}
+
+/// Same as [`print_header`] but emits `null` / `[]` **without** the
+/// trailing newline. Used by the no-\n inline typed walkers that
+/// feed the multi-arg `console.log` joiner (caller owns the final
+/// '\n').
+pub(crate) unsafe fn print_header_inline(arr: *const u8) -> Option<(u32, u64)> {
+    if arr.is_null() {
+        unsafe { put_bytes(b"null") };
+        return None;
+    }
+    let len = unsafe { *(arr.add(ARR_LEN_OFF) as *const u64) };
+    if len == 0 {
+        unsafe { put_bytes(b"[]") };
+        return None;
+    }
+    let head = unsafe { *(arr.add(ARR_HEAD_OFF) as *const u32) };
+    unsafe { put_open_bracket() };
+    Some((head, len))
+}
+
 /// Emit `, ` separator before non-first element.
 #[inline]
-unsafe fn put_sep(i: u64) {
+pub(crate) unsafe fn put_sep(i: u64) {
     if i > 0 {
         unsafe { put_bytes(b", ") };
     }
@@ -183,7 +209,7 @@ unsafe fn print_header(arr: *const u8) -> Option<(u32, u64)> {
 }
 
 #[inline]
-unsafe fn slot_addr(arr: *const u8, head: u32, i: u64) -> *const u8 {
+pub(crate) unsafe fn slot_addr(arr: *const u8, head: u32, i: u64) -> *const u8 {
     unsafe { arr.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8) }
 }
 

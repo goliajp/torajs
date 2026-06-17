@@ -3155,6 +3155,66 @@ fn lower_inner(
         &[Type::Any],
         Type::Void,
     );
+    // Multi-arg `console.log` joiner — same NaN-box dispatch as
+    // `__torajs_print_anyv` but no trailing newline. The lowerer
+    // emits `' '` between args and `'\n'` after the last arg.
+    let print_any_inline_top_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_print_anyv_inline_top",
+        &[Type::Any],
+        Type::Void,
+    );
+    // `torajs-io`'s single-byte stdout writer — separator + final \n
+    // emitter for the multi-arg `console.log` joiner. Signature
+    // matches the C-side: `int putc(int)`.
+    let io_putc_stdout_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_io_putc_stdout",
+        &[Type::I64],
+        Type::I64,
+    );
+    // No-\n typed Arr walker family (torajs-arr::print_inline) —
+    // used by the multi-arg console.log joiner so typed Arr<T> args
+    // print bun-form `[ a, b, c ]` without a trailing newline. The
+    // standalone `__torajs_arr_print_<T>` (with \n) stays the
+    // single-arg console.log target.
+    let arr_print_i64_inline_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_print_i64_inline",
+        &[Type::Ptr],
+        Type::Void,
+    );
+    let arr_print_f64_inline_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_print_f64_inline",
+        &[Type::Ptr],
+        Type::Void,
+    );
+    let arr_print_bool_inline_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_print_bool_inline",
+        &[Type::Ptr],
+        Type::Void,
+    );
+    let arr_print_str_inline_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_print_str_inline",
+        &[Type::Ptr],
+        Type::Void,
+    );
+    let arr_print_substr_inline_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_print_substr_inline",
+        &[Type::Ptr],
+        Type::Void,
+    );
     // Nested-print substrate trunk Commit 7 — Type::Map / Type::Set
     // console.log dispatch goes through dedicated wrappers (not the
     // tag-aware __torajs_print_anyv, which would print Sets as
@@ -5486,6 +5546,13 @@ fn lower_inner(
         any_unbox_value: any_unbox_value_id,
         any_box_drop: any_box_drop_id,
         print_any: print_any_id,
+        print_any_inline_top: print_any_inline_top_id,
+        io_putc_stdout: io_putc_stdout_id,
+        arr_print_i64_inline: arr_print_i64_inline_id,
+        arr_print_f64_inline: arr_print_f64_inline_id,
+        arr_print_bool_inline: arr_print_bool_inline_id,
+        arr_print_str_inline: arr_print_str_inline_id,
+        arr_print_substr_inline: arr_print_substr_inline_id,
         map_print_outer: map_print_outer_id,
         set_print_outer: set_print_outer_id,
         fn_print_outer: fn_print_outer_id,
@@ -6453,6 +6520,13 @@ pub(crate) struct Intrinsics {
     pub(crate) any_unbox_value: FuncId,
     pub(crate) any_box_drop: FuncId,
     pub(crate) print_any: FuncId,
+    pub(crate) print_any_inline_top: FuncId,
+    pub(crate) io_putc_stdout: FuncId,
+    pub(crate) arr_print_i64_inline: FuncId,
+    pub(crate) arr_print_f64_inline: FuncId,
+    pub(crate) arr_print_bool_inline: FuncId,
+    pub(crate) arr_print_str_inline: FuncId,
+    pub(crate) arr_print_substr_inline: FuncId,
     pub(crate) map_print_outer: FuncId,
     pub(crate) set_print_outer: FuncId,
     pub(crate) fn_print_outer: FuncId,
@@ -7858,9 +7932,87 @@ impl<'a> LowerCtx<'a> {
             }
             return;
         }
-        // Multi-arg console.X: build a single Str via concat with " " separator,
-        // then print once. Each arg is coerced via the existing
-        // String(x) coercion path.
+        // Multi-arg `console.log` joiner — bun-parity inspect format
+        // per arg. Each typed Arr<i64/f64/bool/str/substr> routes to
+        // its no-\n typed walker (`__torajs_arr_print_<T>_inline`,
+        // torajs-arr::print_inline); every other type boxes to Any
+        // and goes through `__torajs_print_anyv_inline_top` (Str
+        // unquoted, no \n). Between args we emit a single ' ' via
+        // `__torajs_io_putc_stdout`, and after the last arg we emit
+        // '\n' the same way. `console.error` / `console.warn` keep
+        // the pre-existing Str-coerce + concat path below (less
+        // coverage in conformance; not part of this trunk).
+        if let Stmt::Expr(eid) = s
+            && let Expr::Call { callee, args } = self.ast.get_expr(*eid)
+            && let Some(method) = self.console_method_member(*callee)
+            && method == "log"
+            && args.len() > 1
+        {
+            let arg_ids: Vec<ExprId> = args.clone();
+            let space_op = Operand::ConstI64(b' ' as i64);
+            let newline_op = Operand::ConstI64(b'\n' as i64);
+            for (i, &aid) in arg_ids.iter().enumerate() {
+                if i > 0 {
+                    self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.io_putc_stdout, vec![space_op.clone()]),
+                        Type::I64,
+                        None,
+                    );
+                }
+                let arg = self.lower_expr(aid);
+                let arg_ty = self.operand_ty(&arg);
+
+                // typed Arr<primitive> — route to the matching no-\n
+                // typed walker (slots are raw bytes, not NaN-box, so
+                // the Any path's Tag::Arr arm would SIGSEGV).
+                if let Type::Arr(arr_id) = arg_ty {
+                    let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                    let typed_target = match elem_ty {
+                        Type::I64 => Some(self.intrinsics.arr_print_i64_inline),
+                        Type::F64 => Some(self.intrinsics.arr_print_f64_inline),
+                        Type::Bool => Some(self.intrinsics.arr_print_bool_inline),
+                        Type::Str => Some(self.intrinsics.arr_print_str_inline),
+                        Type::Substr => Some(self.intrinsics.arr_print_substr_inline),
+                        _ => None,
+                    };
+                    if let Some(target) = typed_target {
+                        self.f
+                            .append_void(self.cur_block, InstKind::Call(target, vec![arg]));
+                        continue;
+                    }
+                }
+
+                // Everything else: box to Any (a Type::Any operand
+                // passes through unchanged), print via the tag-aware
+                // no-\n entry, then drop the freshly-allocated box.
+                let (any_op, drop_after) = if arg_ty == Type::Any {
+                    (arg, false)
+                } else {
+                    (self.box_to_any(arg), true)
+                };
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.print_any_inline_top, vec![any_op.clone()]),
+                );
+                if drop_after {
+                    self.emit_drop_value(any_op, Type::Any);
+                }
+            }
+            self.f.append_inst(
+                self.cur_block,
+                InstKind::Call(self.intrinsics.io_putc_stdout, vec![newline_op]),
+                Type::I64,
+                None,
+            );
+            return;
+        }
+        // Multi-arg `console.error` / `console.warn` — pre-existing
+        // Str-coerce + str_concat joiner path. typed Arr / Obj /
+        // Map / Set still panic here (only the `log` variant is
+        // upgraded to per-arg inspect dispatch above); the stderr
+        // arms see less coverage in conformance and the panic
+        // surface is unchanged from the baseline.
         if let Stmt::Expr(eid) = s
             && let Expr::Call { callee, args } = self.ast.get_expr(*eid)
             && let Some(method) = self.console_method_member(*callee)
@@ -7872,7 +8024,6 @@ impl<'a> LowerCtx<'a> {
             for (i, &aid) in arg_ids.iter().enumerate() {
                 let arg = self.lower_expr(aid);
                 let arg_ty = self.operand_ty(&arg);
-                // Coerce to Str.
                 let s_op = self.coerce_to_str(arg, arg_ty);
                 if i > 0 {
                     let prev = acc.unwrap();

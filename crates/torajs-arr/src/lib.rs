@@ -47,6 +47,7 @@ pub mod ops;
 pub mod pool;
 pub mod print;
 pub mod print_any;
+pub mod print_inline;
 mod print_props;
 pub mod props;
 pub mod slice;

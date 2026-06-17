@@ -13,8 +13,8 @@ use super::formatters::{
     __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print, __torajs_rc_dec,
     __torajs_regex_print_inline, __torajs_set_print, __torajs_str_print, __torajs_substr_print,
     __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, alloc_literal, closure_fn_addr, heap_flags,
-    heap_type_tag, print_bool, print_f64, print_i64, put_str_cell_inline, put_substr_cell_inline,
-    write_line,
+    heap_type_tag, print_bool, print_f64, print_i64, put_bytes, put_f64_inline, put_i64_inline,
+    put_str_cell_inline, put_substr_cell_inline, write_line,
 };
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
@@ -278,6 +278,103 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
         return;
     }
     write_line(b"[unknown-any-tag]\n");
+}
+
+/// `console.log(...)` multi-arg joiner entry — same NaN-box dispatch
+/// as [`__torajs_print_anyv`] (top-level: strings unquoted, matches
+/// bun's `console.log("hi")` → `hi`) but emits NO trailing newline.
+/// The ssa-lower multi-arg path calls this once per Type::Any arg
+/// (and emits the ' ' separator + final '\n' itself); typed Arr<T>
+/// args route to `__torajs_arr_print_<T>_inline` (torajs-arr's
+/// no-\n typed-walker family) since this entry's `Tag::Arr` arm
+/// reads slots as NaN-box AnyValues which only matches Arr<Any>.
+///
+/// # Safety
+///
+/// Cell case: encoded pointer must point to a valid heap object
+/// whose `HeapHeader::type_tag` matches its layout.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_print_anyv_inline_top(v: AnyValue) {
+    if is_null(v) {
+        unsafe { put_bytes(b"null") };
+        return;
+    }
+    if is_undefined(v) {
+        unsafe { put_bytes(b"undefined") };
+        return;
+    }
+    if is_bool(v) {
+        unsafe { put_bytes(if as_bool(v) { b"true" } else { b"false" }) };
+        return;
+    }
+    if is_int32(v) {
+        unsafe { put_i64_inline(as_int32(v) as i64) };
+        return;
+    }
+    if is_double(v) {
+        unsafe { put_f64_inline(as_double(v)) };
+        return;
+    }
+    if is_short_str(v) {
+        let len = short_str_len(v) as usize;
+        let bytes = short_str_bytes(v);
+        for &b in &bytes[..len] {
+            unsafe { __torajs_io_putc_stdout(b as i32) };
+        }
+        return;
+    }
+    if is_cell(v) {
+        let child = as_void_ptr(v) as *const c_void;
+        // SAFETY: live heap ptr per caller invariant.
+        let tag = unsafe { heap_type_tag(child) };
+        if tag == Tag::Str as u16 {
+            let flags = unsafe { heap_flags(child) };
+            if flags & SUBSTR_VIEW_FLAG != 0 {
+                unsafe { put_substr_cell_inline(child) };
+            } else {
+                unsafe { put_str_cell_inline(child) };
+            }
+        } else if tag == Tag::Arr as u16 {
+            // Arr<Any> only — typed Arr<i64/f64/bool/str/substr> reach
+            // this entry only when boxed by the ssa-lower multi-arg
+            // path's Any fallback (current path dispatches typed-Arr
+            // to torajs-arr's no-\n typed family before boxing).
+            unsafe { __torajs_arr_print_any(child) };
+        } else if tag == Tag::DynObj as u16 {
+            unsafe { __torajs_obj_print_any(child) };
+        } else if tag == Tag::Date as u16 {
+            let iso = unsafe { __torajs_date_to_iso_string(child) };
+            if !iso.is_null() {
+                unsafe { put_str_cell_inline(iso as *const c_void) };
+                unsafe { __torajs_rc_dec(iso as *mut c_void) };
+            }
+        } else if tag == Tag::RegExp as u16 {
+            unsafe { __torajs_regex_print_inline(child) };
+        } else if tag == Tag::Promise as u16 {
+            unsafe { __torajs_promise_print(child) };
+        } else if tag == Tag::Map as u16 {
+            unsafe { __torajs_map_print(child) };
+        } else if tag == Tag::Set as u16 {
+            unsafe { __torajs_set_print(child) };
+        } else if tag == Tag::Closure as u16 {
+            let fn_addr = unsafe { closure_fn_addr(child) };
+            unsafe { __torajs_fn_print_inline(fn_addr) };
+        } else if tag == Tag::Obj as u16 {
+            unsafe { __torajs_anyv_struct_print_inline(v as u64) };
+        } else if tag == Tag::WeakMap as u16 {
+            unsafe { put_bytes(b"WeakMap {}") };
+        } else if tag == Tag::WeakSet as u16 {
+            unsafe { put_bytes(b"WeakSet {}") };
+        } else if tag == Tag::Symbol as u16 {
+            unsafe { __torajs_symbol_print_inline(child) };
+        } else if tag == Tag::BigInt as u16 {
+            unsafe { __torajs_bigint_print_inline(child) };
+        } else {
+            unsafe { put_bytes(b"[object]") };
+        }
+        return;
+    }
+    unsafe { put_bytes(b"[unknown-any-tag]") };
 }
 
 /// Emit the bytes of a Str / Substr heap cell **unquoted** —
