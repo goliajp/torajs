@@ -18462,12 +18462,31 @@ impl<'a> LowerCtx<'a> {
                         val = self.coerce_bool_to_i64(val);
                         // W4 — align the pushed value with the elem
                         // width (mirrors the index-assign site).
+                        let mut val_owned_from_substr = false;
                         val = match (elem_ty, self.operand_ty(&val)) {
                             (Type::F64, Type::I64) => self.coerce_to_f64(val),
                             (Type::I64, Type::F64) => panic!(
                                 "ssa-lower: f64 value into i64 array elem via push — \
                                  container width analysis missed this write"
                             ),
+                            // `for (const c of "abc") chars.push(c)` —
+                            // the for-of-str loop binds `c` as Substr
+                            // (16-byte view), but Arr<Str> slots are
+                            // 8-byte heap-Str pointers. Materialize to
+                            // owned Str via substr_to_owned; the result
+                            // is fresh rc=1 with no caller binding, so
+                            // skip the post-push share-inc (the array
+                            // is the sole owner).
+                            (Type::Str, Type::Substr) => {
+                                let owned = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(self.intrinsics.substr_to_owned, vec![val]),
+                                    Type::Str,
+                                    None,
+                                );
+                                val_owned_from_substr = true;
+                                Operand::Value(owned)
+                            }
                             _ => val,
                         };
                         /* v0.6+1 perf checkpoint — push-loop pre-reserve.
@@ -18540,7 +18559,7 @@ impl<'a> LowerCtx<'a> {
                                     0,
                                 ),
                             );
-                            if elem_ty.is_refcounted() {
+                            if elem_ty.is_refcounted() && !val_owned_from_substr {
                                 self.emit_rc_inc(val);
                             }
                             // chunk 9c — fast-push spec parity: ret new length
@@ -18557,7 +18576,7 @@ impl<'a> LowerCtx<'a> {
                             arr_ty,
                             None,
                         );
-                        if elem_ty.is_refcounted() {
+                        if elem_ty.is_refcounted() && !val_owned_from_substr {
                             self.emit_rc_inc(val);
                         }
                         self.f.append_void(
@@ -18651,8 +18670,20 @@ impl<'a> LowerCtx<'a> {
                         val = self.coerce_bool_to_i64(val);
                         // W4 — align with the elem width (mirrors the
                         // local-receiver push site).
+                        let mut val_owned_from_substr = false;
                         if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
                             val = self.coerce_to_f64(val);
+                        } else if elem_ty == Type::Str && self.operand_ty(&val) == Type::Substr {
+                            // for-of-str Substr → owned Str (see local
+                            // push site for the rc accounting note).
+                            let owned = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.substr_to_owned, vec![val]),
+                                Type::Str,
+                                None,
+                            );
+                            val = Operand::Value(owned);
+                            val_owned_from_substr = true;
                         }
                         let push_arg = self.raw_slot_arg(val);
                         let new_arr = self.f.append_inst(
@@ -18664,7 +18695,7 @@ impl<'a> LowerCtx<'a> {
                             arr_ty,
                             None,
                         );
-                        if elem_ty.is_refcounted() {
+                        if elem_ty.is_refcounted() && !val_owned_from_substr {
                             self.emit_rc_inc(val);
                         }
                         self.f.append_void(
