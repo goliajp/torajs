@@ -20714,10 +20714,28 @@ impl<'a> LowerCtx<'a> {
                     };
                     // Per-method state: dst array (map/filter), acc slot
                     // (reduce). forEach has neither.
+                    //
+                    // S135 — pre-size dst to src.len so per-iter
+                    // `arr_push_unchecked` stays within cap (filter selects
+                    // at most src_len; map produces exactly src_len). Prior
+                    // `arr_alloc(0)` + push_unchecked stomped past the
+                    // pool block on multi-elem inputs, silently corrupting
+                    // ARR_LEN / ARR_CAP / neighbor blocks — surfaced as
+                    // SIGSEGV in `xs.filter(p).map(f)` chains where map's
+                    // loop read filter dst's garbage len.
                     let dst_slot = if matches!(method.as_str(), "map" | "filter") {
+                        let src_len_for_cap = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
                         let dst_arr = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+                            InstKind::Call(
+                                self.intrinsics.arr_alloc,
+                                vec![Operand::Value(src_len_for_cap)],
+                            ),
                             dst_arr_ty,
                             None,
                         );
