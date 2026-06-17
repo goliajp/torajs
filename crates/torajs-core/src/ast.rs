@@ -2000,6 +2000,31 @@ pub fn desugar_builtin_new(ast: &mut Ast) {
             ast.exprs[i] = Expr::Array(args);
         }
     }
+    // S136 — `Array(...)` without `new` is spec-equivalent to
+    // `new Array(...)` (ES §23.1.1.1 calls the same internal
+    // Construct slot). Rewrite Call → New so the existing
+    // P0.10 / ssa_lower paths cover both spellings.
+    let n_exprs = ast.exprs.len();
+    for i in 0..n_exprs {
+        let array_call_args = match &ast.exprs[i] {
+            Expr::Call { callee, args } => {
+                if let Expr::Ident(name) = &ast.exprs[callee.0 as usize]
+                    && name == "Array"
+                {
+                    Some(args.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(args) = array_call_args {
+            ast.exprs[i] = Expr::New {
+                class_name: "Array".into(),
+                args,
+            };
+        }
+    }
     // P0.10 — `new Array(...)` MVP rewrite. Per ES spec §23.1.2.1
     // Array constructor with:
     //   - 0 args               → empty array `[]` (length 0)
