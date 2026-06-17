@@ -5239,6 +5239,14 @@ impl Checker {
                     if let Type::Array(elem) = &arg_ty {
                         return Ok(Type::Array(elem.clone()));
                     }
+                    // S141 — `Array.from(set)` per ES §23.1.2.1 + §24.2.3.13
+                    // (Set iterator protocol yields values). Set storage
+                    // tags each entry as Any (untyped), so the result is
+                    // `Array<Any>` — print/spread/eq paths already handle
+                    // Any-tagged elements uniformly.
+                    if matches!(arg_ty, Type::Set) {
+                        return Ok(Type::Array(Box::new(Type::Any)));
+                    }
                     // Fall through to the static-sig path; the String
                     // overload already covered there throws a sensible
                     // arity / type mismatch otherwise.
