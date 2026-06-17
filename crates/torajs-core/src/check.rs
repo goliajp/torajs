@@ -4480,6 +4480,11 @@ impl Checker {
                             let src_ty = this.type_of(ast, *expr)?;
                             match src_ty {
                                 Type::Array(inner) => Ok(Some(*inner)),
+                                // S134 — string spread `[...str]` unfolds per
+                                // code unit into Array<string> (ES iterator
+                                // protocol; matches Array.from(str) shape).
+                                // ssa_lower wires str_split + materialize.
+                                Type::String => Ok(Some(Type::String)),
                                 other => Err(format!(
                                     "array spread source must be an array, got {other:?}"
                                 )),

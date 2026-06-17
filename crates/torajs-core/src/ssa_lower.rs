@@ -22839,8 +22839,44 @@ impl<'a> LowerCtx<'a> {
                 for eid in &element_ids {
                     if let Expr::Spread { expr } = self.ast.get_expr(*eid) {
                         let inner = *expr;
-                        let v = self.lower_expr(inner);
-                        let v_ty = self.operand_ty(&v);
+                        let mut v = self.lower_expr(inner);
+                        let mut v_ty = self.operand_ty(&v);
+                        // S134 — string spread `[...str]` unfolds per code
+                        // unit. Substr source first materializes to owned
+                        // Str for str_split's str_view; then str_split with
+                        // empty sep produces Arr<Substr>; materialize each
+                        // view to owned Str so the resulting Arr<Str>
+                        // composes with literal Str siblings in the same
+                        // array literal (`['x', ...str]`).
+                        if matches!(v_ty, Type::Substr) {
+                            let owned = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.substr_to_owned, vec![v]),
+                                Type::Str,
+                                None,
+                            );
+                            v = Operand::Value(owned);
+                            v_ty = Type::Str;
+                        }
+                        if matches!(v_ty, Type::Str) {
+                            let empty_sep = self.intern_string_literal("");
+                            let substr_arr_id = intern_arr_layout(self.arr_layouts, Type::Substr);
+                            let substr_arr = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.str_split,
+                                    vec![v, Operand::Value(empty_sep)],
+                                ),
+                                Type::Arr(substr_arr_id),
+                                None,
+                            );
+                            let str_arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
+                            v = self.materialize_arr_substr_to_str(
+                                Operand::Value(substr_arr),
+                                Type::Arr(str_arr_id),
+                            );
+                            v_ty = Type::Arr(str_arr_id);
+                        }
                         if let Type::Arr(arr_id) = v_ty
                             && elem_ty.is_none()
                         {
