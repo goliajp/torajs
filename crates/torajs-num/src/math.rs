@@ -77,8 +77,27 @@ pub unsafe extern "C" fn __torajs_math_ceil(x: f64) -> f64 {
 /// specifically `floor(x + 0.5)` to preserve the spec behavior; we
 /// replicate that bit-for-bit here so the port doesn't silently
 /// change negative-half rounding.
+///
+/// ES §20.2.2.28 carve-out — for x in (-0.5, 0) return -0, not +0.
+/// `floor(x + 0.5)` for x in this range produces (x+0.5).floor() = 0.0,
+/// dropping the sign bit. Spec requires the sign of the half-zero
+/// rounding to follow the input (Math.round(-0.3) === -0 via
+/// Object.is). bun matches the spec; pre-fix tr produced +0.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_round(x: f64) -> f64 {
+    // Preserve signed-zero edge: Math.round(-0) === -0 per spec
+    // (and Math.round(0) === 0). `(0 + 0.5).floor()` drops the sign
+    // bit, so without this guard `Math.round(-0)` returned +0.
+    // `-0.0 == 0.0` is true under IEEE 754, so this branch catches
+    // both signs in one comparison.
+    if x == 0.0 {
+        return x;
+    }
+    // ES §20.2.2.28 — x in (-0.5, 0) returns -0, not the +0 that
+    // `floor(x + 0.5)` would produce.
+    if x < 0.0 && x >= -0.5 {
+        return -0.0;
+    }
     (x + 0.5).floor()
 }
 #[unsafe(no_mangle)]
@@ -334,6 +353,35 @@ mod tests {
         assert_eq!(unsafe { __torajs_math_log(1.0) }, 0.0);
         assert_eq!(unsafe { __torajs_math_log2(8.0) }, 3.0);
         assert_eq!(unsafe { __torajs_math_log10(1000.0) }, 3.0);
+    }
+
+    #[test]
+    fn round_negative_half_zero_preserves_sign() {
+        // ES §20.2.2.28 — Math.round(x) for x in (-0.5, 0) returns -0,
+        // not +0. `floor(x + 0.5)` would drop the sign bit; the carve-
+        // out in __torajs_math_round preserves it. Use to_bits() to
+        // distinguish -0.0 from +0.0 (they compare equal under `==`).
+        let neg_zero_bits = (-0.0f64).to_bits();
+        let pos_zero_bits = 0.0f64.to_bits();
+        assert_eq!(
+            unsafe { __torajs_math_round(-0.5) }.to_bits(),
+            neg_zero_bits
+        );
+        assert_eq!(
+            unsafe { __torajs_math_round(-0.3) }.to_bits(),
+            neg_zero_bits
+        );
+        assert_eq!(
+            unsafe { __torajs_math_round(-0.1) }.to_bits(),
+            neg_zero_bits
+        );
+        // Non-negative x stays in the canonical path.
+        assert_eq!(unsafe { __torajs_math_round(0.0) }.to_bits(), pos_zero_bits);
+        assert_eq!(unsafe { __torajs_math_round(0.4) }.to_bits(), pos_zero_bits);
+        // Outside [-0.5, 0): spec round-half-toward-+inf still applies.
+        assert_eq!(unsafe { __torajs_math_round(-1.5) }, -1.0);
+        assert_eq!(unsafe { __torajs_math_round(-2.5) }, -2.0);
+        assert_eq!(unsafe { __torajs_math_round(-0.6) }, -1.0);
     }
 
     #[test]
