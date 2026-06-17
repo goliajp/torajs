@@ -18,12 +18,10 @@ console.log((123).toExponential())            // "1.23e+2"
 
 // Sign / zero edges
 console.log((0).toExponential())              // "0e+0"
+console.log((-0).toExponential())             // "0e+0"  (spec: -0 normalises)
 console.log((-1234.5).toExponential())        // "-1.2345e+3"
-// `(-0).toExponential()` should also yield "0e+0" per spec (the
-// shortest-form path currently emits "-0e+0" — Rust `format!("{:e}",
-// -0.0)` preserves the sign bit and `normalize_exp` doesn't drop it).
-// Independent L3b: `to_exp_f` shortest path normalises -0 to +0 at
-// the entry, same shape as the `Math.round` signed-zero edge.
+// `(-0).toExponential(2)` also normalises the sign per spec
+console.log((-0).toExponential(2))            // "0.00e+0"
 
 // Explicit digits unchanged regression guards
 console.log((1234.5678).toExponential(0))     // "1e+3"

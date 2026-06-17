@@ -137,6 +137,11 @@ pub fn to_exp_f(n: f64, digits: i64) -> Vec<u8> {
     if let Some(s) = special_value(n) {
         return s;
     }
+    // ES §22.1.3.5 — `(-0).toExponential(...)` emits "0e+0"
+    // (positive sign). Rust `format!("{:e}", -0.0)` preserves the
+    // IEEE 754 sign bit and renders "-0e0". Normalise -0 to +0 at
+    // entry; same shape as the `Math.round` signed-zero edge.
+    let n = if n == 0.0 { 0.0 } else { n };
     if digits < 0 {
         return normalize_exp(format!("{:e}", n).as_bytes());
     }
