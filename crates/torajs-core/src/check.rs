@@ -6223,9 +6223,7 @@ impl Checker {
                                     || matches!(formal_ret.as_ref(), Type::Any)
                                     || matches!(actual_ret.as_ref(), Type::Any))
                                 && actual_ps.iter().zip(formal_ps.iter()).all(|(a, f)| {
-                                    a == f
-                                        || matches!(f, Type::Any)
-                                        || matches!(a, Type::Any)
+                                    a == f || matches!(f, Type::Any) || matches!(a, Type::Any)
                                 })
                         }
                         _ => false,
@@ -7102,7 +7100,9 @@ impl Checker {
                 // initializer wants).
                 if args.len() == 1
                     && let Expr::Array(elems) = ast.get_expr(args[0])
-                    && elems.iter().all(|e| !matches!(ast.get_expr(*e), Expr::Spread { .. }))
+                    && elems
+                        .iter()
+                        .all(|e| !matches!(ast.get_expr(*e), Expr::Spread { .. }))
                 {
                     for elem in elems {
                         let _ = self.type_of(ast, *elem)?;
