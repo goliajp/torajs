@@ -3381,6 +3381,14 @@ impl Checker {
                         vec![Type::Any, Type::Any],
                         Box::new(Type::String),
                     )),
+                    // S140 — `s.toLocaleLowerCase` / `toLocaleUpperCase`
+                    // per ES §22.1.3.21 / §22.1.3.23 accept optional
+                    // locales arg; tr's subset is en-US only so the
+                    // arg is accepted (Any?) and ignored — same shape
+                    // as Number.toLocaleString (S139).
+                    (Type::String, "toLocaleLowerCase") | (Type::String, "toLocaleUpperCase") => {
+                        Ok(Type::Function(vec![Type::Any], Box::new(Type::String)))
+                    }
                     // V3-18 wedge — Boolean.prototype.toString / valueOf.
                     // Per JS spec §20.3.3.2 / §20.3.3.3 — `(true).toString()`
                     // → "true", `(false).toString()` → "false". valueOf

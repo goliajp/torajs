@@ -146,6 +146,8 @@ pub(crate) fn try_lower_method_call(
                     | "repeat"
                     | "toUpperCase"
                     | "toLowerCase"
+                    | "toLocaleUpperCase"
+                    | "toLocaleLowerCase"
                     | "trim"
                     | "trimStart"
                     | "trimEnd"
@@ -319,8 +321,10 @@ pub(crate) fn try_lower_method_call(
                 let (target, ret_ty) = match method.as_str() {
                     "slice" => (ctx.intrinsics.str_slice, Type::Str),
                     "substring" => (ctx.intrinsics.str_substring, Type::Str),
-                    "toUpperCase" => (ctx.intrinsics.str_to_upper, Type::Str),
-                    "toLowerCase" => (ctx.intrinsics.str_to_lower, Type::Str),
+                    // S140 — Locale variants alias to the non-locale
+                    // form (en-US default host locale, matches bun).
+                    "toUpperCase" | "toLocaleUpperCase" => (ctx.intrinsics.str_to_upper, Type::Str),
+                    "toLowerCase" | "toLocaleLowerCase" => (ctx.intrinsics.str_to_lower, Type::Str),
                     "trim" => (ctx.intrinsics.str_trim, Type::Str),
                     "trimStart" | "trimLeft" => (ctx.intrinsics.str_trim_start, Type::Str),
                     "trimEnd" | "trimRight" => (ctx.intrinsics.str_trim_end, Type::Str),
@@ -493,6 +497,8 @@ pub(crate) fn try_lower_method_call(
                 | "repeat"
                 | "toUpperCase"
                 | "toLowerCase"
+                | "toLocaleUpperCase"
+                | "toLocaleLowerCase"
                 | "trim"
                 | "trimStart"
                 | "trimEnd"
@@ -510,8 +516,13 @@ pub(crate) fn try_lower_method_call(
     {
         let mut argv = Vec::with_capacity(args.len() + 1);
         argv.push(recv_op);
-        for a in args {
-            argv.push(ctx.lower_expr(*a));
+        // S140 — locale-variant case methods drop any locales arg; the
+        // runtime helper is 1-arg only (en-US default, see check.rs).
+        let drop_args = matches!(method.as_str(), "toLocaleLowerCase" | "toLocaleUpperCase");
+        if !drop_args {
+            for a in args {
+                argv.push(ctx.lower_expr(*a));
+            }
         }
         // V3-18 m1.h.36 — String.slice / substring with
         // 0 or 1 args: fill in the missing positions
@@ -585,8 +596,8 @@ pub(crate) fn try_lower_method_call(
             "substring" => (ctx.intrinsics.str_substring, Type::Str),
             "substr" => (ctx.intrinsics.str_substr, Type::Str),
             "repeat" => (ctx.intrinsics.str_repeat, Type::Str),
-            "toUpperCase" => (ctx.intrinsics.str_to_upper, Type::Str),
-            "toLowerCase" => (ctx.intrinsics.str_to_lower, Type::Str),
+            "toUpperCase" | "toLocaleUpperCase" => (ctx.intrinsics.str_to_upper, Type::Str),
+            "toLowerCase" | "toLocaleLowerCase" => (ctx.intrinsics.str_to_lower, Type::Str),
             "trim" => (ctx.intrinsics.str_trim, Type::Str),
             "trimStart" | "trimLeft" => (ctx.intrinsics.str_trim_start, Type::Str),
             "trimEnd" | "trimRight" => (ctx.intrinsics.str_trim_end, Type::Str),
