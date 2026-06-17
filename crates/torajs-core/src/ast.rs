@@ -3295,6 +3295,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                     || class_name == "Map"
                     || class_name == "Set"
                     || class_name == "Array"
+                    || class_name == "RegExp"
                 {
                     /* P6.1 — `new Map()` is the same shape: SSA
                      * intercepts to emit __torajs_map_create.

@@ -7300,6 +7300,37 @@ impl Checker {
                     ))
                 }
             }
+            // ES §22.2.3.1 — `new RegExp(pattern, flags?)` dynamic-arg
+            // form. The static-string-literal shapes (`new RegExp()`,
+            // `new RegExp("pat")`, `new RegExp("pat", "i")`) are
+            // pre-rewritten to `Expr::Regex { pattern, flags }` by
+            // `desugar_builtin_new` (ast.rs L2094-2122); only dynamic
+            // args (variable / call / concat exprs) reach here. Narrow
+            // ship: require String args (Type::String). Spec calls
+            // ToString on non-string args, but Any-arg path requires
+            // runtime unbox + ToString which is a follow-up.
+            Expr::New { class_name, args } if class_name == "RegExp" => {
+                if args.is_empty() || args.len() > 2 {
+                    return Err(format!(
+                        "`new RegExp(...)` requires 1 or 2 arguments, got {}",
+                        args.len()
+                    ));
+                }
+                for (i, arg) in args.iter().enumerate() {
+                    let arg_ty = self.type_of(ast, *arg)?;
+                    if !is_assignable_to_resolved(
+                        &Type::String,
+                        &arg_ty,
+                        &self.aliases,
+                        &self.generic_alias_decls,
+                    ) {
+                        return Err(format!(
+                            "`new RegExp(...)`: arg {i} must be string, got {arg_ty:?}"
+                        ));
+                    }
+                }
+                Ok(Type::RegExp)
+            }
             Expr::New { class_name, .. } => {
                 panic!("internal: `new {class_name}` reached check.rs (desugar didn't run?)")
             }

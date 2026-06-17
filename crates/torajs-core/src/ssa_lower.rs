@@ -13982,6 +13982,31 @@ impl<'a> LowerCtx<'a> {
                 );
                 Operand::Value(v)
             }
+            // ES §22.2.3.1 — `new RegExp(pat, flags?)` dynamic-arg form.
+            // Static-string-literal shapes are pre-rewritten to
+            // `Expr::Regex { pattern, flags }` by `desugar_builtin_new`
+            // (ast.rs L2094-2122). Dynamic args fall through here:
+            // lower each arg expr (returns a `Type::Str` operand) and
+            // hand them to the same `__torajs_regex_compile` intrinsic
+            // the literal arm uses. 1-arg form synthesises an interned
+            // empty flag string. check.rs already validated 1 ≤ args ≤ 2
+            // and arg types.
+            Expr::New { class_name, args } if class_name == "RegExp" => {
+                let pat_op = self.lower_expr(args[0]);
+                let flag_op = if args.len() == 2 {
+                    self.lower_expr(args[1])
+                } else {
+                    let flag_v = self.intern_string_literal("");
+                    Operand::Value(flag_v)
+                };
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.regex_compile, vec![pat_op, flag_op]),
+                    Type::RegExp,
+                    None,
+                );
+                return Operand::Value(v);
+            }
             // v0.2 #1 — regex literal `/pat/flags`. Lower to a runtime
             // call to `__torajs_regex_compile(pat_str, flags_str)`
             // returning a freshly allocated RegExp. Pattern + flags are
