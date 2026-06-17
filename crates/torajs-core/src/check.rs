@@ -6315,6 +6315,19 @@ impl Checker {
                             // side through __torajs_bool_to_str /
                             // __torajs_null_to_str before concat.
                             Ok(Type::String)
+                        } else if (l == Type::String
+                            && matches!(r, Type::Array(_) | Type::Struct(_)))
+                            || (matches!(l, Type::Array(_) | Type::Struct(_)) && r == Type::String)
+                        {
+                            // S138 — `String + Array` / `String + Struct`
+                            // per ES §13.15.3 (StringOrNumeric concat:
+                            // ToPrimitive(Default) → ToString on the
+                            // non-String side). ssa_lower routes Arr
+                            // through arr_join(",") and Struct through
+                            // the `"[object Object]"` literal — same path
+                            // as the explicit `String(arr)` / `String(o)`
+                            // S137 call site.
+                            Ok(Type::String)
                         } else if (l == Type::String && matches!(r, Type::Any))
                             || (matches!(l, Type::Any) && r == Type::String)
                         {

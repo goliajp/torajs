@@ -25638,6 +25638,12 @@ impl<'a> LowerCtx<'a> {
                 matches!(t, Type::Bool) || matches!(op, Operand::ConstPtrNull)
             };
             let str_or_substr = |t: Type| matches!(t, Type::Str | Type::Substr);
+            // S138 — `String + Arr` / `String + Obj` (ES §13.15.3
+            // ToPrimitive(Default) → ToString on the non-String side).
+            // Mirror of the explicit `String(arr) / String(struct)`
+            // S137 coerce — routes Arr through arr_join(",") and Obj
+            // through the `"[object Object]"` literal.
+            let arr_or_obj = |t: Type| matches!(t, Type::Arr(_) | Type::Obj(_));
             let mixed_string = matches!(
                 (a_ty, b_ty),
                 (Type::Str, Type::I64)
@@ -25653,7 +25659,9 @@ impl<'a> LowerCtx<'a> {
                     | (Type::F64, Type::Substr)
                     | (Type::BigInt, Type::Substr)
             ) || (str_or_substr(a_ty) && bool_or_null(b_ty, &b))
-                || (str_or_substr(b_ty) && bool_or_null(a_ty, &a));
+                || (str_or_substr(b_ty) && bool_or_null(a_ty, &a))
+                || (str_or_substr(a_ty) && arr_or_obj(b_ty))
+                || (str_or_substr(b_ty) && arr_or_obj(a_ty));
             // Any Substr operand: route through view-aware concat
             // helpers. One alloc + two memcpys (vs. 2 allocs + 3
             // memcpys via substr_to_owned + str_concat).
@@ -25747,6 +25755,29 @@ impl<'a> LowerCtx<'a> {
                                 None,
                             );
                             Operand::Value(r)
+                        }
+                        // S138 — Arr / Obj sides reuse the S137 dispatch.
+                        Type::Arr(elem_arr_id) => {
+                            let elem_ty = ctx.arr_layouts[elem_arr_id.0 as usize];
+                            let join_fid = match elem_ty {
+                                Type::Substr => ctx.intrinsics.arr_join_substr,
+                                Type::I64 => ctx.intrinsics.arr_join_i64,
+                                Type::F64 => ctx.intrinsics.arr_join_f64,
+                                Type::Bool => ctx.intrinsics.arr_join_bool,
+                                Type::Any => ctx.intrinsics.arr_join_any,
+                                _ => ctx.intrinsics.arr_join,
+                            };
+                            let sep = ctx.intern_string_literal(",");
+                            let r = ctx.f.append_inst(
+                                ctx.cur_block,
+                                InstKind::Call(join_fid, vec![v, Operand::Value(sep)]),
+                                Type::Str,
+                                None,
+                            );
+                            Operand::Value(r)
+                        }
+                        Type::Obj(_) => {
+                            Operand::Value(ctx.intern_string_literal("[object Object]"))
                         }
                         other => panic!("ssa-lower: mixed string concat unexpected type {other:?}"),
                     }
