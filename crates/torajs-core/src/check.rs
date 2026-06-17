@@ -6332,13 +6332,16 @@ impl Checker {
                             // other ToString's. ssa_lower routes the
                             // BigInt side through __torajs_bigint_to_string.
                             Ok(Type::String)
-                        } else if (l == Type::String && matches!(r, Type::Boolean | Type::Null))
-                            || (matches!(l, Type::Boolean | Type::Null) && r == Type::String)
+                        } else if (l == Type::String
+                            && matches!(r, Type::Boolean | Type::Null | Type::Undefined))
+                            || (matches!(l, Type::Boolean | Type::Null | Type::Undefined)
+                                && r == Type::String)
                         {
-                            // V3-18 m1.d — String + Bool / String + Null
-                            // (and reverse). ssa_lower routes the non-string
-                            // side through __torajs_bool_to_str /
-                            // __torajs_null_to_str before concat.
+                            // V3-18 m1.d / S142 — String + Bool / Null /
+                            // Undefined (and reverse). ssa_lower routes
+                            // the non-string side through
+                            // __torajs_bool_to_str / __torajs_null_to_str
+                            // / __torajs_undefined_to_str before concat.
                             Ok(Type::String)
                         } else if (l == Type::String
                             && matches!(r, Type::Array(_) | Type::Struct(_)))

@@ -4495,6 +4495,17 @@ fn lower_inner(
         &[],
         Type::Str,
     );
+    // S142 — `undefined` → "undefined" for `String + Undefined`
+    // concat per ES §13.15.3 (ToPrimitive(Default) → ToString).
+    // Mirrors `__torajs_null_to_str`'s contract; runtime is in
+    // `crates/torajs-str/src/literals.rs`.
+    let undefined_to_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_undefined_to_str",
+        &[],
+        Type::Str,
+    );
     // stdlib `Math` namespace — first slice. All take an f64 and return
     // an f64; the lowerer auto-promotes integer args via SiToFp at the
     // call site. Backed by libc sqrt / fabs / floor / ceil via thin
@@ -5684,6 +5695,7 @@ fn lower_inner(
         i64_to_str: i64_to_str_id,
         bool_to_str: bool_to_str_id,
         null_to_str: null_to_str_id,
+        undefined_to_str: undefined_to_str_id,
         str_to_number: str_to_number_id,
         arr_print_i64: arr_print_i64_id,
         arr_print_f64: arr_print_f64_id,
@@ -6681,6 +6693,7 @@ pub(crate) struct Intrinsics {
     pub(crate) i64_to_str: FuncId,
     pub(crate) bool_to_str: FuncId,
     pub(crate) null_to_str: FuncId,
+    pub(crate) undefined_to_str: FuncId,
     pub(crate) str_to_number: FuncId,
     pub(crate) arr_print_i64: FuncId,
     pub(crate) arr_print_f64: FuncId,
@@ -25794,6 +25807,36 @@ impl<'a> LowerCtx<'a> {
         // decimal string form first via the runtime, then concat —
         // matches JS spec ToString behavior.
         if matches!(op, AstBinOp::Add) {
+            // S142 — String + Undefined per ES §13.15.3. Undefined lowers
+            // to ConstPtrNull (same i64-0 ABI as Null), so the bool/null
+            // detection downstream can't distinguish the two from operand
+            // shape alone. Resolve the Undefined side here via the
+            // `binop_*_undef_id` hint set by lower_binop_with_ids; emit
+            // `__torajs_undefined_to_str()` and replace the operand with
+            // the resulting Str so the str+str fast path picks it up.
+            // Guard on the *other* side being string-shaped so numeric
+            // `undefined + 0` (spec: NaN) keeps its current behavior.
+            let mut a = a;
+            let mut b = b;
+            let str_shaped = |t: Type| matches!(t, Type::Str | Type::Substr);
+            if self.binop_left_undef_id.is_some() && str_shaped(self.operand_ty(&b)) {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.undefined_to_str, vec![]),
+                    Type::Str,
+                    None,
+                );
+                a = Operand::Value(v);
+            }
+            if self.binop_right_undef_id.is_some() && str_shaped(self.operand_ty(&a)) {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.undefined_to_str, vec![]),
+                    Type::Str,
+                    None,
+                );
+                b = Operand::Value(v);
+            }
             let a_ty = self.operand_ty(&a);
             let b_ty = self.operand_ty(&b);
             // V3-18 m1.d / m3.c — string concat with Bool / Null /
