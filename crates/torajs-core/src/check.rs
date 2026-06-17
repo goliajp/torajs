@@ -5261,39 +5261,6 @@ impl Checker {
                     // overload already covered there throws a sensible
                     // arity / type mismatch otherwise.
                 }
-                // S145 — `Array.from({ length: N }, mapFn)` 2-arg form per
-                // ES §23.1.2.1. The canonical "build array of N" idiom
-                // (`Array.from({length: 5}, (_, i) => i * 2)`) needs no
-                // iterator protocol — the spec walks 0..length and calls
-                // mapFn with `(undefined, i)`. Source must be a Struct
-                // with a `length: number` field (matches `{length: N}`
-                // literal shape); mapFn must be a Function-typed callee.
-                // Result element type is the mapFn return type.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = ast.get_expr(*callee)
-                    && m_name == "from"
-                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-                    && ns == "Array"
-                    && args.len() == 2
-                {
-                    let src_ty = self.type_of(ast, args[0])?;
-                    let fn_ty = self.type_of(ast, args[1])?;
-                    let has_length = match &src_ty {
-                        Type::Struct(fields) => fields
-                            .iter()
-                            .any(|(n, t)| n == "length" && matches!(t, Type::Number)),
-                        _ => false,
-                    };
-                    let ret = match &fn_ty {
-                        Type::Function(_, r) => Some((**r).clone()),
-                        _ => None,
-                    };
-                    if has_length && let Some(r) = ret {
-                        return Ok(Type::Array(Box::new(r)));
-                    }
-                }
                 // M3 — generic call inference. If callee is a bare Ident
                 // naming a generic FnDecl, walk param/arg pairs unifying
                 // each TypeVar against the actual arg type, then
