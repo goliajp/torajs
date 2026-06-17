@@ -201,6 +201,7 @@ pub(crate) mod ssa_lower_arr_any_push;
 pub(crate) mod ssa_lower_arr_mutators;
 pub mod ssa_lower_body_returns_closure;
 pub mod ssa_lower_closure_captures;
+pub(crate) mod ssa_lower_console_log_multiarg;
 pub(crate) mod ssa_lower_container_width;
 pub mod ssa_lower_deque_escape;
 pub(crate) mod ssa_lower_drops;

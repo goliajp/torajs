@@ -7932,79 +7932,10 @@ impl<'a> LowerCtx<'a> {
             }
             return;
         }
-        // Multi-arg `console.log` joiner — bun-parity inspect format
-        // per arg. Each typed Arr<i64/f64/bool/str/substr> routes to
-        // its no-\n typed walker (`__torajs_arr_print_<T>_inline`,
-        // torajs-arr::print_inline); every other type boxes to Any
-        // and goes through `__torajs_print_anyv_inline_top` (Str
-        // unquoted, no \n). Between args we emit a single ' ' via
-        // `__torajs_io_putc_stdout`, and after the last arg we emit
-        // '\n' the same way. `console.error` / `console.warn` keep
-        // the pre-existing Str-coerce + concat path below (less
-        // coverage in conformance; not part of this trunk).
-        if let Stmt::Expr(eid) = s
-            && let Expr::Call { callee, args } = self.ast.get_expr(*eid)
-            && let Some(method) = self.console_method_member(*callee)
-            && method == "log"
-            && args.len() > 1
-        {
-            let arg_ids: Vec<ExprId> = args.clone();
-            let space_op = Operand::ConstI64(b' ' as i64);
-            let newline_op = Operand::ConstI64(b'\n' as i64);
-            for (i, &aid) in arg_ids.iter().enumerate() {
-                if i > 0 {
-                    self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.io_putc_stdout, vec![space_op.clone()]),
-                        Type::I64,
-                        None,
-                    );
-                }
-                let arg = self.lower_expr(aid);
-                let arg_ty = self.operand_ty(&arg);
-
-                // typed Arr<primitive> — route to the matching no-\n
-                // typed walker (slots are raw bytes, not NaN-box, so
-                // the Any path's Tag::Arr arm would SIGSEGV).
-                if let Type::Arr(arr_id) = arg_ty {
-                    let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                    let typed_target = match elem_ty {
-                        Type::I64 => Some(self.intrinsics.arr_print_i64_inline),
-                        Type::F64 => Some(self.intrinsics.arr_print_f64_inline),
-                        Type::Bool => Some(self.intrinsics.arr_print_bool_inline),
-                        Type::Str => Some(self.intrinsics.arr_print_str_inline),
-                        Type::Substr => Some(self.intrinsics.arr_print_substr_inline),
-                        _ => None,
-                    };
-                    if let Some(target) = typed_target {
-                        self.f
-                            .append_void(self.cur_block, InstKind::Call(target, vec![arg]));
-                        continue;
-                    }
-                }
-
-                // Everything else: box to Any (a Type::Any operand
-                // passes through unchanged), print via the tag-aware
-                // no-\n entry, then drop the freshly-allocated box.
-                let (any_op, drop_after) = if arg_ty == Type::Any {
-                    (arg, false)
-                } else {
-                    (self.box_to_any(arg), true)
-                };
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.print_any_inline_top, vec![any_op.clone()]),
-                );
-                if drop_after {
-                    self.emit_drop_value(any_op, Type::Any);
-                }
-            }
-            self.f.append_inst(
-                self.cur_block,
-                InstKind::Call(self.intrinsics.io_putc_stdout, vec![newline_op]),
-                Type::I64,
-                None,
-            );
+        // Multi-arg `console.log` per-arg inspect dispatch lives in
+        // the sibling module so the `lower_stmt` (try-body) caller
+        // can share it.
+        if crate::ssa_lower_console_log_multiarg::try_lower(self, s) {
             return;
         }
         // Multi-arg `console.error` / `console.warn` — pre-existing
@@ -8347,7 +8278,7 @@ impl<'a> LowerCtx<'a> {
     /// `console.{log,error,warn}` recognizer returning the method name as
     /// a static string (or None). Used to dispatch the appropriate
     /// print intrinsic in lower_top_stmt + the in-expr console-call arm.
-    fn console_method_member(&self, eid: ExprId) -> Option<&'static str> {
+    pub(crate) fn console_method_member(&self, eid: ExprId) -> Option<&'static str> {
         if let Expr::Member { obj, name } = self.ast.get_expr(eid)
             && let Expr::Ident(ns) = self.ast.get_expr(*obj)
             && ns == "console"
@@ -12882,6 +12813,13 @@ impl<'a> LowerCtx<'a> {
                 self.f.set_term(cb, Terminator::Ret(coerced));
             }
             Stmt::Expr(eid) => {
+                // Multi-arg `console.log` per-arg inspect dispatch —
+                // shared with lower_top_stmt; without this the legacy
+                // `coerce_to_str` joiner below would panic on typed
+                // `Arr<T>` args inside try-body / nested block scopes.
+                if crate::ssa_lower_console_log_multiarg::try_lower(self, s) {
+                    return;
+                }
                 // Result discarded. Expression may still produce SSA insts as
                 // side effects (its own value), e.g. nested Calls.
                 let _ = self.lower_expr(*eid);
