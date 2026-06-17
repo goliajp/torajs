@@ -182,6 +182,58 @@ pub fn to_precision_i(n: i64, digits: i64) -> Vec<u8> {
     to_precision_f(n as f64, digits)
 }
 
+/// S139 — `n.toLocaleString()` en-US default (`,` group sep, `.`
+/// decimal). Per ES §21.1.3.4 the locale defaults to the host's
+/// DefaultLocale; bun / Node on macOS reports en-US, so the canonical
+/// `1,000,000` / `1,234.5` / `-1,000` output is what test262 + user
+/// programs expect. Locale-aware variants (`toLocaleString('de-DE')`
+/// etc.) are a separate Intl substrate item.
+pub fn to_locale_f(n: f64) -> Vec<u8> {
+    if let Some(s) = special_value(n) {
+        return s;
+    }
+    let raw = if n.fract() == 0.0 && n.abs() < 1e16 {
+        // Integer-valued double: drop the trailing `.0` so
+        // `(1000.0).toLocaleString() === "1,000"`, matching bun.
+        format!("{}", n as i64).into_bytes()
+    } else {
+        format!("{n}").into_bytes()
+    };
+    insert_grouping(&raw)
+}
+
+pub fn to_locale_i(n: i64) -> Vec<u8> {
+    let raw = format!("{n}").into_bytes();
+    insert_grouping(&raw)
+}
+
+/// Walk the integer part (chars before any `.` or `e`) right-to-left
+/// and insert `,` every three digits. Leading sign byte is skipped.
+fn insert_grouping(raw: &[u8]) -> Vec<u8> {
+    let sign_len = if raw.first() == Some(&b'-') { 1 } else { 0 };
+    let int_end = raw[sign_len..]
+        .iter()
+        .position(|&b| b == b'.' || b == b'e' || b == b'E')
+        .map(|i| sign_len + i)
+        .unwrap_or(raw.len());
+    let int_part = &raw[sign_len..int_end];
+    let tail = &raw[int_end..];
+    let n = int_part.len();
+    let mut out = Vec::with_capacity(raw.len() + n / 3 + 1);
+    if sign_len == 1 {
+        out.push(b'-');
+    }
+    for (i, &b) in int_part.iter().enumerate() {
+        let remaining = n - i;
+        if i > 0 && remaining % 3 == 0 {
+            out.push(b',');
+        }
+        out.push(b);
+    }
+    out.extend_from_slice(tail);
+    out
+}
+
 // ============================================================
 // extern "C" wrappers
 // ============================================================
@@ -220,6 +272,18 @@ pub unsafe extern "C" fn __torajs_num_to_precision_f(n: f64, digits: i64) -> *mu
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_precision_i(n: i64, digits: i64) -> *mut u8 {
     alloc_str(&to_precision_i(n, digits))
+}
+
+/// `n.toLocaleString()` en-US default for f64 receivers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_num_to_locale_f(n: f64) -> *mut u8 {
+    alloc_str(&to_locale_f(n))
+}
+
+/// `n.toLocaleString()` en-US default for i64 receivers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_num_to_locale_i(n: i64) -> *mut u8 {
+    alloc_str(&to_locale_i(n))
 }
 
 // ============================================================

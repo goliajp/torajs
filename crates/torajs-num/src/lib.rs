@@ -57,7 +57,8 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
 // resolved at link time by toolchain-emitted code regardless.
 pub use format::{
     __torajs_num_to_exp_f, __torajs_num_to_exp_i, __torajs_num_to_fixed_f, __torajs_num_to_fixed_i,
-    __torajs_num_to_precision_f, __torajs_num_to_precision_i,
+    __torajs_num_to_locale_f, __torajs_num_to_locale_i, __torajs_num_to_precision_f,
+    __torajs_num_to_precision_i,
 };
 pub use math::{
     __torajs_math_abs, __torajs_math_acos, __torajs_math_acosh, __torajs_math_asin,

@@ -1829,6 +1829,20 @@ fn lower_inner(
         &[Type::I64, Type::I64],
         Type::Str,
     );
+    let num_to_locale_f_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_to_locale_f",
+        &[Type::F64],
+        Type::Str,
+    );
+    let num_to_locale_i_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_to_locale_i",
+        &[Type::I64],
+        Type::Str,
+    );
     let num_parse_int_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5377,6 +5391,8 @@ fn lower_inner(
         num_to_exp_i: num_to_exp_i_id,
         num_to_precision_f: num_to_precision_f_id,
         num_to_precision_i: num_to_precision_i_id,
+        num_to_locale_f: num_to_locale_f_id,
+        num_to_locale_i: num_to_locale_i_id,
         num_parse_int: num_parse_int_id,
         num_parse_float: num_parse_float_id,
         num_is_integer_f: num_is_integer_f_id,
@@ -6336,6 +6352,8 @@ pub(crate) struct Intrinsics {
     pub(crate) num_to_exp_i: FuncId,
     pub(crate) num_to_precision_f: FuncId,
     pub(crate) num_to_precision_i: FuncId,
+    pub(crate) num_to_locale_f: FuncId,
+    pub(crate) num_to_locale_i: FuncId,
     pub(crate) num_parse_int: FuncId,
     pub(crate) num_parse_float: FuncId,
     pub(crate) num_is_integer_f: FuncId,
@@ -15689,13 +15707,24 @@ impl<'a> LowerCtx<'a> {
                                     self.intrinsics.num_to_precision_i
                                 }
                             }
-                            // toString / toLocaleString: i64_to_str /
-                            // f64_to_str — same formatters powering
-                            // Number-to-String coercion in `+`. tr's
-                            // subset has no locale support, so
-                            // toLocaleString collapses to the canonical
-                            // decimal form (matches bun for ASCII /
-                            // POSIX locales).
+                            // S139 — `n.toLocaleString()` en-US default:
+                            // group integer part with `,` every 3 digits,
+                            // `.` decimal. bun / Node on macOS report
+                            // en-US as the host DefaultLocale so this
+                            // matches the canonical bun output without an
+                            // Intl substrate. Locale-arg variants
+                            // (`toLocaleString('de-DE')` etc.) are a
+                            // separate Intl item.
+                            "toLocaleString" => {
+                                if is_f64 {
+                                    self.intrinsics.num_to_locale_f
+                                } else {
+                                    self.intrinsics.num_to_locale_i
+                                }
+                            }
+                            // toString: i64_to_str / f64_to_str — same
+                            // formatters powering Number-to-String
+                            // coercion in `+`.
                             _ => {
                                 if is_f64 {
                                     self.intrinsics.f64_to_str
@@ -15705,8 +15734,16 @@ impl<'a> LowerCtx<'a> {
                             }
                         };
                         let mut argv = vec![recv_op];
-                        for a in args {
-                            argv.push(self.lower_expr(*a));
+                        // S139 — toLocaleString ignores any locale/options
+                        // arg in tr's subset (always en-US). Drop user
+                        // args so the runtime helper's 1-arg signature
+                        // matches; the spec allows ignoring locale args
+                        // outside Intl-enabled hosts.
+                        let pass_args = !matches!(m_name.as_str(), "toLocaleString");
+                        if pass_args {
+                            for a in args {
+                                argv.push(self.lower_expr(*a));
+                            }
                         }
                         // V3-18 m1.h.46 — toFixed / toExponential /
                         // toPrecision with no arg: per JS spec

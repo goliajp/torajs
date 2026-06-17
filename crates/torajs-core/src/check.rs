@@ -3369,9 +3369,18 @@ impl Checker {
                         vec![Type::Number],
                         Box::new(Type::String),
                     )),
-                    (Type::Number, "toString") | (Type::Number, "toLocaleString") => {
+                    (Type::Number, "toString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
+                    // S139 — `n.toLocaleString(locales?, options?)` per ES
+                    // §21.1.3.4 accepts optional locale + options args;
+                    // tr's subset is en-US only and ignores them, so the
+                    // signature is `(Any?, Any?) -> string`. ssa_lower
+                    // drops the args before the 1-arg runtime helper.
+                    (Type::Number, "toLocaleString") => Ok(Type::Function(
+                        vec![Type::Any, Type::Any],
+                        Box::new(Type::String),
+                    )),
                     // V3-18 wedge — Boolean.prototype.toString / valueOf.
                     // Per JS spec §20.3.3.2 / §20.3.3.3 — `(true).toString()`
                     // → "true", `(false).toString()` → "false". valueOf
