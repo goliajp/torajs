@@ -5273,6 +5273,26 @@ impl Checker {
                     // overload already covered there throws a sensible
                     // arity / type mismatch otherwise.
                 }
+                // `xs.reduce(cb)` / `xs.reduceRight(cb)` 1-arg overload —
+                // ES §23.1.3.24 / §23.1.3.25: initial value defaults to
+                // `arr[0]` (or `arr[len-1]` for reduceRight); empty array
+                // throws TypeError (per spec; tr's MVP elides the guard).
+                // The 2-arg form is covered by the static-sig arm. Return
+                // type is the callback's ret (consistent with the 2-arg
+                // path, where the static sig pins ret = elem).
+                if let Expr::Member {
+                    obj: recv_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && (m_name == "reduce" || m_name == "reduceRight")
+                    && args.len() == 1
+                {
+                    let recv_ty = self.type_of(ast, *recv_id)?;
+                    if let Type::Array(elem) = &recv_ty {
+                        let _ = self.type_of(ast, args[0])?;
+                        return Ok((**elem).clone());
+                    }
+                }
                 // M3 — generic call inference. If callee is a bare Ident
                 // naming a generic FnDecl, walk param/arg pairs unifying
                 // each TypeVar against the actual arg type, then

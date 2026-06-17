@@ -20972,8 +20972,67 @@ impl<'a> LowerCtx<'a> {
                         Type::FnSig(s) | Type::Closure(s) => self.fn_sigs[s.0 as usize].1,
                         _ => elem_ty,
                     };
+                    // 1-arg reduce/reduceRight overload: init from
+                    // arr[0] / arr[len-1] (spec §23.1.3.24/25). Empty
+                    // arr throws TypeError per spec; MVP elides the
+                    // guard. `i_seed_off` carries the runtime byte
+                    // offset of the seed slot so we don't double-walk
+                    // the head-aware ARR_DATA_OFF arithmetic below.
+                    let reduce_no_init =
+                        matches!(method.as_str(), "reduce" | "reduceRight") && args.len() == 1;
                     let acc_slot = if matches!(method.as_str(), "reduce" | "reduceRight") {
-                        let init_v = self.lower_expr(args[1]);
+                        let init_v = if reduce_no_init {
+                            let len_for_seed = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
+                                Type::I64,
+                                None,
+                            );
+                            let seed_idx = if method == "reduceRight" {
+                                self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::BinOp(
+                                        SsaBinOp::Sub,
+                                        Operand::Value(len_for_seed),
+                                        Operand::ConstI64(1),
+                                    ),
+                                    Type::I64,
+                                    None,
+                                )
+                            } else {
+                                self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::BinOp(
+                                        SsaBinOp::Add,
+                                        Operand::ConstI64(0),
+                                        Operand::ConstI64(0),
+                                    ),
+                                    Type::I64,
+                                    None,
+                                )
+                            };
+                            let off = self.emit_arr_slot_byte_offset(
+                                Operand::Value(src_arr),
+                                Operand::Value(seed_idx),
+                                3,
+                                false,
+                            );
+                            let seed = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::LoadDyn(elem_ty, Operand::Value(src_arr), off),
+                                elem_ty,
+                                None,
+                            );
+                            // For refcounted elements the seed is a
+                            // borrowed slot read — bump RC so the
+                            // post-loop acc drop balances.
+                            if elem_ty.is_refcounted() {
+                                self.emit_rc_inc(Operand::Value(seed));
+                            }
+                            Operand::Value(seed)
+                        } else {
+                            self.lower_expr(args[1])
+                        };
                         let init_ty = self.operand_ty(&init_v);
                         let init_v = match (acc_ty, init_ty) {
                             (Type::F64, Type::I64) => self.coerce_to_f64(init_v),
@@ -21016,18 +21075,24 @@ impl<'a> LowerCtx<'a> {
                     // §22.1.3.22): init cursor to `len - 1`, header
                     // checks `i > -1`, body decrements `i = i - 1`.
                     // map/filter/reduce/forEach keep the 0..len walk.
+                    // 1-arg reduce / reduceRight: the seed element was
+                    // already consumed above as the initial acc, so
+                    // the cursor starts one step in (i = 1 / len - 2).
                     let init_i: Operand = if method == "reduceRight" {
+                        let seed_step = if reduce_no_init { 2 } else { 1 };
                         let i_init = self.f.append_inst(
                             self.cur_block,
                             InstKind::BinOp(
                                 SsaBinOp::Sub,
                                 Operand::Value(len),
-                                Operand::ConstI64(1),
+                                Operand::ConstI64(seed_step),
                             ),
                             Type::I64,
                             None,
                         );
                         Operand::Value(i_init)
+                    } else if reduce_no_init {
+                        Operand::ConstI64(1)
                     } else {
                         Operand::ConstI64(0)
                     };
