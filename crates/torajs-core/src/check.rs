@@ -6748,6 +6748,31 @@ impl Checker {
                                 BinOp::LAnd => Ok(l),
                                 _ => unreachable!(),
                             }
+                        } else if matches!(&l, Type::Nullable(linner) if **linner == r) {
+                            // `Nullable<T> || T` per §13.13: l=null →
+                            // r (T); l=T(truthy) → l (T); l=T(falsy
+                            // like 0 / "") → r (T). All paths return
+                            // a T. `&&` short-circuits to l on falsy
+                            // null and to r on truthy T — result can
+                            // still hold null, so Nullable<T> stays.
+                            // Mirror site for `||=` / `&&=` desugar.
+                            match op {
+                                BinOp::LOr => Ok(r),
+                                BinOp::LAnd => Ok(l),
+                                _ => unreachable!(),
+                            }
+                        } else if matches!(&r, Type::Nullable(rinner) if **rinner == l) {
+                            // `T || Nullable<T>` per §13.13: l truthy →
+                            // l (T); l falsy (only 0 / "" for non-null
+                            // T) → r (Nullable<T>). Widest result is
+                            // Nullable<T>. `&&` short-circuits to l on
+                            // falsy T and to r on truthy T (= Nullable
+                            // value). Either way result widens to
+                            // Nullable<T>.
+                            match op {
+                                BinOp::LOr | BinOp::LAnd => Ok(r),
+                                _ => unreachable!(),
+                            }
                         } else {
                             Err(format!(
                                 "`&&` / `||` require matching operand types, got {l:?} and {r:?}"
