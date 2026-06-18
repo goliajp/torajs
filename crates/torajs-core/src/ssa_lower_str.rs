@@ -363,6 +363,12 @@ pub(crate) fn try_lower_method_call(
                     ctx.cur_block,
                     InstKind::Call(ctx.intrinsics.str_drop, vec![Operand::Value(owned)]),
                 );
+                // ES §22.1.3.16 step 4 — `s.repeat(n < 0)` throws
+                // RangeError. Runtime sets a TLS pending throw;
+                // emit_throw_check propagates here.
+                if method == "repeat" {
+                    ctx.emit_throw_check(None);
+                }
                 return Some(Operand::Value(v));
             }
         }
@@ -732,6 +738,11 @@ pub(crate) fn try_lower_method_call(
         let v = ctx
             .f
             .append_inst(ctx.cur_block, InstKind::Call(target, argv), ret_ty, None);
+        // ES §22.1.3.16 step 4 — `s.repeat(n < 0)` throws RangeError.
+        // Runtime sets a TLS pending throw; emit_throw_check propagates.
+        if method == "repeat" {
+            ctx.emit_throw_check(None);
+        }
         return Some(Operand::Value(v));
     }
     // Array<string>.join(sep) — receiver is Type::Arr,

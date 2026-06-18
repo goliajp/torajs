@@ -193,12 +193,18 @@ pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut core::ffi::
 
 // P11.1-S6 — `__torajs_throw_range_error` lives in `torajs-throw` at
 // `tr build` link time. For `cargo test` (which doesn't link the
-// throw staticlib) we stub it: any throw path in `cargo test` paths
-// indicates a test invariant violation and should panic loudly.
+// throw staticlib) we stub it: record the call in a process-local
+// atomic so the negative-n throw path in
+// `transform::construct::tests::ffi_repeat_zero_and_negative` can
+// assert "throw was raised" without dragging in the real torajs-
+// throw TLS machinery. Tests that want to verify a throw was set
+// read + reset `STUB_THROW_RAISED` (see torajs-str unit tests for
+// `__torajs_str_repeat`).
+#[cfg(test)]
+pub static STUB_THROW_RAISED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
-    panic!(
-        "torajs-str unit-test stub: __torajs_throw_range_error should not be called from cargo test paths"
-    );
+    STUB_THROW_RAISED.store(true, core::sync::atomic::Ordering::SeqCst);
 }

@@ -175,13 +175,26 @@ pub fn at_resolve(i: i64, len: u32) -> Option<u32> {
 // ============================================================
 
 /// `s.repeat(n)` — fresh Str holding `s` concatenated `n` times.
-/// `n <= 0` yields the empty Str.
+/// `n == 0` yields the empty Str. `n < 0` raises a catchable
+/// `RangeError` via `__torajs_throw_range_error` per ES
+/// §22.1.3.16 step 4 — the SSA-emitted `emit_throw_check` after
+/// the call propagates to user `try/catch`. Pre-fix the same
+/// `n < 0` case silently produced an empty string (the C-era
+/// "v0 subset" carry-over).
 ///
 /// # Safety
 ///
 /// `s` must be a valid Str heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_repeat(s: *const u8, n: i64) -> *mut u8 {
+    if n < 0 {
+        unsafe { __torajs_throw_range_error(b"Invalid count value\0".as_ptr()) };
+        // Caller's emit_throw_check picks up the TLS pending throw
+        // immediately on return. The empty Str result is unreachable
+        // in user code but keeps the SSA Call result type stable.
+        let block = StrBlock::alloc_with_encoding(0, true);
+        return block.into_raw();
+    }
     let (s_payload, s_length, is_latin1) = unsafe { str_view(s) };
     let out_length = repeat_out_len(s_length, n);
     let mut block = StrBlock::alloc_with_encoding(out_length, is_latin1);
@@ -422,11 +435,28 @@ mod tests {
 
     #[test]
     fn ffi_repeat_zero_and_negative() {
+        // ES §22.1.3.16 — `n == 0` yields empty Str; `n < 0` raises
+        // a RangeError. In production (tr build) the runtime calls
+        // `__torajs_throw_range_error` which sets a TLS pending throw
+        // for the caller's emit_throw_check. In cargo test we use the
+        // lib.rs stub which flips `STUB_THROW_RAISED` instead — same
+        // observable effect for the unit-test invariant.
+        use core::sync::atomic::Ordering;
+        crate::STUB_THROW_RAISED.store(false, Ordering::SeqCst);
         let s = make_str(b"hi");
         let r0 = unsafe { __torajs_str_repeat(s, 0) };
-        let rn = unsafe { __torajs_str_repeat(s, -5) };
         assert_eq!(read_str(r0), b"");
+        assert!(
+            !crate::STUB_THROW_RAISED.load(Ordering::SeqCst),
+            "n=0 must not throw"
+        );
+        let rn = unsafe { __torajs_str_repeat(s, -5) };
         assert_eq!(read_str(rn), b"");
+        assert!(
+            crate::STUB_THROW_RAISED.load(Ordering::SeqCst),
+            "n<0 must raise a RangeError"
+        );
+        crate::STUB_THROW_RAISED.store(false, Ordering::SeqCst);
         unsafe { __torajs_str_free(s) };
         unsafe { __torajs_str_free(r0) };
         unsafe { __torajs_str_free(rn) };
