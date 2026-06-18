@@ -14,7 +14,7 @@
 //! grants the access without widening visibility.
 
 use super::{
-    AccessorKind, Ast, ClassMethod, Expr, ExprId, Param, Stmt, body_ends_in_return,
+    AccessorKind, Ast, BinOp, ClassMethod, Expr, ExprId, Param, Stmt, UnaryOp, body_ends_in_return,
     default_init_for_type, rewrite_returns_for_async, rewrite_this_in_ann,
 };
 
@@ -42,7 +42,20 @@ fn infer_getter_return_ann(
             None
         }
     })?;
-    let e = exprs.get(ret_expr.0 as usize)?;
+    infer_expr_ty_in_getter(ret_expr, fields, exprs)
+}
+
+/// Recursive type inference for getter body returns. Handles bare literals,
+/// `this.<field>` member reads (resolved against the class field map),
+/// arithmetic / comparison / logical / bitwise BinOps, and unary ops.
+/// Returns `None` for anything we don't yet model (call, member-of-member,
+/// etc.) so the caller falls back to leaving `return_type` as `None`.
+fn infer_expr_ty_in_getter(
+    eid: ExprId,
+    fields: &[(String, String)],
+    exprs: &[Expr],
+) -> Option<String> {
+    let e = exprs.get(eid.0 as usize)?;
     match e {
         Expr::Number(_) => Some("number".into()),
         Expr::String(_) => Some("string".into()),
@@ -64,6 +77,48 @@ fn infer_getter_return_ann(
             }
             None
         }
+        Expr::BinOp { op, left, right } => match op {
+            // Comparison + loose-eq → always boolean.
+            BinOp::Lt
+            | BinOp::Gt
+            | BinOp::Le
+            | BinOp::Ge
+            | BinOp::Eq
+            | BinOp::Neq
+            | BinOp::LooseEq
+            | BinOp::LooseNeq => Some("boolean".into()),
+            // Logical &&/|| → tora's typechecker takes the left-operand
+            // type for short-circuit result; matches §13.13 semantics
+            // for the common `x && y` / `x || fallback` shape.
+            BinOp::LAnd | BinOp::LOr => infer_expr_ty_in_getter(*left, fields, exprs),
+            // Arithmetic (non-Add) + bitwise + shift → number.
+            BinOp::Sub
+            | BinOp::Mul
+            | BinOp::Div
+            | BinOp::Mod
+            | BinOp::Pow
+            | BinOp::BitAnd
+            | BinOp::BitOr
+            | BinOp::BitXor
+            | BinOp::Shl
+            | BinOp::Shr
+            | BinOp::UShr => Some("number".into()),
+            // `+` is overloaded — string if either operand is string,
+            // else number. Both must resolve for us to commit.
+            BinOp::Add => {
+                let l = infer_expr_ty_in_getter(*left, fields, exprs)?;
+                let r = infer_expr_ty_in_getter(*right, fields, exprs)?;
+                if l == "string" || r == "string" {
+                    Some("string".into())
+                } else {
+                    Some("number".into())
+                }
+            }
+        },
+        Expr::Unary { op, .. } => match op {
+            UnaryOp::Neg | UnaryOp::BitNot | UnaryOp::Plus => Some("number".into()),
+            UnaryOp::Not => Some("boolean".into()),
+        },
         _ => None,
     }
 }
