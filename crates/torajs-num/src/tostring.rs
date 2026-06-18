@@ -49,12 +49,13 @@ pub fn to_string_radix_i(n: i64, radix: i64) -> Vec<u8> {
     buf[i..].to_vec()
 }
 
-/// Encode finite non-integer `d` in `radix` (clamped to `2..=36`).
-/// NaN / Infinity / -Infinity routed to canonical sentinel strings.
-/// Integer-valued doubles route to [`to_string_radix_i`].
-/// Otherwise: integer part via `to_string_radix_i`, then a multiply
-/// + extract + subtract loop for fractional digits (capped at 52,
-/// the f64 mantissa bit count = worst-case radix-2 digit budget).
+/// Encode finite `d` in `radix` (clamped to `2..=36`). NaN / ±Infinity
+/// routed to canonical sentinel strings. Integer part walked via f64
+/// `fmod` + `/` loop so values beyond `i64::MAX` (e.g. `1e20`) decode
+/// correctly. Fractional part uses the V8-style shortest round-trip
+/// algorithm: each step scales both `frac` and `delta = ulp(d)/2` by
+/// `radix`, emitting digits until `frac <= delta` or a banker's-rounding
+/// boundary trips a carry. Matches ES §21.1.3.6 spec round-trip intent.
 pub fn to_string_radix_f(d: f64, radix: i64) -> Vec<u8> {
     let radix = radix.clamp(2, 36);
     if d.is_nan() {
@@ -67,37 +68,105 @@ pub fn to_string_radix_f(d: f64, radix: i64) -> Vec<u8> {
             b"-Infinity".to_vec()
         };
     }
-    // Integer-valued + representable as i64 → straight to _i path.
-    if d == d.floor() && d >= i64::MIN as f64 && d <= i64::MAX as f64 {
-        return to_string_radix_i(d as i64, radix);
+    if d == 0.0 {
+        return b"0".to_vec();
     }
+
     let neg = d < 0.0;
     let abs_d = if neg { -d } else { d };
-    let int_part = abs_d.floor();
-    let mut frac = abs_d - int_part;
-
-    let int_bytes = to_string_radix_i(int_part as i64, radix);
-    let mut frac_buf = Vec::with_capacity(52);
     let r_d = radix as f64;
     let radix_u = radix as usize;
-    while frac > 0.0 && frac_buf.len() < 52 {
-        frac *= r_d;
-        let digit_d = frac.floor();
-        let digit = (digit_d as usize).min(radix_u - 1);
-        frac_buf.push(DIGITS[digit]);
-        frac -= digit_d;
+
+    // Integer part — f64-arithmetic loop handles values beyond i64::MAX (e.g. 1e20).
+    let mut int_buf: Vec<u8> = Vec::new();
+    let mut int_part_f = abs_d.floor();
+    if int_part_f == 0.0 {
+        int_buf.push(b'0');
+    } else {
+        while int_part_f > 0.0 {
+            let remainder = int_part_f % r_d;
+            int_buf.push(DIGITS[(remainder as usize).min(radix_u - 1)]);
+            int_part_f = (int_part_f - remainder) / r_d;
+        }
+        int_buf.reverse();
     }
 
-    let mut out = Vec::with_capacity(int_bytes.len() + 1 + frac_buf.len() + 1);
+    // Fractional part — V8 shortest round-trip via ULP-delta tracking.
+    let mut frac_buf: Vec<u8> = Vec::new();
+    let mut frac = abs_d - abs_d.floor();
+    if frac > 0.0 {
+        let next_d = f64::from_bits(abs_d.to_bits() + 1);
+        let mut delta = (next_d - abs_d) * 0.5;
+        if !(delta > 0.0) {
+            delta = f64::MIN_POSITIVE;
+        }
+        loop {
+            delta *= r_d;
+            frac *= r_d;
+            let digit_d = frac.floor();
+            let digit = (digit_d as usize).min(radix_u - 1);
+            frac_buf.push(DIGITS[digit]);
+            frac -= digit_d;
+
+            // Round-up check: banker's tie-break + over-boundary carry.
+            if frac > 0.5 || (frac == 0.5 && (digit & 1) != 0) {
+                if frac + delta > 1.0 {
+                    carry_propagate(&mut frac_buf, &mut int_buf, radix_u);
+                    break;
+                }
+            }
+            if frac <= delta || frac_buf.len() >= 1100 {
+                break;
+            }
+        }
+    }
+
+    let mut out = Vec::with_capacity(int_buf.len() + frac_buf.len() + 2);
     if neg {
         out.push(b'-');
     }
-    out.extend_from_slice(&int_bytes);
+    out.extend_from_slice(&int_buf);
     if !frac_buf.is_empty() {
         out.push(b'.');
         out.extend_from_slice(&frac_buf);
     }
     out
+}
+
+/// Propagate a +1 carry through the fractional digit buffer right-to-left;
+/// if it overflows past the radix point, propagate further through the
+/// integer buffer; if it overflows past that, prepend `'1'`.
+fn carry_propagate(frac_buf: &mut Vec<u8>, int_buf: &mut Vec<u8>, radix: usize) {
+    let radix_u8 = radix as u8;
+    for i in (0..frac_buf.len()).rev() {
+        let c = frac_buf[i];
+        let val = if c <= b'9' { c - b'0' } else { c - b'a' + 10 };
+        let new_val = val + 1;
+        if new_val < radix_u8 {
+            frac_buf[i] = if new_val < 10 {
+                b'0' + new_val
+            } else {
+                b'a' + (new_val - 10)
+            };
+            return;
+        }
+        frac_buf[i] = b'0';
+    }
+    for i in (0..int_buf.len()).rev() {
+        let c = int_buf[i];
+        let val = if c <= b'9' { c - b'0' } else { c - b'a' + 10 };
+        let new_val = val + 1;
+        if new_val < radix_u8 {
+            int_buf[i] = if new_val < 10 {
+                b'0' + new_val
+            } else {
+                b'a' + (new_val - 10)
+            };
+            return;
+        }
+        int_buf[i] = b'0';
+    }
+    int_buf.insert(0, b'1');
 }
 
 // ============================================================

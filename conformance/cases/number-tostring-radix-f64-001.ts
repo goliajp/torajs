@@ -23,15 +23,12 @@
 //   list so its return value participates in refcount the
 //   same way the integer counterpart does.
 //
-// Subtlety: bun and other major engines emit one extra
-// fractional digit and round-half-to-even based on the
-// truncated remainder. tora's MVP cap is 52 digits with no
-// round step, so very long fractional radix outputs may
-// differ in the last 1-2 digits (e.g. (0.1).toString(2)
-// gives ...1001 vs bun's ...1101). Cases at <= 16 fractional
-// digits agree byte-for-byte, which covers the canonical TS
-// usage. The trailing-digit round refinement is a follow-up
-// substrate item.
+// 2026-06-18: V3-18b ships the V8-style shortest round-trip
+// algorithm in to_string_radix_f — fractional digit budget is
+// now ulp-tracked (not capped at 52), with banker's rounding
+// + carry propagation. (0.1).toString(2) now matches bun's
+// trailing '...1101'. See check-num-tostring-radix-spec-001
+// for the spec-quality coverage.
 
 // Fractional-radix output — the crash epicenter.
 console.log((10.5).toString(16))               // a.8
