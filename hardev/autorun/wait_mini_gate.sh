@@ -75,13 +75,26 @@ if [ -n "$existing" ]; then
   exit 0
 fi
 
-# Slow path: tail -F until the summary line shows up. The remote
-# `timeout` wrapper bounds total wait inside the SSH session itself
-# so harness foreground budget isn't the only stop.
-# Note: grep -m1 alone won't terminate `tail -F`; the pipe close
-# only propagates once tail produces another line. `timeout --kill`
-# forces the issue if the gate stalls past the wall budget.
-remote_cmd="timeout --kill-after=5 ${TIMEOUT}s sh -c 'tail -F \"$LOG_PATH\" 2>/dev/null | grep -m1 -E \"$PATTERN\"'"
+# Slow path: poll the log every POLL_INTERVAL seconds. Earlier
+# revisions used `tail -F | grep -m1` inside a remote `timeout`
+# wrapper, but mini (Apple Silicon, no brew coreutils) ships
+# without GNU `timeout`, and `tail -F | grep -m1` alone leaks the
+# SSH session — grep exits the moment it matches, but tail-F only
+# notices pipe-close when it tries to write another line, which
+# may never happen on an already-quiet log. Polling is bounded
+# inside the single SSH session by tracking wall time against
+# TIMEOUT; ~5s poll interval makes the overhead ~10 round trips
+# of one `grep -m1` over the (small) log file for a ~1min gate.
+POLL_INTERVAL=5
+remote_cmd="
+end=\$(( \$(date +%s) + ${TIMEOUT} ))
+while [ \$(date +%s) -lt \$end ]; do
+  m=\$(grep -m1 -E '${PATTERN}' '${LOG_PATH}' 2>/dev/null || true)
+  if [ -n \"\$m\" ]; then printf '%s\n' \"\$m\"; exit 0; fi
+  sleep ${POLL_INTERVAL}
+done
+exit 124
+"
 match=$(ssh "$HOST" "$remote_cmd")
 rc=$?
 case "$rc" in
@@ -89,7 +102,7 @@ case "$rc" in
     printf '%s\n' "$match"
     exit 0
     ;;
-  124|137)
+  124)
     echo "wait_mini_gate: timed out after ${TIMEOUT}s waiting for gate summary in $LOG_PATH" >&2
     exit 2
     ;;
