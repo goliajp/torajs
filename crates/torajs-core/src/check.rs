@@ -5417,6 +5417,26 @@ impl Checker {
                         return Ok(Type::Array(Box::new(ret_ty)));
                     }
                 }
+                // S153 — `Date.UTC(...)` 1-6 arg overloads per ES §21.4.2.21.
+                // Static sig at 4080 is fixed (Number×7) → Number; this arm
+                // accepts the trailing-defaults forms (Date.UTC(year),
+                // Date.UTC(y, m), ..., Date.UTC(y, m, d, h, min, s) — ms
+                // defaulted at lower time). The 7-arg form keeps using
+                // the static-sig path unchanged.
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "UTC"
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Date"
+                    && (1..=6).contains(&args.len())
+                {
+                    for a in args {
+                        let _ = self.type_of(ast, *a)?;
+                    }
+                    return Ok(Type::Number);
+                }
                 // `xs.reduce(cb)` / `xs.reduceRight(cb)` 1-arg overload —
                 // ES §23.1.3.24 / §23.1.3.25: initial value defaults to
                 // `arr[0]` (or `arr[len-1]` for reduceRight); empty array
