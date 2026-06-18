@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-18T15:23:38.618Z",
+  "generatedAt": "2026-06-18T16:54:18.139Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "934e4511",
-    "commitSubject": "feat(lexer): interpret escape sequences in template literal lits per ES §12.8.6.2",
+    "commit": "c9ba2e4a",
+    "commitSubject": "feat(date): `Date.prototype.toDateString()` per ES §21.4.4.35",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "c9ba2e4a",
+      "subject": "feat(date): `Date.prototype.toDateString()` per ES §21.4.4.35"
+    },
+    {
+      "hash": "33f0776e",
+      "subject": "feat(math): `Math.f16round(x)` round to IEEE-754 binary16 per ES 2025 §21.3.2.31"
+    },
+    {
+      "hash": "3f32c297",
+      "subject": "feat(closure): IIFE — `(arrow)(...args)` immediately-invoked closure callees per ES 11.2.5"
+    },
+    {
+      "hash": "ff7974ed",
+      "subject": "feat(arr): `Array.push(...items)` multi-arg in expression position per ES §22.1.3.20"
+    },
+    {
+      "hash": "7fa76915",
+      "subject": "feat(map): `new Map(<typed Array<Array<T>>>)` iterable initializer per ES §24.2.1"
+    },
+    {
+      "hash": "2824a8ec",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S151-S155 arr-from-mapfn/set-init-arr/date-utc-arity/nested-generic/tmpl-escape)"
+    },
+    {
       "hash": "934e4511",
       "subject": "feat(lexer): interpret escape sequences in template literal lits per ES §12.8.6.2"
     },
@@ -639,33 +663,9 @@
     {
       "hash": "cf6e56e7",
       "subject": "chore(hardev/web): refresh dashboard snapshot — Reflect.get typed-struct fold (S150)"
-    },
-    {
-      "hash": "4c48a6d2",
-      "subject": "feat(reflect): `Reflect.get(target, key)` typed-struct literal-key fold per ES §28.1.6"
-    },
-    {
-      "hash": "21417c0d",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S145–S149 num-radix-v8/array-destr-default/getter-binop-inf/in-struct/fn-ret-inf-arr-methods)"
-    },
-    {
-      "hash": "455f241c",
-      "subject": "feat(check): extend `infer_expr_ann_with` Array-method whitelist per ES §10.2.3"
-    },
-    {
-      "hash": "6f55fc19",
-      "subject": "feat(in-op): `<key> in <typed-struct>` per ES §13.10.1"
-    },
-    {
-      "hash": "3f1c84b4",
-      "subject": "feat(class-getter): extend return-type inference to BinOp / Unary bodies per ES §10.1.7"
-    },
-    {
-      "hash": "57b20a7b",
-      "subject": "feat(destr): accept `=` default in array destructuring per ES §13.3.3"
     }
   ],
-  "headSha": "934e4511",
+  "headSha": "c9ba2e4a",
   "autorun": {
     "total": 191,
     "baselineTarget": 10,
