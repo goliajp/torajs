@@ -3763,6 +3763,34 @@ fn lower_inner(
         &[Type::Set, Type::Set],
         Type::I64,
     );
+    let set_union_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_set_union",
+        &[Type::Set, Type::Set],
+        Type::Set,
+    );
+    let set_intersection_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_set_intersection",
+        &[Type::Set, Type::Set],
+        Type::Set,
+    );
+    let set_difference_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_set_difference",
+        &[Type::Set, Type::Set],
+        Type::Set,
+    );
+    let set_symmetric_difference_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_set_symmetric_difference",
+        &[Type::Set, Type::Set],
+        Type::Set,
+    );
     let map_set_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5810,6 +5838,10 @@ fn lower_inner(
         set_is_subset_of: set_is_subset_of_id,
         set_is_superset_of: set_is_superset_of_id,
         set_is_disjoint_from: set_is_disjoint_from_id,
+        set_union: set_union_id,
+        set_intersection: set_intersection_id,
+        set_difference: set_difference_id,
+        set_symmetric_difference: set_symmetric_difference_id,
         map_set: map_set_id,
         map_get: map_get_id,
         map_has: map_has_id,
@@ -6827,6 +6859,10 @@ pub(crate) struct Intrinsics {
     pub(crate) set_is_subset_of: FuncId,
     pub(crate) set_is_superset_of: FuncId,
     pub(crate) set_is_disjoint_from: FuncId,
+    pub(crate) set_union: FuncId,
+    pub(crate) set_intersection: FuncId,
+    pub(crate) set_difference: FuncId,
+    pub(crate) set_symmetric_difference: FuncId,
     pub(crate) map_set: FuncId,
     pub(crate) map_get: FuncId,
     pub(crate) map_has: FuncId,
@@ -19894,6 +19930,10 @@ impl<'a> LowerCtx<'a> {
                             | "isSubsetOf"
                             | "isSupersetOf"
                             | "isDisjointFrom"
+                            | "union"
+                            | "intersection"
+                            | "difference"
+                            | "symmetricDifference"
                     );
                     if set_method {
                         // Receiver Set detection — mirror the Map arm
@@ -20035,6 +20075,31 @@ impl<'a> LowerCtx<'a> {
                                         None,
                                     );
                                     return Operand::Value(b);
+                                }
+                                "union" | "intersection" | "difference" | "symmetricDifference" => {
+                                    // ES2025 mutating setops — fresh Set;
+                                    // receiver + other are borrowed. Heap
+                                    // keys are rc_inc'd by the runtime
+                                    // helper before re-insert so the
+                                    // source still owns its own ref.
+                                    debug_assert_eq!(args.len(), 1);
+                                    let other_op = self.lower_expr(args[0]);
+                                    let target = match m_name.as_str() {
+                                        "union" => self.intrinsics.set_union,
+                                        "intersection" => self.intrinsics.set_intersection,
+                                        "difference" => self.intrinsics.set_difference,
+                                        "symmetricDifference" => {
+                                            self.intrinsics.set_symmetric_difference
+                                        }
+                                        _ => unreachable!(),
+                                    };
+                                    let v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(target, vec![recv_op, other_op]),
+                                        Type::Set,
+                                        None,
+                                    );
+                                    return Operand::Value(v);
                                 }
                                 "keys" | "values" => {
                                     /* P6.4b — Set.keys / .values are

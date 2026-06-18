@@ -3783,6 +3783,15 @@ impl Checker {
                         vec![Type::Set],
                         Box::new(Type::Boolean),
                     )),
+                    // ES2025 mutating Set setops (§24.2.3.{15,16,17,18}).
+                    // Returns a fresh Set with rc=1.
+                    (Type::Set, "union")
+                    | (Type::Set, "intersection")
+                    | (Type::Set, "difference")
+                    | (Type::Set, "symmetricDifference") => Ok(Type::Function(
+                        vec![Type::Set],
+                        Box::new(Type::Set),
+                    )),
                     (Type::Set, "delete") => Ok(Type::Function(
                         vec![Type::Any],
                         Box::new(Type::Boolean),
