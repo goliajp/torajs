@@ -1086,19 +1086,49 @@ pub(crate) fn try_lower_method_call(
                     ),
                 }
             }
-            _ => match elem_ty {
-                Type::F64 => ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::FCmp(FPred::Ogt, Operand::Value(prev), Operand::Value(cur)),
-                    Type::Bool,
-                    None,
-                ),
-                Type::Str | Type::Substr => {
+            _ => {
+                // ES §23.1.3.30 SortCompare with no comparator =
+                // ToString each operand then code-unit lex compare.
+                // Pre-Spec-fix wedge used numeric `prev > cur` which
+                // ordered `[10, 2]` as `[2, 10]` — disagrees with bun.
+                // For each numeric / bool element, route through the
+                // existing `*_to_str` intrinsics so the resulting Str
+                // operands feed the same `str_locale_compare`
+                // (bytewise; see runtime doc) the Str arm uses. Obj /
+                // Arr / etc fall back to the legacy pointer ICmp —
+                // no `*_to_str` exists for them yet and the spec
+                // result (`"[object Object]"`-tied tie-break) is
+                // niche enough to leave behind a follow-up.
+                let to_str = |ctx: &mut LowerCtx, v, ty: Type| match ty {
+                    Type::Str | Type::Substr => Some(v),
+                    Type::I64 => Some(ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.i64_to_str, vec![Operand::Value(v)]),
+                        Type::Str,
+                        None,
+                    )),
+                    Type::F64 => Some(ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.f64_to_str, vec![Operand::Value(v)]),
+                        Type::Str,
+                        None,
+                    )),
+                    Type::Bool => Some(ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.bool_to_str, vec![Operand::Value(v)]),
+                        Type::Str,
+                        None,
+                    )),
+                    _ => None,
+                };
+                let prev_s = to_str(ctx, prev, elem_ty);
+                let cur_s = to_str(ctx, cur, elem_ty);
+                if let (Some(ps), Some(cs)) = (prev_s, cur_s) {
                     let r = ctx.f.append_inst(
                         ctx.cur_block,
                         InstKind::Call(
                             ctx.intrinsics.str_locale_compare,
-                            vec![Operand::Value(prev), Operand::Value(cur)],
+                            vec![Operand::Value(ps), Operand::Value(cs)],
                         ),
                         Type::I64,
                         None,
@@ -1109,14 +1139,15 @@ pub(crate) fn try_lower_method_call(
                         Type::Bool,
                         None,
                     )
+                } else {
+                    ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::ICmp(IPred::Sgt, Operand::Value(prev), Operand::Value(cur)),
+                        Type::Bool,
+                        None,
+                    )
                 }
-                _ => ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::ICmp(IPred::Sgt, Operand::Value(prev), Operand::Value(cur)),
-                    Type::Bool,
-                    None,
-                ),
-            },
+            }
         };
         ctx.f.set_term(
             ctx.cur_block,
