@@ -4224,15 +4224,18 @@ impl Checker {
                                 Box::new(Type::Array(Box::new(Type::Any))),
                             ));
                         }
-                        let Type::Array(inner) = (**elem).clone() else {
-                            return Err(format!(
-                                "Array.flat requires Array<Array<T>>, receiver is Array<{:?}>",
-                                **elem
-                            ));
+                        // ES §23.1.3.11 — non-nested receiver returns
+                        // a shallow copy with the same element type
+                        // (depth=1 leaves non-Array slots untouched).
+                        // Pre-fix tora forced Array<Array<T>>, blocking
+                        // the spec-canonical `[1,2,3].flat()` shape.
+                        let result_inner = match (**elem).clone() {
+                            Type::Array(inner) => *inner,
+                            other => other,
                         };
                         Ok(Type::Function(
                             Vec::new(),
-                            Box::new(Type::Array(inner)),
+                            Box::new(Type::Array(Box::new(result_inner))),
                         ))
                     }
                     // `xs.sort(cmp)` — in-place sort using the comparator

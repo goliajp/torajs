@@ -880,6 +880,42 @@ pub(crate) fn try_lower_method_call(
                 continue;
             }
             let Type::Arr(_) = outer_elem else {
+                // ES §23.1.3.11 — non-Array slot: receiver is already
+                // "flat" at this depth, but flat() must still return a
+                // fresh array. Emit a shallow clone (arr_slice + rc_inc
+                // range on refcounted elem) — same shape as depth=0.
+                let len = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Load(Type::I64, cur, ARR_LEN_OFF),
+                    Type::I64,
+                    None,
+                );
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.arr_slice,
+                        vec![cur, Operand::ConstI64(0), Operand::Value(len)],
+                    ),
+                    cur_ty,
+                    None,
+                );
+                if let Type::Arr(arr_id) = cur_ty {
+                    let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+                    if elem_ty.is_refcounted() {
+                        let len2 = ctx.f.append_inst(
+                            ctx.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        ctx.emit_arr_rc_inc_range(
+                            Operand::Value(v),
+                            Operand::ConstI64(0),
+                            Operand::Value(len2),
+                        );
+                    }
+                }
+                cur = Operand::Value(v);
                 break;
             };
             let v = ctx.f.append_inst(
