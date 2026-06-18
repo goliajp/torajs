@@ -6148,10 +6148,16 @@ impl Checker {
                         if args.is_empty() {
                             return Ok(Type::Array(Box::new(expected)));
                         }
+                        // ES §23.1.3.2 — every arg is either an Array<T>
+                        // (spread into the result) or a single T value
+                        // (appended as one element). Mixed shapes are
+                        // valid: `xs.concat([4,5], 6, [7,8])`.
                         let mut ok = true;
                         for a in args {
                             let a_ty = self.type_of(ast, *a)?;
-                            if a_ty != Type::Array(Box::new(expected.clone())) {
+                            let is_arr_t = a_ty == Type::Array(Box::new(expected.clone()));
+                            let is_scalar_t = a_ty == expected;
+                            if !is_arr_t && !is_scalar_t {
                                 ok = false;
                                 break;
                             }

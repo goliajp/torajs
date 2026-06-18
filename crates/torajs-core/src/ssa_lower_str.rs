@@ -1319,9 +1319,48 @@ pub(crate) fn try_lower_method_call(
             recv_op
         };
         let recv_elem = ctx.arr_layouts[arr_id.0 as usize];
+        // ES §23.1.3.2 — concat returns a fresh array; receiver must
+        // not be mutated. `arr_concat` always allocates a new buffer,
+        // but `arr_push` (used below for scalar args) may mutate
+        // in-place when capacity allows. Track when `acc` is still
+        // aliased to the receiver and force a shallow copy before the
+        // first scalar push to preserve spec semantics.
+        let mut acc_is_fresh = args.is_empty();
         for a in args {
             let other = ctx.lower_expr(*a);
             let other_ty = ctx.operand_ty(&other);
+            // ES §23.1.3.2 — scalar arg (same type as receiver elem)
+            // is appended as a single element instead of spread.
+            if other_ty == recv_elem && !matches!(other_ty, Type::Arr(_)) {
+                if !acc_is_fresh {
+                    let len = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Load(Type::I64, acc, ARR_LEN_OFF),
+                        Type::I64,
+                        None,
+                    );
+                    let v = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(
+                            ctx.intrinsics.arr_slice,
+                            vec![acc, Operand::ConstI64(0), Operand::Value(len)],
+                        ),
+                        Type::Arr(arr_id),
+                        None,
+                    );
+                    acc = Operand::Value(v);
+                    acc_is_fresh = true;
+                }
+                let push_arg = ctx.raw_slot_arg(other);
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.arr_push, vec![acc, push_arg]),
+                    Type::Arr(arr_id),
+                    None,
+                );
+                acc = Operand::Value(v);
+                continue;
+            }
             // S129-4 Array<Any>.concat(Array<typed>) — receiver elem
             // is Any (NaN-box AnyValue per slot), arg is a typed
             // Array<T>. The classic arr_concat is a raw 8B-stride
@@ -1366,6 +1405,9 @@ pub(crate) fn try_lower_method_call(
                 )
             };
             acc = Operand::Value(v);
+            // arr_concat / arr_extend_typed_into_any both return new
+            // ptrs — acc is now detached from the receiver buffer.
+            acc_is_fresh = true;
         }
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         if elem_ty.is_refcounted() {
