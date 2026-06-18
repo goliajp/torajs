@@ -1,13 +1,12 @@
 {
-  "generatedAt": "2026-06-18T06:02:49.619Z",
+  "generatedAt": "2026-06-18T09:16:40.288Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 789,
+    "pass": 660,
     "fail": 0,
-    "skip": 4,
-    "raw": "789/0/4",
-    "source": "/tmp/torajs-conformance-ba8f4ef4.log",
-    "sourceMtime": "2026-06-13T15:37:47.035Z"
+    "skip": 1,
+    "raw": "660/0/1",
+    "source": "hardev/metrics.md"
   },
   "test262": {
     "ranAt": "2026-06-13T02:10:34Z",
@@ -31,17 +30,16 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "19b04c15",
-    "commitSubject": "feat(nullish): `??` accepts non-nullable lhs per ES §13.4.2",
+    "commit": "a189adca",
+    "commitSubject": "fix(console-log): `null` / `undefined` print spec-aligned labels",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 789,
+      "pass": 660,
       "fail": 0,
-      "skip": 4,
-      "raw": "789/0/4",
-      "source": "/tmp/torajs-conformance-ba8f4ef4.log",
-      "sourceMtime": "2026-06-13T15:37:47.035Z"
+      "skip": 1,
+      "raw": "660/0/1",
+      "source": "hardev/metrics.md"
     }
   },
   "roadmap": [
@@ -619,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "a189adca",
+      "subject": "fix(console-log): `null` / `undefined` print spec-aligned labels"
+    },
+    {
+      "hash": "1257318e",
+      "subject": "feat(logical): typed nullish lhs in `&&` / `||` per ES §13.13"
+    },
+    {
+      "hash": "06a7bfe7",
+      "subject": "fix(unary-bitnot): accept String operand per ES §13.5.6"
+    },
+    {
+      "hash": "a5e25ead",
+      "subject": "fix(unary): `-undefined` / `~undefined` per ES §13.5.5–6"
+    },
+    {
+      "hash": "9fb0e40f",
+      "subject": "fix(unary-plus): `+undefined` returns NaN per ES §13.5.4"
+    },
+    {
+      "hash": "27d4d134",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (sort lex / splice generic / split limit / toPrecision 0-arg / nullish typed-lhs)"
+    },
+    {
       "hash": "19b04c15",
       "subject": "feat(nullish): `??` accepts non-nullable lhs per ES §13.4.2"
     },
@@ -641,51 +663,38 @@
     {
       "hash": "df2cc665",
       "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×9 + watcher fix (toPrecision e-form, RegExp ctor/toString, str.repeat throw, null/undef + loose-eq sweep, toSpliced literal-receiver)"
-    },
-    {
-      "hash": "689b1042",
-      "subject": "feat(arr.toSpliced): generic receiver fallback per ES §23.1.3.42"
-    },
-    {
-      "hash": "ccf7948d",
-      "subject": "feat(eq): loose-eq `Boolean` <-> `String` coercion per ES §7.2.13 steps 7-9"
-    },
-    {
-      "hash": "553c1c18",
-      "subject": "feat(eq): loose-eq `String` <-> `Number` coercion per ES §7.2.13 step 6"
-    },
-    {
-      "hash": "5a839e7e",
-      "subject": "fix(eq): loose-eq `null` / `undefined` vs other primitives per ES §7.2.13"
-    },
-    {
-      "hash": "87a9ac2b",
-      "subject": "fix(eq): `null == undefined` / `null === undefined` per ES §7.2.13 / §7.2.15"
-    },
-    {
-      "hash": "29ddbef7",
-      "subject": "fix(str.repeat): throw RangeError on `n < 0` per ES §22.1.3.16"
     }
   ],
-  "headSha": "19b04c15",
+  "headSha": "a189adca",
   "autorun": {
-    "total": 186,
+    "total": 187,
     "baselineTarget": 10,
-    "bySelf": 181,
+    "bySelf": 182,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781756651-4329",
-      "at": "2026-06-18T04:24:11Z",
-      "ts": 1781756651,
+      "rotationId": "r-1781762582-0657",
+      "at": "2026-06-18T06:03:02Z",
+      "ts": 1781762582,
       "trigger": "self",
-      "prevHead": "df2cc665",
-      "handoffSha": "sha256:fb2164446a3aabaeabcae41758743eaad576c79feece71dd1346b3434ce6e43d",
-      "handoffAgeSec": 9,
+      "prevHead": "27d4d134",
+      "handoffSha": "sha256:6daf1d94311f378dfb639d152e501e9aa5a3bcf6c654fe26316fb904266f0275",
+      "handoffAgeSec": 19,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781762582-0657",
+        "at": "2026-06-18T06:03:02Z",
+        "ts": 1781762582,
+        "trigger": "self",
+        "prevHead": "27d4d134",
+        "handoffSha": "sha256:6daf1d94311f378dfb639d152e501e9aa5a3bcf6c654fe26316fb904266f0275",
+        "handoffAgeSec": 19,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781756651-4329",
         "at": "2026-06-18T04:24:11Z",
@@ -782,17 +791,6 @@
         "prevHead": "b1a33819",
         "handoffSha": "sha256:1b38eb1e83e3b6bdc3aabc611c4c1a88ec8ac308dce1351fce2178be21929dac",
         "handoffAgeSec": 15533,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781595225-6c05",
-        "at": "2026-06-16T07:33:45Z",
-        "ts": 1781595225,
-        "trigger": "self",
-        "prevHead": "38433346",
-        "handoffSha": "sha256:1b38eb1e83e3b6bdc3aabc611c4c1a88ec8ac308dce1351fce2178be21929dac",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
