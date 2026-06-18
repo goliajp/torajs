@@ -23,7 +23,7 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
-/// Single entry point — try both receiver shapes in turn.
+/// Single entry point — try all receiver shapes in turn.
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx,
     callee_eid: ExprId,
@@ -32,7 +32,43 @@ pub(crate) fn try_lower(
     if let Some(v) = try_lower_local(ctx, callee_eid, args) {
         return Some(v);
     }
-    try_lower_global(ctx, callee_eid, args)
+    if let Some(v) = try_lower_global(ctx, callee_eid, args) {
+        return Some(v);
+    }
+    try_lower_generic(ctx, callee_eid, args)
+}
+
+/// (c) Fallback — any expression that lowers to `Type::Arr` (literal
+/// arrays, method chains returning Array, struct-field reads, etc.).
+/// Drops the receiver after the clone (it was a fresh-owned value
+/// when the receiver was a non-Ident expression — the source array
+/// stays referenced through the clone's own ARC bumps).
+fn try_lower_generic(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> Option<Operand> {
+    let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
+        return None;
+    };
+    if name != "toSpliced" || args.len() != 2 {
+        return None;
+    }
+    let recv_eid = *recv_id;
+    let recv_op = ctx.lower_expr(recv_eid);
+    let recv_ty = ctx.operand_ty(&recv_op);
+    let Type::Arr(arr_id) = recv_ty else {
+        return None;
+    };
+    let cur_arr = match recv_op {
+        Operand::Value(v) => v,
+        _ => return None,
+    };
+    let clone = emit_clone_splice_return(ctx, recv_ty, arr_id, cur_arr, args);
+    // The receiver expression produced a fresh-owned array (literal
+    // or call result); the clone's elements already hold their own
+    // ARC bumps via `emit_arr_rc_inc_range`, so drop the source to
+    // balance ownership.
+    if ctx.expr_is_fresh_owned(recv_eid) {
+        ctx.emit_drop_value(Operand::Value(cur_arr), recv_ty);
+    }
+    Some(clone)
 }
 
 /// (a) `xs.toSpliced(start, deleteCount)` where `xs` is an Ident bound

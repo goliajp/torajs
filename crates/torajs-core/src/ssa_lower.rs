@@ -8206,7 +8206,7 @@ impl<'a> LowerCtx<'a> {
     /// via STATIC_LITERAL; emitting `__torajs_str_drop`'s BL still
     /// clobbers caller-saved X0 and silently destroyed `n + "x"`-style
     /// ret values). Used by Expr::BinOp's post-call drop pass.
-    fn expr_is_fresh_owned(&self, eid: ExprId) -> bool {
+    pub(crate) fn expr_is_fresh_owned(&self, eid: ExprId) -> bool {
         !matches!(
             self.ast.get_expr(eid),
             Expr::Ident(_)
