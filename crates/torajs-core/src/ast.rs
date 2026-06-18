@@ -3578,6 +3578,7 @@ pub fn desugar_classes(ast: &mut Ast) {
             &cname,
             &type_params,
             &this_ann,
+            &full_fields[&cname],
             &mut accessor_getter_records,
             &mut accessor_setter_records,
             &mut appended,

@@ -14,9 +14,59 @@
 //! grants the access without widening visibility.
 
 use super::{
-    AccessorKind, Ast, ClassMethod, Expr, Param, Stmt, body_ends_in_return, default_init_for_type,
-    rewrite_returns_for_async, rewrite_this_in_ann,
+    AccessorKind, Ast, ClassMethod, Expr, ExprId, Param, Stmt, body_ends_in_return,
+    default_init_for_type, rewrite_returns_for_async, rewrite_this_in_ann,
 };
+
+/// P8.2 — getter return-type inference for `get prop() { return this.x }`
+/// shape, run when the user omitted the `: T` annotation. TS spec leaves
+/// the getter return type inferred from body returns (per §10.1.7); plain
+/// FnDecls infer via `desugar_implicit_generics` → `infer_expr_ann_with`,
+/// but that helper bails on `Expr::Member` (only `length` recognised),
+/// because top-level FnDecls don't have a class-field map to consult.
+/// Getters do — `desugar_classes` Pass 3 has the flattened `(field_name,
+/// type_ann)` slice already, so we can resolve `this.x` to `x`'s declared
+/// ann. Also handles trivially-literal returns (`return 42` / `return "x"`).
+/// Returns `None` when the body shape is anything else — caller falls
+/// back to leaving `return_type` as `None`, preserving the existing
+/// `Void` default for shapes we don't yet model.
+fn infer_getter_return_ann(
+    body: &[Stmt],
+    fields: &[(String, String)],
+    exprs: &[Expr],
+) -> Option<String> {
+    let ret_expr: ExprId = body.iter().rev().find_map(|s| {
+        if let Stmt::Return(Some(eid)) = s {
+            Some(*eid)
+        } else {
+            None
+        }
+    })?;
+    let e = exprs.get(ret_expr.0 as usize)?;
+    match e {
+        Expr::Number(_) => Some("number".into()),
+        Expr::String(_) => Some("string".into()),
+        Expr::Bool(_) => Some("boolean".into()),
+        Expr::Member { obj, name } => {
+            let obj_e = exprs.get(obj.0 as usize)?;
+            // `this` rewriting state at emit time: parser emits `Expr::This`
+            // but `desugar_classes` Pass 2 (which runs before this emit
+            // helper for class-body shapes) substitutes it with the synth
+            // param `__this`. Match both — and the literal `Ident("this")`
+            // fallback — so the helper survives ordering shifts.
+            let is_this = matches!(obj_e, Expr::This)
+                || matches!(obj_e, Expr::Ident(s) if s == "this" || s == "__this");
+            if is_this {
+                return fields
+                    .iter()
+                    .find(|(f, _)| f == name)
+                    .map(|(_, ty)| ty.clone());
+            }
+            None
+        }
+        _ => None,
+    }
+}
 
 /// P10.3-A3a — rewrite an async class method body into the same
 /// shape `desugar_async` produces for top-level async fns: each
@@ -88,6 +138,7 @@ pub(super) fn emit_class_instance_methods(
     cname: &str,
     type_params: &[String],
     this_ann: &str,
+    fields: &[(String, String)],
     accessor_getter_records: &mut Vec<(String, String, String)>,
     accessor_setter_records: &mut Vec<(String, String, String)>,
     appended: &mut Vec<Stmt>,
@@ -139,9 +190,18 @@ pub(super) fn emit_class_instance_methods(
         }
         let (body, return_type) = maybe_rewrite_async_method_body(ast, cname, "__cm_", m)
             .unwrap_or_else(|| {
+                // P8.2 — getter without `: T` annotation: infer from
+                // body return shape (TS spec §10.1.7). Plain methods
+                // keep the existing `None → Void` default.
+                let effective_ret =
+                    if m.accessor_kind == Some(AccessorKind::Getter) && m.return_type.is_none() {
+                        infer_getter_return_ann(&m.body, fields, &ast.exprs)
+                    } else {
+                        m.return_type.clone()
+                    };
                 (
                     m.body.clone(),
-                    rewrite_this_in_ann(&m.return_type, this_ann),
+                    rewrite_this_in_ann(&effective_ret, this_ann),
                 )
             });
         appended.push(Stmt::FnDecl {
