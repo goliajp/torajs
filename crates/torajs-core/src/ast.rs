@@ -10078,10 +10078,26 @@ fn infer_expr_ann_with(
                     ) => "string",
                     ("string", _, "startsWith" | "endsWith" | "includes") => "boolean",
                     ("string", _, "indexOf" | "lastIndexOf" | "charCodeAt") => "number",
-                    (_, Some(e), "pop" | "shift" | "at") => e,
-                    (_, Some(_), "slice" | "map" | "reverse" | "sort" | "concat" | "fill") => &r,
-                    (_, Some(_), "every") => "boolean",
+                    (_, Some(e), "pop" | "shift" | "at" | "find" | "findLast") => e,
+                    (
+                        _,
+                        Some(_),
+                        "slice" | "map" | "reverse" | "sort" | "concat" | "fill" | "filter"
+                        | "flat" | "flatMap",
+                    ) => &r,
+                    (_, Some(_), "every" | "some" | "includes") => "boolean",
+                    (_, Some(_), "indexOf" | "lastIndexOf" | "findIndex" | "findLastIndex") => {
+                        "number"
+                    }
                     (_, Some(_), "join") => "string",
+                    // `reduce` / `reduceRight` return type is the callback's
+                    // accumulator type — for the common case where the
+                    // accumulator is the same shape as elements (e.g.
+                    // `xs.reduce((a, b) => a + b, 0)` on Number[]), it
+                    // matches the element type. Mixed-type accumulators
+                    // (cb returns a different shape than elem) still need
+                    // explicit ret annotation (substrate follow-up).
+                    (_, Some(e), "reduce" | "reduceRight") => e,
                     _ => return None,
                 };
                 return Some(ret.to_string());
