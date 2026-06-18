@@ -773,6 +773,15 @@ fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
     if (nullish(l) && primitive(r)) || (nullish(r) && primitive(l)) {
         return true;
     }
+    // ES §7.2.13 step 6 — String <-> Number cross-pair coerces the
+    // string side via ToNumber + numeric compare. ssa_lower
+    // (loose-eq arm following the nullish fold) emits
+    // `__torajs_str_to_number` + fcmp.
+    if (matches!(l, Type::String) && matches!(r, Type::Number))
+        || (matches!(l, Type::Number) && matches!(r, Type::String))
+    {
+        return true;
+    }
     // S127-2 — Any vs Null (covers both `null` and `undefined` literals,
     // which both lower to Type::Null at check time). spec §7.2.13
     // IsLooselyEqual: `v == null` is true iff `v` is null or undefined,

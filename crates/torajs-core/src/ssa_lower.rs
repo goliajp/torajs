@@ -25539,6 +25539,45 @@ impl<'a> LowerCtx<'a> {
                 };
                 return Operand::ConstBool(answer);
             }
+            // ES §7.2.13 step 6 — `String == Number` / `Number == String`
+            // coerce the string side via ToNumber (`__torajs_str_to_number`)
+            // and compare numerically. `'1' == 1` → true; `'abc' == 0`
+            // → NaN == 0 → false. Pre-fix tr type-rejected at check.rs;
+            // js_loose_eq_supported was widened in this commit's check.rs
+            // hunk to let the pair through.
+            let a_ty = self.operand_ty(&a);
+            let b_ty = self.operand_ty(&b);
+            let str_num_pair = if a_ty == Type::Str && matches!(b_ty, Type::I64 | Type::F64) {
+                Some((a.clone(), b.clone(), b_ty))
+            } else if b_ty == Type::Str && matches!(a_ty, Type::I64 | Type::F64) {
+                Some((b.clone(), a.clone(), a_ty))
+            } else {
+                None
+            };
+            if let Some((str_op, num_op, num_ty)) = str_num_pair {
+                let str_num = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.str_to_number, vec![str_op]),
+                    Type::F64,
+                    None,
+                );
+                let num_f64 = if matches!(num_ty, Type::I64) {
+                    self.coerce_to_f64(num_op)
+                } else {
+                    num_op
+                };
+                let eq = self.fcmp(FPred::Oeq, Operand::Value(str_num), num_f64);
+                if matches!(op, AstBinOp::LooseNeq) {
+                    let neg = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(SsaBinOp::Xor, eq, Operand::ConstBool(true)),
+                        Type::Bool,
+                        None,
+                    );
+                    return Operand::Value(neg);
+                }
+                return eq;
+            }
         }
         // ES §7.2.15 — `null === undefined` / `undefined === null` is
         // false (distinct primitive types per §6.1.1 / §6.1.2). Both
