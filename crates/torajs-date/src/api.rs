@@ -7,7 +7,7 @@ use core::ffi::c_void;
 use crate::civil::civil_from_days;
 use crate::getters::decompose;
 use crate::parse::parse_iso;
-use crate::tm::{components_to_local_ms, localtime_decompose};
+use crate::tm::{Tm, components_to_local_ms, localtime_decompose};
 use crate::{
     __torajs_rc_dec, __torajs_str_alloc_pooled, DATE_PARSE_FAIL, Date, HeapHeader, STR_HDR_SIZE,
     TAG_DATE, as_date, as_date_mut,
@@ -312,6 +312,90 @@ pub unsafe extern "C" fn __torajs_date_to_date_string(d_ptr: *const c_void) -> *
         }
     }
     p
+}
+
+/// helper — format `"M/D/YYYY"` (en-US locale default,
+/// no leading zero on month/day, 4-digit year).
+fn fmt_locale_date(tm: &Tm) -> String {
+    format!("{}/{}/{:04}", tm.tm_mon + 1, tm.tm_mday, tm.tm_year + 1900)
+}
+
+/// helper — format `"h:mm:ss AM/PM"` (en-US locale default,
+/// 12-hour clock, no leading zero on hour, 2-digit minute/second).
+fn fmt_locale_time(tm: &Tm) -> String {
+    let h24 = tm.tm_hour;
+    let (h12, ampm) = match h24 {
+        0 => (12, "AM"),
+        1..=11 => (h24, "AM"),
+        12 => (12, "PM"),
+        _ => (h24 - 12, "PM"),
+    };
+    format!("{}:{:02}:{:02} {}", h12, tm.tm_min, tm.tm_sec, ampm)
+}
+
+fn alloc_str(s: &str) -> *mut u8 {
+    let bytes = s.as_bytes();
+    let p = unsafe { __torajs_str_alloc_pooled(bytes.len() as u64) };
+    if !p.is_null() {
+        unsafe {
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), p.add(STR_HDR_SIZE), bytes.len());
+        }
+    }
+    p
+}
+
+/// `.toLocaleString()` per ES §21.4.4.39 — en-US default locale,
+/// `"M/D/YYYY, h:mm:ss AM/PM"` joined by `", "`. Uses local-time
+/// decomposition so the formatted moment matches bun on whichever
+/// host timezone the build runs in.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date`. Returned pointer is a pooled
+/// Str (rc=1; caller takes ownership).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_to_locale_string(d_ptr: *const c_void) -> *mut u8 {
+    if d_ptr.is_null() {
+        return unsafe { __torajs_str_alloc_pooled(0) };
+    }
+    let ms = unsafe { as_date(d_ptr) }.ms;
+    let tm = localtime_decompose(ms);
+    let s = format!("{}, {}", fmt_locale_date(&tm), fmt_locale_time(&tm));
+    alloc_str(&s)
+}
+
+/// `.toLocaleDateString()` per ES §21.4.4.38 — en-US default locale,
+/// `"M/D/YYYY"`.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date`. Returned pointer is a pooled
+/// Str (rc=1; caller takes ownership).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_to_locale_date_string(d_ptr: *const c_void) -> *mut u8 {
+    if d_ptr.is_null() {
+        return unsafe { __torajs_str_alloc_pooled(0) };
+    }
+    let ms = unsafe { as_date(d_ptr) }.ms;
+    let tm = localtime_decompose(ms);
+    alloc_str(&fmt_locale_date(&tm))
+}
+
+/// `.toLocaleTimeString()` per ES §21.4.4.40 — en-US default locale,
+/// `"h:mm:ss AM/PM"`.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date`. Returned pointer is a pooled
+/// Str (rc=1; caller takes ownership).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_to_locale_time_string(d_ptr: *const c_void) -> *mut u8 {
+    if d_ptr.is_null() {
+        return unsafe { __torajs_str_alloc_pooled(0) };
+    }
+    let ms = unsafe { as_date(d_ptr) }.ms;
+    let tm = localtime_decompose(ms);
+    alloc_str(&fmt_locale_time(&tm))
 }
 
 /// annexB `.toGMTString()` = `.toUTCString()` → `Wed, 14 Jun 2017

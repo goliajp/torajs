@@ -3859,7 +3859,10 @@ impl Checker {
                     )),
                     (Type::Date, "toGMTString")
                     | (Type::Date, "toUTCString")
-                    | (Type::Date, "toDateString") => Ok(Type::Function(
+                    | (Type::Date, "toDateString")
+                    | (Type::Date, "toLocaleString")
+                    | (Type::Date, "toLocaleDateString")
+                    | (Type::Date, "toLocaleTimeString") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::String),
                     )),
