@@ -4747,9 +4747,9 @@ impl Checker {
                 {
                     let _ = self.type_of(ast, args[0])?;
                     let obj_ty = self.type_of(ast, args[1])?;
-                    if !matches!(obj_ty, Type::Array(_) | Type::Any) {
+                    if !matches!(obj_ty, Type::Array(_) | Type::Any | Type::Struct(_)) {
                         return Err(format!(
-                            "`in` rhs must be Array or any (subset stub); got {obj_ty:?}"
+                            "`in` rhs must be Array, Struct, or any (subset stub); got {obj_ty:?}"
                         ));
                     }
                     return Ok(Type::Boolean);

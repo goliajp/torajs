@@ -14976,6 +14976,22 @@ impl<'a> LowerCtx<'a> {
                         );
                         return Operand::Value(r);
                     }
+                    if let Type::Obj(sid) = obj_ty {
+                        // Typed struct rhs — fields are statically known
+                        // from the layout. A literal string key folds to a
+                        // compile-time ConstBool; non-literal keys are
+                        // rejected (typed struct has no dynamic member set
+                        // and the right answer would always be the literal-
+                        // key compile-time result anyway). ES §13.10.1.
+                        let layout = self.struct_layouts[sid.0 as usize].clone();
+                        if let Expr::String(s) = self.ast.get_expr(args[0]) {
+                            let present = layout.iter().any(|(n, _)| n == s);
+                            return Operand::ConstBool(present);
+                        }
+                        panic!(
+                            "ssa-lower: `<key> in <obj:Struct>` requires a literal-string key (fields are statically known); got non-literal key expr"
+                        );
+                    }
                     if matches!(obj_ty, Type::Any) {
                         // Dispatch on the **key**'s static SSA type:
                         //   Number → __torajs_in_op_any_num — helper
