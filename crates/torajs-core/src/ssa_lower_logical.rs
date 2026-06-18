@@ -28,6 +28,19 @@ impl LowerCtx<'_> {
     /// both operands (typed tora gates on l == r at typecheck;
     /// implicit-any (m1.h) widens to mixed types later).
     pub(crate) fn lower_logical_and(&mut self, left: ExprId, right: ExprId) -> Operand {
+        // S138 — statically-falsy lhs short-circuit. If lhs is typed
+        // Type::Null / Type::Undefined (e.g. literal `null`, `undefined`,
+        // or a call returning Null), `lhs && rhs` returns lhs without
+        // evaluating rhs per §13.13. We still lower lhs to preserve any
+        // side-effects (function call returning null), then return its
+        // value; rhs is skipped entirely. Pairs with check.rs's
+        // nullish-lhs LAnd arm so the result type matches lhs.
+        if matches!(
+            self.expr_types.get(&left),
+            Some(crate::check::Type::Null) | Some(crate::check::Type::Undefined)
+        ) {
+            return self.lower_expr(left);
+        }
         let a = self.lower_expr(left);
         let a_ty = self.operand_ty(&a);
         let truthy = self.coerce_to_bool(a.clone());
@@ -101,6 +114,19 @@ impl LowerCtx<'_> {
     /// V3-18 m1.g — JS spec §13.13: `a || b` returns `a` if truthy,
     /// otherwise `b`. Mirror of `&&`.
     pub(crate) fn lower_logical_or(&mut self, left: ExprId, right: ExprId) -> Operand {
+        // S138 — statically-falsy lhs short-circuit. If lhs is typed
+        // Type::Null / Type::Undefined, `lhs || rhs` is equivalent to
+        // `rhs` per §13.13 (ToBoolean(null/undef) = false → eval rhs).
+        // Pairs with check.rs's nullish-lhs LOr arm so the result type
+        // matches rhs. Side-effects: lhs is still lowered (in case it's
+        // a Call returning Null, e.g. `f(): null` followed by `|| x`).
+        if matches!(
+            self.expr_types.get(&left),
+            Some(crate::check::Type::Null) | Some(crate::check::Type::Undefined)
+        ) {
+            let _ = self.lower_expr(left);
+            return self.lower_expr(right);
+        }
         let a = self.lower_expr(left);
         let a_ty = self.operand_ty(&a);
         let truthy = self.coerce_to_bool(a.clone());

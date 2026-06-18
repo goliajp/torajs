@@ -6727,6 +6727,18 @@ impl Checker {
                             Ok(l)
                         } else if matches!(l, Type::Any) || matches!(r, Type::Any) {
                             Ok(Type::Any)
+                        } else if matches!(l, Type::Null | Type::Undefined) {
+                            // S138 — lhs is statically falsy. Per §13.13:
+                            // `null || rhs` returns rhs (ToBoolean(null)
+                            // = false, eval rhs); `null && rhs` returns
+                            // lhs without evaluating rhs. ssa_lower
+                            // skips the branching entirely. Mirrors the
+                            // typed-lhs `??` fix (19b04c15).
+                            match op {
+                                BinOp::LOr => Ok(r),
+                                BinOp::LAnd => Ok(l),
+                                _ => unreachable!(),
+                            }
                         } else {
                             Err(format!(
                                 "`&&` / `||` require matching operand types, got {l:?} and {r:?}"
