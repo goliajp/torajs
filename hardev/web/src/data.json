@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-18T16:54:18.139Z",
+  "generatedAt": "2026-06-18T18:18:02.746Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c9ba2e4a",
-    "commitSubject": "feat(date): `Date.prototype.toDateString()` per ES §21.4.4.35",
+    "commit": "8d357a70",
+    "commitSubject": "feat(math): `Math.sumPrecise(items)` per ES2025 §21.3.2.32",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "8d357a70",
+      "subject": "feat(math): `Math.sumPrecise(items)` per ES2025 §21.3.2.32"
+    },
+    {
+      "hash": "e56802be",
+      "subject": "feat(set): `Set.prototype.{union,intersection,difference,symmetricDifference}` per ES2025 §24.2.3.{15,16,17,18}"
+    },
+    {
+      "hash": "a6cb7e5c",
+      "subject": "feat(set): `Set.prototype.{isSubsetOf,isSupersetOf,isDisjointFrom}` per ES2025 §24.2.3.{12,13,14}"
+    },
+    {
+      "hash": "6cd588fd",
+      "subject": "feat(date): per-field setters setFullYear/setMonth/setDate/setHours/setMinutes/setSeconds/setMilliseconds per ES §21.4.4.20-26"
+    },
+    {
+      "hash": "8b61b345",
+      "subject": "feat(date): `Date.prototype.toLocale{,Date,Time}String()` per ES §21.4.4.38-40"
+    },
+    {
+      "hash": "67a790fe",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S156-S160 map-init-arr/push-multi-expr/iife/math-f16round/date-todatestring)"
+    },
+    {
       "hash": "c9ba2e4a",
       "subject": "feat(date): `Date.prototype.toDateString()` per ES §21.4.4.35"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "2824a8ec",
       "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S151-S155 arr-from-mapfn/set-init-arr/date-utc-arity/nested-generic/tmpl-escape)"
-    },
-    {
-      "hash": "934e4511",
-      "subject": "feat(lexer): interpret escape sequences in template literal lits per ES §12.8.6.2"
-    },
-    {
-      "hash": "8ea5048f",
-      "subject": "feat(parser): split `>>`/`>>>` at nested generic type-arg close per TS spec"
-    },
-    {
-      "hash": "fdb765fd",
-      "subject": "feat(date): `Date.UTC(...)` arity 1-6 trailing defaults per ES §21.4.2.21"
-    },
-    {
-      "hash": "d84dd099",
-      "subject": "feat(set): `new Set(<typed Array<T>>)` iterable initializer per ES §24.2.1"
-    },
-    {
-      "hash": "16d85593",
-      "subject": "feat(arr): `Array.from(iter, mapFn)` 2-arg overload per ES §23.1.2.1"
-    },
-    {
-      "hash": "cf6e56e7",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — Reflect.get typed-struct fold (S150)"
     }
   ],
-  "headSha": "c9ba2e4a",
+  "headSha": "8d357a70",
   "autorun": {
-    "total": 191,
+    "total": 192,
     "baselineTarget": 10,
-    "bySelf": 186,
+    "bySelf": 187,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781796206-47e0",
-      "at": "2026-06-18T15:23:26Z",
-      "ts": 1781796206,
+      "rotationId": "r-1781801809-4a05",
+      "at": "2026-06-18T16:56:49Z",
+      "ts": 1781801809,
       "trigger": "self",
-      "prevHead": "934e4511",
-      "handoffSha": "sha256:73c00456756052d80737e6283e459cedd9af5bc81a4cc2e1e29af9ef56010315",
-      "handoffAgeSec": 8874,
+      "prevHead": "67a790fe",
+      "handoffSha": "sha256:3d2b03e264baf62decd7855218a7c6df158eeba579923c19981d89453b78176b",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781801809-4a05",
+        "at": "2026-06-18T16:56:49Z",
+        "ts": 1781801809,
+        "trigger": "self",
+        "prevHead": "67a790fe",
+        "handoffSha": "sha256:3d2b03e264baf62decd7855218a7c6df158eeba579923c19981d89453b78176b",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781796206-47e0",
         "at": "2026-06-18T15:23:26Z",
@@ -780,17 +791,6 @@
         "prevHead": "2e978d09",
         "handoffSha": "sha256:2974e1e02765ee1df8c5ca027256100317b15509ae64e3f34b613f1139150956",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781680782-4530",
-        "at": "2026-06-17T07:19:42Z",
-        "ts": 1781680782,
-        "trigger": "self",
-        "prevHead": "62441dd1",
-        "handoffSha": "sha256:844c881c71ec459282589432ece45ca2dae687a4caa4fca6a947dafa4a406f9a",
-        "handoffAgeSec": 71,
         "conformanceBefore": null,
         "commitsInSession": null
       }
