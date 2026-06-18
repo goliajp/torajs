@@ -2690,8 +2690,10 @@ impl Parser<'_> {
     ///     Array.prototype.slice's existing 1-arg shape.
     fn parse_array_destructuring(&mut self, mutable: bool) -> Result<Stmt, String> {
         self.pos += 1; // consume `[`
-        // None = elision slot (`,,`); Some(n) = bound name.
-        let mut entries: Vec<Option<String>> = Vec::new();
+        // None = elision slot (`,,`); Some((n, default_expr)) = bound
+        // name plus optional ES §13.3.3 BindingElement init (default
+        // fires when src[i] is undefined; mirrors object destructuring).
+        let mut entries: Vec<Option<(String, Option<ExprId>)>> = Vec::new();
         let mut rest_name: Option<String> = None;
         if !matches!(self.peek(), Token::RBracket) {
             loop {
@@ -2730,7 +2732,13 @@ impl Parser<'_> {
                     }
                 };
                 self.pos += 1;
-                entries.push(Some(n));
+                let default_expr = if matches!(self.peek(), Token::Eq) {
+                    self.pos += 1;
+                    Some(self.parse_assign()?)
+                } else {
+                    None
+                };
+                entries.push(Some((n, default_expr)));
                 if matches!(self.peek(), Token::Comma) {
                     self.pos += 1;
                     continue;
@@ -2777,7 +2785,7 @@ impl Parser<'_> {
     fn emit_array_destructuring(
         &mut self,
         mutable: bool,
-        entries: &[Option<String>],
+        entries: &[Option<(String, Option<ExprId>)>],
         rest_name: Option<&str>,
         src: ExprId,
     ) -> Vec<Stmt> {
@@ -2803,18 +2811,66 @@ impl Parser<'_> {
             });
         }
         for (i, entry) in entries.iter().enumerate() {
-            if let Some(name) = entry {
+            if let Some((name, default)) = entry {
                 let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
                 let idx = self.ast.add_expr(Expr::Number(i as f64));
                 let elem = self.ast.add_expr(Expr::Index {
                     obj: src_ref,
                     index: idx,
                 });
+                let init = if let Some(default_eid) = default {
+                    // ES §13.3.3 — default fires iff `src[i]` is
+                    // undefined. Typed `Array<T>` OOB reads currently
+                    // return garbage (not undefined), so the bare
+                    // `src[i] !== undefined` gate (used in object
+                    // destructuring) selects the wrong branch on
+                    // shorter sources. Short-circuit `i < src.length`
+                    // first to skip the slot read entirely on OOB,
+                    // then the `!== undefined` arm covers the rare
+                    // `Array<Nullable<T>>` slot-is-undefined case.
+                    // Once OOB-returns-undefined substrate lands the
+                    // length guard can be dropped.
+                    let src_ref_len = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
+                    let len_mem = self.ast.add_expr(Expr::Member {
+                        obj: src_ref_len,
+                        name: "length".to_string(),
+                    });
+                    let idx_lt = self.ast.add_expr(Expr::Number(i as f64));
+                    let len_cond = self.ast.add_expr(Expr::BinOp {
+                        op: BinOp::Lt,
+                        left: idx_lt,
+                        right: len_mem,
+                    });
+                    let src_ref2 = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
+                    let idx2 = self.ast.add_expr(Expr::Number(i as f64));
+                    let elem2 = self.ast.add_expr(Expr::Index {
+                        obj: src_ref2,
+                        index: idx2,
+                    });
+                    let undef = self.ast.add_expr(Expr::Ident("undefined".to_string()));
+                    let undef_cond = self.ast.add_expr(Expr::BinOp {
+                        op: BinOp::Neq,
+                        left: elem,
+                        right: undef,
+                    });
+                    let combined = self.ast.add_expr(Expr::BinOp {
+                        op: BinOp::LAnd,
+                        left: len_cond,
+                        right: undef_cond,
+                    });
+                    self.ast.add_expr(Expr::Ternary {
+                        cond: combined,
+                        then_branch: elem2,
+                        else_branch: *default_eid,
+                    })
+                } else {
+                    elem
+                };
                 stmts.push(Stmt::LetDecl {
                     mutable,
                     name: name.clone(),
                     type_ann: None,
-                    init: elem,
+                    init,
                     is_var: false,
                 });
             }
