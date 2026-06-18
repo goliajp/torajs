@@ -7419,6 +7419,20 @@ impl Checker {
                     }
                     return Ok(Type::Map);
                 }
+                // S156 — `new Map(<typed Array<Array<T>>>)` per ES §24.2.1.
+                // Mirrors S152 Set narrow: accept any runtime-shaped
+                // Array<Array<T>> by walking the src at ssa-lower time
+                // and `map.set(k, v)`'ing each pair (with appropriate
+                // box_to_tag_value). Full iterator-protocol (custom
+                // Symbol.iterator) still deferred behind P5.
+                if args.len() == 1 {
+                    let arg_ty = self.type_of(ast, args[0])?;
+                    if let Type::Array(inner) = &arg_ty
+                        && matches!(**inner, Type::Array(_))
+                    {
+                        return Ok(Type::Map);
+                    }
+                }
                 if !args.is_empty() {
                     return Err(format!(
                         "`new Map(...)` with iterable initializer not yet supported (got {} args)",

@@ -13827,8 +13827,25 @@ impl<'a> LowerCtx<'a> {
                 // check accepts the literal-array-of-pair-arrays form;
                 // emit one `map_set(map, k_tag, k_val, v_tag, v_val)`
                 // per pair (same encoding `m.set(k, v)` lowers to).
+                // Tightened (S156): only fire when every elem is a
+                // 2-element non-spread pair literal, so Spread / mixed
+                // shapes fall through to the Arr-fallback below
+                // instead of silently emitting an empty map.
                 if let Some(arg0) = args.first()
                     && let Expr::Array(elems) = self.ast.get_expr(*arg0).clone()
+                    && elems.iter().all(|e| {
+                        if matches!(self.ast.get_expr(*e), Expr::Spread { .. }) {
+                            return false;
+                        }
+                        if let Expr::Array(pair) = self.ast.get_expr(*e) {
+                            pair.len() == 2
+                                && pair
+                                    .iter()
+                                    .all(|p| !matches!(self.ast.get_expr(*p), Expr::Spread { .. }))
+                        } else {
+                            false
+                        }
+                    })
                 {
                     for pair_eid in &elems {
                         if let Expr::Array(pair) = self.ast.get_expr(*pair_eid).clone()
@@ -13844,6 +13861,151 @@ impl<'a> LowerCtx<'a> {
                                 ),
                             );
                         }
+                    }
+                    return map_op;
+                }
+                // S156 — `new Map(<typed Array<Array<T>>>)` per ES §24.2.1.
+                // Mirrors S152 Set fallback. Lower the arg to a Type::Arr
+                // value, walk it with header/body/after blocks; each
+                // outer slot loads the inner Array<T>, then reads index
+                // 0/1 as key/value, box_to_tag_value, map_set. We own
+                // the outer src array (e.g. freshly returned from a fn
+                // or `[...spread]`), so drop it post-loop. Inner array
+                // borrows are NOT rc_inc'd — the outer slot still owns
+                // its ref through the outer array's lifetime, and the
+                // (k,v) pairs we extract are box_to_tag_value-encoded
+                // which handles rc_inc for refcounted elem types
+                // independently.
+                if let Some(arg0) = args.first() {
+                    let arg_op = self.lower_expr(*arg0);
+                    let arg_ty = self.operand_ty(&arg_op);
+                    if let Type::Arr(outer_id) = arg_ty
+                        && let Type::Arr(inner_id) = self.arr_layouts[outer_id.0 as usize]
+                    {
+                        let outer_arr = match arg_op {
+                            Operand::Value(v) => v,
+                            _ => unreachable!("Arr is SSA Value"),
+                        };
+                        let inner_elem_ty = self.arr_layouts[inner_id.0 as usize];
+                        let len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(outer_arr), ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        let i_slot = self.alloca(Type::I64, Some("__map_init_i"));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+                        );
+                        let header_blk = self.f.add_block();
+                        let body_blk = self.f.add_block();
+                        let after_blk = self.f.add_block();
+                        self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+                        self.cur_block = header_blk;
+                        let i_now = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let cmp = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(len)),
+                            Type::Bool,
+                            None,
+                        );
+                        self.f.set_term(
+                            self.cur_block,
+                            Terminator::CondBr {
+                                cond: Operand::Value(cmp),
+                                then_blk: body_blk,
+                                else_blk: after_blk,
+                            },
+                        );
+                        self.cur_block = body_blk;
+                        let i_body = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        // outer slot stride is 3 (refcounted ptr to inner Arr).
+                        let outer_off = self.emit_arr_slot_byte_offset(
+                            Operand::Value(outer_arr),
+                            Operand::Value(i_body),
+                            3,
+                            false,
+                        );
+                        let inner_arr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(
+                                Type::Arr(inner_id),
+                                Operand::Value(outer_arr),
+                                outer_off,
+                            ),
+                            Type::Arr(inner_id),
+                            None,
+                        );
+                        // inner slot stride: 4 for Any, 3 otherwise.
+                        let inner_stride_log2 = if inner_elem_ty == Type::Any { 4 } else { 3 };
+                        let k_off = self.emit_arr_slot_byte_offset(
+                            Operand::Value(inner_arr),
+                            Operand::ConstI64(0),
+                            inner_stride_log2,
+                            false,
+                        );
+                        let v_off = self.emit_arr_slot_byte_offset(
+                            Operand::Value(inner_arr),
+                            Operand::ConstI64(1),
+                            inner_stride_log2,
+                            false,
+                        );
+                        let k_loaded = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(inner_elem_ty, Operand::Value(inner_arr), k_off),
+                            inner_elem_ty,
+                            None,
+                        );
+                        let v_loaded = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(inner_elem_ty, Operand::Value(inner_arr), v_off),
+                            inner_elem_ty,
+                            None,
+                        );
+                        let (k_tag, k_val) = self.box_to_tag_value(Operand::Value(k_loaded));
+                        let (v_tag, v_val) = self.box_to_tag_value(Operand::Value(v_loaded));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.map_set,
+                                vec![map_op.clone(), k_tag, k_val, v_tag, v_val],
+                            ),
+                        );
+                        let i_then = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let i_next = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(i_then),
+                                Operand::ConstI64(1),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+                        );
+                        self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+                        self.cur_block = after_blk;
+                        self.emit_drop_value(Operand::Value(outer_arr), arg_ty);
+                        return map_op;
                     }
                 }
                 return map_op;
