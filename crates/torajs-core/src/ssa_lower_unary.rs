@@ -124,7 +124,18 @@ impl LowerCtx<'_> {
                 }
             }
             crate::ast::UnaryOp::Plus => {
-                if matches!(v, Operand::ConstPtrNull) {
+                // S135 — `+undefined` ≡ NaN per spec §13.5.4 →
+                // ToNumber(undefined) = NaN (§7.1.4). Frontend
+                // Type::Undefined lowers to ConstPtrNull (same
+                // pointer sentinel as `null`), so we can't tell
+                // them apart at the operand level; expr_types is
+                // the source of truth.
+                if matches!(
+                    self.expr_types.get(&expr),
+                    Some(crate::check::Type::Undefined)
+                ) {
+                    Operand::ConstF64(f64::NAN)
+                } else if matches!(v, Operand::ConstPtrNull) {
                     Operand::ConstI64(0)
                 } else if matches!(self.operand_ty(&v), Type::Bool) {
                     self.coerce_bool_to_i64(v)

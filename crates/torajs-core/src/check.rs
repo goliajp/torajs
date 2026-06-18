@@ -6785,10 +6785,17 @@ impl Checker {
                     crate::ast::UnaryOp::Plus => {
                         // V3-18 m1.h.4 / unary-on-string wedge —
                         // unary `+x` per spec §13.5.4 calls
-                        // ToNumber(x). Same coercibles as `-x`:
-                        // Number / Boolean / Null / String. No IEEE
-                        // -0 concern (the positive sign is default).
-                        if matches!(t, Type::Number | Type::Boolean | Type::Null | Type::String) {
+                        // ToNumber(x). Coercibles: Number / Boolean /
+                        // Null / String / Undefined (ToNumber(undefined)
+                        // = NaN per spec §7.1.4). No IEEE -0 concern.
+                        if matches!(
+                            t,
+                            Type::Number
+                                | Type::Boolean
+                                | Type::Null
+                                | Type::String
+                                | Type::Undefined
+                        ) {
                             Ok(Type::Number)
                         } else if t == Type::BigInt {
                             // Per spec, unary `+` on BigInt is a
