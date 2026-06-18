@@ -2912,7 +2912,7 @@ impl Checker {
                             | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
                             | "log2" | "log10" | "cbrt"
                             | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh"
-                            | "expm1" | "log1p" | "clz32" | "fround"
+                            | "expm1" | "log1p" | "clz32" | "fround" | "f16round"
                         ) =>
                     {
                         Ok(Type::Function(vec![Type::Number], Box::new(Type::Number)))

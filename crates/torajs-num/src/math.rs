@@ -336,6 +336,112 @@ pub unsafe extern "C" fn __torajs_math_fround(x: f64) -> f64 {
     x as f32 as f64
 }
 
+/// `Math.f16round(x)` — round x to the nearest IEEE-754 binary16
+/// (Float16) and back to f64, per ES 2025 §21.3.2.31. Implemented
+/// via the f32 → binary16 conversion routine below (round-to-
+/// nearest-ties-to-even), then expanded back through f32 → f64.
+///
+/// Rust stable doesn't yet expose `f16` (the unstable
+/// `#[feature(f16)]` is the only zero-LOC path), and torajs-num's
+/// runtime crate has a 0-external-dep policy, so the conversion is
+/// open-coded against the IEEE-754 binary32 layout.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_math_f16round(x: f64) -> f64 {
+    let f32_val = x as f32;
+    let f16_bits = f32_to_f16_bits(f32_val);
+    f16_bits_to_f32(f16_bits) as f64
+}
+
+/// Convert an IEEE-754 binary32 to a binary16 bit pattern with
+/// round-to-nearest-ties-to-even. Sign / exponent / mantissa
+/// layouts:
+///
+///   binary32: 1 sign | 8 exp (bias 127) | 23 mantissa
+///   binary16: 1 sign | 5 exp (bias 15)  | 10 mantissa
+fn f32_to_f16_bits(f: f32) -> u16 {
+    let bits = f.to_bits();
+    let sign = ((bits >> 16) & 0x8000) as u16;
+    let exp32 = ((bits >> 23) & 0xff) as i32;
+    let mantissa32 = bits & 0x7fffff;
+
+    // NaN / Inf — preserve mantissa's "quiet" bit for NaN, keep
+    // sign on Inf.
+    if exp32 == 0xff {
+        if mantissa32 == 0 {
+            return sign | 0x7c00;
+        }
+        // NaN — set at least one mantissa bit so the result is also NaN.
+        let m16 = (mantissa32 >> 13) as u16;
+        return sign | 0x7c00 | if m16 == 0 { 1 } else { m16 } | 0x200;
+    }
+
+    // Bias adjust: binary16 exp = binary32 exp - 127 + 15.
+    let exp16 = exp32 - 127 + 15;
+
+    // Overflow → ±Inf.
+    if exp16 >= 0x1f {
+        return sign | 0x7c00;
+    }
+
+    // Underflow → subnormal / zero.
+    if exp16 <= 0 {
+        // < -10 below the smallest subnormal — flush to ±0.
+        if exp16 < -10 {
+            return sign;
+        }
+        // Add the implicit leading 1 to the mantissa, then shift
+        // right with round-to-nearest-even.
+        let m_implicit = mantissa32 | 0x800000;
+        let shift = (14 - exp16) as u32; // exp16 in [-10, 0]; shift in [14, 24]
+        let truncated = m_implicit >> shift;
+        let half = 1u32 << (shift - 1);
+        let rem = m_implicit & ((1u32 << shift) - 1);
+        let round_up = rem > half || (rem == half && (truncated & 1) != 0);
+        return sign | (truncated + round_up as u32) as u16;
+    }
+
+    // Normal — pack [exp16:5][mantissa16:10] with round-to-nearest-even.
+    let lsb = (mantissa32 >> 13) & 1;
+    let round_bias = 0xfff + lsb;
+    let m_rounded = mantissa32 + round_bias;
+    // Rounding may overflow mantissa into the exponent.
+    let exp_final = exp16 as u32 + (m_rounded >> 23);
+    let mantissa16 = ((m_rounded >> 13) & 0x3ff) as u16;
+    if exp_final >= 0x1f {
+        return sign | 0x7c00;
+    }
+    sign | ((exp_final as u16) << 10) | mantissa16
+}
+
+/// Expand a binary16 bit pattern back to a binary32 value.
+fn f16_bits_to_f32(h: u16) -> f32 {
+    let sign = (h as u32 & 0x8000) << 16;
+    let exp = ((h >> 10) & 0x1f) as u32;
+    let mantissa = (h & 0x3ff) as u32;
+
+    if exp == 0 {
+        if mantissa == 0 {
+            return f32::from_bits(sign);
+        }
+        // Subnormal — renormalize.
+        let mut m = mantissa;
+        let mut e: i32 = 1;
+        while (m & 0x400) == 0 {
+            m <<= 1;
+            e -= 1;
+        }
+        let e_f32 = (e - 15 + 127) as u32;
+        let m_f32 = (m & 0x3ff) << 13;
+        return f32::from_bits(sign | (e_f32 << 23) | m_f32);
+    }
+    if exp == 0x1f {
+        // Inf / NaN.
+        return f32::from_bits(sign | 0x7f800000 | (mantissa << 13));
+    }
+    let e_f32 = exp - 15 + 127;
+    f32::from_bits(sign | (e_f32 << 23) | (mantissa << 13))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

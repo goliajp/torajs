@@ -226,6 +226,7 @@ fn ns_has_own_property(ns: &str, key: &str) -> bool {
                 | "imul"
                 | "clz32"
                 | "fround"
+                | "f16round"
         ),
         "JSON" => matches!(key, "stringify" | "parse"),
         "Reflect" => matches!(
@@ -4782,6 +4783,13 @@ fn lower_inner(
         &[Type::F64],
         Type::F64,
     );
+    let math_f16round_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_f16round",
+        &[Type::F64],
+        Type::F64,
+    );
     let math_random_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5794,6 +5802,7 @@ fn lower_inner(
         math_imul: math_imul_id,
         math_clz32: math_clz32_id,
         math_fround: math_fround_id,
+        math_f16round: math_f16round_id,
         math_random: math_random_id,
         json_quote_str: json_quote_str_id,
         json_eat_char: json_eat_char_id,
@@ -6796,6 +6805,7 @@ pub(crate) struct Intrinsics {
     pub(crate) math_imul: FuncId,
     pub(crate) math_clz32: FuncId,
     pub(crate) math_fround: FuncId,
+    pub(crate) math_f16round: FuncId,
     pub(crate) math_random: FuncId,
     pub(crate) json_quote_str: FuncId,
     /// M6.3 — JSON.parse runtime helpers. See `runtime_str.c` for the
@@ -27157,6 +27167,7 @@ impl<'a> LowerCtx<'a> {
                         "imul" => self.intrinsics.math_imul,
                         "clz32" => self.intrinsics.math_clz32,
                         "fround" => self.intrinsics.math_fround,
+                        "f16round" => self.intrinsics.math_f16round,
                         "random" => self.intrinsics.math_random,
                         other => {
                             panic!("ssa-lower: unknown Math method `{other}`")
@@ -27258,6 +27269,7 @@ impl<'a> LowerCtx<'a> {
             || fid == self.intrinsics.math_expm1
             || fid == self.intrinsics.math_log1p
             || fid == self.intrinsics.math_fround
+            || fid == self.intrinsics.math_f16round
     }
 
     fn is_math_binary(&self, fid: FuncId) -> bool {
@@ -27532,6 +27544,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.math_imul
             || fid == i.math_clz32
             || fid == i.math_fround
+            || fid == i.math_f16round
             || fid == i.math_random
             || fid == i.json_quote_str
             || fid == i.str_repeat
