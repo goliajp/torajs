@@ -2850,7 +2850,12 @@ impl Parser<'_> {
     /// Same source-binding rule as array destructuring.
     fn parse_object_destructuring(&mut self, mutable: bool) -> Result<Stmt, String> {
         self.pos += 1; // consume `{`
-        let mut entries: Vec<(String, String)> = Vec::new(); // (field_name, bound_as)
+        // (field_name, bound_as, default_expr) — default is ES §13.3.3
+        // BindingElement init: `{ a = 10 }` / `{ a: aa = 99 }` populates
+        // the bound name from `src.field` when present, else from
+        // `default_expr`. The default-arm path is gated to undefined
+        // (not null) per spec — same semantics as fn param defaults.
+        let mut entries: Vec<(String, String, Option<ExprId>)> = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
             loop {
                 // V3-18 wedge — accept reserved-word tokens as
@@ -2894,7 +2899,13 @@ impl Parser<'_> {
                     }
                     field.clone()
                 };
-                entries.push((field, bound));
+                let default_expr = if matches!(self.peek(), Token::Eq) {
+                    self.pos += 1;
+                    Some(self.parse_assign()?)
+                } else {
+                    None
+                };
+                entries.push((field, bound, default_expr));
                 if matches!(self.peek(), Token::Comma) {
                     self.pos += 1;
                     continue;
@@ -2935,7 +2946,7 @@ impl Parser<'_> {
     fn emit_object_destructuring(
         &mut self,
         mutable: bool,
-        entries: &[(String, String)],
+        entries: &[(String, String, Option<ExprId>)],
         src: ExprId,
     ) -> Vec<Stmt> {
         let id = self.mint_desugar_id();
@@ -2959,17 +2970,46 @@ impl Parser<'_> {
                 is_var: false,
             });
         }
-        for (field, bound) in entries {
+        for (field, bound, default) in entries {
             let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
             let mem = self.ast.add_expr(Expr::Member {
                 obj: src_ref,
                 name: field.clone(),
             });
+            let init = if let Some(default_eid) = default {
+                // ES §13.3.3 — default fires iff the destructured slot
+                // is undefined (null/zero/empty-string do NOT). Emit
+                // `(src.field !== undefined) ? src.field : default`.
+                // `src.field` is evaluated twice; for plain ObjectLit
+                // sources this has no observable cost. A getter-bearing
+                // source would re-run the accessor — acceptable for the
+                // narrow shape and consistent with how tora emits
+                // `?:` elsewhere; an IIFE / temp-let lowering is a
+                // future ergonomics polish.
+                let src_ref2 = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
+                let mem2 = self.ast.add_expr(Expr::Member {
+                    obj: src_ref2,
+                    name: field.clone(),
+                });
+                let undef = self.ast.add_expr(Expr::Ident("undefined".to_string()));
+                let cond = self.ast.add_expr(Expr::BinOp {
+                    op: BinOp::Neq,
+                    left: mem,
+                    right: undef,
+                });
+                self.ast.add_expr(Expr::Ternary {
+                    cond,
+                    then_branch: mem2,
+                    else_branch: *default_eid,
+                })
+            } else {
+                mem
+            };
             stmts.push(Stmt::LetDecl {
                 mutable,
                 name: bound.clone(),
                 type_ann: None,
-                init: mem,
+                init,
                 is_var: false,
             });
         }
