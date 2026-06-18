@@ -3534,6 +3534,14 @@ impl Checker {
                         vec![Type::String],
                         Box::new(Type::Boolean),
                     )),
+                    // ES §22.2.6.13 — `re.toString()` returns
+                    // `/` + source + `/` + flags. Runtime helper
+                    // `__torajs_regex_to_string` builds the string in
+                    // one alloc.
+                    (Type::RegExp, "toString") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::String),
+                    )),
                     // T-37 followup — `re.source` returns the original
                     // pattern string (no flags, no slashes). Compile-
                     // time wires through a runtime intrinsic that

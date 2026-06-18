@@ -2126,6 +2126,15 @@ fn lower_inner(
         &[Type::RegExp],
         Type::Str,
     );
+    // ES §22.2.6.13 — `re.toString()` returns `/` + source + `/` +
+    // flags. See torajs-regex::regex::lifecycle::__torajs_regex_to_string.
+    let regex_to_string_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_regex_to_string",
+        &[Type::RegExp],
+        Type::Str,
+    );
     // ES §22.2.6.5-10 — boolean flag accessors. Shared helper takes a
     // `RE_FLAG_*` byte constant; per-arm emit picks the right bit.
     // See torajs-regex::regex::lifecycle::__torajs_regex_has_flag.
@@ -5480,6 +5489,7 @@ fn lower_inner(
         regex_test: regex_test_id,
         regex_get_source: regex_get_source_id,
         regex_get_flags: regex_get_flags_id,
+        regex_to_string: regex_to_string_id,
         regex_has_flag: regex_has_flag_id,
         regex_drop: regex_drop_id,
         regex_match: regex_match_id,
@@ -6452,6 +6462,7 @@ pub(crate) struct Intrinsics {
     pub(crate) regex_test: FuncId,
     pub(crate) regex_get_source: FuncId,
     pub(crate) regex_get_flags: FuncId,
+    pub(crate) regex_to_string: FuncId,
     pub(crate) regex_has_flag: FuncId,
     pub(crate) regex_drop: FuncId,
     pub(crate) regex_match: FuncId,
@@ -20080,13 +20091,29 @@ impl<'a> LowerCtx<'a> {
                     }
                 }
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && matches!(name.as_str(), "test" | "exec")
+                    && matches!(name.as_str(), "test" | "exec" | "toString")
                 {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
                     if recv_ty == Type::RegExp {
                         let method = name.clone();
                         match method.as_str() {
+                            // ES §22.2.6.13 — `re.toString()` returns
+                            // `/` + source + `/` + flags. Single runtime
+                            // helper builds the string in one alloc; no
+                            // SSA-level concat needed (each `.source` /
+                            // `.flags` access would allocate a fresh
+                            // intermediate Str + need explicit drops).
+                            "toString" => {
+                                debug_assert_eq!(args.len(), 0);
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(self.intrinsics.regex_to_string, vec![recv_op]),
+                                    Type::Str,
+                                    None,
+                                );
+                                return Operand::Value(v);
+                            }
                             "test" => {
                                 debug_assert_eq!(args.len(), 1);
                                 let s = self.lower_expr(args[0]);

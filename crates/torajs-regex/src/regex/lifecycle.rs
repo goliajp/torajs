@@ -128,6 +128,60 @@ pub unsafe extern "C" fn __torajs_regex_get_flags(re_ptr: *const c_void) -> *mut
     s as *mut c_void
 }
 
+/// `re.toString()` — per ES §22.2.6.13 returns `/` + source + `/` +
+/// flags. Spec-ordered flags (g, i, m, s, u, y) match `__torajs_regex_
+/// get_flags`. NULL receiver returns `/(?:)/` (matches V8/JSC fallback).
+///
+/// # Safety
+///
+/// `re_ptr` is null or a live `*RegExp`. Returned pointer is a
+/// pool-Str with rc=1; caller takes ownership.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_to_string(re_ptr: *const c_void) -> *mut c_void {
+    if re_ptr.is_null() {
+        // Spec doesn't define this; mirror engines' fallback shape.
+        let fallback: &[u8] = b"/(?:)/";
+        let s = unsafe { __torajs_str_alloc_pooled(fallback.len() as u64) };
+        unsafe {
+            core::ptr::copy_nonoverlapping(fallback.as_ptr(), s.add(STR_HDR_SIZE), fallback.len());
+        }
+        return s as *mut c_void;
+    }
+    let re = unsafe { as_regex(re_ptr) };
+    // Build the canonical flag bytes (matches __torajs_regex_get_flags).
+    let mut flag_buf = [0u8; 6];
+    let mut nflag = 0usize;
+    let bits: [(u8, u8); 6] = [
+        (crate::parser::RE_FLAG_G, b'g'),
+        (crate::parser::RE_FLAG_I, b'i'),
+        (crate::parser::RE_FLAG_M, b'm'),
+        (crate::parser::RE_FLAG_S, b's'),
+        (crate::parser::RE_FLAG_U, b'u'),
+        (crate::parser::RE_FLAG_Y, b'y'),
+    ];
+    for (bit, ch) in bits {
+        if re.flags & bit != 0 {
+            flag_buf[nflag] = ch;
+            nflag += 1;
+        }
+    }
+    let src_len = re.src_bytes.len();
+    let total = 1 + src_len + 1 + nflag;
+    let s = unsafe { __torajs_str_alloc_pooled(total as u64) };
+    let dst = unsafe { s.add(STR_HDR_SIZE) };
+    unsafe {
+        *dst = b'/';
+        if src_len > 0 {
+            core::ptr::copy_nonoverlapping(re.src_bytes.as_ptr(), dst.add(1), src_len);
+        }
+        *dst.add(1 + src_len) = b'/';
+        if nflag > 0 {
+            core::ptr::copy_nonoverlapping(flag_buf.as_ptr(), dst.add(2 + src_len), nflag);
+        }
+    }
+    s as *mut c_void
+}
+
 /// `re.global` / `.ignoreCase` / `.multiline` / `.dotAll` / `.unicode`
 /// / `.sticky` — boolean flag getters per ES §22.2.6.5-10. Returns 1
 /// when the corresponding bit is set in `re.flags`, 0 otherwise. NULL
