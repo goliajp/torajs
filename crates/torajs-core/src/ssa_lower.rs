@@ -18540,77 +18540,19 @@ impl<'a> LowerCtx<'a> {
                 }
                 // `xs.splice(start, deleteCount)` — in-place remove +
                 // return removed slice as a fresh Array<T>. Per ES
-                // §23.1.3.31. Receiver ptr is stable (splice only
-                // shrinks live range; no realloc), so no slot
-                // writeback. v0 subset: 2-arg only (no `...items`
-                // insert form).
-                // (a) Ident-receiver where xs is a local Type::Arr binding.
-                if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
-                    && name == "splice"
-                    && args.len() == 2
-                    && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
-                    && let Some(info) = self.locals.get(recv_name).copied()
-                    && let Type::Arr(_arr_id) = info.ty
-                {
-                    let arr_ty = info.ty;
-                    let cur_arr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
-                        arr_ty,
-                        None,
-                    );
-                    let start = self.lower_expr(args[0]);
-                    let delete_count = self.lower_expr(args[1]);
-                    let removed = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_splice,
-                            vec![Operand::Value(cur_arr), start, delete_count],
-                        ),
-                        arr_ty,
-                        None,
-                    );
-                    return Operand::Value(removed);
+                // §23.1.3.31. Dispatch carved into
+                // `ssa_lower_splice` (mirrors the `ssa_lower_tospliced`
+                // sibling) so the three receiver shapes — (a)
+                // Ident-local Type::Arr, (b) Ident-global Type::Arr,
+                // (c) generic expression (literal arrays / method
+                // chains / struct field) — stay together in one
+                // file. v0 subset: 2-arg only (no `...items` insert
+                // form).
+                if let Some(v) = crate::ssa_lower_splice::try_lower(self, *callee, args) {
+                    return v;
                 }
                 if let Some(v) = crate::ssa_lower_tospliced::try_lower(self, *callee, args) {
                     return v;
-                }
-                // (b) Ident-receiver where xs is a K.8 top-level refcount
-                // global — load cur ptr via GlobalRef, splice (no realloc,
-                // in-place shrink), no slot writeback.
-                if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
-                    && name == "splice"
-                    && args.len() == 2
-                    && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
-                    && self.locals.get(recv_name).is_none()
-                    && let Some(slot_ty) = self.globals.get(recv_name).copied()
-                    && let Type::Arr(_arr_id) = slot_ty
-                {
-                    let arr_ty = slot_ty;
-                    let slot_ptr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::GlobalRef(recv_name.clone()),
-                        Type::Ptr,
-                        None,
-                    );
-                    let cur_arr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(arr_ty, Operand::Value(slot_ptr), 0),
-                        arr_ty,
-                        None,
-                    );
-                    let start = self.lower_expr(args[0]);
-                    let delete_count = self.lower_expr(args[1]);
-                    let removed = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_splice,
-                            vec![Operand::Value(cur_arr), start, delete_count],
-                        ),
-                        arr_ty,
-                        None,
-                    );
-                    return Operand::Value(removed);
                 }
                 //   (a) Ident bound to a mutable `Type::Arr` local — load
                 //       cur ptr from the slot, call arr_push (which may

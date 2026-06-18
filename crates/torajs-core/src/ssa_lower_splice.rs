@@ -1,0 +1,154 @@
+//! `Array.prototype.splice` (ES §23.1.3.31) lowering — mirrors the
+//! sibling [`crate::ssa_lower_tospliced`] carve so the splice dispatch
+//! stops growing the 27k-line `ssa_lower.rs` god-fn and gains the
+//! same (c) generic-receiver fallback toSpliced got at `689b1042`.
+//!
+//! Emit shape: receiver lowers to a `Type::Arr` pointer, then
+//! `__torajs_arr_splice(arr, start, deleteCount)` mutates that array
+//! in place (no realloc — only shrinks the live range) and returns
+//! the removed sub-array as a fresh `Array<T>`. Unlike toSpliced,
+//! no clone is made: splice is the mutating sibling.
+//!
+//! Receiver dispatch:
+//! - (a) `Expr::Ident` bound to a `Type::Arr` local — load cur ptr
+//!   from the slot.
+//! - (b) `Expr::Ident` bound to a K.8 top-level refcount global —
+//!   load cur ptr via `GlobalRef`.
+//! - (c) any other expression that lowers to `Type::Arr` — literal
+//!   arrays (`[1,2,3].splice(...)`), method chains, struct-field
+//!   reads. Mutation in place is invisible to the user when the
+//!   receiver has no binding (literal / call result), but the
+//!   returned removed sub-array is still spec-correct, matching
+//!   bun. The fresh-owned source array is dropped after the splice
+//!   so its ARC balances.
+//!
+//! Subset matches the historic inline form: 2-arg only (no
+//! `...items` insert form yet). Returning `Some` short-circuits the
+//! generic member-call dispatch in `ssa_lower.rs`; `None` falls
+//! through to the "unsupported member call shape" panic site.
+
+use crate::ast::{Expr, ExprId};
+use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa_lower::LowerCtx;
+
+pub(crate) fn try_lower(
+    ctx: &mut LowerCtx,
+    callee_eid: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    if let Some(v) = try_lower_local(ctx, callee_eid, args) {
+        return Some(v);
+    }
+    if let Some(v) = try_lower_global(ctx, callee_eid, args) {
+        return Some(v);
+    }
+    try_lower_generic(ctx, callee_eid, args)
+}
+
+fn try_lower_local(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> Option<Operand> {
+    let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
+        return None;
+    };
+    if name != "splice" || args.len() != 2 {
+        return None;
+    }
+    let Expr::Ident(recv_name) = ctx.ast.get_expr(*recv_id) else {
+        return None;
+    };
+    let info = ctx.locals.get(recv_name).copied()?;
+    let Type::Arr(_) = info.ty else {
+        return None;
+    };
+    let arr_ty = info.ty;
+    let cur_arr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
+        arr_ty,
+        None,
+    );
+    Some(emit_splice_return(ctx, arr_ty, cur_arr, args))
+}
+
+fn try_lower_global(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> Option<Operand> {
+    let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
+        return None;
+    };
+    if name != "splice" || args.len() != 2 {
+        return None;
+    }
+    let Expr::Ident(recv_name) = ctx.ast.get_expr(*recv_id) else {
+        return None;
+    };
+    if ctx.locals.get(recv_name).is_some() {
+        return None;
+    }
+    let slot_ty = ctx.globals.get(recv_name).copied()?;
+    let Type::Arr(_) = slot_ty else {
+        return None;
+    };
+    let arr_ty = slot_ty;
+    let slot_ptr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::GlobalRef(recv_name.clone()),
+        Type::Ptr,
+        None,
+    );
+    let cur_arr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(arr_ty, Operand::Value(slot_ptr), 0),
+        arr_ty,
+        None,
+    );
+    Some(emit_splice_return(ctx, arr_ty, cur_arr, args))
+}
+
+/// (c) Generic receiver — literal array, method chain, struct field
+/// read, etc. The receiver expression's lowered value is the array
+/// we splice in place. Fresh-owned receivers (literal arrays, call
+/// results) get dropped after the splice to balance ARC; the returned
+/// removed sub-array owns its own refs.
+fn try_lower_generic(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> Option<Operand> {
+    let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
+        return None;
+    };
+    if name != "splice" || args.len() != 2 {
+        return None;
+    }
+    let recv_eid = *recv_id;
+    let recv_op = ctx.lower_expr(recv_eid);
+    let recv_ty = ctx.operand_ty(&recv_op);
+    let Type::Arr(_) = recv_ty else {
+        return None;
+    };
+    let cur_arr = match recv_op {
+        Operand::Value(v) => v,
+        _ => return None,
+    };
+    let removed = emit_splice_return(ctx, recv_ty, cur_arr, args);
+    if ctx.expr_is_fresh_owned(recv_eid) {
+        ctx.emit_drop_value(Operand::Value(cur_arr), recv_ty);
+    }
+    Some(removed)
+}
+
+/// Shared body: emit `arr_splice(arr, start, deleteCount)` and
+/// return the removed sub-array operand.
+fn emit_splice_return(
+    ctx: &mut LowerCtx,
+    arr_ty: Type,
+    cur_arr: crate::ssa::ValueId,
+    args: &[ExprId],
+) -> Operand {
+    let start = ctx.lower_expr(args[0]);
+    let delete_count = ctx.lower_expr(args[1]);
+    let removed = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_splice,
+            vec![Operand::Value(cur_arr), start, delete_count],
+        ),
+        arr_ty,
+        None,
+    );
+    Operand::Value(removed)
+}
