@@ -4115,8 +4115,14 @@ impl Checker {
                     // ssa_lower dispatches on operand SSA type to the
                     // string-only `__torajs_str_split` or the regex
                     // path `__torajs_str_split_regex`.
+                    // V3-18 wedge — `s.split(sep [, limit])` per ES
+                    // §22.1.3.21. The optional `limit` slot uses
+                    // Type::Any so the trailing-Any arity-pad path
+                    // makes 1-arg calls type-check; the SSA layer in
+                    // `ssa_lower_str.rs` already branches on
+                    // `args.len() == 2` to emit the slice clamp.
                     (Type::String, "split") => Ok(Type::Function(
-                        vec![Type::Any],
+                        vec![Type::Any, Type::Any],
                         Box::new(Type::Array(Box::new(Type::String))),
                     )),
                     // s.match(re) — Phase 1b returns Array<Str>; without
