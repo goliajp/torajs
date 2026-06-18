@@ -3774,6 +3774,15 @@ impl Checker {
                         vec![Type::Any],
                         Box::new(Type::Boolean),
                     )),
+                    // ES2025 read-only Set setops (§24.2.3.{12,13,14}).
+                    // Spec accepts any "Set-like" object; tora's narrow
+                    // form requires the argument to also be a Set.
+                    (Type::Set, "isSubsetOf")
+                    | (Type::Set, "isSupersetOf")
+                    | (Type::Set, "isDisjointFrom") => Ok(Type::Function(
+                        vec![Type::Set],
+                        Box::new(Type::Boolean),
+                    )),
                     (Type::Set, "delete") => Ok(Type::Function(
                         vec![Type::Any],
                         Box::new(Type::Boolean),

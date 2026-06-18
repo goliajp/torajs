@@ -3742,6 +3742,27 @@ fn lower_inner(
         &[],
         Type::Set,
     );
+    let set_is_subset_of_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_set_is_subset_of",
+        &[Type::Set, Type::Set],
+        Type::I64,
+    );
+    let set_is_superset_of_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_set_is_superset_of",
+        &[Type::Set, Type::Set],
+        Type::I64,
+    );
+    let set_is_disjoint_from_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_set_is_disjoint_from",
+        &[Type::Set, Type::Set],
+        Type::I64,
+    );
     let map_set_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5786,6 +5807,9 @@ fn lower_inner(
         weakmap_drop: weakmap_drop_id,
         map_create: map_create_id,
         set_create: set_create_id,
+        set_is_subset_of: set_is_subset_of_id,
+        set_is_superset_of: set_is_superset_of_id,
+        set_is_disjoint_from: set_is_disjoint_from_id,
         map_set: map_set_id,
         map_get: map_get_id,
         map_has: map_has_id,
@@ -6800,6 +6824,9 @@ pub(crate) struct Intrinsics {
      * (inspect.rs) so `const s: any = new Set()` console.log can route
      * to the bun `Set(N) {…}` printer instead of the Map walker. */
     pub(crate) set_create: FuncId,
+    pub(crate) set_is_subset_of: FuncId,
+    pub(crate) set_is_superset_of: FuncId,
+    pub(crate) set_is_disjoint_from: FuncId,
     pub(crate) map_set: FuncId,
     pub(crate) map_get: FuncId,
     pub(crate) map_has: FuncId,
@@ -19864,6 +19891,9 @@ impl<'a> LowerCtx<'a> {
                             | "keys"
                             | "values"
                             | "entries"
+                            | "isSubsetOf"
+                            | "isSupersetOf"
+                            | "isDisjointFrom"
                     );
                     if set_method {
                         // Receiver Set detection — mirror the Map arm
@@ -19974,6 +20004,37 @@ impl<'a> LowerCtx<'a> {
                                         InstKind::Call(self.intrinsics.map_clear, vec![recv_op]),
                                     );
                                     return Operand::ConstI64(0);
+                                }
+                                "isSubsetOf" | "isSupersetOf" | "isDisjointFrom" => {
+                                    // ES2025 read-only setops — receiver +
+                                    // other Set are both borrowed; runtime
+                                    // returns i64 (1 / 0), narrowed back
+                                    // to Bool the same way Set.has does.
+                                    debug_assert_eq!(args.len(), 1);
+                                    let other_op = self.lower_expr(args[0]);
+                                    let target = match m_name.as_str() {
+                                        "isSubsetOf" => self.intrinsics.set_is_subset_of,
+                                        "isSupersetOf" => self.intrinsics.set_is_superset_of,
+                                        "isDisjointFrom" => self.intrinsics.set_is_disjoint_from,
+                                        _ => unreachable!(),
+                                    };
+                                    let r = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(target, vec![recv_op, other_op]),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let b = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ICmp(
+                                            IPred::Ne,
+                                            Operand::Value(r),
+                                            Operand::ConstI64(0),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    );
+                                    return Operand::Value(b);
                                 }
                                 "keys" | "values" => {
                                     /* P6.4b — Set.keys / .values are
