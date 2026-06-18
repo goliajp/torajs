@@ -280,6 +280,40 @@ const MONTH_NAMES: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
+/// `.toDateString()` per ES §21.4.4.35 — date-only summary like
+/// `"Thu Jan 01 1970"`. Uses the local-time decomposition (same
+/// helper as `getFullYear` / `getMonth` / `getDate` / `getDay`)
+/// so the formatted day matches bun on whichever host timezone
+/// the build runs in.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date`. Returned pointer is a pooled
+/// Str (rc=1; caller takes ownership).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_to_date_string(d_ptr: *const c_void) -> *mut u8 {
+    if d_ptr.is_null() {
+        return unsafe { __torajs_str_alloc_pooled(0) };
+    }
+    let ms = unsafe { as_date(d_ptr) }.ms;
+    let tm = localtime_decompose(ms);
+    let s = format!(
+        "{} {} {:02} {:04}",
+        DAY_NAMES[tm.tm_wday as usize],
+        MONTH_NAMES[tm.tm_mon as usize],
+        tm.tm_mday,
+        tm.tm_year + 1900,
+    );
+    let bytes = s.as_bytes();
+    let p = unsafe { __torajs_str_alloc_pooled(bytes.len() as u64) };
+    if !p.is_null() {
+        unsafe {
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), p.add(STR_HDR_SIZE), bytes.len());
+        }
+    }
+    p
+}
+
 /// annexB `.toGMTString()` = `.toUTCString()` → `Wed, 14 Jun 2017
 /// 07:00:00 GMT`.
 ///

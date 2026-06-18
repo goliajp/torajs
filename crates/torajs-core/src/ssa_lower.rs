@@ -2252,6 +2252,13 @@ fn lower_inner(
         &[Type::Date],
         Type::Str,
     );
+    let date_to_date_string_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_to_date_string",
+        &[Type::Date],
+        Type::Str,
+    );
     /* Phase 2.0b — UTC getter intrinsics. */
     let date_get_full_year_id = declare_intrinsic(
         &mut module,
@@ -5520,6 +5527,7 @@ fn lower_inner(
         date_get_year: date_get_year_id,
         date_set_year: date_set_year_id,
         date_to_gmt_string: date_to_gmt_string_id,
+        date_to_date_string: date_to_date_string_id,
         date_get_full_year: date_get_full_year_id,
         date_get_month: date_get_month_id,
         date_get_date: date_get_date_id,
@@ -6502,6 +6510,7 @@ pub(crate) struct Intrinsics {
     pub(crate) date_get_year: FuncId,
     pub(crate) date_set_year: FuncId,
     pub(crate) date_to_gmt_string: FuncId,
+    pub(crate) date_to_date_string: FuncId,
     pub(crate) date_get_full_year: FuncId,
     pub(crate) date_get_month: FuncId,
     pub(crate) date_get_date: FuncId,
@@ -20604,6 +20613,7 @@ impl<'a> LowerCtx<'a> {
                             | "getYear"
                             | "toGMTString"
                             | "toUTCString"
+                            | "toDateString"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -20648,6 +20658,7 @@ impl<'a> LowerCtx<'a> {
                             "toGMTString" | "toUTCString" => {
                                 (self.intrinsics.date_to_gmt_string, Type::Str)
                             }
+                            "toDateString" => (self.intrinsics.date_to_date_string, Type::Str),
                             _ => unreachable!(),
                         };
                         let v = self.f.append_inst(

@@ -3858,7 +3858,8 @@ impl Checker {
                         Box::new(Type::Number),
                     )),
                     (Type::Date, "toGMTString")
-                    | (Type::Date, "toUTCString") => Ok(Type::Function(
+                    | (Type::Date, "toUTCString")
+                    | (Type::Date, "toDateString") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::String),
                     )),
