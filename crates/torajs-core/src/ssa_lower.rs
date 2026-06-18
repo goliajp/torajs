@@ -25540,6 +25540,27 @@ impl<'a> LowerCtx<'a> {
                 return Operand::ConstBool(answer);
             }
         }
+        // ES §7.2.15 — `null === undefined` / `undefined === null` is
+        // false (distinct primitive types per §6.1.1 / §6.1.2). Both
+        // literals lower to `ConstPtrNull`, so the downstream same-
+        // family ptr-cmp would return true. Distinguish via the
+        // `binop_*_undef_id` flag (set in `lower_binop_with_ids` when
+        // the expr type was `Type::Undefined`): if exactly one side is
+        // Undefined-typed and the other is the `null` literal,
+        // static-fold to false (`===`) / true (`!==`).
+        if matches!(op, AstBinOp::Eq | AstBinOp::Neq) {
+            let a_is_null_lit = matches!(a, Operand::ConstPtrNull);
+            let b_is_null_lit = matches!(b, Operand::ConstPtrNull);
+            let a_is_undef = self.binop_left_undef_id.is_some();
+            let b_is_undef = self.binop_right_undef_id.is_some();
+            // One side undefined, the other a bare `null` literal.
+            if (a_is_undef && b_is_null_lit && !a_is_null_lit)
+                || (b_is_undef && a_is_null_lit && !b_is_null_lit)
+            {
+                let answer = matches!(op, AstBinOp::Neq);
+                return Operand::ConstBool(answer);
+            }
+        }
         // V3-18 m3.b — `===` / `!==` cross-type: when the runtime
         // types differ, spec §7.2.15 returns false unconditionally
         // (no throw). Static-fold to ConstBool here so the

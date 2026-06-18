@@ -6628,9 +6628,13 @@ impl Checker {
                         // `Nullable(T) === null` and `null === Nullable(T)`
                         // are valid checks; result is bool. So is
                         // `null === null`. Identity on the same struct
-                        // type also OK (pointer compare).
-                        let l_is_null = matches!(l, Type::Null);
-                        let r_is_null = matches!(r, Type::Null);
+                        // type also OK (pointer compare). Type::Undefined
+                        // counts as nullish here so `null == undefined`
+                        // and `null === undefined` typecheck (ssa_lower
+                        // folds `===` to false per ES §7.2.15, `==` to
+                        // true per ES §7.2.13 step 2).
+                        let l_is_null = matches!(l, Type::Null | Type::Undefined);
+                        let r_is_null = matches!(r, Type::Null | Type::Undefined);
                         let l_is_nullable = matches!(l, Type::Nullable(_));
                         let r_is_nullable = matches!(r, Type::Nullable(_));
                         if (l_is_null || l_is_nullable) && (r_is_null || r_is_nullable) {
