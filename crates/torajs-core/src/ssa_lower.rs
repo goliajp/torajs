@@ -7925,17 +7925,27 @@ impl<'a> LowerCtx<'a> {
             && let Some(method) = self.console_method_member(*callee)
             && args.len() == 1
         {
-            // V3-18 Phase D — `console.log(undefined)` prints
-            // 'undefined' (per Node util.inspect), not '0' as the
-            // generic Type::Ptr path would. Detect the literal Ident
-            // form before lowering since tora has no distinct
-            // Type::Undefined sentinel; both `null` and `undefined`
-            // collapse to ConstPtrNull at the runtime layer. The
-            // syntactic check is sufficient for the common cases.
-            if let Expr::Ident(name) = self.ast.get_expr(args[0])
-                && name == "undefined"
-            {
-                let lit = self.intern_string_literal("undefined");
+            // V3-18 Phase D + S139 — `console.log(null)` / `console.
+            // log(undefined)` print 'null' / 'undefined' (per Node
+            // util.inspect), not '0' as the generic Type::Ptr path
+            // would. Both lower to ConstPtrNull at the runtime layer,
+            // so we use the frontend type (expr_types) as the source
+            // of truth. This covers the literal forms (Expr::Null,
+            // Expr::Ident("undefined")) AND derived expressions like
+            // `null && 'x'` (S138) whose result type is statically
+            // Null/Undefined.
+            let arg_check_ty = self.expr_types.get(&args[0]).cloned();
+            let prim_label = match arg_check_ty {
+                Some(crate::check::Type::Null) => Some("null"),
+                Some(crate::check::Type::Undefined) => Some("undefined"),
+                _ => None,
+            };
+            if let Some(label) = prim_label {
+                // Side-effects: lower the arg first (in case it's a
+                // Call), discard its value; then emit the literal
+                // label via the str print path.
+                let _ = self.lower_expr(args[0]);
+                let lit = self.intern_string_literal(label);
                 let target = self.console_print_target(method, Type::Str);
                 self.f.append_void(
                     self.cur_block,

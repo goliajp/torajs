@@ -57,6 +57,29 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
                 None,
             );
         }
+        // S139 — `undefined` typed-expr prints "undefined" inline.
+        // Multi-arg path's box_to_any → print_any_inline_top correctly
+        // handles Type::Null (tag = ANY_NULL → "null") but Undefined
+        // lowers to ConstPtrNull at the operand layer with no
+        // Type::Undefined sentinel, so the tag-aware printer falls
+        // back to ANY_NULL too. Detect Type::Undefined via expr_types
+        // and box a literal "undefined" string so the printer's
+        // ANY_STR arm picks it up unquoted. Catches Expr::Ident("
+        // undefined") AND S138 derived `undefined && x` style.
+        if matches!(
+            ctx.expr_types.get(&aid),
+            Some(crate::check::Type::Undefined)
+        ) {
+            let _ = ctx.lower_expr(aid);
+            let lit = ctx.intern_string_literal("undefined");
+            let boxed = ctx.box_to_any(Operand::Value(lit));
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed.clone()]),
+            );
+            ctx.emit_drop_value(boxed, Type::Any);
+            continue;
+        }
         let arg = ctx.lower_expr(aid);
         let arg_ty = ctx.operand_ty(&arg);
 
