@@ -67,6 +67,7 @@ pub fn parse_into(tokens: &[Spanned], target: &mut Ast) -> Result<usize, String>
     let mut p = Parser {
         tokens,
         pos: 0,
+        type_close_peel: 0,
         ast: taken,
         desugar_id: id_offset,
         generator_fns: std::collections::HashMap::new(),
@@ -84,6 +85,13 @@ pub fn parse_into(tokens: &[Spanned], target: &mut Ast) -> Result<usize, String>
 struct Parser<'a> {
     tokens: &'a [Spanned],
     pos: usize,
+    // S155 — `Foo<Bar<X>>` lexes the closing `>>` as one ShrShr token;
+    // nested type-arg parsing peels it as two virtual `>`s. This counter
+    // tracks how many `>`s of the current ShrShr/ShrShrShr at `pos` have
+    // been peeled (0 = full token, 1 = one peel left for `>>`, 2 = both
+    // peeled for `>>>`). `peek()` consults it so the second `>` shows
+    // up as `Gt` for the outer caller. Reset by any non-Gt advance.
+    type_close_peel: u8,
     ast: Ast,
     /// Monotone counter used by parse-time desugars (for-of, destructuring,
     /// template literal interpolation) to mint collision-free temp names.
@@ -210,6 +218,19 @@ fn unwrap_generator_return_ann(ann: &str) -> String {
 
 impl Parser<'_> {
     fn peek(&self) -> &Token {
+        // S155 — within nested generic type args, `>>` / `>>>` peel into
+        // multiple `>`s. When `type_close_peel` is non-zero the current
+        // ShrShr/ShrShrShr token has had its leading `>`(s) consumed
+        // virtually; report the next virtual `>` (or `>>` after one
+        // peel from `>>>`).
+        if self.type_close_peel > 0 {
+            match &self.tokens[self.pos].token {
+                Token::ShrShr if self.type_close_peel == 1 => return &Token::Gt,
+                Token::ShrShrShr if self.type_close_peel == 1 => return &Token::ShrShr,
+                Token::ShrShrShr if self.type_close_peel == 2 => return &Token::Gt,
+                _ => {}
+            }
+        }
         &self.tokens[self.pos].token
     }
 
@@ -473,9 +494,20 @@ impl Parser<'_> {
             if !matches!(self.peek(), Token::Gt) {
                 loop {
                     args.push(self.parse_type_ann()?);
+                    // S155 — ShrShr/ShrShrShr at the close position
+                    // signals a nested-generic `>>` / `>>>`; treat it
+                    // as a close marker so the outer close arm can peel
+                    // the next virtual `>`.
                     match self.peek() {
                         Token::Comma => self.pos += 1,
                         Token::Gt => break,
+                        _ if matches!(
+                            &self.tokens[self.pos].token,
+                            Token::ShrShr | Token::ShrShrShr
+                        ) =>
+                        {
+                            break;
+                        }
                         t => {
                             return Err(format!(
                                 "expected `,` or `>` in type args, got {t:?} at {}",
@@ -485,11 +517,33 @@ impl Parser<'_> {
                     }
                 }
             }
-            match self.peek() {
-                Token::Gt => self.pos += 1,
-                t => {
+            // S155 — close consumes one virtual `>`. If we're inside
+            // `Foo<Bar<X>>` the real token is ShrShr; peel it once and
+            // advance pos when fully consumed (peel == 2 for ShrShr,
+            // peel == 3 for ShrShrShr).
+            match &self.tokens[self.pos].token {
+                Token::Gt => {
+                    self.pos += 1;
+                    self.type_close_peel = 0;
+                }
+                Token::ShrShr => {
+                    self.type_close_peel += 1;
+                    if self.type_close_peel >= 2 {
+                        self.pos += 1;
+                        self.type_close_peel = 0;
+                    }
+                }
+                Token::ShrShrShr => {
+                    self.type_close_peel += 1;
+                    if self.type_close_peel >= 3 {
+                        self.pos += 1;
+                        self.type_close_peel = 0;
+                    }
+                }
+                _ => {
                     return Err(format!(
-                        "expected `>` to close type args, got {t:?} at {}",
+                        "expected `>` to close type args, got {:?} at {}",
+                        self.peek(),
                         self.at()
                     ));
                 }
@@ -3111,6 +3165,7 @@ impl Parser<'_> {
                     let mut sub = Parser {
                         tokens,
                         pos: 0,
+                        type_close_peel: 0,
                         ast: std::mem::take(&mut self.ast),
                         desugar_id: self.desugar_id,
                         generator_fns: std::mem::take(&mut self.generator_fns),
