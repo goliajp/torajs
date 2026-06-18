@@ -168,6 +168,21 @@ impl LowerCtx<'_> {
                     Operand::ConstI64(0)
                 } else if matches!(self.operand_ty(&v), Type::Bool) {
                     self.coerce_bool_to_i64(v)
+                } else if matches!(self.operand_ty(&v), Type::Str | Type::Substr) {
+                    // S137 — `~s` per spec §13.5.6 calls ToInt32(
+                    // ToNumber(s)). Route through __torajs_str_to_
+                    // number (strtod, NaN on parse failure); the
+                    // post-coerce BitNot path then runs
+                    // coerce_f64_to_i64_for_bitwise → emit_to_int32 →
+                    // xor with -1, which already handles NaN → 0 →
+                    // -1 (matches bun's `~'abc' === -1`).
+                    let r = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.str_to_number, vec![v]),
+                        Type::F64,
+                        None,
+                    );
+                    Operand::Value(r)
                 } else {
                     v
                 }

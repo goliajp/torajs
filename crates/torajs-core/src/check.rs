@@ -6818,12 +6818,17 @@ impl Checker {
                         } else if t == Type::BigInt {
                             // V3-02 — BigInt `~x` ≡ `-x - 1n`.
                             Ok(Type::BigInt)
-                        } else if matches!(t, Type::Boolean | Type::Null | Type::Undefined) {
+                        } else if matches!(
+                            t,
+                            Type::Boolean | Type::Null | Type::Undefined | Type::String
+                        ) {
                             // V3-18 m1.f — JS spec §13.5.6 unary `~`
                             // calls ToInt32 (via ToNumber). Bool/Null
                             // both clean to i32. Undefined → NaN →
                             // ToInt32(NaN) = 0 per §7.1.6 → `~0` = -1
-                            // (S136 narrow batch).
+                            // (S136). String routes through
+                            // __torajs_str_to_number at the SSA layer
+                            // (S137), mirroring the Neg arm.
                             Ok(Type::Number)
                         } else {
                             Err(format!("`~` requires number or bigint operand, got {t:?}"))
