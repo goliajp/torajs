@@ -4909,6 +4909,20 @@ fn lower_inner(
         &[Type::F64],
         Type::F64,
     );
+    let math_sum_precise_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_sum_precise",
+        &[Type::Ptr],
+        Type::F64,
+    );
+    let math_sum_precise_i64_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_sum_precise_i64",
+        &[Type::Ptr],
+        Type::F64,
+    );
     let math_f16round_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5947,6 +5961,8 @@ fn lower_inner(
         math_clz32: math_clz32_id,
         math_fround: math_fround_id,
         math_f16round: math_f16round_id,
+        math_sum_precise: math_sum_precise_id,
+        math_sum_precise_i64: math_sum_precise_i64_id,
         math_random: math_random_id,
         json_quote_str: json_quote_str_id,
         json_eat_char: json_eat_char_id,
@@ -6968,6 +6984,8 @@ pub(crate) struct Intrinsics {
     pub(crate) math_clz32: FuncId,
     pub(crate) math_fround: FuncId,
     pub(crate) math_f16round: FuncId,
+    pub(crate) math_sum_precise: FuncId,
+    pub(crate) math_sum_precise_i64: FuncId,
     pub(crate) math_random: FuncId,
     pub(crate) json_quote_str: FuncId,
     /// M6.3 — JSON.parse runtime helpers. See `runtime_str.c` for the
@@ -22451,7 +22469,7 @@ impl<'a> LowerCtx<'a> {
                 // a (mono fn name) for this call's ExprId, look up the
                 // specialized FuncId by name and use it instead of the
                 // generic ident's resolve.
-                let target = if let Some(mono_name) = self.call_retargets.get(&eid).cloned() {
+                let mut target = if let Some(mono_name) = self.call_retargets.get(&eid).cloned() {
                     *self.fn_table.get(&mono_name).unwrap_or_else(|| {
                         panic!("ssa-lower: monomorphized fn `{mono_name}` missing from fn_table")
                     })
@@ -22459,6 +22477,18 @@ impl<'a> LowerCtx<'a> {
                     self.resolve_callee(*callee)
                 };
                 let mut argv: Vec<Operand> = args.iter().map(|a| self.lower_expr(*a)).collect();
+                // Math.sumPrecise dispatch — the default resolve picks
+                // the F64-array helper; swap to the I64-array sibling
+                // when the operand is a tightly-typed integer Array
+                // (literal-integer-only sources lower as Array<I64>).
+                if target == self.intrinsics.math_sum_precise && argv.len() == 1 {
+                    if let Type::Arr(arr_id) = self.operand_ty(&argv[0]) {
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        if matches!(elem_ty, Type::I64) {
+                            target = self.intrinsics.math_sum_precise_i64;
+                        }
+                    }
+                }
                 // T-28 — pad trailing missing Type::Any params with
                 // ANY_UNDEF Any-box operands. check.rs's arity_pad_count
                 // recorded the missing count for this Call ExprId iff
@@ -27448,6 +27478,7 @@ impl<'a> LowerCtx<'a> {
                         "clz32" => self.intrinsics.math_clz32,
                         "fround" => self.intrinsics.math_fround,
                         "f16round" => self.intrinsics.math_f16round,
+                        "sumPrecise" => self.intrinsics.math_sum_precise,
                         "random" => self.intrinsics.math_random,
                         other => {
                             panic!("ssa-lower: unknown Math method `{other}`")

@@ -2921,6 +2921,14 @@ impl Checker {
                         vec![Type::Number, Type::Number],
                         Box::new(Type::Number),
                     )),
+                    // ES2025 §21.3.2.32 — correctly-rounded sum of an
+                    // Array<Number>. Narrow form: only Array<Number>
+                    // input (spec accepts any iterable of Number;
+                    // tora's Set/Map/iterator surface comes later).
+                    (Type::Object("Math"), "sumPrecise") => Ok(Type::Function(
+                        vec![Type::Array(Box::new(Type::Number))],
+                        Box::new(Type::Number),
+                    )),
                     (Type::Object("Math"), "random") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::Number),

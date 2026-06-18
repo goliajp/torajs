@@ -52,6 +52,7 @@ mod print_props;
 pub mod props;
 pub mod slice;
 pub mod str_bridge;
+pub mod sum_precise;
 pub mod transform;
 
 pub use alloc::{__torajs_arr_alloc, __torajs_arr_alloc_pooled, __torajs_arr_free};
