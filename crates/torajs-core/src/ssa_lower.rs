@@ -22057,15 +22057,19 @@ impl<'a> LowerCtx<'a> {
                     return Operand::Value(v);
                 }
                 // Generalized indirect call: when the callee is itself
-                // a Call expression (`f(0)(5)` — chained call), the
-                // existing Ident-keyed paths can't handle it. Lower the
-                // callee unconditionally to get a Closure or FnSig
-                // value, then dispatch indirectly. Mirrors
-                // `call_fn_value` but with explicit void handling.
-                // Member callees (Math.*, console.log, x.method()) and
-                // direct Ident callees fall through to the existing
-                // specialized paths below.
-                if matches!(self.ast.get_expr(*callee), Expr::Call { .. }) {
+                // a Call expression (`f(0)(5)` — chained call) or an
+                // immediately-invoked closure literal (`(() => v)()` —
+                // S158 IIFE), the existing Ident-keyed paths can't
+                // handle it. Lower the callee unconditionally to get a
+                // Closure or FnSig value, then dispatch indirectly.
+                // Mirrors `call_fn_value` but with explicit void
+                // handling. Member callees (Math.*, console.log,
+                // x.method()) and direct Ident callees fall through to
+                // the existing specialized paths below.
+                if matches!(
+                    self.ast.get_expr(*callee),
+                    Expr::Call { .. } | Expr::Closure { .. }
+                ) {
                     let callee_op = self.lower_expr(*callee);
                     let callee_ty = self.operand_ty(&callee_op);
                     match callee_ty {
