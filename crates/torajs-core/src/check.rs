@@ -747,6 +747,32 @@ fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
     {
         return true;
     }
+    // ES §7.2.13 steps 2-4 — Null / Undefined never coerce to other
+    // primitive types for loose-eq, so the cross-type result is
+    // statically false (unless the other side is also nullish, in
+    // which case the result is true). Accept Undefined symmetric with
+    // Null in the same nullish bucket so the type-check passes; SSA
+    // lowering's `a_is_null || b_is_null` arm (ssa_lower.rs L25533)
+    // already folds to `ConstBool(false)` for cross-type and
+    // `ConstBool(true)` for nullish-nullish — same fold both literals
+    // hit since they share `Operand::ConstPtrNull`. Other side may be
+    // any primitive (Number / Boolean / String / BigInt) — the fold
+    // doesn't need to inspect it.
+    let nullish = |t: &Type| matches!(t, Type::Null | Type::Undefined);
+    let primitive = |t: &Type| {
+        matches!(
+            t,
+            Type::Number
+                | Type::Boolean
+                | Type::Null
+                | Type::Undefined
+                | Type::String
+                | Type::BigInt
+        )
+    };
+    if (nullish(l) && primitive(r)) || (nullish(r) && primitive(l)) {
+        return true;
+    }
     // S127-2 — Any vs Null (covers both `null` and `undefined` literals,
     // which both lower to Type::Null at check time). spec §7.2.13
     // IsLooselyEqual: `v == null` is true iff `v` is null or undefined,
