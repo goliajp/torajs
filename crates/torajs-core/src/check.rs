@@ -7511,20 +7511,19 @@ impl Checker {
                     Type::Null => None,
                     Type::Undefined => None,
                     other => {
-                        // S129-2 mixed-Any nullish — `typed ?? any`
-                        // is a static no-op per §13.4.2: a typed
-                        // non-nullable lhs short-circuits to itself
-                        // unconditionally, rhs is never evaluated.
-                        // Narrow allow when rhs is Any to keep
-                        // bun-parity (`v(): number ?? getAny()`)
-                        // without softening strict reject for the
-                        // typed-typed misuse (caller likely meant
-                        // `||` or has a stale type ann). Same S128-5
-                        // / S129-1 mixed-Any series shape.
-                        if matches!(rhs_ty, Type::Any) {
-                            return Ok(other.clone());
-                        }
-                        return Err(format!("`??` left operand must be nullable, got {other:?}"));
+                        // ES §13.4.2 — `lhs ?? rhs` on a non-nullable
+                        // typed lhs is a static no-op: lhs is never
+                        // null/undefined, so the result is always lhs
+                        // and rhs is never evaluated. Type-check rhs
+                        // for side-effect well-formedness (consistent
+                        // with the dead-branch of `if (false) { ... }`)
+                        // but otherwise return lhs's type. Pre-fix tr
+                        // rejected the construct entirely unless rhs
+                        // was Any (S128-5 / S129-1 / S129-2 mixed-Any
+                        // exception). bun and spec both accept it —
+                        // `0 ?? 'x'` is 0, `'' ?? 'x'` is ''.
+                        let _ = rhs_ty;
+                        return Ok(other.clone());
                     }
                 };
                 // If lhs was Null literal, the answer is just rhs's type.

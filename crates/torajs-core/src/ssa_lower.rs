@@ -24406,7 +24406,13 @@ impl<'a> LowerCtx<'a> {
                         | Some(crate::check::Type::Undefined)
                         | Some(crate::check::Type::Any)
                 );
-                if lhs_non_nullable && matches!(rhs_check_ty, Some(crate::check::Type::Any)) {
+                if lhs_non_nullable {
+                    // ES §13.4.2 — non-nullable lhs short-circuits to
+                    // itself; rhs is never evaluated. Covers both the
+                    // mixed-Any rhs case (S128-5 / S129-1 / S129-2) and
+                    // the typed-typed case (`0 ?? 'x'` → 0) which
+                    // check.rs now accepts.
+                    let _ = rhs_check_ty;
                     return lhs_op;
                 }
                 let res_slot = self.alloca_in_entry(lhs_ty, Some("__nullish"));
