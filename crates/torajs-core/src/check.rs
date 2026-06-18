@@ -3853,6 +3853,39 @@ impl Checker {
                         vec![Type::Number],
                         Box::new(Type::Number),
                     )),
+                    // Per-field setters per ES §21.4.4.20-26. Each
+                    // takes 1-N Number args (trailing ones optional);
+                    // we expose them as taking N required Numbers
+                    // and let ssa_lower sentinel-pad missing trailing
+                    // args. Returns the new `d.ms` (Number) per spec.
+                    (Type::Date, "setFullYear") => Ok(Type::Function(
+                        vec![Type::Number, Type::Number, Type::Number],
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Date, "setMonth") => Ok(Type::Function(
+                        vec![Type::Number, Type::Number],
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Date, "setDate") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Date, "setHours") => Ok(Type::Function(
+                        vec![Type::Number, Type::Number, Type::Number, Type::Number],
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Date, "setMinutes") => Ok(Type::Function(
+                        vec![Type::Number, Type::Number, Type::Number],
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Date, "setSeconds") => Ok(Type::Function(
+                        vec![Type::Number, Type::Number],
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Date, "setMilliseconds") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::Number),
+                    )),
                     (Type::Date, "getYear") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::Number),
@@ -6329,7 +6362,7 @@ impl Checker {
                     }
                 }
                 let callee_ty = self.type_of(ast, *callee)?;
-                let Type::Function(params, ret) = callee_ty else {
+                let Type::Function(mut params, ret) = callee_ty else {
                     return Err(format!("not callable: type {callee_ty:?}"));
                 };
                 // P1 wedge — Array.prototype callback methods accept
@@ -6391,6 +6424,26 @@ impl Checker {
                         self.arity_pad_count
                             .insert(eid, params.len() - effective_args.len());
                         return Ok((*ret).clone());
+                    }
+                }
+                // Date per-field setters (setFullYear / setMonth /
+                // setHours / setMinutes / setSeconds / …) accept 1-N
+                // args per ES §21.4.4.20-26 with trailing positions
+                // optional. The sig declares the FULL arity (max); when
+                // the caller supplied fewer args we narrow the sig to
+                // the supplied arity so strict-arity below passes. The
+                // ssa_lower side sentinel-pads the missing trailing
+                // positions with `DATE_FIELD_KEEP` (i64::MIN).
+                if effective_args.len() < params.len()
+                    && let Expr::Member { obj, name } = ast.get_expr(*callee)
+                    && matches!(
+                        name.as_str(),
+                        "setFullYear" | "setMonth" | "setHours" | "setMinutes" | "setSeconds"
+                    )
+                {
+                    let recv_ty = self.type_of(ast, *obj)?;
+                    if recv_ty == Type::Date && effective_args.len() >= 1 {
+                        params.truncate(effective_args.len());
                     }
                 }
                 if params.len() != effective_args.len() {

@@ -191,6 +191,183 @@ pub unsafe extern "C" fn __torajs_date_set_time(d_ptr: *mut c_void, ms: i64) -> 
     ms
 }
 
+/// Sentinel used by the per-field setter helpers (setFullYear /
+/// setMonth / setHours / …) to mean "argument not provided — keep
+/// the current value". `i64::MIN` is outside the JS Number safe
+/// range, so it cannot collide with a real user-supplied value
+/// after the ssa_lower `coerce_to_i64` truncation.
+pub const DATE_FIELD_KEEP: i64 = i64::MIN;
+
+/// Decompose `d.ms` into the 7-tuple (year-CE, JS-0-indexed-month,
+/// day, hour, min, sec, milli) that the per-field setters need.
+fn fetch_local_components(date: &Date) -> (i64, i64, i64, i64, i64, i64, i64) {
+    let tm = localtime_decompose(date.ms);
+    let milli = date.ms.rem_euclid(1000);
+    (
+        (tm.tm_year + 1900) as i64,
+        tm.tm_mon as i64,
+        tm.tm_mday as i64,
+        tm.tm_hour as i64,
+        tm.tm_min as i64,
+        tm.tm_sec as i64,
+        milli,
+    )
+}
+
+#[inline]
+fn pick(arg: i64, current: i64) -> i64 {
+    if arg == DATE_FIELD_KEEP { current } else { arg }
+}
+
+/// `.setFullYear(year, month?, date?)` per ES §21.4.4.21 — overwrites
+/// the LOCAL-time year (and optionally month/date), recomposes via
+/// `components_to_local_ms`, returns the new `d.ms`.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date` (exclusive borrow).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_set_full_year(
+    d_ptr: *mut c_void,
+    year: i64,
+    month: i64,
+    day: i64,
+) -> i64 {
+    if d_ptr.is_null() {
+        return 0;
+    }
+    let date = unsafe { as_date_mut(d_ptr) };
+    let (_, m, d, h, mi, s, ms) = fetch_local_components(date);
+    let new_ms = components_to_local_ms(year, pick(month, m), pick(day, d), h, mi, s, ms);
+    date.ms = new_ms;
+    new_ms
+}
+
+/// `.setMonth(month, date?)` per ES §21.4.4.25.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date` (exclusive borrow).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_set_month(d_ptr: *mut c_void, month: i64, day: i64) -> i64 {
+    if d_ptr.is_null() {
+        return 0;
+    }
+    let date = unsafe { as_date_mut(d_ptr) };
+    let (y, _, d, h, mi, s, ms) = fetch_local_components(date);
+    let new_ms = components_to_local_ms(y, month, pick(day, d), h, mi, s, ms);
+    date.ms = new_ms;
+    new_ms
+}
+
+/// `.setDate(date)` per ES §21.4.4.20.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date` (exclusive borrow).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_set_date(d_ptr: *mut c_void, day: i64) -> i64 {
+    if d_ptr.is_null() {
+        return 0;
+    }
+    let date = unsafe { as_date_mut(d_ptr) };
+    let (y, m, _, h, mi, s, ms) = fetch_local_components(date);
+    let new_ms = components_to_local_ms(y, m, day, h, mi, s, ms);
+    date.ms = new_ms;
+    new_ms
+}
+
+/// `.setHours(hour, min?, sec?, ms?)` per ES §21.4.4.22.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date` (exclusive borrow).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_set_hours(
+    d_ptr: *mut c_void,
+    hour: i64,
+    minute: i64,
+    second: i64,
+    milli: i64,
+) -> i64 {
+    if d_ptr.is_null() {
+        return 0;
+    }
+    let date = unsafe { as_date_mut(d_ptr) };
+    let (y, m, d, _, mi, s, ms) = fetch_local_components(date);
+    let new_ms = components_to_local_ms(
+        y,
+        m,
+        d,
+        hour,
+        pick(minute, mi),
+        pick(second, s),
+        pick(milli, ms),
+    );
+    date.ms = new_ms;
+    new_ms
+}
+
+/// `.setMinutes(min, sec?, ms?)` per ES §21.4.4.24.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date` (exclusive borrow).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_set_minutes(
+    d_ptr: *mut c_void,
+    minute: i64,
+    second: i64,
+    milli: i64,
+) -> i64 {
+    if d_ptr.is_null() {
+        return 0;
+    }
+    let date = unsafe { as_date_mut(d_ptr) };
+    let (y, m, d, h, _, s, ms) = fetch_local_components(date);
+    let new_ms = components_to_local_ms(y, m, d, h, minute, pick(second, s), pick(milli, ms));
+    date.ms = new_ms;
+    new_ms
+}
+
+/// `.setSeconds(sec, ms?)` per ES §21.4.4.26.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date` (exclusive borrow).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_set_seconds(
+    d_ptr: *mut c_void,
+    second: i64,
+    milli: i64,
+) -> i64 {
+    if d_ptr.is_null() {
+        return 0;
+    }
+    let date = unsafe { as_date_mut(d_ptr) };
+    let (y, m, d, h, mi, _, ms) = fetch_local_components(date);
+    let new_ms = components_to_local_ms(y, m, d, h, mi, second, pick(milli, ms));
+    date.ms = new_ms;
+    new_ms
+}
+
+/// `.setMilliseconds(ms)` per ES §21.4.4.23.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date` (exclusive borrow).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_set_milliseconds(d_ptr: *mut c_void, milli: i64) -> i64 {
+    if d_ptr.is_null() {
+        return 0;
+    }
+    let date = unsafe { as_date_mut(d_ptr) };
+    let (y, m, d, h, mi, s, _) = fetch_local_components(date);
+    let new_ms = components_to_local_ms(y, m, d, h, mi, s, milli);
+    date.ms = new_ms;
+    new_ms
+}
+
 /// annexB `.getYear()` — year - 1900 in LOCAL time.
 ///
 /// # Safety

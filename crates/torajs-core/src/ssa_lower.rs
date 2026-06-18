@@ -2280,6 +2280,55 @@ fn lower_inner(
         &[Type::Date],
         Type::Str,
     );
+    let date_set_full_year_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_set_full_year",
+        &[Type::Date, Type::I64, Type::I64, Type::I64],
+        Type::I64,
+    );
+    let date_set_month_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_set_month",
+        &[Type::Date, Type::I64, Type::I64],
+        Type::I64,
+    );
+    let date_set_date_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_set_date",
+        &[Type::Date, Type::I64],
+        Type::I64,
+    );
+    let date_set_hours_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_set_hours",
+        &[Type::Date, Type::I64, Type::I64, Type::I64, Type::I64],
+        Type::I64,
+    );
+    let date_set_minutes_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_set_minutes",
+        &[Type::Date, Type::I64, Type::I64, Type::I64],
+        Type::I64,
+    );
+    let date_set_seconds_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_set_seconds",
+        &[Type::Date, Type::I64, Type::I64],
+        Type::I64,
+    );
+    let date_set_milliseconds_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_set_milliseconds",
+        &[Type::Date, Type::I64],
+        Type::I64,
+    );
     /* Phase 2.0b — UTC getter intrinsics. */
     let date_get_full_year_id = declare_intrinsic(
         &mut module,
@@ -5552,6 +5601,13 @@ fn lower_inner(
         date_to_locale_string: date_to_locale_string_id,
         date_to_locale_date_string: date_to_locale_date_string_id,
         date_to_locale_time_string: date_to_locale_time_string_id,
+        date_set_full_year: date_set_full_year_id,
+        date_set_month: date_set_month_id,
+        date_set_date: date_set_date_id,
+        date_set_hours: date_set_hours_id,
+        date_set_minutes: date_set_minutes_id,
+        date_set_seconds: date_set_seconds_id,
+        date_set_milliseconds: date_set_milliseconds_id,
         date_get_full_year: date_get_full_year_id,
         date_get_month: date_get_month_id,
         date_get_date: date_get_date_id,
@@ -6538,6 +6594,13 @@ pub(crate) struct Intrinsics {
     pub(crate) date_to_locale_string: FuncId,
     pub(crate) date_to_locale_date_string: FuncId,
     pub(crate) date_to_locale_time_string: FuncId,
+    pub(crate) date_set_full_year: FuncId,
+    pub(crate) date_set_month: FuncId,
+    pub(crate) date_set_date: FuncId,
+    pub(crate) date_set_hours: FuncId,
+    pub(crate) date_set_minutes: FuncId,
+    pub(crate) date_set_seconds: FuncId,
+    pub(crate) date_set_milliseconds: FuncId,
     pub(crate) date_get_full_year: FuncId,
     pub(crate) date_get_month: FuncId,
     pub(crate) date_get_date: FuncId,
@@ -20644,17 +20707,53 @@ impl<'a> LowerCtx<'a> {
                             | "toLocaleString"
                             | "toLocaleDateString"
                             | "toLocaleTimeString"
+                            | "setFullYear"
+                            | "setMonth"
+                            | "setDate"
+                            | "setHours"
+                            | "setMinutes"
+                            | "setSeconds"
+                            | "setMilliseconds"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
                     if recv_ty == Type::Date {
                         let method = name.clone();
-                        // T-30 setters take 1 arg (Number → I64).
+                        // T-30 setters take 1 arg (Number → I64). The
+                        // per-field setters (setFullYear / setMonth /
+                        // setHours / …) take 1-4 args; missing trailing
+                        // args are padded with the DATE_FIELD_KEEP
+                        // sentinel (`i64::MIN`) so the runtime can keep
+                        // the current field value without a separate
+                        // arity-N intrinsic per overload.
+                        let per_field_arity: Option<usize> = match method.as_str() {
+                            "setFullYear" => Some(3),
+                            "setMonth" => Some(2),
+                            "setDate" => Some(1),
+                            "setHours" => Some(4),
+                            "setMinutes" => Some(3),
+                            "setSeconds" => Some(2),
+                            "setMilliseconds" => Some(1),
+                            _ => None,
+                        };
                         let arg_ops: Vec<Operand> = if method == "setTime" || method == "setYear" {
                             debug_assert_eq!(args.len(), 1);
                             let a = self.lower_expr(args[0]);
                             vec![recv_op, self.coerce_to_i64(a)]
+                        } else if let Some(target_arity) = per_field_arity {
+                            debug_assert!(!args.is_empty() && args.len() <= target_arity);
+                            let mut ops = Vec::with_capacity(target_arity + 1);
+                            ops.push(recv_op);
+                            for i in 0..target_arity {
+                                if i < args.len() {
+                                    let a = self.lower_expr(args[i]);
+                                    ops.push(self.coerce_to_i64(a));
+                                } else {
+                                    ops.push(Operand::ConstI64(i64::MIN));
+                                }
+                            }
+                            ops
                         } else {
                             vec![recv_op]
                         };
@@ -20696,6 +20795,13 @@ impl<'a> LowerCtx<'a> {
                             "toLocaleTimeString" => {
                                 (self.intrinsics.date_to_locale_time_string, Type::Str)
                             }
+                            "setFullYear" => (self.intrinsics.date_set_full_year, Type::I64),
+                            "setMonth" => (self.intrinsics.date_set_month, Type::I64),
+                            "setDate" => (self.intrinsics.date_set_date, Type::I64),
+                            "setHours" => (self.intrinsics.date_set_hours, Type::I64),
+                            "setMinutes" => (self.intrinsics.date_set_minutes, Type::I64),
+                            "setSeconds" => (self.intrinsics.date_set_seconds, Type::I64),
+                            "setMilliseconds" => (self.intrinsics.date_set_milliseconds, Type::I64),
                             _ => unreachable!(),
                         };
                         let v = self.f.append_inst(
