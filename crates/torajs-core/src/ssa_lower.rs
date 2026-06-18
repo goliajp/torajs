@@ -13871,6 +13871,9 @@ impl<'a> LowerCtx<'a> {
                 // to). General iterable initializers still need P5.
                 if let Some(arg0) = args.first()
                     && let Expr::Array(elems) = self.ast.get_expr(*arg0).clone()
+                    && elems
+                        .iter()
+                        .all(|e| !matches!(self.ast.get_expr(*e), Expr::Spread { .. }))
                 {
                     for elem in &elems {
                         let (k_tag, k_val) = self.lower_to_tag_value(*elem);
@@ -13887,6 +13890,124 @@ impl<'a> LowerCtx<'a> {
                                 ],
                             ),
                         );
+                    }
+                    return set_op;
+                }
+                // S152 — `new Set(<typed Array<T>>)` per ES §24.2.1.
+                // Lower the arg to a Type::Arr value and walk it with
+                // a per-element box_to_tag_value + map_set. Source
+                // array is owned by us (e.g. `[...spread, lit]`
+                // allocates fresh), so drop it post-loop.
+                if let Some(arg0) = args.first() {
+                    let arg_op = self.lower_expr(*arg0);
+                    let arg_ty = self.operand_ty(&arg_op);
+                    if let Type::Arr(arr_id) = arg_ty {
+                        let arr_val = match arg_op {
+                            Operand::Value(v) => v,
+                            _ => unreachable!("Arr is SSA Value"),
+                        };
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        let len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(arr_val), ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        let i_slot = self.alloca(Type::I64, Some("__set_init_i"));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+                        );
+                        let header_blk = self.f.add_block();
+                        let body_blk = self.f.add_block();
+                        let after_blk = self.f.add_block();
+                        self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+                        self.cur_block = header_blk;
+                        let i_now = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let cmp = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(len)),
+                            Type::Bool,
+                            None,
+                        );
+                        self.f.set_term(
+                            self.cur_block,
+                            Terminator::CondBr {
+                                cond: Operand::Value(cmp),
+                                then_blk: body_blk,
+                                else_blk: after_blk,
+                            },
+                        );
+                        self.cur_block = body_blk;
+                        let i_body = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let off = self.emit_arr_slot_byte_offset(
+                            Operand::Value(arr_val),
+                            Operand::Value(i_body),
+                            3,
+                            false,
+                        );
+                        let elem = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(elem_ty, Operand::Value(arr_val), off),
+                            elem_ty,
+                            None,
+                        );
+                        // box_to_tag_value handles its own rc_inc for
+                        // refcounted + Any element types, so the Set
+                        // entry gets an independent ref while the src
+                        // array slot keeps its own; no explicit
+                        // rc_inc on `elem` needed here.
+                        let (k_tag, k_val) = self.box_to_tag_value(Operand::Value(elem));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.map_set,
+                                vec![
+                                    set_op.clone(),
+                                    k_tag,
+                                    k_val,
+                                    Operand::ConstI64(5),
+                                    Operand::ConstI64(0),
+                                ],
+                            ),
+                        );
+                        let i_then = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let i_next = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(i_then),
+                                Operand::ConstI64(1),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+                        );
+                        self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+                        self.cur_block = after_blk;
+                        // Drop the intermediate src array we own (its
+                        // element refs were copied into the Set via
+                        // box_to_tag_value's rc_inc).
+                        self.emit_drop_value(Operand::Value(arr_val), arg_ty);
+                        return set_op;
                     }
                 }
                 return set_op;

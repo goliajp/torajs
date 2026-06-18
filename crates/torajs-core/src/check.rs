@@ -7428,6 +7428,19 @@ impl Checker {
                     }
                     return Ok(Type::Set);
                 }
+                // S152 — `new Set(<typed Array<T>>)` per ES §24.2.1.
+                // Covers `[...spread, lit]`, function-returned arrays,
+                // and any other runtime-shaped Array<T> by walking the
+                // src array at ssa-lower time and `set.add`'ing each
+                // element (with appropriate box_to_tag_value). Full
+                // iterator-protocol (custom Symbol.iterator) still
+                // deferred behind P5.
+                if args.len() == 1 {
+                    let arg_ty = self.type_of(ast, args[0])?;
+                    if matches!(arg_ty, Type::Array(_)) {
+                        return Ok(Type::Set);
+                    }
+                }
                 if !args.is_empty() {
                     return Err(format!(
                         "`new Set(...)` with iterable initializer not yet supported (got {} args)",
