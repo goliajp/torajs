@@ -25578,6 +25578,44 @@ impl<'a> LowerCtx<'a> {
                 }
                 return eq;
             }
+            // ES §7.2.13 steps 7-9 — `Boolean == String` / `String ==
+            // Boolean` coerces the Boolean side to Number (`true` → 1,
+            // `false` → 0), then falls under the (Number, String) arm
+            // above. Emit both sides as f64 directly here to keep the
+            // arm self-contained.
+            let bool_str_pair = if a_ty == Type::Bool && b_ty == Type::Str {
+                Some((a.clone(), b.clone()))
+            } else if a_ty == Type::Str && b_ty == Type::Bool {
+                Some((b.clone(), a.clone()))
+            } else {
+                None
+            };
+            if let Some((bool_op, str_op)) = bool_str_pair {
+                let bool_i64 = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ZExtBoolToI64(bool_op),
+                    Type::I64,
+                    None,
+                );
+                let bool_f64 = self.coerce_to_f64(Operand::Value(bool_i64));
+                let str_num = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.str_to_number, vec![str_op]),
+                    Type::F64,
+                    None,
+                );
+                let eq = self.fcmp(FPred::Oeq, bool_f64, Operand::Value(str_num));
+                if matches!(op, AstBinOp::LooseNeq) {
+                    let neg = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(SsaBinOp::Xor, eq, Operand::ConstBool(true)),
+                        Type::Bool,
+                        None,
+                    );
+                    return Operand::Value(neg);
+                }
+                return eq;
+            }
         }
         // ES §7.2.15 — `null === undefined` / `undefined === null` is
         // false (distinct primitive types per §6.1.1 / §6.1.2). Both

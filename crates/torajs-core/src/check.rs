@@ -782,6 +782,15 @@ fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
     {
         return true;
     }
+    // ES §7.2.13 steps 7-9 — Boolean <-> String coerces both sides
+    // to Number (Boolean → 0/1, String → ToNumber). ssa_lower
+    // (loose-eq arm sibling to the Str/Number arm) emits the
+    // compound coercion + fcmp.
+    if (matches!(l, Type::String) && matches!(r, Type::Boolean))
+        || (matches!(l, Type::Boolean) && matches!(r, Type::String))
+    {
+        return true;
+    }
     // S127-2 — Any vs Null (covers both `null` and `undefined` literals,
     // which both lower to Type::Null at check time). spec §7.2.13
     // IsLooselyEqual: `v == null` is true iff `v` is null or undefined,
