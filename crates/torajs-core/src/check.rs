@@ -3079,6 +3079,15 @@ impl Checker {
                         vec![Type::Any, Type::String],
                         Box::new(Type::Boolean),
                     )),
+                    // ES6 §28.1.6 — `Reflect.get(target, key)`. Subset:
+                    // typed struct target + literal-string key folds at
+                    // ssa-lower time to a struct field load + box-to-Any
+                    // (key not in layout → ANY_UNDEF). Dynamic key or
+                    // non-struct target stays a deferred substrate.
+                    (Type::Object("Reflect"), "get") => Ok(Type::Function(
+                        vec![Type::Any, Type::String],
+                        Box::new(Type::Any),
+                    )),
                     // Object.is(a, b) — strict equality with two
                     // corner-case overrides vs `===`: NaN is equal to
                     // NaN, and +0 is NOT equal to -0. Lowered per arg
