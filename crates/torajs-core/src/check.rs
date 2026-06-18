@@ -5372,23 +5372,50 @@ impl Checker {
                     && m_name == "from"
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
                     && ns == "Array"
-                    && args.len() == 1
                 {
-                    let arg_ty = self.type_of(ast, args[0])?;
-                    if let Type::Array(elem) = &arg_ty {
-                        return Ok(Type::Array(elem.clone()));
+                    if args.len() == 1 {
+                        let arg_ty = self.type_of(ast, args[0])?;
+                        if let Type::Array(elem) = &arg_ty {
+                            return Ok(Type::Array(elem.clone()));
+                        }
+                        // S141 — `Array.from(set)` per ES §23.1.2.1 + §24.2.3.13
+                        // (Set iterator protocol yields values). Set storage
+                        // tags each entry as Any (untyped), so the result is
+                        // `Array<Any>` — print/spread/eq paths already handle
+                        // Any-tagged elements uniformly.
+                        if matches!(arg_ty, Type::Set) {
+                            return Ok(Type::Array(Box::new(Type::Any)));
+                        }
+                        // Fall through to the static-sig path; the String
+                        // overload already covered there throws a sensible
+                        // arity / type mismatch otherwise.
+                    } else if args.len() == 2 {
+                        // S151 — `Array.from(iter, mapFn)` per ES §23.1.2.1.
+                        // mapFn shape `(elem) → R` or `(elem, idx) → R`;
+                        // result type is `Array<R>` where R = mapFn's ret.
+                        // iter accepts the same three substrates as 1-arg
+                        // (String / typed Array / Set); the actual ssa-lower
+                        // path picks 1-arg substrate then runs a map loop.
+                        let arg_ty = self.type_of(ast, args[0])?;
+                        match &arg_ty {
+                            Type::String | Type::Array(_) | Type::Set => {}
+                            _ => {
+                                return Err(format!(
+                                    "Array.from(iter, mapFn): iter must be string, Array, or Set; got {arg_ty:?}"
+                                ));
+                            }
+                        }
+                        let fn_ty = self.type_of(ast, args[1])?;
+                        let ret_ty = match &fn_ty {
+                            Type::Function(_, ret) => (**ret).clone(),
+                            _ => {
+                                return Err(format!(
+                                    "Array.from: 2nd arg must be a function, got {fn_ty:?}"
+                                ));
+                            }
+                        };
+                        return Ok(Type::Array(Box::new(ret_ty)));
                     }
-                    // S141 — `Array.from(set)` per ES §23.1.2.1 + §24.2.3.13
-                    // (Set iterator protocol yields values). Set storage
-                    // tags each entry as Any (untyped), so the result is
-                    // `Array<Any>` — print/spread/eq paths already handle
-                    // Any-tagged elements uniformly.
-                    if matches!(arg_ty, Type::Set) {
-                        return Ok(Type::Array(Box::new(Type::Any)));
-                    }
-                    // Fall through to the static-sig path; the String
-                    // overload already covered there throws a sensible
-                    // arity / type mismatch otherwise.
                 }
                 // `xs.reduce(cb)` / `xs.reduceRight(cb)` 1-arg overload —
                 // ES §23.1.3.24 / §23.1.3.25: initial value defaults to
