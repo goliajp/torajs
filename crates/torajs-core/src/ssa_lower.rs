@@ -15857,13 +15857,28 @@ impl<'a> LowerCtx<'a> {
                         //     "shortest" so we substitute toString
                         //   toPrecision: precision = undefined →
                         //     ToString(n)
-                        // Implementation: pad missing digits arg
-                        // with 0; the runtime helpers tolerate it
-                        // (toExponential/toPrecision with 0 still
-                        // gives reasonable output even if not exact
-                        // spec — covered case-by-case in fixtures).
-                        if matches!(m_name.as_str(), "toFixed" | "toPrecision") && args.is_empty() {
+                        // toFixed pads to 0; toExponential / toPrecision
+                        // route through the shortest-roundtrip ToString
+                        // path so e.g. `(1234.5).toPrecision()` returns
+                        // "1234.5" not "1234.50" (toPrecision(0) is
+                        // outside the spec'd `1 ≤ p ≤ 100` range and
+                        // produces a bogus result for the no-arg case).
+                        if m_name == "toFixed" && args.is_empty() {
                             argv.push(Operand::ConstI64(0));
+                        }
+                        if m_name == "toPrecision" && args.is_empty() {
+                            let to_str_intrinsic = if is_f64 {
+                                self.intrinsics.f64_to_str
+                            } else {
+                                self.intrinsics.i64_to_str
+                            };
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(to_str_intrinsic, vec![recv_op]),
+                                Type::Str,
+                                None,
+                            );
+                            return Operand::Value(v);
                         }
                         // ES §22.1.3.5 — `toExponential()` with no
                         // arg means "shortest representation" (defer
