@@ -7023,6 +7023,64 @@ pub fn desugar_variadic_push(ast: &mut Ast) {
     ast.stmts = stmts;
 }
 
+/// S157 helper — try to split a multi-arg ident-receiver push/unshift
+/// `Expr::Call` (referenced by `eid`) into hoisted single-arg sibling
+/// calls plus a single-arg replacement call returned as a fresh
+/// `ExprId`. Returns `None` if `eid` isn't the recognized shape.
+///
+/// Used for both statement-position (S132 original — return value
+/// discarded) and expression-position (S157 extension — return value
+/// consumed by enclosing LetDecl / Return / etc., where push's spec
+/// return = FINAL length matches the last hoisted call's return).
+fn split_variadic_push_call(
+    eid: ExprId,
+    snapshot: &[Expr],
+    out_exprs: &mut Vec<Expr>,
+) -> Option<(Vec<Stmt>, ExprId)> {
+    let e = &snapshot[eid.0 as usize];
+    let Expr::Call { callee, args } = e else {
+        return None;
+    };
+    if args.len() <= 1 {
+        return None;
+    }
+    let Expr::Member { obj, name } = &snapshot[callee.0 as usize] else {
+        return None;
+    };
+    if !matches!(name.as_str(), "push" | "unshift") {
+        return None;
+    }
+    if !matches!(snapshot[obj.0 as usize], Expr::Ident(_)) {
+        return None;
+    }
+    let callee_id = *callee;
+    let mut args_clone = args.clone();
+    // unshift(a, b, c) prepends a, b, c such that after the call a is
+    // at index 0. Equivalent to sequential unshift(c), unshift(b),
+    // unshift(a) — REVERSE order. push needs no reorder.
+    if name == "unshift" {
+        args_clone.reverse();
+    }
+    let last_arg = args_clone.pop().unwrap();
+    let mut hoisted: Vec<Stmt> = Vec::with_capacity(args_clone.len());
+    for a in args_clone {
+        let new_call = Expr::Call {
+            callee: callee_id,
+            args: vec![a],
+        };
+        let new_eid = ExprId(out_exprs.len() as u32);
+        out_exprs.push(new_call);
+        hoisted.push(Stmt::Expr(new_eid));
+    }
+    let last_call = Expr::Call {
+        callee: callee_id,
+        args: vec![last_arg],
+    };
+    let last_eid = ExprId(out_exprs.len() as u32);
+    out_exprs.push(last_call);
+    Some((hoisted, last_eid))
+}
+
 fn rewrite_variadic_push_in_stmts(
     stmts: &mut Vec<Stmt>,
     snapshot: &[Expr],
@@ -7032,37 +7090,53 @@ fn rewrite_variadic_push_in_stmts(
     while i < stmts.len() {
         let replacement: Option<Stmt> = match &stmts[i] {
             Stmt::Expr(eid) => {
-                let e = &snapshot[eid.0 as usize];
-                if let Expr::Call { callee, args } = e
-                    && args.len() > 1
-                    && let Expr::Member { obj, name } = &snapshot[callee.0 as usize]
-                    && matches!(name.as_str(), "push" | "unshift")
-                    && matches!(snapshot[obj.0 as usize], Expr::Ident(_))
+                // Statement-position: return value discarded; hoisted
+                // single-arg calls fully replace the multi-arg call.
+                if let Some((mut hoisted, last_eid)) =
+                    split_variadic_push_call(*eid, snapshot, out_exprs)
                 {
-                    let callee_id = *callee;
-                    let mut args_clone = args.clone();
-                    // unshift(a, b, c) prepends a, b, c such that
-                    // after the call a is at index 0. Equivalent
-                    // to sequential unshift(c), unshift(b),
-                    // unshift(a) — REVERSE order. push needs no
-                    // reorder.
-                    if name == "unshift" {
-                        args_clone.reverse();
-                    }
-                    let mut new_stmts: Vec<Stmt> = Vec::with_capacity(args_clone.len());
-                    for a in args_clone {
-                        // Each iteration shares the same callee
-                        // ExprId — safe because Member{Ident,name}
-                        // is read-only.
-                        let new_call = Expr::Call {
-                            callee: callee_id,
-                            args: vec![a],
-                        };
-                        let new_eid = ExprId(out_exprs.len() as u32);
-                        out_exprs.push(new_call);
-                        new_stmts.push(Stmt::Expr(new_eid));
-                    }
-                    Some(Stmt::Multi(new_stmts))
+                    hoisted.push(Stmt::Expr(last_eid));
+                    Some(Stmt::Multi(hoisted))
+                } else {
+                    None
+                }
+            }
+            // S157 — expression-position let / const: `const rv =
+            // r.push(a, b, c)`. push's spec return is the FINAL length
+            // after all elements appended, so the last hoisted call's
+            // return value is what user expects. Hoist (n-1) single-arg
+            // calls before, leave a single-arg push as the LetDecl's
+            // init expression.
+            Stmt::LetDecl {
+                mutable,
+                name,
+                type_ann,
+                init,
+                is_var,
+            } => {
+                if let Some((mut hoisted, last_eid)) =
+                    split_variadic_push_call(*init, snapshot, out_exprs)
+                {
+                    hoisted.push(Stmt::LetDecl {
+                        mutable: *mutable,
+                        name: name.clone(),
+                        type_ann: type_ann.clone(),
+                        init: last_eid,
+                        is_var: *is_var,
+                    });
+                    Some(Stmt::Multi(hoisted))
+                } else {
+                    None
+                }
+            }
+            // S157 — `return r.push(a, b, c)` mirrors the LetDecl case:
+            // last hoisted call's value = final length per spec.
+            Stmt::Return(Some(eid)) => {
+                if let Some((mut hoisted, last_eid)) =
+                    split_variadic_push_call(*eid, snapshot, out_exprs)
+                {
+                    hoisted.push(Stmt::Return(Some(last_eid)));
+                    Some(Stmt::Multi(hoisted))
                 } else {
                     None
                 }
