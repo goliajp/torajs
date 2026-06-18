@@ -6757,14 +6757,18 @@ impl Checker {
                             // T-25 — `-bigint` flips the sign via
                             // bigint_neg at the SSA layer.
                             Ok(Type::BigInt)
-                        } else if matches!(t, Type::Boolean | Type::Null | Type::String) {
+                        } else if matches!(
+                            t,
+                            Type::Boolean | Type::Null | Type::String | Type::Undefined
+                        ) {
                             // V3-18 m1.f / unary-on-string wedge —
                             // JS spec §13.5.5 unary `-` calls
                             // ToNumber on its operand. Bool/Null map
                             // via the m1.b coerce path; String routes
                             // through __torajs_str_to_number (strtod-
-                            // based, NaN on parse failure). Result
-                            // type is Number in every case.
+                            // based, NaN on parse failure). Undefined
+                            // → NaN per §7.1.4 (S136). Result type is
+                            // Number in every case.
                             Ok(Type::Number)
                         } else if matches!(t, Type::Any) {
                             // P0.9 — Any operand: ToNumber via
@@ -6814,10 +6818,12 @@ impl Checker {
                         } else if t == Type::BigInt {
                             // V3-02 — BigInt `~x` ≡ `-x - 1n`.
                             Ok(Type::BigInt)
-                        } else if matches!(t, Type::Boolean | Type::Null) {
+                        } else if matches!(t, Type::Boolean | Type::Null | Type::Undefined) {
                             // V3-18 m1.f — JS spec §13.5.6 unary `~`
                             // calls ToInt32 (via ToNumber). Bool/Null
-                            // both clean to i32.
+                            // both clean to i32. Undefined → NaN →
+                            // ToInt32(NaN) = 0 per §7.1.6 → `~0` = -1
+                            // (S136 narrow batch).
                             Ok(Type::Number)
                         } else {
                             Err(format!("`~` requires number or bigint operand, got {t:?}"))

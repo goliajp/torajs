@@ -30,6 +30,26 @@ impl LowerCtx<'_> {
         {
             return Operand::ConstF64(-0.0);
         }
+        // S135 / S136 — unary on `undefined`. ToNumber(undefined) = NaN
+        // per spec §7.1.4 so `+undefined` and `-undefined` both yield
+        // NaN; `~undefined` = ToInt32(NaN) ^ -1 = -1 (§7.1.6). `!`
+        // already works since coerce_to_bool treats the ConstPtrNull
+        // sentinel as falsy → true. Frontend Type::Undefined lowers
+        // to ConstPtrNull (same as null), so expr_types is the source
+        // of truth — without this fast path the Plus/Neg paths would
+        // see ConstPtrNull and emit `ConstI64(0)` like `+null` does.
+        if matches!(
+            self.expr_types.get(&expr),
+            Some(crate::check::Type::Undefined)
+        ) {
+            match op {
+                crate::ast::UnaryOp::Plus | crate::ast::UnaryOp::Neg => {
+                    return Operand::ConstF64(f64::NAN);
+                }
+                crate::ast::UnaryOp::BitNot => return Operand::ConstI64(-1),
+                _ => {}
+            }
+        }
         let v = self.lower_expr(expr);
         // P0.9 — Any operand on unary `-` / `+`: route through
         // any_arith helper. `-x` ≡ `0 - x` so we call any_arith
@@ -124,18 +144,7 @@ impl LowerCtx<'_> {
                 }
             }
             crate::ast::UnaryOp::Plus => {
-                // S135 — `+undefined` ≡ NaN per spec §13.5.4 →
-                // ToNumber(undefined) = NaN (§7.1.4). Frontend
-                // Type::Undefined lowers to ConstPtrNull (same
-                // pointer sentinel as `null`), so we can't tell
-                // them apart at the operand level; expr_types is
-                // the source of truth.
-                if matches!(
-                    self.expr_types.get(&expr),
-                    Some(crate::check::Type::Undefined)
-                ) {
-                    Operand::ConstF64(f64::NAN)
-                } else if matches!(v, Operand::ConstPtrNull) {
+                if matches!(v, Operand::ConstPtrNull) {
                     Operand::ConstI64(0)
                 } else if matches!(self.operand_ty(&v), Type::Bool) {
                     self.coerce_bool_to_i64(v)
