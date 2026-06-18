@@ -368,6 +368,35 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                         i += 1; // consume closing backtick
                         break;
                     }
+                    // S156 — interpret escape sequences in literal
+                    // segments per ES §12.8.6.2 (TV(TemplateCharacter)).
+                    // Same set as `"..."` / `'...'` string literals
+                    // handles: n/t/r/0/v/f/b → control bytes, `/$/{ →
+                    // self, \\ → backslash, \" \' → quote, \` → ` (the
+                    // backtick wouldn't otherwise be reachable inside
+                    // the template). Unknown escapes pass through as
+                    // the escaped char (lenient — mirrors v8/bun).
+                    if b == b'\\' && i + 1 < len {
+                        let esc = bytes[(i + 1) as usize];
+                        let mapped: u8 = match esc {
+                            b'n' => b'\n',
+                            b't' => b'\t',
+                            b'r' => b'\r',
+                            b'0' => 0,
+                            b'v' => 0x0B,
+                            b'f' => 0x0C,
+                            b'b' => 0x08,
+                            b'\\' => b'\\',
+                            b'`' => b'`',
+                            b'$' => b'$',
+                            b'\'' => b'\'',
+                            b'"' => b'"',
+                            other => other,
+                        };
+                        buf.push(mapped);
+                        i += 2;
+                        continue;
+                    }
                     if b == b'$' && peek(bytes, i + 1) == Some(b'{') {
                         // Flush literal segment (even if empty — we
                         // need the alternation).
