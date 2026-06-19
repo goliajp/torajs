@@ -1679,6 +1679,11 @@ pub(crate) fn try_lower_method_call(
             Type::Arr(arr_id),
             None,
         );
+        // ES §23.1.3.39 step 7 — out-of-range index throws
+        // RangeError. The runtime helper records a pending throw via
+        // TLS and returns a null ptr; propagate immediately so the
+        // following rc-inc walk never touches the null result.
+        ctx.emit_throw_check(None);
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         if elem_ty.is_refcounted() {
             let len = ctx.f.append_inst(

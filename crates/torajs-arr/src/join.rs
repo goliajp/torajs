@@ -51,6 +51,11 @@ unsafe extern "C" {
     /// `torajs-str::drop` (Layer-2 sibling).
     #[link_name = "__torajs_str_drop"]
     fn str_drop(s: *mut c_void);
+    /// Cross-tier — torajs-throw. Records a pending RangeError via TLS;
+    /// returns normally so the caller's emit_throw_check after the
+    /// call site propagates the throw (non-local via TLS, not stack
+    /// unwind).
+    fn __torajs_throw_range_error(msg: *const u8);
 }
 
 // AnyValue NaN-box constants — match `torajs-anyvalue::nanbox`
@@ -480,13 +485,21 @@ pub unsafe extern "C" fn __torajs_arr_to_reversed(arr: *const u8) -> *mut u8 {
 pub unsafe extern "C" fn __torajs_arr_with(arr: *const u8, i: i64, v: i64) -> *mut u8 {
     unsafe {
         let len = arr_len(arr);
+        // ES §23.1.3.39 step 7 — `actualIndex = i < 0 ? len + i : i`,
+        // throw RangeError when out-of-range. Pre-fix this fell
+        // through to the unchecked slot store and silently corrupted
+        // adjacent heap (or wrote past the alloc on small caps).
+        let adj = if i < 0 { len as i64 + i } else { i };
+        if adj < 0 || adj >= len as i64 {
+            __torajs_throw_range_error(b"Array index out of range\0".as_ptr());
+            return core::ptr::null_mut();
+        }
         let p = arr_alloc_fresh(len, len);
         let dst = p.add(ARR_SLOTS_OFF);
         if len > 0 {
             let src = slot_addr(arr, 0);
             core::ptr::copy_nonoverlapping(src, dst, (len as usize) * 8);
         }
-        let adj = if i < 0 { len as i64 + i } else { i };
         *(dst.add(adj as usize * 8) as *mut u64) = v as u64;
         p
     }
