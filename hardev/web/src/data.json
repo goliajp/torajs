@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-19T17:06:16.357Z",
+  "generatedAt": "2026-06-19T18:48:13.450Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "dfa2002d",
-    "commitSubject": "fix(arr): `Array.join(undefined)` routes to default-comma sep per ES default-undefined",
+    "commit": "60a0c7ae",
+    "commitSubject": "fix(arr): `Array.slice(undefined [, undefined])` per ES default-undefined",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,42 @@
   },
   "commits": [
     {
+      "hash": "60a0c7ae",
+      "subject": "fix(arr): `Array.slice(undefined [, undefined])` per ES default-undefined"
+    },
+    {
+      "hash": "c6ec42d6",
+      "subject": "fix(str): `String.concat(undefined)` per ES default-undefined"
+    },
+    {
+      "hash": "cb172faa",
+      "subject": "fix(str): `String.localeCompare(undefined)` per ES default-undefined"
+    },
+    {
+      "hash": "0f5ee4f9",
+      "subject": "fix(str): `String.search() / search(undefined)` returns 0 per ES default-undefined"
+    },
+    {
+      "hash": "df667b5d",
+      "subject": "fix(str): `String.repeat(undefined)` returns \"\" per ES default-undefined"
+    },
+    {
+      "hash": "992ac322",
+      "subject": "fix(str): wire S208 substrate — check + ssa_lower routes normalize(undefined) to NFC"
+    },
+    {
+      "hash": "3df4d976",
+      "subject": "fix(str): `String.normalize(undefined)` routes to NFC default per ES default-undefined"
+    },
+    {
+      "hash": "bf27f45d",
+      "subject": "fix(str): `String.replace / replaceAll` accept fewer-than-2 args per ES default-undefined"
+    },
+    {
+      "hash": "8677547f",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×7 (S200-S206)"
+    },
+    {
       "hash": "dfa2002d",
       "subject": "fix(arr): `Array.join(undefined)` routes to default-comma sep per ES default-undefined"
     },
@@ -627,63 +663,38 @@
     {
       "hash": "e1be8d51",
       "subject": "fix(arr): `Array.isArray()` accepts 0-arg per ES default-undefined"
-    },
-    {
-      "hash": "7f4184ec",
-      "subject": "fix(num): Math unary methods accept 0-arg per ES default-undefined"
-    },
-    {
-      "hash": "f607f566",
-      "subject": "fix(num): `parseInt / parseFloat / isNaN / isFinite / Number.is*` accept 0-arg"
-    },
-    {
-      "hash": "0a9612b4",
-      "subject": "fix(str): `String.padStart() / padEnd()` accept 0-arg per ES default-undefined"
-    },
-    {
-      "hash": "350e2d37",
-      "subject": "fix(map/set): `Map/Set.has/get/delete()` accept 0-arg per ES default-undefined"
-    },
-    {
-      "hash": "9612149a",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×6 (S194-S199)"
-    },
-    {
-      "hash": "fb89e1a7",
-      "subject": "fix(arr): `sort(undefined) / toSorted(undefined)` route to default compare per ES §23.1.3.{29,31} step 1"
-    },
-    {
-      "hash": "f987b840",
-      "subject": "fix(arr): `relative_to_len` coerces f64 index via ToIntegerOrInfinity — fixes copyWithin / fill GPR panic"
-    },
-    {
-      "hash": "cd9f6af3",
-      "subject": "fix(str): `String.prototype.split(sep, limit)` coerces f64 limit via ToInteger per ES §22.1.3.21 step 6"
-    },
-    {
-      "hash": "03842109",
-      "subject": "fix(str/arr): `indexOf / includes / lastIndexOf / startsWith / endsWith` accept 0-arg per ES default-undefined"
     }
   ],
-  "headSha": "dfa2002d",
+  "headSha": "60a0c7ae",
   "autorun": {
-    "total": 199,
+    "total": 200,
     "baselineTarget": 10,
-    "bySelf": 194,
+    "bySelf": 195,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781881750-47c4",
-      "at": "2026-06-19T15:09:10Z",
-      "ts": 1781881750,
+      "rotationId": "r-1781888901-20b8",
+      "at": "2026-06-19T17:08:21Z",
+      "ts": 1781888901,
       "trigger": "self",
-      "prevHead": "9612149a",
-      "handoffSha": "sha256:970195e3769d4c476140d380a3087bf87c0746cf354147270aa3892a5acdaa11",
+      "prevHead": "8677547f",
+      "handoffSha": "sha256:0c22ede27dada4f0ec4a70b929b93b8148bcfce3e7e0a7f480c39aaeb3c31530",
       "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781888901-20b8",
+        "at": "2026-06-19T17:08:21Z",
+        "ts": 1781888901,
+        "trigger": "self",
+        "prevHead": "8677547f",
+        "handoffSha": "sha256:0c22ede27dada4f0ec4a70b929b93b8148bcfce3e7e0a7f480c39aaeb3c31530",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781881750-47c4",
         "at": "2026-06-19T15:09:10Z",
@@ -780,17 +791,6 @@
         "prevHead": "934e4511",
         "handoffSha": "sha256:73c00456756052d80737e6283e459cedd9af5bc81a4cc2e1e29af9ef56010315",
         "handoffAgeSec": 8874,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781787346-7f99",
-        "at": "2026-06-18T12:55:46Z",
-        "ts": 1781787346,
-        "trigger": "self",
-        "prevHead": "cf6e56e7",
-        "handoffSha": "sha256:73c00456756052d80737e6283e459cedd9af5bc81a4cc2e1e29af9ef56010315",
-        "handoffAgeSec": 14,
         "conformanceBefore": null,
         "commitsInSession": null
       }
