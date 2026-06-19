@@ -598,7 +598,14 @@ pub(crate) fn try_lower_method_call(
             // truncation). Lower limit=undefined to ConstI64(i64::MAX);
             // the take-min branch downstream Slt(MAX, len) is false →
             // take_slot = len, matching spec "no truncation".
-            let undef_max_at_arg1 = method.as_str() == "split" && args.len() == 2;
+            //
+            // S216 — String.lastIndexOf(needle, undefined) per ES
+            // §22.1.3.10 step 5: ToNumber(undefined)=NaN, NaN→pos=+∞.
+            // Effective fromIndex=length; lower to ConstI64(i64::MAX)
+            // and the str_last_index_of_from helper clamps `from > len`
+            // to len (see torajs-str lookup.rs::last_index_of_from).
+            let undef_max_at_arg1 =
+                matches!(method.as_str(), "split" | "lastIndexOf") && args.len() == 2;
             for (i, &a) in args.iter().enumerate() {
                 let arg_undef =
                     matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));

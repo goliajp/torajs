@@ -6199,7 +6199,11 @@ impl Checker {
                         }
                         let from_ty = self.type_of(ast, args[1])?;
                         let from_undef = matches!(from_ty, Type::Undefined);
-                        let allow_undef = from_undef && m_name == "indexOf";
+                        // S214 indexOf → fromIndex=0; S216 lastIndexOf
+                        // → fromIndex=+∞ (ES §22.1.3.10 step 5: NaN→+∞)
+                        // → ssa_lower lowers to i64::MAX and the helper
+                        // clamps `from > len` to len, matching spec.
+                        let allow_undef = from_undef;
                         if from_ty != Type::Number && !allow_undef {
                             return Err(format!(
                                 "String.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
