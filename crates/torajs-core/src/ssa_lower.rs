@@ -9019,6 +9019,17 @@ impl<'a> LowerCtx<'a> {
                 );
                 Operand::Value(result)
             }
+            // S169 — `JSON.stringify(null)` per ES §25.5.2 → `"null"`.
+            // null and undefined both lower to ConstPtrNull at SSA (no
+            // Type::Undefined sentinel), so this arm covers both shapes.
+            // Spec deviation: `JSON.stringify(undefined)` returns undefined
+            // (not a string); tora's Str-only return type can't carry it,
+            // so undefined collapses to the same `"null"` here. Tracked
+            // L3b until the return type widens to `String | Undefined`.
+            Type::Ptr => {
+                let p = self.intern_string_literal("null");
+                Operand::Value(p)
+            }
             other => panic!("ssa-lower: JSON.stringify on type {other:?} not yet supported"),
         }
     }
