@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-19T20:52:14.876Z",
+  "generatedAt": "2026-06-19T23:07:26.261Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "b12cc065",
-    "commitSubject": "fix(str): `String.{at,charAt,charCodeAt,codePointAt}(undefined)` index=0",
+    "commit": "da35bf0a",
+    "commitSubject": "fix(date): `Date.parse(undefined)` returns NaN per ES default",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,42 @@
   },
   "commits": [
     {
+      "hash": "da35bf0a",
+      "subject": "fix(date): `Date.parse(undefined)` returns NaN per ES default"
+    },
+    {
+      "hash": "e2d676db",
+      "subject": "fix(num): `(n).{toString,toFixed,toExponential,toPrecision}(undefined)`"
+    },
+    {
+      "hash": "740e6ad2",
+      "subject": "fix(num): `Math.{pow,atan2,imul,min,max}(...undefined)` per ES default"
+    },
+    {
+      "hash": "45582b5a",
+      "subject": "fix(num): `Math.<unary>(undefined)` returns NaN per ES default"
+    },
+    {
+      "hash": "60895d2e",
+      "subject": "fix(num): `{parseInt,parseFloat,Number.parseInt,Number.parseFloat}(undefined)`"
+    },
+    {
+      "hash": "18cf61a3",
+      "subject": "fix(arr): typed `Array<T>.at(undefined)` returns arr[0] per ES default"
+    },
+    {
+      "hash": "75d21a9d",
+      "subject": "fix(str): `String.{startsWith,endsWith,includes}(s, undefined)` position"
+    },
+    {
+      "hash": "e4e256ce",
+      "subject": "fix(str): `String.{padStart,padEnd}(undefined [, fillStr])` per ES default"
+    },
+    {
+      "hash": "bae3cb2d",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×9 (S214-S222)"
+    },
+    {
       "hash": "b12cc065",
       "subject": "fix(str): `String.{at,charAt,charCodeAt,codePointAt}(undefined)` index=0"
     },
@@ -627,63 +663,38 @@
     {
       "hash": "50b5a375",
       "subject": "fix(arr): `Array.flat(undefined)` per ES default — depthNum = 1"
-    },
-    {
-      "hash": "d1a157d9",
-      "subject": "fix(arr): `Array.copyWithin(...undefined)` per ES default-undefined"
-    },
-    {
-      "hash": "a26e3ff6",
-      "subject": "fix(arr): `Array.fill(v, undefined [, undefined])` per ES default"
-    },
-    {
-      "hash": "456bbc8d",
-      "subject": "fix(arr): `Array.{indexOf,lastIndexOf,includes}(needle, undefined)`"
-    },
-    {
-      "hash": "abc4b7e6",
-      "subject": "fix(str): `String.lastIndexOf(needle, undefined)` searches from end"
-    },
-    {
-      "hash": "01f1df54",
-      "subject": "fix(str): `String.split(sep, undefined)` returns the full split list"
-    },
-    {
-      "hash": "fa6ff022",
-      "subject": "fix(str): `String.indexOf(needle, undefined)` returns spec default 0"
-    },
-    {
-      "hash": "e428319f",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×7 (S207-S213)"
-    },
-    {
-      "hash": "60a0c7ae",
-      "subject": "fix(arr): `Array.slice(undefined [, undefined])` per ES default-undefined"
-    },
-    {
-      "hash": "c6ec42d6",
-      "subject": "fix(str): `String.concat(undefined)` per ES default-undefined"
     }
   ],
-  "headSha": "b12cc065",
+  "headSha": "da35bf0a",
   "autorun": {
-    "total": 201,
+    "total": 202,
     "baselineTarget": 10,
-    "bySelf": 196,
+    "bySelf": 197,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781895023-79da",
-      "at": "2026-06-19T18:50:23Z",
-      "ts": 1781895023,
+      "rotationId": "r-1781902451-0918",
+      "at": "2026-06-19T20:54:11Z",
+      "ts": 1781902451,
       "trigger": "self",
-      "prevHead": "e428319f",
-      "handoffSha": "sha256:89fef213f370b8ad1595302c7025f4640074e19402eda091e1bea7074750e558",
+      "prevHead": "bae3cb2d",
+      "handoffSha": "sha256:2281f20dd79e66a8decb97d636ef6cfa7c796a7f3893d5eb4c0b68acc65b039f",
       "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781902451-0918",
+        "at": "2026-06-19T20:54:11Z",
+        "ts": 1781902451,
+        "trigger": "self",
+        "prevHead": "bae3cb2d",
+        "handoffSha": "sha256:2281f20dd79e66a8decb97d636ef6cfa7c796a7f3893d5eb4c0b68acc65b039f",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781895023-79da",
         "at": "2026-06-19T18:50:23Z",
@@ -780,17 +791,6 @@
         "prevHead": "b566cf83",
         "handoffSha": "sha256:fd6ec3331310581f4d564a2edc40f8b720c83bf79b577a277766d0e5af45d95a",
         "handoffAgeSec": 560,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781801809-4a05",
-        "at": "2026-06-18T16:56:49Z",
-        "ts": 1781801809,
-        "trigger": "self",
-        "prevHead": "67a790fe",
-        "handoffSha": "sha256:3d2b03e264baf62decd7855218a7c6df158eeba579923c19981d89453b78176b",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
