@@ -541,8 +541,22 @@ pub(crate) fn try_lower_method_call(
         // runtime helper is 1-arg only (en-US default, see check.rs).
         let drop_args = matches!(method.as_str(), "toLocaleLowerCase" | "toLocaleUpperCase");
         if !drop_args {
-            for a in args {
-                argv.push(ctx.lower_expr(*a));
+            // S207 — for replace / replaceAll the helper requires
+            // Str operands; an explicit-undefined arg's lower path
+            // would emit a non-Str value and SEGV the helper.
+            // Replace the operand inline with the interned
+            // "undefined" literal — same idiom S206 uses for
+            // Array.join's undefined sep.
+            let undef_to_str_repl = matches!(method.as_str(), "replace" | "replaceAll");
+            for &a in args {
+                if undef_to_str_repl
+                    && matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined))
+                {
+                    let u = ctx.intern_string_literal("undefined");
+                    argv.push(Operand::Value(u));
+                } else {
+                    argv.push(ctx.lower_expr(a));
+                }
             }
         }
         // V3-18 m1.h.36 — String.slice / substring with
@@ -612,6 +626,19 @@ pub(crate) fn try_lower_method_call(
         ) && args.is_empty()
         {
             let u = ctx.intern_string_literal("undefined");
+            argv.push(Operand::Value(u));
+        }
+        // S207 — String.replace / replaceAll with fewer-than-2
+        // args per ES §22.1.3.18 / §22.1.3.19 step 4 + step 6a:
+        // missing slots default to undefined, ToString'd to the
+        // literal "undefined". Helper expects both (searchString,
+        // replaceValue) as Str. 0-arg → push "undefined" twice;
+        // 1-arg → push "undefined" for the missing replaceValue.
+        if matches!(method.as_str(), "replace" | "replaceAll") && args.len() < 2 {
+            let u = ctx.intern_string_literal("undefined");
+            if args.is_empty() {
+                argv.push(Operand::Value(u));
+            }
             argv.push(Operand::Value(u));
         }
         // V3-18 m1.h.50 — String.indexOf / lastIndexOf

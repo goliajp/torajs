@@ -6575,6 +6575,40 @@ impl Checker {
                         return Ok(Type::String);
                     }
                 }
+                // S207 — String.replace / replaceAll with fewer-than-2
+                // args per ES §22.1.3.18 / §22.1.3.19 step 4 + step 6a:
+                //   searchString = ToString(searchValue ?? undefined)
+                //                = "undefined"
+                //   replaceValue = ToString(replaceValue ?? undefined)
+                //                = "undefined"
+                // Declared `(Any, Any) -> String` would reject 0/1-arg
+                // shapes at the strict-arity gate; widen here and let
+                // ssa_lower_str push the missing "undefined" interns
+                // so the helper sees a valid Str needle / replacement.
+                // Bun-aligned: 0-arg → identity unless haystack contains
+                // "undefined"; 1-arg → first match of needle replaced
+                // by the literal "undefined".
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && (m_name == "replace" || m_name == "replaceAll")
+                    && args.len() < 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        // Populate expr_types for any present arg so
+                        // ssa_lower_str can detect a typed-undefined
+                        // operand (via expr_types.get) and substitute
+                        // the interned "undefined" literal instead of
+                        // emitting a non-Str operand the helper would
+                        // deref as a Str pointer.
+                        for &aid in args {
+                            self.type_of(ast, aid)?;
+                        }
+                        return Ok(Type::String);
+                    }
+                }
                 let callee_ty = self.type_of(ast, *callee)?;
                 let Type::Function(mut params, ret) = callee_ty else {
                     return Err(format!("not callable: type {callee_ty:?}"));
