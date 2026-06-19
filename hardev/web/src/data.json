@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-19T01:52:33.347Z",
+  "generatedAt": "2026-06-19T02:13:57.355Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "0b8953f8",
-    "commitSubject": "feat(date): `Date.prototype.getTimezoneOffset()` per ES §21.4.4.7",
+    "commit": "13c0661e",
+    "commitSubject": "feat(json): `JSON.stringify(null)` per ES §25.5.2 returns `\"null\"`",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "13c0661e",
+      "subject": "feat(json): `JSON.stringify(null)` per ES §25.5.2 returns `\"null\"`"
+    },
+    {
+      "hash": "ed2c18ea",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — S166/S167/S168 narrow ES sweep (collection-from-collection / num-special-formatting / date-tz-offset)"
+    },
+    {
       "hash": "0b8953f8",
       "subject": "feat(date): `Date.prototype.getTimezoneOffset()` per ES §21.4.4.7"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "8b61b345",
       "subject": "feat(date): `Date.prototype.toLocale{,Date,Time}String()` per ES §21.4.4.38-40"
-    },
-    {
-      "hash": "67a790fe",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S156-S160 map-init-arr/push-multi-expr/iife/math-f16round/date-todatestring)"
-    },
-    {
-      "hash": "c9ba2e4a",
-      "subject": "feat(date): `Date.prototype.toDateString()` per ES §21.4.4.35"
     }
   ],
-  "headSha": "0b8953f8",
+  "headSha": "13c0661e",
   "autorun": {
     "total": 193,
     "baselineTarget": 10,
