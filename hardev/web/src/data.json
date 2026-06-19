@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-19T02:26:17.702Z",
+  "generatedAt": "2026-06-19T02:36:49.598Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "a9edf2cc",
-    "commitSubject": "feat(num): toLocaleString collapses |n| < 5e-4 to \"0\"/\"-0\" per ECMA-402",
+    "commit": "8a1485b6",
+    "commitSubject": "feat(str): `replaceAll(\"\", repl)` interleaves repl per ES §22.1.3.20",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "8a1485b6",
+      "subject": "feat(str): `replaceAll(\"\", repl)` interleaves repl per ES §22.1.3.20"
+    },
+    {
+      "hash": "06918999",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — S170 num-tolocale-tiny"
+    },
+    {
       "hash": "a9edf2cc",
       "subject": "feat(num): toLocaleString collapses |n| < 5e-4 to \"0\"/\"-0\" per ECMA-402"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "8d357a70",
       "subject": "feat(math): `Math.sumPrecise(items)` per ES2025 §21.3.2.32"
-    },
-    {
-      "hash": "e56802be",
-      "subject": "feat(set): `Set.prototype.{union,intersection,difference,symmetricDifference}` per ES2025 §24.2.3.{15,16,17,18}"
-    },
-    {
-      "hash": "a6cb7e5c",
-      "subject": "feat(set): `Set.prototype.{isSubsetOf,isSupersetOf,isDisjointFrom}` per ES2025 §24.2.3.{12,13,14}"
     }
   ],
-  "headSha": "a9edf2cc",
+  "headSha": "8a1485b6",
   "autorun": {
     "total": 193,
     "baselineTarget": 10,
