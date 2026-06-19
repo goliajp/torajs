@@ -604,7 +604,14 @@ pub(crate) fn try_lower_method_call(
             // applies to args[1] (fromIndex); args[0] (needle)
             // keeps generic lower (0-arg-undef-needle covered by
             // §22.1.3.8 "undefined" literal default block below).
-            let undef_zero_at_arg1 = method.as_str() == "indexOf" && args.len() == 2;
+            //
+            // S224 — extend the same zero-default to startsWith /
+            // includes per ES §22.1.3.{21,5}:
+            // `ToIntegerOrInfinity(undefined)=0`, so position=undef
+            // matches "search from index 0". (endsWith uses the
+            // length-default branch — see undef_max_at_arg1 below.)
+            let undef_zero_at_arg1 =
+                matches!(method.as_str(), "indexOf" | "startsWith" | "includes") && args.len() == 2;
             // S215 — String.split(sep, undefined) per ES §22.1.3.21
             // step 2: limit undefined → 2^32-1 (effectively no
             // truncation). Lower limit=undefined to ConstI64(i64::MAX);
@@ -616,8 +623,13 @@ pub(crate) fn try_lower_method_call(
             // Effective fromIndex=length; lower to ConstI64(i64::MAX)
             // and the str_last_index_of_from helper clamps `from > len`
             // to len (see torajs-str lookup.rs::last_index_of_from).
+            //
+            // S224 — extend the same length-default to endsWith per
+            // ES §22.1.3.7: endPosition=undef → len(O). The
+            // `str_ends_with_from` helper clamps `end > s.len()`
+            // back to `s.len()` (lookup.rs::ends_with_from).
             let undef_max_at_arg1 =
-                matches!(method.as_str(), "split" | "lastIndexOf") && args.len() == 2;
+                matches!(method.as_str(), "split" | "lastIndexOf" | "endsWith") && args.len() == 2;
             // S221 — String.substring(undefined [, undefined]) per ES
             // §22.1.3.22 step 4/5: start=undef → 0, end=undef → length.
             // Replace each undef slot before lower so the str_substring

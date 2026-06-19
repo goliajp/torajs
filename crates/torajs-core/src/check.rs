@@ -6167,6 +6167,14 @@ impl Checker {
                 // V3-18 m1.h.51 — String.startsWith / endsWith /
                 // includes accept an optional 2nd `position` arg per
                 // JS spec §21.1.3.20 / §21.1.3.6 / §21.1.3.7.
+                //
+                // S224 — accept Undefined for the position slot per
+                // ES §22.1.3.{21,5} (startsWith/includes:
+                // ToIntegerOrInfinity(undefined)=0) and §22.1.3.7
+                // (endsWith: endPosition undef → length). ssa_lower
+                // mirror lowers undef → ConstI64(0) for startsWith /
+                // includes and ConstI64(i64::MAX) for endsWith; the
+                // _from helpers clamp `> len` to `len`.
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
@@ -6183,7 +6191,7 @@ impl Checker {
                             ));
                         }
                         let from_ty = self.type_of(ast, args[1])?;
-                        if from_ty != Type::Number {
+                        if !matches!(from_ty, Type::Number | Type::Undefined) {
                             return Err(format!(
                                 "String.{m_name} arg 1 must be number, got {from_ty:?}"
                             ));
