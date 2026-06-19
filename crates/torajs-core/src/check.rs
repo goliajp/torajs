@@ -5385,6 +5385,11 @@ impl Checker {
                     let depth_opt: Option<i64> = match ast.get_expr(args[0]) {
                         Expr::Number(d) => Some(*d as i64),
                         Expr::Ident(name) if name == "Infinity" => Some(64),
+                        // S220 — `xs.flat(undefined)` per ES §23.1.3.10
+                        // step 1: `If depth is undefined, depthNum = 1`.
+                        // bun matches: explicit-undefined behaves as the
+                        // 0-arg `xs.flat()` default.
+                        Expr::Ident(name) if name == "undefined" => Some(1),
                         _ => None,
                     };
                     if let Some(depth) = depth_opt {

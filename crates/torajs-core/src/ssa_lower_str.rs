@@ -993,6 +993,13 @@ pub(crate) fn try_lower_method_call(
             // are plenty for realistic nesting (matches V8 / JSC
             // arbitrary limits in spec-test fixtures).
             64
+        } else if let Expr::Ident(name) = ctx.ast.get_expr(args[0])
+            && name == "undefined"
+        {
+            // S220 — `xs.flat(undefined)` per ES §23.1.3.10 step 1:
+            // `If depth is undefined, depthNum = 1`. Equivalent to the
+            // 0-arg `xs.flat()` default.
+            1
         } else {
             panic!("ssa-lower: flat depth must be a number literal");
         };
