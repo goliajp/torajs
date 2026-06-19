@@ -20319,6 +20319,14 @@ impl<'a> LowerCtx<'a> {
                                     return recv_for_ret;
                                 }
                                 "has" => {
+                                    // S200 — spec §24.2.3.7 Set.has(value)
+                                    // step 1: value defaults to undefined;
+                                    // typed Set<T> with T ≠ Any can't store
+                                    // undefined, so the result is fixed
+                                    // false. Mirrors Map.has 0-arg path.
+                                    if args.is_empty() {
+                                        return Operand::ConstBool(false);
+                                    }
                                     debug_assert_eq!(args.len(), 1);
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
@@ -20343,6 +20351,14 @@ impl<'a> LowerCtx<'a> {
                                     return Operand::Value(b);
                                 }
                                 "delete" => {
+                                    // S200 — spec §24.2.3.4 Set.delete(value)
+                                    // step 1: same default-undefined rule
+                                    // as Set.has; typed Set<T> can't
+                                    // contain undefined so the no-op
+                                    // delete returns false.
+                                    if args.is_empty() {
+                                        return Operand::ConstBool(false);
+                                    }
                                     debug_assert_eq!(args.len(), 1);
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
@@ -20811,6 +20827,15 @@ impl<'a> LowerCtx<'a> {
                                     return recv_op;
                                 }
                                 "has" => {
+                                    // S200 — spec §24.1.3.4 has(key)
+                                    // step 1: key defaults to undefined;
+                                    // typed Map<K,V> with K ≠ Any never
+                                    // stores undefined keys, so the result
+                                    // is fixed false. Skip the helper Call
+                                    // to dodge the 1-arg debug_assert below.
+                                    if args.is_empty() {
+                                        return Operand::ConstBool(false);
+                                    }
                                     debug_assert_eq!(args.len(), 1);
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
@@ -20835,6 +20860,14 @@ impl<'a> LowerCtx<'a> {
                                     return Operand::Value(b);
                                 }
                                 "delete" => {
+                                    // S200 — spec §24.1.3.3 delete(key)
+                                    // step 1: same default-undefined rule
+                                    // as `has`; typed Map<K,V> can't store
+                                    // undefined keys so the no-op delete
+                                    // returns false.
+                                    if args.is_empty() {
+                                        return Operand::ConstBool(false);
+                                    }
                                     debug_assert_eq!(args.len(), 1);
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
@@ -20859,6 +20892,24 @@ impl<'a> LowerCtx<'a> {
                                     return Operand::Value(b);
                                 }
                                 "get" => {
+                                    // S200 — spec §24.1.3.6 get(key)
+                                    // step 1: key defaults to undefined;
+                                    // typed Map<K,V> can't store undefined
+                                    // keys, lookup misses → return
+                                    // undefined directly (any_box tag
+                                    // ANY_UNDEF = 5, val = 0).
+                                    if args.is_empty() {
+                                        let box_v = self.f.append_inst(
+                                            self.cur_block,
+                                            InstKind::Call(
+                                                self.intrinsics.any_box,
+                                                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                                            ),
+                                            Type::Any,
+                                            None,
+                                        );
+                                        return Operand::Value(box_v);
+                                    }
                                     debug_assert_eq!(args.len(), 1);
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     /* Out-slots for (tag, value). */
