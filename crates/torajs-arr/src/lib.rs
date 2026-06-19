@@ -42,6 +42,7 @@ pub mod from_string;
 pub mod grow;
 pub mod iter;
 pub mod join;
+pub mod join_locale;
 pub mod layout;
 pub mod ops;
 pub mod pool;
@@ -75,6 +76,7 @@ pub use join::{
     __torajs_arr_join, __torajs_arr_join_bool, __torajs_arr_join_f64, __torajs_arr_join_i64,
     __torajs_arr_join_substr, __torajs_arr_to_reversed, __torajs_arr_with,
 };
+pub use join_locale::{__torajs_arr_join_f64_locale, __torajs_arr_join_i64_locale};
 pub use ops::{__torajs_arr_extend_unchecked, __torajs_arr_push_unchecked};
 pub use print::{
     __torajs_arr_print_bool, __torajs_arr_print_f64, __torajs_arr_print_i64,

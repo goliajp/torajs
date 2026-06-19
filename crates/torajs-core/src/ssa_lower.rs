@@ -4629,6 +4629,25 @@ fn lower_inner(
         &[Type::Ptr, Type::Ptr],
         Type::Str,
     );
+    // `Array<I64|F64>.toLocaleString()` per ES §22.1.3.32 step 5.b —
+    // each element formatted via `Number.prototype.toLocaleString`
+    // (en-US default: group integer part with `,`). Routes here only
+    // when `method == "toLocaleString"`; plain `join` / `toString`
+    // stay on the ToString-based helpers above.
+    let arr_join_i64_locale_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_join_i64_locale",
+        &[Type::Ptr, Type::Ptr],
+        Type::Str,
+    );
+    let arr_join_f64_locale_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_join_f64_locale",
+        &[Type::Ptr, Type::Ptr],
+        Type::Str,
+    );
     let arr_join_bool_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5968,6 +5987,8 @@ fn lower_inner(
         str_char_at: str_char_at_id,
         arr_join_i64: arr_join_i64_id,
         arr_join_f64: arr_join_f64_id,
+        arr_join_i64_locale: arr_join_i64_locale_id,
+        arr_join_f64_locale: arr_join_f64_locale_id,
         arr_join_bool: arr_join_bool_id,
         arr_join_any: arr_join_any_id,
         symbol_to_str: symbol_to_str_id,
@@ -6996,6 +7017,8 @@ pub(crate) struct Intrinsics {
     pub(crate) str_char_at: FuncId,
     pub(crate) arr_join_i64: FuncId,
     pub(crate) arr_join_f64: FuncId,
+    pub(crate) arr_join_i64_locale: FuncId,
+    pub(crate) arr_join_f64_locale: FuncId,
     pub(crate) arr_join_bool: FuncId,
     pub(crate) arr_join_any: FuncId,
     pub(crate) symbol_to_str: FuncId,

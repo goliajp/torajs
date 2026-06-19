@@ -777,10 +777,29 @@ pub(crate) fn try_lower_method_call(
         // runtime helpers that ToString each element
         // inline; Str / Substr take the existing
         // pointer-walking helpers.
+        // ES §22.1.3.32 step 5.b — toLocaleString routes
+        // numeric elements through Number.toLocaleString
+        // (en-US group separator). String / Substr / Bool
+        // / Any keep the ToString-equivalent helpers
+        // because their .toLocaleString returns the same
+        // value (no Intl substrate engaged).
+        let is_locale = method == "toLocaleString";
         let join_fid = match elem_ty {
             Type::Substr => ctx.intrinsics.arr_join_substr,
-            Type::I64 => ctx.intrinsics.arr_join_i64,
-            Type::F64 => ctx.intrinsics.arr_join_f64,
+            Type::I64 => {
+                if is_locale {
+                    ctx.intrinsics.arr_join_i64_locale
+                } else {
+                    ctx.intrinsics.arr_join_i64
+                }
+            }
+            Type::F64 => {
+                if is_locale {
+                    ctx.intrinsics.arr_join_f64_locale
+                } else {
+                    ctx.intrinsics.arr_join_f64
+                }
+            }
             Type::Bool => ctx.intrinsics.arr_join_bool,
             Type::Any => ctx.intrinsics.arr_join_any, // S126-4
             _ => ctx.intrinsics.arr_join,
