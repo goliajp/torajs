@@ -389,26 +389,75 @@ pub unsafe extern "C" fn __torajs_num_to_fixed_i(n: i64, digits: i64) -> *mut u8
 }
 
 /// `n.toExponential(digits)` for f64 receivers.
+///
+/// ES §22.1.3.5 step 3 — `digits` must be in `[0, 100]`; otherwise
+/// `RangeError`. The SSA arm passes `i64::MIN` as the no-arg
+/// sentinel (unreachable as a user literal), routing to the
+/// shortest-form `{:e}` path via the pure-Rust `to_exp_f` core's
+/// `digits < 0` branch. Every other negative / oversized value
+/// reaches the RangeError gate. SSA-side `emit_throw_check(None)`
+/// propagates the pending throw.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_exp_f(n: f64, digits: i64) -> *mut u8 {
+    if digits != i64::MIN && !(0..=100).contains(&digits) {
+        unsafe {
+            __torajs_throw_range_error(
+                b"toExponential() argument must be between 0 and 100\0".as_ptr(),
+            );
+        }
+        return alloc_str(b"");
+    }
     alloc_str(&to_exp_f(n, digits))
 }
 
-/// `n.toExponential(digits)` for i64 receivers.
+/// `n.toExponential(digits)` for i64 receivers. Same RangeError
+/// gate as the f64 variant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_exp_i(n: i64, digits: i64) -> *mut u8 {
+    if digits != i64::MIN && !(0..=100).contains(&digits) {
+        unsafe {
+            __torajs_throw_range_error(
+                b"toExponential() argument must be between 0 and 100\0".as_ptr(),
+            );
+        }
+        return alloc_str(b"");
+    }
     alloc_str(&to_exp_i(n, digits))
 }
 
 /// `n.toPrecision(digits)` for f64 receivers.
+///
+/// ES §22.1.3.32 step 3 — `precision` must be in `[1, 100]`;
+/// otherwise `RangeError`. SSA-side `emit_throw_check(None)`
+/// propagates the pending throw. The no-arg `toPrecision()` form
+/// short-circuits in `ssa_lower.rs` to plain `Number.toString`
+/// before reaching this entry point, so the gate doesn't need a
+/// sentinel carve-out.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_precision_f(n: f64, digits: i64) -> *mut u8 {
+    if !(1..=100).contains(&digits) {
+        unsafe {
+            __torajs_throw_range_error(
+                b"toPrecision() argument must be between 1 and 100\0".as_ptr(),
+            );
+        }
+        return alloc_str(b"");
+    }
     alloc_str(&to_precision_f(n, digits))
 }
 
-/// `n.toPrecision(digits)` for i64 receivers.
+/// `n.toPrecision(digits)` for i64 receivers. Same RangeError gate
+/// as the f64 variant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_precision_i(n: i64, digits: i64) -> *mut u8 {
+    if !(1..=100).contains(&digits) {
+        unsafe {
+            __torajs_throw_range_error(
+                b"toPrecision() argument must be between 1 and 100\0".as_ptr(),
+            );
+        }
+        return alloc_str(b"");
+    }
     alloc_str(&to_precision_i(n, digits))
 }
 

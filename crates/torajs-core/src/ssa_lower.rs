@@ -16619,16 +16619,19 @@ impl<'a> LowerCtx<'a> {
                             return Operand::Value(v);
                         }
                         // ES §22.1.3.5 — `toExponential()` with no
-                        // arg means "shortest representation" (defer
-                        // to Number::toString), not toExponential(0)
-                        // which gives a 1-sig-digit mantissa. Pre-fix
-                        // tr padded to 0, so `(1234567890).toExponential()`
-                        // returned "1e+9" instead of bun's
-                        // "1.23456789e+9". Pass a `-1` sentinel; the
-                        // runtime helper routes that through Rust's
-                        // shortest-roundtrip `{:e}` formatter.
+                        // arg means "shortest representation"
+                        // (`format!("{:e}", n)`-style), distinct from
+                        // `toExponential(0)`'s 1-sig-digit mantissa.
+                        // Pass `i64::MIN` as the no-arg sentinel —
+                        // unreachable as a user literal (TS won't
+                        // accept it, and even `Number.MIN_SAFE_INTEGER`
+                        // truncates to a different i64 via FpToSi),
+                        // so the RangeError gate's strict `[0, 100]`
+                        // check still fires for explicit user-typed
+                        // negative / oversized args including the
+                        // ergonomic `-1`.
                         if m_name == "toExponential" && args.is_empty() {
-                            argv.push(Operand::ConstI64(-1));
+                            argv.push(Operand::ConstI64(i64::MIN));
                         }
                         let v = self.f.append_inst(
                             self.cur_block,
@@ -16636,11 +16639,12 @@ impl<'a> LowerCtx<'a> {
                             Type::Str,
                             None,
                         );
-                        // ES §22.1.3.32 step 3 — `toFixed(digits)` with
-                        // `digits` outside `[0, 100]` throws RangeError
-                        // via the runtime helper's TLS-recorded throw;
-                        // propagate to the nearest try/catch here.
-                        if m_name == "toFixed" {
+                        // ES §22.1.3.{5,32} step 3 — `toFixed(digits)`
+                        // / `toExponential(digits)` / `toPrecision(digits)`
+                        // throw `RangeError` when `digits` is outside
+                        // the spec range. The runtime helpers record
+                        // the throw via TLS; propagate here.
+                        if matches!(m_name.as_str(), "toFixed" | "toExponential" | "toPrecision") {
                             self.emit_throw_check(None);
                         }
                         return Operand::Value(v);
