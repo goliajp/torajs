@@ -6618,20 +6618,35 @@ impl Checker {
                 // `intMaxLength = ToLength(undefined) = 0`, so the
                 // step-2 short-circuit `intMaxLength <= S.length`
                 // makes the no-arg form a no-op returning S unchanged.
+                //
+                // S223 — widen the same default-undefined rule to a
+                // 1- or 2-arg call with an explicit `undefined` in the
+                // maxLength slot. Routing the standard 2-arg shape
+                // (`s.padStart(3, "*")`) through the same carve-out is
+                // equivalent to the line-3413 Function sig but lets us
+                // accept Undefined for arg 0.
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && (m_name == "padStart" || m_name == "padEnd")
-                    && args.len() <= 1
+                    && args.len() <= 2
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {
                         if let Some(arg0) = args.first() {
                             let aty = self.type_of(ast, *arg0)?;
-                            if aty != Type::Number {
+                            if !matches!(aty, Type::Number | Type::Undefined) {
                                 return Err(format!(
                                     "String.{m_name} arg 0 must be number, got {aty:?}"
+                                ));
+                            }
+                        }
+                        if let Some(arg1) = args.get(1) {
+                            let aty = self.type_of(ast, *arg1)?;
+                            if !matches!(aty, Type::String) {
+                                return Err(format!(
+                                    "String.{m_name} arg 1 must be string, got {aty:?}"
                                 ));
                             }
                         }

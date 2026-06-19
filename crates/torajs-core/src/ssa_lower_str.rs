@@ -635,6 +635,14 @@ pub(crate) fn try_lower_method_call(
                 method.as_str(),
                 "at" | "charAt" | "charCodeAt" | "codePointAt"
             ) && args.len() == 1;
+            // S223 — String.{padStart,padEnd}(undefined [, fillStr]) per
+            // ES §22.1.3.{16,17} step 1: ToLength(undefined)=0, and step
+            // 2 short-circuits because `0 <= S.length`, so the helper
+            // returns S unchanged. Replace the undef maxLength slot with
+            // ConstI64(0); the V3-18 1-arg fallthrough below still
+            // supplies the default fill " " when arg 1 is omitted.
+            let undef_zero_at_arg0_pad = matches!(method.as_str(), "padStart" | "padEnd")
+                && (args.len() == 1 || args.len() == 2);
             for (i, &a) in args.iter().enumerate() {
                 let arg_undef =
                     matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
@@ -648,6 +656,8 @@ pub(crate) fn try_lower_method_call(
                 } else if undef_max_at_arg1 && arg_undef && i == 1 {
                     argv.push(Operand::ConstI64(i64::MAX));
                 } else if undef_zero_at_arg0_idx && arg_undef && i == 0 {
+                    argv.push(Operand::ConstI64(0));
+                } else if undef_zero_at_arg0_pad && arg_undef && i == 0 {
                     argv.push(Operand::ConstI64(0));
                 } else if substring_2arg && arg_undef && i == 0 {
                     argv.push(Operand::ConstI64(0));
