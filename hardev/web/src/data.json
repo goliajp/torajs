@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-19T01:32:28.780Z",
+  "generatedAt": "2026-06-19T01:52:33.347Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "575cfdd0",
-    "commitSubject": "feat(collection): `new Map(<Map>)` / `new Set(<Set>)` copy-ctor per ES §24.{1,2}.1",
+    "commit": "0b8953f8",
+    "commitSubject": "feat(date): `Date.prototype.getTimezoneOffset()` per ES §21.4.4.7",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,18 @@
   },
   "commits": [
     {
+      "hash": "0b8953f8",
+      "subject": "feat(date): `Date.prototype.getTimezoneOffset()` per ES §21.4.4.7"
+    },
+    {
+      "hash": "4a517895",
+      "subject": "feat(num): special-value formatting follows ES spec (\"NaN\"/\"Infinity\"/\"-Infinity\") per ES §21.1.3.{2,3,4,5}"
+    },
+    {
+      "hash": "2b38fd22",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — S166 collection-from-collection"
+    },
+    {
       "hash": "575cfdd0",
       "subject": "feat(collection): `new Map(<Map>)` / `new Set(<Set>)` copy-ctor per ES §24.{1,2}.1"
     },
@@ -651,21 +663,9 @@
     {
       "hash": "c9ba2e4a",
       "subject": "feat(date): `Date.prototype.toDateString()` per ES §21.4.4.35"
-    },
-    {
-      "hash": "33f0776e",
-      "subject": "feat(math): `Math.f16round(x)` round to IEEE-754 binary16 per ES 2025 §21.3.2.31"
-    },
-    {
-      "hash": "3f32c297",
-      "subject": "feat(closure): IIFE — `(arrow)(...args)` immediately-invoked closure callees per ES 11.2.5"
-    },
-    {
-      "hash": "ff7974ed",
-      "subject": "feat(arr): `Array.push(...items)` multi-arg in expression position per ES §22.1.3.20"
     }
   ],
-  "headSha": "575cfdd0",
+  "headSha": "0b8953f8",
   "autorun": {
     "total": 193,
     "baselineTarget": 10,
