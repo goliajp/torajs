@@ -16500,6 +16500,10 @@ impl<'a> LowerCtx<'a> {
                                 Type::Str,
                                 None,
                             );
+                            // ES §21.1.3.6 step 4 — radix outside
+                            // `[2, 36]` throws RangeError; runtime
+                            // helper records the throw via TLS.
+                            self.emit_throw_check(None);
                             return Operand::Value(v);
                         }
                         // V3-18 wedge — `n.toString(radix)` for f64
@@ -16523,6 +16527,10 @@ impl<'a> LowerCtx<'a> {
                                 Type::Str,
                                 None,
                             );
+                            // ES §21.1.3.6 step 4 — radix outside
+                            // `[2, 36]` throws RangeError; runtime
+                            // helper records the throw via TLS.
+                            self.emit_throw_check(None);
                             return Operand::Value(v);
                         }
                         let target = match m_name.as_str() {

@@ -13,6 +13,13 @@
 
 use crate::str_bridge::alloc_str;
 
+unsafe extern "C" {
+    /// Cross-tier — torajs-throw. Records a pending RangeError via
+    /// TLS; returns normally so the caller's `emit_throw_check`
+    /// after the call site propagates the throw.
+    fn __torajs_throw_range_error(msg: *const u8);
+}
+
 /// Base-36 digit charset shared by both i + f paths.
 const DIGITS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
 
@@ -174,15 +181,37 @@ fn carry_propagate(frac_buf: &mut Vec<u8>, int_buf: &mut Vec<u8>, radix: usize) 
 // ============================================================
 
 /// `n.toString(radix)` for i64 receivers.
+///
+/// ES §21.1.3.6 step 4 — `radix` must be in `[2, 36]`; otherwise
+/// `RangeError`. Pre-fix the pure-Rust core silently clamped via
+/// `.clamp(2, 36)` so `(10).toString(1)` returned `"10"`. SSA-side
+/// `emit_throw_check(None)` propagates the pending throw.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_string_radix_i(n: i64, radix: i64) -> *mut u8 {
+    if !(2..=36).contains(&radix) {
+        unsafe {
+            __torajs_throw_range_error(
+                b"toString() radix argument must be between 2 and 36\0".as_ptr(),
+            );
+        }
+        return alloc_str(b"");
+    }
     let bytes = to_string_radix_i(n, radix);
     alloc_str(&bytes)
 }
 
 /// `n.toString(radix)` for f64 receivers. NaN / ±Infinity preserved.
+/// Same RangeError gate as the i64 variant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_string_radix_f(d: f64, radix: i64) -> *mut u8 {
+    if !(2..=36).contains(&radix) {
+        unsafe {
+            __torajs_throw_range_error(
+                b"toString() radix argument must be between 2 and 36\0".as_ptr(),
+            );
+        }
+        return alloc_str(b"");
+    }
     let bytes = to_string_radix_f(d, radix);
     alloc_str(&bytes)
 }
