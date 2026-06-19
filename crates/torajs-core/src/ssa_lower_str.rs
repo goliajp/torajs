@@ -1476,10 +1476,16 @@ pub(crate) fn try_lower_method_call(
         && args.len() <= 1
     {
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        // ES §23.1.3.1 step 2 — ToIntegerOrInfinity on `index`. The
+        // inline ICmp/Add/LoadDyn chain below is i64-only; without
+        // this coerce, f64 args (`a.at(1.5)`) panic backend GPR
+        // materialization. coerce_to_i64 const-folds NaN → 0 and
+        // ±∞ → i64::{MAX,MIN} (spec), FpToSi otherwise.
         let i_val = if args.is_empty() {
             Operand::ConstI64(0)
         } else {
-            ctx.lower_expr(args[0])
+            let raw = ctx.lower_expr(args[0]);
+            ctx.coerce_to_i64(raw)
         };
         let len = ctx.f.append_inst(
             ctx.cur_block,
