@@ -8810,9 +8810,51 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(v)
             }
             Type::F64 => {
-                let v = self.f.append_inst(
+                // ES §25.5.2.1 SerializeJSONNumber: !IsFinite(x) -> "null".
+                // Without this guard, NaN / ±Infinity round-trip through
+                // f64_to_str and emit "NaN" / "Infinity" — both invalid
+                // JSON. Object field path inherits the fix via recursion.
+                let is_finite = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.num_is_finite_f, vec![val_op.clone()]),
+                    Type::Bool,
+                    None,
+                );
+                let finite_blk = self.f.add_block();
+                let nonfinite_blk = self.f.add_block();
+                let after_blk = self.f.add_block();
+                let slot = self.alloca_in_entry(Type::Str, Some("__json_num"));
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(is_finite),
+                        then_blk: finite_blk,
+                        else_blk: nonfinite_blk,
+                    },
+                );
+                self.cur_block = finite_blk;
+                let s = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.f64_to_str, vec![val_op]),
+                    Type::Str,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(s), Operand::Value(slot), 0),
+                );
+                self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+                self.cur_block = nonfinite_blk;
+                let null_str = self.intern_string_literal("null");
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(null_str), Operand::Value(slot), 0),
+                );
+                self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+                self.cur_block = after_blk;
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Str, Operand::Value(slot), 0),
                     Type::Str,
                     None,
                 );
