@@ -5884,6 +5884,19 @@ impl Checker {
                 // call requires the caller to use a typed `[]` literal
                 // instead (no element to anchor the type). All args must
                 // unify on the same type.
+                // S204 — `Array.isArray()` 0-arg per ES §23.1.2.2 step 1:
+                // missing `arg` defaults to undefined; undefined is not an
+                // Array, so the predicate is statically false. The
+                // declared `vec![Type::Any]` signature was rejecting the
+                // no-arg form at the generic arity gate.
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "Array"
+                    && m == "isArray"
+                    && args.is_empty()
+                {
+                    return Ok(Type::Boolean);
+                }
                 if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
                     && let Expr::Ident(ns) = ast.get_expr(*obj)
                     && ns == "Array"

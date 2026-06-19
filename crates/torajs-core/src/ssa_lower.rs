@@ -16743,6 +16743,15 @@ impl<'a> LowerCtx<'a> {
                     && ns == "Array"
                     && m_name == "isArray"
                 {
+                    // S204 — spec §23.1.2.2 step 1: missing `arg`
+                    // defaults to undefined; undefined is not an
+                    // Array, so the predicate is statically false.
+                    // Short-circuit before `args[0]` to dodge the
+                    // index-out-of-bounds panic the inline path
+                    // would otherwise hit.
+                    if args.is_empty() {
+                        return Operand::ConstBool(false);
+                    }
                     // T-38 — namespace idents (`Math` / `JSON` / `Array` / ...)
                     // referenced as runtime values have no Operand
                     // representation in tora's subset (they're typecheck-only
