@@ -6243,6 +6243,12 @@ impl Checker {
                 // first `limit` substrings (or fewer if the source
                 // splits into fewer). Pre-fix tora's strict 1-arg
                 // signature rejected the 2-arg form.
+                //
+                // S215 — `s.split(sep, undefined)` per ES §22.1.3.21
+                // step 2: `If limit is undefined, lim = 2^32-1` (no
+                // truncation). Accept Undefined limit; ssa_lower
+                // mirror inline-replaces argv[2] with ConstI64(i64::MAX)
+                // so the take-min branch falls to len.
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
@@ -6254,7 +6260,7 @@ impl Checker {
                     if matches!(src_ty, Type::String) {
                         let _ = self.type_of(ast, args[0])?;
                         let limit_ty = self.type_of(ast, args[1])?;
-                        if limit_ty != Type::Number {
+                        if limit_ty != Type::Number && limit_ty != Type::Undefined {
                             return Err(format!(
                                 "String.split arg 1 (limit) must be number, got {limit_ty:?}"
                             ));

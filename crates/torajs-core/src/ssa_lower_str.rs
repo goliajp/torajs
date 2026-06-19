@@ -593,6 +593,12 @@ pub(crate) fn try_lower_method_call(
             // keeps generic lower (0-arg-undef-needle covered by
             // §22.1.3.8 "undefined" literal default block below).
             let undef_zero_at_arg1 = method.as_str() == "indexOf" && args.len() == 2;
+            // S215 — String.split(sep, undefined) per ES §22.1.3.21
+            // step 2: limit undefined → 2^32-1 (effectively no
+            // truncation). Lower limit=undefined to ConstI64(i64::MAX);
+            // the take-min branch downstream Slt(MAX, len) is false →
+            // take_slot = len, matching spec "no truncation".
+            let undef_max_at_arg1 = method.as_str() == "split" && args.len() == 2;
             for (i, &a) in args.iter().enumerate() {
                 let arg_undef =
                     matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
@@ -603,6 +609,8 @@ pub(crate) fn try_lower_method_call(
                     argv.push(Operand::ConstI64(0));
                 } else if undef_zero_at_arg1 && arg_undef && i == 1 {
                     argv.push(Operand::ConstI64(0));
+                } else if undef_max_at_arg1 && arg_undef && i == 1 {
+                    argv.push(Operand::ConstI64(i64::MAX));
                 } else {
                     argv.push(ctx.lower_expr(a));
                 }
