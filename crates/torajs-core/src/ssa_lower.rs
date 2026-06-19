@@ -17001,6 +17001,13 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Ident(name) = self.ast.get_expr(*callee) {
                     match name.as_str() {
                         "parseInt" => {
+                            // S202 — ES §19.2.5 step 1: `string`
+                            // defaults to undefined when omitted →
+                            // ToString returns "undefined" which
+                            // fails to parse as a digit string → NaN.
+                            if args.is_empty() {
+                                return Operand::ConstF64(f64::NAN);
+                            }
                             let s = self.lower_expr(args[0]);
                             // V3-18 m1.h.25 — when no radix is supplied,
                             // pass 0 to trigger the runtime's auto-detect
@@ -17021,6 +17028,11 @@ impl<'a> LowerCtx<'a> {
                             return Operand::Value(v);
                         }
                         "parseFloat" => {
+                            // S202 — same default-undefined rule per
+                            // §19.2.4: missing string → NaN.
+                            if args.is_empty() {
+                                return Operand::ConstF64(f64::NAN);
+                            }
                             let s = self.lower_expr(args[0]);
                             let v = self.f.append_inst(
                                 self.cur_block,
@@ -17031,6 +17043,14 @@ impl<'a> LowerCtx<'a> {
                             return Operand::Value(v);
                         }
                         "isNaN" | "isFinite" => {
+                            // S202 — spec §19.2.3 / §19.2.4 step 1
+                            // applies ToNumber to the arg before the
+                            // predicate test; ToNumber(undefined) = NaN
+                            // so isNaN(NaN)=true and isFinite(NaN)=false
+                            // are the spec-fixed 0-arg answers.
+                            if args.is_empty() {
+                                return Operand::ConstBool(name == "isNaN");
+                            }
                             let arg_op = self.lower_expr(args[0]);
                             let arg_ty = self.operand_ty(&arg_op);
                             // V3-18 wedge — global isNaN / isFinite
@@ -17272,6 +17292,13 @@ impl<'a> LowerCtx<'a> {
                 {
                     match m_name.as_str() {
                         "parseInt" => {
+                            // S202 — Number.parseInt is a §21.1.2.13
+                            // alias to global parseInt; 0-arg form
+                            // yields NaN by the same default-undefined
+                            // path.
+                            if args.is_empty() {
+                                return Operand::ConstF64(f64::NAN);
+                            }
                             // Number.parseInt(s, radix) — radix optional in JS;
                             // typecheck enforces 2-arg shape so we always
                             // have a ConstI64 / loaded radix here.
@@ -17305,6 +17332,11 @@ impl<'a> LowerCtx<'a> {
                             return Operand::Value(v);
                         }
                         "parseFloat" => {
+                            // S202 — Number.parseFloat is a §21.1.2.12
+                            // alias to global parseFloat; 0-arg → NaN.
+                            if args.is_empty() {
+                                return Operand::ConstF64(f64::NAN);
+                            }
                             let s = self.lower_expr(args[0]);
                             let v = self.f.append_inst(
                                 self.cur_block,
@@ -17315,6 +17347,15 @@ impl<'a> LowerCtx<'a> {
                             return Operand::Value(v);
                         }
                         "isInteger" | "isNaN" | "isFinite" | "isSafeInteger" => {
+                            // S202 — Number.is{Integer,NaN,Finite,
+                            // SafeInteger} per §21.1.2.{3,5,7} are
+                            // strict (no ToNumber). Non-Number args
+                            // statically return false; the implicit
+                            // undefined of a 0-arg call is the
+                            // canonical non-Number case.
+                            if args.is_empty() {
+                                return Operand::ConstBool(false);
+                            }
                             let arg_op = self.lower_expr(args[0]);
                             let arg_ty = self.operand_ty(&arg_op);
                             // V3-18 wedge — Number.is{Finite,NaN,

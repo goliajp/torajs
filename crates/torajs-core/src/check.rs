@@ -5188,23 +5188,58 @@ impl Checker {
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
                     && ns == "Number"
                 {
-                    if args.is_empty() || args.len() > 2 {
+                    if args.len() > 2 {
                         return Err(format!(
-                            "Number.parseInt expects 1-2 args, got {}",
+                            "Number.parseInt expects 0-2 args, got {}",
                             args.len()
                         ));
                     }
-                    let s_ty = self.type_of(ast, args[0])?;
-                    if s_ty != Type::String {
-                        return Err(format!(
-                            "Number.parseInt arg 0 must be string, got {s_ty:?}"
-                        ));
+                    // S202 — spec §21.1.2.13 Number.parseInt aliases
+                    // global parseInt. Step 1 reads `string` which
+                    // defaults to undefined when omitted; ToString →
+                    // "undefined" → parse fails → NaN.
+                    if let Some(arg0) = args.first() {
+                        let s_ty = self.type_of(ast, *arg0)?;
+                        if s_ty != Type::String {
+                            return Err(format!(
+                                "Number.parseInt arg 0 must be string, got {s_ty:?}"
+                            ));
+                        }
                     }
                     if args.len() == 2 {
                         let r_ty = self.type_of(ast, args[1])?;
                         if r_ty != Type::Number {
                             return Err(format!(
                                 "Number.parseInt arg 1 must be number, got {r_ty:?}"
+                            ));
+                        }
+                    }
+                    return Ok(Type::Number);
+                }
+                // S202 — Number.parseFloat 0-arg per ES §21.1.2.12.
+                // Alias to global parseFloat; missing string defaults
+                // to undefined → ToString → "undefined" → NaN. The
+                // declared `vec![Type::String]` signature was rejecting
+                // the 0-arg form through the generic arity gate.
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "parseFloat"
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Number"
+                {
+                    if args.len() > 1 {
+                        return Err(format!(
+                            "Number.parseFloat expects 0-1 args, got {}",
+                            args.len()
+                        ));
+                    }
+                    if let Some(arg0) = args.first() {
+                        let s_ty = self.type_of(ast, *arg0)?;
+                        if s_ty != Type::String {
+                            return Err(format!(
+                                "Number.parseFloat arg 0 must be string, got {s_ty:?}"
                             ));
                         }
                     }
@@ -5721,15 +5756,22 @@ impl Checker {
                 if let Expr::Ident(name) = ast.get_expr(*callee) {
                     match name.as_str() {
                         "parseInt" => {
-                            if args.is_empty() || args.len() > 2 {
+                            if args.len() > 2 {
                                 return Err(format!(
-                                    "parseInt expects 1-2 args, got {}",
+                                    "parseInt expects 0-2 args, got {}",
                                     args.len()
                                 ));
                             }
-                            let s_ty = self.type_of(ast, args[0])?;
-                            if s_ty != Type::String {
-                                return Err(format!("parseInt arg 0 must be string, got {s_ty:?}"));
+                            // S202 — spec §19.2.5 step 1 reads `string`
+                            // which defaults to undefined; ToString
+                            // returns "undefined" → parse fails → NaN.
+                            if let Some(arg0) = args.first() {
+                                let s_ty = self.type_of(ast, *arg0)?;
+                                if s_ty != Type::String {
+                                    return Err(format!(
+                                        "parseInt arg 0 must be string, got {s_ty:?}"
+                                    ));
+                                }
                             }
                             if args.len() == 2 {
                                 let r_ty = self.type_of(ast, args[1])?;
@@ -5742,21 +5784,27 @@ impl Checker {
                             return Ok(Type::Number);
                         }
                         "parseFloat" => {
-                            if args.len() != 1 {
+                            if args.len() > 1 {
                                 return Err(format!(
-                                    "parseFloat expects 1 arg, got {}",
+                                    "parseFloat expects 0-1 args, got {}",
                                     args.len()
                                 ));
                             }
-                            let s_ty = self.type_of(ast, args[0])?;
-                            if s_ty != Type::String {
-                                return Err(format!("parseFloat arg must be string, got {s_ty:?}"));
+                            // S202 — same default-undefined rule per
+                            // §19.2.4: missing string → NaN.
+                            if let Some(arg0) = args.first() {
+                                let s_ty = self.type_of(ast, *arg0)?;
+                                if s_ty != Type::String {
+                                    return Err(format!(
+                                        "parseFloat arg must be string, got {s_ty:?}"
+                                    ));
+                                }
                             }
                             return Ok(Type::Number);
                         }
                         "isNaN" | "isFinite" => {
-                            if args.len() != 1 {
-                                return Err(format!("{name} expects 1 arg, got {}", args.len()));
+                            if args.len() > 1 {
+                                return Err(format!("{name} expects 0-1 args, got {}", args.len()));
                             }
                             // V3-18 wedge — global isNaN / isFinite per
                             // JS spec §19.2.3 / §19.2.4 apply ToNumber
@@ -5770,7 +5818,13 @@ impl Checker {
                             // internal-error surface but accept any
                             // coercible type; ssa_lower applies the
                             // ToNumber step at lower time.
-                            let _ = self.type_of(ast, args[0])?;
+                            //
+                            // S202 — 0-arg form skips the arg typecheck
+                            // entirely; ssa_lower returns the spec
+                            // constant (isNaN→true / isFinite→false).
+                            if let Some(arg0) = args.first() {
+                                let _ = self.type_of(ast, *arg0)?;
+                            }
                             return Ok(Type::Boolean);
                         }
                         "queueMicrotask" => {
@@ -6184,13 +6238,21 @@ impl Checker {
                         m_name.as_str(),
                         "isFinite" | "isNaN" | "isInteger" | "isSafeInteger"
                     )
-                    && args.len() == 1
+                    && args.len() <= 1
                 {
                     // Force type_of on the arg so any internal
                     // typecheck error still surfaces, but we don't
                     // require it to be Number — non-Number args
                     // route through the lower's static-false path.
-                    let _ = self.type_of(ast, args[0])?;
+                    //
+                    // S202 — extend the same loose check to the 0-arg
+                    // form per §21.1.2.{3,5,7}: non-Number args
+                    // (including the implicit undefined) statically
+                    // return false; ssa_lower's short-circuit emits
+                    // ConstBool(false) without dispatching the helper.
+                    if let Some(arg0) = args.first() {
+                        let _ = self.type_of(ast, *arg0)?;
+                    }
                     return Ok(Type::Boolean);
                 }
                 // V3-18 wedge — String.charAt / charCodeAt /
