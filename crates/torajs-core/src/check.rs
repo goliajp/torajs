@@ -6176,6 +6176,12 @@ impl Checker {
                 // an optional 2nd `fromIndex` arg per JS spec §21.1.3.7
                 // / §21.1.3.10. Pre-fix tora declared with 1 fixed
                 // param.
+                //
+                // S214 — String.indexOf(needle, undefined) per ES
+                // §22.1.3.8 step 4: ToIntegerOrInfinity(undefined)=0,
+                // accept Undefined fromIndex and treat as 0. ssa_lower
+                // mirror inline-replaces argv[1] with ConstI64(0).
+                // (lastIndexOf NaN→+∞ default is a follow-up ship.)
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
@@ -6192,7 +6198,9 @@ impl Checker {
                             ));
                         }
                         let from_ty = self.type_of(ast, args[1])?;
-                        if from_ty != Type::Number {
+                        let from_undef = matches!(from_ty, Type::Undefined);
+                        let allow_undef = from_undef && m_name == "indexOf";
+                        if from_ty != Type::Number && !allow_undef {
                             return Err(format!(
                                 "String.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
                             ));

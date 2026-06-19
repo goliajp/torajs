@@ -586,13 +586,22 @@ pub(crate) fn try_lower_method_call(
             let undef_to_str_repl =
                 matches!(method.as_str(), "replace" | "replaceAll" | "localeCompare");
             let undef_to_zero = method.as_str() == "repeat";
-            for &a in args {
+            // S214 — String.indexOf(needle, undefined) per ES
+            // §22.1.3.8 step 4: ToIntegerOrInfinity(undefined)=0,
+            // so fromIndex=undefined lowers to ConstI64(0). Only
+            // applies to args[1] (fromIndex); args[0] (needle)
+            // keeps generic lower (0-arg-undef-needle covered by
+            // §22.1.3.8 "undefined" literal default block below).
+            let undef_zero_at_arg1 = method.as_str() == "indexOf" && args.len() == 2;
+            for (i, &a) in args.iter().enumerate() {
                 let arg_undef =
                     matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
                 if undef_to_str_repl && arg_undef {
                     let u = ctx.intern_string_literal("undefined");
                     argv.push(Operand::Value(u));
                 } else if undef_to_zero && arg_undef {
+                    argv.push(Operand::ConstI64(0));
+                } else if undef_zero_at_arg1 && arg_undef && i == 1 {
                     argv.push(Operand::ConstI64(0));
                 } else {
                     argv.push(ctx.lower_expr(a));
