@@ -25,10 +25,14 @@
 //!   "1.0e-7"`. (Pre-P12.3 a `strip_trailing_zeros_in_frac` post-
 //!   process broke that — removed in P12.3.)
 //!
-//! Special values (NaN / ±Infinity) match `snprintf` output of
-//! the original C subset: `"nan"`, `"inf"`, `"-inf"`. JS spec
-//! would emit `"NaN"`, `"Infinity"`, `"-Infinity"` — that's the
-//! same wedge as `Math.round` and is tracked in the L3b backlog.
+//! Special values (NaN / ±Infinity) follow ES spec — `"NaN"`,
+//! `"Infinity"`, `"-Infinity"` — for `toFixed` / `toExponential` /
+//! `toPrecision` / `toLocaleString` (matches bun + V8 + SpiderMonkey
+//! for the first three; the S167 fix drove these away from the
+//! original C `snprintf` subset). The `toLocaleString` en-US
+//! Unicode `"∞"` / `"-∞"` form is deferred to L3b until the Str
+//! alloc surface separates byte-count from code-unit-count (multi-
+//! byte UTF-8 currently trips Str.len's code-unit interpretation).
 
 use crate::str_bridge::alloc_str;
 
@@ -74,18 +78,27 @@ fn normalize_exp(src: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Bit-for-bit C-subset special-value formatter shared by all
-/// three families. Returns `Some(bytes)` for NaN / ±Infinity,
-/// `None` for finite values.
+/// ES-spec special-value formatter shared by `toFixed` /
+/// `toExponential` / `toPrecision` / `toLocaleString`. Per ES
+/// §6.1.6.1.13 Number::toString (whose conventions these inherit):
+/// NaN → `"NaN"`, ±Infinity → `"Infinity"` / `"-Infinity"`. Returns
+/// `Some(bytes)` for NaN / ±Infinity, `None` for finite values.
+///
+/// (`toLocaleString` en-US would prefer the Unicode `"∞"` symbol per
+/// CLDR root, but the multi-byte UTF-8 payload trips alloc_str's
+/// byte-count == code-unit-count assumption — `tora`'s Str layout
+/// stores a code-unit count, so 3-byte `"∞"` gets length 3 and the
+/// print path re-encodes each byte as Latin-1. Tracked in L3b until
+/// the Str alloc surface separates byte-count from code-unit-count.)
 fn special_value(n: f64) -> Option<Vec<u8>> {
     if n.is_nan() {
-        return Some(b"nan".to_vec());
+        return Some(b"NaN".to_vec());
     }
     if n.is_infinite() {
         return Some(if n > 0.0 {
-            b"inf".to_vec()
+            b"Infinity".to_vec()
         } else {
-            b"-inf".to_vec()
+            b"-Infinity".to_vec()
         });
     }
     None
@@ -377,7 +390,7 @@ mod tests {
     #[test]
     fn normalize_exp_no_e_passthrough() {
         assert_eq!(normalize_exp(b"1234.5"), b"1234.5".to_vec());
-        assert_eq!(normalize_exp(b"nan"), b"nan".to_vec());
+        assert_eq!(normalize_exp(b"NaN"), b"NaN".to_vec());
     }
 
     #[test]
@@ -434,9 +447,9 @@ mod tests {
 
     #[test]
     fn to_fixed_special_values() {
-        assert_eq!(to_fixed_f(f64::NAN, 2), b"nan".to_vec());
-        assert_eq!(to_fixed_f(f64::INFINITY, 2), b"inf".to_vec());
-        assert_eq!(to_fixed_f(-f64::INFINITY, 2), b"-inf".to_vec());
+        assert_eq!(to_fixed_f(f64::NAN, 2), b"NaN".to_vec());
+        assert_eq!(to_fixed_f(f64::INFINITY, 2), b"Infinity".to_vec());
+        assert_eq!(to_fixed_f(-f64::INFINITY, 2), b"-Infinity".to_vec());
     }
 
     // ---- to_exp ----
@@ -491,9 +504,9 @@ mod tests {
 
     #[test]
     fn to_exp_special_values() {
-        assert_eq!(to_exp_f(f64::NAN, 2), b"nan".to_vec());
-        assert_eq!(to_exp_f(f64::INFINITY, 2), b"inf".to_vec());
-        assert_eq!(to_exp_f(-f64::INFINITY, 2), b"-inf".to_vec());
+        assert_eq!(to_exp_f(f64::NAN, 2), b"NaN".to_vec());
+        assert_eq!(to_exp_f(f64::INFINITY, 2), b"Infinity".to_vec());
+        assert_eq!(to_exp_f(-f64::INFINITY, 2), b"-Infinity".to_vec());
     }
 
     // ---- to_precision ----
@@ -508,8 +521,8 @@ mod tests {
         assert_eq!(to_exp_f(1234.5678, -1), b"1.2345678e+3".to_vec());
         assert_eq!(to_exp_f(1.5, -1), b"1.5e+0".to_vec());
         // Special values pass through.
-        assert_eq!(to_exp_f(f64::NAN, -1), b"nan".to_vec());
-        assert_eq!(to_exp_f(f64::INFINITY, -1), b"inf".to_vec());
+        assert_eq!(to_exp_f(f64::NAN, -1), b"NaN".to_vec());
+        assert_eq!(to_exp_f(f64::INFINITY, -1), b"Infinity".to_vec());
         // Positive digits path unchanged.
         assert_eq!(to_exp_f(1234.5678, 2), b"1.23e+3".to_vec());
     }
@@ -594,9 +607,9 @@ mod tests {
 
     #[test]
     fn to_precision_special_values() {
-        assert_eq!(to_precision_f(f64::NAN, 6), b"nan".to_vec());
-        assert_eq!(to_precision_f(f64::INFINITY, 6), b"inf".to_vec());
-        assert_eq!(to_precision_f(-f64::INFINITY, 6), b"-inf".to_vec());
+        assert_eq!(to_precision_f(f64::NAN, 6), b"NaN".to_vec());
+        assert_eq!(to_precision_f(f64::INFINITY, 6), b"Infinity".to_vec());
+        assert_eq!(to_precision_f(-f64::INFINITY, 6), b"-Infinity".to_vec());
     }
 
     #[test]
