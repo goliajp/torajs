@@ -6491,7 +6491,7 @@ impl Checker {
                 // sentinel that the helper clamps to `len - start`).
                 if effective_args.len() < params.len()
                     && let Expr::Member { obj, name } = ast.get_expr(*callee)
-                    && name == "splice"
+                    && matches!(name.as_str(), "splice" | "toSpliced")
                 {
                     let recv_ty = self.type_of(ast, *obj)?;
                     if matches!(recv_ty, Type::Array(_)) {

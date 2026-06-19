@@ -47,7 +47,7 @@ fn try_lower_generic(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) ->
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "toSpliced" || args.len() != 2 {
+    if name != "toSpliced" || args.len() > 2 {
         return None;
     }
     let recv_eid = *recv_id;
@@ -78,7 +78,7 @@ fn try_lower_local(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> O
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "toSpliced" || args.len() != 2 {
+    if name != "toSpliced" || args.len() > 2 {
         return None;
     }
     let Expr::Ident(recv_name) = ctx.ast.get_expr(*recv_id) else {
@@ -105,7 +105,7 @@ fn try_lower_global(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> 
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "toSpliced" || args.len() != 2 {
+    if name != "toSpliced" || args.len() > 2 {
         return None;
     }
     let Expr::Ident(recv_name) = ctx.ast.get_expr(*recv_id) else {
@@ -177,8 +177,21 @@ fn emit_clone_splice_return(
             Operand::Value(clone_len),
         );
     }
-    let start = ctx.lower_expr(args[0]);
-    let delete_count = ctx.lower_expr(args[1]);
+    // Arity defaults mirror `ssa_lower_splice::emit_splice_return`:
+    // 0-arg → `start = 0` / `deleteCount = 0` (clone is returned
+    // unchanged); 1-arg → `deleteCount = i64::MAX` sentinel that the
+    // `__torajs_arr_splice` helper clamps to `len - actualStart`
+    // (the spec §23.1.3.42 step 4-6 defaults).
+    let start = if args.is_empty() {
+        Operand::ConstI64(0)
+    } else {
+        ctx.lower_expr(args[0])
+    };
+    let delete_count = match args.len() {
+        0 => Operand::ConstI64(0),
+        1 => Operand::ConstI64(i64::MAX),
+        _ => ctx.lower_expr(args[1]),
+    };
     let removed = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
