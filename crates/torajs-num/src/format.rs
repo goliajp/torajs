@@ -271,6 +271,25 @@ pub fn to_locale_f(n: f64) -> Vec<u8> {
     if let Some(s) = special_value(n) {
         return s;
     }
+    // ECMA-402 default `maximumFractionDigits = 3` + `minimumFractionDigits = 0`.
+    // Magnitudes strictly less than half a milli round to a single zero
+    // digit (per half-away-from-zero). Sign-preserve so tiny negatives
+    // render as `"-0"` — bun's behavior for `(-1e-6).toLocaleString()`
+    // is `"-0"`, not `"-0.000001"`.
+    //
+    // Wider half-away-from-zero rounding (e.g. `(1.1235).toLocaleString()`
+    // → `"1.124"` instead of bun's exact match) is L3b: Rust's `{:.3}`
+    // uses banker's rounding and `f64` precision drift around the half-
+    // case breaks byte-equality — a spec-correct fix needs string-based
+    // rounding from the literal source. Tiny-magnitude collapse is the
+    // narrow path that user code most often observes.
+    if n != 0.0 && n.abs() < 5e-4 {
+        return if n.is_sign_negative() {
+            b"-0".to_vec()
+        } else {
+            b"0".to_vec()
+        };
+    }
     let raw = if n.fract() == 0.0 && n.abs() < 1e16 {
         // Integer-valued double: drop the trailing `.0` so
         // `(1000.0).toLocaleString() === "1,000"`, matching bun.
