@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-19T02:36:49.598Z",
+  "generatedAt": "2026-06-19T04:38:46.539Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "8a1485b6",
-    "commitSubject": "feat(str): `replaceAll(\"\", repl)` interleaves repl per ES §22.1.3.20",
+    "commit": "552d8f15",
+    "commitSubject": "feat(date): `Date.parse('invalid')` returns NaN per ES §21.4.3.2",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "552d8f15",
+      "subject": "feat(date): `Date.parse('invalid')` returns NaN per ES §21.4.3.2"
+    },
+    {
+      "hash": "fb73a695",
+      "subject": "feat(arr): `arr.with(index, value)` throws RangeError on OOB per ES §23.1.3.39"
+    },
+    {
+      "hash": "e4c38704",
+      "subject": "feat(num): `Number(Array<T>)` routes through join → str_to_number per ES §7.1.4"
+    },
+    {
+      "hash": "abb51586",
+      "subject": "feat(ssa): `null ?? rhs` / `undefined ?? rhs` returns rhs at its own SSA type"
+    },
+    {
+      "hash": "397bd3d2",
+      "subject": "feat(arr): `new Array(n)` fills slots with boxed ANY_UNDEF per ES §10.4.2.1"
+    },
+    {
+      "hash": "53455074",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — S171 str-replace-all-empty"
+    },
+    {
       "hash": "8a1485b6",
       "subject": "feat(str): `replaceAll(\"\", repl)` interleaves repl per ES §22.1.3.20"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "ed2c18ea",
       "subject": "chore(hardev/web): refresh dashboard snapshot — S166/S167/S168 narrow ES sweep (collection-from-collection / num-special-formatting / date-tz-offset)"
-    },
-    {
-      "hash": "0b8953f8",
-      "subject": "feat(date): `Date.prototype.getTimezoneOffset()` per ES §21.4.4.7"
-    },
-    {
-      "hash": "4a517895",
-      "subject": "feat(num): special-value formatting follows ES spec (\"NaN\"/\"Infinity\"/\"-Infinity\") per ES §21.1.3.{2,3,4,5}"
-    },
-    {
-      "hash": "2b38fd22",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — S166 collection-from-collection"
-    },
-    {
-      "hash": "575cfdd0",
-      "subject": "feat(collection): `new Map(<Map>)` / `new Set(<Set>)` copy-ctor per ES §24.{1,2}.1"
-    },
-    {
-      "hash": "b566cf83",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — ES2025/§21.4 sweep ×5 (S161-S165 date-tolocale/date-setters/set-readonly-setops/set-mutating-setops/math-sumprecise)"
-    },
-    {
-      "hash": "8d357a70",
-      "subject": "feat(math): `Math.sumPrecise(items)` per ES2025 §21.3.2.32"
     }
   ],
-  "headSha": "8a1485b6",
+  "headSha": "552d8f15",
   "autorun": {
-    "total": 193,
+    "total": 194,
     "baselineTarget": 10,
-    "bySelf": 188,
+    "bySelf": 189,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781807231-6e10",
-      "at": "2026-06-18T18:27:11Z",
-      "ts": 1781807231,
+      "rotationId": "r-1781836801-442c",
+      "at": "2026-06-19T02:40:01Z",
+      "ts": 1781836801,
       "trigger": "self",
-      "prevHead": "b566cf83",
-      "handoffSha": "sha256:fd6ec3331310581f4d564a2edc40f8b720c83bf79b577a277766d0e5af45d95a",
-      "handoffAgeSec": 560,
+      "prevHead": "53455074",
+      "handoffSha": "sha256:69384a328b6c6a2664c75167c64610db26c5421ac0561089f6ca2df0420469f7",
+      "handoffAgeSec": 44,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781836801-442c",
+        "at": "2026-06-19T02:40:01Z",
+        "ts": 1781836801,
+        "trigger": "self",
+        "prevHead": "53455074",
+        "handoffSha": "sha256:69384a328b6c6a2664c75167c64610db26c5421ac0561089f6ca2df0420469f7",
+        "handoffAgeSec": 44,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781807231-6e10",
         "at": "2026-06-18T18:27:11Z",
@@ -780,17 +791,6 @@
         "prevHead": "8e549e5c",
         "handoffSha": "sha256:f074f918f0620d8211b947b02fe79cfd41b8d0104837102962938ef899496d46",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781702182-2dd9",
-        "at": "2026-06-17T13:16:22Z",
-        "ts": 1781702182,
-        "trigger": "self",
-        "prevHead": "9aa90ed4",
-        "handoffSha": "sha256:2974e1e02765ee1df8c5ca027256100317b15509ae64e3f34b613f1139150956",
-        "handoffAgeSec": 14583,
         "conformanceBefore": null,
         "commitsInSession": null
       }
