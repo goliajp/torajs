@@ -581,6 +581,13 @@ pub(crate) fn try_lower_method_call(
             let space = ctx.intern_string_literal(" ");
             argv.push(Operand::Value(space));
         }
+        // ES §22.1.3.1 step 2-3 — `s.at(index?)` undefined index
+        // routes through ToIntegerOrInfinity → 0, so `s.at()`
+        // returns `s[0]`. The `str_at` helper requires both
+        // (str_ptr, i) args; push the default 0 when omitted.
+        if method.as_str() == "at" && args.is_empty() {
+            argv.push(Operand::ConstI64(0));
+        }
         // V3-18 m1.h.50 — String.indexOf / lastIndexOf
         // with the 2-arg (needle, fromIndex) shape route
         // to the dedicated _from runtime helpers.

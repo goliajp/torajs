@@ -6498,19 +6498,20 @@ impl Checker {
                         params.truncate(effective_args.len());
                     }
                 }
-                // `arr.at(index?)` — per ES §23.1.3.1 step 2-3,
-                // `undefined` routes through ToIntegerOrInfinity → 0,
-                // so the 0-arg form returns `arr[0]`. The Type::Function
-                // declared above is the 1-arg full form; truncate to 0
-                // params on no-arg call so the strict-equality arity
-                // check accepts it. `ssa_lower_str::arr.at` fills the
+                // `arr.at(index?)` / `s.at(index?)` — per ES §22.1.3.1 /
+                // §23.1.3.1 step 2-3, `undefined` routes through
+                // ToIntegerOrInfinity → 0, so the 0-arg form returns
+                // index 0. The Type::Function declared above is the
+                // 1-arg full form; truncate to 0 params on no-arg call
+                // so the strict-equality arity check accepts it. The
+                // `ssa_lower_str` Arr and String `at` emitters fill the
                 // default `ConstI64(0)` at emit time.
                 if effective_args.len() < params.len()
                     && let Expr::Member { obj, name } = ast.get_expr(*callee)
                     && name == "at"
                 {
                     let recv_ty = self.type_of(ast, *obj)?;
-                    if matches!(recv_ty, Type::Array(_)) {
+                    if matches!(recv_ty, Type::Array(_) | Type::String) {
                         params.truncate(effective_args.len());
                     }
                 }
