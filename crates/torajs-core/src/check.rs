@@ -6583,6 +6583,28 @@ impl Checker {
                         return Ok(Type::String);
                     }
                 }
+                // S209 — String.repeat(undefined) per ES §22.1.3.17
+                // step 1: ToIntegerOrInfinity(undefined) = 0 → return
+                // the empty string. Declared `vec![Type::Number] ->
+                // String` rejected the typed-Undefined arg with
+                // "argument 0: expected Number, got Undefined".
+                // ssa_lower_str pushes ConstI64(0) for the missing
+                // count and routes through str_repeat as usual.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "repeat"
+                    && args.len() == 1
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let aty = self.type_of(ast, args[0])?;
+                        if matches!(aty, Type::Undefined) {
+                            return Ok(Type::String);
+                        }
+                    }
+                }
                 // S207 — String.replace / replaceAll with fewer-than-2
                 // args per ES §22.1.3.18 / §22.1.3.19 step 4 + step 6a:
                 //   searchString = ToString(searchValue ?? undefined)

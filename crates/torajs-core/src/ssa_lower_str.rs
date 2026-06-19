@@ -558,13 +558,21 @@ pub(crate) fn try_lower_method_call(
             // Replace the operand inline with the interned
             // "undefined" literal — same idiom S206 uses for
             // Array.join's undefined sep.
+            //
+            // S209 — for repeat the count arg is a number; per
+            // spec §22.1.3.17 step 1 ToIntegerOrInfinity(undefined)
+            // = 0, so an explicit-undefined arg lowers to
+            // ConstI64(0) and the helper returns "".
             let undef_to_str_repl = matches!(method.as_str(), "replace" | "replaceAll");
+            let undef_to_zero = method.as_str() == "repeat";
             for &a in args {
-                if undef_to_str_repl
-                    && matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined))
-                {
+                let arg_undef =
+                    matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
+                if undef_to_str_repl && arg_undef {
                     let u = ctx.intern_string_literal("undefined");
                     argv.push(Operand::Value(u));
+                } else if undef_to_zero && arg_undef {
+                    argv.push(Operand::ConstI64(0));
                 } else {
                     argv.push(ctx.lower_expr(a));
                 }
