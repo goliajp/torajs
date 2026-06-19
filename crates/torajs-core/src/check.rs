@@ -5894,6 +5894,22 @@ impl Checker {
                     }
                     return Ok(Type::Number);
                 }
+                // S230 — `Date.parse(undefined)` per ES §21.4.3.2:
+                // step 1 reads the arg through ToString. `ToString(undefined)
+                // = "undefined"` which is not a valid date string, so the
+                // result is NaN. Accept Undefined alongside String; ssa_lower
+                // mirror folds the call to ConstF64(NaN).
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "Date"
+                    && m == "parse"
+                    && args.len() == 1
+                {
+                    let arg_ty = self.type_of(ast, args[0])?;
+                    if matches!(arg_ty, Type::Undefined) {
+                        return Ok(Type::Number);
+                    }
+                }
                 // S227 — Math.<unary>(undefined) per ES §21.3.2.* step 1:
                 // ToNumber(undefined) = NaN, and every NaN-propagating
                 // unary method returns NaN. `Math.clz32(undefined)` is
