@@ -6479,6 +6479,25 @@ impl Checker {
                         params.truncate(effective_args.len());
                     }
                 }
+                // `arr.splice(start, deleteCount?)` — per ES §23.1.3.31
+                // both args are spec-optional: 0-arg form gives
+                // `start = 0`/`deleteCount = 0`, 1-arg form defaults
+                // `deleteCount = len - actualStart`. The Type::Function
+                // declared above is the 2-arg full form; truncate
+                // params to the actual arity so the strict-equality
+                // arity check below accepts 0 / 1 args. The
+                // `ssa_lower_splice` siblings fill the defaults at
+                // emit time (0 → `ConstI64(0)`, 1 → `i64::MAX`
+                // sentinel that the helper clamps to `len - start`).
+                if effective_args.len() < params.len()
+                    && let Expr::Member { obj, name } = ast.get_expr(*callee)
+                    && name == "splice"
+                {
+                    let recv_ty = self.type_of(ast, *obj)?;
+                    if matches!(recv_ty, Type::Array(_)) {
+                        params.truncate(effective_args.len());
+                    }
+                }
                 if params.len() != effective_args.len() {
                     return Err(format!(
                         "expected {} argument(s), got {}",

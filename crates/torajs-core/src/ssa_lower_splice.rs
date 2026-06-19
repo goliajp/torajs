@@ -49,7 +49,7 @@ fn try_lower_local(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> O
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "splice" || args.len() != 2 {
+    if name != "splice" || args.len() > 2 {
         return None;
     }
     let Expr::Ident(recv_name) = ctx.ast.get_expr(*recv_id) else {
@@ -73,7 +73,7 @@ fn try_lower_global(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> 
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "splice" || args.len() != 2 {
+    if name != "splice" || args.len() > 2 {
         return None;
     }
     let Expr::Ident(recv_name) = ctx.ast.get_expr(*recv_id) else {
@@ -111,7 +111,7 @@ fn try_lower_generic(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) ->
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "splice" || args.len() != 2 {
+    if name != "splice" || args.len() > 2 {
         return None;
     }
     let recv_eid = *recv_id;
@@ -133,14 +133,33 @@ fn try_lower_generic(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) ->
 
 /// Shared body: emit `arr_splice(arr, start, deleteCount)` and
 /// return the removed sub-array operand.
+///
+/// Arity defaults follow ES §23.1.3.31 step 4-6:
+/// - 0-arg `splice()` — `start = 0`, `deleteCount = 0`
+/// - 1-arg `splice(start)` — `deleteCount = len - actualStart`
+/// - 2-arg `splice(start, deleteCount)` — passed through
+///
+/// The `__torajs_arr_splice` helper clamps `deleteCount` to
+/// `len - actualStart` internally, so 1-arg uses `i64::MAX` as a
+/// pass-through sentinel ("delete everything from start"). 0-arg
+/// spec says `deleteCount = 0` (skip step 5.b altogether), which
+/// `ConstI64(0)` produces without changing the helper.
 fn emit_splice_return(
     ctx: &mut LowerCtx,
     arr_ty: Type,
     cur_arr: crate::ssa::ValueId,
     args: &[ExprId],
 ) -> Operand {
-    let start = ctx.lower_expr(args[0]);
-    let delete_count = ctx.lower_expr(args[1]);
+    let start = if args.is_empty() {
+        Operand::ConstI64(0)
+    } else {
+        ctx.lower_expr(args[0])
+    };
+    let delete_count = match args.len() {
+        0 => Operand::ConstI64(0),
+        1 => Operand::ConstI64(i64::MAX),
+        _ => ctx.lower_expr(args[1]),
+    };
     let removed = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
