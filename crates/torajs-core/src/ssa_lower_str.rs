@@ -606,6 +606,14 @@ pub(crate) fn try_lower_method_call(
             // to len (see torajs-str lookup.rs::last_index_of_from).
             let undef_max_at_arg1 =
                 matches!(method.as_str(), "split" | "lastIndexOf") && args.len() == 2;
+            // S221 — String.substring(undefined [, undefined]) per ES
+            // §22.1.3.22 step 4/5: start=undef → 0, end=undef → length.
+            // Replace each undef slot before lower so the str_substring
+            // helper's (Str, I64, I64) ABI never sees an Undefined
+            // operand. recv.length is emitted lazily — only if arg[1]
+            // is actually undef.
+            let substring_2arg = method.as_str() == "substring" && args.len() == 2;
+            let mut substring_len_op: Option<Operand> = None;
             for (i, &a) in args.iter().enumerate() {
                 let arg_undef =
                     matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
@@ -618,6 +626,19 @@ pub(crate) fn try_lower_method_call(
                     argv.push(Operand::ConstI64(0));
                 } else if undef_max_at_arg1 && arg_undef && i == 1 {
                     argv.push(Operand::ConstI64(i64::MAX));
+                } else if substring_2arg && arg_undef && i == 0 {
+                    argv.push(Operand::ConstI64(0));
+                } else if substring_2arg && arg_undef && i == 1 {
+                    if substring_len_op.is_none() {
+                        let len = ctx.f.append_inst(
+                            ctx.cur_block,
+                            InstKind::Load(Type::I64, recv_op, 8),
+                            Type::I64,
+                            None,
+                        );
+                        substring_len_op = Some(Operand::Value(len));
+                    }
+                    argv.push(substring_len_op.clone().unwrap());
                 } else {
                     argv.push(ctx.lower_expr(a));
                 }

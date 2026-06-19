@@ -6671,6 +6671,33 @@ impl Checker {
                         return Ok(Type::String);
                     }
                 }
+                // S221 — `s.substring(start, end)` accepts Undefined for
+                // either positional per ES §22.1.3.22 step 4/5:
+                // ToIntegerOrInfinity(undef)=0 for start, end===undefined
+                // takes the omitted default (len). ssa_lower mirror
+                // short-circuits each undef slot to 0 / recv.length so
+                // the str_substring helper's I64 ABI never sees an
+                // Undefined operand.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "substring"
+                    && args.len() == 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        for &aid in args {
+                            let aty = self.type_of(ast, aid)?;
+                            if aty != Type::Number && aty != Type::Undefined {
+                                return Err(format!(
+                                    "String.substring arg must be number, got {aty:?}"
+                                ));
+                            }
+                        }
+                        return Ok(Type::String);
+                    }
+                }
                 // S211 — String.localeCompare(undefined) per ES
                 // §22.1.3.10 step 4: thatStr = ToString(thatValue)
                 // = "undefined". Pre-fix declared `(String) -> Number`
