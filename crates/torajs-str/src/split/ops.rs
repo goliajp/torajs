@@ -191,6 +191,31 @@ unsafe fn write_arr_header(block: NonNull<u8>, out_count: u64) {
 // extern "C" wrappers
 // ============================================================
 
+/// Build the 1-element "no match" block: an Arr containing a
+/// single inline Substr that aliases the whole of `s`
+/// (offset=0, length=byte_len). Reused by:
+///  - `__torajs_str_split` Latin-1-haystack / UTF-16-needle path
+///    (match is structurally impossible — emit `[s]` directly)
+///  - `__torajs_str_split_no_sep` (separator is `undefined` per
+///    ES §22.1.3.21 step 4 — return `[S]`)
+///
+/// # Safety
+///
+/// `s` must be a valid Str heap block; `byte_len` its payload byte
+/// length.
+#[inline]
+unsafe fn single_token_block(s: *const u8, byte_len: u64) -> *mut u8 {
+    let block = pool::alloc(1);
+    unsafe { write_arr_header(block, 1) };
+    let slots_size = 8usize;
+    let substrs_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE + slots_size) };
+    let slots_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE) as *mut *mut u8 };
+    unsafe {
+        split_init_inline(substrs_base, slots_base, s, 0, byte_len);
+    }
+    block.as_ptr()
+}
+
 /// `s.split(sep)` — fresh `string[]` of substrings split by `sep`.
 /// Returns a single block carrying:
 /// - Arr header (24 bytes) with `FLAG_SPLIT_BLOCK`
@@ -224,15 +249,7 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
         (true, false) => {
             // Impossible match — emit a single trailing token
             // covering the whole haystack and return.
-            let block = pool::alloc(1);
-            unsafe { write_arr_header(block, 1) };
-            let slots_size = 8usize;
-            let substrs_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE + slots_size) };
-            let slots_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE) as *mut *mut u8 };
-            unsafe {
-                split_init_inline(substrs_base, slots_base, s, 0, s_payload.len() as u64);
-            }
-            return block.as_ptr();
+            return unsafe { single_token_block(s, s_payload.len() as u64) };
         }
         (false, true) => {
             widened_owned = widen_latin1_to_utf16(sep_payload);
@@ -304,6 +321,30 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
         );
     }
     block.as_ptr()
+}
+
+/// `s.split()` (no separator argument) per ES §22.1.3.21 step 4:
+/// separator is `undefined` → return a fresh `Array<Substr>` with
+/// one element, the full string `s` as a Substr view.
+///
+/// Equivalent compile-time shape to `__torajs_str_split(s, sep)` so
+/// downstream Substr-aware method dispatch routes uniformly. The
+/// ssa-lower side routes here when the user wrote `expr.split()`
+/// with no argument; previously the lower emitted a 1-arg call to
+/// `__torajs_str_split(s, sep)` whose missing `sep` slot read whatever
+/// register garbage the call site happened to leave — single-call
+/// programs survived (registers held a coincidentally-walkable
+/// pointer), but any prior `.split(arg)` call shifted the residual
+/// register state and the next no-arg call SIGSEGV'd inside the
+/// sep `str_view`.
+///
+/// # Safety
+///
+/// `s` must be a valid Str heap block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_split_no_sep(s: *const u8) -> *mut u8 {
+    let (s_payload, _, _) = unsafe { str_view(s) };
+    unsafe { single_token_block(s, s_payload.len() as u64) }
 }
 
 // ============================================================

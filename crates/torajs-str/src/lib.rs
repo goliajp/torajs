@@ -163,7 +163,7 @@ pub use print::{__torajs_str_print, __torajs_str_print_err, __torajs_substr_prin
 pub use slice::__torajs_str_slice;
 pub use split::ops::{
     __torajs_split_iter_drop, __torajs_split_iter_init, __torajs_split_iter_next,
-    __torajs_str_split, SplitIter,
+    __torajs_str_split, __torajs_str_split_no_sep, SplitIter,
 };
 pub use split::pool::__torajs_split_block_free_push;
 pub use substr::{

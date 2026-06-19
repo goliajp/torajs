@@ -665,6 +665,21 @@ pub(crate) fn try_lower_method_call(
                 // the source bytes, no per-substring
                 // copy.
                 let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Substr);
+                // ES §22.1.3.21 step 4 — `s.split()` (no sep) returns
+                // `[S]`. Route to the dedicated 1-arg helper instead
+                // of emitting a 1-arg `Call(str_split, [recv])` whose
+                // missing `sep` slot reads register garbage and
+                // SIGSEGV's once any prior `.split(arg)` shifted the
+                // residual register state.
+                if args.is_empty() {
+                    let v = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.str_split_no_sep, argv),
+                        Type::Arr(arr_id),
+                        None,
+                    );
+                    return Some(Operand::Value(v));
+                }
                 if args.len() == 2 {
                     let split_v = ctx.f.append_inst(
                         ctx.cur_block,

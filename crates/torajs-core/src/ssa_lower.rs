@@ -2007,6 +2007,19 @@ fn lower_inner(
         &[Type::Str, Type::Str],
         Type::Ptr,
     );
+    // ES §22.1.3.21 step 4 — `s.split()` (no separator) returns
+    // `[S]`. ssa_lower routes here when the call site has no
+    // argument; the 2-arg `__torajs_str_split` path silently
+    // missed the `sep` slot and read register garbage, surviving
+    // single-call programs but SIGSEGV'ing after any prior
+    // `.split(arg)` shifted residual register state.
+    let str_split_no_sep_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_split_no_sep",
+        &[Type::Str],
+        Type::Ptr,
+    );
     // Phase Substr.A — view-substring runtime helpers. `__torajs_str_split`
     // (above) will be re-routed to return `Array<Substr>` in Phase Substr.B;
     // these helpers provide the per-Substr ops the lowerer dispatches to
@@ -5628,6 +5641,7 @@ fn lower_inner(
         str_includes: str_includes_id,
         str_eq: str_eq_id,
         str_split: str_split_id,
+        str_split_no_sep: str_split_no_sep_id,
         substr_create: substr_create_id,
         substr_drop: substr_drop_id,
         substr_char_code_at: substr_char_code_at_id,
@@ -6617,6 +6631,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_includes: FuncId,
     pub(crate) str_eq: FuncId,
     pub(crate) str_split: FuncId,
+    pub(crate) str_split_no_sep: FuncId,
     /// Phase Substr.A — substring view runtime helpers.
     pub(crate) substr_create: FuncId,
     pub(crate) substr_drop: FuncId,
