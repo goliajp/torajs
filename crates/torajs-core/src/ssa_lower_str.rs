@@ -1455,16 +1455,25 @@ pub(crate) fn try_lower_method_call(
         }
         return Some(acc);
     }
-    // `arr.at(i)` — element at i with negative-index wrap.
+    // `arr.at(i?)` — element at i with negative-index wrap.
     // Inline SSA: idx = i < 0 ? len + i : i; load at idx.
     // Out-of-bounds is UB (matches the unchecked indexing
     // convention).
+    //
+    // Arity defaults per ES §23.1.3.1 step 2-3: undefined index
+    // routes through ToIntegerOrInfinity → 0, so `arr.at()`
+    // returns `arr[0]`. 0-arg form emits `i_val = ConstI64(0)`
+    // and skips through the rest of the negative-wrap select.
     if let Type::Arr(arr_id) = recv_ty
         && method == "at"
-        && args.len() == 1
+        && args.len() <= 1
     {
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-        let i_val = ctx.lower_expr(args[0]);
+        let i_val = if args.is_empty() {
+            Operand::ConstI64(0)
+        } else {
+            ctx.lower_expr(args[0])
+        };
         let len = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
