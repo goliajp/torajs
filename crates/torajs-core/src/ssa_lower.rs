@@ -17294,6 +17294,25 @@ impl<'a> LowerCtx<'a> {
                         return Operand::ConstF64(32.0);
                     }
                 }
+                // S205 — Math binary methods (pow / atan2 / imul) with
+                // fewer than 2 args. Spec §21.3.2.{5,19,26}:
+                //   pow / atan2: ToNumber(undefined) = NaN → NaN
+                //   imul:        ToUint32(undefined) = 0 → imul = 0
+                // Skip the helper Call entirely; emit the static result.
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Math"
+                    && matches!(m_name.as_str(), "pow" | "atan2" | "imul")
+                    && args.len() < 2
+                {
+                    if m_name == "imul" {
+                        return Operand::ConstF64(0.0);
+                    }
+                    return Operand::ConstF64(f64::NAN);
+                }
                 // `Math.min` / `Math.max` — variadic, fold into a pairwise
                 // reduction. ssa-lower emits left-to-right: r = min(a,b);
                 // r = min(r, c); r = min(r, d); ...

@@ -6002,6 +6002,27 @@ impl Checker {
                 {
                     return Ok(Type::Number);
                 }
+                // S205 — Math binary methods 0/1-arg per ES default-
+                // undefined. Spec §21.3.2.{19,5,26}: Math.imul takes
+                // ToUint32 on each arg (undefined → 0 → imul = 0);
+                // Math.pow / Math.atan2 take ToNumber (undefined → NaN
+                // → NaN-propagating result). The declared
+                // `vec![Number, Number]` signature rejects shorter
+                // forms at the generic arity gate.
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "Math"
+                    && matches!(m.as_str(), "pow" | "atan2" | "imul")
+                    && args.len() < 2
+                {
+                    for &aid in args {
+                        let aty = self.type_of(ast, aid)?;
+                        if aty != Type::Number {
+                            return Err(format!("Math.{m} args must be number, got {aty:?}"));
+                        }
+                    }
+                    return Ok(Type::Number);
+                }
                 if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
                     && let Expr::Ident(ns) = ast.get_expr(*obj)
                     && ns == "Math"
