@@ -9514,6 +9514,15 @@ impl<'a> LowerCtx<'a> {
     /// (no SSA Select instruction), then chains through
     /// clamp_i64_to_range for the [0, len] clamp.
     pub(crate) fn relative_to_len(&mut self, v: Operand, len: Operand) -> Operand {
+        // ES ToIntegerOrInfinity at the call boundary — every callsite
+        // (copyWithin / fill / slice / indexOf / lastIndexOf etc.)
+        // feeds a numeric index that must be a signed integer for the
+        // inline ICmp/Add/Store chain below. A fractional / NaN / ±∞
+        // literal lowers to f64 and would panic backend GPR
+        // materialization. coerce_to_i64 const-folds NaN→0 / ±∞→i64::
+        // {MAX,MIN} and emits FpToSi for non-const f64 (no-op when
+        // already i64).
+        let v = self.coerce_to_i64(v);
         let is_neg = self.f.append_inst(
             self.cur_block,
             InstKind::ICmp(IPred::Slt, v.clone(), Operand::ConstI64(0)),
