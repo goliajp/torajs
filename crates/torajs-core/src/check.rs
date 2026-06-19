@@ -6583,6 +6583,28 @@ impl Checker {
                         return Ok(Type::String);
                     }
                 }
+                // S211 — String.localeCompare(undefined) per ES
+                // §22.1.3.10 step 4: thatStr = ToString(thatValue)
+                // = "undefined". Pre-fix declared `(String) -> Number`
+                // rejected the typed-Undefined arg with
+                // "argument 0: expected String, got Undefined".
+                // ssa_lower inline-substitutes the interned
+                // "undefined" literal for the typed-undefined operand.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "localeCompare"
+                    && args.len() == 1
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let aty = self.type_of(ast, args[0])?;
+                        if matches!(aty, Type::Undefined) {
+                            return Ok(Type::Number);
+                        }
+                    }
+                }
                 // S210 — String.search() / search(undefined) per ES
                 // §22.1.3.20: RegExpCreate(undefined, undefined)
                 // yields an empty regex which matches at index 0.

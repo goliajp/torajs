@@ -581,7 +581,10 @@ pub(crate) fn try_lower_method_call(
             // spec §22.1.3.17 step 1 ToIntegerOrInfinity(undefined)
             // = 0, so an explicit-undefined arg lowers to
             // ConstI64(0) and the helper returns "".
-            let undef_to_str_repl = matches!(method.as_str(), "replace" | "replaceAll");
+            // S211 — localeCompare(undefined) per §22.1.3.10 step 4
+            // takes the same ToString(undefined) = "undefined" path.
+            let undef_to_str_repl =
+                matches!(method.as_str(), "replace" | "replaceAll" | "localeCompare");
             let undef_to_zero = method.as_str() == "repeat";
             for &a in args {
                 let arg_undef =
