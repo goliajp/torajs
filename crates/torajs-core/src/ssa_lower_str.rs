@@ -1714,7 +1714,17 @@ pub(crate) fn try_lower_method_call(
         // this coerce, f64 args (`a.at(1.5)`) panic backend GPR
         // materialization. coerce_to_i64 const-folds NaN → 0 and
         // ±∞ → i64::{MAX,MIN} (spec), FpToSi otherwise.
+        //
+        // S225 — explicit `undefined` index lowers as a ConstPtrNull
+        // which coerce_to_i64 cannot materialize (same shape as the
+        // S222 charAt early-intercept). Short-circuit to ConstI64(0)
+        // before coerce so the negative-wrap select picks arr[0].
         let i_val = if args.is_empty() {
+            Operand::ConstI64(0)
+        } else if matches!(
+            ctx.expr_types.get(&args[0]),
+            Some(crate::check::Type::Undefined)
+        ) {
             Operand::ConstI64(0)
         } else {
             let raw = ctx.lower_expr(args[0]);
