@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-19T18:48:13.450Z",
+  "generatedAt": "2026-06-19T20:52:14.876Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "60a0c7ae",
-    "commitSubject": "fix(arr): `Array.slice(undefined [, undefined])` per ES default-undefined",
+    "commit": "b12cc065",
+    "commitSubject": "fix(str): `String.{at,charAt,charCodeAt,codePointAt}(undefined)` index=0",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,84 @@
   },
   "commits": [
     {
+      "hash": "b12cc065",
+      "subject": "fix(str): `String.{at,charAt,charCodeAt,codePointAt}(undefined)` index=0"
+    },
+    {
+      "hash": "6f1e8865",
+      "subject": "fix(str): `String.substring(undefined [, undefined])` per ES default"
+    },
+    {
+      "hash": "50b5a375",
+      "subject": "fix(arr): `Array.flat(undefined)` per ES default — depthNum = 1"
+    },
+    {
+      "hash": "d1a157d9",
+      "subject": "fix(arr): `Array.copyWithin(...undefined)` per ES default-undefined"
+    },
+    {
+      "hash": "a26e3ff6",
+      "subject": "fix(arr): `Array.fill(v, undefined [, undefined])` per ES default"
+    },
+    {
+      "hash": "456bbc8d",
+      "subject": "fix(arr): `Array.{indexOf,lastIndexOf,includes}(needle, undefined)`"
+    },
+    {
+      "hash": "abc4b7e6",
+      "subject": "fix(str): `String.lastIndexOf(needle, undefined)` searches from end"
+    },
+    {
+      "hash": "01f1df54",
+      "subject": "fix(str): `String.split(sep, undefined)` returns the full split list"
+    },
+    {
+      "hash": "fa6ff022",
+      "subject": "fix(str): `String.indexOf(needle, undefined)` returns spec default 0"
+    },
+    {
+      "hash": "e428319f",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×7 (S207-S213)"
+    },
+    {
       "hash": "60a0c7ae",
       "subject": "fix(arr): `Array.slice(undefined [, undefined])` per ES default-undefined"
     },
     {
       "hash": "c6ec42d6",
       "subject": "fix(str): `String.concat(undefined)` per ES default-undefined"
-    },
-    {
-      "hash": "cb172faa",
-      "subject": "fix(str): `String.localeCompare(undefined)` per ES default-undefined"
-    },
-    {
-      "hash": "0f5ee4f9",
-      "subject": "fix(str): `String.search() / search(undefined)` returns 0 per ES default-undefined"
-    },
-    {
-      "hash": "df667b5d",
-      "subject": "fix(str): `String.repeat(undefined)` returns \"\" per ES default-undefined"
-    },
-    {
-      "hash": "992ac322",
-      "subject": "fix(str): wire S208 substrate — check + ssa_lower routes normalize(undefined) to NFC"
-    },
-    {
-      "hash": "3df4d976",
-      "subject": "fix(str): `String.normalize(undefined)` routes to NFC default per ES default-undefined"
-    },
-    {
-      "hash": "bf27f45d",
-      "subject": "fix(str): `String.replace / replaceAll` accept fewer-than-2 args per ES default-undefined"
-    },
-    {
-      "hash": "8677547f",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×7 (S200-S206)"
-    },
-    {
-      "hash": "dfa2002d",
-      "subject": "fix(arr): `Array.join(undefined)` routes to default-comma sep per ES default-undefined"
-    },
-    {
-      "hash": "1143eaf4",
-      "subject": "fix(num): Math binary methods (pow / atan2 / imul) accept fewer-arg"
-    },
-    {
-      "hash": "e1be8d51",
-      "subject": "fix(arr): `Array.isArray()` accepts 0-arg per ES default-undefined"
     }
   ],
-  "headSha": "60a0c7ae",
+  "headSha": "b12cc065",
   "autorun": {
-    "total": 200,
+    "total": 201,
     "baselineTarget": 10,
-    "bySelf": 195,
+    "bySelf": 196,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781888901-20b8",
-      "at": "2026-06-19T17:08:21Z",
-      "ts": 1781888901,
+      "rotationId": "r-1781895023-79da",
+      "at": "2026-06-19T18:50:23Z",
+      "ts": 1781895023,
       "trigger": "self",
-      "prevHead": "8677547f",
-      "handoffSha": "sha256:0c22ede27dada4f0ec4a70b929b93b8148bcfce3e7e0a7f480c39aaeb3c31530",
-      "handoffAgeSec": 3,
+      "prevHead": "e428319f",
+      "handoffSha": "sha256:89fef213f370b8ad1595302c7025f4640074e19402eda091e1bea7074750e558",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781895023-79da",
+        "at": "2026-06-19T18:50:23Z",
+        "ts": 1781895023,
+        "trigger": "self",
+        "prevHead": "e428319f",
+        "handoffSha": "sha256:89fef213f370b8ad1595302c7025f4640074e19402eda091e1bea7074750e558",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781888901-20b8",
         "at": "2026-06-19T17:08:21Z",
@@ -780,17 +791,6 @@
         "prevHead": "67a790fe",
         "handoffSha": "sha256:3d2b03e264baf62decd7855218a7c6df158eeba579923c19981d89453b78176b",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781796206-47e0",
-        "at": "2026-06-18T15:23:26Z",
-        "ts": 1781796206,
-        "trigger": "self",
-        "prevHead": "934e4511",
-        "handoffSha": "sha256:73c00456756052d80737e6283e459cedd9af5bc81a4cc2e1e29af9ef56010315",
-        "handoffAgeSec": 8874,
         "conformanceBefore": null,
         "commitsInSession": null
       }
