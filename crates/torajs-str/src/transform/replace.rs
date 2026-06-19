@@ -315,8 +315,9 @@ pub unsafe extern "C" fn __torajs_str_replace(
 }
 
 /// `s.replaceAll(needle, repl)` — replace every non-overlapping
-/// occurrence. Empty needle returns a fresh copy of `s` (subset
-/// silent divergence from spec which throws TypeError).
+/// occurrence. Empty-needle case interleaves `repl` at every
+/// position per ES §22.1.3.20 (between each code unit + at both
+/// boundaries; `"aaa".replaceAll("", "X")` → `"XaXaXaX"`).
 ///
 /// # Safety
 ///
@@ -327,12 +328,39 @@ pub unsafe extern "C" fn __torajs_str_replace_all(
     needle: *const u8,
     repl: *const u8,
 ) -> *mut u8 {
-    let (s_payload, _, s_latin1) = unsafe { str_view(s) };
+    let (s_payload, s_len_cu, s_latin1) = unsafe { str_view(s) };
     let (n_payload, n_len_cu, n_latin1) = unsafe { str_view(needle) };
-    let (r_payload, _, r_latin1) = unsafe { str_view(repl) };
+    let (r_payload, r_len_cu, r_latin1) = unsafe { str_view(repl) };
 
     if n_len_cu == 0 {
-        return alloc_str_copy(s_payload, s_latin1);
+        // S171 — ES §22.1.3.20 empty-needle interleave path:
+        // emit `r + (c + r)*` for each code unit `c` of `s`.
+        // Empty `r` collapses to just `s_payload` (no-op insertions).
+        if r_len_cu == 0 {
+            return alloc_str_copy(s_payload, s_latin1);
+        }
+        let out_latin1 = s_latin1 && r_latin1;
+        let stride: u32 = if out_latin1 { 1 } else { 2 };
+        let s_buf = coerce_payload(s_payload, s_latin1, out_latin1);
+        let r_buf = coerce_payload(r_payload, r_latin1, out_latin1);
+        let s_bytes = s_buf.as_ref();
+        let r_bytes = r_buf.as_ref();
+        let total_cu = (s_len_cu + 1) * r_len_cu + s_len_cu;
+        let total_byte_cnt = total_cu * stride;
+        return build_result_with(total_cu, total_byte_cnt, out_latin1, |dst| {
+            let stride_us = stride as usize;
+            let r_byte_len = r_bytes.len();
+            let mut off = 0;
+            dst[off..off + r_byte_len].copy_from_slice(r_bytes);
+            off += r_byte_len;
+            for i in 0..s_len_cu as usize {
+                let s_off = i * stride_us;
+                dst[off..off + stride_us].copy_from_slice(&s_bytes[s_off..s_off + stride_us]);
+                off += stride_us;
+                dst[off..off + r_byte_len].copy_from_slice(r_bytes);
+                off += r_byte_len;
+            }
+        });
     }
 
     // Latin-1 haystack + UTF-16 needle ⇒ no match; canonical short
@@ -538,15 +566,39 @@ mod tests {
     }
 
     #[test]
-    fn ffi_replace_all_empty_needle_silently_copies() {
+    fn ffi_replace_all_empty_needle_interleaves_per_es_spec() {
+        // S171 — ES §22.1.3.20: empty needle inserts repl at every
+        // position. Was a silent-copy stub pre-S171.
         let s = make_str(b"abc");
         let n = make_str(b"");
         let r = make_str(b"X");
         let out = unsafe { __torajs_str_replace_all(s, n, r) };
-        assert_eq!(read_str(out), b"abc");
+        assert_eq!(read_str(out), b"XaXbXcX");
         unsafe { __torajs_str_free(s) };
         unsafe { __torajs_str_free(n) };
         unsafe { __torajs_str_free(r) };
         unsafe { __torajs_str_free(out) };
+
+        // Empty repl + empty needle short-circuits to a copy of s.
+        let s2 = make_str(b"abc");
+        let n2 = make_str(b"");
+        let r2 = make_str(b"");
+        let out2 = unsafe { __torajs_str_replace_all(s2, n2, r2) };
+        assert_eq!(read_str(out2), b"abc");
+        unsafe { __torajs_str_free(s2) };
+        unsafe { __torajs_str_free(n2) };
+        unsafe { __torajs_str_free(r2) };
+        unsafe { __torajs_str_free(out2) };
+
+        // Empty s + empty needle + non-empty repl → just repl.
+        let s3 = make_str(b"");
+        let n3 = make_str(b"");
+        let r3 = make_str(b"X");
+        let out3 = unsafe { __torajs_str_replace_all(s3, n3, r3) };
+        assert_eq!(read_str(out3), b"X");
+        unsafe { __torajs_str_free(s3) };
+        unsafe { __torajs_str_free(n3) };
+        unsafe { __torajs_str_free(r3) };
+        unsafe { __torajs_str_free(out3) };
     }
 }
