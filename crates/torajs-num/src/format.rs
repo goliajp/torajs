@@ -118,6 +118,12 @@ pub fn to_fixed_f(n: f64, digits: i64) -> Vec<u8> {
     if let Some(s) = special_value(n) {
         return s;
     }
+    // ES §21.1.3.3 step 7: `if x < 0` — IEEE 754 `-0` is not `< 0`,
+    // so the sign string stays empty and the output starts with
+    // "0". Rust `format!("{:.N}", -0.0)` preserves the IEEE 754
+    // sign bit and emits "-0.0..." → normalise -0 to +0 at entry,
+    // mirroring `to_exp_f`'s line 157 wedge.
+    let n = if n == 0.0 { 0.0 } else { n };
     if n.abs() >= 1e21 {
         // Spec ToString(n) form = Ryū exp shape (e.g. "1e+21").
         // `format!("{:e}", n)` is shortest-roundtrip via Rust core::fmt;
@@ -210,6 +216,10 @@ pub fn to_precision_f(n: f64, digits: i64) -> Vec<u8> {
     if let Some(s) = special_value(n) {
         return s;
     }
+    // ES §21.1.3.5: `(-0).toPrecision(N)` emits "0[.0...0]" — same
+    // signed-zero normalisation as `to_fixed_f` / `to_exp_f`. Rust's
+    // formatters preserve the IEEE 754 sign bit otherwise.
+    let n = if n == 0.0 { 0.0 } else { n };
     let precision = if digits <= 0 { 6 } else { digits.min(100) };
     let mantissa_digits = (precision - 1).max(0) as usize;
     // Compute the actual decimal exponent X by pre-formatting %e
