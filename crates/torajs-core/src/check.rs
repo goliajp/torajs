@@ -6515,6 +6515,41 @@ impl Checker {
                         params.truncate(effective_args.len());
                     }
                 }
+                // `arr.indexOf() / .includes() / .lastIndexOf()` and
+                // `s.indexOf() / .includes() / .lastIndexOf() /
+                // .startsWith() / .endsWith()` — per ES §22.1.3.{8,13,...}
+                // and §23.1.3.{14,17,18}, `searchElement` / `searchString`
+                // defaults to undefined when omitted (algorithm steps
+                // read the missing argument as undefined). The
+                // Type::Function declared above is the 1-arg full form;
+                // truncate to 0 params on the no-arg call.
+                //
+                // SSA emit semantics:
+                //   String: fill needle = ToString(undefined) = "undefined"
+                //     and search normally (bun observable).
+                //   Array<T> with T ≠ Any: undefined cannot strict-equal
+                //     any typed element, so the result is fixed
+                //     (-1 / false). Array<Any> is omitted from the
+                //     truncate here because the search would need an
+                //     Any-tagged undefined sentinel; L3b.
+                if effective_args.is_empty()
+                    && let Expr::Member { obj, name } = ast.get_expr(*callee)
+                {
+                    let recv_ty = self.type_of(ast, *obj)?;
+                    let trunc = match (&recv_ty, name.as_str()) {
+                        (
+                            Type::String,
+                            "indexOf" | "includes" | "lastIndexOf" | "startsWith" | "endsWith",
+                        ) => true,
+                        (Type::Array(elem), "indexOf" | "includes" | "lastIndexOf") => {
+                            **elem != Type::Any
+                        }
+                        _ => false,
+                    };
+                    if trunc {
+                        params.truncate(0);
+                    }
+                }
                 if params.len() != effective_args.len() {
                     return Err(format!(
                         "expected {} argument(s), got {}",

@@ -588,6 +588,21 @@ pub(crate) fn try_lower_method_call(
         if method.as_str() == "at" && args.is_empty() {
             argv.push(Operand::ConstI64(0));
         }
+        // ES §22.1.3.{8,13,14,21,22} — `searchString` defaults to
+        // `undefined` when omitted; the algorithm reads it via
+        // ToString → "undefined". For 0-arg `s.indexOf() /
+        // includes() / lastIndexOf() / startsWith() / endsWith()`,
+        // emit the literal "undefined" so the runtime helpers see a
+        // valid Str needle. Matches bun (returns -1/false unless the
+        // haystack contains "undefined").
+        if matches!(
+            method.as_str(),
+            "indexOf" | "lastIndexOf" | "includes" | "startsWith" | "endsWith"
+        ) && args.is_empty()
+        {
+            let u = ctx.intern_string_literal("undefined");
+            argv.push(Operand::Value(u));
+        }
         // V3-18 m1.h.50 — String.indexOf / lastIndexOf
         // with the 2-arg (needle, fromIndex) shape route
         // to the dedicated _from runtime helpers.
@@ -1951,6 +1966,25 @@ pub(crate) fn try_lower_method_call(
     // lastIndexOf scans from the end (-1 on miss);
     // includes returns a boolean. All three share the
     // per-element compare dispatch (ICmp / FCmp / str_eq).
+    // ES §23.1.3.{14,17,18} — 0-arg `arr.indexOf() / .includes() /
+    // .lastIndexOf()`: `searchElement` defaults to `undefined`. For
+    // typed Array<T> with T ≠ Any, undefined cannot strictly equal
+    // any element, so the result is fixed: indexOf/lastIndexOf → -1,
+    // includes → false. Short-circuit before the full inline loop.
+    // Array<Any> is left to the existing strict-arity reject (L3b —
+    // needs an Any-tagged undefined sentinel needle).
+    if let Type::Arr(arr_id) = recv_ty
+        && (method == "indexOf" || method == "lastIndexOf" || method == "includes")
+        && args.is_empty()
+    {
+        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        if elem_ty != Type::Any {
+            if method == "includes" {
+                return Some(Operand::ConstBool(false));
+            }
+            return Some(Operand::ConstI64(-1));
+        }
+    }
     if let Type::Arr(arr_id) = recv_ty
         && (method == "indexOf" || method == "lastIndexOf" || method == "includes")
         && (args.len() == 1 || args.len() == 2)
