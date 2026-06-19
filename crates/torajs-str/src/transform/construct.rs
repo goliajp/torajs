@@ -175,20 +175,37 @@ pub fn at_resolve(i: i64, len: u32) -> Option<u32> {
 // ============================================================
 
 /// `s.repeat(n)` — fresh Str holding `s` concatenated `n` times.
-/// `n == 0` yields the empty Str. `n < 0` raises a catchable
-/// `RangeError` via `__torajs_throw_range_error` per ES
-/// §22.1.3.16 step 4 — the SSA-emitted `emit_throw_check` after
-/// the call propagates to user `try/catch`. Pre-fix the same
-/// `n < 0` case silently produced an empty string (the C-era
-/// "v0 subset" carry-over).
+/// `n == 0` yields the empty Str.
+///
+/// Per ES §22.1.3.16 steps 3-4, the spec throws `RangeError` when
+/// `n < 0` or when `n` is `+Infinity`. The SSA arm lowers the
+/// argument via `FpToSi` so floating-point Infinity reaches us as
+/// `i64::MAX` (`fcvtzs +Inf` on aarch64 / `cvttsd2si` on x86_64);
+/// we treat that as the Infinity sentinel and throw the same error
+/// as the negative path. NaN coerces to `0` via the same
+/// FpToSi rule, matching V8/JSC's "ToInteger(NaN) = 0 → empty
+/// string" observable behavior.
+///
+/// `n == i64::MAX` from a legitimate user literal (extremely
+/// unlikely — the byte-cost would overflow `u32` anyway) gets
+/// routed to the throw path; bun / V8 also raise on such inputs
+/// because the resulting string can't be allocated.
+///
+/// The message matches bun's so conformance diff-tests can rely
+/// on `(e as Error).message`.
 ///
 /// # Safety
 ///
 /// `s` must be a valid Str heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_repeat(s: *const u8, n: i64) -> *mut u8 {
-    if n < 0 {
-        unsafe { __torajs_throw_range_error(b"Invalid count value\0".as_ptr()) };
+    if n < 0 || n == i64::MAX {
+        unsafe {
+            __torajs_throw_range_error(
+                b"String.prototype.repeat argument must be greater than or equal to 0 and not be Infinity\0"
+                    .as_ptr(),
+            )
+        };
         // Caller's emit_throw_check picks up the TLS pending throw
         // immediately on return. The empty Str result is unreachable
         // in user code but keeps the SSA Call result type stable.
