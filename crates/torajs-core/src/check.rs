@@ -3861,7 +3861,8 @@ impl Checker {
                     | (Type::Date, "getMilliseconds")
                     | (Type::Date, "getUTCMilliseconds")
                     | (Type::Date, "getDay")
-                    | (Type::Date, "getUTCDay") => Ok(Type::Function(
+                    | (Type::Date, "getUTCDay")
+                    | (Type::Date, "getTimezoneOffset") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::Number),
                     )),

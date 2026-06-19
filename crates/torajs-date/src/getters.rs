@@ -216,3 +216,21 @@ pub unsafe extern "C" fn __torajs_date_get_day(d_ptr: *const c_void) -> i64 {
     }
     localtime_decompose(unsafe { as_date(d_ptr) }.ms).tm_wday as i64
 }
+
+/// `d.getTimezoneOffset()` per ES §21.4.4.7 — returns minutes BEHIND
+/// UTC for the receiver's instant. JS convention flips libc's sign:
+/// local-ahead-of-UTC (Asia/Tokyo +09:00) reports `-540`, not `+540`.
+/// `local_utoff(secs)` returns the same DST-aware seconds-ahead-of-UTC
+/// the local-time getters use, so `-(off / 60)` is the JS answer.
+///
+/// # Safety
+/// `d_ptr` is null or a live `*Date`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_get_timezone_offset(d_ptr: *const c_void) -> i64 {
+    if d_ptr.is_null() {
+        return 0;
+    }
+    let ms = unsafe { as_date(d_ptr) }.ms;
+    let utc_secs = ms.div_euclid(1000);
+    -(crate::tz::local_utoff(utc_secs) as i64 / 60)
+}

@@ -2386,6 +2386,13 @@ fn lower_inner(
         &[Type::Date],
         Type::I64,
     );
+    let date_get_timezone_offset_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_timezone_offset",
+        &[Type::Date],
+        Type::I64,
+    );
     let date_get_utc_full_year_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5686,6 +5693,7 @@ fn lower_inner(
         date_get_seconds: date_get_seconds_id,
         date_get_milliseconds: date_get_milliseconds_id,
         date_get_day: date_get_day_id,
+        date_get_timezone_offset: date_get_timezone_offset_id,
         date_get_utc_full_year: date_get_utc_full_year_id,
         date_get_utc_month: date_get_utc_month_id,
         date_get_utc_date: date_get_utc_date_id,
@@ -6689,6 +6697,7 @@ pub(crate) struct Intrinsics {
     pub(crate) date_get_seconds: FuncId,
     pub(crate) date_get_milliseconds: FuncId,
     pub(crate) date_get_day: FuncId,
+    pub(crate) date_get_timezone_offset: FuncId,
     pub(crate) date_get_utc_full_year: FuncId,
     pub(crate) date_get_utc_month: FuncId,
     pub(crate) date_get_utc_date: FuncId,
@@ -20887,6 +20896,7 @@ impl<'a> LowerCtx<'a> {
                             | "getUTCMilliseconds"
                             | "getDay"
                             | "getUTCDay"
+                            | "getTimezoneOffset"
                             | "setTime"
                             | "setYear"
                             | "getYear"
@@ -20969,6 +20979,9 @@ impl<'a> LowerCtx<'a> {
                             }
                             "getDay" => (self.intrinsics.date_get_day, Type::I64),
                             "getUTCDay" => (self.intrinsics.date_get_utc_day, Type::I64),
+                            "getTimezoneOffset" => {
+                                (self.intrinsics.date_get_timezone_offset, Type::I64)
+                            }
                             // T-30
                             "setTime" => (self.intrinsics.date_set_time, Type::I64),
                             "setYear" => (self.intrinsics.date_set_year, Type::I64),
