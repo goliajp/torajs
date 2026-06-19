@@ -32,7 +32,9 @@
 //!
 //! - [`__torajs_arr_alloc_any`] — fresh empty Array<Any> with `cap`
 //! - [`__torajs_arr_alloc_any_filled`] — `new Array(n)`, len=cap=n,
-//!   all slots ANY_NULL (zeroed)
+//!   all slots boxed `ANY_UNDEF` per ES §10.4.2.1 (densely-undefined;
+//!   not sparse-hole — `console.log(arr)` renders `[undefined, …]`
+//!   not `[ N x empty items ]` since elem-kind-tag substrate is L3b)
 //! - [`__torajs_arr_push_any`] — append (tag, value); grow 2× on full
 //! - [`__torajs_arr_extend_any`] — append every slot of src; rc_inc on
 //!   ANY_HEAP slots; grow if needed
@@ -121,7 +123,11 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any(cap: u64) -> *mut u8 {
 }
 
 /// `__torajs_arr_alloc_any_filled(n)` — `new Array(n)` per ES spec
-/// §23.1.2.1. len=cap=n, all slots zeroed (tag=ANY_NULL=0, value=0).
+/// §23.1.2.1. len=cap=n, all slots boxed `ANY_UNDEF` so `arr[i]`
+/// decodes as `undefined` per ES §10.4.2.1 (sparse missing-index
+/// semantics densely emulated; true sparse hole would need an
+/// elem-kind-tag substrate, L3b). Mirrors the hole-fill pattern in
+/// `__torajs_arr_set_at_any`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
     unsafe {
@@ -129,7 +135,10 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
         let p = malloc(total) as *mut u8;
         write_header_any(p, n, n as u32);
         if n > 0 {
-            core::ptr::write_bytes(p.add(ARR_SLOTS_OFF), 0, (n as usize) * ANY_SLOT_BYTES);
+            let undef = __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0);
+            for k in 0..n {
+                *slot_anyvalue_ptr(p, k) = undef;
+            }
         }
         p
     }
