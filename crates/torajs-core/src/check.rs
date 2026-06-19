@@ -6376,6 +6376,14 @@ impl Checker {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {
                         let aty = self.type_of(ast, args[0])?;
+                        // S208 — spec §22.1.3.13 step 1: when `form` is
+                        // undefined, default to "NFC". Accept the typed-
+                        // Undefined arg shape alongside the String form;
+                        // ssa_lower routes both to the existing 0-arg
+                        // NFC-default path.
+                        if matches!(aty, Type::Undefined) {
+                            return Ok(Type::String);
+                        }
                         if !matches!(aty, Type::String) {
                             return Err(format!(
                                 "String.normalize arg must be string, got {aty:?}"

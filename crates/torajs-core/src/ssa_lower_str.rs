@@ -474,7 +474,18 @@ pub(crate) fn try_lower_method_call(
     // propagates the throw to the user's `try/catch` before the
     // result flows downstream.
     if recv_ty == Type::Str && method == "normalize" {
-        let form_op = if args.is_empty() {
+        // S208 — explicit `undefined` form follows the same
+        // default-undefined rule per spec §22.1.3.13 step 1:
+        // when `form` is undefined, default to "NFC". Detect
+        // the typed-Undefined arg (same idiom S206/S207 use)
+        // and route to the 0-arg path so the operand lower is
+        // skipped (the literal has no side effects).
+        let undef_form = args.len() == 1
+            && matches!(
+                ctx.expr_types.get(&args[0]),
+                Some(crate::check::Type::Undefined)
+            );
+        let form_op = if args.is_empty() || undef_form {
             Operand::Value(ctx.intern_string_literal("NFC"))
         } else {
             ctx.lower_expr(args[0])
