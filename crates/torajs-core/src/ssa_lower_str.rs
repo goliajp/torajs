@@ -715,7 +715,15 @@ pub(crate) fn try_lower_method_call(
                         Type::I64,
                         None,
                     );
-                    let limit_op = argv[2].clone();
+                    // ES §22.1.3.21 step 6 — limit goes through
+                    // ToUint32, which truncates toward 0 for finite
+                    // numbers. Without this coerce a fractional / NaN /
+                    // ±∞ literal stays f64 and the signed-int
+                    // ICmp/Store below panics backend GPR
+                    // materialization. coerce_to_i64 const-folds NaN→0
+                    // / ±∞→i64::{MAX,MIN} (downstream clamp picks
+                    // len), trunc for finite f64.
+                    let limit_op = ctx.coerce_to_i64(argv[2].clone());
                     let take_slot = ctx.alloca(Type::I64, Some("__split_take"));
                     let lt = ctx.f.append_inst(
                         ctx.cur_block,
