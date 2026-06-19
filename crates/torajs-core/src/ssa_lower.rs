@@ -3791,6 +3791,13 @@ fn lower_inner(
         &[Type::Set, Type::Set],
         Type::Set,
     );
+    let map_clone_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_clone",
+        &[Type::Map],
+        Type::Map,
+    );
     let map_set_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5856,6 +5863,7 @@ fn lower_inner(
         set_intersection: set_intersection_id,
         set_difference: set_difference_id,
         set_symmetric_difference: set_symmetric_difference_id,
+        map_clone: map_clone_id,
         map_set: map_set_id,
         map_get: map_get_id,
         map_has: map_has_id,
@@ -6879,6 +6887,7 @@ pub(crate) struct Intrinsics {
     pub(crate) set_intersection: FuncId,
     pub(crate) set_difference: FuncId,
     pub(crate) set_symmetric_difference: FuncId,
+    pub(crate) map_clone: FuncId,
     pub(crate) map_set: FuncId,
     pub(crate) map_get: FuncId,
     pub(crate) map_has: FuncId,
@@ -14069,6 +14078,22 @@ impl<'a> LowerCtx<'a> {
                 if let Some(arg0) = args.first() {
                     let arg_op = self.lower_expr(*arg0);
                     let arg_ty = self.operand_ty(&arg_op);
+                    // S166 — `new Map(<Map>)` copy-ctor per ES §24.1.1.
+                    // Drop the local `new Map()` we emitted above (it's
+                    // unused on this path) and return `__torajs_map_clone(src)`
+                    // — the runtime helper alloc's a fresh Map + walks src
+                    // entries copying (k, v) with heap-side rc_inc.
+                    if arg_ty == Type::Map {
+                        self.emit_drop_value(map_op.clone(), Type::Map);
+                        let cloned = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.map_clone, vec![arg_op.clone()]),
+                            Type::Map,
+                            None,
+                        );
+                        self.emit_drop_value(arg_op, arg_ty);
+                        return Operand::Value(cloned);
+                    }
                     if let Type::Arr(outer_id) = arg_ty
                         && let Type::Arr(inner_id) = self.arr_layouts[outer_id.0 as usize]
                     {
@@ -14253,6 +14278,26 @@ impl<'a> LowerCtx<'a> {
                 if let Some(arg0) = args.first() {
                     let arg_op = self.lower_expr(*arg0);
                     let arg_ty = self.operand_ty(&arg_op);
+                    // S166 — `new Set(<Set>)` copy-ctor per ES §24.2.1.
+                    // Reuses `__torajs_set_union(src, NULL)` — set_union
+                    // walks `this` then `other`; with `other = NULL`,
+                    // for_each_entry returns early so the result is just
+                    // a clone of `src`. Drop the empty `new Set()` we
+                    // emitted above (unused on this path).
+                    if arg_ty == Type::Set {
+                        self.emit_drop_value(set_op.clone(), Type::Set);
+                        let cloned = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.set_union,
+                                vec![arg_op.clone(), Operand::ConstPtrNull],
+                            ),
+                            Type::Set,
+                            None,
+                        );
+                        self.emit_drop_value(arg_op, arg_ty);
+                        return Operand::Value(cloned);
+                    }
                     if let Type::Arr(arr_id) = arg_ty {
                         let arr_val = match arg_op {
                             Operand::Value(v) => v,

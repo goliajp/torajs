@@ -30,6 +30,7 @@ unsafe extern "C" {
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_set_create() -> *mut c_void;
+    fn __torajs_map_create() -> *mut c_void;
     fn __torajs_map_set(
         p: *mut c_void,
         key_tag: i64,
@@ -424,5 +425,53 @@ pub unsafe extern "C" fn __torajs_set_symmetric_difference(
             }
         });
     }
+    dst
+}
+
+// ---- `new Map(<Map>)` / `new Set(<Set>)` ES §24.{1,2}.1 copy-ctor ----
+//
+// `new Set(src)` reuses `__torajs_set_union(src, NULL)` — set_union walks
+// `this` first then `other`; with `other = NULL`, for_each_entry returns
+// early, leaving the result equal to a fresh clone of `src`. Saves a
+// helper. `new Map(src)` needs its own helper because copy_entry_into
+// hard-codes `value = (ANY_UNDEF, 0)` for the Set-as-Map<T, undefined>
+// storage convention; Map must carry the real value side too.
+
+/// Copy a source MapEntry into `dst` (fresh Map) with both key and
+/// value rc-bumped if heap. Sibling to [`copy_entry_into`] which only
+/// copies the key side (Set storage).
+#[inline]
+unsafe fn copy_kv_entry_into(dst: *mut c_void, e: &MapEntry) {
+    let k_tag = unsafe { __torajs_anyv_unbox_tag(e.key_anyv) } as u8;
+    let k_val = unsafe { __torajs_anyv_unbox_value(e.key_anyv) };
+    let v_tag = unsafe { __torajs_anyv_unbox_tag(e.value_anyv) } as u8;
+    let v_val = unsafe { __torajs_anyv_unbox_value(e.value_anyv) };
+    if k_tag == ANY_HEAP {
+        let p = k_val as *mut c_void;
+        if !p.is_null() {
+            unsafe { __torajs_rc_inc(p) };
+        }
+    }
+    if v_tag == ANY_HEAP {
+        let p = v_val as *mut c_void;
+        if !p.is_null() {
+            unsafe { __torajs_rc_inc(p) };
+        }
+    }
+    unsafe {
+        __torajs_map_set(dst, k_tag as i64, k_val, v_tag as i64, v_val);
+    }
+}
+
+/// `__torajs_map_clone(src)` — fresh Map containing every (k, v) of
+/// `src` with heap key/value rc-bumped. Returns rc=1 (caller takes
+/// ownership). NULL `src` returns an empty Map.
+///
+/// # Safety
+/// `src` is null or a live Map heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_map_clone(src: *const c_void) -> *mut c_void {
+    let dst = unsafe { __torajs_map_create() };
+    unsafe { for_each_entry(src, |e| copy_kv_entry_into(dst, e)) };
     dst
 }

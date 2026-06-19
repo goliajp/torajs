@@ -7508,8 +7508,13 @@ impl Checker {
                 // and `map.set(k, v)`'ing each pair (with appropriate
                 // box_to_tag_value). Full iterator-protocol (custom
                 // Symbol.iterator) still deferred behind P5.
+                // S166 — `new Map(<Map>)` copy-ctor per ES §24.1.1. The
+                // ssa-lower side dispatches to `__torajs_map_clone(src)`.
                 if args.len() == 1 {
                     let arg_ty = self.type_of(ast, args[0])?;
+                    if matches!(arg_ty, Type::Map) {
+                        return Ok(Type::Map);
+                    }
                     if let Type::Array(inner) = &arg_ty
                         && matches!(**inner, Type::Array(_))
                     {
@@ -7552,8 +7557,15 @@ impl Checker {
                 // element (with appropriate box_to_tag_value). Full
                 // iterator-protocol (custom Symbol.iterator) still
                 // deferred behind P5.
+                // S166 — `new Set(<Set>)` copy-ctor per ES §24.2.1. The
+                // ssa-lower side dispatches to `__torajs_set_union(src, NULL)`
+                // (set_union(this, NULL) walks `this` and skips the NULL
+                // other side, effectively cloning).
                 if args.len() == 1 {
                     let arg_ty = self.type_of(ast, args[0])?;
+                    if matches!(arg_ty, Type::Set) {
+                        return Ok(Type::Set);
+                    }
                     if matches!(arg_ty, Type::Array(_)) {
                         return Ok(Type::Set);
                     }
