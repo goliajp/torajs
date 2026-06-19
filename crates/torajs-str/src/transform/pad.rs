@@ -10,13 +10,13 @@
 //! - If `target_len < 0` or `target_len <= s.length`: return a fresh
 //!   alloc holding `s` unchanged (ownership uniform with the
 //!   padded path).
+//! - If `pad.length == 0`: return a fresh alloc holding `s`
+//!   unchanged per ES §22.1.3.16.5 step 6 ("If filler is the
+//!   empty String, return S").
 //! - Otherwise allocate `target_len` code units, fill the missing
 //!   `target_len - s.length` slot with code units from `pad`
 //!   (cycling), and copy `s` into the remaining slot. `padStart`
 //!   prepends; `padEnd` appends.
-//! - If `pad.length == 0`: fill with U+0020 (ASCII space). Spec
-//!   actually says "return the original" but the C subset writes
-//!   spaces; we preserve that for byte-equivalent ABI.
 //!
 //! IR-side surface (declared in `ssa_lower::lower`, alloc intrinsics
 //! (noalias-whitelisted on the LLVM-era backend):
@@ -91,19 +91,13 @@ fn coerce_payload<'a>(src: &'a [u8], src_is_latin1: bool, out_is_latin1: bool) -
 // ============================================================
 
 /// Fill `dst` (a single-encoding byte buffer) with `pad` bytes,
-/// cycling as needed. Empty `pad` falls back to space — the unit
-/// is `space_code_unit_bytes` (`b" "` for Latin-1, `b"\x20\x00"`
-/// for UTF-16 LE). `stride` is the byte width of one code unit
-/// in the destination encoding (1 or 2).
+/// cycling as needed. `stride` is the byte width of one code unit
+/// in the destination encoding (1 or 2). Caller must short-circuit
+/// when `pad` is empty per ES §22.1.3.16.5 step 6; this function
+/// panics in debug builds if invoked with an empty pad.
 #[inline]
-pub fn fill_with_pad(dst: &mut [u8], pad: &[u8], stride: usize, space_unit: &[u8]) {
-    if pad.is_empty() {
-        // Cycle the space code unit across `dst`.
-        for (i, b) in dst.iter_mut().enumerate() {
-            *b = space_unit[i % stride];
-        }
-        return;
-    }
+pub fn fill_with_pad(dst: &mut [u8], pad: &[u8], stride: usize) {
+    debug_assert!(!pad.is_empty(), "fill_with_pad called with empty pad");
     if pad.len() == stride {
         // Fast path: one-code-unit pad → tight memset-ish loop.
         for (i, b) in dst.iter_mut().enumerate() {
@@ -138,26 +132,24 @@ pub fn pad_output_len(target_len: i64, s_len: u32) -> Option<u32> {
 /// or after (`pad_end=true` → padEnd) the pad fill.
 unsafe fn pad_impl(s: *const u8, target_len: i64, pad: *const u8, pad_end: bool) -> *mut u8 {
     let (s_payload, s_length, s_latin1) = unsafe { str_view(s) };
-    let Some(out_length) = pad_output_len(target_len, s_length) else {
-        // Pass-through path — fresh alloc with `s`'s encoding.
+    let alloc_passthrough = || -> *mut u8 {
         let mut block = StrBlock::alloc_with_encoding(s_length, s_latin1);
         if !s_payload.is_empty() {
             let dst = unsafe { block.as_bytes_mut(s_payload.len() as u32) };
             dst.copy_from_slice(s_payload);
         }
-        return block.into_raw();
+        block.into_raw()
+    };
+    let Some(out_length) = pad_output_len(target_len, s_length) else {
+        return alloc_passthrough();
     };
     let (pad_payload, _, pad_latin1) = unsafe { str_view(pad) };
+    if pad_payload.is_empty() {
+        // ES §22.1.3.16.5 step 6: filler is the empty String → return S.
+        return alloc_passthrough();
+    }
     let out_latin1 = s_latin1 && pad_latin1;
     let stride = if out_latin1 { 1usize } else { 2usize };
-    let space_unit: [u8; 2] = if out_latin1 {
-        [0x20, 0x00]
-    } else {
-        [0x20, 0x00]
-    };
-    // (Same bytes for both encodings — the loop only reads the
-    // first `stride` of them. Keeping a single buffer simplifies
-    // the call below.)
     let out_byte_cnt = (out_length as usize) * stride;
     let s_buf = coerce_payload(s_payload, s_latin1, out_latin1);
     let pad_buf = coerce_payload(pad_payload, pad_latin1, out_latin1);
@@ -166,20 +158,10 @@ unsafe fn pad_impl(s: *const u8, target_len: i64, pad: *const u8, pad_end: bool)
     let dst = unsafe { block.as_bytes_mut(out_byte_cnt as u32) };
     if pad_end {
         dst[..s_byte_cnt].copy_from_slice(s_buf.as_ref());
-        fill_with_pad(
-            &mut dst[s_byte_cnt..],
-            pad_buf.as_ref(),
-            stride,
-            &space_unit,
-        );
+        fill_with_pad(&mut dst[s_byte_cnt..], pad_buf.as_ref(), stride);
     } else {
         let fill_byte_cnt = out_byte_cnt - s_byte_cnt;
-        fill_with_pad(
-            &mut dst[..fill_byte_cnt],
-            pad_buf.as_ref(),
-            stride,
-            &space_unit,
-        );
+        fill_with_pad(&mut dst[..fill_byte_cnt], pad_buf.as_ref(), stride);
         dst[fill_byte_cnt..].copy_from_slice(s_buf.as_ref());
     }
     block.into_raw()
@@ -323,11 +305,12 @@ mod tests {
     }
 
     #[test]
-    fn ffi_pad_empty_pad_fills_with_space() {
+    fn ffi_pad_empty_pad_returns_s_unchanged() {
+        // ES §22.1.3.16.5 step 6: empty filler → return S.
         let s = make_str(b"42");
         let pad = make_str(b"");
         let r = unsafe { __torajs_str_pad_start(s, 5, pad) };
-        assert_eq!(read_payload(r), b"   42");
+        assert_eq!(read_payload(r), b"42");
         unsafe { __torajs_str_free(s) };
         unsafe { __torajs_str_free(pad) };
         unsafe { __torajs_str_free(r) };
