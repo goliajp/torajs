@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-19T02:13:57.355Z",
+  "generatedAt": "2026-06-19T02:26:17.702Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "13c0661e",
-    "commitSubject": "feat(json): `JSON.stringify(null)` per ES §25.5.2 returns `\"null\"`",
+    "commit": "a9edf2cc",
+    "commitSubject": "feat(num): toLocaleString collapses |n| < 5e-4 to \"0\"/\"-0\" per ECMA-402",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "a9edf2cc",
+      "subject": "feat(num): toLocaleString collapses |n| < 5e-4 to \"0\"/\"-0\" per ECMA-402"
+    },
+    {
+      "hash": "9eed471b",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — S169 json-stringify-null"
+    },
+    {
       "hash": "13c0661e",
       "subject": "feat(json): `JSON.stringify(null)` per ES §25.5.2 returns `\"null\"`"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "a6cb7e5c",
       "subject": "feat(set): `Set.prototype.{isSubsetOf,isSupersetOf,isDisjointFrom}` per ES2025 §24.2.3.{12,13,14}"
-    },
-    {
-      "hash": "6cd588fd",
-      "subject": "feat(date): per-field setters setFullYear/setMonth/setDate/setHours/setMinutes/setSeconds/setMilliseconds per ES §21.4.4.20-26"
-    },
-    {
-      "hash": "8b61b345",
-      "subject": "feat(date): `Date.prototype.toLocale{,Date,Time}String()` per ES §21.4.4.38-40"
     }
   ],
-  "headSha": "13c0661e",
+  "headSha": "a9edf2cc",
   "autorun": {
     "total": 193,
     "baselineTarget": 10,
