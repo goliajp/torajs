@@ -5076,6 +5076,11 @@ impl Checker {
                             "Boolean" => true,
                             // P1.5 — Number(undefined) === NaN per spec §7.1.4.
                             // String(undefined) === "undefined" per §7.1.17.
+                            // S172 — Number(Array<T>) routes through
+                            // ToPrimitive("string") = arr.join(",")
+                            // then ToNumber(String) (bun parity:
+                            // Number([]) === 0, Number([1]) === 1,
+                            // Number([1,2]) === NaN).
                             "Number" => matches!(
                                 arg_ty,
                                 Type::Number
@@ -5084,6 +5089,7 @@ impl Checker {
                                     | Type::Undefined
                                     | Type::String
                                     | Type::Any
+                                    | Type::Array(_)
                             ),
                             // S137 — `String(arr)` routes to arr_join
                             // (ES §22.1.3.30 same path as `arr.toString`);

@@ -15676,6 +15676,47 @@ impl<'a> LowerCtx<'a> {
                             // ToNumber via runtime helper. Returns f64
                             // (NaN passes through).
                             Type::Any => self.coerce_any_to_number(arg_op, Type::F64),
+                            // S172 — `Number(Array<T>)` per ES §7.1.4
+                            // ToNumber(Array) = ToNumber(ToString(Array))
+                            // = ToNumber(arr.join(",")). Mirrors the
+                            // String(Arr) join path below; the resulting
+                            // Str feeds str_to_number (NaN on non-numeric
+                            // join result — Number([1,2]) === NaN).
+                            Type::Arr(elem_arr_id) => {
+                                let elem_ty = self.arr_layouts[elem_arr_id.0 as usize];
+                                let join_fid = match elem_ty {
+                                    Type::Substr => self.intrinsics.arr_join_substr,
+                                    Type::I64 => self.intrinsics.arr_join_i64,
+                                    Type::F64 => self.intrinsics.arr_join_f64,
+                                    Type::Bool => self.intrinsics.arr_join_bool,
+                                    Type::Any => self.intrinsics.arr_join_any,
+                                    _ => self.intrinsics.arr_join,
+                                };
+                                let sep = self.intern_string_literal(",");
+                                let s = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(join_fid, vec![arg_op, Operand::Value(sep)]),
+                                    Type::Str,
+                                    None,
+                                );
+                                let n = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.str_to_number,
+                                        vec![Operand::Value(s)],
+                                    ),
+                                    Type::F64,
+                                    None,
+                                );
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.str_drop,
+                                        vec![Operand::Value(s)],
+                                    ),
+                                );
+                                Operand::Value(n)
+                            }
                             _ => panic!(
                                 "ssa-lower: Number() with arg type {arg_ty:?} not yet supported"
                             ),
