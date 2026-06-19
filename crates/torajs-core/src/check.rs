@@ -5728,7 +5728,11 @@ impl Checker {
                         }
                         if args.len() == 1 {
                             let r_ty = self.type_of(ast, args[0])?;
-                            if r_ty != Type::Number {
+                            // S229 — accept Undefined for radix per ES
+                            // §21.1.3.6 step 2-3: undefined radix folds
+                            // to 10 (the default). ssa_lower mirror
+                            // short-circuits to the no-arg path.
+                            if !matches!(r_ty, Type::Number | Type::Undefined) {
                                 return Err(format!(
                                     "Number.toString radix must be number, got {r_ty:?}"
                                 ));
@@ -6643,8 +6647,13 @@ impl Checker {
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && matches!(m_name.as_str(), "toFixed" | "toExponential" | "toPrecision")
-                    && args.is_empty()
+                    && (args.is_empty()
+                        || (args.len() == 1
+                            && matches!(self.type_of(ast, args[0])?, Type::Undefined)))
                 {
+                    // S229 — accept the 1-arg explicit-Undefined shape per
+                    // ES §21.1.3.{3,5,6} where an undef digits/precision
+                    // arg folds to the same default as the 0-arg form.
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::Number) {
                         return Ok(Type::String);

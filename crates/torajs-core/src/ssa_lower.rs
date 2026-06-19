@@ -16480,6 +16480,17 @@ impl<'a> LowerCtx<'a> {
                 {
                     let recv_op = self.lower_expr(*recv_id);
                     let recv_ty = self.operand_ty(&recv_op);
+                    // S229 — explicit-undefined 1-arg shape folds to the
+                    // 0-arg defaults per ES §21.1.3.{3,5,6,7}. Detect
+                    // here so each downstream branch (radix dispatch
+                    // for toString, default args for toFixed / toExp /
+                    // toPrec) can short-circuit without lowering the
+                    // ConstPtrNull undef into a non-Ptr ABI.
+                    let arg0_is_undef = args.len() == 1
+                        && matches!(
+                            self.expr_types.get(&args[0]),
+                            Some(check_mod::Type::Undefined)
+                        );
                     // V3-18 m1.h.27 — BigInt receiver: toString() →
                     // decimal string (no `n` suffix) via the existing
                     // bigint_to_string intrinsic.
@@ -16565,7 +16576,7 @@ impl<'a> LowerCtx<'a> {
                         let is_f64 = recv_ty == Type::F64;
                         // toString with radix: route i64 receiver to the
                         // radix-aware runtime helper.
-                        if m_name == "toString" && args.len() == 1 && !is_f64 {
+                        if m_name == "toString" && args.len() == 1 && !is_f64 && !arg0_is_undef {
                             let radix = self.lower_expr(args[0]);
                             let v = self.f.append_inst(
                                 self.cur_block,
@@ -16592,7 +16603,7 @@ impl<'a> LowerCtx<'a> {
                         // f64_to_str(double) which had a 1-arg ABI;
                         // passing the radix as a 2nd arg crashed
                         // LLVM verify.
-                        if m_name == "toString" && args.len() == 1 && is_f64 {
+                        if m_name == "toString" && args.len() == 1 && is_f64 && !arg0_is_undef {
                             let radix = self.lower_expr(args[0]);
                             let v = self.f.append_inst(
                                 self.cur_block,
@@ -16664,7 +16675,7 @@ impl<'a> LowerCtx<'a> {
                         // matches; the spec allows ignoring locale args
                         // outside Intl-enabled hosts.
                         let pass_args = !matches!(m_name.as_str(), "toLocaleString");
-                        if pass_args {
+                        if pass_args && !arg0_is_undef {
                             for a in args {
                                 argv.push(self.lower_expr(*a));
                             }
@@ -16685,10 +16696,10 @@ impl<'a> LowerCtx<'a> {
                         // "1234.5" not "1234.50" (toPrecision(0) is
                         // outside the spec'd `1 ≤ p ≤ 100` range and
                         // produces a bogus result for the no-arg case).
-                        if m_name == "toFixed" && args.is_empty() {
+                        if m_name == "toFixed" && (args.is_empty() || arg0_is_undef) {
                             argv.push(Operand::ConstI64(0));
                         }
-                        if m_name == "toPrecision" && args.is_empty() {
+                        if m_name == "toPrecision" && (args.is_empty() || arg0_is_undef) {
                             let to_str_intrinsic = if is_f64 {
                                 self.intrinsics.f64_to_str
                             } else {
@@ -16714,7 +16725,7 @@ impl<'a> LowerCtx<'a> {
                         // check still fires for explicit user-typed
                         // negative / oversized args including the
                         // ergonomic `-1`.
-                        if m_name == "toExponential" && args.is_empty() {
+                        if m_name == "toExponential" && (args.is_empty() || arg0_is_undef) {
                             argv.push(Operand::ConstI64(i64::MIN));
                         }
                         let v = self.f.append_inst(
