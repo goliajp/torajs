@@ -2044,13 +2044,24 @@ pub(crate) fn try_lower_method_call(
         // default for the missing 2nd arg.
         let mut argv = Vec::with_capacity(3);
         argv.push(recv_op);
-        let start = if args.is_empty() {
+        // S213 — typed-Undefined for either operand defaults to
+        // the spec value per ES §23.1.3.27 step 1-2: start
+        // defaults to 0, end defaults to receiver length.
+        let arg0_undef = args
+            .first()
+            .map(|a| matches!(ctx.expr_types.get(a), Some(crate::check::Type::Undefined)))
+            .unwrap_or(false);
+        let arg1_undef = args
+            .get(1)
+            .map(|a| matches!(ctx.expr_types.get(a), Some(crate::check::Type::Undefined)))
+            .unwrap_or(false);
+        let start = if args.is_empty() || arg0_undef {
             Operand::ConstI64(0)
         } else {
             ctx.lower_expr(args[0])
         };
         argv.push(start);
-        let end = if args.len() == 2 {
+        let end = if args.len() == 2 && !arg1_undef {
             ctx.lower_expr(args[1])
         } else {
             // Load receiver's len from offset 8.

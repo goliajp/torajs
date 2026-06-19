@@ -6083,12 +6083,23 @@ impl Checker {
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && m_name == "slice"
-                    && args.len() < 2
+                    && args.len() <= 2
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if let Type::Array(elem) = &src_ty {
+                        // S213 — explicit `undefined` for either
+                        // start or end per ES §23.1.3.27 step 1-2:
+                        // start=undefined → 0, end=undefined → len.
+                        // Pre-fix the 2-arg path took the declared
+                        // `(Number, Number) -> Array<T>` dispatch
+                        // which rejected the typed-Undefined operand;
+                        // widen to args.len() <= 2 here and let
+                        // ssa_lower fill the defaults.
                         for &aid in args {
                             let aty = self.type_of(ast, aid)?;
+                            if matches!(aty, Type::Undefined) {
+                                continue;
+                            }
                             if aty != Type::Number {
                                 return Err(format!("Array.slice arg must be number, got {aty:?}"));
                             }
