@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-18T18:18:02.746Z",
+  "generatedAt": "2026-06-19T01:32:28.780Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "8d357a70",
-    "commitSubject": "feat(math): `Math.sumPrecise(items)` per ES2025 §21.3.2.32",
+    "commit": "575cfdd0",
+    "commitSubject": "feat(collection): `new Map(<Map>)` / `new Set(<Set>)` copy-ctor per ES §24.{1,2}.1",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "575cfdd0",
+      "subject": "feat(collection): `new Map(<Map>)` / `new Set(<Set>)` copy-ctor per ES §24.{1,2}.1"
+    },
+    {
+      "hash": "b566cf83",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — ES2025/§21.4 sweep ×5 (S161-S165 date-tolocale/date-setters/set-readonly-setops/set-mutating-setops/math-sumprecise)"
+    },
+    {
       "hash": "8d357a70",
       "subject": "feat(math): `Math.sumPrecise(items)` per ES2025 §21.3.2.32"
     },
@@ -655,35 +663,38 @@
     {
       "hash": "ff7974ed",
       "subject": "feat(arr): `Array.push(...items)` multi-arg in expression position per ES §22.1.3.20"
-    },
-    {
-      "hash": "7fa76915",
-      "subject": "feat(map): `new Map(<typed Array<Array<T>>>)` iterable initializer per ES §24.2.1"
-    },
-    {
-      "hash": "2824a8ec",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S151-S155 arr-from-mapfn/set-init-arr/date-utc-arity/nested-generic/tmpl-escape)"
     }
   ],
-  "headSha": "8d357a70",
+  "headSha": "575cfdd0",
   "autorun": {
-    "total": 192,
+    "total": 193,
     "baselineTarget": 10,
-    "bySelf": 187,
+    "bySelf": 188,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781801809-4a05",
-      "at": "2026-06-18T16:56:49Z",
-      "ts": 1781801809,
+      "rotationId": "r-1781807231-6e10",
+      "at": "2026-06-18T18:27:11Z",
+      "ts": 1781807231,
       "trigger": "self",
-      "prevHead": "67a790fe",
-      "handoffSha": "sha256:3d2b03e264baf62decd7855218a7c6df158eeba579923c19981d89453b78176b",
-      "handoffAgeSec": 10,
+      "prevHead": "b566cf83",
+      "handoffSha": "sha256:fd6ec3331310581f4d564a2edc40f8b720c83bf79b577a277766d0e5af45d95a",
+      "handoffAgeSec": 560,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781807231-6e10",
+        "at": "2026-06-18T18:27:11Z",
+        "ts": 1781807231,
+        "trigger": "self",
+        "prevHead": "b566cf83",
+        "handoffSha": "sha256:fd6ec3331310581f4d564a2edc40f8b720c83bf79b577a277766d0e5af45d95a",
+        "handoffAgeSec": 560,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781801809-4a05",
         "at": "2026-06-18T16:56:49Z",
@@ -780,17 +791,6 @@
         "prevHead": "9aa90ed4",
         "handoffSha": "sha256:2974e1e02765ee1df8c5ca027256100317b15509ae64e3f34b613f1139150956",
         "handoffAgeSec": 14583,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781687604-501f",
-        "at": "2026-06-17T09:13:24Z",
-        "ts": 1781687604,
-        "trigger": "self",
-        "prevHead": "2e978d09",
-        "handoffSha": "sha256:2974e1e02765ee1df8c5ca027256100317b15509ae64e3f34b613f1139150956",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
