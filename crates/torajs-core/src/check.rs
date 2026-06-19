@@ -5890,6 +5890,56 @@ impl Checker {
                     }
                     return Ok(Type::Number);
                 }
+                // S227 — Math.<unary>(undefined) per ES §21.3.2.* step 1:
+                // ToNumber(undefined) = NaN, and every NaN-propagating
+                // unary method returns NaN. `Math.clz32(undefined)` is
+                // the lone exception — its ToUint32(undefined)=0 path
+                // returns 32. Mirror the 0-arg carve-out (S203) for the
+                // explicit-undefined 1-arg shape; ssa_lower folds the
+                // call to ConstF64 without lowering the arg.
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "Math"
+                    && args.len() == 1
+                {
+                    let arg_ty = self.type_of(ast, args[0])?;
+                    if matches!(arg_ty, Type::Undefined)
+                        && matches!(
+                            m.as_str(),
+                            "sqrt"
+                                | "abs"
+                                | "floor"
+                                | "ceil"
+                                | "log"
+                                | "exp"
+                                | "sign"
+                                | "round"
+                                | "trunc"
+                                | "sin"
+                                | "cos"
+                                | "tan"
+                                | "asin"
+                                | "acos"
+                                | "atan"
+                                | "log2"
+                                | "log10"
+                                | "cbrt"
+                                | "sinh"
+                                | "cosh"
+                                | "tanh"
+                                | "asinh"
+                                | "acosh"
+                                | "atanh"
+                                | "expm1"
+                                | "log1p"
+                                | "clz32"
+                                | "fround"
+                                | "f16round"
+                        )
+                    {
+                        return Ok(Type::Number);
+                    }
+                }
                 // `String.fromCharCode(...codes)` — variadic. Each code is a
                 // Number; result is a String. The single-arg case still goes
                 // through the general type table for the intrinsic call; we

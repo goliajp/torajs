@@ -17262,13 +17262,25 @@ impl<'a> LowerCtx<'a> {
                 // ToUint32 (not ToNumber), and ToUint32(undefined)
                 // = +0, so `Math.clz32()` returns 32 (the count
                 // of leading zero bits in the 32-bit value 0).
+                //
+                // S227 — extend the same fold to an explicit
+                // `undefined` 1-arg shape (`Math.floor(undefined)`).
+                // The check.rs S227 carve-out lets the call through
+                // the type gate; here we skip lower_expr so the
+                // ConstPtrNull undef sentinel never reaches the
+                // helper's f64 ABI.
+                let arg0_is_undef = args.len() == 1
+                    && matches!(
+                        self.expr_types.get(&args[0]),
+                        Some(check_mod::Type::Undefined)
+                    );
                 if let Expr::Member {
                     obj: ns_id,
                     name: m_name,
                 } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Math"
-                    && args.is_empty()
+                    && (args.is_empty() || arg0_is_undef)
                 {
                     let nan_unary = matches!(
                         m_name.as_str(),
