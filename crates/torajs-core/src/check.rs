@@ -5198,9 +5198,13 @@ impl Checker {
                     // global parseInt. Step 1 reads `string` which
                     // defaults to undefined when omitted; ToString →
                     // "undefined" → parse fails → NaN.
+                    //
+                    // S226 — also accept an explicit `undefined` arg
+                    // via the same ToString("undefined") → NaN path;
+                    // ssa_lower mirror folds the call to ConstF64(NaN).
                     if let Some(arg0) = args.first() {
                         let s_ty = self.type_of(ast, *arg0)?;
-                        if s_ty != Type::String {
+                        if !matches!(s_ty, Type::String | Type::Undefined) {
                             return Err(format!(
                                 "Number.parseInt arg 0 must be string, got {s_ty:?}"
                             ));
@@ -5235,9 +5239,10 @@ impl Checker {
                             args.len()
                         ));
                     }
+                    // S226 — explicit undefined arg → NaN (same path).
                     if let Some(arg0) = args.first() {
                         let s_ty = self.type_of(ast, *arg0)?;
-                        if s_ty != Type::String {
+                        if !matches!(s_ty, Type::String | Type::Undefined) {
                             return Err(format!(
                                 "Number.parseFloat arg 0 must be string, got {s_ty:?}"
                             ));
@@ -5770,9 +5775,12 @@ impl Checker {
                             // S202 — spec §19.2.5 step 1 reads `string`
                             // which defaults to undefined; ToString
                             // returns "undefined" → parse fails → NaN.
+                            //
+                            // S226 — accept explicit undefined arg
+                            // via the same ToString → NaN path.
                             if let Some(arg0) = args.first() {
                                 let s_ty = self.type_of(ast, *arg0)?;
-                                if s_ty != Type::String {
+                                if !matches!(s_ty, Type::String | Type::Undefined) {
                                     return Err(format!(
                                         "parseInt arg 0 must be string, got {s_ty:?}"
                                     ));
@@ -5797,9 +5805,11 @@ impl Checker {
                             }
                             // S202 — same default-undefined rule per
                             // §19.2.4: missing string → NaN.
+                            // S226 — accept explicit undefined arg
+                            // via the same ToString → NaN path.
                             if let Some(arg0) = args.first() {
                                 let s_ty = self.type_of(ast, *arg0)?;
-                                if s_ty != Type::String {
+                                if !matches!(s_ty, Type::String | Type::Undefined) {
                                     return Err(format!(
                                         "parseFloat arg must be string, got {s_ty:?}"
                                     ));

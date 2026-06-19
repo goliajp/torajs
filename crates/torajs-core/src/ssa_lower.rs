@@ -17014,7 +17014,14 @@ impl<'a> LowerCtx<'a> {
                             // defaults to undefined when omitted →
                             // ToString returns "undefined" which
                             // fails to parse as a digit string → NaN.
-                            if args.is_empty() {
+                            // S226 — explicit-undefined arg folds the
+                            // same way without lowering the arg.
+                            if args.is_empty()
+                                || matches!(
+                                    self.expr_types.get(&args[0]),
+                                    Some(check_mod::Type::Undefined)
+                                )
+                            {
                                 return Operand::ConstF64(f64::NAN);
                             }
                             let s = self.lower_expr(args[0]);
@@ -17039,7 +17046,14 @@ impl<'a> LowerCtx<'a> {
                         "parseFloat" => {
                             // S202 — same default-undefined rule per
                             // §19.2.4: missing string → NaN.
-                            if args.is_empty() {
+                            // S226 — explicit-undefined arg folds the
+                            // same way without lowering the arg.
+                            if args.is_empty()
+                                || matches!(
+                                    self.expr_types.get(&args[0]),
+                                    Some(check_mod::Type::Undefined)
+                                )
+                            {
                                 return Operand::ConstF64(f64::NAN);
                             }
                             let s = self.lower_expr(args[0]);
@@ -17380,7 +17394,14 @@ impl<'a> LowerCtx<'a> {
                             // alias to global parseInt; 0-arg form
                             // yields NaN by the same default-undefined
                             // path.
-                            if args.is_empty() {
+                            // S226 — explicit-undefined arg folds the
+                            // same way without lowering the arg.
+                            if args.is_empty()
+                                || matches!(
+                                    self.expr_types.get(&args[0]),
+                                    Some(check_mod::Type::Undefined)
+                                )
+                            {
                                 return Operand::ConstF64(f64::NAN);
                             }
                             // Number.parseInt(s, radix) — radix optional in JS;
@@ -17418,7 +17439,14 @@ impl<'a> LowerCtx<'a> {
                         "parseFloat" => {
                             // S202 — Number.parseFloat is a §21.1.2.12
                             // alias to global parseFloat; 0-arg → NaN.
-                            if args.is_empty() {
+                            // S226 — explicit-undefined arg folds the
+                            // same way without lowering the arg.
+                            if args.is_empty()
+                                || matches!(
+                                    self.expr_types.get(&args[0]),
+                                    Some(check_mod::Type::Undefined)
+                                )
+                            {
                                 return Operand::ConstF64(f64::NAN);
                             }
                             let s = self.lower_expr(args[0]);
