@@ -6126,13 +6126,47 @@ impl Checker {
                     // returns +Infinity (the identity element of
                     // the reduction). Math.max(x) returns x.
                     // Drop the artificial 2-arg minimum.
+                    //
+                    // S228 — accept Undefined args per ES NaN-
+                    // propagation: any undef arg coerces to NaN
+                    // (ToNumber(undefined)=NaN) and Math.min/max
+                    // with any NaN operand returns NaN. ssa_lower
+                    // mirror folds the call when any arg is undef.
                     for &aid in args {
                         let aty = self.type_of(ast, aid)?;
-                        if aty != Type::Number {
+                        if !matches!(aty, Type::Number | Type::Undefined) {
                             return Err(format!("Math.{m} args must be number, got {aty:?}"));
                         }
                     }
                     return Ok(Type::Number);
+                }
+                // S228 — Math.{pow, atan2, imul}(undef [, undef]) per
+                // ES §21.3.2.{5,19,26}. pow / atan2 propagate NaN:
+                // any undef arg → ToNumber(undef)=NaN → NaN. imul
+                // applies ToUint32 which folds undefined to 0, so any
+                // undef arg makes the 32-bit multiply 0. ssa_lower
+                // mirror folds the call (extending S205) when either
+                // arg is statically Undefined.
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "Math"
+                    && matches!(m.as_str(), "pow" | "atan2" | "imul")
+                    && args.len() == 2
+                {
+                    let arg0_ty = self.type_of(ast, args[0])?;
+                    let arg1_ty = self.type_of(ast, args[1])?;
+                    let any_undef =
+                        matches!(arg0_ty, Type::Undefined) || matches!(arg1_ty, Type::Undefined);
+                    if any_undef {
+                        for (i, aty) in [&arg0_ty, &arg1_ty].iter().enumerate() {
+                            if !matches!(**aty, Type::Number | Type::Undefined) {
+                                return Err(format!(
+                                    "Math.{m} arg {i} must be number, got {aty:?}"
+                                ));
+                            }
+                        }
+                        return Ok(Type::Number);
+                    }
                 }
                 // V3-18 m1.h.35 — Array.slice with 0 or 1 args. Per
                 // JS spec §22.1.3.25:

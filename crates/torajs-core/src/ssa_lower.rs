@@ -17325,6 +17325,19 @@ impl<'a> LowerCtx<'a> {
                 //   pow / atan2: ToNumber(undefined) = NaN → NaN
                 //   imul:        ToUint32(undefined) = 0 → imul = 0
                 // Skip the helper Call entirely; emit the static result.
+                //
+                // S228 — extend the same fold to the 2-arg shape when
+                // either operand is statically Undefined. The check.rs
+                // S228 carve-out admits the call; folding here avoids
+                // lowering the ConstPtrNull undef into the f64/i32 ABI.
+                let bin_undef = args.len() == 2
+                    && (matches!(
+                        self.expr_types.get(&args[0]),
+                        Some(check_mod::Type::Undefined)
+                    ) || matches!(
+                        self.expr_types.get(&args[1]),
+                        Some(check_mod::Type::Undefined)
+                    ));
                 if let Expr::Member {
                     obj: ns_id,
                     name: m_name,
@@ -17332,7 +17345,7 @@ impl<'a> LowerCtx<'a> {
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Math"
                     && matches!(m_name.as_str(), "pow" | "atan2" | "imul")
-                    && args.len() < 2
+                    && (args.len() < 2 || bin_undef)
                 {
                     if m_name == "imul" {
                         return Operand::ConstF64(0.0);
@@ -17355,6 +17368,19 @@ impl<'a> LowerCtx<'a> {
                     // 1 arg: just the coerced operand.
                     // 2 args: the existing 2-arg path (math_min / math_max).
                     // ≥3 args: pairwise reduction.
+                    //
+                    // S228 — any statically-Undefined arg propagates NaN
+                    // through min/max per spec §21.3.2.{24,25}: each step
+                    // applies ToNumber, ToNumber(undefined)=NaN, and min/
+                    // max with a NaN operand returns NaN. Fold to
+                    // ConstF64(NaN) without lowering any arg so the
+                    // ConstPtrNull undef never reaches coerce_to_f64.
+                    if args
+                        .iter()
+                        .any(|a| matches!(self.expr_types.get(a), Some(check_mod::Type::Undefined)))
+                    {
+                        return Operand::ConstF64(f64::NAN);
+                    }
                     let target = if m_name == "min" {
                         self.intrinsics.math_min
                     } else {
