@@ -51,6 +51,45 @@ pub unsafe extern "C" fn __torajs_arr_index_strs(len: i64) -> *mut c_void {
     out as *mut c_void
 }
 
+/// W-N-b' — `Object.keys(arr)` Arr-receiver path. Spec §22.1.3.16 +
+/// §10.4.2.OrdinaryOwnPropertyKeys: keys() filters to enumerable own.
+/// Array's `length` is non-enumerable (spec §10.4.2.4 step 4 sets
+/// configurable/writable but never enumerable), so `Object.keys(arr)`
+/// returns `["0", ..., "<len-1>"]` without the trailing "length" —
+/// the diff against `getOwnPropertyNames(arr)`, which DOES include it.
+/// Same alloc-and-push loop as `__torajs_arr_index_strs` but caps at
+/// `len` instead of `len + 1` and skips the final length push.
+///
+/// # Safety
+///
+/// `extern "C"` ABI. Returned pointer owns a fresh `+1`-rc `Arr<Str>`
+/// of length `len`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_keys_only(len: i64) -> *mut c_void {
+    let mut out = unsafe { __torajs_arr_alloc(len.max(0) as u64) };
+    for i in 0..len {
+        let s = unsafe { __torajs_i64_to_str(i) };
+        out = unsafe { __torajs_arr_push(out, s as i64) };
+    }
+    out as *mut c_void
+}
+
+/// W-N-d' — `Object.keys(str)` Str-receiver path. Same shape as the
+/// Arr keys-only arm (`["0", ..., "<len-1>"]`, no "length"): String's
+/// `length` is non-enumerable per spec §22.1.5.1, so the enumerable-own
+/// walk returns indexed chars only. Thin wrapper reads u32 len at
+/// STR_LEN_OFF=8 then delegates to `arr_keys_only`.
+///
+/// # Safety
+///
+/// `str_ptr` must point at a valid Str heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_keys_only(str_ptr: *const c_void) -> *mut c_void {
+    // SAFETY: STR_LEN_OFF=8 holds the live u32 length per torajs-str layout.
+    let len = unsafe { (str_ptr.cast::<u8>().add(8) as *const u32).read() } as i64;
+    unsafe { __torajs_arr_keys_only(len) }
+}
+
 /// W-N-d — `Object.getOwnPropertyNames(str)` Str-receiver path.
 /// Same result shape as the Arr arm (`["0", ..., "<len-1>", "length"]`,
 /// spec §22.1.5.2.4: string's own enumerable properties are the index

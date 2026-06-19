@@ -2976,6 +2976,27 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Ptr,
     );
+    // W-N-b' / W-N-d' — `Object.keys(arr)` / `Object.keys(str)`
+    // enumerable-own variants. Spec §22.1.3.16 + §10.4.2.4 step 4:
+    // Array's `length` is non-enumerable, so `Object.keys` omits the
+    // trailing "length" that `getOwnPropertyNames` / `Reflect.ownKeys`
+    // include. Same alloc-and-push loop as `arr_index_strs` capped at
+    // `len` instead of `len + 1`. Str arm reads u32 len at
+    // STR_LEN_OFF=8 then delegates to the Arr arm.
+    let arr_keys_only_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_keys_only",
+        &[Type::I64],
+        Type::Ptr,
+    );
+    let str_keys_only_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_keys_only",
+        &[Type::Ptr],
+        Type::Ptr,
+    );
     // W-O-2 — `Object.values(str)` per-character Str array. Wrapper
     // in torajs-meta::own_names that reads u32 len at STR_LEN_OFF=8
     // then loops `__torajs_str_at` to mint fresh Strs per code unit.
@@ -5825,6 +5846,8 @@ fn lower_inner(
         str_length_descriptor: str_length_descriptor_id,
         arr_index_strs: arr_index_strs_id,
         str_index_strs: str_index_strs_id,
+        arr_keys_only: arr_keys_only_id,
+        str_keys_only: str_keys_only_id,
         str_to_char_arr: str_to_char_arr_id,
         arr_entries_by_tag: arr_entries_by_tag_id,
         str_entries: str_entries_id,
@@ -6835,6 +6858,8 @@ pub(crate) struct Intrinsics {
     pub(crate) str_length_descriptor: FuncId,
     pub(crate) arr_index_strs: FuncId,
     pub(crate) str_index_strs: FuncId,
+    pub(crate) arr_keys_only: FuncId,
+    pub(crate) str_keys_only: FuncId,
     pub(crate) str_to_char_arr: FuncId,
     pub(crate) arr_entries_by_tag: FuncId,
     pub(crate) str_entries: FuncId,
@@ -18375,12 +18400,19 @@ impl<'a> LowerCtx<'a> {
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
-                    // W-N-b — Arr<T> receiver: spec §22.1.3.5 returns
-                    // `["0", ..., "<len-1>", "length"]`. Length is
-                    // runtime-dynamic, so we Load `arr.len` at
-                    // `ARR_LEN_OFF=8` and route through the
-                    // `arr_index_strs` helper instead of building a
-                    // compile-time literal name list.
+                    // `Object.keys` filters to enumerable-own per spec
+                    // §22.1.3.16; Array/String `length` is non-enumerable
+                    // (§10.4.2.4 step 4 / §22.1.5.1) so it's omitted.
+                    // `getOwnPropertyNames` / `Reflect.ownKeys` include
+                    // all own keys (length included). Pick helper by
+                    // surface name so the three share the SSA arm.
+                    let is_keys_only = m_name == "keys";
+                    // W-N-b — Arr<T> receiver: keys → `["0", ..., "<len-1>"]`,
+                    // getOwnPropertyNames / ownKeys → `[..., "length"]`.
+                    // Length is runtime-dynamic, so we Load `arr.len` at
+                    // `ARR_LEN_OFF=8` and route through the per-surface
+                    // helper instead of building a compile-time literal
+                    // name list.
                     if matches!(arg_ty, Type::Arr(_)) {
                         let len = self.f.append_inst(
                             self.cur_block,
@@ -18388,27 +18420,33 @@ impl<'a> LowerCtx<'a> {
                             Type::I64,
                             None,
                         );
+                        let helper = if is_keys_only {
+                            self.intrinsics.arr_keys_only
+                        } else {
+                            self.intrinsics.arr_index_strs
+                        };
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_index_strs,
-                                vec![Operand::Value(len)],
-                            ),
+                            InstKind::Call(helper, vec![Operand::Value(len)]),
                             Type::Arr(intern_arr_layout(self.arr_layouts, Type::Str)),
                             None,
                         );
                         return Operand::Value(v);
                     }
-                    // W-N-d — Str receiver: spec §22.1.5.2.4 returns
-                    // the same `["0", ..., "<len-1>", "length"]` shape
-                    // as the Arr arm. The helper reads the u32 length
-                    // at `STR_LEN_OFF=8` internally and delegates to
-                    // `arr_index_strs`, so the SSA arm just passes the
-                    // Str ptr through.
+                    // W-N-d — Str receiver: keys → `["0", ..., "<len-1>"]`,
+                    // getOwnPropertyNames → `[..., "length"]` (§22.1.5.2.4).
+                    // The helper reads the u32 length at `STR_LEN_OFF=8`
+                    // internally and delegates to its Arr counterpart,
+                    // so the SSA arm just passes the Str ptr through.
                     if matches!(arg_ty, Type::Str) {
+                        let helper = if is_keys_only {
+                            self.intrinsics.str_keys_only
+                        } else {
+                            self.intrinsics.str_index_strs
+                        };
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(self.intrinsics.str_index_strs, vec![arg_op]),
+                            InstKind::Call(helper, vec![arg_op]),
                             Type::Arr(intern_arr_layout(self.arr_layouts, Type::Str)),
                             None,
                         );
