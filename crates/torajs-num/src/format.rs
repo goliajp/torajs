@@ -36,6 +36,13 @@
 
 use crate::str_bridge::alloc_str;
 
+unsafe extern "C" {
+    /// Cross-tier — torajs-throw. Records a pending RangeError via
+    /// TLS; returns normally so the caller's `emit_throw_check`
+    /// after the call site propagates the throw.
+    fn __torajs_throw_range_error(msg: *const u8);
+}
+
 // ============================================================
 // Helpers
 // ============================================================
@@ -131,7 +138,11 @@ pub fn to_fixed_f(n: f64, digits: i64) -> Vec<u8> {
         // (insert '+' on positive exponents, strip leading zeros).
         return normalize_exp(format!("{:e}", n).as_bytes());
     }
-    let digits = digits.clamp(0, 20);
+    // Spec range is `[0, 100]`. The extern wrappers gate
+    // out-of-range as RangeError before reaching here; this
+    // `clamp` defends the pure-Rust callers that go through
+    // `to_fixed_f` directly (e.g. unit tests).
+    let digits = digits.clamp(0, 100);
     let value = if digits < 16 {
         let scale = 10f64.powi(digits as i32);
         (n * scale).round() / scale
@@ -347,14 +358,33 @@ fn insert_grouping(raw: &[u8]) -> Vec<u8> {
 // ============================================================
 
 /// `n.toFixed(digits)` for f64 receivers.
+///
+/// ES §22.1.3.32 step 3 — `digits` must be in `[0, 100]`; otherwise
+/// `RangeError` is thrown. Pre-fix tr's helper clamped silently via
+/// `digits.clamp(0, 20)` so `(1.5).toFixed(-1)` returned `"2"`
+/// instead of throwing. Throws propagate non-locally via TLS — the
+/// SSA arm calls `emit_throw_check(None)` after every toFixed Call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_fixed_f(n: f64, digits: i64) -> *mut u8 {
+    if !(0..=100).contains(&digits) {
+        unsafe {
+            __torajs_throw_range_error(b"toFixed() argument must be between 0 and 100\0".as_ptr());
+        }
+        return alloc_str(b"");
+    }
     alloc_str(&to_fixed_f(n, digits))
 }
 
-/// `n.toFixed(digits)` for i64 receivers.
+/// `n.toFixed(digits)` for i64 receivers. Same RangeError gate as
+/// the f64 variant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_fixed_i(n: i64, digits: i64) -> *mut u8 {
+    if !(0..=100).contains(&digits) {
+        unsafe {
+            __torajs_throw_range_error(b"toFixed() argument must be between 0 and 100\0".as_ptr());
+        }
+        return alloc_str(b"");
+    }
     alloc_str(&to_fixed_i(n, digits))
 }
 
@@ -459,12 +489,18 @@ mod tests {
 
     #[test]
     fn to_fixed_clamps() {
-        // digits < 0 → 0
+        // digits < 0 → 0 (defensive clamp inside the pure-Rust core;
+        // extern wrappers route negatives to RangeError before
+        // reaching here).
         assert_eq!(to_fixed_f(3.14, -5), b"3".to_vec());
-        // digits > 20 → 20
+        // Spec upper bound is 100 — full precision available.
         let r = to_fixed_f(1.0, 100);
-        assert_eq!(r.len(), "1.".len() + 20);
+        assert_eq!(r.len(), "1.".len() + 100);
         assert!(r.starts_with(b"1."));
+        // digits > 100 → defensive clamp to 100 (extern wrappers
+        // already route out-of-range to RangeError).
+        let r2 = to_fixed_f(1.0, 200);
+        assert_eq!(r2.len(), "1.".len() + 100);
     }
 
     #[test]

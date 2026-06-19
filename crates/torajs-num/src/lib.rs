@@ -53,6 +53,14 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     );
 }
 
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
+    panic!(
+        "torajs-num unit-test stub: __torajs_throw_range_error should not be called from cargo test paths"
+    );
+}
+
 // Re-export — keep this list tight; the extern "C" symbols are
 // resolved at link time by toolchain-emitted code regardless.
 pub use format::{

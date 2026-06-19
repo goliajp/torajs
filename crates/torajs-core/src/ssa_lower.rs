@@ -16636,6 +16636,13 @@ impl<'a> LowerCtx<'a> {
                             Type::Str,
                             None,
                         );
+                        // ES §22.1.3.32 step 3 — `toFixed(digits)` with
+                        // `digits` outside `[0, 100]` throws RangeError
+                        // via the runtime helper's TLS-recorded throw;
+                        // propagate to the nearest try/catch here.
+                        if m_name == "toFixed" {
+                            self.emit_throw_check(None);
+                        }
                         return Operand::Value(v);
                     }
                 }
