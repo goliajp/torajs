@@ -4506,6 +4506,19 @@ fn lower_inner(
         &[Type::I64, Type::I64],
         Type::Void,
     );
+    // ES §10.4.2.5 step 4 — `arr.length = N` truncate path for typed
+    // `Array<I64|F64|Bool>` (non-refcounted scalar slots). Combines
+    // RangeError validation with the actual `len` write so the
+    // assignment isn't a silent no-op. Refcounted element types
+    // (Str / Substr / Arr / Obj / ...) stay on the validate-only
+    // helper above; truncate-with-rc_dec is a follow-up.
+    let arr_set_length_truncate_scalar_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_set_length_truncate_scalar",
+        &[Type::Ptr, Type::I64, Type::I64],
+        Type::Void,
+    );
     let arr_to_reversed_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5969,6 +5982,7 @@ fn lower_inner(
         str_substring: str_substring_id,
         str_substr: str_substr_id,
         arr_set_length_validate: arr_set_length_validate_id,
+        arr_set_length_truncate_scalar: arr_set_length_truncate_scalar_id,
         arr_to_reversed: arr_to_reversed_id,
         arr_with: arr_with_id,
         arr_join: arr_join_id,
@@ -6999,6 +7013,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_substring: FuncId,
     pub(crate) str_substr: FuncId,
     pub(crate) arr_set_length_validate: FuncId,
+    pub(crate) arr_set_length_truncate_scalar: FuncId,
     pub(crate) arr_to_reversed: FuncId,
     pub(crate) arr_with: FuncId,
     pub(crate) arr_join: FuncId,
@@ -15234,13 +15249,34 @@ impl<'a> LowerCtx<'a> {
                         if matches!(obj_ty, Type::Arr(_)) && field == "length" {
                             let (tag, val_op) = self.lower_to_tag_value(*value);
                             self.consume_if_ident(*value);
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_set_length_validate,
-                                    vec![tag, val_op],
-                                ),
+                            // ES §10.4.2.5 step 4 — for non-refcounted
+                            // scalar element types we route to the
+                            // truncate-aware helper that also writes
+                            // `len = N` when `N < oldLen`. Refcounted
+                            // element types (Str / Substr / Arr / ...)
+                            // still go through validate-only until the
+                            // per-slot rc_dec truncate path lands.
+                            let elem_ty = if let Type::Arr(elem_arr_id) = obj_ty {
+                                Some(self.arr_layouts[elem_arr_id.0 as usize])
+                            } else {
+                                None
+                            };
+                            let truncate_scalar = matches!(
+                                elem_ty,
+                                Some(Type::I64) | Some(Type::F64) | Some(Type::Bool)
                             );
+                            let helper = if truncate_scalar {
+                                self.intrinsics.arr_set_length_truncate_scalar
+                            } else {
+                                self.intrinsics.arr_set_length_validate
+                            };
+                            let argv = if truncate_scalar {
+                                vec![obj_val.clone(), tag, val_op]
+                            } else {
+                                vec![tag, val_op]
+                            };
+                            self.f
+                                .append_void(self.cur_block, InstKind::Call(helper, argv));
                             self.emit_throw_check(None);
                             return Operand::ConstI64(0);
                         }

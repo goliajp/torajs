@@ -81,6 +81,58 @@ pub unsafe extern "C" fn __torajs_arr_set_length_validate(tag: i64, value: i64) 
     }
 }
 
+/// `arr.length = N` truncate path for `Array<scalar>` (I64 / F64 / Bool
+/// element types — no per-slot drop required). Combines the
+/// `__torajs_arr_set_length_validate` RangeError gate with an actual
+/// `len` write so spec §10.4.2.5 step 4 (delete elements `[N, oldLen)`)
+/// is honored instead of being a silent no-op.
+///
+/// Semantics:
+/// - Invalid `N` (NaN / fractional / negative / overflow): record
+///   RangeError via `__torajs_throw_range_error`, do not touch `len`.
+/// - Valid `N <= old_len`: write `len = N`. Backing storage is kept
+///   (matches V8 / JSC behavior — `cap` doesn't shrink on truncate).
+/// - Valid `N > old_len`: silent no-op. typed `Array<scalar>` can't
+///   represent the "hole / undefined" the spec wants there; the
+///   `Array<Any>` extend path is a substrate-mid follow-up.
+///
+/// # Safety
+/// `arr` must be a live `Array<T>` heap block. Caller picks this
+/// helper only when the SSA-known element type is a non-refcounted
+/// scalar (I64 / F64 / Bool).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
+    arr: *mut u8,
+    tag: i64,
+    value: i64,
+) {
+    let n: f64 = match tag {
+        0 | 1 => 0.0,
+        2 => value as f64,
+        3 => f64::from_bits(value as u64),
+        _ => {
+            unsafe {
+                __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+            }
+            return;
+        }
+    };
+    if n.is_nan() || n < 0.0 || n > 4_294_967_295.0 || n != (n as i64) as f64 {
+        unsafe {
+            __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+        }
+        return;
+    }
+    let new_n = n as u64;
+    let len_ptr = unsafe { arr.add(ARR_HDR_LEN_OFF) as *mut u64 };
+    let old_len = unsafe { *len_ptr };
+    if new_n < old_len {
+        unsafe { *len_ptr = new_n };
+    }
+    // new_n >= old_len: scalar typed array can't extend with undefined
+    // — leave len untouched (silent no-op for now, recorded as L3b).
+}
+
 /// Push `val` onto the end of `arr`, growing the backing block if
 /// needed. Returns the (possibly relocated) array pointer; caller
 /// stores it back. Mirrors `__torajs_arr_push_unchecked` semantically

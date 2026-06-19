@@ -66,7 +66,8 @@ pub use any::{
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any};
 pub use from_string::__torajs_arr_from_string;
 pub use grow::{
-    __torajs_arr_push, __torajs_arr_reserve, __torajs_arr_set_length_validate, __torajs_arr_shift,
+    __torajs_arr_push, __torajs_arr_reserve, __torajs_arr_set_length_truncate_scalar,
+    __torajs_arr_set_length_validate, __torajs_arr_shift,
 };
 pub use iter::{
     __torajs_arr_iter_create_entries, __torajs_arr_iter_create_keys,
