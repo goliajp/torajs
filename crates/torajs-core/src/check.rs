@@ -6088,16 +6088,35 @@ impl Checker {
                 // `<`/`>` comparison via the runtime helper. Pre-fix
                 // tora's strict 1-arg signature rejected the no-arg
                 // form `arr.sort()`.
+                //
+                // ES §23.1.3.{29,31} step 1 also explicitly accepts
+                // the literal `undefined` for `comparefn`: "If
+                // comparefn is not undefined and not callable, throw
+                // a TypeError". bun observes `undefined` → default
+                // compare; tora's strict comparator-type check
+                // rejected the 1-arg form `.sort(undefined)`. Treat
+                // a 1-arg call with arg type Undefined as equivalent
+                // to the no-arg case (SSA mirror at
+                // ssa_lower_str.rs `sort/toSorted` dispatch).
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && matches!(m_name.as_str(), "sort" | "toSorted")
-                    && args.is_empty()
                 {
-                    let src_ty = self.type_of(ast, *src_id)?;
-                    if let Type::Array(elem) = src_ty {
-                        return Ok(Type::Array(elem));
+                    if args.is_empty() {
+                        let src_ty = self.type_of(ast, *src_id)?;
+                        if let Type::Array(elem) = src_ty {
+                            return Ok(Type::Array(elem));
+                        }
+                    } else if args.len() == 1 {
+                        let arg_ty = self.type_of(ast, args[0])?;
+                        if arg_ty == Type::Undefined {
+                            let src_ty = self.type_of(ast, *src_id)?;
+                            if let Type::Array(elem) = src_ty {
+                                return Ok(Type::Array(elem));
+                            }
+                        }
                     }
                 }
                 // V3-18 m1.h.49 — Array.indexOf / lastIndexOf accept

@@ -1039,10 +1039,23 @@ pub(crate) fn try_lower_method_call(
         // instead of calling a user fn. cmp_val + cmp_ty
         // stay None for the no-arg path so the
         // pred-computation block can branch later.
+        //
+        // ES §23.1.3.{29,31} step 1 also accepts `undefined` for
+        // the comparator literal; route a 1-arg call with arg type
+        // Undefined to the same default-compare path (check.rs
+        // mirror at the sort/toSorted arity special-case).
         let (cmp_val, cmp_ty) = if let Some(arg0) = args.first() {
-            let v = ctx.lower_expr(*arg0);
-            let t = ctx.operand_ty(&v);
-            (Some(v), Some(t))
+            let arg_static_ty = ctx.expr_types.get(arg0).cloned();
+            if matches!(arg_static_ty, Some(crate::check::Type::Undefined)) {
+                // Drop the operand without lowering its side
+                // effects — `undefined` is a literal keyword with
+                // none.
+                (None, None)
+            } else {
+                let v = ctx.lower_expr(*arg0);
+                let t = ctx.operand_ty(&v);
+                (Some(v), Some(t))
+            }
         } else {
             (None, None)
         };
