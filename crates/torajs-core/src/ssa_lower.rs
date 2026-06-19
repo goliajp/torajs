@@ -17229,6 +17229,62 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(r);
                 }
+                // S203 — Math unary methods 0-arg per ES §21.3.2.*
+                // step 1: ToNumber(undefined) = NaN, then each
+                // method returns NaN unchanged. Short-circuit
+                // here so no helper Call is emitted (the C
+                // intrinsic signature requires the f64 operand).
+                //
+                // `clz32` is the lone exception — it applies
+                // ToUint32 (not ToNumber), and ToUint32(undefined)
+                // = +0, so `Math.clz32()` returns 32 (the count
+                // of leading zero bits in the 32-bit value 0).
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Math"
+                    && args.is_empty()
+                {
+                    let nan_unary = matches!(
+                        m_name.as_str(),
+                        "sqrt"
+                            | "abs"
+                            | "floor"
+                            | "ceil"
+                            | "log"
+                            | "exp"
+                            | "sign"
+                            | "round"
+                            | "trunc"
+                            | "sin"
+                            | "cos"
+                            | "tan"
+                            | "asin"
+                            | "acos"
+                            | "atan"
+                            | "log2"
+                            | "log10"
+                            | "cbrt"
+                            | "sinh"
+                            | "cosh"
+                            | "tanh"
+                            | "asinh"
+                            | "acosh"
+                            | "atanh"
+                            | "expm1"
+                            | "log1p"
+                            | "fround"
+                            | "f16round"
+                    );
+                    if nan_unary {
+                        return Operand::ConstF64(f64::NAN);
+                    }
+                    if m_name == "clz32" {
+                        return Operand::ConstF64(32.0);
+                    }
+                }
                 // `Math.min` / `Math.max` — variadic, fold into a pairwise
                 // reduction. ssa-lower emits left-to-right: r = min(a,b);
                 // r = min(r, c); r = min(r, d); ...

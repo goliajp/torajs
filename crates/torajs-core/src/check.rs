@@ -5943,6 +5943,52 @@ impl Checker {
                     }
                     return Ok(Type::String);
                 }
+                // S203 — Math unary methods 0-arg per ES §21.3.2.*
+                // step 1: missing arg defaults to undefined →
+                // ToNumber(undefined) = NaN → Math.<f>(NaN) = NaN.
+                // The declared `vec![Type::Number]` signature
+                // rejected the no-arg form at the generic arity
+                // gate; accept it and let ssa_lower emit the
+                // static NaN return (no helper Call).
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "Math"
+                    && args.is_empty()
+                    && matches!(
+                        m.as_str(),
+                        "sqrt"
+                            | "abs"
+                            | "floor"
+                            | "ceil"
+                            | "log"
+                            | "exp"
+                            | "sign"
+                            | "round"
+                            | "trunc"
+                            | "sin"
+                            | "cos"
+                            | "tan"
+                            | "asin"
+                            | "acos"
+                            | "atan"
+                            | "log2"
+                            | "log10"
+                            | "cbrt"
+                            | "sinh"
+                            | "cosh"
+                            | "tanh"
+                            | "asinh"
+                            | "acosh"
+                            | "atanh"
+                            | "expm1"
+                            | "log1p"
+                            | "clz32"
+                            | "fround"
+                            | "f16round"
+                    )
+                {
+                    return Ok(Type::Number);
+                }
                 if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
                     && let Expr::Ident(ns) = ast.get_expr(*obj)
                     && ns == "Math"
