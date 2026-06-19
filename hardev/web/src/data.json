@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-19T07:08:26.829Z",
+  "generatedAt": "2026-06-19T09:37:40.544Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "13814f45",
-    "commitSubject": "feat(num): `(-0).toFixed(N)` / `(-0).toPrecision(N)` emit \"0...\" per ES §21.1.3.3 / §21.1.3.5",
+    "commit": "cae93a8a",
+    "commitSubject": "fix(num): `n.toString(radix)` throws RangeError on radix outside `[2, 36]` per ES §21.1.3.6 step 4",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,38 @@
   },
   "commits": [
     {
+      "hash": "cae93a8a",
+      "subject": "fix(num): `n.toString(radix)` throws RangeError on radix outside `[2, 36]` per ES §21.1.3.6 step 4"
+    },
+    {
+      "hash": "7efc2c55",
+      "subject": "fix(num): `n.toExponential(d)` / `n.toPrecision(p)` throw RangeError on out-of-range arg per ES §22.1.3.5/32 step 3"
+    },
+    {
+      "hash": "4b9b6f97",
+      "subject": "fix(num): `n.toFixed(digits)` throws RangeError when `digits` outside `[0, 100]` per ES §22.1.3.32 step 3"
+    },
+    {
+      "hash": "9e9ca0f1",
+      "subject": "fix(str): `s.repeat(Infinity)` throws RangeError per ES §22.1.3.16 step 4"
+    },
+    {
+      "hash": "a1c4cf2c",
+      "subject": "feat(arr): `arr.length = N` truncates typed `Array<I64|F64|Bool>` per ES §10.4.2.5 step 4"
+    },
+    {
+      "hash": "d105d89f",
+      "subject": "feat(arr): `Array<number>.toLocaleString()` routes through Number.toLocaleString per ES §22.1.3.32 step 5.b"
+    },
+    {
+      "hash": "c4b579e8",
+      "subject": "feat(arr): `[].reduce(fn)` / `[].reduceRight(fn)` no-init throws TypeError per ES §22.1.3.21/22 step 3"
+    },
+    {
+      "hash": "aa02e7d2",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S177-S181)"
+    },
+    {
       "hash": "13814f45",
       "subject": "feat(num): `(-0).toFixed(N)` / `(-0).toPrecision(N)` emit \"0...\" per ES §21.1.3.3 / §21.1.3.5"
     },
@@ -631,59 +663,38 @@
     {
       "hash": "9b6aeee4",
       "subject": "fix(str): `s.split()` no-arg routes to dedicated 1-arg helper, fixing SEGV after prior `.split(arg)`"
-    },
-    {
-      "hash": "251f8d7e",
-      "subject": "feat(str): `padStart/padEnd(n, \"\")` returns S unchanged per ES §22.1.3.16.5"
-    },
-    {
-      "hash": "3b1a65e1",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S172-S176)"
-    },
-    {
-      "hash": "552d8f15",
-      "subject": "feat(date): `Date.parse('invalid')` returns NaN per ES §21.4.3.2"
-    },
-    {
-      "hash": "fb73a695",
-      "subject": "feat(arr): `arr.with(index, value)` throws RangeError on OOB per ES §23.1.3.39"
-    },
-    {
-      "hash": "e4c38704",
-      "subject": "feat(num): `Number(Array<T>)` routes through join → str_to_number per ES §7.1.4"
-    },
-    {
-      "hash": "abb51586",
-      "subject": "feat(ssa): `null ?? rhs` / `undefined ?? rhs` returns rhs at its own SSA type"
-    },
-    {
-      "hash": "397bd3d2",
-      "subject": "feat(arr): `new Array(n)` fills slots with boxed ANY_UNDEF per ES §10.4.2.1"
-    },
-    {
-      "hash": "53455074",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — S171 str-replace-all-empty"
     }
   ],
-  "headSha": "13814f45",
+  "headSha": "cae93a8a",
   "autorun": {
-    "total": 195,
+    "total": 196,
     "baselineTarget": 10,
-    "bySelf": 190,
+    "bySelf": 191,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781844051-57cd",
-      "at": "2026-06-19T04:40:51Z",
-      "ts": 1781844051,
+      "rotationId": "r-1781853046-7a85",
+      "at": "2026-06-19T07:10:46Z",
+      "ts": 1781853046,
       "trigger": "self",
-      "prevHead": "3b1a65e1",
-      "handoffSha": "sha256:de7cb4001e82c628b8db3b64866a41969650fc3b8480b48aad1a7b6518cd8d36",
+      "prevHead": "aa02e7d2",
+      "handoffSha": "sha256:344bf206f083ada32e0b812b44e9da1f95be4f2c5d50131ef8b01a48c1e2d67b",
       "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781853046-7a85",
+        "at": "2026-06-19T07:10:46Z",
+        "ts": 1781853046,
+        "trigger": "self",
+        "prevHead": "aa02e7d2",
+        "handoffSha": "sha256:344bf206f083ada32e0b812b44e9da1f95be4f2c5d50131ef8b01a48c1e2d67b",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781844051-57cd",
         "at": "2026-06-19T04:40:51Z",
@@ -780,17 +791,6 @@
         "prevHead": "27d4d134",
         "handoffSha": "sha256:6daf1d94311f378dfb639d152e501e9aa5a3bcf6c654fe26316fb904266f0275",
         "handoffAgeSec": 19,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781756651-4329",
-        "at": "2026-06-18T04:24:11Z",
-        "ts": 1781756651,
-        "trigger": "self",
-        "prevHead": "df2cc665",
-        "handoffSha": "sha256:fb2164446a3aabaeabcae41758743eaad576c79feece71dd1346b3434ce6e43d",
-        "handoffAgeSec": 9,
         "conformanceBefore": null,
         "commitsInSession": null
       }
