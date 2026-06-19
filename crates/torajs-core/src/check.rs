@@ -6443,6 +6443,33 @@ impl Checker {
                         });
                     }
                 }
+                // S222 — `s.{at,charAt,charCodeAt,codePointAt}(undefined)`
+                // per ES §22.1.3.{1,2,3,4} step 2-3:
+                // ToIntegerOrInfinity(undefined)=0, so an explicit undef
+                // index behaves as the 0-arg / index=0 form. ssa_lower
+                // mirror short-circuits the Undefined slot to ConstI64(0).
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "at" | "charAt" | "charCodeAt" | "codePointAt"
+                    )
+                    && args.len() == 1
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let aty = self.type_of(ast, args[0])?;
+                        if matches!(aty, Type::Undefined) {
+                            return Ok(if matches!(m_name.as_str(), "charAt" | "at") {
+                                Type::String
+                            } else {
+                                Type::Number
+                            });
+                        }
+                    }
+                }
                 // V3-18 m1.h.48 — String.normalize accepts an optional
                 // form arg ("NFC" / "NFD" / "NFKC" / "NFKD"). Per JS
                 // spec §21.1.3.13. tora's byte-Str ASCII-only path

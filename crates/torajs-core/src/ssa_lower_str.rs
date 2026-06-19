@@ -432,8 +432,20 @@ pub(crate) fn try_lower_method_call(
     // Lowers to a length-1 substr view instead of going
     // through a separate runtime helper.
     if matches!(recv_ty, Type::Str | Type::Substr) && method == "charAt" && args.len() == 1 {
-        let idx_raw = ctx.lower_expr(args[0]);
-        let idx_val = ctx.coerce_to_i64(idx_raw);
+        // S222 — `s.charAt(undefined)` per ES §22.1.3.2 step 2-3:
+        // ToIntegerOrInfinity(undefined)=0. Short-circuit to ConstI64(0)
+        // before coerce_to_i64, which can't lower a ConstPtrNull undef
+        // sentinel.
+        let arg0_undef = matches!(
+            ctx.expr_types.get(&args[0]),
+            Some(crate::check::Type::Undefined)
+        );
+        let idx_val = if arg0_undef {
+            Operand::ConstI64(0)
+        } else {
+            let idx_raw = ctx.lower_expr(args[0]);
+            ctx.coerce_to_i64(idx_raw)
+        };
         let v = if recv_ty == Type::Str {
             // V3-18 m1.h.37 — bounds-checked str charAt.
             // Pre-fix called substr_create directly; OOB
@@ -614,6 +626,15 @@ pub(crate) fn try_lower_method_call(
             // is actually undef.
             let substring_2arg = method.as_str() == "substring" && args.len() == 2;
             let mut substring_len_op: Option<Operand> = None;
+            // S222 — String.{at,charAt,charCodeAt,codePointAt}(undefined)
+            // per ES §22.1.3.{1,2,3,4} step 2-3:
+            // ToIntegerOrInfinity(undefined)=0. Replace the single undef
+            // index slot with ConstI64(0) — equivalent to the 0-arg
+            // shape these methods already accept.
+            let undef_zero_at_arg0_idx = matches!(
+                method.as_str(),
+                "at" | "charAt" | "charCodeAt" | "codePointAt"
+            ) && args.len() == 1;
             for (i, &a) in args.iter().enumerate() {
                 let arg_undef =
                     matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
@@ -626,6 +647,8 @@ pub(crate) fn try_lower_method_call(
                     argv.push(Operand::ConstI64(0));
                 } else if undef_max_at_arg1 && arg_undef && i == 1 {
                     argv.push(Operand::ConstI64(i64::MAX));
+                } else if undef_zero_at_arg0_idx && arg_undef && i == 0 {
+                    argv.push(Operand::ConstI64(0));
                 } else if substring_2arg && arg_undef && i == 0 {
                     argv.push(Operand::ConstI64(0));
                 } else if substring_2arg && arg_undef && i == 1 {
