@@ -327,72 +327,141 @@ impl<'a> LowerCtx<'a> {
     /// `xs.unshift(v)` — realloc-and-store-back, mirrors push.
     fn try_arr_unshift(&mut self, callee: ExprId, args: &[ExprId]) -> Option<Operand> {
         // `xs.unshift(v)` — same realloc-and-store-back shape
-        // as push (a), but the runtime helper memmoves slots
-        // right + writes slot[0] before returning the new ptr.
+        // as push, but the runtime helper memmoves slots right
+        // + writes slot[0] before returning the new ptr.
         if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(callee)
             && name == "unshift"
             && args.len() == 1
             && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
-            && let Some(info) = self.locals.get(recv_name).copied()
-            && let Type::Arr(arr_id) = info.ty
         {
-            let arr_ty = info.ty;
-            let elem_ty = self.arr_layouts[arr_id.0 as usize];
-            let cur_arr = self.f.append_inst(
-                self.cur_block,
-                InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
-                arr_ty,
-                None,
-            );
-            let mut val = self.lower_expr(args[0]);
-            if !elem_ty.is_refcounted() {
-                self.consume_if_ident(args[0]);
-            }
-            // W4 — align with the elem width (mirrors push).
-            if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
-                val = self.coerce_to_f64(val);
-            }
-            let unshift_arg = self.raw_slot_arg(val);
-            let new_arr = self.f.append_inst(
-                self.cur_block,
-                InstKind::Call(
-                    self.intrinsics.arr_unshift,
-                    vec![Operand::Value(cur_arr), unshift_arg],
-                ),
-                arr_ty,
-                None,
-            );
-            if elem_ty.is_refcounted() {
-                self.emit_rc_inc(val);
-            }
-            self.f.append_void(
-                self.cur_block,
-                InstKind::Store(Operand::Value(new_arr), Operand::Value(info.slot), 0),
-            );
-            if let Some((env_slot, env_offset)) =
-                self.captured_arr_writeback.get(&info.slot).copied()
+            let recv_name = recv_name.clone();
+            // (a) Local-Ident receiver — load from stack slot,
+            // unshift, store the new ptr back into the same slot.
+            if let Some(info) = self.locals.get(&recv_name).copied()
+                && let Type::Arr(arr_id) = info.ty
             {
-                let env_ptr = self.f.append_inst(
+                let arr_ty = info.ty;
+                let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                let cur_arr = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
+                    InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
+                    arr_ty,
+                    None,
+                );
+                let mut val = self.lower_expr(args[0]);
+                if !elem_ty.is_refcounted() {
+                    self.consume_if_ident(args[0]);
+                }
+                // W4 — align with the elem width (mirrors push).
+                if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
+                    val = self.coerce_to_f64(val);
+                }
+                let unshift_arg = self.raw_slot_arg(val);
+                let new_arr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.arr_unshift,
+                        vec![Operand::Value(cur_arr), unshift_arg],
+                    ),
+                    arr_ty,
+                    None,
+                );
+                if elem_ty.is_refcounted() {
+                    self.emit_rc_inc(val);
+                }
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(new_arr), Operand::Value(info.slot), 0),
+                );
+                if let Some((env_slot, env_offset)) =
+                    self.captured_arr_writeback.get(&info.slot).copied()
+                {
+                    let env_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
+                        Type::Ptr,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(new_arr),
+                            Operand::Value(env_ptr),
+                            env_offset,
+                        ),
+                    );
+                }
+                // chunk 9c — JS spec: unshift returns new length.
+                // Runtime helper bumps `len + 1` into arr[#8] before
+                // returning; mirror the .length getter.
+                let new_len = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
+                    Type::I64,
+                    None,
+                );
+                return Some(Operand::Value(new_len));
+            }
+            // (b) K.3 const-global Array<T> receiver. Mirrors push's
+            // K.8 path at ssa_lower.rs:19708: load the cur ptr via
+            // GlobalRef, run the unshift helper, store back into the
+            // same global slot. Without this, `const a: number[] = ...`
+            // (top-level explicit-annotation const → registered as a
+            // global by K.6) panicked "unsupported member call shape:
+            // unshift" — the locals-only guard above missed it.
+            // Typed elem only; Any-elem globals would need a tagged-
+            // slot helper analogous to `emit_arr_any_push_at_slot` and
+            // fall through unchanged (panics, same as before).
+            if let Some(slot_ty) = self.globals.get(&recv_name).copied()
+                && let Type::Arr(arr_id) = slot_ty
+                && !matches!(self.arr_layouts[arr_id.0 as usize], Type::Any)
+            {
+                let arr_ty = slot_ty;
+                let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                let slot_ptr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::GlobalRef(recv_name.clone()),
                     Type::Ptr,
                     None,
                 );
+                let cur_arr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(arr_ty, Operand::Value(slot_ptr), 0),
+                    arr_ty,
+                    None,
+                );
+                let mut val = self.lower_expr(args[0]);
+                if !elem_ty.is_refcounted() {
+                    self.consume_if_ident(args[0]);
+                }
+                if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
+                    val = self.coerce_to_f64(val);
+                }
+                let unshift_arg = self.raw_slot_arg(val);
+                let new_arr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.arr_unshift,
+                        vec![Operand::Value(cur_arr), unshift_arg],
+                    ),
+                    arr_ty,
+                    None,
+                );
+                if elem_ty.is_refcounted() {
+                    self.emit_rc_inc(val);
+                }
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(Operand::Value(new_arr), Operand::Value(env_ptr), env_offset),
+                    InstKind::Store(Operand::Value(new_arr), Operand::Value(slot_ptr), 0),
                 );
+                let new_len = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
+                    Type::I64,
+                    None,
+                );
+                return Some(Operand::Value(new_len));
             }
-            // chunk 9c — JS spec: unshift returns new length.
-            // Runtime helper bumps `len + 1` into arr[#8] before
-            // returning; mirror the .length getter.
-            let new_len = self.f.append_inst(
-                self.cur_block,
-                InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
-                Type::I64,
-                None,
-            );
-            return Some(Operand::Value(new_len));
         }
         None
     }
