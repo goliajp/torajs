@@ -5950,11 +5950,39 @@ impl Checker {
                 {
                     for &aid in args {
                         let aty = self.type_of(ast, aid)?;
+                        // S212 — explicit `undefined` arg per ES
+                        // §22.1.3.4 step 3.a: ToString(undefined)
+                        // = "undefined". Accept the typed-Undefined
+                        // arg shape; ssa_lower inline-substitutes
+                        // the interned "undefined" literal.
+                        if matches!(aty, Type::Undefined) {
+                            continue;
+                        }
                         if aty != Type::String {
                             return Err(format!("String.concat args must be string, got {aty:?}"));
                         }
                     }
                     return Ok(Type::String);
+                }
+                // S212 (1-arg) — String.concat(undefined) per ES
+                // §22.1.3.4 step 3.a: the arity-1 path otherwise
+                // takes the declared Function-arm dispatch which
+                // is strict-string and rejects the typed-Undefined
+                // operand with "argument 0: expected String, got
+                // Undefined". Widen here so ssa_lower's
+                // inline-undef substitution can run.
+                if let Expr::Member {
+                    obj: recv_id,
+                    name: m,
+                } = ast.get_expr(*callee)
+                    && m == "concat"
+                    && args.len() == 1
+                    && let Ok(Type::String) = self.type_of(ast, *recv_id)
+                {
+                    let aty = self.type_of(ast, args[0])?;
+                    if matches!(aty, Type::Undefined) {
+                        return Ok(Type::String);
+                    }
                 }
                 // S203 — Math unary methods 0-arg per ES §21.3.2.*
                 // step 1: missing arg defaults to undefined →

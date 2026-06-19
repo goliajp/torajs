@@ -1430,8 +1430,19 @@ pub(crate) fn try_lower_method_call(
             return Some(recv_op);
         }
         let mut acc = recv_op;
-        for a in args {
-            let other = ctx.lower_expr(*a);
+        for &a in args {
+            // S212 — explicit `undefined` arg per ES §22.1.3.4
+            // step 3.a: each arg is ToString'd, undefined →
+            // "undefined". Inline-substitute the interned
+            // literal so the helper sees a valid Str pointer
+            // — same idiom S207/S211 use for replace/locale-
+            // Compare.
+            let other = if matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined)) {
+                let u = ctx.intern_string_literal("undefined");
+                Operand::Value(u)
+            } else {
+                ctx.lower_expr(a)
+            };
             let v = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.str_concat, vec![acc, other]),
