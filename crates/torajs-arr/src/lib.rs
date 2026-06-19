@@ -53,6 +53,7 @@ pub mod props;
 pub mod slice;
 pub mod str_bridge;
 pub mod sum_precise;
+pub mod throw_empty;
 pub mod transform;
 
 pub use alloc::{__torajs_arr_alloc, __torajs_arr_alloc_pooled, __torajs_arr_free};
@@ -80,6 +81,7 @@ pub use print::{
     __torajs_arr_print_str, __torajs_arr_print_substr,
 };
 pub use slice::__torajs_arr_slice;
+pub use throw_empty::{__torajs_arr_throw_reduce_empty, __torajs_arr_throw_reduce_right_empty};
 pub use transform::{
     __torajs_arr_concat, __torajs_arr_copy_within, __torajs_arr_fill, __torajs_arr_flat,
     __torajs_arr_reverse, __torajs_arr_splice, __torajs_arr_unshift,
@@ -104,6 +106,14 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
 pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
     panic!(
         "torajs-arr unit-test stub: __torajs_throw_range_error should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {
+    panic!(
+        "torajs-arr unit-test stub: __torajs_throw_type_error should not be called from cargo test paths"
     );
 }
 

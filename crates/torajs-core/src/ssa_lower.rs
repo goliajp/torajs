@@ -2906,6 +2906,25 @@ fn lower_inner(
         &[Type::Any],
         Type::Void,
     );
+    // `[].reduce(fn)` / `[].reduceRight(fn)` with no `initialValue`
+    // must throw TypeError per ES §22.1.3.21/22 step 3. Each
+    // 0-arg helper sets the spec-correct message via
+    // `__torajs_throw_type_error` and returns — the SSA arm follows
+    // the call with `emit_throw_check(None)` to propagate.
+    let arr_throw_reduce_empty_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_throw_reduce_empty",
+        &[],
+        Type::Void,
+    );
+    let arr_throw_reduce_right_empty_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_throw_reduce_right_empty",
+        &[],
+        Type::Void,
+    );
     // RFC C5a — `Object.getOwnPropertyDescriptor(arr, "length")` —
     // spec §10.4.2.4 builds `{value, writable: true, enumerable:
     // false, configurable: false}` from a pre-extracted `len` (the
@@ -5768,6 +5787,8 @@ fn lower_inner(
         accessor_invoke_getter: accessor_invoke_getter_id,
         get_property_descriptor: get_property_descriptor_id,
         throw_typeerror_if_not_object: throw_typeerror_if_not_object_id,
+        arr_throw_reduce_empty: arr_throw_reduce_empty_id,
+        arr_throw_reduce_right_empty: arr_throw_reduce_right_empty_id,
         arr_length_descriptor: arr_length_descriptor_id,
         str_length_descriptor: str_length_descriptor_id,
         arr_index_strs: arr_index_strs_id,
@@ -6773,6 +6794,8 @@ pub(crate) struct Intrinsics {
     pub(crate) accessor_invoke_getter: FuncId,
     pub(crate) get_property_descriptor: FuncId,
     pub(crate) throw_typeerror_if_not_object: FuncId,
+    pub(crate) arr_throw_reduce_empty: FuncId,
+    pub(crate) arr_throw_reduce_right_empty: FuncId,
     pub(crate) arr_length_descriptor: FuncId,
     pub(crate) str_length_descriptor: FuncId,
     pub(crate) arr_index_strs: FuncId,
@@ -21976,14 +21999,64 @@ impl<'a> LowerCtx<'a> {
                         _ => elem_ty,
                     };
                     // 1-arg reduce/reduceRight overload: init from
-                    // arr[0] / arr[len-1] (spec §23.1.3.24/25). Empty
-                    // arr throws TypeError per spec; MVP elides the
-                    // guard. `i_seed_off` carries the runtime byte
-                    // offset of the seed slot so we don't double-walk
-                    // the head-aware ARR_DATA_OFF arithmetic below.
+                    // arr[0] / arr[len-1] (spec §22.1.3.21/22 step 3).
+                    // Empty arr throws TypeError per spec — the guard
+                    // below loads `len`, branches to a throw block
+                    // that calls the 0-arg helper, then propagates
+                    // via emit_throw_check. `i_seed_off` carries the
+                    // runtime byte offset of the seed slot so we
+                    // don't double-walk the head-aware ARR_DATA_OFF
+                    // arithmetic below.
                     let reduce_no_init =
                         matches!(method.as_str(), "reduce" | "reduceRight") && args.len() == 1;
                     let acc_slot = if matches!(method.as_str(), "reduce" | "reduceRight") {
+                        if reduce_no_init {
+                            let len_chk = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
+                                Type::I64,
+                                None,
+                            );
+                            let is_empty = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::ICmp(
+                                    IPred::Eq,
+                                    Operand::Value(len_chk),
+                                    Operand::ConstI64(0),
+                                ),
+                                Type::Bool,
+                                None,
+                            );
+                            let throw_blk = self.f.add_block();
+                            let continue_blk = self.f.add_block();
+                            let cb = self.cur_block;
+                            self.f.set_term(
+                                cb,
+                                Terminator::CondBr {
+                                    cond: Operand::Value(is_empty),
+                                    then_blk: throw_blk,
+                                    else_blk: continue_blk,
+                                },
+                            );
+                            self.cur_block = throw_blk;
+                            let throw_fid = if method == "reduceRight" {
+                                self.intrinsics.arr_throw_reduce_right_empty
+                            } else {
+                                self.intrinsics.arr_throw_reduce_empty
+                            };
+                            self.f
+                                .append_void(self.cur_block, InstKind::Call(throw_fid, vec![]));
+                            self.emit_throw_check(None);
+                            // emit_throw_check leaves cur_block at its
+                            // throw_active==0 fall-through; the helper
+                            // always sets the flag so the fall-through
+                            // is unreachable at runtime. Terminate it
+                            // with a br to continue_blk so the IR
+                            // validates.
+                            let cb2 = self.cur_block;
+                            self.f.set_term(cb2, Terminator::Br(continue_blk));
+                            self.cur_block = continue_blk;
+                        }
                         let init_v = if reduce_no_init {
                             let len_for_seed = self.f.append_inst(
                                 self.cur_block,
