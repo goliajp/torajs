@@ -849,7 +849,18 @@ pub(crate) fn try_lower_method_call(
         argv.push(recv_op);
         // V3-18 m1.h.42 — default separator ","
         // when join() is called with no arg.
-        let sep = if args.is_empty() {
+        //
+        // S206 — explicit `undefined` sep follows the same
+        // default-undefined rule per spec §23.1.3.16 step 1:
+        // if sep is undefined → sep = ",". Detect the
+        // typed-Undefined arg shape and skip the operand
+        // lower (the literal has no side effects to drop).
+        let undef_sep = args.len() == 1
+            && matches!(
+                ctx.expr_types.get(&args[0]),
+                Some(crate::check::Type::Undefined)
+            );
+        let sep = if args.is_empty() || undef_sep {
             let s = ctx.intern_string_literal(",");
             Operand::Value(s)
         } else {
