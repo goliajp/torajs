@@ -1960,15 +1960,36 @@ pub(crate) fn try_lower_method_call(
             Type::I64,
             None,
         );
+        // S218 — Array.fill(v, undefined [, undefined]) per ES
+        // §23.1.3.7 step 5/9: start=undef → 0 (omitted default),
+        // end=undef → len (omitted default). Short-circuit each undef
+        // slot before lower so relative_to_len isn't invoked on a
+        // ConstPtrNull/I64 undef sentinel.
         let start = if args.len() >= 2 {
-            let raw = ctx.lower_expr(args[1]);
-            ctx.relative_to_len(raw, Operand::Value(len_for_norm))
+            let arg1_undef = matches!(
+                ctx.expr_types.get(&args[1]),
+                Some(crate::check::Type::Undefined)
+            );
+            if arg1_undef {
+                Operand::ConstI64(0)
+            } else {
+                let raw = ctx.lower_expr(args[1]);
+                ctx.relative_to_len(raw, Operand::Value(len_for_norm))
+            }
         } else {
             Operand::ConstI64(0)
         };
         let end = if args.len() == 3 {
-            let raw = ctx.lower_expr(args[2]);
-            ctx.relative_to_len(raw, Operand::Value(len_for_norm))
+            let arg2_undef = matches!(
+                ctx.expr_types.get(&args[2]),
+                Some(crate::check::Type::Undefined)
+            );
+            if arg2_undef {
+                Operand::Value(len_for_norm)
+            } else {
+                let raw = ctx.lower_expr(args[2]);
+                ctx.relative_to_len(raw, Operand::Value(len_for_norm))
+            }
         } else {
             Operand::Value(len_for_norm)
         };

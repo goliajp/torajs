@@ -6113,12 +6113,18 @@ impl Checker {
                 //   xs.fill(v, start)     = xs.fill(v, start, len)
                 // Pre-fix tora declared with 3 fixed params so 1 / 2 -
                 // arg calls hit the arity check.
+                //
+                // S218 — extend the carve-out to args.len()==3 and
+                // accept Undefined for start/end per ES §23.1.3.7
+                // step 5/9 (ToIntegerOrInfinity(undefined)=0 for start,
+                // end===undefined → len for end). ssa_lower mirror
+                // short-circuits each undef slot to its spec default.
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && m_name == "fill"
-                    && (args.len() == 1 || args.len() == 2)
+                    && (1..=3).contains(&args.len())
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if let Type::Array(elem) = &src_ty {
@@ -6134,11 +6140,19 @@ impl Checker {
                                 **elem
                             ));
                         }
-                        if args.len() == 2 {
+                        if args.len() >= 2 {
                             let start_ty = self.type_of(ast, args[1])?;
-                            if start_ty != Type::Number {
+                            if start_ty != Type::Number && start_ty != Type::Undefined {
                                 return Err(format!(
                                     "Array.fill arg 1 (start) must be number, got {start_ty:?}"
+                                ));
+                            }
+                        }
+                        if args.len() == 3 {
+                            let end_ty = self.type_of(ast, args[2])?;
+                            if end_ty != Type::Number && end_ty != Type::Undefined {
+                                return Err(format!(
+                                    "Array.fill arg 2 (end) must be number, got {end_ty:?}"
                                 ));
                             }
                         }
