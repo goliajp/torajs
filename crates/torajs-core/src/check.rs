@@ -6559,9 +6559,15 @@ impl Checker {
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if let Type::Array(elem) = &src_ty {
+                        // S219 — accept Undefined for any arg per ES
+                        // §23.1.3.4: target/start go through
+                        // ToIntegerOrInfinity (undef → 0), end===undefined
+                        // takes the omitted default (len). ssa_lower
+                        // mirror short-circuits each undef slot to its
+                        // spec default before relative_to_len.
                         for (i, a) in args.iter().enumerate() {
                             let a_ty = self.type_of(ast, *a)?;
-                            if a_ty != Type::Number {
+                            if a_ty != Type::Number && a_ty != Type::Undefined {
                                 return Err(format!(
                                     "Array.copyWithin arg {i} must be number, got {a_ty:?}"
                                 ));

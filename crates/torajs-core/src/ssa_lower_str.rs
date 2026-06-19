@@ -1747,17 +1747,46 @@ pub(crate) fn try_lower_method_call(
             Type::I64,
             None,
         );
-        let raw_target = ctx.lower_expr(args[0]);
-        let target = ctx.relative_to_len(raw_target, Operand::Value(len_for_norm));
+        // S219 — Array.copyWithin(target [, start [, end ]]) per ES
+        // §23.1.3.4: target/start go through ToIntegerOrInfinity
+        // (undef → 0); end===undefined takes the omitted default (len).
+        // Short-circuit each undef slot before relative_to_len so the
+        // helper isn't called on a ConstPtrNull undef sentinel.
+        let arg0_undef = matches!(
+            ctx.expr_types.get(&args[0]),
+            Some(crate::check::Type::Undefined)
+        );
+        let target = if arg0_undef {
+            Operand::ConstI64(0)
+        } else {
+            let raw_target = ctx.lower_expr(args[0]);
+            ctx.relative_to_len(raw_target, Operand::Value(len_for_norm))
+        };
         let start = if args.len() >= 2 {
-            let raw = ctx.lower_expr(args[1]);
-            ctx.relative_to_len(raw, Operand::Value(len_for_norm))
+            let arg1_undef = matches!(
+                ctx.expr_types.get(&args[1]),
+                Some(crate::check::Type::Undefined)
+            );
+            if arg1_undef {
+                Operand::ConstI64(0)
+            } else {
+                let raw = ctx.lower_expr(args[1]);
+                ctx.relative_to_len(raw, Operand::Value(len_for_norm))
+            }
         } else {
             Operand::ConstI64(0)
         };
         let end = if args.len() >= 3 {
-            let raw = ctx.lower_expr(args[2]);
-            ctx.relative_to_len(raw, Operand::Value(len_for_norm))
+            let arg2_undef = matches!(
+                ctx.expr_types.get(&args[2]),
+                Some(crate::check::Type::Undefined)
+            );
+            if arg2_undef {
+                Operand::Value(len_for_norm)
+            } else {
+                let raw = ctx.lower_expr(args[2]);
+                ctx.relative_to_len(raw, Operand::Value(len_for_norm))
+            }
         } else {
             // end = recv.length
             Operand::Value(len_for_norm)
