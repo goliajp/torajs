@@ -6347,20 +6347,28 @@ impl Checker {
                 // defaults the fill string to " " per JS spec §21.1.3.16.
                 // Pre-fix tora declared the methods with 2 fixed params
                 // so `s.padStart(3)` failed at the arity check.
+                //
+                // S201 — extend the same default-undefined rule to the
+                // 0-arg call per ES §22.1.3.{16,17} step 1:
+                // `intMaxLength = ToLength(undefined) = 0`, so the
+                // step-2 short-circuit `intMaxLength <= S.length`
+                // makes the no-arg form a no-op returning S unchanged.
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && (m_name == "padStart" || m_name == "padEnd")
-                    && args.len() == 1
+                    && args.len() <= 1
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {
-                        let aty = self.type_of(ast, args[0])?;
-                        if aty != Type::Number {
-                            return Err(format!(
-                                "String.{m_name} arg 0 must be number, got {aty:?}"
-                            ));
+                        if let Some(arg0) = args.first() {
+                            let aty = self.type_of(ast, *arg0)?;
+                            if aty != Type::Number {
+                                return Err(format!(
+                                    "String.{m_name} arg 0 must be number, got {aty:?}"
+                                ));
+                            }
                         }
                         return Ok(Type::String);
                     }

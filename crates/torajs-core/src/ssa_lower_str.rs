@@ -577,9 +577,20 @@ pub(crate) fn try_lower_method_call(
         // V3-18 m1.h.45 — String.padStart / padEnd with 1
         // arg: default fill string is " " per JS spec
         // §21.1.3.16.
-        if matches!(method.as_str(), "padStart" | "padEnd") && args.len() == 1 {
-            let space = ctx.intern_string_literal(" ");
-            argv.push(Operand::Value(space));
+        //
+        // S201 — 0-arg form: per ES §22.1.3.{16,17} step 1
+        // `ToLength(undefined) = 0`, and step 2 returns S
+        // unchanged because `0 <= S.length`. Push
+        // (maxLen=0, fill=" ") so the helper takes the
+        // no-pad path and returns a fresh clone of S.
+        if matches!(method.as_str(), "padStart" | "padEnd") {
+            if args.is_empty() {
+                argv.push(Operand::ConstI64(0));
+            }
+            if args.len() <= 1 {
+                let space = ctx.intern_string_literal(" ");
+                argv.push(Operand::Value(space));
+            }
         }
         // ES §22.1.3.1 step 2-3 — `s.at(index?)` undefined index
         // routes through ToIntegerOrInfinity → 0, so `s.at()`
