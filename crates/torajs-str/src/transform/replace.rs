@@ -18,6 +18,13 @@
 //!   inputs).
 //! - **`replaceAll` non-overlapping** — after a match at index `i`,
 //!   scan resumes at `i + needle.len()` (standard JS behavior).
+//! - **Replacement substitution (ES §22.1.3.18.5 GetSubstitution)**:
+//!   when the replacement template contains `$`, expand
+//!   `$$` → `$`, `$&` → matched, `` $` `` → portion of `s` before
+//!   the match, `$'` → portion after. Numeric `$N` and named
+//!   `$<name>` capture references collapse to "" (no captures from
+//!   a string needle). Templates with no `$` skip this path
+//!   entirely (existing zero-allocation fast path).
 //!
 //! IR-side surface: `__torajs_str_replace` · `__torajs_str_replace_all`,
 //! both `(Str, Str, Str) -> Str`; alloc-noalias-whitelisted on
@@ -258,6 +265,10 @@ pub fn replace_all_into_with_stride(
     dst[dst_i..dst_i + tail.len()].copy_from_slice(tail);
 }
 
+use super::replace_subst::{
+    expand_str_replacement, replace_all_with_substitution, template_has_dollar,
+};
+
 // ============================================================
 // extern "C" wrappers
 // ============================================================
@@ -302,15 +313,24 @@ pub unsafe extern "C" fn __torajs_str_replace(
         return alloc_str_copy(s_payload, s_latin1);
     };
 
+    let pre = &s_bytes[..found];
+    let post = &s_bytes[found + n_bytes.len()..];
+    // ES §22.1.3.18.5 GetSubstitution — when the template contains
+    // `$`, expand per-match into a temporary Vec then splice. Common
+    // dollar-free templates skip this entirely.
+    if template_has_dollar(r_bytes, stride as usize) {
+        let mut expanded = Vec::with_capacity(r_bytes.len());
+        expand_str_replacement(r_bytes, n_bytes, pre, post, stride as usize, &mut expanded);
+        let total_byte_cnt = pre.len() + expanded.len() + post.len();
+        let length = (total_byte_cnt as u32) / stride;
+        return build_result_with(length, total_byte_cnt as u32, out_latin1, |dst| {
+            splice_into(dst, pre, &expanded, post);
+        });
+    }
     let total_byte_cnt = s_bytes.len() + r_bytes.len() - n_bytes.len();
     let length = (total_byte_cnt as u32) / stride;
     build_result_with(length, total_byte_cnt as u32, out_latin1, |dst| {
-        splice_into(
-            dst,
-            &s_bytes[..found],
-            r_bytes,
-            &s_bytes[found + n_bytes.len()..],
-        );
+        splice_into(dst, pre, r_bytes, post);
     })
 }
 
@@ -381,6 +401,20 @@ pub unsafe extern "C" fn __torajs_str_replace_all(
     let hits = count_non_overlapping_with_stride(s_bytes, n_bytes, stride as usize);
     if hits == 0 {
         return alloc_str_copy(s_payload, s_latin1);
+    }
+
+    // ES §22.1.3.18.5 GetSubstitution — `$` substitution is per-match
+    // (`` $` `` / `$'` depend on each match's position), so we build
+    // the result into a Vec first and copy it into the alloc. Common
+    // dollar-free templates skip this and stay on the existing zero-
+    // allocation fast path.
+    if template_has_dollar(r_bytes, stride as usize) {
+        let expanded = replace_all_with_substitution(s_bytes, n_bytes, r_bytes, stride as usize);
+        let total_byte_cnt = expanded.len();
+        let length = (total_byte_cnt as u32) / stride;
+        return build_result_with(length, total_byte_cnt as u32, out_latin1, |dst| {
+            dst.copy_from_slice(&expanded);
+        });
     }
 
     let total_byte_cnt = s_bytes.len() + (hits * r_bytes.len()) - (hits * n_bytes.len());
