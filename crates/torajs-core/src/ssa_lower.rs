@@ -25410,6 +25410,22 @@ impl<'a> LowerCtx<'a> {
                     let _ = rhs_check_ty;
                     return lhs_op;
                 }
+                // ES §13.4.2 — literal `null` / `undefined` lhs is
+                // statically nullish, so the result is always rhs.
+                // The fall-through path below sizes the result slot
+                // by lhs's SSA type (e.g. `Type::Ptr` for null), then
+                // Loads back at that type — a typed rhs (e.g. String)
+                // would round-trip as the wrong SSA type and print as
+                // a raw pointer integer instead of the string content.
+                // Mirror the `lhs_non_nullable` short-circuit and
+                // return the lowered rhs at its own SSA type.
+                let lhs_always_nullish = matches!(
+                    lhs_check_ty,
+                    Some(crate::check::Type::Null) | Some(crate::check::Type::Undefined)
+                );
+                if lhs_always_nullish {
+                    return self.lower_expr(*rhs);
+                }
                 let res_slot = self.alloca_in_entry(lhs_ty, Some("__nullish"));
                 // Save lhs into the slot so the non-null branch can
                 // reuse it without re-eval.
