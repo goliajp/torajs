@@ -6341,7 +6341,13 @@ impl Checker {
                             ));
                         }
                         let from_ty = self.type_of(ast, args[1])?;
-                        if from_ty != Type::Number {
+                        // S217 — Array.{indexOf,lastIndexOf,includes}
+                        // (needle, undefined) per ES §22.1.3.{13,14,16}:
+                        // ToIntegerOrInfinity(undefined)=0. Accept
+                        // Undefined alongside Number; ssa_lower mirror
+                        // short-circuits fromIndex=undefined to
+                        // ConstI64(0).
+                        if from_ty != Type::Number && from_ty != Type::Undefined {
                             return Err(format!(
                                 "Array.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
                             ));

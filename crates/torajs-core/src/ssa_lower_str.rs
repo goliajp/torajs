@@ -2221,7 +2221,24 @@ pub(crate) fn try_lower_method_call(
             InstKind::Store(Operand::Value(len_v), Operand::Value(end_slot), 0),
         );
         if args.len() == 2 {
-            let raw = ctx.lower_expr(args[1]);
+            // S217 — Array.{indexOf,lastIndexOf,includes}(needle,
+            // undefined) per ES §22.1.3.{13,14,16}:
+            // ToIntegerOrInfinity(undefined)=0. (Note: Array.lastIndexOf
+            // differs from String.lastIndexOf — the *omitted* default is
+            // len-1 but *explicit-undefined* still goes through
+            // ToIntegerOrInfinity → 0; bun matches.) Short-circuit
+            // arg[1]=undefined to ConstI64(0); the pos-path branch
+            // below stores raw_i=0 into eff_slot, giving effective
+            // fromIndex=0 across all three methods.
+            let arg1_undef = matches!(
+                ctx.expr_types.get(&args[1]),
+                Some(crate::check::Type::Undefined)
+            );
+            let raw = if arg1_undef {
+                Operand::ConstI64(0)
+            } else {
+                ctx.lower_expr(args[1])
+            };
             let raw_i = ctx.coerce_to_i64(raw);
             let neg = ctx.f.append_inst(
                 ctx.cur_block,
