@@ -473,6 +473,24 @@ pub(crate) fn try_lower_method_call(
     // holding the normalized result. The per-call `emit_throw_check`
     // propagates the throw to the user's `try/catch` before the
     // result flows downstream.
+    // S210 — `s.search()` / `s.search(undefined)` per ES §22.1.3.20:
+    // RegExpCreate(undefined, undefined) yields an empty regex which
+    // matches at index 0 in any string. Short-circuit before the
+    // generic dispatch which routes search through str_index_of —
+    // the indexOf path would default the missing arg to the literal
+    // "undefined" and return -1 / first occurrence of "undefined",
+    // not the spec'd 0.
+    if recv_ty == Type::Str
+        && method == "search"
+        && (args.is_empty()
+            || (args.len() == 1
+                && matches!(
+                    ctx.expr_types.get(&args[0]),
+                    Some(crate::check::Type::Undefined)
+                )))
+    {
+        return Some(Operand::ConstI64(0));
+    }
     if recv_ty == Type::Str && method == "normalize" {
         // S208 — explicit `undefined` form follows the same
         // default-undefined rule per spec §22.1.3.13 step 1:

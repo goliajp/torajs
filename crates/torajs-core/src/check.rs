@@ -6583,6 +6583,32 @@ impl Checker {
                         return Ok(Type::String);
                     }
                 }
+                // S210 — String.search() / search(undefined) per ES
+                // §22.1.3.20: RegExpCreate(undefined, undefined)
+                // yields an empty regex which matches at index 0.
+                // Pre-fix tora declared `(String) -> Number`, so
+                // 0-arg failed at arity and 1-arg-undefined failed
+                // with "argument 0: expected String, got Undefined".
+                // ssa_lower short-circuits to ConstI64(0).
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "search"
+                    && args.len() < 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        if let Some(&aid) = args.first() {
+                            let aty = self.type_of(ast, aid)?;
+                            if matches!(aty, Type::Undefined) {
+                                return Ok(Type::Number);
+                            }
+                        } else {
+                            return Ok(Type::Number);
+                        }
+                    }
+                }
                 // S209 — String.repeat(undefined) per ES §22.1.3.17
                 // step 1: ToIntegerOrInfinity(undefined) = 0 → return
                 // the empty string. Declared `vec![Type::Number] ->
