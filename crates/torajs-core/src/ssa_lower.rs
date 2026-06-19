@@ -2492,7 +2492,7 @@ fn lower_inner(
         &mut fn_table,
         "__torajs_date_parse_iso",
         &[Type::Str],
-        Type::I64,
+        Type::F64,
     );
     /* v0.3 #1 — fs module substrate. */
     let fs_read_file_sync_id = declare_intrinsic(

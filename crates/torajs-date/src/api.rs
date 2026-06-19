@@ -108,14 +108,24 @@ pub extern "C" fn __torajs_date_utc_components(
     days * 86_400_000 + hour * 3_600_000 + minute * 60_000 + second * 1000 + milli
 }
 
-/// `Date.parse(s)` — ISO 8601 string → ms (or [`DATE_PARSE_FAIL`]).
+/// `Date.parse(s)` — ISO 8601 string → ms-since-epoch as f64
+/// (NaN on parse failure per ES §21.4.3.2). f64 ms values fit
+/// exactly within the 52-bit mantissa for timestamps well past the
+/// year 285616 (>= 2^53 ms beyond epoch); spec-correct NaN
+/// replaces the prior `INT64_MIN` sentinel that fooled
+/// `Number.isNaN` into returning false.
 ///
 /// # Safety
 ///
 /// `str_ptr` is null or a live `*Str`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_date_parse_iso(str_ptr: *const c_void) -> i64 {
-    unsafe { parse_iso(str_ptr) }
+pub unsafe extern "C" fn __torajs_date_parse_iso(str_ptr: *const c_void) -> f64 {
+    let ms = unsafe { parse_iso(str_ptr) };
+    if ms == DATE_PARSE_FAIL {
+        f64::NAN
+    } else {
+        ms as f64
+    }
 }
 
 /// `new Date(iso)` — parse + allocate. Failure → epoch (best-effort,
