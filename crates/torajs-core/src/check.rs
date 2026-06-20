@@ -7018,6 +7018,62 @@ impl Checker {
                         return Ok(Type::String);
                     }
                 }
+                // S241 — String.{slice,substring,substr,padStart,padEnd}
+                // (a, b, ...trailing) trailing-arg ignore per ES
+                // §22.1.3.{20,22,23,16,17}: spec reserves slots past the
+                // 2 useful args (start/end / start/length / maxLen/fillStr)
+                // but tora's helpers are 2-arg only. Trailing operand
+                // type_of'd for side effects then dropped at lower-time
+                // (ssa_lower break early past i=1). Same shape as S238
+                // localeCompare.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "slice" | "substring" | "substr" | "padStart" | "padEnd"
+                    )
+                    && args.len() == 3
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let aty0 = self.type_of(ast, args[0])?;
+                        let arg0_ok = match m_name.as_str() {
+                            "slice" | "substring" => {
+                                matches!(aty0, Type::Number | Type::Undefined)
+                            }
+                            "substr" => matches!(aty0, Type::Number),
+                            "padStart" | "padEnd" => {
+                                matches!(aty0, Type::Number | Type::Undefined)
+                            }
+                            _ => false,
+                        };
+                        if !arg0_ok {
+                            return Err(format!(
+                                "String.{m_name} arg 0 must be number, got {aty0:?}"
+                            ));
+                        }
+                        let aty1 = self.type_of(ast, args[1])?;
+                        let arg1_ok = match m_name.as_str() {
+                            "slice" | "substring" => {
+                                matches!(aty1, Type::Number | Type::Undefined)
+                            }
+                            "substr" => matches!(aty1, Type::Number),
+                            "padStart" | "padEnd" => {
+                                matches!(aty1, Type::String | Type::Undefined)
+                            }
+                            _ => false,
+                        };
+                        if !arg1_ok {
+                            return Err(format!(
+                                "String.{m_name} arg 1 type mismatch, got {aty1:?}"
+                            ));
+                        }
+                        let _ = self.type_of(ast, args[2])?;
+                        return Ok(Type::String);
+                    }
+                }
                 // S211 — String.localeCompare(undefined) per ES
                 // §22.1.3.10 step 4: thatStr = ToString(thatValue)
                 // = "undefined". Pre-fix declared `(String) -> Number`

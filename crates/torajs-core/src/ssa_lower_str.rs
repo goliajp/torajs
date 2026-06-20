@@ -668,8 +668,12 @@ pub(crate) fn try_lower_method_call(
             // below — once the loop substitutes the lone undef arg
             // with ConstI64(0), the `args.len() < 2` path appends the
             // recv length, yielding `[0, len]`.
-            let slice_subs_2arg =
-                matches!(method.as_str(), "substring" | "slice") && args.len() == 2;
+            // S241 widens the 2-arg detection to 3-arg so a trailing-arg
+            // shape (slice/substring(a, b, trailing)) still substitutes
+            // undef slots; the trailing operand is dropped by the loop
+            // break-at-i>1 guard below.
+            let slice_subs_2arg = matches!(method.as_str(), "substring" | "slice")
+                && (args.len() == 2 || args.len() == 3);
             let mut substring_len_op: Option<Operand> = None;
             let slice_subs_1arg_undef =
                 matches!(method.as_str(), "substring" | "slice") && args.len() == 1;
@@ -688,15 +692,20 @@ pub(crate) fn try_lower_method_call(
             // returns S unchanged. Replace the undef maxLength slot with
             // ConstI64(0); the V3-18 1-arg fallthrough below still
             // supplies the default fill " " when arg 1 is omitted.
-            let undef_zero_at_arg0_pad = matches!(method.as_str(), "padStart" | "padEnd")
-                && (args.len() == 1 || args.len() == 2);
+            let undef_zero_at_arg0_pad =
+                matches!(method.as_str(), "padStart" | "padEnd") && (1..=3).contains(&args.len());
             // S236 — String.{padStart,padEnd}(N, undefined) per ES
             // §22.1.3.{16,17} step 6.a: fillString undef → " ". Replace
             // the undef fillStr slot with the interned " " literal so
             // the helper's (Str, I64, Str) ABI never sees a ConstPtrNull;
             // matches the V3-18 m1.h.45 1-arg default fill.
-            let undef_space_at_arg1_pad =
-                matches!(method.as_str(), "padStart" | "padEnd") && args.len() == 2;
+            //
+            // S241 widens the 2-arg detection to 3-arg so a padStart/padEnd
+            // (N, undef, trailing) shape still substitutes the " " literal;
+            // the trailing operand is dropped by the loop break-at-i>1
+            // guard below.
+            let undef_space_at_arg1_pad = matches!(method.as_str(), "padStart" | "padEnd")
+                && (args.len() == 2 || args.len() == 3);
             for (i, &a) in args.iter().enumerate() {
                 let arg_undef =
                     matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
@@ -729,6 +738,17 @@ pub(crate) fn try_lower_method_call(
                     method.as_str(),
                     "at" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" | "normalize"
                 ) && i > 0
+                {
+                    break;
+                }
+                // S241 — String.{slice,substring,substr,padStart,padEnd}
+                // (a, b, ...trailing) trailing-arg ignore per ES
+                // §22.1.3.{20,22,23,16,17}: drop args beyond i=1 so the
+                // helper's 2-arg ABI never sees the extra operands.
+                if matches!(
+                    method.as_str(),
+                    "slice" | "substring" | "substr" | "padStart" | "padEnd"
+                ) && i > 1
                 {
                     break;
                 }
