@@ -687,6 +687,14 @@ pub(crate) fn try_lower_method_call(
             for (i, &a) in args.iter().enumerate() {
                 let arg_undef =
                     matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
+                // S238 — String.localeCompare(other, locales?, options?) per
+                // ES §22.1.3.10 trailing-arg ignore: tora's bytewise helper
+                // has no Intl-locale awareness, so the trailing slots are
+                // dropped at lower-time. The helper signature stays
+                // (Str, Str) and never receives the extra operands.
+                if method.as_str() == "localeCompare" && i > 0 {
+                    break;
+                }
                 if undef_to_str_repl && arg_undef {
                     let u = ctx.intern_string_literal("undefined");
                     argv.push(Operand::Value(u));

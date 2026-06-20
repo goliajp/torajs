@@ -6989,17 +6989,30 @@ impl Checker {
                 // "argument 0: expected String, got Undefined".
                 // ssa_lower inline-substitutes the interned
                 // "undefined" literal for the typed-undefined operand.
+                //
+                // S238 — extend the same carve-out to the 2-arg
+                // (locales) and 3-arg (locales, options) shapes per ES
+                // §22.1.3.10 trailing-arg ignore: the spec reserves
+                // those slots for Intl-aware locale comparison but
+                // tora's bytewise helper has no locale awareness, so
+                // they're ignored. The ssa_lower_str loop trims any
+                // arg beyond i=0 so the helper's (Str, Str) ABI never
+                // sees the trailing operands.
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && m_name == "localeCompare"
-                    && args.len() == 1
+                    && (1..=3).contains(&args.len())
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {
-                        let aty = self.type_of(ast, args[0])?;
-                        if matches!(aty, Type::Undefined) {
+                        let aty0 = self.type_of(ast, args[0])?;
+                        let arg0_ok = matches!(aty0, Type::String | Type::Undefined);
+                        if arg0_ok {
+                            for &aid in &args[1..] {
+                                let _ = self.type_of(ast, aid)?;
+                            }
                             return Ok(Type::Number);
                         }
                     }
