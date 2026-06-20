@@ -1226,12 +1226,21 @@ pub(crate) fn try_lower_method_call(
                 ctx.expr_types.get(&args[0]),
                 Some(crate::check::Type::Undefined)
             );
-        let sep = if args.is_empty() || undef_sep {
+        // S287 — toString / toLocaleString are 0-useful (sep is
+        // hard-coded ","); join is 1-useful (sep:Str|Undef).
+        // Trailing args past the useful slots get lower-and-dropped
+        // here so step()-style side-effect exprs fire per ES
+        // eval-then-discard (S272 idiom). Mirrors check.rs S287.
+        let useful = if method == "join" { 1 } else { 0 };
+        let sep = if useful == 0 || args.is_empty() || undef_sep {
             let s = ctx.intern_string_literal(",");
             Operand::Value(s)
         } else {
             ctx.lower_expr(args[0])
         };
+        for &a in args.iter().skip(useful) {
+            let _ = ctx.lower_expr(a);
+        }
         argv.push(sep);
         let v = ctx.f.append_inst(
             ctx.cur_block,
@@ -2161,10 +2170,16 @@ pub(crate) fn try_lower_method_call(
     }
     // `arr.reverse()` — in-place over the receiver,
     // returns the same array pointer for chaining.
+    // S287 — accept any trailing operands per ES §23.1.3.27
+    // trailing-arg ignore; lower-and-drop so step()-style
+    // side-effect exprs fire per ES eval-then-discard (S272
+    // idiom). Runtime helper ABI is single-arg `recv`.
     if let Type::Arr(arr_id) = recv_ty
         && method == "reverse"
-        && args.is_empty()
     {
+        for &a in args.iter() {
+            let _ = ctx.lower_expr(a);
+        }
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.arr_reverse, vec![recv_op]),
@@ -2181,8 +2196,12 @@ pub(crate) fn try_lower_method_call(
     // for rationale).
     if let Type::Arr(arr_id) = recv_ty
         && method == "toReversed"
-        && args.is_empty()
     {
+        // S287 — accept trailing args per ES §23.1.3.33; lower-
+        // and-drop before the call to fire side-effect exprs.
+        for &a in args.iter() {
+            let _ = ctx.lower_expr(a);
+        }
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.arr_to_reversed, vec![recv_op]),
