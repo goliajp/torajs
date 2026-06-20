@@ -17465,6 +17465,18 @@ impl<'a> LowerCtx<'a> {
                     && matches!(m_name.as_str(), "pow" | "atan2" | "imul")
                     && (args.len() < 2 || bin_undef)
                 {
+                    // S274 — eval non-undef args so side-effect exprs
+                    // fire (was silent-drop pre-S274). Undef positions
+                    // skip lower (ConstPtrNull sentinel can't enter the
+                    // helper's f64/i32 ABI).
+                    if bin_undef {
+                        for &a in args {
+                            if !matches!(self.expr_types.get(&a), Some(check_mod::Type::Undefined))
+                            {
+                                let _ = self.lower_expr(a);
+                            }
+                        }
+                    }
                     if m_name == "imul" {
                         return Operand::ConstF64(0.0);
                     }
@@ -17491,12 +17503,21 @@ impl<'a> LowerCtx<'a> {
                     // through min/max per spec §21.3.2.{24,25}: each step
                     // applies ToNumber, ToNumber(undefined)=NaN, and min/
                     // max with a NaN operand returns NaN. Fold to
-                    // ConstF64(NaN) without lowering any arg so the
-                    // ConstPtrNull undef never reaches coerce_to_f64.
+                    // ConstF64(NaN) without lowering the undef args (the
+                    // ConstPtrNull sentinel can't enter coerce_to_f64).
+                    //
+                    // S274 — eval the non-undef args before short-circuit
+                    // so step()-style side-effect exprs fire.
                     if args
                         .iter()
                         .any(|a| matches!(self.expr_types.get(a), Some(check_mod::Type::Undefined)))
                     {
+                        for &a in args {
+                            if !matches!(self.expr_types.get(&a), Some(check_mod::Type::Undefined))
+                            {
+                                let _ = self.lower_expr(a);
+                            }
+                        }
                         return Operand::ConstF64(f64::NAN);
                     }
                     let target = if m_name == "min" {
