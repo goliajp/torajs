@@ -16574,9 +16574,16 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                     // V3-18 m1.h.47 — Symbol.prototype.toString().
+                    // S293 — lower-and-drop trailing args so step()-style
+                    // side-effect exprs fire per ES eval-then-discard
+                    // (S272 idiom). check.rs S260 typecheck-and-drops
+                    // them; SSA arm folds to symbol_to_str(recv_op).
                     if recv_ty == Type::Symbol
                         && (m_name == "toString" || m_name == "toLocaleString")
                     {
+                        for &a in args.iter() {
+                            let _ = self.lower_expr(a);
+                        }
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(self.intrinsics.symbol_to_str, vec![recv_op]),
@@ -16589,8 +16596,12 @@ impl<'a> LowerCtx<'a> {
                     // toString → "true"/"false" via the bool_to_str
                     // intrinsic (already used by string-coerce). valueOf
                     // is identity on the bool.
+                    // S293 — lower-and-drop trailing args (S272 idiom).
                     if recv_ty == Type::Bool && (m_name == "toString" || m_name == "toLocaleString")
                     {
+                        for &a in args.iter() {
+                            let _ = self.lower_expr(a);
+                        }
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(self.intrinsics.bool_to_str, vec![recv_op]),
@@ -16603,9 +16614,15 @@ impl<'a> LowerCtx<'a> {
                     // toLocaleString just return the receiver per
                     // spec §22.1.3.27. Identity at the SSA layer:
                     // pass the operand through.
+                    // S293 — lower-and-drop trailing args before
+                    // returning recv_op so step()-style side-effect
+                    // exprs fire (S272 idiom).
                     if matches!(recv_ty, Type::Str | Type::Substr)
                         && (m_name == "toString" || m_name == "toLocaleString")
                     {
+                        for &a in args.iter() {
+                            let _ = self.lower_expr(a);
+                        }
                         return recv_op;
                     }
                     if recv_ty == Type::I64 || recv_ty == Type::F64 {
