@@ -17152,6 +17152,24 @@ impl<'a> LowerCtx<'a> {
                             if args.is_empty() {
                                 return Operand::ConstBool(name == "isNaN");
                             }
+                            // S279 — explicit `undefined` arg per ES
+                            // §19.2.3 / §19.2.4: ToNumber(undefined)=NaN,
+                            // so isNaN→true and isFinite→false. Same
+                            // short-circuit shape as parseFloat above
+                            // (~17130) — without it the Undefined value
+                            // (i64 sentinel 0) falls into the I64 arm
+                            // below and dispatches to num_is_nan_i /
+                            // num_is_finite_i which silently return the
+                            // *opposite* (false / true), mirroring
+                            // `isNaN(0)` / `isFinite(0)` rather than
+                            // `isNaN(NaN)` / `isFinite(NaN)`. Pre-S279
+                            // tora was the only silent-wrong path here.
+                            if matches!(
+                                self.expr_types.get(&args[0]),
+                                Some(check_mod::Type::Undefined)
+                            ) {
+                                return Operand::ConstBool(name == "isNaN");
+                            }
                             let arg_op = self.lower_expr(args[0]);
                             let arg_ty = self.operand_ty(&arg_op);
                             // V3-18 wedge — global isNaN / isFinite
