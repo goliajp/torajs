@@ -7499,6 +7499,29 @@ impl Checker {
                         _ => unreachable!(),
                     });
                 }
+                // S260 — `n.toLocaleString(locales?, options?, ...trailing)`
+                // trailing-arg ignore per ES §21.1.3.4. Spec reads
+                // locales + options + ignores rest; tora ignores all
+                // formatting args already (en-US-only subset; ssa_lower
+                // pass_args=false at line ~16707). The fixed-arity
+                // `vec![Any, Any]` sig above rejects 3+ arg calls —
+                // widen here. Type-erased silent-drop matches the
+                // SSA-emit reality (no arg flows to runtime helper).
+                if let Expr::Member {
+                    obj: recv_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "toLocaleString"
+                    && args.len() >= 3
+                {
+                    let recv_ty = self.type_of(ast, *recv_id)?;
+                    if matches!(recv_ty, Type::Number) {
+                        for &arg in args.iter() {
+                            let _ = self.type_of(ast, arg)?;
+                        }
+                        return Ok(Type::String);
+                    }
+                }
                 // S259 — Symbol.{for,keyFor}(key|s, ...trailing)
                 // trailing-arg ignore per ES §19.4.{2,3}. Spec reads
                 // only args[0]; tora silent-drops trailing. SSA-emit
