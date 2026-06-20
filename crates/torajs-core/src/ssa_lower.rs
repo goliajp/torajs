@@ -21798,6 +21798,17 @@ impl<'a> LowerCtx<'a> {
                             }
                             ops
                         } else {
+                            // S295 — Date 0-arg getter / format methods
+                            // (getTime / valueOf / toISOString / toJSON /
+                            // getFullYear / ... / toLocaleString) accept
+                            // trailing args per ES §21.4.4.* trailing-arg
+                            // ignore. check.rs S261 typecheck-and-drops
+                            // them; lower-and-drop here so step()-style
+                            // side-effect exprs fire (S272 idiom). The
+                            // helper's 1-arg ABI (recv only) is preserved.
+                            for ai in args.iter() {
+                                let _ = self.lower_expr(*ai);
+                            }
                             vec![recv_op]
                         };
                         let (target, ret_ty) = match method.as_str() {
