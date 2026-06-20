@@ -49,11 +49,16 @@ impl Checker {
         if args.is_empty() {
             return Some(Ok(Type::Promise(Box::new(Type::Undefined))));
         }
-        if args.len() > 1 {
-            return Some(Err(format!(
-                "Promise.{m_name} expects 0 or 1 arg, got {}",
-                args.len()
-            )));
+        // S263 — Promise.{resolve,reject}(value, ...trailing)
+        // trailing-arg ignore per ES §27.2.4.{7,8}. Spec reads
+        // only args[0]; trailing silently drops. ssa_lower.rs's
+        // 1-arg arm only references args[0] so trailing args
+        // naturally drop at lower time (the args.len() guard
+        // there widens to `>= 1` to admit this shape).
+        for &arg in args.iter().skip(1) {
+            if let Err(e) = self.type_of(ast, arg) {
+                return Some(Err(e));
+            }
         }
         let arg_ty = match self.type_of(ast, args[0]) {
             Ok(t) => t,

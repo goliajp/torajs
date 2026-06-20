@@ -19254,7 +19254,11 @@ impl<'a> LowerCtx<'a> {
                     && (m_name == "resolve" || m_name == "reject")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Promise"
-                    && args.len() == 1
+                    // S263 — widen `== 1` → `>= 1` per ES §27.2.4.{7,8}
+                    // trailing-arg ignore. Lower only args[0]; trailing
+                    // dropped at lower-time (check::promise_static
+                    // already type_of'd them).
+                    && !args.is_empty()
                 {
                     let arg_op = self.lower_expr(args[0]);
                     self.consume_if_ident(args[0]);
