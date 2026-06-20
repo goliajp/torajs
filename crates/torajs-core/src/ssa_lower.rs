@@ -17932,8 +17932,13 @@ impl<'a> LowerCtx<'a> {
                     && m_name == "from"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Array"
-                    && (args.len() == 1 || args.len() == 2)
+                    && !args.is_empty()
                 {
+                    // S275 — widen `== 1 || == 2` to `>= 1`. The 2-arg
+                    // path below handles iter+mapFn; trailing args (thisArg
+                    // + extras) are eval-and-dropped at the end so side-
+                    // effect exprs fire per ES §23.1.2.1 trailing-arg
+                    // ignore.
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
                     // First produce src_arr_op (Type::Arr<elem>) via one
@@ -17996,6 +18001,14 @@ impl<'a> LowerCtx<'a> {
                     };
                     if args.len() == 1 {
                         return src_arr_op;
+                    }
+                    // S275 — eval-and-drop args[2..] (thisArg + any
+                    // trailing) so side-effect exprs fire per ES
+                    // §23.1.2.1 trailing-arg ignore. tora closures don't
+                    // bind `this`, so thisArg value is silently discarded;
+                    // args[1] is the mapFn (lowered below).
+                    for &a in &args[2..] {
+                        let _ = self.lower_expr(a);
                     }
                     // S151 — `Array.from(iter, mapFn)` per ES §23.1.2.1.
                     // mapFn shape: `(elem) → R` or `(elem, idx) → R`.

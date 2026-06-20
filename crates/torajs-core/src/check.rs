@@ -5540,13 +5540,20 @@ impl Checker {
                         // Fall through to the static-sig path; the String
                         // overload already covered there throws a sensible
                         // arity / type mismatch otherwise.
-                    } else if args.len() == 2 {
+                    } else if args.len() >= 2 {
                         // S151 — `Array.from(iter, mapFn)` per ES §23.1.2.1.
                         // mapFn shape `(elem) → R` or `(elem, idx) → R`;
                         // result type is `Array<R>` where R = mapFn's ret.
                         // iter accepts the same three substrates as 1-arg
                         // (String / typed Array / Set); the actual ssa-lower
                         // path picks 1-arg substrate then runs a map loop.
+                        //
+                        // S275 — widen `args.len() == 2` to `>= 2` per ES
+                        // §23.1.2.1: spec accepts `Array.from(iter, mapFn,
+                        // thisArg)`; trailing args past thisArg silent-
+                        // drop. tora's closures don't bind `this`, so
+                        // thisArg + further trailing are typecheck-and-
+                        // dropped; ssa_lower mirror evals-and-drops.
                         let arg_ty = self.type_of(ast, args[0])?;
                         match &arg_ty {
                             Type::String | Type::Array(_) | Type::Set => {}
@@ -5565,6 +5572,9 @@ impl Checker {
                                 ));
                             }
                         };
+                        for &a in &args[2..] {
+                            let _ = self.type_of(ast, a)?;
+                        }
                         return Ok(Type::Array(Box::new(ret_ty)));
                     }
                 }
