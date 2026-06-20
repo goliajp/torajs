@@ -818,6 +818,16 @@ pub(crate) fn try_lower_method_call(
                 {
                     break;
                 }
+                // S282 — String.{replace,replaceAll,split}(useful, useful,
+                // ...trailing) trailing-arg ignore per ES §22.1.3.{18,
+                // 19,21}. Helpers are 2-arg only (str_replace /
+                // str_replace_all / str_split). Lower-and-drop args
+                // beyond i=1 per S272 idiom so step()-style side-effect
+                // exprs fire.
+                if matches!(method.as_str(), "replace" | "replaceAll" | "split") && i > 1 {
+                    let _ = ctx.lower_expr(a);
+                    continue;
+                }
                 if undef_to_str_repl && arg_undef {
                     let u = ctx.intern_string_literal("undefined");
                     argv.push(Operand::Value(u));
@@ -1049,7 +1059,12 @@ pub(crate) fn try_lower_method_call(
                     );
                     return Some(Operand::Value(v));
                 }
-                if args.len() == 2 {
+                // S282 — widen from `args.len() == 2` (strict 2-arg with
+                // limit) to `args.len() >= 2` so the 3+ arg trailing-
+                // widen shape still drives the limit-clamp branch. The
+                // S282 loop carve-out (~827) lower-and-drops args[2..]
+                // so argv stops at [recv, sep, limit].
+                if args.len() >= 2 {
                     let split_v = ctx.f.append_inst(
                         ctx.cur_block,
                         InstKind::Call(ctx.intrinsics.str_split, argv[..2].to_vec()),
