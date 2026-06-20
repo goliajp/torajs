@@ -212,8 +212,10 @@ pub(crate) fn try_lower_method_call(
     // S240 widens the 1-arg detection to 2-arg so the
     // charAt(idx, trailing) shape still routes through this fast
     // path; args[1] is never lowered (trailing-arg ignore).
-    if recv_ty == Type::Substr && method == "charAt" && (args.len() == 1 || args.len() == 2) {
+    if recv_ty == Type::Substr && method == "charAt" && !args.is_empty() {
         // charAt on Substr: substr_slice(v, i, i+1).
+        // S272 — widen `== 1 || == 2` to `>= 1`; trailing exprs eval-
+        // and-drop below per ES §22.1.3.2 trailing-arg ignore.
         let idx_val = ctx.lower_expr(args[0]);
         let end = ctx.f.append_inst(
             ctx.cur_block,
@@ -230,6 +232,9 @@ pub(crate) fn try_lower_method_call(
             Type::Substr,
             None,
         );
+        for &a in &args[1..] {
+            let _ = ctx.lower_expr(a);
+        }
         return Some(Operand::Value(v));
     }
     // V3-18 wedge — Substr.charAt() 0-arg variant —
@@ -438,10 +443,11 @@ pub(crate) fn try_lower_method_call(
     // charAt(idx, trailing) shape still routes through this length-1
     // substr-view fast path; args[1] is never lowered (trailing-arg
     // ignore).
-    if matches!(recv_ty, Type::Str | Type::Substr)
-        && method == "charAt"
-        && (args.len() == 1 || args.len() == 2)
-    {
+    //
+    // S272 — widen `== 1 || == 2` to `>= 1` so charAt(idx, ...trailing)
+    // with any trailing count routes through this fast path; the
+    // trailing exprs are eval-and-dropped below so side effects fire.
+    if matches!(recv_ty, Type::Str | Type::Substr) && method == "charAt" && !args.is_empty() {
         // S222 — `s.charAt(undefined)` per ES §22.1.3.2 step 2-3:
         // ToIntegerOrInfinity(undefined)=0. Short-circuit to ConstI64(0)
         // before coerce_to_i64, which can't lower a ConstPtrNull undef
@@ -484,6 +490,11 @@ pub(crate) fn try_lower_method_call(
                 None,
             )
         };
+        // S272 — eval-and-drop trailing exprs so side effects fire
+        // per ES §22.1.3.2 trailing-arg ignore semantics.
+        for &a in &args[1..] {
+            let _ = ctx.lower_expr(a);
+        }
         return Some(Operand::Value(v));
     }
     // P11.6-S4 — `s.normalize(form?)` per ES §22.1.3.13. Routes to
@@ -523,7 +534,11 @@ pub(crate) fn try_lower_method_call(
         // S240 widens the 1-arg detection to 2-arg so a trailing-undef
         // shape (normalize(undef, trailing)) still folds to "NFC" without
         // lowering the undef operand into the helper's Str slot.
-        let undef_form = (args.len() == 1 || args.len() == 2)
+        //
+        // S272 — widen further to `args.len() >= 1` (any trailing count);
+        // detect typed-Undefined at args[0] regardless of arg count, then
+        // eval-and-drop args[1..] so trailing side-effect exprs fire.
+        let undef_form = !args.is_empty()
             && matches!(
                 ctx.expr_types.get(&args[0]),
                 Some(crate::check::Type::Undefined)
@@ -539,6 +554,9 @@ pub(crate) fn try_lower_method_call(
             Type::Str,
             None,
         );
+        for &a in args.iter().skip(1) {
+            let _ = ctx.lower_expr(a);
+        }
         ctx.emit_throw_check(None);
         return Some(Operand::Value(v));
     }
@@ -734,12 +752,18 @@ pub(crate) fn try_lower_method_call(
                 // ignore per ES §22.1.3.{1,2,3,4,17,13}: drop args
                 // beyond i=0 so the helper's 1-arg ABI never sees the
                 // extra operands.
+                //
+                // S272 — was `break` (silently dropped trailing exprs).
+                // Lower-and-drop each so step()-style side-effect exprs
+                // fire per ES eval-then-discard semantics. The operand
+                // value is discarded (never pushed into argv).
                 if matches!(
                     method.as_str(),
                     "at" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" | "normalize"
                 ) && i > 0
                 {
-                    break;
+                    let _ = ctx.lower_expr(a);
+                    continue;
                 }
                 // S241 — String.{slice,substring,substr,padStart,padEnd}
                 // (a, b, ...trailing) trailing-arg ignore per ES

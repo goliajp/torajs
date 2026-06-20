@@ -6764,9 +6764,11 @@ impl Checker {
                 // repeat,normalize}(useful, ...trailing) trailing-arg
                 // ignore per ES §22.1.3.{1,2,3,4,17,13}: spec reserves
                 // slots past useful arg 0 but tora's helpers are 1-arg
-                // only. Trailing operand type_of'd for side effects then
-                // dropped at lower-time (ssa_lower break early past
-                // i=0). Same shape as S238 localeCompare.
+                // only. Trailing operands type_of'd for side effects;
+                // ssa_lower mirror evals-and-drops past i=0.
+                //
+                // S272 widens from `args.len() == 2` (single trailing)
+                // to `args.len() >= 2` (any trailing count).
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
@@ -6775,7 +6777,7 @@ impl Checker {
                         m_name.as_str(),
                         "at" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" | "normalize"
                     )
-                    && args.len() == 2
+                    && args.len() >= 2
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {
@@ -6788,7 +6790,9 @@ impl Checker {
                             _ => false,
                         };
                         if arg0_ok {
-                            let _ = self.type_of(ast, args[1])?;
+                            for &a in &args[1..] {
+                                let _ = self.type_of(ast, a)?;
+                            }
                             return Ok(match m_name.as_str() {
                                 "at" | "charAt" | "repeat" | "normalize" => Type::String,
                                 _ => Type::Number,
