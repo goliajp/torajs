@@ -20570,7 +20570,13 @@ impl<'a> LowerCtx<'a> {
                             let recv_op = self.lower_expr(*obj);
                             match m_name.as_str() {
                                 "add" => {
-                                    debug_assert_eq!(args.len(), 1);
+                                    // S248 — Set.add(value, ...trailing)
+                                    // per ES §24.2.3.1: trailing slots
+                                    // type-checked + drop here. Widen
+                                    // `== 1` → `>= 1`; args[1..] silent
+                                    // ignored at lower-time (check.rs
+                                    // already type_of'd them).
+                                    debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     /* ANY_UNDEF = 5 (runtime_str.c
                                      * __TORAJS_ANY_UNDEF). The Set
@@ -21093,7 +21099,13 @@ impl<'a> LowerCtx<'a> {
                             let recv_op = self.lower_expr(*obj);
                             match m_name.as_str() {
                                 "set" => {
-                                    debug_assert_eq!(args.len(), 2);
+                                    // S248 — Map.set(key, value, ...trailing)
+                                    // per ES §23.1.3.9: trailing slots
+                                    // type-checked + drop here. Widen
+                                    // `== 2` → `>= 2`; args[2..] silent
+                                    // ignored at lower-time (check.rs
+                                    // already type_of'd them).
+                                    debug_assert!(args.len() >= 2);
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let (v_tag, v_val) = self.lower_to_tag_value(args[1]);
                                     self.f.append_void(

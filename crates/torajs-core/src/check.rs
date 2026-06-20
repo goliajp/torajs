@@ -7340,6 +7340,38 @@ impl Checker {
                         });
                     }
                 }
+                // S248 — Set.add / Map.set (value, ...trailing) /
+                // (key, value, ...trailing) trailing-arg ignore per
+                // ES §24.2.3.1 (Set.prototype.add) / §23.1.3.9
+                // (Map.prototype.set). Spec adds the useful args then
+                // returns the receiver for chained idiom; tora widens
+                // the dispatch to accept trailing operands and drops
+                // them at lower-time (ssa-lower debug-assert widens
+                // `== N` → `>= N`; receiver-chain rc_inc unchanged).
+                // Same narrow-shape as S243-S247.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(), "add" | "set")
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::Set) && m_name == "add" && args.len() >= 2 {
+                        let _ = self.type_of(ast, args[0])?;
+                        for &arg in &args[1..] {
+                            let _ = self.type_of(ast, arg)?;
+                        }
+                        return Ok(Type::Set);
+                    }
+                    if matches!(src_ty, Type::Map) && m_name == "set" && args.len() >= 3 {
+                        let _ = self.type_of(ast, args[0])?;
+                        let _ = self.type_of(ast, args[1])?;
+                        for &arg in &args[2..] {
+                            let _ = self.type_of(ast, arg)?;
+                        }
+                        return Ok(Type::Map);
+                    }
+                }
                 // S210 — String.search() / search(undefined) per ES
                 // §22.1.3.20: RegExpCreate(undefined, undefined)
                 // yields an empty regex which matches at index 0.
