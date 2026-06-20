@@ -187,10 +187,23 @@ fn emit_clone_splice_return(
     } else {
         ctx.lower_expr(args[0])
     };
+    // S237 — `arr.toSpliced(start, undefined)` mirrors splice undef
+    // handling per ES §23.1.3.42 step 7: ToIntegerOrInfinity(undef)=0,
+    // so the explicit-undefined deleteCount yields 0 removal (distinct
+    // from omitted-arg 1-arg `len - actualStart` default).
     let delete_count = match args.len() {
         0 => Operand::ConstI64(0),
         1 => Operand::ConstI64(i64::MAX),
-        _ => ctx.lower_expr(args[1]),
+        _ => {
+            if matches!(
+                ctx.expr_types.get(&args[1]),
+                Some(crate::check::Type::Undefined)
+            ) {
+                Operand::ConstI64(0)
+            } else {
+                ctx.lower_expr(args[1])
+            }
+        }
     };
     let removed = ctx.f.append_inst(
         ctx.cur_block,

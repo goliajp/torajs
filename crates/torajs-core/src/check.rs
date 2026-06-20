@@ -7190,6 +7190,31 @@ impl Checker {
                         params.truncate(effective_args.len());
                     }
                 }
+                // S237 — `arr.splice(start, undefined)` /
+                // `arr.toSpliced(start, undefined)` per ES §23.1.3.31
+                // step 7: ToIntegerOrInfinity(undefined) = 0, so an
+                // explicit-undefined deleteCount yields 0 removal
+                // (matches bun: returns `[]`, leaves the source
+                // unchanged). Distinct from the omitted-arg 1-arg
+                // shape above which spec-defaults deleteCount to
+                // `len - actualStart`. Trim both `params` and
+                // `effective_args` to the 1-arg shape when arg 1 is
+                // Undefined so the strict-equality arity check below
+                // accepts it; ssa_lower_splice mirror detects the
+                // 2-arg-undef shape and emits ConstI64(0) for
+                // deleteCount instead of the 1-arg i64::MAX sentinel.
+                if effective_args.len() == 2
+                    && params.len() == 2
+                    && let Expr::Member { obj, name } = ast.get_expr(*callee)
+                    && matches!(name.as_str(), "splice" | "toSpliced")
+                {
+                    let recv_ty = self.type_of(ast, *obj)?;
+                    let arg1_ty = self.type_of(ast, effective_args[1])?;
+                    if matches!(recv_ty, Type::Array(_)) && matches!(arg1_ty, Type::Undefined) {
+                        params.truncate(1);
+                        effective_args.truncate(1);
+                    }
+                }
                 // `arr.at(index?)` / `s.at(index?)` — per ES §22.1.3.1 /
                 // §23.1.3.1 step 2-3, `undefined` routes through
                 // ToIntegerOrInfinity → 0, so the 0-arg form returns

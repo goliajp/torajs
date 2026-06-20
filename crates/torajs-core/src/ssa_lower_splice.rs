@@ -155,10 +155,25 @@ fn emit_splice_return(
     } else {
         ctx.lower_expr(args[0])
     };
+    // S237 — `arr.splice(start, undefined)` per ES §23.1.3.31 step 7:
+    // ToIntegerOrInfinity(undefined) = 0, so an explicit-undefined
+    // deleteCount yields 0 removal (distinct from the omitted-arg
+    // 1-arg shape's `len - actualStart` spec default). Detect the
+    // typed-Undefined operand and substitute ConstI64(0) before the
+    // helper Call.
     let delete_count = match args.len() {
         0 => Operand::ConstI64(0),
         1 => Operand::ConstI64(i64::MAX),
-        _ => ctx.lower_expr(args[1]),
+        _ => {
+            if matches!(
+                ctx.expr_types.get(&args[1]),
+                Some(crate::check::Type::Undefined)
+            ) {
+                Operand::ConstI64(0)
+            } else {
+                ctx.lower_expr(args[1])
+            }
+        }
     };
     let removed = ctx.f.append_inst(
         ctx.cur_block,
