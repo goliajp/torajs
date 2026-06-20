@@ -18646,7 +18646,11 @@ impl<'a> LowerCtx<'a> {
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && m_name == "get"
                     && ns == "Reflect"
-                    && args.len() == 2
+                    // S257 — widen `== 2` → `>= 2` per ES §28.1.6
+                    // trailing-arg ignore. Lower only args[0..2];
+                    // trailing receiver arg dropped at lower-time
+                    // (check.rs S257 type_of'd them).
+                    && args.len() >= 2
                     && let Expr::String(key_lit) = self.ast.get_expr(args[1])
                 {
                     let key = key_lit.clone();
@@ -18707,7 +18711,11 @@ impl<'a> LowerCtx<'a> {
                         // emit — tr has no prototype chain so own == all
                         // and the spec gap with `in` is empty.
                         || (m_name == "has" && ns == "Reflect"))
-                    && args.len() == 2
+                    // S257 — widen `== 2` → `>= 2` per ES §20.1.2.4
+                    // / §28.1.9 trailing-arg ignore. Lower only
+                    // args[0..2]; trailing dropped at lower-time
+                    // (check.rs S257 type_of'd them).
+                    && args.len() >= 2
                     && let Expr::String(key_lit) = self.ast.get_expr(args[1])
                 {
                     let key = key_lit.clone();
@@ -19799,7 +19807,11 @@ impl<'a> LowerCtx<'a> {
                     && m_name == "is"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
-                    && args.len() == 2
+                    // S257 — widen `== 2` → `>= 2` per ES §20.1.2.9
+                    // trailing-arg ignore. Lower only args[0..2];
+                    // trailing dropped at lower-time (check.rs S257
+                    // type_of'd them).
+                    && args.len() >= 2
                 {
                     // Borrow detection (v0.4.0 fix): if an arg is an
                     // Ident / Member / Index expression, the operand

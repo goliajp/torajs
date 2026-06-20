@@ -7448,6 +7448,36 @@ impl Checker {
                         _ => unreachable!(),
                     });
                 }
+                // S257 — Object.{hasOwn,is} / Reflect.{has,get} (obj,
+                // key|b, ...trailing) trailing-arg ignore per ES
+                // §20.1.2.{4,9} / §28.1.{6,9}. Spec reads only
+                // args[0..2]; tora silent-drops trailing. SSA-emit
+                // mirror widens each `args.len() == 2` gate to `>= 2`
+                // (ssa_lower.rs ~18649/18710/19802). Narrow to these
+                // 4 SSA-emit dispatches — Reflect.get's 3rd `receiver`
+                // arg is spec-meaningful only for Proxy targets (tora
+                // has no Proxy substrate), silent-drop is spec-correct
+                // for the non-Proxy case tora supports.
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ((ns == "Object" && matches!(m_name.as_str(), "hasOwn" | "is"))
+                        || (ns == "Reflect" && matches!(m_name.as_str(), "has" | "get")))
+                    && args.len() >= 3
+                {
+                    let _ = self.type_of(ast, args[0])?;
+                    let _ = self.type_of(ast, args[1])?;
+                    for &arg in args.iter().skip(2) {
+                        let _ = self.type_of(ast, arg)?;
+                    }
+                    return Ok(match m_name.as_str() {
+                        "hasOwn" | "is" | "has" => Type::Boolean,
+                        "get" => Type::Any,
+                        _ => unreachable!(),
+                    });
+                }
                 // S248 — Set.add / Map.set (value, ...trailing) /
                 // (key, value, ...trailing) trailing-arg ignore per
                 // ES §24.2.3.1 (Set.prototype.add) / §23.1.3.9
