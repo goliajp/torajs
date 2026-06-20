@@ -2163,6 +2163,14 @@ pub(crate) fn try_lower_method_call(
             ctx.emit_arr_rc_inc_range(recv_op, lo, Operand::Value(src_end));
             ctx.emit_arr_rc_drop_range(recv_op, elem_ty, to, Operand::Value(dst_end));
         }
+        // S298 — lower-and-drop trailing args past the 3 useful
+        // (target, start, end) slots per ES §23.1.3.4 trailing-arg
+        // ignore (S272 idiom). check.rs S246 already accepts the
+        // 4-arg shape; mirror at lower-time so step()-style side-
+        // effect exprs fire.
+        for &a in args.iter().skip(3) {
+            let _ = ctx.lower_expr(a);
+        }
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
@@ -2364,6 +2372,14 @@ pub(crate) fn try_lower_method_call(
             Operand::Value(len_for_norm)
         };
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        // S298 — lower-and-drop trailing args past the 3 useful
+        // (value, start, end) slots per ES §23.1.3.7 trailing-arg
+        // ignore (S272 idiom). check.rs S246 already widened to
+        // accept the 4-arg shape; mirror at lower-time so step()-
+        // style side-effect exprs fire.
+        for &a in args.iter().skip(3) {
+            let _ = ctx.lower_expr(a);
+        }
         if elem_ty.is_copy() {
             let v = ctx.f.append_inst(
                 ctx.cur_block,
