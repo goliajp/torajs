@@ -7675,6 +7675,42 @@ impl Checker {
                         return Ok(Type::Map);
                     }
                 }
+                // S269 — Object.{create,setPrototypeOf,defineProperties}
+                // trailing-arg ignore per ES §20.1.2.{1,5,21}. tora's
+                // fixed sigs (`vec![Type::Any]` for create / `vec![
+                // Type::Any, Type::Any]` for the other two) rejected
+                // the next arg; SSA-emit's intercept for all three
+                // already eval-and-drops args[1..] (`for a in args`
+                // / `for a in args.iter().skip(1)`), so the lower path
+                // is safe — S269 widens checktime to accept the matching
+                // floor and beyond.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "create" | "setPrototypeOf" | "defineProperties"
+                    )
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::Object("Object")) {
+                        let floor: usize = match m_name.as_str() {
+                            "create" => 2,
+                            "setPrototypeOf" | "defineProperties" => 3,
+                            _ => unreachable!(),
+                        };
+                        if args.len() >= floor {
+                            for &arg in args.iter() {
+                                let _ = self.type_of(ast, arg)?;
+                            }
+                            return Ok(match m_name.as_str() {
+                                "defineProperties" => Type::Void,
+                                _ => Type::Any,
+                            });
+                        }
+                    }
+                }
                 // S268 — Date instance setter trailing-arg ignore per
                 // ES §21.4.4.{20-26}: each per-field setter accepts up
                 // to N Number args (year/month/date/hours/etc); trailing
