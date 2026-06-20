@@ -21693,7 +21693,12 @@ impl<'a> LowerCtx<'a> {
                             // `.flags` access would allocate a fresh
                             // intermediate Str + need explicit drops).
                             "toString" => {
-                                debug_assert_eq!(args.len(), 0);
+                                // S266 — trailing args silent-drop per
+                                // spec §22.2.6.16; widen `== 0` to eval-
+                                // and-drop everything.
+                                for a in args.iter() {
+                                    let _ = self.lower_expr(*a);
+                                }
                                 let v = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::Call(self.intrinsics.regex_to_string, vec![recv_op]),
@@ -21703,8 +21708,13 @@ impl<'a> LowerCtx<'a> {
                                 return Operand::Value(v);
                             }
                             "test" => {
-                                debug_assert_eq!(args.len(), 1);
+                                // S266 — trailing args silent-drop per
+                                // spec §22.2.6.16.
+                                debug_assert!(!args.is_empty());
                                 let s = self.lower_expr(args[0]);
+                                for a in args.iter().skip(1) {
+                                    let _ = self.lower_expr(*a);
+                                }
                                 let v = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::Call(self.intrinsics.regex_test, vec![recv_op, s]),
@@ -21714,8 +21724,13 @@ impl<'a> LowerCtx<'a> {
                                 return Operand::Value(v);
                             }
                             "exec" => {
-                                debug_assert_eq!(args.len(), 1);
+                                // S266 — trailing args silent-drop per
+                                // spec §22.2.6.2.
+                                debug_assert!(!args.is_empty());
                                 let s = self.lower_expr(args[0]);
+                                for a in args.iter().skip(1) {
+                                    let _ = self.lower_expr(*a);
+                                }
                                 let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
                                 let v = self.f.append_inst(
                                     self.cur_block,
