@@ -16706,8 +16706,17 @@ impl<'a> LowerCtx<'a> {
                         // outside Intl-enabled hosts.
                         let pass_args = !matches!(m_name.as_str(), "toLocaleString");
                         if pass_args && !arg0_is_undef {
-                            for a in args {
-                                argv.push(self.lower_expr(*a));
+                            // S254 — toFixed / toExponential /
+                            // toPrecision read only args[0] (the
+                            // digits/fractionDigits/precision slot)
+                            // per ES §21.1.3.{3,5,6}. Trailing args
+                            // dropped at lower-time (check.rs's
+                            // carve-out already type_of'd them).
+                            // toString's radix path uses the dedicated
+                            // pre-dispatch above so it never reaches
+                            // here with >1 args.
+                            if let Some(&a0) = args.first() {
+                                argv.push(self.lower_expr(a0));
                             }
                         }
                         // V3-18 m1.h.46 — toFixed / toExponential /
