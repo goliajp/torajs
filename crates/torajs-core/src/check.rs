@@ -6863,7 +6863,14 @@ impl Checker {
                         }
                         if let Some(arg1) = args.get(1) {
                             let aty = self.type_of(ast, *arg1)?;
-                            if !matches!(aty, Type::String) {
+                            // S236 — accept Undefined for the fillStr
+                            // slot per ES §22.1.3.{16,17} step 6.a: if
+                            // fillString is undefined, set it to " ".
+                            // ssa_lower_str's V3-18 m1.h.45 1-arg
+                            // fallthrough already supplies the " "
+                            // default, so we just need the type gate
+                            // to accept the typed-Undefined operand.
+                            if !matches!(aty, Type::String | Type::Undefined) {
                                 return Err(format!(
                                     "String.{m_name} arg 1 must be string, got {aty:?}"
                                 ));

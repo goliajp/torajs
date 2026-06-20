@@ -677,6 +677,13 @@ pub(crate) fn try_lower_method_call(
             // supplies the default fill " " when arg 1 is omitted.
             let undef_zero_at_arg0_pad = matches!(method.as_str(), "padStart" | "padEnd")
                 && (args.len() == 1 || args.len() == 2);
+            // S236 — String.{padStart,padEnd}(N, undefined) per ES
+            // §22.1.3.{16,17} step 6.a: fillString undef → " ". Replace
+            // the undef fillStr slot with the interned " " literal so
+            // the helper's (Str, I64, Str) ABI never sees a ConstPtrNull;
+            // matches the V3-18 m1.h.45 1-arg default fill.
+            let undef_space_at_arg1_pad =
+                matches!(method.as_str(), "padStart" | "padEnd") && args.len() == 2;
             for (i, &a) in args.iter().enumerate() {
                 let arg_undef =
                     matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
@@ -696,6 +703,9 @@ pub(crate) fn try_lower_method_call(
                     argv.push(Operand::ConstI64(0));
                 } else if undef_zero_at_arg0_pad && arg_undef && i == 0 {
                     argv.push(Operand::ConstI64(0));
+                } else if undef_space_at_arg1_pad && arg_undef && i == 1 {
+                    let space = ctx.intern_string_literal(" ");
+                    argv.push(Operand::Value(space));
                 } else if slice_subs_2arg && arg_undef && i == 0 {
                     argv.push(Operand::ConstI64(0));
                 } else if slice_subs_2arg && arg_undef && i == 1 {
