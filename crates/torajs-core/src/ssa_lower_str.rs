@@ -2204,13 +2204,20 @@ pub(crate) fn try_lower_method_call(
     // against the derived array's own per-slot drops.
     if let Type::Arr(arr_id) = recv_ty
         && method == "with"
-        && args.len() == 2
+        && args.len() >= 2
     {
         let i_val = ctx.lower_expr(args[0]);
         let v_val = ctx.lower_expr(args[1]);
         let v_ty = ctx.operand_ty(&v_val);
         if v_ty == Type::F64 {
             panic!("ssa-lower: Array.with on f64 elements not yet supported (need IR bitcast)");
+        }
+        // S283 — lower-and-drop trailing args[2..] per S272 idiom so
+        // step()-style side-effect exprs fire per ES eval-then-discard
+        // semantics. The arr_with helper is 2-arg only; trailing slots
+        // never reach it.
+        for &a in args.iter().skip(2) {
+            let _ = ctx.lower_expr(a);
         }
         let v = ctx.f.append_inst(
             ctx.cur_block,
