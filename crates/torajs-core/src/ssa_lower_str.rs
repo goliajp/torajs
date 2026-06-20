@@ -636,8 +636,19 @@ pub(crate) fn try_lower_method_call(
             // helper's (Str, I64, I64) ABI never sees an Undefined
             // operand. recv.length is emitted lazily — only if arg[1]
             // is actually undef.
-            let substring_2arg = method.as_str() == "substring" && args.len() == 2;
+            //
+            // S232 — extend the same undef-slot substitution to `slice`
+            // 2-arg per ES §22.1.3.20 step 3/4: start undef → 0, end
+            // undef → length. The 1-arg-undef shape for slice/substring
+            // is handled by the existing V3-18 m1.h.36 fallthrough
+            // below — once the loop substitutes the lone undef arg
+            // with ConstI64(0), the `args.len() < 2` path appends the
+            // recv length, yielding `[0, len]`.
+            let slice_subs_2arg =
+                matches!(method.as_str(), "substring" | "slice") && args.len() == 2;
             let mut substring_len_op: Option<Operand> = None;
+            let slice_subs_1arg_undef =
+                matches!(method.as_str(), "substring" | "slice") && args.len() == 1;
             // S222 — String.{at,charAt,charCodeAt,codePointAt}(undefined)
             // per ES §22.1.3.{1,2,3,4} step 2-3:
             // ToIntegerOrInfinity(undefined)=0. Replace the single undef
@@ -671,9 +682,9 @@ pub(crate) fn try_lower_method_call(
                     argv.push(Operand::ConstI64(0));
                 } else if undef_zero_at_arg0_pad && arg_undef && i == 0 {
                     argv.push(Operand::ConstI64(0));
-                } else if substring_2arg && arg_undef && i == 0 {
+                } else if slice_subs_2arg && arg_undef && i == 0 {
                     argv.push(Operand::ConstI64(0));
-                } else if substring_2arg && arg_undef && i == 1 {
+                } else if slice_subs_2arg && arg_undef && i == 1 {
                     if substring_len_op.is_none() {
                         let len = ctx.f.append_inst(
                             ctx.cur_block,
@@ -684,6 +695,8 @@ pub(crate) fn try_lower_method_call(
                         substring_len_op = Some(Operand::Value(len));
                     }
                     argv.push(substring_len_op.clone().unwrap());
+                } else if slice_subs_1arg_undef && arg_undef && i == 0 {
+                    argv.push(Operand::ConstI64(0));
                 } else {
                     argv.push(ctx.lower_expr(a));
                 }

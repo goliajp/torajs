@@ -6862,6 +6862,15 @@ impl Checker {
                 //   (same for substring; substring also clamps and
                 //   swaps args, but the optional-arity shape is
                 //   identical at the call site)
+                //
+                // S232 — accept Undefined for the start slot per ES
+                // §22.1.3.20 step 3 (slice) / §22.1.3.22 step 4
+                // (substring): ToIntegerOrInfinity(undef)=0. The
+                // ssa_lower_str mirror substitutes ConstI64(0) and
+                // the existing 0-1-arg fallthrough fills in the
+                // end=length default. `substr` is excluded — its
+                // 2nd arg is a length not an end index, and the
+                // T-49 carve-out below handles its own arity-undef.
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
@@ -6871,9 +6880,10 @@ impl Checker {
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {
+                        let allow_undef = m_name == "slice" || m_name == "substring";
                         for &aid in args {
                             let aty = self.type_of(ast, aid)?;
-                            if aty != Type::Number {
+                            if aty != Type::Number && !(allow_undef && aty == Type::Undefined) {
                                 return Err(format!(
                                     "String.{m_name} arg must be number, got {aty:?}"
                                 ));
@@ -6889,11 +6899,17 @@ impl Checker {
                 // short-circuits each undef slot to 0 / recv.length so
                 // the str_substring helper's I64 ABI never sees an
                 // Undefined operand.
+                //
+                // S232 — extend the same widen to `s.slice(start, end)`
+                // 2-arg per ES §22.1.3.20 step 3/4: start undef → 0,
+                // end undef → length. slice's negative-index handling
+                // is orthogonal — the helper still receives concrete
+                // I64s after the ssa_lower mirror substitutes.
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
                 } = ast.get_expr(*callee)
-                    && m_name == "substring"
+                    && (m_name == "substring" || m_name == "slice")
                     && args.len() == 2
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
@@ -6902,7 +6918,7 @@ impl Checker {
                             let aty = self.type_of(ast, aid)?;
                             if aty != Type::Number && aty != Type::Undefined {
                                 return Err(format!(
-                                    "String.substring arg must be number, got {aty:?}"
+                                    "String.{m_name} arg must be number, got {aty:?}"
                                 ));
                             }
                         }
