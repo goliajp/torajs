@@ -16540,6 +16540,12 @@ impl<'a> LowerCtx<'a> {
                                 self.expr_types.get(&args[0]),
                                 Some(check_mod::Type::Undefined)
                             ) {
+                                // S294 — lower-and-drop trailing args past
+                                // the undef radix (S272 idiom). check.rs
+                                // S247 typecheck-and-drops args[1..].
+                                for &a in args.iter().skip(1) {
+                                    let _ = self.lower_expr(a);
+                                }
                                 let v = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::Call(self.intrinsics.bigint_to_string, vec![recv_op]),
@@ -16561,6 +16567,12 @@ impl<'a> LowerCtx<'a> {
                                 )),
                                 _ => radix_op,
                             };
+                            // S294 — lower-and-drop trailing args past the
+                            // 1 useful radix slot (S272 idiom). check.rs
+                            // S247 typecheck-and-drops args[1..].
+                            for &a in args.iter().skip(1) {
+                                let _ = self.lower_expr(a);
+                            }
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(
@@ -16636,6 +16648,12 @@ impl<'a> LowerCtx<'a> {
                         // args[1..]).
                         if m_name == "toString" && args.len() >= 1 && !is_f64 && !arg0_is_undef {
                             let radix = self.lower_expr(args[0]);
+                            // S294 — lower-and-drop trailing args past the
+                            // 1 useful radix slot (S272 idiom). check.rs
+                            // S244 typecheck-and-drops args[1..].
+                            for &a in args.iter().skip(1) {
+                                let _ = self.lower_expr(a);
+                            }
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(
@@ -16665,6 +16683,12 @@ impl<'a> LowerCtx<'a> {
                         // f64 receiver branch (trailing-arg shape).
                         if m_name == "toString" && args.len() >= 1 && is_f64 && !arg0_is_undef {
                             let radix = self.lower_expr(args[0]);
+                            // S294 — lower-and-drop trailing args past the
+                            // 1 useful radix slot (S272 idiom). check.rs
+                            // S244 typecheck-and-drops args[1..].
+                            for &a in args.iter().skip(1) {
+                                let _ = self.lower_expr(a);
+                            }
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(
@@ -16748,6 +16772,22 @@ impl<'a> LowerCtx<'a> {
                             if let Some(&a0) = args.first() {
                                 argv.push(self.lower_expr(a0));
                             }
+                        }
+                        // S294 — lower-and-drop trailing args past the
+                        // first slot routed into argv per ES trailing-arg
+                        // ignore (S272 idiom). For toLocaleString
+                        // (pass_args=false) drop ALL user args including
+                        // args[0] (locale/options never feeds the runtime
+                        // helper's 1-arg ABI); for toFixed / toExponential
+                        // / toPrecision (pass_args=true) drop args[1..]
+                        // since args[0] was already routed into argv.
+                        let drop_start = if pass_args && !arg0_is_undef && !args.is_empty() {
+                            1
+                        } else {
+                            0
+                        };
+                        for &a in args.iter().skip(drop_start) {
+                            let _ = self.lower_expr(a);
                         }
                         // V3-18 m1.h.46 — toFixed / toExponential /
                         // toPrecision with no arg: per JS spec
