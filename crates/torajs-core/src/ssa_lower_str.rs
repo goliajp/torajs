@@ -567,9 +567,19 @@ pub(crate) fn try_lower_method_call(
     // arms drop the receiver dependency at the caller per existing
     // method-call ownership rules.
     if recv_ty == Type::Str && method == "isWellFormed" {
+        // S281 — lower-and-drop any trailing args for ES eval-then-
+        // discard semantics (the early-return below skips the args
+        // loop further down, so this site is the only opportunity).
+        for &a in args {
+            let _ = ctx.lower_expr(a);
+        }
         return Some(Operand::ConstBool(true));
     }
     if recv_ty == Type::Str && method == "toWellFormed" {
+        // S281 — same idiom as isWellFormed above.
+        for &a in args {
+            let _ = ctx.lower_expr(a);
+        }
         ctx.emit_rc_inc(recv_op.clone());
         return Some(recv_op);
     }
@@ -768,6 +778,32 @@ pub(crate) fn try_lower_method_call(
                     "at" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" | "normalize"
                 ) && i > 0
                 {
+                    let _ = ctx.lower_expr(a);
+                    continue;
+                }
+                // S281 — String.{trim,trimStart,trimEnd,trimLeft,
+                // trimRight,toUpperCase,toLowerCase,toWellFormed,
+                // isWellFormed}(...trailing) trailing-arg ignore per
+                // ES §22.1.3.{28-34,10}. These are spec-defined 0-arg
+                // methods — drop every operand (i >= 0) so the helper's
+                // recv-only ABI never sees any of them. Lower-and-drop
+                // each so step()-style side-effect exprs fire per ES
+                // eval-then-discard semantics (same S272 idiom).
+                // toLocale{Upper,Lower}Case excluded — they own the
+                // drop_args=true path (~614) which skips the entire
+                // loop, so they never reach here.
+                if matches!(
+                    method.as_str(),
+                    "trim"
+                        | "trimStart"
+                        | "trimEnd"
+                        | "trimLeft"
+                        | "trimRight"
+                        | "toUpperCase"
+                        | "toLowerCase"
+                        | "toWellFormed"
+                        | "isWellFormed"
+                ) {
                     let _ = ctx.lower_expr(a);
                     continue;
                 }
