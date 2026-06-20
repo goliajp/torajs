@@ -7429,6 +7429,15 @@ impl Checker {
                 // are 2-arg only. Trim trailing operands at lower-time
                 // (ssa_lower mirrors break early past i=1 / drop
                 // args[2..]). Same shape as S238 localeCompare.
+                //
+                // S278 — widen `args.len() == 3` → `>= 3` + typecheck-
+                // and-drop args[2..] for any extra trailing operands per
+                // ES trailing-arg ignore (same family as S270/S272/S275/
+                // S276/S277). ssa_lower mirror widens the Array path
+                // gate to `>= 1` + lower-and-drop args[2..]; the String
+                // path swaps `break` to `let _ = lower_expr(a); continue`
+                // so step()-style side-effect exprs fire per ES eval-
+                // then-discard semantics.
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
@@ -7437,7 +7446,7 @@ impl Checker {
                         m_name.as_str(),
                         "indexOf" | "lastIndexOf" | "includes" | "startsWith" | "endsWith"
                     )
-                    && args.len() == 3
+                    && args.len() >= 3
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {
@@ -7453,7 +7462,9 @@ impl Checker {
                                 "String.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
                             ));
                         }
-                        let _ = self.type_of(ast, args[2])?;
+                        for &a in args.iter().skip(2) {
+                            let _ = self.type_of(ast, a)?;
+                        }
                         return Ok(
                             if matches!(m_name.as_str(), "includes" | "startsWith" | "endsWith") {
                                 Type::Boolean
@@ -7478,7 +7489,9 @@ impl Checker {
                                 "Array.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
                             ));
                         }
-                        let _ = self.type_of(ast, args[2])?;
+                        for &a in args.iter().skip(2) {
+                            let _ = self.type_of(ast, a)?;
+                        }
                         return Ok(if m_name == "includes" {
                             Type::Boolean
                         } else {

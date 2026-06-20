@@ -740,12 +740,18 @@ pub(crate) fn try_lower_method_call(
                 // ignore per ES §22.1.3.{8,10,5,21,7}. Drop args beyond
                 // i=1 so the _from helper's (Str, Str, I64) ABI never
                 // sees the extra operands.
+                //
+                // S278 — was `break` (silently dropped trailing exprs).
+                // Lower-and-drop each so step()-style side-effect exprs
+                // fire per ES eval-then-discard semantics. Same S272
+                // idiom now applied to S239 String path.
                 if matches!(
                     method.as_str(),
                     "indexOf" | "lastIndexOf" | "includes" | "startsWith" | "endsWith"
                 ) && i > 1
                 {
-                    break;
+                    let _ = ctx.lower_expr(a);
+                    continue;
                 }
                 // S240 — String.{at,charAt,charCodeAt,codePointAt,
                 // repeat,normalize}(useful, ...trailing) trailing-arg
@@ -2436,7 +2442,7 @@ pub(crate) fn try_lower_method_call(
     }
     if let Type::Arr(arr_id) = recv_ty
         && (method == "indexOf" || method == "lastIndexOf" || method == "includes")
-        && (1..=3).contains(&args.len())
+        && !args.is_empty()
     {
         let want_bool = method == "includes";
         let want_last = method == "lastIndexOf";
@@ -2652,6 +2658,15 @@ pub(crate) fn try_lower_method_call(
                 ctx.cur_block,
                 InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
             );
+        }
+        // S278 — Array.{indexOf,lastIndexOf,includes}(needle, fromIndex,
+        // ...trailing) trailing-arg ignore per ES §23.1.3.{14,16,17}.
+        // The scan helper only reads needle + fromIndex; lower-and-drop
+        // args[2..] so step()-style side-effect exprs fire per ES eval-
+        // then-discard semantics. Same S272/S275/S277 idiom — silent-
+        // drop would violate trailing-arg eval-then-discard.
+        for &a in args.iter().skip(2) {
+            let _ = ctx.lower_expr(a);
         }
         let header = ctx.f.add_block();
         let body = ctx.f.add_block();
