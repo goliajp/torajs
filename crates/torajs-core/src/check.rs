@@ -5195,11 +5195,12 @@ impl Checker {
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
                     && ns == "Number"
                 {
-                    if args.len() > 2 {
-                        return Err(format!(
-                            "Number.parseInt expects 0-2 args, got {}",
-                            args.len()
-                        ));
+                    // S253 — Number.parseInt(str, radix, ...trailing)
+                    // per ES §21.1.2.13 trailing-arg ignore. SSA-emit
+                    // reads args[0..=1] (or less), so args[2..]
+                    // dropped at lower-time.
+                    for &arg in args.iter().skip(2) {
+                        let _ = self.type_of(ast, arg)?;
                     }
                     // S202 — spec §21.1.2.13 Number.parseInt aliases
                     // global parseInt. Step 1 reads `string` which
@@ -5245,11 +5246,12 @@ impl Checker {
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
                     && ns == "Number"
                 {
-                    if args.len() > 1 {
-                        return Err(format!(
-                            "Number.parseFloat expects 0-1 args, got {}",
-                            args.len()
-                        ));
+                    // S253 — Number.parseFloat(str, ...trailing) per
+                    // ES §21.1.2.12 trailing-arg ignore. SSA-emit
+                    // reads args[0] (or empty), so args[1..] dropped
+                    // at lower-time.
+                    for &arg in args.iter().skip(1) {
+                        let _ = self.type_of(ast, arg)?;
                     }
                     // S226 — explicit undefined arg → NaN (same path).
                     if let Some(arg0) = args.first() {
@@ -6657,7 +6659,6 @@ impl Checker {
                         m_name.as_str(),
                         "isFinite" | "isNaN" | "isInteger" | "isSafeInteger"
                     )
-                    && args.len() <= 1
                 {
                     // Force type_of on the arg so any internal
                     // typecheck error still surfaces, but we don't
@@ -6669,8 +6670,20 @@ impl Checker {
                     // (including the implicit undefined) statically
                     // return false; ssa_lower's short-circuit emits
                     // ConstBool(false) without dispatching the helper.
+                    //
+                    // S253 — `Number.{isFinite,isNaN,isInteger,
+                    // isSafeInteger}(value, ...trailing)` trailing-arg
+                    // ignore per ES §21.1.2.{2,3,4,5}: spec reads only
+                    // args[0]; tora silent-drops trailing per generic
+                    // trailing-arg-ignore policy. SSA-emit short-
+                    // circuits non-Number args (ConstBool(false)) and
+                    // dispatches the helper for Number args, both
+                    // reading only args[0].
                     if let Some(arg0) = args.first() {
                         let _ = self.type_of(ast, *arg0)?;
+                    }
+                    for &arg in args.iter().skip(1) {
+                        let _ = self.type_of(ast, arg)?;
                     }
                     return Ok(Type::Boolean);
                 }
