@@ -7499,6 +7499,30 @@ impl Checker {
                         _ => unreachable!(),
                     });
                 }
+                // S259 — Symbol.{for,keyFor}(key|s, ...trailing)
+                // trailing-arg ignore per ES §19.4.{2,3}. Spec reads
+                // only args[0]; tora silent-drops trailing. SSA-emit
+                // mirror widens `args.len() == 1` gate to `>= 1`
+                // (ssa_lower.rs ~18877).
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Symbol"
+                    && matches!(m_name.as_str(), "for" | "keyFor")
+                    && args.len() >= 2
+                {
+                    let _ = self.type_of(ast, args[0])?;
+                    for &arg in args.iter().skip(1) {
+                        let _ = self.type_of(ast, arg)?;
+                    }
+                    return Ok(match m_name.as_str() {
+                        "for" => Type::Symbol,
+                        "keyFor" => Type::Nullable(Box::new(Type::String)),
+                        _ => unreachable!(),
+                    });
+                }
                 // S248 — Set.add / Map.set (value, ...trailing) /
                 // (key, value, ...trailing) trailing-arg ignore per
                 // ES §24.2.3.1 (Set.prototype.add) / §23.1.3.9

@@ -18874,7 +18874,10 @@ impl<'a> LowerCtx<'a> {
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Symbol"
                     && (m_name == "for" || m_name == "keyFor")
-                    && args.len() == 1
+                    // S259 — widen `== 1` → `>= 1` per ES §19.4.{2,3}
+                    // trailing-arg ignore. Lower only args[0]; trailing
+                    // dropped at lower-time (check.rs S259 type_of'd them).
+                    && !args.is_empty()
                 {
                     let arg_op = self.lower_expr(args[0]);
                     self.consume_if_ident(args[0]);
