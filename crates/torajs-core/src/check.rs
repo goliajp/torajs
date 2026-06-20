@@ -5307,11 +5307,19 @@ impl Checker {
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
                     && ns == "Promise"
                 {
-                    if args.len() != 1 {
+                    // S273 — accept `>= 1` arg per ES §27.2.4.{1,3,5,2}
+                    // trailing-arg ignore: spec reads only the iterable
+                    // at args[0]; trailing slots silent-drop. ssa_lower
+                    // mirror evals-and-drops args[1..]; typecheck-and-
+                    // drop here so trailing expr internal errors surface.
+                    if args.is_empty() {
                         return Err(format!(
                             "Promise.{m_name} expects 1 arg (the array of Promises), got {}",
                             args.len()
                         ));
+                    }
+                    for &a in &args[1..] {
+                        let _ = self.type_of(ast, a)?;
                     }
                     let arg_ty = self.type_of(ast, args[0])?;
                     let inner = match &arg_ty {

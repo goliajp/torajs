@@ -19220,10 +19220,16 @@ impl<'a> LowerCtx<'a> {
                         || m_name == "allSettled")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Promise"
-                    && args.len() == 1
+                    && !args.is_empty()
                 {
+                    // S273 — widen `== 1` → `>= 1` per ES §27.2.4.{1,3,5,2}
+                    // trailing-arg ignore. Lower only args[0] (iterable);
+                    // eval-and-drop args[1..] so side-effect exprs fire.
                     let arr_op = self.lower_expr(args[0]);
                     self.consume_if_ident(args[0]);
+                    for &a in &args[1..] {
+                        let _ = self.lower_expr(a);
+                    }
                     let fid = match m_name.as_str() {
                         "all" => self.intrinsics.promise_all_sync,
                         "race" => self.intrinsics.promise_race_sync,
