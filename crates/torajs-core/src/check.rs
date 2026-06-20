@@ -7112,6 +7112,42 @@ impl Checker {
                         }
                     }
                 }
+                // S245 — Array<T>.{reduce,reduceRight}(fn, init, ...trailing)
+                // trailing-arg ignore per ES §22.1.3.{21,22}. Spec
+                // reserves slots past the 2 useful args (callback +
+                // initial value) but tora's inline reduce loop is
+                // 2-arg only. Trailing operand type_of'd for side
+                // effects then dropped at lower-time; SSA-emit reads
+                // only args[0..=1] so args[2..] are silently ignored
+                // without any SSA-side change. Same shape as S243/S244.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(), "reduce" | "reduceRight")
+                    && args.len() == 3
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = &src_ty {
+                        let inner = (**elem).clone();
+                        let aty0 = self.type_of(ast, args[0])?;
+                        let fn_ok = matches!(aty0, Type::Function(..) | Type::Any);
+                        if !fn_ok {
+                            return Err(format!(
+                                "Array.{m_name} arg 0 must be a callback function, got {aty0:?}"
+                            ));
+                        }
+                        let aty1 = self.type_of(ast, args[1])?;
+                        if aty1 != inner && !matches!(inner, Type::Any) {
+                            return Err(format!(
+                                "Array.{m_name} arg 1 (initial) must match elem type {:?}, got {aty1:?}",
+                                inner
+                            ));
+                        }
+                        let _ = self.type_of(ast, args[2])?;
+                        return Ok(inner);
+                    }
+                }
                 // S242 — Array<T>.{at,slice,join}(useful, ...trailing)
                 // trailing-arg ignore per ES §23.1.3.{1,28,16}. Spec
                 // reserves slots past the useful args but tora's
