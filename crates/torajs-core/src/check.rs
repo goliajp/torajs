@@ -7109,6 +7109,62 @@ impl Checker {
                         }
                     }
                 }
+                // S242 — Array<T>.{at,slice,join}(useful, ...trailing)
+                // trailing-arg ignore per ES §23.1.3.{1,28,16}. Spec
+                // reserves slots past the useful args but tora's
+                // helpers are 1-/2-/1-arg only; trailing operand
+                // type_of'd for side effects then dropped at lower-
+                // time (ssa_lower's args[N] slot never read).
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(), "at" | "slice" | "join")
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = &src_ty {
+                        if m_name == "at" && args.len() == 2 {
+                            let aty0 = self.type_of(ast, args[0])?;
+                            if !matches!(aty0, Type::Number | Type::Undefined) {
+                                return Err(format!("Array.at arg 0 must be number, got {aty0:?}"));
+                            }
+                            let _ = self.type_of(ast, args[1])?;
+                            return Ok((**elem).clone());
+                        }
+                        if m_name == "slice" && args.len() == 3 {
+                            let aty0 = self.type_of(ast, args[0])?;
+                            if !matches!(aty0, Type::Number | Type::Undefined) {
+                                return Err(format!(
+                                    "Array.slice arg 0 must be number, got {aty0:?}"
+                                ));
+                            }
+                            let aty1 = self.type_of(ast, args[1])?;
+                            if !matches!(aty1, Type::Number | Type::Undefined) {
+                                return Err(format!(
+                                    "Array.slice arg 1 must be number, got {aty1:?}"
+                                ));
+                            }
+                            let _ = self.type_of(ast, args[2])?;
+                            return Ok(Type::Array(elem.clone()));
+                        }
+                        if m_name == "join"
+                            && args.len() == 2
+                            && matches!(
+                                **elem,
+                                Type::String | Type::Number | Type::Boolean | Type::Any
+                            )
+                        {
+                            let aty0 = self.type_of(ast, args[0])?;
+                            if !matches!(aty0, Type::String | Type::Undefined) {
+                                return Err(format!(
+                                    "Array.join arg 0 must be string, got {aty0:?}"
+                                ));
+                            }
+                            let _ = self.type_of(ast, args[1])?;
+                            return Ok(Type::String);
+                        }
+                    }
+                }
                 // S239 — String/Array.{indexOf,lastIndexOf,includes}
                 // + String.{startsWith,endsWith}(needle, fromIndex,
                 // ...trailing) trailing-arg ignore per ES

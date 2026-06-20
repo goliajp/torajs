@@ -1125,7 +1125,10 @@ pub(crate) fn try_lower_method_call(
         // if sep is undefined → sep = ",". Detect the
         // typed-Undefined arg shape and skip the operand
         // lower (the literal has no side effects to drop).
-        let undef_sep = args.len() == 1
+        // S242 widens the 1-arg detection to 2-arg so the trailing-arg
+        // shape `xs.join(undef, trailing)` still folds to "," without
+        // lowering the undef operand into the helper's Str slot.
+        let undef_sep = (args.len() == 1 || args.len() == 2)
             && matches!(
                 ctx.expr_types.get(&args[0]),
                 Some(crate::check::Type::Undefined)
@@ -1817,9 +1820,11 @@ pub(crate) fn try_lower_method_call(
     // routes through ToIntegerOrInfinity → 0, so `arr.at()`
     // returns `arr[0]`. 0-arg form emits `i_val = ConstI64(0)`
     // and skips through the rest of the negative-wrap select.
+    // S242 — Array<T>.at(idx, ...trailing) trailing-arg ignore per
+    // ES §23.1.3.1: args[1] is never read (i_val uses args[0] only).
     if let Type::Arr(arr_id) = recv_ty
         && method == "at"
-        && args.len() <= 1
+        && args.len() <= 2
     {
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         // ES §23.1.3.1 step 2 — ToIntegerOrInfinity on `index`. The
@@ -2303,9 +2308,12 @@ pub(crate) fn try_lower_method_call(
     // array's slots alias the source's; inc each slot's
     // refcount so the source and derived can both safely
     // walk-drop their elements.
+    // S242 — Array<T>.slice(start, end, ...trailing) trailing-arg
+    // ignore per ES §23.1.3.28: args[2] is never read; the end
+    // branch below switches on `args.len() >= 2 && !arg1_undef`.
     if let Type::Arr(arr_id) = recv_ty
         && method == "slice"
-        && args.len() <= 2
+        && args.len() <= 3
     {
         // V3-18 m1.h.35 — JS spec §22.1.3.25 defaults:
         //   arr.slice()      = arr.slice(0, len)
@@ -2331,7 +2339,7 @@ pub(crate) fn try_lower_method_call(
             ctx.lower_expr(args[0])
         };
         argv.push(start);
-        let end = if args.len() == 2 && !arg1_undef {
+        let end = if args.len() >= 2 && !arg1_undef {
             ctx.lower_expr(args[1])
         } else {
             // Load receiver's len from offset 8.
