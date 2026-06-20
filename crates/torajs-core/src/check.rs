@@ -5807,11 +5807,14 @@ impl Checker {
                 if let Expr::Ident(name) = ast.get_expr(*callee) {
                     match name.as_str() {
                         "parseInt" => {
-                            if args.len() > 2 {
-                                return Err(format!(
-                                    "parseInt expects 0-2 args, got {}",
-                                    args.len()
-                                ));
+                            // S252 — parseInt(str, radix, ...trailing)
+                            // per ES §19.2.5 trailing-arg ignore. Spec
+                            // reads only the first 2; tora silent-drops
+                            // trailing per generic trailing-arg-ignore
+                            // policy. SSA-emit reads args[0..=1] (or
+                            // less), so args[2..] dropped at lower-time.
+                            for &arg in args.iter().skip(2) {
+                                let _ = self.type_of(ast, arg)?;
                             }
                             // S202 — spec §19.2.5 step 1 reads `string`
                             // which defaults to undefined; ToString
@@ -5845,11 +5848,13 @@ impl Checker {
                             return Ok(Type::Number);
                         }
                         "parseFloat" => {
-                            if args.len() > 1 {
-                                return Err(format!(
-                                    "parseFloat expects 0-1 args, got {}",
-                                    args.len()
-                                ));
+                            // S252 — parseFloat(str, ...trailing) per ES
+                            // §19.2.4 trailing-arg ignore. Spec reads
+                            // only args[0]; tora silent-drops trailing.
+                            // SSA-emit reads args[0] (or empty), so
+                            // args[1..] dropped at lower-time.
+                            for &arg in args.iter().skip(1) {
+                                let _ = self.type_of(ast, arg)?;
                             }
                             // S202 — same default-undefined rule per
                             // §19.2.4: missing string → NaN.
@@ -5866,8 +5871,14 @@ impl Checker {
                             return Ok(Type::Number);
                         }
                         "isNaN" | "isFinite" => {
-                            if args.len() > 1 {
-                                return Err(format!("{name} expects 0-1 args, got {}", args.len()));
+                            // S252 — isNaN/isFinite(value, ...trailing)
+                            // per ES §19.2.3 / §19.2.4 trailing-arg
+                            // ignore. Spec reads only args[0]; tora
+                            // silent-drops trailing. SSA-emit reads
+                            // args[0] (or empty), so args[1..] dropped
+                            // at lower-time.
+                            for &arg in args.iter().skip(1) {
+                                let _ = self.type_of(ast, arg)?;
                             }
                             // V3-18 wedge — global isNaN / isFinite per
                             // JS spec §19.2.3 / §19.2.4 apply ToNumber
