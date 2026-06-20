@@ -7499,6 +7499,32 @@ impl Checker {
                         _ => unreachable!(),
                     });
                 }
+                // S262 — Boolean/Symbol/String × {toString,toLocaleString}
+                // trailing-arg ignore per ES §20.3.3.{2,3} / §20.4.3.3
+                // / §22.1.3.{27,28}. Each method's `Vec::new()` sig
+                // rejected 1+ arg calls; SSA-emit already silent-drops
+                // user args (ssa_lower.rs ~16565 Symbol / ~16579 Bool
+                // both push only `vec![recv_op]`; ~16593 String returns
+                // recv_op identity). Narrow widen: matches m_name +
+                // 3 receiver types + args.len() >= 1, returns String.
+                // (Number.toLocaleString already handled by S260 above
+                // with the 2-arg sig; Number.toString radix handled by
+                // S244 in the wedge.)
+                if let Expr::Member {
+                    obj: recv_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(), "toString" | "toLocaleString")
+                    && !args.is_empty()
+                {
+                    let recv_ty = self.type_of(ast, *recv_id)?;
+                    if matches!(recv_ty, Type::Boolean | Type::Symbol | Type::String) {
+                        for &arg in args.iter() {
+                            let _ = self.type_of(ast, arg)?;
+                        }
+                        return Ok(Type::String);
+                    }
+                }
                 // S261 — Date instance 0-arg getter / format method
                 // family (`d.getTime() / d.getFullYear() / d.toISOString() /
                 // d.toLocaleString() / ...`) trailing-arg ignore per ES
