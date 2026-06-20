@@ -695,6 +695,18 @@ pub(crate) fn try_lower_method_call(
                 if method.as_str() == "localeCompare" && i > 0 {
                     break;
                 }
+                // S239 — String.{indexOf,lastIndexOf,includes,startsWith,
+                // endsWith}(needle, fromIndex, ...trailing) trailing-arg
+                // ignore per ES §22.1.3.{8,10,5,21,7}. Drop args beyond
+                // i=1 so the _from helper's (Str, Str, I64) ABI never
+                // sees the extra operands.
+                if matches!(
+                    method.as_str(),
+                    "indexOf" | "lastIndexOf" | "includes" | "startsWith" | "endsWith"
+                ) && i > 1
+                {
+                    break;
+                }
                 if undef_to_str_repl && arg_undef {
                     let u = ctx.intern_string_literal("undefined");
                     argv.push(Operand::Value(u));
@@ -819,7 +831,7 @@ pub(crate) fn try_lower_method_call(
         // V3-18 m1.h.50 — String.indexOf / lastIndexOf
         // with the 2-arg (needle, fromIndex) shape route
         // to the dedicated _from runtime helpers.
-        if matches!(method.as_str(), "indexOf" | "lastIndexOf") && args.len() == 2 {
+        if matches!(method.as_str(), "indexOf" | "lastIndexOf") && args.len() >= 2 {
             let target = if method == "indexOf" {
                 ctx.intrinsics.str_index_of_from
             } else {
@@ -833,7 +845,7 @@ pub(crate) fn try_lower_method_call(
         // V3-18 m1.h.51 — startsWith / endsWith / includes
         // 2-arg (needle, position) shape: route to
         // dedicated _from helpers.
-        if matches!(method.as_str(), "startsWith" | "endsWith" | "includes") && args.len() == 2 {
+        if matches!(method.as_str(), "startsWith" | "endsWith" | "includes") && args.len() >= 2 {
             let target = match method.as_str() {
                 "startsWith" => ctx.intrinsics.str_starts_with_from,
                 "endsWith" => ctx.intrinsics.str_ends_with_from,
@@ -2332,7 +2344,7 @@ pub(crate) fn try_lower_method_call(
     }
     if let Type::Arr(arr_id) = recv_ty
         && (method == "indexOf" || method == "lastIndexOf" || method == "includes")
-        && (args.len() == 1 || args.len() == 2)
+        && (1..=3).contains(&args.len())
     {
         let want_bool = method == "includes";
         let want_last = method == "lastIndexOf";
@@ -2409,7 +2421,7 @@ pub(crate) fn try_lower_method_call(
             ctx.cur_block,
             InstKind::Store(Operand::Value(len_v), Operand::Value(end_slot), 0),
         );
-        if args.len() == 2 {
+        if args.len() >= 2 {
             // S217 — Array.{indexOf,lastIndexOf,includes}(needle,
             // undefined) per ES §22.1.3.{13,14,16}:
             // ToIntegerOrInfinity(undefined)=0. (Note: Array.lastIndexOf

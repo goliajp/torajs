@@ -7017,6 +7017,71 @@ impl Checker {
                         }
                     }
                 }
+                // S239 — String/Array.{indexOf,lastIndexOf,includes}
+                // + String.{startsWith,endsWith}(needle, fromIndex,
+                // ...trailing) trailing-arg ignore per ES
+                // §22.1.3.{8,10,5,21,7} / §23.1.3.{14,17,18}: spec
+                // reserves slots after fromIndex but tora's helpers
+                // are 2-arg only. Trim trailing operands at lower-time
+                // (ssa_lower mirrors break early past i=1 / drop
+                // args[2..]). Same shape as S238 localeCompare.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "indexOf" | "lastIndexOf" | "includes" | "startsWith" | "endsWith"
+                    )
+                    && args.len() == 3
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let needle_ty = self.type_of(ast, args[0])?;
+                        if !matches!(needle_ty, Type::String | Type::Undefined) {
+                            return Err(format!(
+                                "String.{m_name} arg 0 must be string, got {needle_ty:?}"
+                            ));
+                        }
+                        let from_ty = self.type_of(ast, args[1])?;
+                        if !matches!(from_ty, Type::Number | Type::Undefined) {
+                            return Err(format!(
+                                "String.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
+                            ));
+                        }
+                        let _ = self.type_of(ast, args[2])?;
+                        return Ok(
+                            if matches!(m_name.as_str(), "includes" | "startsWith" | "endsWith") {
+                                Type::Boolean
+                            } else {
+                                Type::Number
+                            },
+                        );
+                    }
+                    if let Type::Array(elem) = &src_ty
+                        && matches!(m_name.as_str(), "indexOf" | "lastIndexOf" | "includes")
+                    {
+                        let needle_ty = self.type_of(ast, args[0])?;
+                        if needle_ty != **elem && !matches!(**elem, Type::Any) {
+                            return Err(format!(
+                                "Array.{m_name} arg 0 must match elem type {:?}, got {needle_ty:?}",
+                                **elem
+                            ));
+                        }
+                        let from_ty = self.type_of(ast, args[1])?;
+                        if !matches!(from_ty, Type::Number | Type::Undefined) {
+                            return Err(format!(
+                                "Array.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
+                            ));
+                        }
+                        let _ = self.type_of(ast, args[2])?;
+                        return Ok(if m_name == "includes" {
+                            Type::Boolean
+                        } else {
+                            Type::Number
+                        });
+                    }
+                }
                 // S210 — String.search() / search(undefined) per ES
                 // §22.1.3.20: RegExpCreate(undefined, undefined)
                 // yields an empty regex which matches at index 0.
