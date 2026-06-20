@@ -20822,6 +20822,13 @@ impl<'a> LowerCtx<'a> {
                                     // S264 — trailing args ignored per spec.
                                     debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
+                                    // S296 — lower-and-drop trailing args
+                                    // past the 1 useful value slot per ES
+                                    // §24.2.3.7 trailing-arg ignore (S272
+                                    // idiom).
+                                    for &a in args.iter().skip(1) {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     let r = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -20855,6 +20862,13 @@ impl<'a> LowerCtx<'a> {
                                     // S264 — trailing args ignored per spec.
                                     debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
+                                    // S296 — lower-and-drop trailing args
+                                    // past the 1 useful value slot per ES
+                                    // §24.2.3.4 trailing-arg ignore (S272
+                                    // idiom).
+                                    for &a in args.iter().skip(1) {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     let r = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -21349,6 +21363,13 @@ impl<'a> LowerCtx<'a> {
                                     // S264 — trailing args ignored per spec.
                                     debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
+                                    // S296 — lower-and-drop trailing args
+                                    // past the 1 useful key slot per ES
+                                    // §24.1.3.4 trailing-arg ignore (S272
+                                    // idiom).
+                                    for &a in args.iter().skip(1) {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     let r = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -21382,6 +21403,13 @@ impl<'a> LowerCtx<'a> {
                                     // S264 — trailing args ignored per spec.
                                     debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
+                                    // S296 — lower-and-drop trailing args
+                                    // past the 1 useful key slot per ES
+                                    // §24.1.3.3 trailing-arg ignore (S272
+                                    // idiom).
+                                    for &a in args.iter().skip(1) {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     let r = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -21425,6 +21453,13 @@ impl<'a> LowerCtx<'a> {
                                     // S264 — trailing args ignored per spec.
                                     debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
+                                    // S296 — lower-and-drop trailing args
+                                    // past the 1 useful key slot per ES
+                                    // §24.1.3.6 trailing-arg ignore (S272
+                                    // idiom).
+                                    for &a in args.iter().skip(1) {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     /* Out-slots for (tag, value). */
                                     let tag_slot = self.alloca(Type::I64, Some("map_get_tag"));
                                     let val_slot = self.alloca(Type::I64, Some("map_get_val"));
