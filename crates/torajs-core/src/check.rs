@@ -5731,23 +5731,26 @@ impl Checker {
                         if args.is_empty() {
                             return Ok(Type::String);
                         }
-                        if args.len() == 1 {
-                            let r_ty = self.type_of(ast, args[0])?;
-                            // S229 — accept Undefined for radix per ES
-                            // §21.1.3.6 step 2-3: undefined radix folds
-                            // to 10 (the default). ssa_lower mirror
-                            // short-circuits to the no-arg path.
-                            if !matches!(r_ty, Type::Number | Type::Undefined) {
-                                return Err(format!(
-                                    "Number.toString radix must be number, got {r_ty:?}"
-                                ));
-                            }
-                            return Ok(Type::String);
+                        let r_ty = self.type_of(ast, args[0])?;
+                        // S229 — accept Undefined for radix per ES
+                        // §21.1.3.6 step 2-3: undefined radix folds
+                        // to 10 (the default). ssa_lower mirror
+                        // short-circuits to the no-arg path.
+                        if !matches!(r_ty, Type::Number | Type::Undefined) {
+                            return Err(format!(
+                                "Number.toString radix must be number, got {r_ty:?}"
+                            ));
                         }
-                        return Err(format!(
-                            "Number.toString accepts 0 or 1 arg, got {}",
-                            args.len()
-                        ));
+                        // S244 — accept trailing args past the 1 useful
+                        // radix slot per ES §21.1.3.6 trailing-arg
+                        // ignore. Same shape as S238/S243; ssa_lower
+                        // mirror keys on `args.len() >= 1` so the
+                        // num_to_string_radix_i/f helper still receives
+                        // the radix; trailing operand never lowered.
+                        for &aid in &args[1..] {
+                            let _ = self.type_of(ast, aid)?;
+                        }
+                        return Ok(Type::String);
                     }
                 }
                 // `Number(x)` / `String(x)` — coercion function calls

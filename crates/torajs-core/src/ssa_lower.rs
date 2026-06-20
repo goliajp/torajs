@@ -16486,7 +16486,11 @@ impl<'a> LowerCtx<'a> {
                     // for toString, default args for toFixed / toExp /
                     // toPrec) can short-circuit without lowering the
                     // ConstPtrNull undef into a non-Ptr ABI.
-                    let arg0_is_undef = args.len() == 1
+                    // S244 widens the 1-arg arg0_is_undef gate to
+                    // >=1 so the trailing-arg shape (e.g.
+                    // n.toString(undef, trailing)) still short-circuits
+                    // the undef radix to the 0-arg default path.
+                    let arg0_is_undef = !args.is_empty()
                         && matches!(
                             self.expr_types.get(&args[0]),
                             Some(check_mod::Type::Undefined)
@@ -16576,7 +16580,12 @@ impl<'a> LowerCtx<'a> {
                         let is_f64 = recv_ty == Type::F64;
                         // toString with radix: route i64 receiver to the
                         // radix-aware runtime helper.
-                        if m_name == "toString" && args.len() == 1 && !is_f64 && !arg0_is_undef {
+                        // S244 widens the 1-arg gate to >=1 so the
+                        // trailing-arg shape (n.toString(radix, trailing))
+                        // still routes radix into num_to_string_radix_i;
+                        // trailing operand never lowered (no SSA-emit for
+                        // args[1..]).
+                        if m_name == "toString" && args.len() >= 1 && !is_f64 && !arg0_is_undef {
                             let radix = self.lower_expr(args[0]);
                             let v = self.f.append_inst(
                                 self.cur_block,
@@ -16603,7 +16612,9 @@ impl<'a> LowerCtx<'a> {
                         // f64_to_str(double) which had a 1-arg ABI;
                         // passing the radix as a 2nd arg crashed
                         // LLVM verify.
-                        if m_name == "toString" && args.len() == 1 && is_f64 && !arg0_is_undef {
+                        // S244 widens the 1-arg gate to >=1 for the
+                        // f64 receiver branch (trailing-arg shape).
+                        if m_name == "toString" && args.len() >= 1 && is_f64 && !arg0_is_undef {
                             let radix = self.lower_expr(args[0]);
                             let v = self.f.append_inst(
                                 self.cur_block,
