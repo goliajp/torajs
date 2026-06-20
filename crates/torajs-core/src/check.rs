@@ -7493,6 +7493,29 @@ impl Checker {
                         params.truncate(0);
                     }
                 }
+                // S243 — narrow trailing-arg ignore for Math.* namespace
+                // methods per ES §21.3.2.* "trailing args are ignored":
+                // each Math.* algorithm reads only the declared positional
+                // args; the surface Type::Function sig is closed but the
+                // underlying calling convention is open-arity. SSA-emit's
+                // generic Math.* call lowering already truncates extras
+                // before the (f64, f64...) / (f64,) helper ABI, so we
+                // only need to truncate at the check arity gate and
+                // type_of the trailing operands for side effects. Other
+                // builtin receivers (Number/Array/String) stay on the
+                // existing narrow carve-outs (S238–S242) until per-
+                // method SSA-emit shape widens to match.
+                if effective_args.len() > params.len()
+                    && let Expr::Member { obj, name: _ } = ast.get_expr(*callee)
+                {
+                    let recv_ty = self.type_of(ast, *obj)?;
+                    if matches!(recv_ty, Type::Object("Math")) {
+                        for &aid in &effective_args[params.len()..] {
+                            let _ = self.type_of(ast, aid)?;
+                        }
+                        effective_args.truncate(params.len());
+                    }
+                }
                 if params.len() != effective_args.len() {
                     return Err(format!(
                         "expected {} argument(s), got {}",
