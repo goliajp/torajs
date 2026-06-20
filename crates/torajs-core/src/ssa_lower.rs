@@ -16310,11 +16310,24 @@ impl<'a> LowerCtx<'a> {
                     // / Array.hasOwnProperty dispatch arms further
                     // down remain reachable for non-valueOf calls.
                     if matches!(recv_ty, Type::Arr(_)) && m_name == "valueOf" {
+                        // S290 — trailing-arg ignore per ES §23.1.3.34;
+                        // arr.valueOf is identity. Lower-and-drop args[..]
+                        // before the recv return so step()-style side-
+                        // effect exprs fire (S272 idiom).
+                        for &a in args.iter() {
+                            let _ = self.lower_expr(a);
+                        }
                         return recv_op;
                     }
                     if is_prim || is_obj {
                         // valueOf returns the receiver as-is (identity).
                         if m_name == "valueOf" {
+                            // S290 — primitive valueOf trailing-arg
+                            // ignore; lower-and-drop before identity
+                            // return (S272 idiom).
+                            for &a in args.iter() {
+                                let _ = self.lower_expr(a);
+                            }
                             return recv_op;
                         }
                         // toString: primitives go through the existing

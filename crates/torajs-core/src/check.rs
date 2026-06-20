@@ -7335,6 +7335,39 @@ impl Checker {
                         }
                     }
                 }
+                // S290 — primitive `.valueOf(...trailing)` trailing-arg
+                // ignore per ES §21.1.3.27 / §20.4.3.4 / §22.1.3.34 /
+                // §21.2.3.6 / §20.5.3.5. valueOf is 0-arg spec; tora's
+                // SSA-emit folds it to an identity return (recv_op)
+                // without inspecting args, so trailing operands type-
+                // check-and-drop here + lower-and-drop in ssa_lower
+                // (S272 idiom). Covers Number / Boolean / String /
+                // BigInt / Symbol; Array.valueOf already handled by
+                // the dedicated identity arm in ssa_lower.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "valueOf"
+                    && !args.is_empty()
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    let ret_ty = match src_ty {
+                        Type::Number => Some(Type::Number),
+                        Type::Boolean => Some(Type::Boolean),
+                        Type::String => Some(Type::String),
+                        Type::BigInt => Some(Type::BigInt),
+                        Type::Symbol => Some(Type::Symbol),
+                        Type::Array(ref elem) => Some(Type::Array(elem.clone())),
+                        _ => None,
+                    };
+                    if let Some(rt) = ret_ty {
+                        for &aid in args.iter() {
+                            let _ = self.type_of(ast, aid)?;
+                        }
+                        return Ok(rt);
+                    }
+                }
                 // S288 — Array<T>.{pop,shift}(...trailing) trailing-arg
                 // ignore per ES §23.1.3.{20,24}. Spec sigs are 0-arg;
                 // tora's runtime helpers (in-place len-- + tail/head
