@@ -20661,7 +20661,8 @@ impl<'a> LowerCtx<'a> {
                                     if args.is_empty() {
                                         return Operand::ConstBool(false);
                                     }
-                                    debug_assert_eq!(args.len(), 1);
+                                    // S264 — trailing args ignored per spec.
+                                    debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
                                         self.cur_block,
@@ -20693,7 +20694,8 @@ impl<'a> LowerCtx<'a> {
                                     if args.is_empty() {
                                         return Operand::ConstBool(false);
                                     }
-                                    debug_assert_eq!(args.len(), 1);
+                                    // S264 — trailing args ignored per spec.
+                                    debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
                                         self.cur_block,
@@ -20717,7 +20719,9 @@ impl<'a> LowerCtx<'a> {
                                     return Operand::Value(b);
                                 }
                                 "clear" => {
-                                    debug_assert!(args.is_empty());
+                                    // S264 — trailing args ignored per spec
+                                    // §24.2.3.5; widen `args.is_empty()` to
+                                    // accept-and-drop.
                                     self.f.append_void(
                                         self.cur_block,
                                         InstKind::Call(self.intrinsics.map_clear, vec![recv_op]),
@@ -21176,7 +21180,8 @@ impl<'a> LowerCtx<'a> {
                                     if args.is_empty() {
                                         return Operand::ConstBool(false);
                                     }
-                                    debug_assert_eq!(args.len(), 1);
+                                    // S264 — trailing args ignored per spec.
+                                    debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
                                         self.cur_block,
@@ -21208,7 +21213,8 @@ impl<'a> LowerCtx<'a> {
                                     if args.is_empty() {
                                         return Operand::ConstBool(false);
                                     }
-                                    debug_assert_eq!(args.len(), 1);
+                                    // S264 — trailing args ignored per spec.
+                                    debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
                                         self.cur_block,
@@ -21250,7 +21256,8 @@ impl<'a> LowerCtx<'a> {
                                         );
                                         return Operand::Value(box_v);
                                     }
-                                    debug_assert_eq!(args.len(), 1);
+                                    // S264 — trailing args ignored per spec.
+                                    debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     /* Out-slots for (tag, value). */
                                     let tag_slot = self.alloca(Type::I64, Some("map_get_tag"));
@@ -21293,7 +21300,9 @@ impl<'a> LowerCtx<'a> {
                                     return Operand::Value(box_v);
                                 }
                                 "clear" => {
-                                    debug_assert!(args.is_empty());
+                                    // S264 — trailing args ignored per spec
+                                    // §23.1.3.3; widen `args.is_empty()` to
+                                    // accept-and-drop.
                                     self.f.append_void(
                                         self.cur_block,
                                         InstKind::Call(self.intrinsics.map_clear, vec![recv_op]),
