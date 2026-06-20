@@ -19345,7 +19345,10 @@ impl<'a> LowerCtx<'a> {
                     && (m_name == "freeze" || m_name == "isFrozen")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
-                    && args.len() == 1
+                    // S256 — widen `== 1` → `>= 1` per ES §20.1.2.{12,15}
+                    // trailing-arg ignore. Lower only args[0]; trailing
+                    // args dropped at lower-time.
+                    && !args.is_empty()
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
@@ -19586,7 +19589,10 @@ impl<'a> LowerCtx<'a> {
                     && m_name == "entries"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
-                    && args.len() == 1
+                    // S256 — widen `== 1` → `>= 1` per ES §20.1.2.5
+                    // trailing-arg ignore. Lower only args[0]; trailing
+                    // args dropped at lower-time.
+                    && !args.is_empty()
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);

@@ -7423,6 +7423,31 @@ impl Checker {
                     }
                     return Ok(Type::Array(Box::new(Type::String)));
                 }
+                // S256 — Object.{entries,freeze,isFrozen}(obj, ...trailing)
+                // trailing-arg ignore per ES §20.1.2.{5,12,15}. Spec
+                // reads only args[0]; tora silent-drops trailing per
+                // generic trailing-arg-ignore policy. SSA-emit mirror
+                // widens each `args.len() == 1` gate to `>= 1`.
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && matches!(m_name.as_str(), "entries" | "freeze" | "isFrozen")
+                    && args.len() >= 2
+                {
+                    let arg0_ty = self.type_of(ast, args[0])?;
+                    for &arg in args.iter().skip(1) {
+                        let _ = self.type_of(ast, arg)?;
+                    }
+                    return Ok(match m_name.as_str() {
+                        "entries" => Type::Array(Box::new(Type::Array(Box::new(Type::Any)))),
+                        "freeze" => arg0_ty,
+                        "isFrozen" => Type::Boolean,
+                        _ => unreachable!(),
+                    });
+                }
                 // S248 — Set.add / Map.set (value, ...trailing) /
                 // (key, value, ...trailing) trailing-arg ignore per
                 // ES §24.2.3.1 (Set.prototype.add) / §23.1.3.9
