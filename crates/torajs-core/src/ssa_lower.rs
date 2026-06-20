@@ -22573,11 +22573,17 @@ impl<'a> LowerCtx<'a> {
                  * uniformly (P5.4 follow-up). */
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && matches!(name.as_str(), "keys" | "values" | "entries")
-                    && args.is_empty()
                 {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
                     if matches!(recv_ty, Type::Arr(_)) {
+                        // S292 — keys / values / entries are 0-arg per
+                        // spec but accept any trailing operands per ES
+                        // trailing-arg ignore; lower-and-drop before
+                        // the 1-arg helper Call (S272 idiom).
+                        for &a in args.iter() {
+                            let _ = self.lower_expr(a);
+                        }
                         let target = match name.as_str() {
                             "keys" => self.intrinsics.arr_iter_create_keys,
                             "values" => self.intrinsics.arr_iter_create_values,

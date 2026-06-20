@@ -7335,6 +7335,28 @@ impl Checker {
                         }
                     }
                 }
+                // S292 — Array<T>.keys(...trailing) trailing-arg ignore
+                // per ES §23.1.3.16. Spec sig is 0-arg returning an
+                // ArrayIterator (tora: Type::ArrIter via
+                // arr_iter_create_keys, fed only `recv_op`). Trailing
+                // operands typecheck-and-drop here; ssa_lower mirrors
+                // with lower-and-drop. values / entries stay narrow to
+                // Array<Any> per the existing carve-out at 4540.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "keys"
+                    && !args.is_empty()
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::Array(_)) {
+                        for &aid in args.iter() {
+                            let _ = self.type_of(ast, aid)?;
+                        }
+                        return Ok(Type::ArrIter);
+                    }
+                }
                 // S290 — primitive `.valueOf(...trailing)` trailing-arg
                 // ignore per ES §21.1.3.27 / §20.4.3.4 / §22.1.3.34 /
                 // §21.2.3.6 / §20.5.3.5. valueOf is 0-arg spec; tora's
