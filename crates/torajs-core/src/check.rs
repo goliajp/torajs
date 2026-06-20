@@ -7675,6 +7675,40 @@ impl Checker {
                         return Ok(Type::Map);
                     }
                 }
+                // S265 — Object.{getPrototypeOf,isExtensible,isSealed,
+                // preventExtensions,seal}(obj, ...trailing) per ES
+                // §20.1.2.{12,13,14,16,18,20}. Each method's fixed sig
+                // (`vec![Type::Any]`) rejected 1+ trailing args; ssa_lower
+                // for the 4 anyv_* helpers already drops args[1..] via
+                // `for a in args.iter().skip(1) { let _ = self.lower_expr(*a); }`;
+                // getPrototypeOf gets the same treatment in the matching
+                // widen below. Returns the original Any (proto/cell) or
+                // Boolean per the underlying sig.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "getPrototypeOf"
+                            | "isExtensible"
+                            | "isSealed"
+                            | "preventExtensions"
+                            | "seal"
+                    )
+                    && args.len() >= 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::Object("Object")) {
+                        for &arg in args.iter() {
+                            let _ = self.type_of(ast, arg)?;
+                        }
+                        return Ok(match m_name.as_str() {
+                            "isExtensible" | "isSealed" => Type::Boolean,
+                            _ => Type::Any,
+                        });
+                    }
+                }
                 // S264 — Set/Map instance method trailing-arg ignore
                 // per ES §24.2.3.{4,5,7} (Set.{delete,clear,has}) +
                 // §23.1.3.{3,4,6,7} (Map.{delete,clear,get,has}).

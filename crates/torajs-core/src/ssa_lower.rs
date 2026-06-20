@@ -18327,8 +18327,14 @@ impl<'a> LowerCtx<'a> {
                     && m_name == "getPrototypeOf"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
-                    && args.len() == 1
+                    && !args.is_empty()
                 {
+                    // S265 — eval-and-drop trailing args (silent-ignore
+                    // per ES §20.1.2.12 step 1 — ToObject(obj) discards
+                    // anything beyond the first arg).
+                    for a in args.iter().skip(1) {
+                        let _ = self.lower_expr(*a);
+                    }
                     // BORROW semantics: getPrototypeOf reads the
                     // argument's class tag / __proto__ field but does
                     // not take ownership. For Ident args, leave the
