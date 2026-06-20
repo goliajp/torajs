@@ -7675,6 +7675,51 @@ impl Checker {
                         return Ok(Type::Map);
                     }
                 }
+                // S268 — Date instance setter trailing-arg ignore per
+                // ES §21.4.4.{20-26}: each per-field setter accepts up
+                // to N Number args (year/month/date/hours/etc); trailing
+                // args beyond that silent-drop per ES trailing-arg
+                // ignore. tora's fixed-N sigs rejected the next arg;
+                // SSA-emit's `for i in 0..target_arity` loop already
+                // takes only args[0..arity] so trailing operands fall
+                // off the slice (release-build); pair with a skip(arity)
+                // eval-and-drop loop in the matching widen below to
+                // preserve side effects and replace the
+                // `debug_assert!(args.len() <= arity)`.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "setFullYear"
+                            | "setMonth"
+                            | "setDate"
+                            | "setHours"
+                            | "setMinutes"
+                            | "setSeconds"
+                            | "setMilliseconds"
+                            | "setTime"
+                            | "setYear"
+                    )
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::Date) {
+                        let max_arity: usize = match m_name.as_str() {
+                            "setFullYear" | "setMinutes" => 3,
+                            "setMonth" | "setSeconds" => 2,
+                            "setDate" | "setMilliseconds" | "setTime" | "setYear" => 1,
+                            "setHours" => 4,
+                            _ => unreachable!(),
+                        };
+                        if args.len() > max_arity {
+                            for &arg in args.iter() {
+                                let _ = self.type_of(ast, arg)?;
+                            }
+                            return Ok(Type::Number);
+                        }
+                    }
+                }
                 // S267 — Array.isArray(value, ...trailing) per ES
                 // §23.1.2.2. The spec uses only step 1's `value`;
                 // trailing args silent-drop. tora's check.rs sig

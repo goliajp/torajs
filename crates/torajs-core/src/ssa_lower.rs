@@ -21605,11 +21605,20 @@ impl<'a> LowerCtx<'a> {
                             _ => None,
                         };
                         let arg_ops: Vec<Operand> = if method == "setTime" || method == "setYear" {
-                            debug_assert_eq!(args.len(), 1);
+                            // S268 — trailing args silent-drop per ES
+                            // §21.4.4.27 (setTime) / annexB §B.2.4.2
+                            // (setYear): sig is 1; extras eval-and-drop.
+                            debug_assert!(!args.is_empty());
                             let a = self.lower_expr(args[0]);
+                            for ai in args.iter().skip(1) {
+                                let _ = self.lower_expr(*ai);
+                            }
                             vec![recv_op, self.coerce_to_i64(a)]
                         } else if let Some(target_arity) = per_field_arity {
-                            debug_assert!(!args.is_empty() && args.len() <= target_arity);
+                            // S268 — trailing args beyond `target_arity`
+                            // silent-drop per ES §21.4.4.{20-26}; preserve
+                            // side effects via the skip(arity) eval loop.
+                            debug_assert!(!args.is_empty());
                             let mut ops = Vec::with_capacity(target_arity + 1);
                             ops.push(recv_op);
                             for i in 0..target_arity {
@@ -21619,6 +21628,9 @@ impl<'a> LowerCtx<'a> {
                                 } else {
                                     ops.push(Operand::ConstI64(i64::MIN));
                                 }
+                            }
+                            for ai in args.iter().skip(target_arity) {
+                                let _ = self.lower_expr(*ai);
                             }
                             ops
                         } else {
