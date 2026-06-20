@@ -7651,7 +7651,14 @@ impl Checker {
                     && let Expr::Member { obj, name: _ } = ast.get_expr(*callee)
                 {
                     let recv_ty = self.type_of(ast, *obj)?;
-                    if matches!(recv_ty, Type::Object("Math")) {
+                    // S243 Math.* / S250 Date.<static> narrow trailing-
+                    // arg ignore per ES §21.3.2.* / §21.4.3.*. Each
+                    // intrinsic reads only declared positional args;
+                    // SSA-emit's Call lowering tolerates extras at the
+                    // (intrinsic) ABI boundary. Other builtin receivers
+                    // (Number/Array/String) stay on per-method narrow
+                    // carve-outs (S238-S248).
+                    if matches!(recv_ty, Type::Object("Math") | Type::Object("Date")) {
                         for &aid in &effective_args[params.len()..] {
                             let _ = self.type_of(ast, aid)?;
                         }
