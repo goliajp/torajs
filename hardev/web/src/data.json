@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-20T15:38:58.719Z",
+  "generatedAt": "2026-06-20T15:57:50.618Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "63fd89ce",
-    "commitSubject": "fix(prim): {Number,Boolean,String,BigInt,Symbol,Array}.valueOf(...trailing) per ES trailing-arg ignore",
+    "commit": "11eae511",
+    "commitSubject": "fix(arr): Array.prototype.keys(...trailing) per ES trailing-arg ignore",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "11eae511",
+      "subject": "fix(arr): Array.prototype.keys(...trailing) per ES trailing-arg ignore"
+    },
+    {
+      "hash": "d95005b7",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S286-S290)"
+    },
+    {
       "hash": "63fd89ce",
       "subject": "fix(prim): {Number,Boolean,String,BigInt,Symbol,Array}.valueOf(...trailing) per ES trailing-arg ignore"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "847596fa",
       "subject": "fix(str): {replace,replaceAll,split}(useful,useful,...trailing) per ES trailing-arg ignore"
-    },
-    {
-      "hash": "32f69fa3",
-      "subject": "fix(str): {trim,trimStart,trimEnd,trimLeft,trimRight,toUpperCase,toLowerCase,toWellFormed,isWellFormed}(...trailing) per ES trailing-arg ignore"
-    },
-    {
-      "hash": "c6c3389a",
-      "subject": "fix(num): isNaN/isFinite(undefined) per ES §19.2.{3,4} ToNumber(undefined)=NaN"
     }
   ],
-  "headSha": "63fd89ce",
+  "headSha": "11eae511",
   "autorun": {
     "total": 210,
     "baselineTarget": 10,
