@@ -6602,6 +6602,23 @@ impl Checker {
                                 return Ok(Type::Array(elem));
                             }
                         }
+                    } else if args.len() >= 2 {
+                        // S276 — Array.{sort,toSorted}(cmp, ...trailing) per
+                        // ES §23.1.3.{30,33} trailing-arg ignore: spec
+                        // reads only cmp; trailing slots silent-drop.
+                        // tora's static sig is fixed 1-arg, so 2+ args
+                        // bounce at strict arity. Accept any cmp shape
+                        // (Function | Any), typecheck-and-drop trailing.
+                        let src_ty = self.type_of(ast, *src_id)?;
+                        if let Type::Array(elem) = src_ty {
+                            let aty0 = self.type_of(ast, args[0])?;
+                            if matches!(aty0, Type::Function(..) | Type::Any) {
+                                for &a in &args[1..] {
+                                    let _ = self.type_of(ast, a)?;
+                                }
+                                return Ok(Type::Array(elem));
+                            }
+                        }
                     }
                 }
                 // V3-18 m1.h.49 — Array.indexOf / lastIndexOf accept
@@ -7297,8 +7314,13 @@ impl Checker {
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && matches!(m_name.as_str(), "reduce" | "reduceRight")
-                    && args.len() == 3
+                    && args.len() >= 3
                 {
+                    // S276 — widen `== 3` to `>= 3` per ES §23.1.3.{22,23}
+                    // trailing-arg ignore. Spec reads cb + initialValue
+                    // only; trailing slots silent-drop. ssa_lower's
+                    // 22487 entry reads only args[0] (cb) + args[1]
+                    // (initial); args[2..] handled by S270 skip(2) loop.
                     let src_ty = self.type_of(ast, *src_id)?;
                     if let Type::Array(elem) = &src_ty {
                         let inner = (**elem).clone();
@@ -7316,7 +7338,9 @@ impl Checker {
                                 inner
                             ));
                         }
-                        let _ = self.type_of(ast, args[2])?;
+                        for &a in &args[2..] {
+                            let _ = self.type_of(ast, a)?;
+                        }
                         return Ok(inner);
                     }
                 }

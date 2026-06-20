@@ -1328,8 +1328,11 @@ pub(crate) fn try_lower_method_call(
     // and avoids needing closure-aware C runtime.
     if let Type::Arr(arr_id) = recv_ty
         && (method == "sort" || method == "toSorted")
-        && args.len() <= 1
     {
+        // S276 — widen from `args.len() <= 1` to any arg count per ES
+        // §23.1.3.{30,33} trailing-arg ignore. SSA-emit reads only
+        // args[0] (cmp); trailing args eval-and-drop below so side-
+        // effect exprs fire.
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         // toSorted clones the receiver via arr_slice
         // before sorting so the source stays intact.
@@ -1385,6 +1388,12 @@ pub(crate) fn try_lower_method_call(
         } else {
             (None, None)
         };
+        // S276 — eval-and-drop trailing args past cmp so step()-style
+        // side-effect exprs fire per ES §23.1.3.{30,33} trailing-arg
+        // ignore. SSA-emit reads only args[0]; args[1..] discarded.
+        for &a in args.iter().skip(1) {
+            let _ = ctx.lower_expr(a);
+        }
         let len = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
