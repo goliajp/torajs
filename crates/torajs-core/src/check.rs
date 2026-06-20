@@ -6684,6 +6684,42 @@ impl Checker {
                         }
                     }
                 }
+                // S240 — String.{at,charAt,charCodeAt,codePointAt,
+                // repeat,normalize}(useful, ...trailing) trailing-arg
+                // ignore per ES §22.1.3.{1,2,3,4,17,13}: spec reserves
+                // slots past useful arg 0 but tora's helpers are 1-arg
+                // only. Trailing operand type_of'd for side effects then
+                // dropped at lower-time (ssa_lower break early past
+                // i=0). Same shape as S238 localeCompare.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "at" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" | "normalize"
+                    )
+                    && args.len() == 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let aty0 = self.type_of(ast, args[0])?;
+                        let arg0_ok = match m_name.as_str() {
+                            "at" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" => {
+                                matches!(aty0, Type::Number | Type::Undefined)
+                            }
+                            "normalize" => matches!(aty0, Type::String | Type::Undefined),
+                            _ => false,
+                        };
+                        if arg0_ok {
+                            let _ = self.type_of(ast, args[1])?;
+                            return Ok(match m_name.as_str() {
+                                "at" | "charAt" | "repeat" | "normalize" => Type::String,
+                                _ => Type::Number,
+                            });
+                        }
+                    }
+                }
                 // V3-18 m1.h.48 — String.normalize accepts an optional
                 // form arg ("NFC" / "NFD" / "NFKC" / "NFKD"). Per JS
                 // spec §21.1.3.13. tora's byte-Str ASCII-only path

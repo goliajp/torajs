@@ -209,7 +209,10 @@ pub(crate) fn try_lower_method_call(
     // is dropped and every charCodeAt / codePointAt routes
     // through the runtime intrinsic, which already does the
     // encoding-aware load.
-    if recv_ty == Type::Substr && method == "charAt" && args.len() == 1 {
+    // S240 widens the 1-arg detection to 2-arg so the
+    // charAt(idx, trailing) shape still routes through this fast
+    // path; args[1] is never lowered (trailing-arg ignore).
+    if recv_ty == Type::Substr && method == "charAt" && (args.len() == 1 || args.len() == 2) {
         // charAt on Substr: substr_slice(v, i, i+1).
         let idx_val = ctx.lower_expr(args[0]);
         let end = ctx.f.append_inst(
@@ -431,7 +434,14 @@ pub(crate) fn try_lower_method_call(
     // `s.charAt(i)` — same-shape alias for `s[i]`.
     // Lowers to a length-1 substr view instead of going
     // through a separate runtime helper.
-    if matches!(recv_ty, Type::Str | Type::Substr) && method == "charAt" && args.len() == 1 {
+    // S240 widens the 1-arg detection to 2-arg so the
+    // charAt(idx, trailing) shape still routes through this length-1
+    // substr-view fast path; args[1] is never lowered (trailing-arg
+    // ignore).
+    if matches!(recv_ty, Type::Str | Type::Substr)
+        && method == "charAt"
+        && (args.len() == 1 || args.len() == 2)
+    {
         // S222 — `s.charAt(undefined)` per ES §22.1.3.2 step 2-3:
         // ToIntegerOrInfinity(undefined)=0. Short-circuit to ConstI64(0)
         // before coerce_to_i64, which can't lower a ConstPtrNull undef
@@ -510,7 +520,10 @@ pub(crate) fn try_lower_method_call(
         // the typed-Undefined arg (same idiom S206/S207 use)
         // and route to the 0-arg path so the operand lower is
         // skipped (the literal has no side effects).
-        let undef_form = args.len() == 1
+        // S240 widens the 1-arg detection to 2-arg so a trailing-undef
+        // shape (normalize(undef, trailing)) still folds to "NFC" without
+        // lowering the undef operand into the helper's Str slot.
+        let undef_form = (args.len() == 1 || args.len() == 2)
             && matches!(
                 ctx.expr_types.get(&args[0]),
                 Some(crate::check::Type::Undefined)
@@ -704,6 +717,18 @@ pub(crate) fn try_lower_method_call(
                     method.as_str(),
                     "indexOf" | "lastIndexOf" | "includes" | "startsWith" | "endsWith"
                 ) && i > 1
+                {
+                    break;
+                }
+                // S240 — String.{at,charAt,charCodeAt,codePointAt,
+                // repeat,normalize}(useful, ...trailing) trailing-arg
+                // ignore per ES §22.1.3.{1,2,3,4,17,13}: drop args
+                // beyond i=0 so the helper's 1-arg ABI never sees the
+                // extra operands.
+                if matches!(
+                    method.as_str(),
+                    "at" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" | "normalize"
+                ) && i > 0
                 {
                     break;
                 }
