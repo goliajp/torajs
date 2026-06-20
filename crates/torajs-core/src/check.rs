@@ -3129,6 +3129,20 @@ impl Checker {
                         vec![Type::Array(Box::new(Type::Array(Box::new(Type::Any))))],
                         Box::new(Type::Any),
                     )),
+                    /* S258 — Object.values(obj) → Array<Any>. SSA-emit
+                     * already dispatches Obj/Arr/Str/Any receivers
+                     * (ssa_lower.rs ~18495); checktime sig was missing.
+                     * Return Array<Any> — heterogeneous struct fields
+                     * + Any receiver both box to Any per ssa_lower's
+                     * anyv_struct_values walker; homogeneous struct
+                     * + Arr receivers also typecheck under Array<Any>
+                     * (downcast-on-use). Trailing-arg widen folded
+                     * into S256 below (matches!("entries"|"freeze"
+                     * |"isFrozen"|"values"). */
+                    (Type::Object("Object"), "values") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Array(Box::new(Type::Any))),
+                    )),
                     /* T-09.d (v0.4.0) — Object.freeze(obj) sets the
                      * FROZEN bit on the universal heap header. Returns
                      * the same obj per spec. Subsequent field writes
@@ -7428,13 +7442,19 @@ impl Checker {
                 // reads only args[0]; tora silent-drops trailing per
                 // generic trailing-arg-ignore policy. SSA-emit mirror
                 // widens each `args.len() == 1` gate to `>= 1`.
+                // S258 extends to `values` — same shape, returns
+                // Array<Any> (the per-method 1-arg sig was missing
+                // entirely; now added above).
                 if let Expr::Member {
                     obj: ns_id,
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
                     && ns == "Object"
-                    && matches!(m_name.as_str(), "entries" | "freeze" | "isFrozen")
+                    && matches!(
+                        m_name.as_str(),
+                        "entries" | "freeze" | "isFrozen" | "values"
+                    )
                     && args.len() >= 2
                 {
                     let arg0_ty = self.type_of(ast, args[0])?;
@@ -7445,6 +7465,7 @@ impl Checker {
                         "entries" => Type::Array(Box::new(Type::Array(Box::new(Type::Any)))),
                         "freeze" => arg0_ty,
                         "isFrozen" => Type::Boolean,
+                        "values" => Type::Array(Box::new(Type::Any)),
                         _ => unreachable!(),
                     });
                 }
