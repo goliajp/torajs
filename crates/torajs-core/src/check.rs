@@ -5212,7 +5212,12 @@ impl Checker {
                     }
                     if args.len() == 2 {
                         let r_ty = self.type_of(ast, args[1])?;
-                        if r_ty != Type::Number {
+                        // S234 — accept Undefined radix per ES §21.1.2.13
+                        // (aliases §19.2.5.1 step 2-3): ToInt32(undefined)=0,
+                        // step 8 R==0 → R=10 default. ssa_lower mirror
+                        // substitutes ConstI64(0) for the helper's
+                        // auto-detect branch.
+                        if !matches!(r_ty, Type::Number | Type::Undefined) {
                             return Err(format!(
                                 "Number.parseInt arg 1 must be number, got {r_ty:?}"
                             ));
@@ -5792,7 +5797,14 @@ impl Checker {
                             }
                             if args.len() == 2 {
                                 let r_ty = self.type_of(ast, args[1])?;
-                                if r_ty != Type::Number {
+                                // S234 — accept Undefined radix per ES
+                                // §19.2.5.1 step 2-3: ToInt32(undefined)=0,
+                                // then step 8 R==0 → R=10 default. ssa_lower
+                                // mirror substitutes ConstI64(0) so the
+                                // helper's `r==0` auto-detect branch picks
+                                // up base 10 (or 16 if the input has a
+                                // "0x"/"0X" prefix).
+                                if !matches!(r_ty, Type::Number | Type::Undefined) {
                                     return Err(format!(
                                         "parseInt arg 1 must be number, got {r_ty:?}"
                                     ));

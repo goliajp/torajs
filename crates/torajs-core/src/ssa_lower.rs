@@ -17053,7 +17053,18 @@ impl<'a> LowerCtx<'a> {
                             // path (10 by default, 16 if "0x" / "0X"
                             // prefix). Spec §19.2.5: parseInt without a
                             // radix infers from the prefix.
-                            let r = if args.len() >= 2 {
+                            //
+                            // S234 — accept explicit-undefined radix per
+                            // §19.2.5.1 step 2-3: ToInt32(undefined)=0 →
+                            // same auto-detect sentinel. Skip lowering
+                            // the undef arg so its ConstPtrNull never
+                            // reaches the helper's i64 radix slot.
+                            let radix_undef = args.len() >= 2
+                                && matches!(
+                                    self.expr_types.get(&args[1]),
+                                    Some(check_mod::Type::Undefined)
+                                );
+                            let r = if args.len() >= 2 && !radix_undef {
                                 self.lower_expr(args[1])
                             } else {
                                 Operand::ConstI64(0)
@@ -17491,7 +17502,17 @@ impl<'a> LowerCtx<'a> {
                             // have a ConstI64 / loaded radix here.
                             let s = self.lower_expr(args[0]);
                             // V3-18 m1.h.25 — auto-detect when no radix.
-                            let r = if args.len() >= 2 {
+                            //
+                            // S234 — accept explicit-undefined radix per
+                            // §21.1.2.13 aliasing §19.2.5.1 step 2-3:
+                            // ToInt32(undefined)=0 → same auto-detect
+                            // sentinel; skip lowering the undef arg.
+                            let radix_undef = args.len() >= 2
+                                && matches!(
+                                    self.expr_types.get(&args[1]),
+                                    Some(check_mod::Type::Undefined)
+                                );
+                            let r = if args.len() >= 2 && !radix_undef {
                                 self.lower_expr(args[1])
                             } else {
                                 Operand::ConstI64(0)
