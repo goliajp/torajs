@@ -7328,6 +7328,29 @@ impl Checker {
                         }
                     }
                 }
+                // S288 — Array<T>.{pop,shift}(...trailing) trailing-arg
+                // ignore per ES §23.1.3.{20,24}. Spec sigs are 0-arg;
+                // tora's runtime helpers (in-place len-- + tail/head
+                // slot load) ignore any extras. Typecheck-and-drop
+                // here; ssa_lower's try_arr_pop / try_arr_shift arms
+                // widen the `args.is_empty()` gate + lower-and-drop
+                // args[..] so step()-style exprs fire (S272 idiom).
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(), "pop" | "shift")
+                    && !args.is_empty()
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = &src_ty {
+                        let inner = (**elem).clone();
+                        for &a in args.iter() {
+                            let _ = self.type_of(ast, a)?;
+                        }
+                        return Ok(inner);
+                    }
+                }
                 // S287 — Array<T>.{reverse,toReversed,join,toString,
                 // toLocaleString}(...trailing) trailing-arg ignore per
                 // ES §23.1.3.{27,33,15,32,31}. reverse / toReversed /

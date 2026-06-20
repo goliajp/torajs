@@ -139,9 +139,15 @@ impl<'a> LowerCtx<'a> {
         // convention used elsewhere.
         if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(callee)
             && name == "pop"
-            && args.is_empty()
             && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
         {
+            // S288 — accept any trailing operands per ES §23.1.3.20
+            // trailing-arg ignore; lower-and-drop before the in-place
+            // pop emit so step()-style side-effect exprs fire (S272
+            // idiom). Runtime helper reads no operands beyond recv.
+            for &a in args.iter() {
+                let _ = self.lower_expr(a);
+            }
             let recv_name = recv_name.clone();
             let resolved_arr: Option<(Operand, Type)> = if let Some(info) =
                 self.locals.get(&recv_name).copied()
@@ -240,9 +246,15 @@ impl<'a> LowerCtx<'a> {
         // for the global-receiver path.
         if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(callee)
             && name == "shift"
-            && args.is_empty()
             && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
         {
+            // S288 — accept any trailing operands per ES §23.1.3.24
+            // trailing-arg ignore; lower-and-drop before the head-
+            // bump emit so step()-style side-effect exprs fire (S272
+            // idiom).
+            for &a in args.iter() {
+                let _ = self.lower_expr(a);
+            }
             let recv_name = recv_name.clone();
             let resolved_arr: Option<(Operand, Type)> = if let Some(info) =
                 self.locals.get(&recv_name).copied()
