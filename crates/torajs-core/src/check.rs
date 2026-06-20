@@ -5957,9 +5957,15 @@ impl Checker {
                     && ns == "Math"
                     && m == "hypot"
                 {
+                    // S271 — accept Undefined alongside Number per
+                    // ES §21.3.2.18: ToNumber(undefined)=NaN, sum² +
+                    // sqrt containing NaN → NaN. ssa_lower mirror
+                    // folds to ConstF64(NaN) when any arg is statically
+                    // Undefined, after eval-and-dropping the non-undef
+                    // args so trailing side-effect expressions fire.
                     for &aid in args {
                         let aty = self.type_of(ast, aid)?;
-                        if aty != Type::Number {
+                        if !matches!(aty, Type::Number | Type::Undefined) {
                             return Err(format!("Math.hypot args must be number, got {aty:?}"));
                         }
                     }

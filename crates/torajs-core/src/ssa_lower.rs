@@ -17317,6 +17317,25 @@ impl<'a> LowerCtx<'a> {
                     if args.is_empty() {
                         return Operand::ConstF64(0.0);
                     }
+                    // S271 — any statically-Undefined arg propagates
+                    // NaN per spec §21.3.2.18 (ToNumber on each arg,
+                    // undef → NaN, sum² + sqrt containing NaN → NaN).
+                    // Eval-and-drop the non-undef args so trailing
+                    // side-effect expressions still fire, then return
+                    // ConstF64(NaN) so the undef sentinel never reaches
+                    // coerce_to_f64.
+                    if args
+                        .iter()
+                        .any(|a| matches!(self.expr_types.get(a), Some(check_mod::Type::Undefined)))
+                    {
+                        for &a in args {
+                            if !matches!(self.expr_types.get(&a), Some(check_mod::Type::Undefined))
+                            {
+                                let _ = self.lower_expr(a);
+                            }
+                        }
+                        return Operand::ConstF64(f64::NAN);
+                    }
                     let arg_ids: Vec<ExprId> = args.clone();
                     let mut acc: Option<Operand> = None;
                     for aid in arg_ids.iter() {
