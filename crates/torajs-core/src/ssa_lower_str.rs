@@ -1927,9 +1927,12 @@ pub(crate) fn try_lower_method_call(
     // does the bytewise memmove; refcounts now reflect
     // the post-copy slot ownership so the array's
     // eventual element-walk drop is balanced.
+    // S246 widens the 3-arg ceiling to 4-arg so the trailing-arg
+    // shape (copyWithin(t, s, e, trailing)) still routes through
+    // this fast path; args[3] is never lowered (trailing-arg ignore).
     if let Type::Arr(arr_id) = recv_ty
         && method == "copyWithin"
-        && (1..=3).contains(&args.len())
+        && (1..=4).contains(&args.len())
     {
         // V3-18 wedge — copyWithin per JS spec
         // §22.1.3.3 normalises target / start / end
@@ -2154,9 +2157,12 @@ pub(crate) fn try_lower_method_call(
     // value refcount imbalanced. Emit a per-slot SSA
     // loop that drops old + stores new + inc's new,
     // bypassing the C runtime for this case.
+    // S246 widens the 3-arg ceiling to 4-arg so the trailing-arg
+    // shape (fill(v, s, e, trailing)) still routes through this
+    // fast path; args[3] is never lowered (trailing-arg ignore).
     if let Type::Arr(arr_id) = recv_ty
         && method == "fill"
-        && (args.len() >= 1 && args.len() <= 3)
+        && (args.len() >= 1 && args.len() <= 4)
     {
         let fill_elem = ctx.arr_layouts[arr_id.0 as usize];
         // L3b Array<Any>.fill — NaN-box the value and route through
@@ -2209,7 +2215,7 @@ pub(crate) fn try_lower_method_call(
         } else {
             Operand::ConstI64(0)
         };
-        let end = if args.len() == 3 {
+        let end = if args.len() >= 3 {
             let arg2_undef = matches!(
                 ctx.expr_types.get(&args[2]),
                 Some(crate::check::Type::Undefined)

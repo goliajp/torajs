@@ -7112,6 +7112,55 @@ impl Checker {
                         }
                     }
                 }
+                // S246 — Array<T>.{copyWithin,fill}(a, b, c, ...trailing)
+                // trailing-arg ignore per ES §23.1.3.{4,7}. Spec
+                // reserves slots past the 3 useful args but tora's
+                // inline copyWithin / fill loops are 3-arg only.
+                // Trailing operand type_of'd for side effects then
+                // dropped at lower-time; SSA-emit reads only
+                // args[0..=2] so args[3..] are silently ignored.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(), "copyWithin" | "fill")
+                    && args.len() == 4
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = &src_ty {
+                        let inner = (**elem).clone();
+                        // arg 0 (target / value): type-checked per
+                        // method shape — fill arg 0 is element type,
+                        // copyWithin arg 0 is Number (target index).
+                        let aty0 = self.type_of(ast, args[0])?;
+                        if m_name == "fill" {
+                            if aty0 != inner && !matches!(inner, Type::Any) {
+                                return Err(format!(
+                                    "Array.fill arg 0 (value) must match elem type {:?}, got {aty0:?}",
+                                    inner
+                                ));
+                            }
+                        } else if !matches!(aty0, Type::Number | Type::Undefined) {
+                            return Err(format!(
+                                "Array.copyWithin arg 0 (target) must be number, got {aty0:?}"
+                            ));
+                        }
+                        let aty1 = self.type_of(ast, args[1])?;
+                        if !matches!(aty1, Type::Number | Type::Undefined) {
+                            return Err(format!(
+                                "Array.{m_name} arg 1 must be number, got {aty1:?}"
+                            ));
+                        }
+                        let aty2 = self.type_of(ast, args[2])?;
+                        if !matches!(aty2, Type::Number | Type::Undefined) {
+                            return Err(format!(
+                                "Array.{m_name} arg 2 must be number, got {aty2:?}"
+                            ));
+                        }
+                        let _ = self.type_of(ast, args[3])?;
+                        return Ok(Type::Array(elem.clone()));
+                    }
+                }
                 // S245 — Array<T>.{reduce,reduceRight}(fn, init, ...trailing)
                 // trailing-arg ignore per ES §22.1.3.{21,22}. Spec
                 // reserves slots past the 2 useful args (callback +
