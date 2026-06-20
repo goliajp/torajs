@@ -811,12 +811,18 @@ pub(crate) fn try_lower_method_call(
                 // (a, b, ...trailing) trailing-arg ignore per ES
                 // §22.1.3.{20,22,23,16,17}: drop args beyond i=1 so the
                 // helper's 2-arg ABI never sees the extra operands.
+                //
+                // S284 — was `break` (silently dropped trailing exprs).
+                // Lower-and-drop each so step()-style side-effect exprs
+                // fire per ES eval-then-discard semantics. Same S272
+                // idiom (S278 also applied this to the S239 family).
                 if matches!(
                     method.as_str(),
                     "slice" | "substring" | "substr" | "padStart" | "padEnd"
                 ) && i > 1
                 {
-                    break;
+                    let _ = ctx.lower_expr(a);
+                    continue;
                 }
                 // S282 — String.{replace,replaceAll,split}(useful, useful,
                 // ...trailing) trailing-arg ignore per ES §22.1.3.{18,

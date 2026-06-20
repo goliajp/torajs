@@ -7232,6 +7232,12 @@ impl Checker {
                 // type_of'd for side effects then dropped at lower-time
                 // (ssa_lower break early past i=1). Same shape as S238
                 // localeCompare.
+                //
+                // S284 — widen from `args.len() == 3` (single trailing)
+                // to `args.len() >= 3` (any trailing count). ssa_lower
+                // mirror swaps the loop break to lower_expr + continue
+                // so step()-style side-effect exprs fire per ES eval-
+                // then-discard semantics (S272 idiom).
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
@@ -7240,7 +7246,7 @@ impl Checker {
                         m_name.as_str(),
                         "slice" | "substring" | "substr" | "padStart" | "padEnd"
                     )
-                    && args.len() == 3
+                    && args.len() >= 3
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {
@@ -7276,7 +7282,9 @@ impl Checker {
                                 "String.{m_name} arg 1 type mismatch, got {aty1:?}"
                             ));
                         }
-                        let _ = self.type_of(ast, args[2])?;
+                        for &a in &args[2..] {
+                            let _ = self.type_of(ast, a)?;
+                        }
                         return Ok(Type::String);
                     }
                 }
