@@ -7399,6 +7399,30 @@ impl Checker {
                         });
                     }
                 }
+                // S255 — Object.keys / Object.getOwnPropertyNames /
+                // Reflect.ownKeys (obj, ...trailing) trailing-arg ignore
+                // per ES §20.1.2.{17,22} / §28.1.11. Spec reads only
+                // args[0]; tora silent-drops trailing per generic
+                // trailing-arg-ignore policy. SSA-emit mirror widens
+                // the `args.len() == 1` gate to `>= 1` (ssa_lower.rs:
+                // ~18745). Narrow to this shared 3-method SSA-emit
+                // dispatch — other Object/Reflect methods need
+                // per-method SSA-emit widening (L3b).
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ((ns == "Object" && (m_name == "keys" || m_name == "getOwnPropertyNames"))
+                        || (ns == "Reflect" && m_name == "ownKeys"))
+                    && args.len() >= 2
+                {
+                    let _ = self.type_of(ast, args[0])?;
+                    for &arg in args.iter().skip(1) {
+                        let _ = self.type_of(ast, arg)?;
+                    }
+                    return Ok(Type::Array(Box::new(Type::String)));
+                }
                 // S248 — Set.add / Map.set (value, ...trailing) /
                 // (key, value, ...trailing) trailing-arg ignore per
                 // ES §24.2.3.1 (Set.prototype.add) / §23.1.3.9

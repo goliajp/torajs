@@ -18742,7 +18742,11 @@ impl<'a> LowerCtx<'a> {
                         // — tr has no symbol keys + no prototype chain so
                         // own-string-keys == all-own-keys.
                         || (ns == "Reflect" && m_name == "ownKeys"))
-                    && args.len() == 1
+                    // S255 — widen `== 1` → `>= 1` per ES §20.1.2.{17,22}
+                    // / §28.1.11 trailing-arg ignore. Lower only args[0]
+                    // (the target obj); trailing args dropped at
+                    // lower-time (check.rs already type_of'd them).
+                    && !args.is_empty()
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
