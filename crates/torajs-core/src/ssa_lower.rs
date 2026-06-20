@@ -18658,6 +18658,12 @@ impl<'a> LowerCtx<'a> {
                     && !args.is_empty()
                 {
                     let arg_op = self.lower_expr(args[0]);
+                    // S297 — lower-and-drop trailing args past the 1
+                    // useful obj slot per S258 (S272 idiom). check.rs
+                    // already type_of'd them.
+                    for &a in args.iter().skip(1) {
+                        let _ = self.lower_expr(a);
+                    }
                     let arg_ty = self.operand_ty(&arg_op);
                     // W-O — Array receiver: bun returns a fresh shallow
                     // array of slot values. Reuses the deep-clone pattern
@@ -18913,6 +18919,12 @@ impl<'a> LowerCtx<'a> {
                     && !args.is_empty()
                 {
                     let arg_op = self.lower_expr(args[0]);
+                    // S297 — lower-and-drop trailing args past the 1
+                    // useful obj slot per S255 (S272 idiom). check.rs
+                    // already type_of'd them.
+                    for &a in args.iter().skip(1) {
+                        let _ = self.lower_expr(a);
+                    }
                     let arg_ty = self.operand_ty(&arg_op);
                     // `Object.keys` filters to enumerable-own per spec
                     // §22.1.3.16; Array/String `length` is non-enumerable
@@ -19772,6 +19784,12 @@ impl<'a> LowerCtx<'a> {
                     && !args.is_empty()
                 {
                     let arg_op = self.lower_expr(args[0]);
+                    // S297 — lower-and-drop trailing args past the 1
+                    // useful obj slot per S256 (S272 idiom). check.rs
+                    // already type_of'd them.
+                    for &a in args.iter().skip(1) {
+                        let _ = self.lower_expr(a);
+                    }
                     let arg_ty = self.operand_ty(&arg_op);
                     // W-O-3 — Array receiver: bun returns Arr<Arr<[idx_str,
                     // val], 2>>. Routes to a runtime helper that mints the
