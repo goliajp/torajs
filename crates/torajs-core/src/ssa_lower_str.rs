@@ -874,10 +874,21 @@ pub(crate) fn try_lower_method_call(
                 // missing `sep` slot reads register garbage and
                 // SIGSEGV's once any prior `.split(arg)` shifted the
                 // residual register state.
-                if args.is_empty() {
+                // S233 — `s.split(undefined)` per ES §22.1.3.21 step 2:
+                // separator===undefined skips the splitting altogether
+                // and step 3 returns `[S]`. Without this carve-out the
+                // 1-arg-undef path falls through to `str_split` with a
+                // ConstPtrNull sep slot, which SIGSEGV's the helper's
+                // (Str, Str) ABI. Reroute to the same 0-arg helper.
+                let split_1arg_undef = args.len() == 1
+                    && matches!(
+                        ctx.expr_types.get(&args[0]),
+                        Some(crate::check::Type::Undefined)
+                    );
+                if args.is_empty() || split_1arg_undef {
                     let v = ctx.f.append_inst(
                         ctx.cur_block,
-                        InstKind::Call(ctx.intrinsics.str_split_no_sep, argv),
+                        InstKind::Call(ctx.intrinsics.str_split_no_sep, argv[..1].to_vec()),
                         Type::Arr(arr_id),
                         None,
                     );
