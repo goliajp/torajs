@@ -7328,6 +7328,33 @@ impl Checker {
                         }
                     }
                 }
+                // S286 — String.{match,matchAll}(re, ...trailing) trailing-
+                // arg ignore per ES §22.1.3.{11,13}. Spec reads only `re`;
+                // tora's regex helper takes only (Str, RegExp) so trailing
+                // operands typecheck-and-drop here, ssa_lower mirrors with
+                // lower-and-drop in the RegExp-branch match/matchAll arms.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(), "match" | "matchAll")
+                    && args.len() >= 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let aty0 = self.type_of(ast, args[0])?;
+                        if matches!(aty0, Type::RegExp) {
+                            for &aid in &args[1..] {
+                                let _ = self.type_of(ast, aid)?;
+                            }
+                            return Ok(if m_name == "matchAll" {
+                                Type::Array(Box::new(Type::Array(Box::new(Type::String))))
+                            } else {
+                                Type::Array(Box::new(Type::String))
+                            });
+                        }
+                    }
+                }
                 // S246 — Array<T>.{copyWithin,fill}(a, b, c, ...trailing)
                 // trailing-arg ignore per ES §23.1.3.{4,7}. Spec
                 // reserves slots past the 3 useful args but tora's

@@ -21901,6 +21901,13 @@ impl<'a> LowerCtx<'a> {
                         let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
                         match method.as_str() {
                             "match" => {
+                                // S286 — trailing-arg ignore per ES
+                                // §22.1.3.11: spec reads only `re`, but
+                                // step()-style side-effect exprs must
+                                // fire per ES eval-then-discard.
+                                for &a in args.iter().skip(1) {
+                                    let _ = self.lower_expr(a);
+                                }
                                 let v = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::Call(
@@ -21913,6 +21920,11 @@ impl<'a> LowerCtx<'a> {
                                 return Operand::Value(v);
                             }
                             "matchAll" => {
+                                // S286 — trailing-arg ignore per ES
+                                // §22.1.3.13: same as match arm above.
+                                for &a in args.iter().skip(1) {
+                                    let _ = self.lower_expr(a);
+                                }
                                 /* outer = Array<Array<Str>>, inner arr_id
                                  * = Array<Str> from above. */
                                 let outer_id =
