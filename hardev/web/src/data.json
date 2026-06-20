@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-20T10:28:57.401Z",
+  "generatedAt": "2026-06-20T12:31:26.248Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "588e52a0",
-    "commitSubject": "fix(obj-meta): Object.{create,setPrototypeOf,defineProperties}(args..., ...trailing) per ES trailing-arg ignore",
+    "commit": "81cbbec2",
+    "commitSubject": "fix(mapset): Map/Set.{keys,values,entries}(...trailing) per ES iterator-factory trailing-arg ignore",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,42 @@
   },
   "commits": [
     {
+      "hash": "81cbbec2",
+      "subject": "fix(mapset): Map/Set.{keys,values,entries}(...trailing) per ES iterator-factory trailing-arg ignore"
+    },
+    {
+      "hash": "3aee7e17",
+      "subject": "fix(arr): Array.{sort,toSorted}(cmp,...trailing) + Array.{reduce,reduceRight}(cb,init,...trailing) per ES trailing-arg ignore"
+    },
+    {
+      "hash": "465e3915",
+      "subject": "fix(arr): Array.from(iter, mapFn, thisArg?, ...trailing) per ES trailing-arg ignore"
+    },
+    {
+      "hash": "650e2534",
+      "subject": "fix(math): Math.{min,max,pow,atan2,imul} undef-fold preserves non-undef side effects"
+    },
+    {
+      "hash": "a2d6bed1",
+      "subject": "fix(promise): Promise.{all,race,any,allSettled}(iterable, ...trailing) per ES trailing-arg ignore"
+    },
+    {
+      "hash": "c46c5f47",
+      "subject": "fix(str): String.{at,charAt,charCodeAt,codePointAt,repeat,normalize}(useful, ...trailing) per ES trailing-arg ignore"
+    },
+    {
+      "hash": "2ec588ad",
+      "subject": "fix(math): Math.hypot accepts Undefined args, propagates NaN per ES §21.3.2.18"
+    },
+    {
+      "hash": "26c58f5b",
+      "subject": "fix(arr): Array typed-cb (cb, thisArg?, ...trailing) per ES trailing-arg ignore"
+    },
+    {
+      "hash": "4b5b93f3",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×6 (S264-S269)"
+    },
+    {
       "hash": "588e52a0",
       "subject": "fix(obj-meta): Object.{create,setPrototypeOf,defineProperties}(args..., ...trailing) per ES trailing-arg ignore"
     },
@@ -627,63 +663,38 @@
     {
       "hash": "795f3f75",
       "subject": "fix(arr): Array.isArray(value, ...trailing) per ES trailing-arg ignore"
-    },
-    {
-      "hash": "d0390315",
-      "subject": "fix(regexp): RegExp.{test,exec,toString}(s?, ...trailing) per ES trailing-arg ignore"
-    },
-    {
-      "hash": "90c2cb30",
-      "subject": "fix(obj-meta): Object.{getPrototypeOf,isExtensible,isSealed,preventExtensions,seal}(obj, ...trailing) per ES"
-    },
-    {
-      "hash": "82dcf2ff",
-      "subject": "fix(setmap): Set/Map instance method `(arg?, ...trailing)` per ES trailing-arg ignore"
-    },
-    {
-      "hash": "4508050c",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×7 (S257-S263)"
-    },
-    {
-      "hash": "a62e4c2a",
-      "subject": "fix(promise): `Promise.{resolve,reject}(value, ...trailing)` per ES trailing-arg ignore"
-    },
-    {
-      "hash": "8c8748a0",
-      "subject": "fix(prim): Boolean/Symbol/String × {toString,toLocaleString} trailing-arg ignore per ES"
-    },
-    {
-      "hash": "99f14bf4",
-      "subject": "fix(date): Date instance 0-arg getter / format methods accept trailing args per ES §21.4.4.* trailing-arg ignore"
-    },
-    {
-      "hash": "245fbf8d",
-      "subject": "fix(num): `n.toLocaleString(locales?, options?, ...trailing)` per ES trailing-arg ignore"
-    },
-    {
-      "hash": "69163b44",
-      "subject": "fix(symbol): `Symbol.{for,keyFor}(key|s, ...trailing)` per ES trailing-arg ignore"
     }
   ],
-  "headSha": "588e52a0",
+  "headSha": "81cbbec2",
   "autorun": {
-    "total": 207,
+    "total": 208,
     "baselineTarget": 10,
-    "bySelf": 202,
+    "bySelf": 203,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781944603-5bbd",
-      "at": "2026-06-20T08:36:43Z",
-      "ts": 1781944603,
+      "rotationId": "r-1781951454-1bc1",
+      "at": "2026-06-20T10:30:54Z",
+      "ts": 1781951454,
       "trigger": "self",
-      "prevHead": "4508050c",
-      "handoffSha": "sha256:f28e8dd5afe7b2ba3b771b49bf4e71d65b07a51761e43dbf1eaa1453982ab334",
-      "handoffAgeSec": 4,
+      "prevHead": "4b5b93f3",
+      "handoffSha": "sha256:4e1e1e045ed756294148fa87849963842fc964eb84909e7ead869becb0bd51b2",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781951454-1bc1",
+        "at": "2026-06-20T10:30:54Z",
+        "ts": 1781951454,
+        "trigger": "self",
+        "prevHead": "4b5b93f3",
+        "handoffSha": "sha256:4e1e1e045ed756294148fa87849963842fc964eb84909e7ead869becb0bd51b2",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781944603-5bbd",
         "at": "2026-06-20T08:36:43Z",
@@ -780,17 +791,6 @@
         "prevHead": "9612149a",
         "handoffSha": "sha256:970195e3769d4c476140d380a3087bf87c0746cf354147270aa3892a5acdaa11",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781875704-42f2",
-        "at": "2026-06-19T13:28:24Z",
-        "ts": 1781875704,
-        "trigger": "self",
-        "prevHead": "b8d57abf",
-        "handoffSha": "sha256:5988837927f1e5c931366495462265d0bb84f66d47f742259756a5c2cefa5d42",
-        "handoffAgeSec": 13692,
         "conformanceBefore": null,
         "commitsInSession": null
       }
