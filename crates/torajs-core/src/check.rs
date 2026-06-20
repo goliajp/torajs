@@ -5416,8 +5416,15 @@ impl Checker {
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && m_name == "flat"
-                    && args.len() == 1
+                    && !args.is_empty()
                 {
+                    // S289 — Array<T>.flat(depth, ...trailing) trailing-arg
+                    // ignore per ES §23.1.3.10. Spec reads only `depth`;
+                    // tora's runtime + SSA-emit also peek only args[0].
+                    // Eval-and-drop args[1..] for side effects below.
+                    for &aid in &args[1..] {
+                        let _ = self.type_of(ast, aid)?;
+                    }
                     // S129-5 — accept `Infinity` as the depth literal
                     // (ES §23.1.3.13 spec form for full-depth flatten).
                     // Both check + ssa-lower peel up to 64 layers

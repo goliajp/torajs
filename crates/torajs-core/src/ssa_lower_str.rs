@@ -1258,8 +1258,14 @@ pub(crate) fn try_lower_method_call(
     // a shallow clone via arr_slice.
     if let Type::Arr(_) = recv_ty
         && method == "flat"
-        && args.len() <= 1
     {
+        // S289 — accept any trailing operands past `depth` per ES
+        // §23.1.3.10 trailing-arg ignore; lower-and-drop so step()-
+        // style side-effect exprs fire (S272 idiom). depth detection
+        // below still inspects only args.first().
+        for &a in args.iter().skip(1) {
+            let _ = ctx.lower_expr(a);
+        }
         let depth: i64 = if args.is_empty() {
             1
         } else if let Expr::Number(d) = ctx.ast.get_expr(args[0]) {
