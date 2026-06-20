@@ -16802,6 +16802,11 @@ impl<'a> LowerCtx<'a> {
                     if args.is_empty() {
                         return Operand::ConstBool(false);
                     }
+                    // S267 — eval-and-drop trailing args (silent-ignore
+                    // per ES §23.1.2.2 step 1).
+                    for a in args.iter().skip(1) {
+                        let _ = self.lower_expr(*a);
+                    }
                     // T-38 — namespace idents (`Math` / `JSON` / `Array` / ...)
                     // referenced as runtime values have no Operand
                     // representation in tora's subset (they're typecheck-only
