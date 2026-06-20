@@ -16863,7 +16863,19 @@ impl<'a> LowerCtx<'a> {
                     };
                     let mut acc: Option<Operand> = None;
                     for &aid in args.iter() {
-                        let n = self.lower_expr(aid);
+                        // S231 — `String.fromCharCode(undefined)` per ES
+                        // §22.1.2.1: ToUint16(undefined) = 0. The check.rs
+                        // S231 carve-out lets the typed-Undefined arg
+                        // through the type gate; substitute ConstI64(0)
+                        // here so the ConstPtrNull undef sentinel never
+                        // reaches the helper's i64 ABI.
+                        let arg_is_undef =
+                            matches!(self.expr_types.get(&aid), Some(check_mod::Type::Undefined));
+                        let n = if arg_is_undef && !is_from_code_point {
+                            Operand::ConstI64(0)
+                        } else {
+                            self.lower_expr(aid)
+                        };
                         let one = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(intrinsic, vec![n]),

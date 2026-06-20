@@ -5960,6 +5960,26 @@ impl Checker {
                         return Ok(Type::Number);
                     }
                 }
+                // S231 — `String.fromCharCode(undefined)` per ES §22.1.2.1:
+                // each arg is converted via ToUint16; ToUint16(undefined) = 0,
+                // so the single-arg undef shape yields " ". The standard
+                // Type::Function arm (vec![Type::Number]) rejects the typed
+                // Undefined operand with "argument 0: expected Number, got
+                // Undefined"; widen here so ssa_lower's mirror substitutes
+                // ConstI64(0) into the helper call. fromCodePoint diverges
+                // here — bun throws a RangeError at runtime for undefined,
+                // so its throw-shape alignment stays L3b.
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "String"
+                    && m == "fromCharCode"
+                    && args.len() == 1
+                {
+                    let aty = self.type_of(ast, args[0])?;
+                    if matches!(aty, Type::Undefined) {
+                        return Ok(Type::String);
+                    }
+                }
                 // `String.fromCharCode(...codes)` — variadic. Each code is a
                 // Number; result is a String. The single-arg case still goes
                 // through the general type table for the intrinsic call; we
