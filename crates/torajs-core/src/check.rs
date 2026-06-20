@@ -7988,7 +7988,7 @@ impl Checker {
                 // missing-this substrate; the silent drop doesn't
                 // make those worse.
                 let mut effective_args = args.clone();
-                if args.len() == params.len() + 1
+                if args.len() >= params.len() + 1
                     && let Expr::Member { name: m_name, .. } = ast.get_expr(*callee)
                     && matches!(
                         m_name.as_str(),
@@ -8004,10 +8004,17 @@ impl Checker {
                             | "flatMap"
                     )
                 {
-                    // Type-check the dropped arg so its expr's
-                    // internal errors still surface.
-                    let _ = self.type_of(ast, *effective_args.last().unwrap())?;
-                    effective_args.pop();
+                    // S270 — widen the thisArg drop from `== params+1`
+                    // to `>= params+1` so any trailing args past thisArg
+                    // are also silent-dropped per ES §23.1.3.X trailing-
+                    // arg ignore (xs.map(cb, thisArg, ...trailing) is
+                    // spec-legal — spec uses only cb + thisArg). Type-
+                    // check every dropped arg so expr's internal errors
+                    // still surface; SSA-emit reads only args[0] (cb).
+                    for &arg in &effective_args[params.len()..] {
+                        let _ = self.type_of(ast, arg)?;
+                    }
+                    effective_args.truncate(params.len());
                 }
                 // T-28 — Default param missing → undefined (per ES
                 // spec §10.2.1.4). When fewer args are supplied than

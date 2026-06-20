@@ -22009,6 +22009,13 @@ impl<'a> LowerCtx<'a> {
                     };
                     let fn_val = self.lower_expr(args[0]);
                     let fn_ty = self.operand_ty(&fn_val);
+                    // S270 — eval-and-drop trailing args (thisArg +
+                    // any extras) so side-effect expressions fire per
+                    // ES §23.1.3.X trailing-arg ignore. SSA-emit reads
+                    // only args[0] (the predicate cb).
+                    for &t in args.iter().skip(1) {
+                        let _ = self.lower_expr(t);
+                    }
                     // Result slot:
                     //   findIndex / findLastIndex → Type::I64 (-1 default)
                     //   some / every             → Type::Bool (false / true)
@@ -22540,6 +22547,20 @@ impl<'a> LowerCtx<'a> {
                     // Lower the callable arg.
                     let fn_val = self.lower_expr(args[0]);
                     let fn_ty = self.operand_ty(&fn_val);
+                    // S270 — eval-and-drop trailing args (thisArg +
+                    // any extras) so side-effect expressions fire per
+                    // ES §23.1.3.X trailing-arg ignore. SSA-emit reads
+                    // only args[0] (cb) for map/filter/forEach; for
+                    // reduce/reduceRight args[1] is initialValue and
+                    // is lowered later, so skip it here.
+                    let skip_n = if matches!(method.as_str(), "reduce" | "reduceRight") {
+                        2
+                    } else {
+                        1
+                    };
+                    for &t in args.iter().skip(skip_n) {
+                        let _ = self.lower_expr(t);
+                    }
                     // dst array's element type:
                     //   - filter — same as src (filter only selects, doesn't
                     //     transform).
