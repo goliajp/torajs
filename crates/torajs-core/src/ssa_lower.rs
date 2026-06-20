@@ -20860,7 +20860,12 @@ impl<'a> LowerCtx<'a> {
                                      * §24.2.3.10. Both yield the
                                      * Set's elements (stored as the
                                      * key side of the Map). */
-                                    debug_assert!(args.is_empty());
+                                    // S277 — eval-and-drop trailing args
+                                    // per ES iterator-factory trailing-arg
+                                    // ignore; helper is 1-arg (recv only).
+                                    for &a in args.iter() {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     let v = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -20879,7 +20884,10 @@ impl<'a> LowerCtx<'a> {
                                      * — the storage's "value" side
                                      * is ANY_UNDEF placeholder so we
                                      * dup the key on the runtime side). */
-                                    debug_assert!(args.is_empty());
+                                    // S277 — eval-and-drop trailing args.
+                                    for &a in args.iter() {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     let v = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -21384,7 +21392,10 @@ impl<'a> LowerCtx<'a> {
                                      * stateful MapIter scanning
                                      * entries[] yielding the key
                                      * side of each live (k, v). */
-                                    debug_assert!(args.is_empty());
+                                    // S277 — eval-and-drop trailing args.
+                                    for &a in args.iter() {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     let v = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -21397,7 +21408,10 @@ impl<'a> LowerCtx<'a> {
                                     return Operand::Value(v);
                                 }
                                 "values" => {
-                                    debug_assert!(args.is_empty());
+                                    // S277 — eval-and-drop trailing args.
+                                    for &a in args.iter() {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     let v = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -21418,7 +21432,10 @@ impl<'a> LowerCtx<'a> {
                                      * call (Map.set value held in
                                      * the table is rc_inc'd into the
                                      * array). */
-                                    debug_assert!(args.is_empty());
+                                    // S277 — eval-and-drop trailing args.
+                                    for &a in args.iter() {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     let v = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
