@@ -7304,12 +7304,17 @@ impl Checker {
                 // they're ignored. The ssa_lower_str loop trims any
                 // arg beyond i=0 so the helper's (Str, Str) ABI never
                 // sees the trailing operands.
+                // S285 — widen S238 carve-out `(1..=3)` → `>= 1` so
+                // 4+ arg trailing-widen shape typechecks. ssa_lower
+                // mirror swaps the loop `break i > 0` to `let _ =
+                // lower_expr(a); continue` so step()-style side-effect
+                // exprs fire per ES eval-then-discard (S272 idiom).
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && m_name == "localeCompare"
-                    && (1..=3).contains(&args.len())
+                    && !args.is_empty()
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {

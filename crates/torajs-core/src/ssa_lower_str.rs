@@ -742,8 +742,14 @@ pub(crate) fn try_lower_method_call(
                 // has no Intl-locale awareness, so the trailing slots are
                 // dropped at lower-time. The helper signature stays
                 // (Str, Str) and never receives the extra operands.
+                //
+                // S285 — was `break` (silently dropped trailing exprs).
+                // Lower-and-drop each so step()-style side-effect exprs
+                // fire per ES eval-then-discard semantics. Same S272
+                // idiom (S278/S284 applied this to sibling families).
                 if method.as_str() == "localeCompare" && i > 0 {
-                    break;
+                    let _ = ctx.lower_expr(a);
+                    continue;
                 }
                 // S239 — String.{indexOf,lastIndexOf,includes,startsWith,
                 // endsWith}(needle, fromIndex, ...trailing) trailing-arg
