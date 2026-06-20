@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-20T02:48:29.958Z",
+  "generatedAt": "2026-06-20T04:49:43.557Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "f0421edc",
-    "commitSubject": "fix(str): `String.localeCompare(other, locales?, options?)` trailing-args",
+    "commit": "d5a2121c",
+    "commitSubject": "fix(bigint): `BigInt.toString(radix, ...trailing)` per ES trailing-arg ignore",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,84 @@
   },
   "commits": [
     {
+      "hash": "d5a2121c",
+      "subject": "fix(bigint): `BigInt.toString(radix, ...trailing)` per ES trailing-arg ignore"
+    },
+    {
+      "hash": "1fd41099",
+      "subject": "fix(arr): `Array<T>.{copyWithin,fill}(a, b, c, ...trailing)` per ES trailing-arg ignore"
+    },
+    {
+      "hash": "67ac5f98",
+      "subject": "fix(arr): `Array<T>.{reduce,reduceRight}(fn, init, ...trailing)` per ES trailing-arg ignore"
+    },
+    {
+      "hash": "9e1ba988",
+      "subject": "fix(num): `Number.toString(radix, ...trailing)` per ES trailing-arg ignore"
+    },
+    {
+      "hash": "54bd2f3c",
+      "subject": "fix(math): `Math.*(useful, ...trailing)` per ES trailing-arg ignore"
+    },
+    {
+      "hash": "e8b53c68",
+      "subject": "fix(arr): `Array<T>.{at,slice,join}(useful, ...trailing)` per ES trailing-arg ignore"
+    },
+    {
+      "hash": "08ec3d70",
+      "subject": "fix(str): `String.{slice,substring,substr,padStart,padEnd}(a, b, ...trailing)` per ES trailing-arg ignore"
+    },
+    {
+      "hash": "6e719cdd",
+      "subject": "fix(str): `String.{at,charAt,charCodeAt,codePointAt,repeat,normalize}(useful, ...trailing)` per ES trailing-arg ignore"
+    },
+    {
+      "hash": "e0bd4fa5",
+      "subject": "fix(str/arr): `{indexOf,lastIndexOf,includes,startsWith,endsWith}(needle, fromIndex, ...trailing)` per ES trailing-arg ignore"
+    },
+    {
+      "hash": "fecd04cb",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×8 (S231-S238)"
+    },
+    {
       "hash": "f0421edc",
       "subject": "fix(str): `String.localeCompare(other, locales?, options?)` trailing-args"
     },
     {
       "hash": "173a816f",
       "subject": "fix(arr): `Array<T>.{splice,toSpliced}(start, undefined)` per ES default"
-    },
-    {
-      "hash": "afe62525",
-      "subject": "fix(str): `String.{padStart,padEnd}(N, undefined)` per ES default fill"
-    },
-    {
-      "hash": "20c46ce4",
-      "subject": "fix(str): `String.{indexOf,lastIndexOf,includes,startsWith,endsWith,search}(undefined)`"
-    },
-    {
-      "hash": "ef0444eb",
-      "subject": "fix(num): `parseInt(s, undefined)` / `Number.parseInt(s, undefined)`"
-    },
-    {
-      "hash": "efddfba9",
-      "subject": "fix(str): `String.split(undefined)` returns `[S]` (silent-wrong → spec)"
-    },
-    {
-      "hash": "36afee69",
-      "subject": "fix(str): `String.{slice,substring}(undefined [, undefined])` per ES default"
-    },
-    {
-      "hash": "4d6815cb",
-      "subject": "fix(str): `String.fromCharCode(undefined)` per ES default"
-    },
-    {
-      "hash": "6b088797",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×8 (S223-S230)"
-    },
-    {
-      "hash": "da35bf0a",
-      "subject": "fix(date): `Date.parse(undefined)` returns NaN per ES default"
-    },
-    {
-      "hash": "e2d676db",
-      "subject": "fix(num): `(n).{toString,toFixed,toExponential,toPrecision}(undefined)`"
-    },
-    {
-      "hash": "740e6ad2",
-      "subject": "fix(num): `Math.{pow,atan2,imul,min,max}(...undefined)` per ES default"
     }
   ],
-  "headSha": "f0421edc",
+  "headSha": "d5a2121c",
   "autorun": {
-    "total": 203,
+    "total": 204,
     "baselineTarget": 10,
-    "bySelf": 198,
+    "bySelf": 199,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781910598-28ae",
-      "at": "2026-06-19T23:09:58Z",
-      "ts": 1781910598,
+      "rotationId": "r-1781923723-1055",
+      "at": "2026-06-20T02:48:43Z",
+      "ts": 1781923723,
       "trigger": "self",
-      "prevHead": "6b088797",
-      "handoffSha": "sha256:743d14f5572de7812db6c3806c143fc4bbd99a161a92d3cf08d213c536830cd0",
-      "handoffAgeSec": 34,
+      "prevHead": "fecd04cb",
+      "handoffSha": "sha256:4a7958512755cc9a9ed60730f5cfc2d560476356df0a24e0ab729e8c016433bc",
+      "handoffAgeSec": 33,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1781923723-1055",
+        "at": "2026-06-20T02:48:43Z",
+        "ts": 1781923723,
+        "trigger": "self",
+        "prevHead": "fecd04cb",
+        "handoffSha": "sha256:4a7958512755cc9a9ed60730f5cfc2d560476356df0a24e0ab729e8c016433bc",
+        "handoffAgeSec": 33,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781910598-28ae",
         "at": "2026-06-19T23:09:58Z",
@@ -780,17 +791,6 @@
         "prevHead": "3b1a65e1",
         "handoffSha": "sha256:de7cb4001e82c628b8db3b64866a41969650fc3b8480b48aad1a7b6518cd8d36",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781836801-442c",
-        "at": "2026-06-19T02:40:01Z",
-        "ts": 1781836801,
-        "trigger": "self",
-        "prevHead": "53455074",
-        "handoffSha": "sha256:69384a328b6c6a2664c75167c64610db26c5421ac0561089f6ca2df0420469f7",
-        "handoffAgeSec": 44,
         "conformanceBefore": null,
         "commitsInSession": null
       }
