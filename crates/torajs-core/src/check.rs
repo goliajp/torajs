@@ -5723,6 +5723,28 @@ impl Checker {
                 // accepts an optional radix in [2, 36]. The standard
                 // Type::Function check rejects variable arity; intercept
                 // here.
+                // S247 — BigInt.prototype.toString(radix, ...trailing)
+                // trailing-arg ignore per ES §21.2.3.5. Spec reserves
+                // slots past the 1 useful radix but tora's helpers
+                // (bigint_to_string / bigint_to_string_radix) are 1-
+                // arg only; trailing operand type_of'd for side effects
+                // then dropped at lower-time. Same shape as S244
+                // Number.toString trailing-arg ignore.
+                if let Expr::Member { obj, name } = ast.get_expr(*callee)
+                    && name == "toString"
+                {
+                    let recv_ty = self.type_of(ast, *obj)?;
+                    if recv_ty == Type::BigInt && args.len() >= 2 {
+                        for &aid in &args[1..] {
+                            let _ = self.type_of(ast, aid)?;
+                        }
+                        // arg 0 still type_of'd via the Function sig's
+                        // first slot above; type_of args[0] here too
+                        // so any earlier-skipped inference fires.
+                        let _ = self.type_of(ast, args[0])?;
+                        return Ok(Type::String);
+                    }
+                }
                 if let Expr::Member { obj, name } = ast.get_expr(*callee)
                     && name == "toString"
                 {

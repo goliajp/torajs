@@ -16515,7 +16515,26 @@ impl<'a> LowerCtx<'a> {
                             );
                             return Operand::Value(v);
                         }
-                        if args.len() == 1 {
+                        // S247 widens the 1-arg gate to >=1 so the
+                        // trailing-arg shape (255n.toString(radix,
+                        // trailing)) still routes radix into
+                        // bigint_to_string_radix; trailing operand
+                        // never lowered.
+                        if args.len() >= 1 {
+                            // S247 — explicit-undefined radix routes
+                            // to the 0-arg default decimal helper.
+                            if matches!(
+                                self.expr_types.get(&args[0]),
+                                Some(check_mod::Type::Undefined)
+                            ) {
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(self.intrinsics.bigint_to_string, vec![recv_op]),
+                                    Type::Str,
+                                    None,
+                                );
+                                return Operand::Value(v);
+                            }
                             let radix_op = self.lower_expr(args[0]);
                             self.consume_if_ident(args[0]);
                             let radix_ty = self.operand_ty(&radix_op);
