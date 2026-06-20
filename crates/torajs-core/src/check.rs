@@ -6345,6 +6345,44 @@ impl Checker {
                         return Ok(Type::Boolean);
                     }
                 }
+                // S235 — String.{indexOf,lastIndexOf,includes,startsWith,
+                // endsWith,search}(undefined) 1-arg-undef-needle per ES
+                // §22.1.3.{8,10,5,21,7,16} step 1-3: ToString(undefined)
+                // = "undefined". The Type::Function arm declares the
+                // needle as String and rejects the typed-Undefined
+                // operand. Widen the 1-arg dispatch; ssa_lower_str's
+                // `undef_to_str_at_arg0` mirror substitutes the interned
+                // "undefined" literal for the helper's (Str, Str) ABI.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "indexOf"
+                            | "lastIndexOf"
+                            | "includes"
+                            | "startsWith"
+                            | "endsWith"
+                            | "search"
+                    )
+                    && args.len() == 1
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let needle_ty = self.type_of(ast, args[0])?;
+                        if matches!(needle_ty, Type::Undefined) {
+                            return Ok(
+                                if matches!(m_name.as_str(), "includes" | "startsWith" | "endsWith")
+                                {
+                                    Type::Boolean
+                                } else {
+                                    Type::Number
+                                },
+                            );
+                        }
+                    }
+                }
                 // V3-18 m1.h.50 — String.indexOf / lastIndexOf accept
                 // an optional 2nd `fromIndex` arg per JS spec §21.1.3.7
                 // / §21.1.3.10. Pre-fix tora declared with 1 fixed

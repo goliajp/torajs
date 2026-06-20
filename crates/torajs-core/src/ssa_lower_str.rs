@@ -598,6 +598,17 @@ pub(crate) fn try_lower_method_call(
             let undef_to_str_repl =
                 matches!(method.as_str(), "replace" | "replaceAll" | "localeCompare");
             let undef_to_zero = method.as_str() == "repeat";
+            // S235 — String.{indexOf,lastIndexOf,includes,startsWith,endsWith,
+            // search}(undefined) per ES §22.1.3.{8,10,5,21,7,16} step 1-3:
+            // ToString(undefined) = "undefined". For the search-string slot
+            // only (arg 0); the fromIndex/position slot keeps its
+            // numeric undef carve-out (S214 / S216 / S224). Replace the
+            // undef operand with the interned "undefined" literal so
+            // the helper's (Str, Str) ABI receives a concrete pointer.
+            let undef_to_str_at_arg0 = matches!(
+                method.as_str(),
+                "indexOf" | "lastIndexOf" | "includes" | "startsWith" | "endsWith" | "search"
+            );
             // S214 — String.indexOf(needle, undefined) per ES
             // §22.1.3.8 step 4: ToIntegerOrInfinity(undefined)=0,
             // so fromIndex=undefined lowers to ConstI64(0). Only
@@ -670,6 +681,9 @@ pub(crate) fn try_lower_method_call(
                 let arg_undef =
                     matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
                 if undef_to_str_repl && arg_undef {
+                    let u = ctx.intern_string_literal("undefined");
+                    argv.push(Operand::Value(u));
+                } else if undef_to_str_at_arg0 && arg_undef && i == 0 {
                     let u = ctx.intern_string_literal("undefined");
                     argv.push(Operand::Value(u));
                 } else if undef_to_zero && arg_undef {
