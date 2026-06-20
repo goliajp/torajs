@@ -5067,8 +5067,15 @@ impl Checker {
                         "Boolean" => Type::Boolean,
                         _ => unreachable!(),
                     };
-                    if args.len() > 1 {
-                        return Err(format!("{n}(value) takes 0 or 1 arg, got {}", args.len()));
+                    // S251 — Number/String/Boolean(value, ...trailing)
+                    // per ES §21.1.1 / §22.1.1 / §20.3.1 trailing-arg
+                    // ignore. Spec coerces only args[0]; tora silent-
+                    // drops trailing per generic trailing-arg-ignore
+                    // policy. SSA-emit reads args[0] (or empty), so
+                    // args[1..] dropped at lower-time without further
+                    // change.
+                    for &arg in args.iter().skip(1) {
+                        let _ = self.type_of(ast, arg)?;
                     }
                     if let Some(a) = args.first() {
                         let arg_ty = self.type_of(ast, *a)?;
