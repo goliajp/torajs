@@ -8321,6 +8321,42 @@ impl Checker {
                         return Ok(ret);
                     }
                 }
+                // S318 — Set ES2025 setops trailing-arg ignore per ES
+                // §24.2.5.{4-10}: spec sig is 1-arg (other SetLike);
+                // trailing args silent-drop. Pre-S318 the fixed
+                // (Type::Set, "isSubsetOf"|...) method-table sig
+                // `vec![Type::Set]` rejected `args.len() >= 2` with
+                // "expected 1 argument(s), got M". typecheck-drop
+                // args[1..] mirror in ssa_lower (replace
+                // `debug_assert_eq!(args.len(), 1)` carve-out with
+                // lower-and-drop loop after args[0] lower).
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "isSubsetOf"
+                            | "isSupersetOf"
+                            | "isDisjointFrom"
+                            | "union"
+                            | "intersection"
+                            | "difference"
+                            | "symmetricDifference"
+                    )
+                    && args.len() >= 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::Set) {
+                        for &a in args.iter() {
+                            let _ = self.type_of(ast, a)?;
+                        }
+                        return Ok(match m_name.as_str() {
+                            "isSubsetOf" | "isSupersetOf" | "isDisjointFrom" => Type::Boolean,
+                            _ => Type::Set,
+                        });
+                    }
+                }
                 // S315 — Object.getOwnPropertyDescriptor(obj, key, ...trailing)
                 // per ES §20.1.2.10: spec sig is 2-arg; trailing args MUST
                 // be silently ignored. Pre-S315 the fixed (Type::Object(

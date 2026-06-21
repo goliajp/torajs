@@ -21130,8 +21130,16 @@ impl<'a> LowerCtx<'a> {
                                     // other Set are both borrowed; runtime
                                     // returns i64 (1 / 0), narrowed back
                                     // to Bool the same way Set.has does.
-                                    debug_assert_eq!(args.len(), 1);
                                     let other_op = self.lower_expr(args[0]);
+                                    // S318 — ES §24.2.5.{4-6} silently
+                                    // ignore args past index 0. lower-
+                                    // and-drop trailing for spec left-
+                                    // to-right side-effect order (S272
+                                    // idiom). check.rs S318 typecheck-
+                                    // and-drops the same slice.
+                                    for &a in args.iter().skip(1) {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     let target = match m_name.as_str() {
                                         "isSubsetOf" => self.intrinsics.set_is_subset_of,
                                         "isSupersetOf" => self.intrinsics.set_is_superset_of,
@@ -21162,8 +21170,16 @@ impl<'a> LowerCtx<'a> {
                                     // keys are rc_inc'd by the runtime
                                     // helper before re-insert so the
                                     // source still owns its own ref.
-                                    debug_assert_eq!(args.len(), 1);
                                     let other_op = self.lower_expr(args[0]);
+                                    // S318 — ES §24.2.5.{7-10} silently
+                                    // ignore args past index 0. lower-
+                                    // and-drop trailing for spec left-
+                                    // to-right side-effect order (S272
+                                    // idiom). check.rs S318 typecheck-
+                                    // and-drops the same slice.
+                                    for &a in args.iter().skip(1) {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     let target = match m_name.as_str() {
                                         "union" => self.intrinsics.set_union,
                                         "intersection" => self.intrinsics.set_intersection,
