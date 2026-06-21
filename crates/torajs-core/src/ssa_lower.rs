@@ -22730,9 +22730,18 @@ impl<'a> LowerCtx<'a> {
                 // that array pushing each into dst. Inner array's elem
                 // is rc_inc'd before push (refcounted only) so the
                 // inner array's own drop balances correctly.
+                //
+                // S319 — ES §23.1.3.11 spec sig is `flatMap(cb,
+                // thisArg)`; tora's callbacks lack `this` binding so
+                // thisArg + any further trailing args are silently
+                // dropped per S270 (check.rs already typecheck-drops
+                // args[1..] for the Array callback family — this arm
+                // widens the ssa_lower gate `args.len() == 1` to
+                // `>= 1` and lower-and-drops trailing for spec left-
+                // to-right side-effect order).
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && name == "flatMap"
-                    && args.len() == 1
+                    && !args.is_empty()
                 {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
@@ -22745,6 +22754,14 @@ impl<'a> LowerCtx<'a> {
                         _ => unreachable!(),
                     };
                     let fn_val = self.lower_expr(args[0]);
+                    // S319 — lower-and-drop trailing args[1..] (thisArg +
+                    // any further trailing) for spec left-to-right side-
+                    // effect order. tora callbacks lack `this` binding so
+                    // thisArg is functionally dropped; check.rs S270
+                    // already typecheck-drops these args.
+                    for &a in args.iter().skip(1) {
+                        let _ = self.lower_expr(a);
+                    }
                     let fn_ty = self.operand_ty(&fn_val);
                     let inner_arr_ty = match fn_ty {
                         Type::FnSig(s) | Type::Closure(s) => self.fn_sigs[s.0 as usize].1,
