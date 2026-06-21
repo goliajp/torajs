@@ -456,8 +456,22 @@ pub(crate) fn try_lower_method_call(
             ctx.expr_types.get(&args[0]),
             Some(crate::check::Type::Undefined)
         );
+        // S332 — `s.charAt(Any)` per ES §22.1.3.2: ToIntegerOrInfinity
+        // accepts arbitrary-typed input. Decode Any via anyv_to_number
+        // → coerce_to_i64 so the helper's (Str/Substr, i64) ABI sees
+        // a clean i64 (NaN/±∞ folded per ToInteger).
+        let arg0_any = matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any));
         let idx_val = if arg0_undef {
             Operand::ConstI64(0)
+        } else if arg0_any {
+            let raw = ctx.lower_expr(args[0]);
+            let f = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                Type::F64,
+                None,
+            );
+            ctx.coerce_to_i64(Operand::Value(f))
         } else {
             let idx_raw = ctx.lower_expr(args[0]);
             ctx.coerce_to_i64(idx_raw)
@@ -879,6 +893,27 @@ pub(crate) fn try_lower_method_call(
                     argv.push(substring_len_op.clone().unwrap());
                 } else if slice_subs_1arg_undef && arg_undef && i == 0 {
                     argv.push(Operand::ConstI64(0));
+                } else if matches!(
+                    method.as_str(),
+                    "at" | "charCodeAt" | "codePointAt" | "repeat"
+                ) && i == 0
+                    && matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Any))
+                {
+                    // S332 — `s.{at,charCodeAt,codePointAt,repeat}(Any)`
+                    // per ES §22.1.3.{1,3,4,17}: ToIntegerOrInfinity
+                    // accepts arbitrary-typed input. Decode Any via
+                    // anyv_to_number → coerce_to_i64 so the helper's
+                    // (Str, i64) ABI sees a clean i64. Sister to
+                    // S329 (fromCharCode Any). charAt has its own
+                    // early path (above) so isn't reached here.
+                    let raw = ctx.lower_expr(a);
+                    let f = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                        Type::F64,
+                        None,
+                    );
+                    argv.push(ctx.coerce_to_i64(Operand::Value(f)));
                 } else {
                     argv.push(ctx.lower_expr(a));
                 }

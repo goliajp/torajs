@@ -6897,6 +6897,36 @@ impl Checker {
                         }
                     }
                 }
+                // S332 — `s.{at,charAt,charCodeAt,codePointAt,repeat}(Any)`
+                // per ES §22.1.3.{1,2,3,4,17} step 2-3 (or step 1 for
+                // repeat): ToIntegerOrInfinity accepts arbitrary-typed
+                // input. The method-table sig `(Number) -> X` rejected
+                // explicit `o: any` operands at typecheck; widen here
+                // so the ssa_lower mirror routes Any through
+                // anyv_to_number → coerce_to_i64 → helper. Sister to
+                // S329 (fromCharCode Any).
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "at" | "charAt" | "charCodeAt" | "codePointAt" | "repeat"
+                    )
+                    && args.len() == 1
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let aty = self.type_of(ast, args[0])?;
+                        if matches!(aty, Type::Any) {
+                            return Ok(if matches!(m_name.as_str(), "charAt" | "at" | "repeat") {
+                                Type::String
+                            } else {
+                                Type::Number
+                            });
+                        }
+                    }
+                }
                 // S240 — String.{at,charAt,charCodeAt,codePointAt,
                 // repeat,normalize}(useful, ...trailing) trailing-arg
                 // ignore per ES §22.1.3.{1,2,3,4,17,13}: spec reserves
