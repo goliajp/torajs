@@ -20912,6 +20912,12 @@ impl<'a> LowerCtx<'a> {
                                     // S264 — trailing args ignored per spec
                                     // §24.2.3.5; widen `args.is_empty()` to
                                     // accept-and-drop.
+                                    // S300 — lower-and-drop trailing per S272
+                                    // idiom so step()-style side-effect exprs
+                                    // fire per ES eval-then-discard semantics.
+                                    for &a in args.iter() {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     self.f.append_void(
                                         self.cur_block,
                                         InstKind::Call(self.intrinsics.map_clear, vec![recv_op]),
@@ -21522,6 +21528,12 @@ impl<'a> LowerCtx<'a> {
                                     // S264 — trailing args ignored per spec
                                     // §23.1.3.3; widen `args.is_empty()` to
                                     // accept-and-drop.
+                                    // S300 — lower-and-drop trailing per S272
+                                    // idiom so step()-style side-effect exprs
+                                    // fire per ES eval-then-discard semantics.
+                                    for &a in args.iter() {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     self.f.append_void(
                                         self.cur_block,
                                         InstKind::Call(self.intrinsics.map_clear, vec![recv_op]),
