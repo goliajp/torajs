@@ -200,12 +200,41 @@ pub fn search_from_with_ws(
     ws: &mut Workspace,
 ) -> Option<MatchResult> {
     let slen = s.len() as i64;
-    for st in from_pos..=slen {
+    let mut st = from_pos;
+    loop {
+        // V0.2 P14-S2 — literal-prefix SIMD anchor. When the
+        // compiled program's leading byte-consuming op is a plain
+        // `Char(b)` (compile.rs detects this), any candidate start
+        // position whose first input byte is not `b` can never
+        // match — memchr-skip past the gap. The Pike VM scan on
+        // `"abbc xxx abc yyy abbbbc"` for `/zzz/g` drops from 24
+        // `vm_match_at` calls (~1000 ns) to a single memchr-miss
+        // returning None (~5 ns). `prefix_byte` is None for
+        // patterns whose first op is `AnyChar` / `Class` / `Split`
+        // / `Backref` / lookaround, or when the i flag is set
+        // (case-insensitive defeats single-byte memchr) — those
+        // fall through to the original per-position simulation.
+        if let Some(b) = prog.prefix_byte {
+            if st >= slen {
+                // A program with a literal-prefix anchor must
+                // consume at least one byte to match — no chance
+                // of a zero-width match at end-of-string.
+                return None;
+            }
+            let hay = &s[st as usize..];
+            match hay.iter().position(|&c| c == b) {
+                Some(off) => st += off as i64,
+                None => return None,
+            }
+        } else if st > slen {
+            return None;
+        }
         // Under u flag, start positions must land on code-point
         // boundaries — skip UTF-8 continuation bytes so the matcher
         // doesn't decode mid-sequence and accidentally satisfy
         // `[^\p{...}]`. P9.3-A2.
         if flags & crate::parser::RE_FLAG_U != 0 && st < slen && s[st as usize] & 0xC0 == 0x80 {
+            st += 1;
             continue;
         }
         let mut saves = [-1i64; REGEX_SAVE_SLOTS];
@@ -217,8 +246,8 @@ pub fn search_from_with_ws(
                 saves,
             });
         }
+        st += 1;
     }
-    None
 }
 
 /// P9.4 — anchored single-position match for the sticky (`y`) flag.

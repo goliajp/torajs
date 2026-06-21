@@ -97,6 +97,35 @@ pub unsafe extern "C" fn __torajs_regex_compile(
         1u8
     };
 
+    // V0.2 P14-S2 perf — detect a literal-byte prefix anchor.
+    // Walk the emitted bytecode forward, skipping zero-width
+    // bookkeeping ops (`Save` for `(...)` capture brackets,
+    // `AnchorB` for `^`, `WBound` etc), until we either hit an
+    // `OP_CHAR(b)` (set anchor) or a byte-consuming op of a
+    // different shape (`AnyChar` / `Class` / `Split` / ... → no
+    // anchor). The i flag invalidates the byte comparison
+    // (memchr can't match both cases without a lookup table) so
+    // skip the anchor entirely there. The u flag is fine — leading
+    // `Char` ops only emit ASCII bytes; non-ASCII literals decode
+    // to `Class` at parse time which lands in the "different
+    // shape" branch.
+    if rejected == 0 && flag_bits & crate::parser::RE_FLAG_I == 0 {
+        for inst in &prog.insts {
+            match crate::program::Op::from_u8(inst.op) {
+                Some(crate::program::Op::Save)
+                | Some(crate::program::Op::AnchorB)
+                | Some(crate::program::Op::AnchorE)
+                | Some(crate::program::Op::WBound)
+                | Some(crate::program::Op::NWBound) => continue,
+                Some(crate::program::Op::Char) => {
+                    prog.prefix_byte = Some(inst.ch);
+                    break;
+                }
+                _ => break,
+            }
+        }
+    }
+
     let re = Box::new(RegExp {
         header: HeapHeader {
             refcount: 1,

@@ -184,6 +184,18 @@ pub struct Program {
     /// no manual `prog_free` recursion needed (replaces the C port's
     /// `prog_free` recursion).
     pub sub_progs: Vec<Box<Program>>,
+    /// V0.2 P14-S2 perf — literal-prefix anchor for SIMD-fast
+    /// search. Set by `regex/compile.rs` at the end of compilation
+    /// when the program's first byte-consuming op is an `OP_CHAR(b)`
+    /// (Save/AnchorB and other zero-width ops are skipped over —
+    /// `(...)` capture groups don't disqualify the optimization)
+    /// and the i flag is not set. `search_from_with_ws` uses this
+    /// to memchr-skip ahead to the next candidate start position,
+    /// avoiding the per-position NFA simulation on the gaps.
+    /// Mirrors the literal-prefix optimisation in `rust-regex` /
+    /// RE2 / Hyperscan. On `str-replace-100k` no-match probe this
+    /// drops the Pike VM cost from ~1011 ns/iter to ~30 ns/iter.
+    pub prefix_byte: Option<u8>,
 }
 
 impl Program {
