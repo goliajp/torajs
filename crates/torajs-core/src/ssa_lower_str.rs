@@ -781,7 +781,12 @@ pub(crate) fn try_lower_method_call(
                 // value is discarded (never pushed into argv).
                 if matches!(
                     method.as_str(),
-                    "at" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" | "normalize"
+                    "at" | "charAt"
+                        | "charCodeAt"
+                        | "codePointAt"
+                        | "repeat"
+                        | "normalize"
+                        | "search"
                 ) && i > 0
                 {
                     let _ = ctx.lower_expr(a);
