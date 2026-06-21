@@ -17921,7 +17921,7 @@ impl<'a> LowerCtx<'a> {
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "BigInt"
                     && (m_name == "asIntN" || m_name == "asUintN")
-                    && args.len() == 2
+                    && args.len() >= 2
                 {
                     let bits_op = self.lower_expr(args[0]);
                     self.consume_if_ident(args[0]);
@@ -17938,6 +17938,14 @@ impl<'a> LowerCtx<'a> {
                     };
                     let val_op = self.lower_expr(args[1]);
                     self.consume_if_ident(args[1]);
+                    // S314 — ES §21.2.2.{1,2} silently ignore trailing
+                    // args past (bits, value). Widen gate `== 2` → `>= 2`
+                    // and mirror lower-and-drop for side-effects so
+                    // step()-style trailing args fire left-to-right
+                    // (S272 idiom).
+                    for &a in args.iter().skip(2) {
+                        let _ = self.lower_expr(a);
+                    }
                     let target = if m_name == "asIntN" {
                         self.intrinsics.bigint_as_int_n
                     } else {
