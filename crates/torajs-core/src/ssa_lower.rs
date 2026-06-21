@@ -18964,6 +18964,17 @@ impl<'a> LowerCtx<'a> {
                 {
                     let key = key_lit.clone();
                     let obj_op = self.lower_expr(args[0]);
+                    // S320 — ES §28.1.6 receiver arg (args[2]) +
+                    // further trailing silently ignored in the typed-
+                    // struct subset. check.rs S257 typecheck-drops
+                    // them; mirror lower-and-drop here so step()-
+                    // style side-effect exprs fire (S272 idiom).
+                    // Placed after obj-lower / before dispatch so
+                    // trailing eval is exactly-once across the typed-
+                    // struct + missing-key + panic fall-through paths.
+                    for &a in args.iter().skip(2) {
+                        let _ = self.lower_expr(a);
+                    }
                     let obj_ty = self.operand_ty(&obj_op);
                     if let Type::Obj(sid) = obj_ty {
                         let layout = self.struct_layouts[sid.0 as usize].clone();
