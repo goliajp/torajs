@@ -5960,11 +5960,15 @@ impl Checker {
                             // the next event-loop turn. cb is exactly
                             // `() => void`. Higher arities / non-void
                             // ret / simple-fn (no-env) defer to A1.1.
-                            if args.len() != 1 {
-                                return Err(format!(
-                                    "queueMicrotask expects 1 arg, got {}",
-                                    args.len()
-                                ));
+                            //
+                            // S323 — Web IDL §3.2.1 over-arity rule:
+                            // operations silently ignore trailing args.
+                            // Widen `!= 1` → `is_empty()` + typecheck-
+                            // and-drop args[1..] so the spec-aligned
+                            // `queueMicrotask(cb, trail, ...)` shape
+                            // parses; ssa_lower mirror lower-and-drops.
+                            if args.is_empty() {
+                                return Err("queueMicrotask expects 1 arg, got 0".to_string());
                             }
                             let cb_ty = self.type_of(ast, args[0])?;
                             match &cb_ty {
@@ -5975,6 +5979,9 @@ impl Checker {
                                         "queueMicrotask cb must be `() => void`, got {cb_ty:?}"
                                     ));
                                 }
+                            }
+                            for &a in args.iter().skip(1) {
+                                let _ = self.type_of(ast, a)?;
                             }
                             return Ok(Type::Void);
                         }

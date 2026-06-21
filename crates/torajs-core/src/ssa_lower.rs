@@ -17429,6 +17429,13 @@ impl<'a> LowerCtx<'a> {
                              * we model Void via ConstI64(0) like other
                              * Type::Void call expressions. */
                             let cb_op = self.lower_expr(args[0]);
+                            // S323 — lower-and-drop trailing args[1..] per
+                            // S272 idiom so step()-style side-effect exprs
+                            // fire per Web IDL §3.2.1 over-arity ignore
+                            // (check.rs S323 already typecheck-dropped).
+                            for &a in args.iter().skip(1) {
+                                let _ = self.lower_expr(a);
+                            }
                             let cb_ty = self.operand_ty(&cb_op);
                             let intrinsic = match cb_ty {
                                 Type::Closure(_) => self.intrinsics.microtask_enqueue_closure,
