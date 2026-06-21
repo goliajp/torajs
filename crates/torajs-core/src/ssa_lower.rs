@@ -17317,7 +17317,43 @@ impl<'a> LowerCtx<'a> {
                                 }
                                 return Operand::ConstF64(f64::NAN);
                             }
-                            let s = self.lower_expr(args[0]);
+                            // S336 — bare-name parseFloat accepts Any per
+                            // check.rs widen: decode Any via
+                            // anyv_to_str_pair (tag + value) → any_to_str
+                            // so the helper's (Str) -> F64 ABI receives
+                            // a concrete Str. Sister to S330 (Number.
+                            // parseFloat member method same shape).
+                            let raw = self.lower_expr(args[0]);
+                            let raw_ty = self.operand_ty(&raw);
+                            let s = if raw_ty == Type::Any {
+                                let tag = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.any_unbox_tag,
+                                        vec![raw.clone()],
+                                    ),
+                                    Type::I64,
+                                    None,
+                                );
+                                let val = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(self.intrinsics.any_unbox_value, vec![raw]),
+                                    Type::I64,
+                                    None,
+                                );
+                                let s_val = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.any_to_str,
+                                        vec![Operand::Value(tag), Operand::Value(val)],
+                                    ),
+                                    Type::Str,
+                                    None,
+                                );
+                                Operand::Value(s_val)
+                            } else {
+                                raw
+                            };
                             // S313 — lower-and-drop trailing args[1..]
                             // per S272 idiom so step()-style side-effect
                             // exprs fire. Same fix Number.parseFloat

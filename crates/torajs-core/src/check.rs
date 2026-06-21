@@ -5941,9 +5941,15 @@ impl Checker {
                             // §19.2.4: missing string → NaN.
                             // S226 — accept explicit undefined arg
                             // via the same ToString → NaN path.
+                            // S336 — bare-name `parseFloat(Any)` per ES
+                            // §19.2.4 step 1: ToString accepts arbitrary-
+                            // typed input. Sister to S330 (Number.parseFloat
+                            // member method same widen). ssa_lower mirror
+                            // routes Any through anyv_to_str_pair →
+                            // any_to_str → num_parse_float.
                             if let Some(arg0) = args.first() {
                                 let s_ty = self.type_of(ast, *arg0)?;
-                                if !matches!(s_ty, Type::String | Type::Undefined) {
+                                if !matches!(s_ty, Type::String | Type::Undefined | Type::Any) {
                                     return Err(format!(
                                         "parseFloat arg must be string, got {s_ty:?}"
                                     ));
