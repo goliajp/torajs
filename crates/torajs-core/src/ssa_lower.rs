@@ -17892,16 +17892,34 @@ impl<'a> LowerCtx<'a> {
                         };
                         return Operand::ConstF64(identity);
                     }
+                    // S342 — Any-typed arg per ES §21.3.2.{24,25} ToNumber:
+                    // arbitrary-typed input is accepted. Route Any through
+                    // anyv_to_number → F64 instead of coerce_to_f64 (which
+                    // can't handle Any). Applies to 1-arg fast path AND
+                    // the variadic reduction below.
+                    let math_to_f64 = |this: &mut Self, op: Operand| -> Operand {
+                        if this.operand_ty(&op) == Type::Any {
+                            let f = this.f.append_inst(
+                                this.cur_block,
+                                InstKind::Call(this.intrinsics.any_to_number, vec![op]),
+                                Type::F64,
+                                None,
+                            );
+                            Operand::Value(f)
+                        } else {
+                            this.coerce_to_f64(op)
+                        }
+                    };
                     if args.len() == 1 {
                         let op = self.lower_expr(args[0]);
-                        return self.coerce_to_f64(op);
+                        return math_to_f64(self, op);
                     }
                     let arg_ids: Vec<ExprId> = args.clone();
                     let mut acc = self.lower_expr(arg_ids[0]);
-                    acc = self.coerce_to_f64(acc);
+                    acc = math_to_f64(self, acc);
                     for aid in arg_ids.iter().skip(1) {
                         let next_op = self.lower_expr(*aid);
-                        let next_v = self.coerce_to_f64(next_op);
+                        let next_v = math_to_f64(self, next_op);
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(target, vec![acc, next_v]),
@@ -24304,11 +24322,39 @@ impl<'a> LowerCtx<'a> {
                 // specially by FuncId.
                 if self.is_math_unary(target) {
                     debug_assert_eq!(argv.len(), 1, "Math.* unary takes 1 arg");
-                    argv[0] = self.coerce_to_f64(argv[0]);
+                    // S342 — Any-typed arg goes through anyv_to_number
+                    // (ToNumber per spec §21.3.2.*) so the F64 ABI sees
+                    // a clean f64. coerce_to_f64 wouldn't handle Any.
+                    argv[0] = if self.operand_ty(&argv[0]) == Type::Any {
+                        let f = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.any_to_number, vec![argv[0].clone()]),
+                            Type::F64,
+                            None,
+                        );
+                        Operand::Value(f)
+                    } else {
+                        self.coerce_to_f64(argv[0].clone())
+                    };
                 } else if self.is_math_binary(target) {
                     debug_assert_eq!(argv.len(), 2, "Math.* binary takes 2 args");
-                    argv[0] = self.coerce_to_f64(argv[0]);
-                    argv[1] = self.coerce_to_f64(argv[1]);
+                    // S342 — same Any path for binary (Math.pow / atan2).
+                    for i in 0..2 {
+                        argv[i] = if self.operand_ty(&argv[i]) == Type::Any {
+                            let f = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.any_to_number,
+                                    vec![argv[i].clone()],
+                                ),
+                                Type::F64,
+                                None,
+                            );
+                            Operand::Value(f)
+                        } else {
+                            self.coerce_to_f64(argv[i].clone())
+                        };
+                    }
                 } else if let Some(sig_id) = self.fn_sig_ids.get(&target).copied() {
                     // Width-aware coercion for monomorphized generic
                     // calls AND direct intrinsics. The mono name picked

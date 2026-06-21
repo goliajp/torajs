@@ -6368,9 +6368,15 @@ impl Checker {
                     // (ToNumber(undefined)=NaN) and Math.min/max
                     // with any NaN operand returns NaN. ssa_lower
                     // mirror folds the call when any arg is undef.
+                    //
+                    // S342 — accept Any args per ES §21.3.2.{24,25}
+                    // ToNumber: arbitrary-typed input is accepted.
+                    // ssa_lower's variadic Math.min/max path routes
+                    // Any through anyv_to_number → F64 (math_to_f64
+                    // closure at ~17898).
                     for &aid in args {
                         let aty = self.type_of(ast, aid)?;
-                        if !matches!(aty, Type::Number | Type::Undefined) {
+                        if !matches!(aty, Type::Number | Type::Undefined | Type::Any) {
                             return Err(format!("Math.{m} args must be number, got {aty:?}"));
                         }
                     }
@@ -6857,6 +6863,75 @@ impl Checker {
                 // args with a type error, but that's wrong for spec
                 // and breaks the canonical TS feature-detection
                 // idiom `if (Number.isFinite(maybeStringy)) ...`.
+                // S342 — `Math.<unary/binary>(Any[, Any])` per ES §21.3.2.*:
+                // every Math method that takes Number args applies ToNumber,
+                // which accepts arbitrary-typed input. Method-table sigs
+                // `vec![Type::Number]` / `vec![Type::Number, Type::Number]`
+                // at the Math dispatch site (~2912 / ~2943) strict-rejected
+                // `o: any` operands. Widen here so the ssa_lower mirror
+                // routes Any through anyv_to_number → F64 → Math helper.
+                // Per-arg check: Any or Number passes; everything else
+                // (String, Bool, Object) still hits the strict gate.
+                // min/max variadic stays one carve-out — the iter loop
+                // covers 0..N args uniformly.
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Math"
+                    && matches!(
+                        m_name.as_str(),
+                        "sqrt"
+                            | "abs"
+                            | "floor"
+                            | "ceil"
+                            | "log"
+                            | "exp"
+                            | "sign"
+                            | "round"
+                            | "trunc"
+                            | "sin"
+                            | "cos"
+                            | "tan"
+                            | "asin"
+                            | "acos"
+                            | "atan"
+                            | "log2"
+                            | "log10"
+                            | "cbrt"
+                            | "sinh"
+                            | "cosh"
+                            | "tanh"
+                            | "asinh"
+                            | "acosh"
+                            | "atanh"
+                            | "expm1"
+                            | "log1p"
+                            | "clz32"
+                            | "fround"
+                            | "f16round"
+                            | "pow"
+                            | "min"
+                            | "max"
+                            | "atan2"
+                    )
+                {
+                    let mut any_seen = false;
+                    let mut all_ok = true;
+                    for &aid in args {
+                        let aty = self.type_of(ast, aid)?;
+                        if matches!(aty, Type::Any) {
+                            any_seen = true;
+                        } else if aty != Type::Number {
+                            all_ok = false;
+                            break;
+                        }
+                    }
+                    if any_seen && all_ok {
+                        return Ok(Type::Number);
+                    }
+                }
                 if let Expr::Member {
                     obj: ns_id,
                     name: m_name,
