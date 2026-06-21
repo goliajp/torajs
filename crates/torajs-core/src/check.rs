@@ -6121,6 +6121,18 @@ impl Checker {
                     if matches!(aty, Type::Undefined) {
                         return Ok(Type::String);
                     }
+                    // S329 — `String.fromCharCode(Any)` per ES §22.1.2.1:
+                    // each arg goes through ToUint16, which accepts any
+                    // value. The method-table sig `(Number) -> String`
+                    // rejected explicit `o: any` operands at typecheck;
+                    // widen here so the ssa_lower mirror routes Any
+                    // through anyv_to_number → coerce_to_i64 → helper.
+                    // fromCodePoint stays Number-only because it throws
+                    // RangeError on non-finite / out-of-range — Any path
+                    // there needs explicit throw-shape alignment (L3b).
+                    if matches!(aty, Type::Any) {
+                        return Ok(Type::String);
+                    }
                 }
                 // `String.fromCharCode(...codes)` — variadic. Each code is a
                 // Number; result is a String. The single-arg case still goes
