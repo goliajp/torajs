@@ -22385,7 +22385,18 @@ impl<'a> LowerCtx<'a> {
                                 return Operand::Value(v);
                             }
                             "split" => {
-                                let v = self.f.append_inst(
+                                // S326 — regex-receiver
+                                // `s.split(re, limit, ...trailing)` per
+                                // ES §22.1.3.21. Mirror of S282 string
+                                // path in ssa_lower_str.rs:1084. Pre-
+                                // S326 the regex_split call ignored
+                                // args[1..] entirely → two bugs in one
+                                // arm: (1) `s.split(/,/, 3)` silently
+                                // returned the full split instead of
+                                // limited (the probe in handoff#2);
+                                // (2) any step()-style trailing arg got
+                                // silent-dropped at lower-time.
+                                let split_v = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::Call(
                                         self.intrinsics.regex_split,
@@ -22394,7 +22405,91 @@ impl<'a> LowerCtx<'a> {
                                     Type::Arr(arr_id),
                                     None,
                                 );
-                                return Operand::Value(v);
+                                if args.len() >= 2 {
+                                    // S326 — lower args[2..] for side
+                                    // effects before slicing (S272/S321
+                                    // idiom), then drop their values.
+                                    for &a in args.iter().skip(2) {
+                                        let _ = self.lower_expr(a);
+                                    }
+                                    // S326 — ES §22.1.3.21 step 6:
+                                    // limit ToUint32 then clamp to
+                                    // resulting length. Match the
+                                    // S282 string-path slice shape.
+                                    let limit_raw = self.lower_expr(args[1]);
+                                    let limit_op = self.coerce_to_i64(limit_raw);
+                                    let len = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(
+                                            Type::I64,
+                                            Operand::Value(split_v),
+                                            ARR_LEN_OFF,
+                                        ),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let take_slot =
+                                        self.alloca(Type::I64, Some("__regex_split_take"));
+                                    let lt = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ICmp(
+                                            IPred::Slt,
+                                            limit_op.clone(),
+                                            Operand::Value(len),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    );
+                                    let then_blk = self.f.add_block();
+                                    let else_blk = self.f.add_block();
+                                    let after_blk = self.f.add_block();
+                                    self.f.set_term(
+                                        self.cur_block,
+                                        Terminator::CondBr {
+                                            cond: Operand::Value(lt),
+                                            then_blk,
+                                            else_blk,
+                                        },
+                                    );
+                                    self.cur_block = then_blk;
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Store(limit_op, Operand::Value(take_slot), 0),
+                                    );
+                                    self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+                                    self.cur_block = else_blk;
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Store(
+                                            Operand::Value(len),
+                                            Operand::Value(take_slot),
+                                            0,
+                                        ),
+                                    );
+                                    self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+                                    self.cur_block = after_blk;
+                                    let take = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, Operand::Value(take_slot), 0),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.arr_slice,
+                                            vec![
+                                                Operand::Value(split_v),
+                                                Operand::ConstI64(0),
+                                                Operand::Value(take),
+                                            ],
+                                        ),
+                                        Type::Arr(arr_id),
+                                        None,
+                                    );
+                                    return Operand::Value(v);
+                                }
+                                return Operand::Value(split_v);
                             }
                             "replace" | "replaceAll" => {
                                 let repl = self.lower_expr(args[1]);
