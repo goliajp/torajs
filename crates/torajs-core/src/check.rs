@@ -7508,7 +7508,7 @@ impl Checker {
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && matches!(m_name.as_str(), "copyWithin" | "fill")
-                    && args.len() == 4
+                    && args.len() >= 4
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if let Type::Array(elem) = &src_ty {
@@ -7541,7 +7541,14 @@ impl Checker {
                                 "Array.{m_name} arg 2 must be number, got {aty2:?}"
                             ));
                         }
-                        let _ = self.type_of(ast, args[3])?;
+                        // S310 — widen `== 4` to `>= 4` per ES §23.1.3.{4,7}
+                        // trailing-arg ignore. Spec reads target/value +
+                        // start + end only; trailing slots silent-drop.
+                        // ssa_lower's S298 skip(3) loop already drains
+                        // args[3..] for side-effects.
+                        for &a in args.iter().skip(3) {
+                            let _ = self.type_of(ast, a)?;
+                        }
                         return Ok(Type::Array(elem.clone()));
                     }
                 }
