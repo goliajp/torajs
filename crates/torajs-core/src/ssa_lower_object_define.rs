@@ -387,9 +387,16 @@ fn try_lower_define_property(
         && m_name == "defineProperty"
         && let Expr::Ident(ns) = ctx.ast.get_expr(*ns_id)
         && ns == "Object"
-        && args.len() == 3
+        && args.len() >= 3
         && emit_define_one(ctx, args[0], DefineKey::Expr(args[1]), args[2])
     {
+        // S317 — ES §20.1.2.6 silently ignores args past (obj, key,
+        // desc). `emit_define_one` lowers args[0..3] (obj + key +
+        // desc fields); lower-and-drop args[3..] after for spec
+        // left-to-right side-effect order.
+        for &a in args.iter().skip(3) {
+            let _ = ctx.lower_expr(a);
+        }
         return Some(Operand::ConstI64(0));
     }
     None

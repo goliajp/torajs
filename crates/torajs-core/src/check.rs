@@ -8069,13 +8069,21 @@ impl Checker {
                 // / `for a in args.iter().skip(1)`), so the lower path
                 // is safe — S269 widens checktime to accept the matching
                 // floor and beyond.
+                //
+                // S317 — extend the same widen to `defineProperty(obj,
+                // key, desc, ...trailing)` per ES §20.1.2.6. fixed
+                // sig `vec![Type::Any, Type::String, Type::Any]` (3
+                // args) rejected the 4th; paired ssa_lower change
+                // widens `args.len() == 3` to `>= 3` + lowers-and-
+                // drops args[3..] after `emit_define_one` for spec
+                // left-to-right side-effect order.
                 if let Expr::Member {
                     obj: src_id,
                     name: m_name,
                 } = ast.get_expr(*callee)
                     && matches!(
                         m_name.as_str(),
-                        "create" | "setPrototypeOf" | "defineProperties"
+                        "create" | "setPrototypeOf" | "defineProperties" | "defineProperty"
                     )
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
@@ -8083,6 +8091,7 @@ impl Checker {
                         let floor: usize = match m_name.as_str() {
                             "create" => 2,
                             "setPrototypeOf" | "defineProperties" => 3,
+                            "defineProperty" => 4,
                             _ => unreachable!(),
                         };
                         if args.len() >= floor {
@@ -8090,7 +8099,7 @@ impl Checker {
                                 let _ = self.type_of(ast, arg)?;
                             }
                             return Ok(match m_name.as_str() {
-                                "defineProperties" => Type::Void,
+                                "defineProperties" | "defineProperty" => Type::Void,
                                 _ => Type::Any,
                             });
                         }
