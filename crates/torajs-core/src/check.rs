@@ -6395,9 +6395,14 @@ impl Checker {
                         // which rejected the typed-Undefined operand;
                         // widen to args.len() <= 2 here and let
                         // ssa_lower fill the defaults.
+                        // S334 — `xs.slice(Any [, Any])` per ES
+                        // §23.1.3.{28,27}: ToIntegerOrInfinity accepts
+                        // arbitrary-typed input. Sister to S332/S333.
+                        // ssa_lower mirror routes Any through
+                        // anyv_to_number → coerce_to_i64 → helper.
                         for &aid in args {
                             let aty = self.type_of(ast, aid)?;
-                            if matches!(aty, Type::Undefined) {
+                            if matches!(aty, Type::Undefined | Type::Any) {
                                 continue;
                             }
                             if aty != Type::Number {
