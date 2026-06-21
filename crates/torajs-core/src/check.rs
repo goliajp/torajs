@@ -5903,9 +5903,17 @@ impl Checker {
                             //
                             // S226 — accept explicit undefined arg
                             // via the same ToString → NaN path.
+                            // S337 — bare-name `parseInt(Any, ...)` per ES
+                            // §19.2.5 step 1: ToString accepts arbitrary-
+                            // typed input. Sister to S336 (parseFloat bare-
+                            // name Any). ssa_lower mirror routes Any
+                            // through anyv_to_str_pair → any_to_str →
+                            // num_parse_int. Radix slot also widens to
+                            // Any (ToInt32 fold) — sister to S327
+                            // (Number.parseInt member radix Any).
                             if let Some(arg0) = args.first() {
                                 let s_ty = self.type_of(ast, *arg0)?;
-                                if !matches!(s_ty, Type::String | Type::Undefined) {
+                                if !matches!(s_ty, Type::String | Type::Undefined | Type::Any) {
                                     return Err(format!(
                                         "parseInt arg 0 must be string, got {s_ty:?}"
                                     ));
@@ -5920,7 +5928,9 @@ impl Checker {
                                 // helper's `r==0` auto-detect branch picks
                                 // up base 10 (or 16 if the input has a
                                 // "0x"/"0X" prefix).
-                                if !matches!(r_ty, Type::Number | Type::Undefined) {
+                                // S337 — extend the same widen to Any per
+                                // ES §19.2.5.1 step 2 ToInt32 (Any path).
+                                if !matches!(r_ty, Type::Number | Type::Undefined | Type::Any) {
                                     return Err(format!(
                                         "parseInt arg 1 must be number, got {r_ty:?}"
                                     ));

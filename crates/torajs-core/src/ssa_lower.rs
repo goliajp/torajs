@@ -17260,7 +17260,43 @@ impl<'a> LowerCtx<'a> {
                                 }
                                 return Operand::ConstF64(f64::NAN);
                             }
-                            let s = self.lower_expr(args[0]);
+                            // S337 — bare-name parseInt accepts Any per
+                            // check.rs widen: decode Any str via
+                            // anyv_to_str_pair (tag + value) → any_to_str
+                            // so the helper's (Str, i64) -> F64 ABI
+                            // receives a concrete Str. Sister to S336
+                            // (parseFloat bare-name Any).
+                            let raw = self.lower_expr(args[0]);
+                            let raw_ty = self.operand_ty(&raw);
+                            let s = if raw_ty == Type::Any {
+                                let tag = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.any_unbox_tag,
+                                        vec![raw.clone()],
+                                    ),
+                                    Type::I64,
+                                    None,
+                                );
+                                let val = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(self.intrinsics.any_unbox_value, vec![raw]),
+                                    Type::I64,
+                                    None,
+                                );
+                                let s_val = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.any_to_str,
+                                        vec![Operand::Value(tag), Operand::Value(val)],
+                                    ),
+                                    Type::Str,
+                                    None,
+                                );
+                                Operand::Value(s_val)
+                            } else {
+                                raw
+                            };
                             // V3-18 m1.h.25 — when no radix is supplied,
                             // pass 0 to trigger the runtime's auto-detect
                             // path (10 by default, 16 if "0x" / "0X"
@@ -17272,13 +17308,32 @@ impl<'a> LowerCtx<'a> {
                             // same auto-detect sentinel. Skip lowering
                             // the undef arg so its ConstPtrNull never
                             // reaches the helper's i64 radix slot.
+                            // S337 — accept Any radix: decode via
+                            // anyv_to_number → coerce_to_i64 (Pattern A,
+                            // sister to S327 Number.parseInt radix Any).
                             let radix_undef = args.len() >= 2
                                 && matches!(
                                     self.expr_types.get(&args[1]),
                                     Some(check_mod::Type::Undefined)
                                 );
+                            let radix_any = args.len() >= 2
+                                && matches!(
+                                    self.expr_types.get(&args[1]),
+                                    Some(check_mod::Type::Any)
+                                );
                             let r = if args.len() >= 2 && !radix_undef {
-                                self.lower_expr(args[1])
+                                if radix_any {
+                                    let raw_r = self.lower_expr(args[1]);
+                                    let f = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(self.intrinsics.any_to_number, vec![raw_r]),
+                                        Type::F64,
+                                        None,
+                                    );
+                                    self.coerce_to_i64(Operand::Value(f))
+                                } else {
+                                    self.lower_expr(args[1])
+                                }
                             } else {
                                 Operand::ConstI64(0)
                             };
