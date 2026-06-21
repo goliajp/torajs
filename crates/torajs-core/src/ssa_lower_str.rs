@@ -914,6 +914,24 @@ pub(crate) fn try_lower_method_call(
                         None,
                     );
                     argv.push(ctx.coerce_to_i64(Operand::Value(f)));
+                } else if matches!(method.as_str(), "slice" | "substring" | "substr")
+                    && i < 2
+                    && matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Any))
+                {
+                    // S333 — `s.{slice,substring,substr}(Any, Any)` per
+                    // ES §22.1.3.{20,22,23}: ToIntegerOrInfinity accepts
+                    // arbitrary-typed input on both positional slots.
+                    // Decode Any via anyv_to_number → coerce_to_i64 so
+                    // the helper's (Str, i64, i64) ABI sees clean i64s.
+                    // Sister to S332.
+                    let raw = ctx.lower_expr(a);
+                    let f = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                        Type::F64,
+                        None,
+                    );
+                    argv.push(ctx.coerce_to_i64(Operand::Value(f)));
                 } else {
                     argv.push(ctx.lower_expr(a));
                 }

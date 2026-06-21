@@ -7291,9 +7291,18 @@ impl Checker {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {
                         let allow_undef = m_name == "slice" || m_name == "substring";
+                        // S333 — `s.{slice,substring,substr}(Any)` per ES
+                        // §22.1.3.{20,22,23}: ToIntegerOrInfinity accepts
+                        // arbitrary-typed input. Widen the strict-Number
+                        // gate; ssa_lower mirror routes Any through
+                        // anyv_to_number → coerce_to_i64 → helper. Sister
+                        // to S332 (charCodeAt/charAt/... Any).
                         for &aid in args {
                             let aty = self.type_of(ast, aid)?;
-                            if aty != Type::Number && !(allow_undef && aty == Type::Undefined) {
+                            if aty != Type::Number
+                                && !(allow_undef && aty == Type::Undefined)
+                                && aty != Type::Any
+                            {
                                 return Err(format!(
                                     "String.{m_name} arg must be number, got {aty:?}"
                                 ));
@@ -7319,14 +7328,24 @@ impl Checker {
                     obj: src_id,
                     name: m_name,
                 } = ast.get_expr(*callee)
-                    && (m_name == "substring" || m_name == "slice")
+                    && (m_name == "substring" || m_name == "slice" || m_name == "substr")
                     && args.len() == 2
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {
+                        // S333 — 2-arg form widens Any. Same Any coerce
+                        // pattern A as the 1-arg path. substr extends the
+                        // method-table sig (Number, Number) here so the
+                        // (Any, Any) shape doesn't fall through to the
+                        // strict gate; ssa_lower mirror decodes via
+                        // anyv_to_number → coerce_to_i64.
+                        let allow_undef = m_name == "substring" || m_name == "slice";
                         for &aid in args {
                             let aty = self.type_of(ast, aid)?;
-                            if aty != Type::Number && aty != Type::Undefined {
+                            if aty != Type::Number
+                                && !(allow_undef && aty == Type::Undefined)
+                                && aty != Type::Any
+                            {
                                 return Err(format!(
                                     "String.{m_name} arg must be number, got {aty:?}"
                                 ));
