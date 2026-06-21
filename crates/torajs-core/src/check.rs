@@ -8204,6 +8204,44 @@ impl Checker {
                         return Ok(Type::Void);
                     }
                 }
+                // S301 — WeakMap.{set,get,has,delete} + WeakSet.{add,has,
+                // delete} trailing-arg ignore per ES §24.{3,4}.3.*. Useful
+                // arity is set:2 / others:1; fixed-sig declarations rejected
+                // trailing args with "expected N argument(s), got M".
+                // typecheck-and-drop args[useful..] mirror in ssa_lower (the
+                // WeakMap/WeakSet lower dispatch loop also caps useful when
+                // building full_args). Same family as S264 Set/Map block.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    let useful = match (&src_ty, m_name.as_str()) {
+                        (Type::WeakMap, "set") => Some(2),
+                        (Type::WeakMap, "get")
+                        | (Type::WeakMap, "has")
+                        | (Type::WeakMap, "delete") => Some(1),
+                        (Type::WeakSet, "add")
+                        | (Type::WeakSet, "has")
+                        | (Type::WeakSet, "delete") => Some(1),
+                        _ => None,
+                    };
+                    if let Some(useful) = useful
+                        && args.len() > useful
+                    {
+                        for &a in args.iter() {
+                            let _ = self.type_of(ast, a)?;
+                        }
+                        let ret = match (&src_ty, m_name.as_str()) {
+                            (Type::WeakMap, "set") => Type::Void,
+                            (Type::WeakMap, "get") => Type::Nullable(Box::new(Type::Any)),
+                            (Type::WeakSet, "add") => Type::Void,
+                            _ => Type::Boolean,
+                        };
+                        return Ok(ret);
+                    }
+                }
                 // S210 — String.search() / search(undefined) per ES
                 // §22.1.3.20: RegExpCreate(undefined, undefined)
                 // yields an empty regex which matches at index 0.

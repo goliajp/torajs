@@ -20689,8 +20689,19 @@ impl<'a> LowerCtx<'a> {
                         let do_weakset = weakset_method && recv_ty_hint == Some(Type::WeakSet);
                         if do_weakmap || do_weakset {
                             let recv_op = self.lower_expr(*obj);
-                            let arg_ops: Vec<Operand> =
-                                args.iter().map(|a| self.lower_expr(*a)).collect();
+                            // S301 — useful arity is set:2 / others:1; lower
+                            // args[..useful] into the intrinsic Call, drop
+                            // args[useful..] so step()-style side-effect
+                            // exprs fire per ES eval-then-discard semantics.
+                            let useful = if do_weakmap && m_name == "set" { 2 } else { 1 };
+                            let arg_ops: Vec<Operand> = args
+                                .iter()
+                                .take(useful)
+                                .map(|a| self.lower_expr(*a))
+                                .collect();
+                            for &a in args.iter().skip(useful) {
+                                let _ = self.lower_expr(a);
+                            }
                             let (target, ret_ty) = if do_weakmap {
                                 match m_name.as_str() {
                                     "set" => (self.intrinsics.weakmap_set, Type::Void),
