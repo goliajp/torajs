@@ -17244,6 +17244,13 @@ impl<'a> LowerCtx<'a> {
                             // predicate test; ToNumber(undefined) = NaN
                             // so isNaN(NaN)=true and isFinite(NaN)=false
                             // are the spec-fixed 0-arg answers.
+                            // S305 — lower-and-drop trailing args[1..]
+                            // per S272 idiom so step()-style side-effect
+                            // exprs fire (check.rs S252 already typecheck-
+                            // dropped; SSA-emit reads only args[0]).
+                            for &a in args.iter().skip(1) {
+                                let _ = self.lower_expr(a);
+                            }
                             if args.is_empty() {
                                 return Operand::ConstBool(name == "isNaN");
                             }
@@ -17778,6 +17785,15 @@ impl<'a> LowerCtx<'a> {
                             // statically return false; the implicit
                             // undefined of a 0-arg call is the
                             // canonical non-Number case.
+                            // S305 — lower-and-drop trailing args[1..]
+                            // per S272 idiom so step()-style side-effect
+                            // exprs fire (check.rs S253 already typecheck-
+                            // dropped; SSA-emit short-circuits non-Number
+                            // args + dispatches helper for Number args,
+                            // both reading only args[0]).
+                            for &a in args.iter().skip(1) {
+                                let _ = self.lower_expr(a);
+                            }
                             if args.is_empty() {
                                 return Operand::ConstBool(false);
                             }
