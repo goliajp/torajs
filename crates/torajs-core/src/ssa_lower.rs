@@ -21234,7 +21234,13 @@ impl<'a> LowerCtx<'a> {
                                      * the Set element so we re-box
                                      * it twice (value side ignored —
                                      * pinned ANY_UNDEF). */
-                                    debug_assert_eq!(args.len(), 1);
+                                    // S316 — ES §24.2.3.6 silently
+                                    // ignores trailing args past cb.
+                                    // check.rs S270 typecheck-drops
+                                    // them; mirror lower-and-drop
+                                    // here (S272 idiom) so step()-
+                                    // style side-effect exprs fire.
+                                    debug_assert!(!args.is_empty());
                                     let known_fid: Option<FuncId> = match self.ast.get_expr(args[0])
                                     {
                                         Expr::Closure { fn_name, .. } => {
@@ -21245,6 +21251,12 @@ impl<'a> LowerCtx<'a> {
                                     };
                                     let fn_val = self.lower_expr(args[0]);
                                     let fn_ty = self.operand_ty(&fn_val);
+                                    // S316 — trailing args lower
+                                    // after cb-lower so eval order
+                                    // is cb → trailing → loop.
+                                    for &a in args.iter().skip(1) {
+                                        let _ = self.lower_expr(a);
+                                    }
 
                                     let i_slot = self.alloca(Type::I64, Some("__set_iter_i"));
                                     /* Sentinel for runtime-side iterator
@@ -21814,7 +21826,12 @@ impl<'a> LowerCtx<'a> {
                                     return Operand::Value(v);
                                 }
                                 "forEach" => {
-                                    debug_assert_eq!(args.len(), 1);
+                                    // S316 — ES §23.1.3.5 silently
+                                    // ignores trailing args past cb.
+                                    // check.rs S270 typecheck-drops
+                                    // them; mirror lower-and-drop
+                                    // here (S272 idiom).
+                                    debug_assert!(!args.is_empty());
                                     /* Lower the callback (Closure or
                                      * FnSig). Devirt opportunity if
                                      * args[0] is an Expr::Closure or
@@ -21829,6 +21846,12 @@ impl<'a> LowerCtx<'a> {
                                     };
                                     let fn_val = self.lower_expr(args[0]);
                                     let fn_ty = self.operand_ty(&fn_val);
+                                    // S316 — trailing args lower
+                                    // after cb-lower so eval order
+                                    // is cb → trailing → loop.
+                                    for &a in args.iter().skip(1) {
+                                        let _ = self.lower_expr(a);
+                                    }
 
                                     let i_slot = self.alloca(Type::I64, Some("__map_iter_i"));
                                     /* Sentinel: cursor == -1 (i64) tells
