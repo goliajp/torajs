@@ -2373,7 +2373,25 @@ pub(crate) fn try_lower_method_call(
         && method == "with"
         && args.len() >= 2
     {
-        let i_val = ctx.lower_expr(args[0]);
+        // S339 — `xs.with(Any idx, val)` per ES §23.1.3.39 step 2:
+        // ToIntegerOrInfinity accepts arbitrary-typed input. Decode
+        // Any via anyv_to_number → coerce_to_i64 so the helper's
+        // (Arr, i64, v: i64) ABI sees a clean i64 idx. Pattern A
+        // sister to S331/S332/S333/S334/S335. check.rs mirror at
+        // ~8729 widens the strict-Number gate to accept Any.
+        let arg0_any = matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any));
+        let i_val = if arg0_any {
+            let raw = ctx.lower_expr(args[0]);
+            let f = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                Type::F64,
+                None,
+            );
+            ctx.coerce_to_i64(Operand::Value(f))
+        } else {
+            ctx.lower_expr(args[0])
+        };
         let v_val = ctx.lower_expr(args[1]);
         let v_ty = ctx.operand_ty(&v_val);
         if v_ty == Type::F64 {

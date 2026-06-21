@@ -8726,6 +8726,42 @@ impl Checker {
                         return Ok(Type::String);
                     }
                 }
+                // S339 — `xs.with(Any idx, val)` per ES §23.1.3.39 step 2:
+                // ToIntegerOrInfinity accepts arbitrary-typed input. The
+                // method-table sig `(Number, T) -> Array<T>` at the Array
+                // dispatch site (~4422) strict-rejected `o: any` operands
+                // at typecheck ('argument 0: expected Number, got Any').
+                // Widen here so the ssa_lower mirror routes Any through
+                // anyv_to_number → coerce_to_i64 → arr_with helper.
+                // Sister to S331/S332/S333/S334/S335. Covers both basic
+                // 2-arg case and trailing-arg ≥3 case (S283 sibling
+                // below stays strict-Number for non-Any args[0]).
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "with"
+                    && args.len() >= 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = &src_ty {
+                        let aty0 = self.type_of(ast, args[0])?;
+                        if matches!(aty0, Type::Any) {
+                            let inner = (**elem).clone();
+                            let aty1 = self.type_of(ast, args[1])?;
+                            if aty1 != inner && !matches!(inner, Type::Any) {
+                                return Err(format!(
+                                    "Array.with arg 1 (value) must match elem type {:?}, got {aty1:?}",
+                                    inner
+                                ));
+                            }
+                            for &aid in &args[2..] {
+                                let _ = self.type_of(ast, aid)?;
+                            }
+                            return Ok(Type::Array(Box::new(inner)));
+                        }
+                    }
+                }
                 // S283 — Array.prototype.with(index, value, ...trailing)
                 // trailing-arg ignore per ES §23.1.3.39. Spec reads only
                 // index + value; tora's arr_with intrinsic is 2-arg only.
