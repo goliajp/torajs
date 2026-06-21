@@ -5076,6 +5076,59 @@ fn lower_inner(
         &[Type::Str],
         Type::Str,
     );
+    // V0.2 P14-S5 — JSON builder fast path (struct stringify).
+    // `lower_json_stringify` Type::Obj arm emits these instead of a
+    // 16-call `str_concat` chain for flat-primitive structs (~O(N²)
+    // bytes copied → O(N)). See `crates/torajs-str/src/json_builder.rs`.
+    let jsb_new_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_jsb_new",
+        &[Type::I64], // initial_cap as i64 (truncates to u32 at FFI)
+        Type::Ptr,
+    );
+    let jsb_push_byte_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_jsb_push_byte",
+        &[Type::Ptr, Type::I64], // byte as i64 (truncates to u8)
+        Type::Void,
+    );
+    let jsb_push_str_raw_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_jsb_push_str_raw",
+        &[Type::Ptr, Type::Str],
+        Type::Void,
+    );
+    let jsb_push_str_quoted_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_jsb_push_str_quoted",
+        &[Type::Ptr, Type::Str],
+        Type::Void,
+    );
+    let jsb_push_i64_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_jsb_push_i64",
+        &[Type::Ptr, Type::I64],
+        Type::Void,
+    );
+    let jsb_push_bool_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_jsb_push_bool",
+        &[Type::Ptr, Type::Bool],
+        Type::Void,
+    );
+    let jsb_finalize_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_jsb_finalize",
+        &[Type::Ptr],
+        Type::Str,
+    );
     // M6.3 — JSON.parse runtime helpers. Cursor (`*int64`, alloca'd
     // by the caller fn) threaded through every helper; each advances
     // it past the consumed token. On syntactic mismatch the helper
@@ -6111,6 +6164,13 @@ fn lower_inner(
         math_sum_precise_i64: math_sum_precise_i64_id,
         math_random: math_random_id,
         json_quote_str: json_quote_str_id,
+        jsb_new: jsb_new_id,
+        jsb_push_byte: jsb_push_byte_id,
+        jsb_push_str_raw: jsb_push_str_raw_id,
+        jsb_push_str_quoted: jsb_push_str_quoted_id,
+        jsb_push_i64: jsb_push_i64_id,
+        jsb_push_bool: jsb_push_bool_id,
+        jsb_finalize: jsb_finalize_id,
         json_eat_char: json_eat_char_id,
         json_parse_int: json_parse_int_id,
         json_parse_float: json_parse_float_id,
@@ -7148,6 +7208,17 @@ pub(crate) struct Intrinsics {
     pub(crate) math_sum_precise_i64: FuncId,
     pub(crate) math_random: FuncId,
     pub(crate) json_quote_str: FuncId,
+    /// V0.2 P14-S5 — JSON builder fast path intrinsics for
+    /// `JSON.stringify(struct)`. See `crates/torajs-str/src/
+    /// json_builder.rs` and the `Type::Obj` arm of
+    /// `lower_json_stringify`.
+    pub(crate) jsb_new: FuncId,
+    pub(crate) jsb_push_byte: FuncId,
+    pub(crate) jsb_push_str_raw: FuncId,
+    pub(crate) jsb_push_str_quoted: FuncId,
+    pub(crate) jsb_push_i64: FuncId,
+    pub(crate) jsb_push_bool: FuncId,
+    pub(crate) jsb_finalize: FuncId,
     /// M6.3 — JSON.parse runtime helpers. See `runtime_str.c` for the
     /// per-helper contract. Cursor is `int64_t *`, threaded by the
     /// caller via an alloca slot; helpers advance it past the
@@ -9153,6 +9224,131 @@ impl<'a> LowerCtx<'a> {
                     Operand::Value(v) => v,
                     _ => unreachable!(),
                 };
+                // V0.2 P14-S5 — JSON builder fast path. When every
+                // field type is a JSON-primitive (I64 / Bool / Str),
+                // emit through the `__torajs_jsb_*` builder family
+                // instead of the str_concat chain. The chain copies
+                // the accumulator bytes at every concat (~O(N²) bytes
+                // total for an N-byte output); the builder accumulates
+                // into a single Vec<u8> that grows amortized (~O(N)).
+                // On `json-stringify-100k` (4-field flat struct, 45-
+                // byte output) the chain copies ~400 byte/iter vs the
+                // builder's ~45 byte/iter. Non-primitive fields (Obj /
+                // Arr / Any / F64) fall back to the original path so
+                // recursive struct serialization stays semantically
+                // identical.
+                let primitive_only = layout
+                    .iter()
+                    .all(|(_, fty)| matches!(fty, Type::I64 | Type::Bool | Type::Str));
+                if primitive_only {
+                    // Estimate initial capacity: 2 braces + per-field
+                    // (`"key":val,` ~= name.len() + 8). Errs on the
+                    // small side intentionally — the buffer grows
+                    // amortized and the runtime starts at INITIAL_CAP
+                    // (=64) anyway.
+                    let initial_cap: u64 = 2 + layout
+                        .iter()
+                        .map(|(name, _)| (name.len() + 8) as u64)
+                        .sum::<u64>();
+                    let sb = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.jsb_new,
+                            vec![Operand::ConstI64(initial_cap as i64)],
+                        ),
+                        Type::Ptr,
+                        None,
+                    );
+                    let sb_op = Operand::Value(sb);
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.jsb_push_byte,
+                            vec![sb_op.clone(), Operand::ConstI64(b'{' as i64)],
+                        ),
+                    );
+                    for (i, (fname, fty)) in layout.iter().enumerate() {
+                        if i > 0 {
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.jsb_push_byte,
+                                    vec![sb_op.clone(), Operand::ConstI64(b',' as i64)],
+                                ),
+                            );
+                        }
+                        // Push the field key with surrounding quotes
+                        // and trailing colon. Keys are syntactic
+                        // identifiers (struct field names) so they
+                        // contain no JSON-escape bytes — emit
+                        // `"name":` as a single interned literal +
+                        // single push_str_raw call to amortize FFI
+                        // overhead across the per-field segment.
+                        let mut key_emit = String::with_capacity(fname.len() + 3);
+                        key_emit.push('"');
+                        key_emit.push_str(fname);
+                        key_emit.push_str("\":");
+                        let key_str = self.intern_string_literal(&key_emit);
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.jsb_push_str_raw,
+                                vec![sb_op.clone(), Operand::Value(key_str)],
+                            ),
+                        );
+                        let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
+                        let field_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(*fty, Operand::Value(obj_ptr), field_off),
+                            *fty,
+                            None,
+                        );
+                        match fty {
+                            Type::I64 => {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.jsb_push_i64,
+                                        vec![sb_op.clone(), Operand::Value(field_v)],
+                                    ),
+                                );
+                            }
+                            Type::Bool => {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.jsb_push_bool,
+                                        vec![sb_op.clone(), Operand::Value(field_v)],
+                                    ),
+                                );
+                            }
+                            Type::Str => {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.jsb_push_str_quoted,
+                                        vec![sb_op.clone(), Operand::Value(field_v)],
+                                    ),
+                                );
+                            }
+                            _ => unreachable!("primitive_only gate"),
+                        }
+                    }
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.jsb_push_byte,
+                            vec![sb_op.clone(), Operand::ConstI64(b'}' as i64)],
+                        ),
+                    );
+                    let result = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.jsb_finalize, vec![sb_op]),
+                        Type::Str,
+                        None,
+                    );
+                    return Operand::Value(result);
+                }
                 let lbrace = self.intern_string_literal("{");
                 let rbrace = self.intern_string_literal("}");
                 let comma = self.intern_string_literal(",");

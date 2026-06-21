@@ -116,6 +116,7 @@ pub mod code_point;
 pub mod concat;
 pub mod eq;
 pub mod json;
+pub mod json_builder;
 pub mod json_parse;
 pub mod layout;
 pub mod literals;

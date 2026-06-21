@@ -31,6 +31,16 @@ use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
 
+/// True iff `s` contains any byte that JSON.stringify must escape:
+/// the quote `"`, the backslash `\`, or any control byte `< 0x20`.
+/// All other bytes (including UTF-8 continuation / lead bytes
+/// `>= 0x80`) pass through unchanged. V0.2 P14-S4 — gates the
+/// single-pass ASCII fast path in `__torajs_json_quote_str`.
+#[inline]
+fn needs_escape(s: &[u8]) -> bool {
+    s.iter().any(|&c| c < 0x20 || c == b'"' || c == b'\\')
+}
+
 #[inline]
 fn escaped_len(s: &[u8]) -> u32 {
     let mut out: u32 = 2; // surrounding quotes
@@ -114,6 +124,27 @@ fn write_escaped(s: &[u8], dst: &mut [u8]) {
 pub unsafe extern "C" fn __torajs_json_quote_str(s: *const u8) -> *mut u8 {
     let len = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() };
     let bytes = unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), len as usize) };
+    // V0.2 P14-S4 — single-pass fast path for strings that need no
+    // escape (common in `JSON.stringify` of user data: field names,
+    // tag-like values, ASCII identifiers). When `needs_escape`
+    // returns false, the output length is exactly `len + 2`
+    // (surrounding quotes) — skip the second-pass `escaped_len`
+    // scan, alloc the result block, write `"`, memcpy the payload,
+    // write `"`. Bytes ≥ 0x20 that aren't `"` or `\` (incl. UTF-8
+    // continuation / lead bytes) pass through unchanged in both
+    // the fast and slow paths, so the fast-path classification
+    // matches `write_escaped`'s identity arm bit-for-bit.
+    if !needs_escape(bytes) {
+        let out_len = len + 2;
+        let mut block = StrBlock::alloc(out_len);
+        // SAFETY: block was just allocated with payload capacity `out_len`.
+        let dst = unsafe { block.as_bytes_mut(out_len) };
+        dst[0] = b'"';
+        let mid = 1 + len as usize;
+        dst[1..mid].copy_from_slice(bytes);
+        dst[mid] = b'"';
+        return block.into_raw();
+    }
     let out_len = escaped_len(bytes);
     let mut block = StrBlock::alloc(out_len);
     // SAFETY: block was just allocated with payload capacity `out_len`.
