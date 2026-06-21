@@ -141,6 +141,8 @@ pub unsafe extern "C" fn __torajs_regex_compile(
         capture_names,
         n_named_captures,
         last_index: 0,
+        // V0.2 P14-S8 — lazy-init Pike VM workspace cache.
+        workspace_cache: core::cell::UnsafeCell::new(None),
     });
     Box::into_raw(re) as *mut c_void
 }

@@ -92,6 +92,29 @@ pub struct RegExp {
     /// by exec / test / match / replace under sticky / global. Init
     /// 0 in `compile`.
     pub last_index: i64,
+    /// V0.2 P14-S8 — per-RegExp Pike VM workspace cache. The
+    /// pre-S8 `__torajs_str_replace_regex` (and matchAll / split-
+    /// regex / etc) called `Workspace::for_program(&prog)` on
+    /// every entry — 4 Vec allocations per call (2 ThreadList
+    /// `Vec::with_capacity` + 2 VisitedTable `vec![0u32; n]` with
+    /// zero-init). With LICM (P14-S1) hoisting the RegExp object
+    /// to the enclosing fn's entry block, a `for i in 0..100_000`
+    /// loop over `s.replace(re, ...)` shares one RegExp instance
+    /// — so the workspace can be allocated once at first use
+    /// (lazy) and reused for every subsequent search. The
+    /// `step_id` counter that gates the visited-table dedup is
+    /// monotonically bumped per `vm_match_at` call, so stale
+    /// `visited[]` entries from the previous run auto-invalidate
+    /// without an explicit clear pass.
+    ///
+    /// Single-threaded by construction. v0.2's no-multi-thread
+    /// substrate (§6.2 of the design principles) guarantees no
+    /// concurrent share. When the biased-ARC multi-thread
+    /// transition lands (v1.0+), this becomes thread-local-indexed
+    /// by `owner_thread_id` and the shared-RegExp transition
+    /// re-allocates the cache through the cross-thread atomic
+    /// path.
+    pub workspace_cache: core::cell::UnsafeCell<Option<crate::vm::Workspace>>,
 }
 
 // ---- Cross-tier extern declarations ----

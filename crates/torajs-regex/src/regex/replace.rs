@@ -81,7 +81,17 @@ pub fn expand_repl(
 
 fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
     let slen = s.len() as i64;
-    let mut ws = Workspace::for_program(&re.prog);
+    // V0.2 P14-S8 — reuse the per-RegExp cached Pike VM
+    // workspace. The Pike VM's `step_id` counter increments
+    // monotonically on every `vm_match_at` call, so stale
+    // `visited[]` entries from prior runs auto-invalidate
+    // (no clear pass needed). Only the cur/nxt thread lists
+    // need explicit reset between invocations.
+    let ws_cell = re.workspace_cache.get();
+    let ws = unsafe { &mut *ws_cell };
+    let ws = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
+    ws.cur.list.clear();
+    ws.nxt.list.clear();
     let mut out: Vec<u8> = Vec::with_capacity(s.len() + 16);
     let mut pos: i64 = 0;
     let sticky = re.flags & RE_FLAG_Y != 0;
@@ -89,7 +99,7 @@ fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
         let m = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws)
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
