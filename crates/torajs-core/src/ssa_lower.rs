@@ -19609,6 +19609,13 @@ impl<'a> LowerCtx<'a> {
                     && !args.is_empty()
                 {
                     let arg_op = self.lower_expr(args[0]);
+                    // S306 — lower-and-drop trailing args[1..] per S272
+                    // idiom so step()-style side-effect exprs fire per ES
+                    // §20.1.2.{12,15} trailing-arg ignore (check.rs S256
+                    // already typecheck-dropped).
+                    for &a in args.iter().skip(1) {
+                        let _ = self.lower_expr(a);
+                    }
                     let arg_ty = self.operand_ty(&arg_op);
                     let is_primitive = matches!(arg_ty, Type::I64 | Type::F64 | Type::Bool);
                     if is_primitive {
@@ -20093,6 +20100,13 @@ impl<'a> LowerCtx<'a> {
                     );
                     let a_op = self.lower_expr(args[0]);
                     let b_op = self.lower_expr(args[1]);
+                    // S306 — lower-and-drop trailing args[2..] per S272
+                    // idiom so step()-style side-effect exprs fire per ES
+                    // §20.1.2.9 trailing-arg ignore (check.rs S257 already
+                    // typecheck-dropped).
+                    for &a in args.iter().skip(2) {
+                        let _ = self.lower_expr(a);
+                    }
                     let a_ty = self.operand_ty(&a_op);
                     let b_ty = self.operand_ty(&b_op);
                     if a_ty != b_ty {
