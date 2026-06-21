@@ -15795,6 +15795,15 @@ impl<'a> LowerCtx<'a> {
                     && (n == "Number" || n == "String" || n == "Boolean")
                 {
                     let n_kind = n.clone();
+                    // S307 — lower-and-drop trailing args[1..] per S272
+                    // idiom so step()-style side-effect exprs fire per ES
+                    // §21.1.1 / §22.1.1 / §20.3.1 trailing-arg ignore
+                    // (check.rs S251 already typecheck-dropped; the three
+                    // SSA-emit return paths below — empty / undef bare-
+                    // ident / lowered arg[0] — all reads only args[0]).
+                    for &a in args.iter().skip(1) {
+                        let _ = self.lower_expr(a);
+                    }
                     if args.is_empty() {
                         return match n_kind.as_str() {
                             "Number" => Operand::ConstI64(0),
