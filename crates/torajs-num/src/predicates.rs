@@ -107,6 +107,62 @@ pub unsafe extern "C" fn __torajs_num_is_safe_integer_i(n: i64) -> i64 {
     }
 }
 
+// ============================================================
+// Number.is{NaN,Finite,Integer,SafeInteger}(Any) — tag-dispatch
+// ============================================================
+//
+// S341 — Pre-fix `Number.is*(Any)` short-circuited to `false` in
+// ssa_lower regardless of the Any-box tag (silent-wrong vs spec
+// §21.1.2.{3,4,5,7}: spec is strict-Type, but Any can hold a
+// Number at runtime → must dispatch on the unboxed tag).
+//
+// Tag layout (see crates/torajs-anyvalue/src/nanbox.rs):
+//   ANY_NULL=0, ANY_BOOL=1, ANY_I64=2, ANY_F64=3, ANY_HEAP=4,
+//   ANY_UNDEF=5. Only tag ∈ {2, 3} is a Number — every other
+//   tag returns 0 (false) per spec strict-Type-check.
+
+const ANY_I64: i64 = 2;
+const ANY_F64: i64 = 3;
+
+/// `Number.isNaN(any)` — tag-dispatch on the AnyValue (tag, val) pair.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_num_is_nan_any(tag: i64, val: i64) -> i64 {
+    match tag {
+        ANY_F64 => unsafe { __torajs_num_is_nan_f(f64::from_bits(val as u64)) },
+        _ => 0,
+    }
+}
+
+/// `Number.isFinite(any)` — tag-dispatch on the AnyValue (tag, val) pair.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_num_is_finite_any(tag: i64, val: i64) -> i64 {
+    match tag {
+        ANY_I64 => 1,
+        ANY_F64 => unsafe { __torajs_num_is_finite_f(f64::from_bits(val as u64)) },
+        _ => 0,
+    }
+}
+
+/// `Number.isInteger(any)` — tag-dispatch on the AnyValue (tag, val) pair.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_num_is_integer_any(tag: i64, val: i64) -> i64 {
+    match tag {
+        ANY_I64 => 1,
+        ANY_F64 => unsafe { __torajs_num_is_integer_f(f64::from_bits(val as u64)) },
+        _ => 0,
+    }
+}
+
+/// `Number.isSafeInteger(any)` — tag-dispatch on the AnyValue (tag, val) pair.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_num_is_safe_integer_any(tag: i64, val: i64) -> i64 {
+    match tag {
+        ANY_I64 => unsafe { __torajs_num_is_safe_integer_i(val) },
+        ANY_F64 => unsafe { __torajs_num_is_safe_integer_f(f64::from_bits(val as u64)) },
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,6 +198,44 @@ mod tests {
         assert_eq!(unsafe { __torajs_num_is_integer_f(f64::NAN) }, 0);
         assert_eq!(unsafe { __torajs_num_is_integer_f(f64::INFINITY) }, 0);
         assert_eq!(unsafe { __torajs_num_is_integer_i(0) }, 1);
+    }
+
+    #[test]
+    fn is_any_tag_dispatch() {
+        // ANY_I64 — always integer & finite, never NaN.
+        assert_eq!(unsafe { __torajs_num_is_integer_any(ANY_I64, 42) }, 1);
+        assert_eq!(unsafe { __torajs_num_is_finite_any(ANY_I64, 42) }, 1);
+        assert_eq!(unsafe { __torajs_num_is_nan_any(ANY_I64, 42) }, 0);
+        assert_eq!(
+            unsafe { __torajs_num_is_safe_integer_any(ANY_I64, MAX_SAFE_INTEGER_I) },
+            1
+        );
+        assert_eq!(
+            unsafe { __torajs_num_is_safe_integer_any(ANY_I64, MAX_SAFE_INTEGER_I + 1) },
+            0
+        );
+        // ANY_F64 — bit-cast the val to f64 and dispatch.
+        let nan_bits = f64::NAN.to_bits() as i64;
+        assert_eq!(unsafe { __torajs_num_is_nan_any(ANY_F64, nan_bits) }, 1);
+        let inf_bits = f64::INFINITY.to_bits() as i64;
+        assert_eq!(unsafe { __torajs_num_is_finite_any(ANY_F64, inf_bits) }, 0);
+        let one_p_five = 1.5_f64.to_bits() as i64;
+        assert_eq!(
+            unsafe { __torajs_num_is_integer_any(ANY_F64, one_p_five) },
+            0
+        );
+        let two_p_zero = 2.0_f64.to_bits() as i64;
+        assert_eq!(
+            unsafe { __torajs_num_is_integer_any(ANY_F64, two_p_zero) },
+            1
+        );
+        // Non-Number tag — always false.
+        for tag in [0_i64, 1, 4, 5, 99] {
+            assert_eq!(unsafe { __torajs_num_is_nan_any(tag, 0) }, 0);
+            assert_eq!(unsafe { __torajs_num_is_finite_any(tag, 0) }, 0);
+            assert_eq!(unsafe { __torajs_num_is_integer_any(tag, 0) }, 0);
+            assert_eq!(unsafe { __torajs_num_is_safe_integer_any(tag, 0) }, 0);
+        }
     }
 
     #[test]

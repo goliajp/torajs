@@ -1914,6 +1914,39 @@ fn lower_inner(
         &[Type::I64],
         Type::Bool,
     );
+    // S341 — Number.is{NaN,Finite,Integer,SafeInteger}(Any) tag-
+    // dispatch helpers. Take (tag: i64, val: i64) so ssa_lower
+    // can feed the unboxed (any_unbox_tag, any_unbox_value) pair
+    // without an intermediate bitcast. Returns Bool (0/1) per
+    // the existing _f/_i family ABI.
+    let num_is_integer_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_integer_any",
+        &[Type::I64, Type::I64],
+        Type::Bool,
+    );
+    let num_is_nan_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_nan_any",
+        &[Type::I64, Type::I64],
+        Type::Bool,
+    );
+    let num_is_finite_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_finite_any",
+        &[Type::I64, Type::I64],
+        Type::Bool,
+    );
+    let num_is_safe_integer_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_safe_integer_any",
+        &[Type::I64, Type::I64],
+        Type::Bool,
+    );
     // M6.1 — String methods. All operate on the StrRepr layout
     // `[u64 len, u8 data[len]]`. slice yields a fresh heap StrRepr;
     // char_code_at returns the byte zext'd to i64; the `*_with`
@@ -5702,6 +5735,10 @@ fn lower_inner(
         num_is_finite_i: num_is_finite_i_id,
         num_is_safe_integer_f: num_is_safe_integer_f_id,
         num_is_safe_integer_i: num_is_safe_integer_i_id,
+        num_is_integer_any: num_is_integer_any_id,
+        num_is_nan_any: num_is_nan_any_id,
+        num_is_finite_any: num_is_finite_any_id,
+        num_is_safe_integer_any: num_is_safe_integer_any_id,
         str_slice: str_slice_id,
         str_char_code_at: str_char_code_at_id,
         str_code_point_at: str_code_point_at_id,
@@ -6699,6 +6736,10 @@ pub(crate) struct Intrinsics {
     pub(crate) num_is_finite_i: FuncId,
     pub(crate) num_is_safe_integer_f: FuncId,
     pub(crate) num_is_safe_integer_i: FuncId,
+    pub(crate) num_is_integer_any: FuncId,
+    pub(crate) num_is_nan_any: FuncId,
+    pub(crate) num_is_finite_any: FuncId,
+    pub(crate) num_is_safe_integer_any: FuncId,
     pub(crate) str_slice: FuncId,
     pub(crate) str_char_code_at: FuncId,
     pub(crate) str_code_point_at: FuncId,
@@ -18047,6 +18088,56 @@ impl<'a> LowerCtx<'a> {
                             }
                             let arg_op = self.lower_expr(args[0]);
                             let arg_ty = self.operand_ty(&arg_op);
+                            // S341 — Any-typed arg: tag-dispatch via the
+                            // `*_any` helper family. Pre-fix the !matches!
+                            // short-circuit below dropped Any to a static
+                            // false, silent-wrong vs spec when the Any
+                            // boxed a real Number (e.g. `const o: any = 2;
+                            // Number.isInteger(o)` → bun: true, tr: false).
+                            // The helper inspects the (tag, val) pair —
+                            // tag ∈ {ANY_I64=2, ANY_F64=3} dispatches the
+                            // existing _i/_f impl, every other tag
+                            // returns false per spec strict-Type-check.
+                            if matches!(arg_ty, Type::Any) {
+                                let tag = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.any_unbox_tag,
+                                        vec![arg_op.clone()],
+                                    ),
+                                    Type::I64,
+                                    None,
+                                );
+                                let val = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.any_unbox_value,
+                                        vec![arg_op.clone()],
+                                    ),
+                                    Type::I64,
+                                    None,
+                                );
+                                if self.expr_is_fresh_owned(args[0]) {
+                                    self.emit_drop_value(arg_op, Type::Any);
+                                }
+                                let target = match m_name.as_str() {
+                                    "isInteger" => self.intrinsics.num_is_integer_any,
+                                    "isNaN" => self.intrinsics.num_is_nan_any,
+                                    "isFinite" => self.intrinsics.num_is_finite_any,
+                                    "isSafeInteger" => self.intrinsics.num_is_safe_integer_any,
+                                    _ => unreachable!(),
+                                };
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        target,
+                                        vec![Operand::Value(tag), Operand::Value(val)],
+                                    ),
+                                    Type::Bool,
+                                    None,
+                                );
+                                return Operand::Value(v);
+                            }
                             // V3-18 wedge — Number.is{Finite,NaN,
                             // Integer,SafeInteger} per spec do NOT
                             // coerce: non-Number args return false

@@ -82,9 +82,11 @@ pub use math::{
 pub use object_is::__torajs_object_is_f64;
 pub use parse::{__torajs_num_parse_float, __torajs_num_parse_int};
 pub use predicates::{
-    __torajs_num_is_finite_f, __torajs_num_is_finite_i, __torajs_num_is_integer_f,
-    __torajs_num_is_integer_i, __torajs_num_is_nan_f, __torajs_num_is_nan_i,
-    __torajs_num_is_safe_integer_f, __torajs_num_is_safe_integer_i,
+    __torajs_num_is_finite_any, __torajs_num_is_finite_f, __torajs_num_is_finite_i,
+    __torajs_num_is_integer_any, __torajs_num_is_integer_f, __torajs_num_is_integer_i,
+    __torajs_num_is_nan_any, __torajs_num_is_nan_f, __torajs_num_is_nan_i,
+    __torajs_num_is_safe_integer_any, __torajs_num_is_safe_integer_f,
+    __torajs_num_is_safe_integer_i,
 };
 pub use print_err::{__torajs_print_bool_err, __torajs_print_f64_err, __torajs_print_i64_err};
 pub use to_str::{
