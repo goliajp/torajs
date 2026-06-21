@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-21T12:54:13.917Z",
+  "generatedAt": "2026-06-21T14:23:45.173Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "50d9d935",
-    "commitSubject": "fix(str): `s.{padStart,padEnd}(Any [, fillStr])` widen",
+    "commit": "76176c92",
+    "commitSubject": "fix(num): global `isNaN(Any)` / `isFinite(Any)` silent-wrong",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "76176c92",
+      "subject": "fix(num): global `isNaN(Any)` / `isFinite(Any)` silent-wrong"
+    },
+    {
+      "hash": "9a3aced1",
+      "subject": "fix(math): `Math.<unary/binary>(Any[, Any])` widen + Any→F64 coerce"
+    },
+    {
+      "hash": "41e71b8c",
+      "subject": "fix(num): Number.is{NaN,Finite,Integer,SafeInteger}(Any) silent-wrong"
+    },
+    {
+      "hash": "72fd5f3f",
+      "subject": "fix(str): `String.fromCodePoint(Any)` widen + Any→i64 coerce"
+    },
+    {
+      "hash": "f339a8f7",
+      "subject": "fix(arr): `xs.with(Any idx, val)` widen + Any→i64 coerce"
+    },
+    {
+      "hash": "2ee8ed99",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×7 (S332-S338)"
+    },
+    {
       "hash": "50d9d935",
       "subject": "fix(str): `s.{padStart,padEnd}(Any [, fillStr])` widen"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "4a109345",
       "subject": "fix(str): `String.{slice,substring,substr}(Any [, Any])` widen"
-    },
-    {
-      "hash": "986fdf6c",
-      "subject": "fix(str): `String.{at,charAt,charCodeAt,codePointAt,repeat}(Any idx)`"
-    },
-    {
-      "hash": "3c1d770a",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×6 (S326-S331)"
-    },
-    {
-      "hash": "c3b11d05",
-      "subject": "fix(arr): `Array.{indexOf,lastIndexOf,includes}(needle, Any fromIndex)`"
-    },
-    {
-      "hash": "b44d454f",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S326-S330)"
-    },
-    {
-      "hash": "8996fb94",
-      "subject": "fix(num): `Number.parseFloat(Any)` widen + Any→Str decode"
-    },
-    {
-      "hash": "a1236a5e",
-      "subject": "fix(str): `String.fromCharCode(Any)` widen + Any→i64 coerce"
     }
   ],
-  "headSha": "50d9d935",
+  "headSha": "76176c92",
   "autorun": {
-    "total": 217,
+    "total": 218,
     "baselineTarget": 10,
-    "bySelf": 212,
+    "bySelf": 213,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782040876-47f9",
-      "at": "2026-06-21T11:21:16Z",
-      "ts": 1782040876,
+      "rotationId": "r-1782046570-3d51",
+      "at": "2026-06-21T12:56:10Z",
+      "ts": 1782046570,
       "trigger": "self",
-      "prevHead": "3c1d770a",
-      "handoffSha": "sha256:8dc700025d873bd6350740f9b1eb3faf4e4a00d9a1c5337963266be5fd7e32ab",
+      "prevHead": "2ee8ed99",
+      "handoffSha": "sha256:0000ab4affbba7e9c73be36005b75bdf4fa59ef7ec0c28a48c4a0a86912b3913",
       "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782046570-3d51",
+        "at": "2026-06-21T12:56:10Z",
+        "ts": 1782046570,
+        "trigger": "self",
+        "prevHead": "2ee8ed99",
+        "handoffSha": "sha256:0000ab4affbba7e9c73be36005b75bdf4fa59ef7ec0c28a48c4a0a86912b3913",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782040876-47f9",
         "at": "2026-06-21T11:21:16Z",
@@ -780,17 +791,6 @@
         "prevHead": "abb772f4",
         "handoffSha": "sha256:4ac188c43c4156c79fc0dd136643ad941601f0c0fe6e6dd30b6a56b5b24032a2",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781951454-1bc1",
-        "at": "2026-06-20T10:30:54Z",
-        "ts": 1781951454,
-        "trigger": "self",
-        "prevHead": "4b5b93f3",
-        "handoffSha": "sha256:4e1e1e045ed756294148fa87849963842fc964eb84909e7ead869becb0bd51b2",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
