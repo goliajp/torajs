@@ -18028,10 +18028,22 @@ impl<'a> LowerCtx<'a> {
                     && m_name == "getOwnPropertyDescriptor"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
-                    && args.len() == 2
+                    && args.len() >= 2
                 {
                     let obj_raw = self.lower_expr(args[0]);
                     let obj_ty = self.operand_ty(&obj_raw);
+                    // S315 — ES §20.1.2.10 silently ignores args past
+                    // (obj, key). Widen gate `== 2` → `>= 2` + lower-
+                    // and-drop trailing for side-effects (S272 idiom).
+                    // Placed after obj-lower but before key/dispatch so
+                    // trailing args evaluate exactly once across all
+                    // return paths below (str-length / str-index /
+                    // arr-length / generic). Order: obj → trailing →
+                    // key — key is typically a literal so no observable
+                    // reorder vs spec left-to-right.
+                    for &a in args.iter().skip(2) {
+                        let _ = self.lower_expr(a);
+                    }
 
                     // W-M — typed-Str `.length` static fast path. Spec
                     // §22.1.5.1: String's `length` own prop is `{value,

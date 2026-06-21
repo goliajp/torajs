@@ -8312,6 +8312,36 @@ impl Checker {
                         return Ok(ret);
                     }
                 }
+                // S315 — Object.getOwnPropertyDescriptor(obj, key, ...trailing)
+                // per ES §20.1.2.10: spec sig is 2-arg; trailing args MUST
+                // be silently ignored. Pre-S315 the fixed (Type::Object(
+                // "Object"), "getOwnPropertyDescriptor") method-table sig
+                // rejected `args.len() >= 3` with "expected 2 argument(s),
+                // got M". typecheck-drop trailing + ssa_lower mirror at
+                // 18024 widens `== 2` → `>= 2` and adds skip(2) loop.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "getOwnPropertyDescriptor"
+                    && args.len() >= 3
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::Object("Object")) {
+                        // Useful arg typecheck (obj: Any, key: String).
+                        let _ = self.type_of(ast, args[0])?;
+                        let aty1 = self.type_of(ast, args[1])?;
+                        if !matches!(aty1, Type::String) {
+                            return Err(format!(
+                                "Object.getOwnPropertyDescriptor arg 1 (key) must be string, got {aty1:?}"
+                            ));
+                        }
+                        for &a in args.iter().skip(2) {
+                            let _ = self.type_of(ast, a)?;
+                        }
+                        return Ok(Type::Any);
+                    }
+                }
                 // S314 — BigInt.{asIntN,asUintN}(bits, value, ...trailing)
                 // per ES §21.2.2.{1,2}: spec sig is 2-arg; trailing args
                 // MUST be silently ignored. Pre-S314 the fixed (Type::
