@@ -99,12 +99,20 @@ impl<'a> LowerCtx<'a> {
         } else {
             Operand::ConstI64(0)
         };
-        let end = if args.len() == 3 {
+        let end = if args.len() >= 3 {
             let raw = self.lower_expr(args[2]);
             self.relative_to_len(raw, Operand::Value(len_for_norm))
         } else {
             Operand::Value(len_for_norm)
         };
+        // S310 — lower-and-drop trailing args past the 3 useful
+        // (value, start, end) slots per ES §23.1.3.7 trailing-arg
+        // ignore. check.rs S246/S310 widen + ssa_lower_str S298
+        // skip(3) loop already handle the typed-tier path; mirror
+        // the Any-elem path for parity.
+        for &a in args.iter().skip(3) {
+            let _ = self.lower_expr(a);
+        }
         let v = self.f.append_inst(
             self.cur_block,
             InstKind::Call(

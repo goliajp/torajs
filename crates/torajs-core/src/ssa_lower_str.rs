@@ -2055,9 +2055,11 @@ pub(crate) fn try_lower_method_call(
     // S246 widens the 3-arg ceiling to 4-arg so the trailing-arg
     // shape (copyWithin(t, s, e, trailing)) still routes through
     // this fast path; args[3] is never lowered (trailing-arg ignore).
+    // S310 widens upper bound to >=1 so any number of trailing
+    // args route here; existing skip(3) loop already drains them.
     if let Type::Arr(arr_id) = recv_ty
         && method == "copyWithin"
-        && (1..=4).contains(&args.len())
+        && !args.is_empty()
     {
         // V3-18 wedge — copyWithin per JS spec
         // §22.1.3.3 normalises target / start / end
@@ -2310,9 +2312,11 @@ pub(crate) fn try_lower_method_call(
     // S246 widens the 3-arg ceiling to 4-arg so the trailing-arg
     // shape (fill(v, s, e, trailing)) still routes through this
     // fast path; args[3] is never lowered (trailing-arg ignore).
+    // S310 widens upper bound to >=1 so any number of trailing
+    // args route here; existing skip(3) loop already drains them.
     if let Type::Arr(arr_id) = recv_ty
         && method == "fill"
-        && (args.len() >= 1 && args.len() <= 4)
+        && !args.is_empty()
     {
         let fill_elem = ctx.arr_layouts[arr_id.0 as usize];
         // L3b Array<Any>.fill — NaN-box the value and route through
