@@ -20835,22 +20835,31 @@ impl<'a> LowerCtx<'a> {
                  * lifetime. The Ptr-typed result is exposed as
                  * Type::Ptr at SSA; downstream `as` casts narrow
                  * back to whatever concrete heap type the user
-                 * stored. */
+                 * stored.
+                 *
+                 * S325 — widen `args.is_empty()` → any arity for
+                 * WeakRef receivers per ES §26.1.3.2 trailing-arg
+                 * ignore. Receiver type peeked via expr_types so
+                 * the gate stays narrow to WeakRef and doesn't
+                 * shadow user-class `.deref(...)` shapes. Trailing
+                 * args lower-and-drop after the deref call so step()
+                 * side-effects fire (check.rs S325 already typecheck-
+                 * dropped). */
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && name == "deref"
-                    && args.is_empty()
+                    && matches!(self.expr_types.get(obj), Some(check_mod::Type::WeakRef))
                 {
                     let recv_op = self.lower_expr(*obj);
-                    let recv_ty = self.operand_ty(&recv_op);
-                    if recv_ty == Type::WeakRef {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.weakref_deref, vec![recv_op]),
-                            Type::Ptr,
-                            None,
-                        );
-                        return Operand::Value(v);
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.weakref_deref, vec![recv_op]),
+                        Type::Ptr,
+                        None,
+                    );
+                    for &a in args.iter() {
+                        let _ = self.lower_expr(a);
                     }
+                    return Operand::Value(v);
                 }
                 /* T-26.B — WeakMap.set/get/has/delete and
                  * WeakSet.add/has/delete. All take key (and

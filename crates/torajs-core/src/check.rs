@@ -3657,7 +3657,12 @@ impl Checker {
                     /* T-26 — WeakRef.deref(). Returns the target if
                      * still alive (rc-bumped on success), or null.
                      * Type-erased to Type::Any; users `as` cast to
-                     * the original concrete type. */
+                     * the original concrete type.
+                     *
+                     * S325 — sig is 0-arg per ES §26.1.3.2; widen via
+                     * a dedicated arm below (the static-table path
+                     * only fires when args.len() == 0, so trailing
+                     * args[1..] are typecheck-and-dropped there). */
                     (Type::WeakRef, "deref") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::Nullable(Box::new(Type::Any))),
@@ -8476,6 +8481,27 @@ impl Checker {
                         } else {
                             return Ok(Type::Number);
                         }
+                    }
+                }
+                // S325 — WeakRef.deref(...trailing) trailing-arg ignore
+                // per ES §26.1.3.2. spec is 0-arg; tora's static-table sig
+                // `(WeakRef, "deref") -> Function([], Nullable<Any>)` at
+                // ~3661 rejected 1+ arg calls at strict arity. Carve-out
+                // typecheck-and-drops args[..]; ssa_lower mirror peeks the
+                // receiver via expr_types and lower-and-drops trailing.
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && m_name == "deref"
+                    && !args.is_empty()
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::WeakRef) {
+                        for &a in args.iter() {
+                            let _ = self.type_of(ast, a)?;
+                        }
+                        return Ok(Type::Nullable(Box::new(Type::Any)));
                     }
                 }
                 // S324 — String.search(needle, ...trailing) trailing-arg
