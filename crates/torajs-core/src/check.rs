@@ -5295,9 +5295,16 @@ impl Checker {
                         let _ = self.type_of(ast, arg)?;
                     }
                     // S226 — explicit undefined arg → NaN (same path).
+                    //
+                    // S330 — widen accept Any. Spec §19.2.5.2 step 1
+                    // calls ToString on the operand, which already
+                    // coerces arbitrary-typed input. ssa_lower mirror
+                    // decodes Any via anyv_to_str_pair (tag + value)
+                    // before passing to num_parse_float. Sister to
+                    // S327 (parseInt Any radix).
                     if let Some(arg0) = args.first() {
                         let s_ty = self.type_of(ast, *arg0)?;
-                        if !matches!(s_ty, Type::String | Type::Undefined) {
+                        if !matches!(s_ty, Type::String | Type::Undefined | Type::Any) {
                             return Err(format!(
                                 "Number.parseFloat arg 0 must be string, got {s_ty:?}"
                             ));

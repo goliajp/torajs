@@ -17887,7 +17887,41 @@ impl<'a> LowerCtx<'a> {
                             {
                                 return Operand::ConstF64(f64::NAN);
                             }
-                            let s = self.lower_expr(args[0]);
+                            // S330 — accept Any per check.rs widen:
+                            // decode Any via anyv_to_str_pair (tag +
+                            // value) so the helper's (Str) -> F64 ABI
+                            // receives a concrete Str.
+                            let raw = self.lower_expr(args[0]);
+                            let raw_ty = self.operand_ty(&raw);
+                            let s = if raw_ty == Type::Any {
+                                let tag = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.any_unbox_tag,
+                                        vec![raw.clone()],
+                                    ),
+                                    Type::I64,
+                                    None,
+                                );
+                                let val = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(self.intrinsics.any_unbox_value, vec![raw]),
+                                    Type::I64,
+                                    None,
+                                );
+                                let s_val = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.any_to_str,
+                                        vec![Operand::Value(tag), Operand::Value(val)],
+                                    ),
+                                    Type::Str,
+                                    None,
+                                );
+                                Operand::Value(s_val)
+                            } else {
+                                raw
+                            };
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(self.intrinsics.num_parse_float, vec![s]),
