@@ -8483,7 +8483,10 @@ impl<'a> LowerCtx<'a> {
         let Expr::Call { callee, args } = self.ast.get_expr(eid) else {
             return false;
         };
-        if args.len() != 1 {
+        // S309 — ES §20.1.2.7 silently ignores trailing args; widen
+        // gate to accept >= 1. LetDecl fast-path lowers args[0] then
+        // drops args[1..] before consuming entries.
+        if args.is_empty() {
             return false;
         }
         let Expr::Member { obj, name } = self.ast.get_expr(*callee) else {
@@ -10648,13 +10651,22 @@ impl<'a> LowerCtx<'a> {
                     && self.is_fromentries_call(*init)
                     && let Type::Obj(sid) = slot_ty
                 {
-                    let entries_eid =
+                    let (entries_eid, trailing): (ExprId, Vec<ExprId>) =
                         if let Expr::Call { args, .. } = self.ast.get_expr(*init).clone() {
-                            args[0]
+                            (args[0], args.iter().skip(1).copied().collect())
                         } else {
                             unreachable!()
                         };
                     let entries_op = self.lower_expr(entries_eid);
+                    // S309 — ES §20.1.2.7 trailing-arg ignore: lower
+                    // each trailing arg for its side-effects, then
+                    // drop the result so observable evaluation order
+                    // matches bun while the value is discarded.
+                    for tid in &trailing {
+                        let top = self.lower_expr(*tid);
+                        let tty = self.operand_ty(&top);
+                        self.emit_drop_value(top, tty);
+                    }
                     let layout = self.struct_layouts[sid.0 as usize].clone();
                     // Allocate the output struct.
                     let obj_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
