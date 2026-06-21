@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-21T05:26:17.909Z",
+  "generatedAt": "2026-06-21T07:26:12.063Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "8eb99f4c",
-    "commitSubject": "test(coll): simplify Map/Set.forEach trailing fixture to avoid v-value decode bug",
+    "commit": "b982775b",
+    "commitSubject": "fix(regex): s.{replace,replaceAll}(re, repl, ...trailing) ssa lower-and-drop",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "b982775b",
+      "subject": "fix(regex): s.{replace,replaceAll}(re, repl, ...trailing) ssa lower-and-drop"
+    },
+    {
+      "hash": "e18b4679",
+      "subject": "fix(reflect): Reflect.get(target, key, receiver, ...trailing) ssa lower-and-drop"
+    },
+    {
+      "hash": "2f629fa4",
+      "subject": "fix(arr): Array.flatMap(cb, thisArg, ...trailing) ssa lower-and-drop"
+    },
+    {
+      "hash": "9147d8cf",
+      "subject": "fix(set): Set ES2025 setops (other, ...trailing) per ES trailing-arg ignore"
+    },
+    {
+      "hash": "710b5e28",
+      "subject": "fix(obj): Object.defineProperty(obj, key, desc, ...trailing) per ES trailing-arg ignore"
+    },
+    {
+      "hash": "cf7a695a",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×8 (S309-S316)"
+    },
+    {
       "hash": "8eb99f4c",
       "subject": "test(coll): simplify Map/Set.forEach trailing fixture to avoid v-value decode bug"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "38162ab0",
       "subject": "fix(coll): Set.add + Map.set (...trailing) ssa lower-and-drop"
-    },
-    {
-      "hash": "1affe4a5",
-      "subject": "fix(json): widen check JSON.stringify gate >= 1 + adjust fixture (S311 amend)"
-    },
-    {
-      "hash": "05d30696",
-      "subject": "fix(json): JSON.stringify(value, ...trailing) ssa lower-and-drop"
-    },
-    {
-      "hash": "7296109c",
-      "subject": "fix(arr): widen ssa_lower fill/copyWithin gate for trailing args (S310 amend)"
-    },
-    {
-      "hash": "0e132ef3",
-      "subject": "fix(arr): Array.{fill,copyWithin}(useful, ...trailing) widen check gate"
-    },
-    {
-      "hash": "6f4a4a74",
-      "subject": "fix(obj): Object.fromEntries(entries, ...trailing) per ES trailing-arg ignore"
-    },
-    {
-      "hash": "5afa8591",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×10 (S299-S308)"
     }
   ],
-  "headSha": "8eb99f4c",
+  "headSha": "b982775b",
   "autorun": {
-    "total": 213,
+    "total": 214,
     "baselineTarget": 10,
-    "bySelf": 208,
+    "bySelf": 209,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782008693-2e22",
-      "at": "2026-06-21T02:24:53Z",
-      "ts": 1782008693,
+      "rotationId": "r-1782019712-3c61",
+      "at": "2026-06-21T05:28:32Z",
+      "ts": 1782019712,
       "trigger": "self",
-      "prevHead": "5afa8591",
-      "handoffSha": "sha256:fdb7276d68877a3c162cec96ed973c7b789c7149ff5dea5dc6d1bd301b44deae",
-      "handoffAgeSec": 3,
+      "prevHead": "cf7a695a",
+      "handoffSha": "sha256:0a7119e105fffe2228c9f28f4c6857f66a69e88a63005d64f6ff28d029145e29",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782019712-3c61",
+        "at": "2026-06-21T05:28:32Z",
+        "ts": 1782019712,
+        "trigger": "self",
+        "prevHead": "cf7a695a",
+        "handoffSha": "sha256:0a7119e105fffe2228c9f28f4c6857f66a69e88a63005d64f6ff28d029145e29",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782008693-2e22",
         "at": "2026-06-21T02:24:53Z",
@@ -780,17 +791,6 @@
         "prevHead": "ff621aa8",
         "handoffSha": "sha256:4cafd5d95095ca3694df630138be17f64837fe41083179f97d41193f61b6a7fe",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781923723-1055",
-        "at": "2026-06-20T02:48:43Z",
-        "ts": 1781923723,
-        "trigger": "self",
-        "prevHead": "fecd04cb",
-        "handoffSha": "sha256:4a7958512755cc9a9ed60730f5cfc2d560476356df0a24e0ab729e8c016433bc",
-        "handoffAgeSec": 33,
         "conformanceBefore": null,
         "commitsInSession": null
       }
