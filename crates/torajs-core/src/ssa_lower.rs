@@ -17520,6 +17520,31 @@ impl<'a> LowerCtx<'a> {
                                     // ToNumber(null) = +0
                                     Operand::ConstI64(0)
                                 }
+                                Type::Any => {
+                                    // S343 — global `isNaN(Any)` / `isFinite(Any)`
+                                    // per ES §19.2.{3,4} step 1: ToNumber accepts
+                                    // arbitrary-typed input. Pre-S343 Any fell
+                                    // into the catch-all (~17546) and returned
+                                    // ConstBool(name=="isNaN") — silent-wrong vs
+                                    // bun when the Any boxed a real Number
+                                    // (`const a: any = 42; isNaN(a)` → bun:
+                                    // false, tr: true). Route through
+                                    // anyv_to_number — same helper the Number()
+                                    // ctor and S327/S330/S336/S342 family use.
+                                    let f = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.any_to_number,
+                                            vec![arg_op.clone()],
+                                        ),
+                                        Type::F64,
+                                        None,
+                                    );
+                                    if self.expr_is_fresh_owned(args[0]) {
+                                        self.emit_drop_value(arg_op, Type::Any);
+                                    }
+                                    Operand::Value(f)
+                                }
                                 Type::Str | Type::Substr => {
                                     // Drop responsibility: fresh-owned
                                     // strings (literals / concat
