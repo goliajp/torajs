@@ -6637,10 +6637,15 @@ impl Checker {
                         // tora's static sig is fixed 1-arg, so 2+ args
                         // bounce at strict arity. Accept any cmp shape
                         // (Function | Any), typecheck-and-drop trailing.
+                        // S303 — also accept Undefined cmp per ES §23.1.3.30
+                        // step 2: `sort(undef)` = `sort()` (default lex
+                        // comparator). The 1-arg `undef` branch above
+                        // handles args.len()==1; this widens 2+ to fold
+                        // through the same default path + drop trailing.
                         let src_ty = self.type_of(ast, *src_id)?;
                         if let Type::Array(elem) = src_ty {
                             let aty0 = self.type_of(ast, args[0])?;
-                            if matches!(aty0, Type::Function(..) | Type::Any) {
+                            if matches!(aty0, Type::Function(..) | Type::Any | Type::Undefined) {
                                 for &a in &args[1..] {
                                     let _ = self.type_of(ast, a)?;
                                 }
