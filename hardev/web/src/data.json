@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-21T07:26:12.063Z",
+  "generatedAt": "2026-06-21T09:34:25.857Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "b982775b",
-    "commitSubject": "fix(regex): s.{replace,replaceAll}(re, repl, ...trailing) ssa lower-and-drop",
+    "commit": "21b9d2bf",
+    "commitSubject": "fix(weakref): `WeakRef.deref(...trailing)` per ES trailing-arg ignore",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,26 @@
   },
   "commits": [
     {
+      "hash": "21b9d2bf",
+      "subject": "fix(weakref): `WeakRef.deref(...trailing)` per ES trailing-arg ignore"
+    },
+    {
+      "hash": "c42dce3f",
+      "subject": "fix(str): `String.search(needle, ...trailing)` per ES trailing-arg ignore"
+    },
+    {
+      "hash": "70d9287a",
+      "subject": "fix(queueMicrotask): trailing-arg ignore per Web IDL §3.2.1"
+    },
+    {
+      "hash": "43211ac4",
+      "subject": "fix(promise): `Promise.{resolve,reject}` SSA lower-and-drop trailing args"
+    },
+    {
+      "hash": "792357b1",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S317-S321)"
+    },
+    {
       "hash": "b982775b",
       "subject": "fix(regex): s.{replace,replaceAll}(re, repl, ...trailing) ssa lower-and-drop"
     },
@@ -643,47 +663,38 @@
     {
       "hash": "8eb99f4c",
       "subject": "test(coll): simplify Map/Set.forEach trailing fixture to avoid v-value decode bug"
-    },
-    {
-      "hash": "eedd1968",
-      "subject": "fix(coll): Map.forEach + Set.forEach (...trailing) ssa lower-and-drop"
-    },
-    {
-      "hash": "03616d0f",
-      "subject": "fix(obj): Object.getOwnPropertyDescriptor(obj, key, ...trailing) per ES trailing-arg ignore"
-    },
-    {
-      "hash": "b0e3743e",
-      "subject": "fix(bigint): BigInt.{asIntN,asUintN}(useful, ...trailing) per ES trailing-arg ignore"
-    },
-    {
-      "hash": "67879a0d",
-      "subject": "fix(num): global parseInt/parseFloat (...trailing) ssa lower-and-drop"
-    },
-    {
-      "hash": "38162ab0",
-      "subject": "fix(coll): Set.add + Map.set (...trailing) ssa lower-and-drop"
     }
   ],
-  "headSha": "b982775b",
+  "headSha": "21b9d2bf",
   "autorun": {
-    "total": 214,
+    "total": 215,
     "baselineTarget": 10,
-    "bySelf": 209,
+    "bySelf": 210,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782019712-3c61",
-      "at": "2026-06-21T05:28:32Z",
-      "ts": 1782019712,
+      "rotationId": "r-1782026917-050f",
+      "at": "2026-06-21T07:28:37Z",
+      "ts": 1782026917,
       "trigger": "self",
-      "prevHead": "cf7a695a",
-      "handoffSha": "sha256:0a7119e105fffe2228c9f28f4c6857f66a69e88a63005d64f6ff28d029145e29",
+      "prevHead": "792357b1",
+      "handoffSha": "sha256:728aa05ee344e4deea28b8930e1f224a21dabfe013df6a8a8bc2497c17bafd76",
       "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782026917-050f",
+        "at": "2026-06-21T07:28:37Z",
+        "ts": 1782026917,
+        "trigger": "self",
+        "prevHead": "792357b1",
+        "handoffSha": "sha256:728aa05ee344e4deea28b8930e1f224a21dabfe013df6a8a8bc2497c17bafd76",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782019712-3c61",
         "at": "2026-06-21T05:28:32Z",
@@ -780,17 +791,6 @@
         "prevHead": "240adca5",
         "handoffSha": "sha256:e184ae65e650d31744b4678bd10813b5187b2395f6ddf45937407d8b8998a100",
         "handoffAgeSec": 24,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781931145-4747",
-        "at": "2026-06-20T04:52:25Z",
-        "ts": 1781931145,
-        "trigger": "self",
-        "prevHead": "ff621aa8",
-        "handoffSha": "sha256:4cafd5d95095ca3694df630138be17f64837fe41083179f97d41193f61b6a7fe",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
