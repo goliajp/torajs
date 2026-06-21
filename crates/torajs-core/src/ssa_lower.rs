@@ -17229,6 +17229,13 @@ impl<'a> LowerCtx<'a> {
                                     Some(check_mod::Type::Undefined)
                                 )
                             {
+                                // S313 — short-circuit path still must
+                                // evaluate trailing args[1..] (ES spec
+                                // left-to-right eval), so lower them
+                                // for side-effects before returning NaN.
+                                for &a in args.iter().skip(1) {
+                                    let _ = self.lower_expr(a);
+                                }
                                 return Operand::ConstF64(f64::NAN);
                             }
                             let s = self.lower_expr(args[0]);
@@ -17253,6 +17260,14 @@ impl<'a> LowerCtx<'a> {
                             } else {
                                 Operand::ConstI64(0)
                             };
+                            // S313 — lower-and-drop trailing args[2..]
+                            // per S272 idiom so step()-style side-effect
+                            // exprs fire. Same fix the Number.parseInt
+                            // namespace path got in S302; the global
+                            // path had been silent-drop until now.
+                            for &a in args.iter().skip(2) {
+                                let _ = self.lower_expr(a);
+                            }
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(self.intrinsics.num_parse_int, vec![s, r]),
@@ -17272,9 +17287,22 @@ impl<'a> LowerCtx<'a> {
                                     Some(check_mod::Type::Undefined)
                                 )
                             {
+                                // S313 — short-circuit path still must
+                                // evaluate trailing args[1..] (ES spec
+                                // left-to-right eval).
+                                for &a in args.iter().skip(1) {
+                                    let _ = self.lower_expr(a);
+                                }
                                 return Operand::ConstF64(f64::NAN);
                             }
                             let s = self.lower_expr(args[0]);
+                            // S313 — lower-and-drop trailing args[1..]
+                            // per S272 idiom so step()-style side-effect
+                            // exprs fire. Same fix Number.parseFloat
+                            // namespace path got in S302.
+                            for &a in args.iter().skip(1) {
+                                let _ = self.lower_expr(a);
+                            }
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(self.intrinsics.num_parse_float, vec![s]),
