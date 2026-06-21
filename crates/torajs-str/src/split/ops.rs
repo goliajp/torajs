@@ -72,8 +72,20 @@ fn widen_latin1_to_utf16(src: &[u8]) -> alloc::vec::Vec<u8> {
 /// stay aligned with the haystack's code-unit grid.
 #[inline]
 fn count_matches(s: &[u8], sep: &[u8], stride: usize) -> u64 {
+    // V0.2 P14-S6 — single-byte-needle SIMD fast path. Latin-1
+    // haystack with 1-byte separator (the dominant `" "`, `","`,
+    // `"\n"`, `";"` shapes) collapses to a byte-equality reduce
+    // that LLVM auto-vectorizes to NEON `pcmpeq + popcount` on
+    // ARM64. `bench/cases/split-only-100k` (` `-separated short
+    // string) lives on this path.
+    if stride == 1 && sep.len() == 1 {
+        let target = sep[0];
+        return s.iter().filter(|&&b| b == target).count() as u64;
+    }
     if sep.len() == stride {
-        // Hot path: single code-unit needle.
+        // Single code-unit needle, UTF-16 path (or anything where
+        // sep.len() matches stride exactly): same logic as the
+        // 1-byte path but element comparison is multi-byte.
         let mut hits = 0u64;
         let mut i = 0;
         while i + sep.len() <= s.len() {
@@ -288,7 +300,35 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
     let s_byte_len = s_payload.len();
     let mut ix: usize = 0;
     let mut start_byte: usize = 0;
-    if sep_byte_len <= s_byte_len {
+    if stride == 1 && sep_byte_len == 1 && sep_byte_len <= s_byte_len {
+        // V0.2 P14-S6 — single-byte-needle SIMD fast path
+        // (mirror of `count_matches`'s fast arm). LLVM
+        // auto-vectorizes the byte-equality scan to NEON
+        // `pcmpeq + popcount` style code on ARM64. Keeps the
+        // per-match substr-init body intact (still serial),
+        // but eliminates the slice-equality branch + index
+        // arithmetic in the gap-scan hot loop.
+        let target = sep_bytes[0];
+        let mut i = 0;
+        while i < s_byte_len {
+            if s_payload[i] == target {
+                unsafe {
+                    split_init_inline(
+                        substrs_base.add(ix * SUBSTR_SIZE),
+                        slots_base.add(ix),
+                        s,
+                        start_byte as u64,
+                        (i - start_byte) as u64,
+                    );
+                }
+                ix += 1;
+                i += 1;
+                start_byte = i;
+            } else {
+                i += 1;
+            }
+        }
+    } else if sep_byte_len <= s_byte_len {
         let limit = s_byte_len - sep_byte_len;
         let mut i: usize = 0;
         while i <= limit {
