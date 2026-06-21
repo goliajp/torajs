@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-21T02:22:37.811Z",
+  "generatedAt": "2026-06-21T05:26:17.909Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "4e85d4a4",
-    "commitSubject": "fix(prim): BigInt/Symbol(value/desc, ...trailing) callable-ctor per ES trailing-arg ignore",
+    "commit": "8eb99f4c",
+    "commitSubject": "test(coll): simplify Map/Set.forEach trailing fixture to avoid v-value decode bug",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,84 @@
   },
   "commits": [
     {
-      "hash": "4e85d4a4",
-      "subject": "fix(prim): BigInt/Symbol(value/desc, ...trailing) callable-ctor per ES trailing-arg ignore"
+      "hash": "8eb99f4c",
+      "subject": "test(coll): simplify Map/Set.forEach trailing fixture to avoid v-value decode bug"
     },
     {
-      "hash": "5ecd3e11",
-      "subject": "fix(prim): Number/String/Boolean(value, ...trailing) callable-ctor ssa lower-and-drop"
+      "hash": "eedd1968",
+      "subject": "fix(coll): Map.forEach + Set.forEach (...trailing) ssa lower-and-drop"
     },
     {
-      "hash": "ce3c5e24",
-      "subject": "fix(obj): Object.{is,freeze,isFrozen}(useful, ...trailing) ssa lower-and-drop"
+      "hash": "03616d0f",
+      "subject": "fix(obj): Object.getOwnPropertyDescriptor(obj, key, ...trailing) per ES trailing-arg ignore"
     },
     {
-      "hash": "413e37e1",
-      "subject": "fix(num): Number.is* + global isNaN/isFinite (...trailing) ssa lower-and-drop"
+      "hash": "b0e3743e",
+      "subject": "fix(bigint): BigInt.{asIntN,asUintN}(useful, ...trailing) per ES trailing-arg ignore"
     },
     {
-      "hash": "18088196",
-      "subject": "fix(obj): Struct instance Object.prototype methods (...trailing) per ES trailing-arg ignore"
+      "hash": "67879a0d",
+      "subject": "fix(num): global parseInt/parseFloat (...trailing) ssa lower-and-drop"
     },
     {
-      "hash": "d126ce04",
-      "subject": "fix(arr): Array.{sort,toSorted}(undef, ...trailing) per ES default-cmp + trailing-arg ignore"
+      "hash": "38162ab0",
+      "subject": "fix(coll): Set.add + Map.set (...trailing) ssa lower-and-drop"
     },
     {
-      "hash": "1f430455",
-      "subject": "fix(ssa): Number/Symbol/Reflect static method (...trailing) ssa lower-and-drop"
+      "hash": "1affe4a5",
+      "subject": "fix(json): widen check JSON.stringify gate >= 1 + adjust fixture (S311 amend)"
     },
     {
-      "hash": "f0327426",
-      "subject": "fix(weak): WeakMap.{set,get,has,delete} + WeakSet.{add,has,delete}(useful, ...trailing) per ES trailing-arg ignore"
+      "hash": "05d30696",
+      "subject": "fix(json): JSON.stringify(value, ...trailing) ssa lower-and-drop"
     },
     {
-      "hash": "390346e1",
-      "subject": "fix(coll): Map.clear + Set.clear(...trailing) per ES trailing-arg ignore"
+      "hash": "7296109c",
+      "subject": "fix(arr): widen ssa_lower fill/copyWithin gate for trailing args (S310 amend)"
     },
     {
-      "hash": "a3564804",
-      "subject": "fix(arr): Array.{at,slice,join}(useful, ...trailing) per ES trailing-arg ignore"
+      "hash": "0e132ef3",
+      "subject": "fix(arr): Array.{fill,copyWithin}(useful, ...trailing) widen check gate"
     },
     {
-      "hash": "a06fc9d8",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×6 (S293-S298)"
+      "hash": "6f4a4a74",
+      "subject": "fix(obj): Object.fromEntries(entries, ...trailing) per ES trailing-arg ignore"
     },
     {
-      "hash": "5696feac",
-      "subject": "fix(arr): Array.{fill,copyWithin}(...trailing) per ES trailing-arg ignore"
+      "hash": "5afa8591",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×10 (S299-S308)"
     }
   ],
-  "headSha": "4e85d4a4",
+  "headSha": "8eb99f4c",
   "autorun": {
-    "total": 212,
+    "total": 213,
     "baselineTarget": 10,
-    "bySelf": 207,
+    "bySelf": 208,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1781998002-3b9c",
-      "at": "2026-06-20T23:26:42Z",
-      "ts": 1781998002,
+      "rotationId": "r-1782008693-2e22",
+      "at": "2026-06-21T02:24:53Z",
+      "ts": 1782008693,
       "trigger": "self",
-      "prevHead": "a06fc9d8",
-      "handoffSha": "sha256:5f455d6130da4b8f26615cc6bb0e68fb49a626367a1ad1bc048d0a98cd92cbcf",
-      "handoffAgeSec": 4,
+      "prevHead": "5afa8591",
+      "handoffSha": "sha256:fdb7276d68877a3c162cec96ed973c7b789c7149ff5dea5dc6d1bd301b44deae",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782008693-2e22",
+        "at": "2026-06-21T02:24:53Z",
+        "ts": 1782008693,
+        "trigger": "self",
+        "prevHead": "5afa8591",
+        "handoffSha": "sha256:fdb7276d68877a3c162cec96ed973c7b789c7149ff5dea5dc6d1bd301b44deae",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1781998002-3b9c",
         "at": "2026-06-20T23:26:42Z",
@@ -780,17 +791,6 @@
         "prevHead": "fecd04cb",
         "handoffSha": "sha256:4a7958512755cc9a9ed60730f5cfc2d560476356df0a24e0ab729e8c016433bc",
         "handoffAgeSec": 33,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781910598-28ae",
-        "at": "2026-06-19T23:09:58Z",
-        "ts": 1781910598,
-        "trigger": "self",
-        "prevHead": "6b088797",
-        "handoffSha": "sha256:743d14f5572de7812db6c3806c143fc4bbd99a161a92d3cf08d213c536830cd0",
-        "handoffAgeSec": 34,
         "conformanceBefore": null,
         "commitsInSession": null
       }
