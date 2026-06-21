@@ -16338,6 +16338,14 @@ impl<'a> LowerCtx<'a> {
                         // toString).
                         if m_name == "toString" {
                             if is_obj {
+                                // S304 — lower-and-drop trailing args
+                                // per S272 idiom so step()-style side-
+                                // effect exprs fire (toString is 0-useful
+                                // on struct instance; "[object Object]"
+                                // const independent of args).
+                                for &a in args.iter() {
+                                    let _ = self.lower_expr(a);
+                                }
                                 let v = self.intern_string_literal("[object Object]");
                                 return Operand::Value(v);
                             }
@@ -16371,6 +16379,12 @@ impl<'a> LowerCtx<'a> {
                                     let arg_ty = self.operand_ty(&arg_val);
                                     self.consume_if_ident(*arg_eid);
                                     self.emit_drop_value(arg_val, arg_ty);
+                                    // S304 — lower-and-drop trailing args
+                                    // per S272 idiom (hasOwnProperty /
+                                    // propertyIsEnumerable useful arity 1).
+                                    for &a in args.iter().skip(1) {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     return Operand::ConstBool(result);
                                 }
                                 // Runtime key — emit inline str_eq chain.
@@ -16409,6 +16423,11 @@ impl<'a> LowerCtx<'a> {
                                 }
                                 self.consume_if_ident(*arg_eid);
                                 self.emit_drop_value(key_op, key_ty);
+                                // S304 — lower-and-drop trailing args
+                                // (runtime-key path; same useful=1).
+                                for &a in args.iter().skip(1) {
+                                    let _ = self.lower_expr(a);
+                                }
                                 return acc;
                             }
                             // Fallback (primitives, isPrototypeOf, no args):
@@ -16418,6 +16437,12 @@ impl<'a> LowerCtx<'a> {
                                 let arg_ty = self.operand_ty(&arg_val);
                                 self.consume_if_ident(args[0]);
                                 self.emit_drop_value(arg_val, arg_ty);
+                            }
+                            // S304 — lower-and-drop trailing args
+                            // (isPrototypeOf useful=1; primitive fallback
+                            // also covers stray trailing).
+                            for &a in args.iter().skip(1) {
+                                let _ = self.lower_expr(a);
                             }
                             return Operand::ConstBool(false);
                         }

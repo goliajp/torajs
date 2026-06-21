@@ -7845,6 +7845,52 @@ impl Checker {
                         return Ok(Type::String);
                     }
                 }
+                // S304 — Struct instance Object.prototype methods
+                // trailing-arg ignore per ES §20.1.3.{2,3,4,5,7}. Useful
+                // arity: toString/valueOf:0, hasOwnProperty/propertyIs
+                // Enumerable/isPrototypeOf:1. tora's struct-instance arms
+                // (4619-4632) declared fixed sigs that rejected trailing
+                // operands at the generic arity check. ssa_lower's struct
+                // dispatch never reads args[useful..] (toString → "[object
+                // Object]" const; hasOwnProperty → layout scan keyed on
+                // args[0] String literal), so trailing typecheck-and-drop
+                // here suffices — no SSA mirror needed. (BigInt.toLocale
+                // String trailing also surfaced during probe but its
+                // 0-arg form is itself unsupported by ssa_lower — kept
+                // in L3b until the substrate lands.)
+                if let Expr::Member {
+                    obj: recv_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                {
+                    let recv_ty = self.type_of(ast, *recv_id)?;
+                    let useful = match (&recv_ty, m_name.as_str()) {
+                        (Type::Struct(_), "toString") | (Type::Struct(_), "valueOf") => {
+                            Some((0, false))
+                        }
+                        (Type::Struct(_), "hasOwnProperty")
+                        | (Type::Struct(_), "propertyIsEnumerable")
+                        | (Type::Struct(_), "isPrototypeOf") => Some((1, true)),
+                        _ => None,
+                    };
+                    if let Some((useful, _is_bool)) = useful
+                        && args.len() > useful
+                    {
+                        for &a in args.iter() {
+                            let _ = self.type_of(ast, a)?;
+                        }
+                        let ret = match m_name.as_str() {
+                            "toString" => Type::String,
+                            "toLocaleString" => Type::String,
+                            "valueOf" => recv_ty.clone(),
+                            "hasOwnProperty" | "propertyIsEnumerable" | "isPrototypeOf" => {
+                                Type::Boolean
+                            }
+                            _ => unreachable!(),
+                        };
+                        return Ok(ret);
+                    }
+                }
                 // S261 — Date instance 0-arg getter / format method
                 // family (`d.getTime() / d.getFullYear() / d.toISOString() /
                 // d.toLocaleString() / ...`) trailing-arg ignore per ES
