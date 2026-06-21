@@ -17000,6 +17000,16 @@ impl<'a> LowerCtx<'a> {
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
+                    // S311 — lower-and-drop replacer (args[1]) + space
+                    // (args[2]) per ES §25.5.2: spec evaluates them
+                    // left-to-right but tora's stringify currently
+                    // ignores them (replacer/space substrate L3b).
+                    // typecheck-and-drop in check.rs:5772 (S272 idiom)
+                    // already passed; ssa mirror loop here so step()-
+                    // style side-effect exprs fire.
+                    for &a in args.iter().skip(1) {
+                        let _ = self.lower_expr(a);
+                    }
                     return self.lower_json_stringify(arg_op, arg_ty);
                 }
                 // `String.fromCharCode(...codes)` / `String.fromCodePoint(...codes)`
