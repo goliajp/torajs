@@ -5768,8 +5768,12 @@ impl Checker {
                     && let Expr::Ident(ns) = ast.get_expr(*obj)
                     && ns == "JSON"
                     && name == "stringify"
-                    && (1..=3).contains(&args.len())
+                    && !args.is_empty()
                 {
+                    // S311 — ES §25.5.2 silently ignores args past
+                    // (value, replacer, space). Widen to >=1 + the
+                    // ssa_lower mirror loop drops trailing args[1..]
+                    // (replacer/space substrate L3b).
                     for &aid in args {
                         self.type_of(ast, aid)?;
                     }

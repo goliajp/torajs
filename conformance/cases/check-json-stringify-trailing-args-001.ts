@@ -31,6 +31,6 @@ console.log("r3:", r3, "calls:", calls);
 const r4 = JSON.stringify(3.14, step("t4a"), step("t4b"));
 console.log("r4:", r4, "calls:", calls);
 
-// array + 2 trailing
-const r5 = JSON.stringify([1, 2, 3], step("t5a"), step("t5b"));
+// primitive (no space-indent effect) + 3 trailing
+const r5 = JSON.stringify(0, step("t5a"), step("t5b"), step("t5c"));
 console.log("r5:", r5, "calls:", calls);
