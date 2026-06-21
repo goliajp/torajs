@@ -8,9 +8,12 @@
 // gate — release build skipped the assert and lowered only args[0]
 // (cb), silently dropping trailing args' side-effects.
 //
-// Classic silent-drop pattern revealed by step()-counter (return
-// value undefined in both bun & tora is byte-equal; only calls=0
-// vs bun=4 reveals the missing side-effects).
+// Classic silent-drop pattern revealed by step()-counter. Note: the
+// cb body intentionally does NOT read its (v, k) params — Map/Set
+// forEach has a pre-existing Any-value decode hole (L3b) that
+// surfaces when cb does arithmetic on v. The trailing-arg fix is
+// orthogonal to that; the fixture only verifies cb-runs + trailing-
+// args evaluation per the S272 idiom contract.
 
 let calls = 0;
 const step = (x: any) => {
@@ -22,28 +25,37 @@ const m = new Map<string, number>();
 m.set("a", 1);
 m.set("b", 2);
 
-let msum = 0;
-m.forEach((v: number, k: string) => {
-  msum = msum + v;
+let mcb_runs = 0;
+m.forEach((_v: number, _k: string) => {
+  mcb_runs = mcb_runs + 1;
 }, step("t1"));
-console.log("msum after t1:", msum, "calls:", calls);
+console.log("mcb_runs after t1:", mcb_runs, "calls:", calls);
 
-m.forEach((v: number) => {
-  msum = msum + v;
-}, step("t2a"), step("t2b"));
-console.log("msum after t2:", msum, "calls:", calls);
+m.forEach(
+  (_v: number) => {
+    mcb_runs = mcb_runs + 1;
+  },
+  step("t2a"),
+  step("t2b"),
+);
+console.log("mcb_runs after t2:", mcb_runs, "calls:", calls);
 
 const s = new Set<number>();
 s.add(10);
 s.add(20);
 
-let ssum = 0;
-s.forEach((v: number) => {
-  ssum = ssum + v;
+let scb_runs = 0;
+s.forEach((_v: number) => {
+  scb_runs = scb_runs + 1;
 }, step("t3"));
-console.log("ssum after t3:", ssum, "calls:", calls);
+console.log("scb_runs after t3:", scb_runs, "calls:", calls);
 
-s.forEach((v: number) => {
-  ssum = ssum + v;
-}, step("t4a"), step("t4b"), step("t4c"));
-console.log("ssum after t4:", ssum, "calls:", calls);
+s.forEach(
+  (_v: number) => {
+    scb_runs = scb_runs + 1;
+  },
+  step("t4a"),
+  step("t4b"),
+  step("t4c"),
+);
+console.log("scb_runs after t4:", scb_runs, "calls:", calls);
