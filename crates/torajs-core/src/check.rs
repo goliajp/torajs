@@ -6750,7 +6750,17 @@ impl Checker {
                         // Undefined alongside Number; ssa_lower mirror
                         // short-circuits fromIndex=undefined to
                         // ConstI64(0).
-                        if from_ty != Type::Number && from_ty != Type::Undefined {
+                        //
+                        // S331 — widen accept Any fromIndex per ES
+                        // §23.1.3.{14,17,18} step 4: ToIntegerOrInfinity
+                        // already coerces arbitrary-typed input (NaN→0,
+                        // ±∞→sat). ssa_lower mirror routes Any through
+                        // anyv_to_number → coerce_to_i64. Pattern A
+                        // sister to S327 / S329.
+                        if from_ty != Type::Number
+                            && from_ty != Type::Undefined
+                            && from_ty != Type::Any
+                        {
                             return Err(format!(
                                 "Array.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
                             ));

@@ -2666,8 +2666,23 @@ pub(crate) fn try_lower_method_call(
                 ctx.expr_types.get(&args[1]),
                 Some(crate::check::Type::Undefined)
             );
+            let arg1_any = matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Any));
             let raw = if arg1_undef {
                 Operand::ConstI64(0)
+            } else if arg1_any {
+                // S331 — `Array.{indexOf,lastIndexOf,includes}(needle,
+                // Any fromIndex)` per ES §23.1.3.{14,17,18} step 4.
+                // Decode Any via anyv_to_number → coerce_to_i64 below
+                // (raw_i coerce sees F64 -> i64 fast path). Mirrors
+                // S327 parseInt-Any-radix dispatch.
+                let v = ctx.lower_expr(args[1]);
+                let f = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.any_to_number, vec![v]),
+                    Type::F64,
+                    None,
+                );
+                Operand::Value(f)
             } else {
                 ctx.lower_expr(args[1])
             };
