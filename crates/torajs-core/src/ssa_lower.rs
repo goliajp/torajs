@@ -17661,6 +17661,13 @@ impl<'a> LowerCtx<'a> {
                             // path.
                             // S226 — explicit-undefined arg folds the
                             // same way without lowering the arg.
+                            // S302 — lower-and-drop trailing args[2..]
+                            // per S272 idiom so step()-style side-effect
+                            // exprs fire per ES eval-then-discard
+                            // (check.rs S253 already typecheck-dropped).
+                            for &a in args.iter().skip(2) {
+                                let _ = self.lower_expr(a);
+                            }
                             if args.is_empty()
                                 || matches!(
                                     self.expr_types.get(&args[0]),
@@ -17716,6 +17723,12 @@ impl<'a> LowerCtx<'a> {
                             // alias to global parseFloat; 0-arg → NaN.
                             // S226 — explicit-undefined arg folds the
                             // same way without lowering the arg.
+                            // S302 — lower-and-drop trailing args[1..]
+                            // per S272 idiom (check.rs S253 already
+                            // typecheck-dropped).
+                            for &a in args.iter().skip(1) {
+                                let _ = self.lower_expr(a);
+                            }
                             if args.is_empty()
                                 || matches!(
                                     self.expr_types.get(&args[0]),
@@ -18886,6 +18899,14 @@ impl<'a> LowerCtx<'a> {
                      * caller's scope (which will drop on exit).
                      * No emit_drop_value here. */
                     let obj_op = self.lower_expr(args[0]);
+                    // S302 — lower-and-drop trailing args[2..] per S272
+                    // idiom so step()-style side-effect exprs fire per ES
+                    // eval-then-discard (check.rs S257 already typecheck-
+                    // dropped). args[1] is a String literal (no side
+                    // effect) gated by the let-pattern above.
+                    for &a in args.iter().skip(2) {
+                        let _ = self.lower_expr(a);
+                    }
                     let obj_ty = self.operand_ty(&obj_op);
                     if let Type::Obj(sid) = obj_ty {
                         let has = self.struct_layouts[sid.0 as usize]
@@ -19045,6 +19066,13 @@ impl<'a> LowerCtx<'a> {
                 {
                     let arg_op = self.lower_expr(args[0]);
                     self.consume_if_ident(args[0]);
+                    // S302 — lower-and-drop trailing args[1..] per S272
+                    // idiom so step()-style side-effect exprs fire per ES
+                    // eval-then-discard (check.rs S259 already typecheck-
+                    // dropped). Mirrors S255/S277/S278/S297 sibling arms.
+                    for &a in args.iter().skip(1) {
+                        let _ = self.lower_expr(a);
+                    }
                     let (fid, ret_ty) = if m_name == "for" {
                         (self.intrinsics.symbol_for, Type::Symbol)
                     } else {
