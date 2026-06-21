@@ -7589,15 +7589,26 @@ impl Checker {
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if let Type::Array(elem) = &src_ty {
-                        if m_name == "at" && args.len() == 2 {
+                        // S299 — widen `args.len() == 2` → `>= 2` + typecheck-
+                        // and-drop args[1..] for any extra trailing operands per
+                        // ES §23.1.3.1 trailing-arg ignore (same family as S272/
+                        // S278/S293-S298). ssa_lower mirror widens at arm gate
+                        // from `args.len() <= 2` to no upper-cap + lower-and-drop
+                        // args[1..] so step()-style side-effect exprs fire per
+                        // ES eval-then-discard semantics.
+                        if m_name == "at" && args.len() >= 2 {
                             let aty0 = self.type_of(ast, args[0])?;
                             if !matches!(aty0, Type::Number | Type::Undefined) {
                                 return Err(format!("Array.at arg 0 must be number, got {aty0:?}"));
                             }
-                            let _ = self.type_of(ast, args[1])?;
+                            for &a in args.iter().skip(1) {
+                                let _ = self.type_of(ast, a)?;
+                            }
                             return Ok((**elem).clone());
                         }
-                        if m_name == "slice" && args.len() == 3 {
+                        // S299 — widen `== 3` → `>= 3` + drop args[2..] per ES
+                        // §23.1.3.28 trailing-arg ignore.
+                        if m_name == "slice" && args.len() >= 3 {
                             let aty0 = self.type_of(ast, args[0])?;
                             if !matches!(aty0, Type::Number | Type::Undefined) {
                                 return Err(format!(
@@ -7610,11 +7621,17 @@ impl Checker {
                                     "Array.slice arg 1 must be number, got {aty1:?}"
                                 ));
                             }
-                            let _ = self.type_of(ast, args[2])?;
+                            for &a in args.iter().skip(2) {
+                                let _ = self.type_of(ast, a)?;
+                            }
                             return Ok(Type::Array(elem.clone()));
                         }
+                        // S299 — widen `== 2` → `>= 2` + drop args[1..] per ES
+                        // §23.1.3.16 trailing-arg ignore. ssa_lower's join arm
+                        // already loop-drops args[1..] via the S287 useful=1
+                        // skip; widening the typecheck gate completes the pair.
                         if m_name == "join"
-                            && args.len() == 2
+                            && args.len() >= 2
                             && matches!(
                                 **elem,
                                 Type::String | Type::Number | Type::Boolean | Type::Any
@@ -7626,7 +7643,9 @@ impl Checker {
                                     "Array.join arg 0 must be string, got {aty0:?}"
                                 ));
                             }
-                            let _ = self.type_of(ast, args[1])?;
+                            for &a in args.iter().skip(1) {
+                                let _ = self.type_of(ast, a)?;
+                            }
                             return Ok(Type::String);
                         }
                     }
