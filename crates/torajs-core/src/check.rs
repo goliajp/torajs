@@ -6445,9 +6445,17 @@ impl Checker {
                                 **elem
                             ));
                         }
+                        // S335 — `xs.fill(v, Any [, Any])` per ES
+                        // §23.1.3.7 step 5/9: ToIntegerOrInfinity accepts
+                        // arbitrary-typed input. Sister to S334
+                        // (Array.slice Any). ssa_lower mirror decodes via
+                        // anyv_to_number → coerce_to_i64.
                         if args.len() >= 2 {
                             let start_ty = self.type_of(ast, args[1])?;
-                            if start_ty != Type::Number && start_ty != Type::Undefined {
+                            if start_ty != Type::Number
+                                && start_ty != Type::Undefined
+                                && start_ty != Type::Any
+                            {
                                 return Err(format!(
                                     "Array.fill arg 1 (start) must be number, got {start_ty:?}"
                                 ));
@@ -6455,7 +6463,10 @@ impl Checker {
                         }
                         if args.len() == 3 {
                             let end_ty = self.type_of(ast, args[2])?;
-                            if end_ty != Type::Number && end_ty != Type::Undefined {
+                            if end_ty != Type::Number
+                                && end_ty != Type::Undefined
+                                && end_ty != Type::Any
+                            {
                                 return Err(format!(
                                     "Array.fill arg 2 (end) must be number, got {end_ty:?}"
                                 ));
@@ -7174,9 +7185,14 @@ impl Checker {
                         // takes the omitted default (len). ssa_lower
                         // mirror short-circuits each undef slot to its
                         // spec default before relative_to_len.
+                        // S335 — `xs.copyWithin(Any, Any, Any)` per ES
+                        // §23.1.3.4: each arg goes through
+                        // ToIntegerOrInfinity which accepts arbitrary-
+                        // typed input. Sister to S334.
                         for (i, a) in args.iter().enumerate() {
                             let a_ty = self.type_of(ast, *a)?;
-                            if a_ty != Type::Number && a_ty != Type::Undefined {
+                            if a_ty != Type::Number && a_ty != Type::Undefined && a_ty != Type::Any
+                            {
                                 return Err(format!(
                                     "Array.copyWithin arg {i} must be number, got {a_ty:?}"
                                 ));

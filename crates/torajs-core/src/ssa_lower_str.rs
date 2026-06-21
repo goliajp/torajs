@@ -2141,12 +2141,26 @@ pub(crate) fn try_lower_method_call(
         // (undef → 0); end===undefined takes the omitted default (len).
         // Short-circuit each undef slot before relative_to_len so the
         // helper isn't called on a ConstPtrNull undef sentinel.
+        // S335 — Any args for copyWithin: decode each Any arg via
+        // anyv_to_number → coerce_to_i64 before relative_to_len so
+        // the helper sees a clean i64. Sister to S334.
         let arg0_undef = matches!(
             ctx.expr_types.get(&args[0]),
             Some(crate::check::Type::Undefined)
         );
+        let arg0_any = matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any));
         let target = if arg0_undef {
             Operand::ConstI64(0)
+        } else if arg0_any {
+            let raw = ctx.lower_expr(args[0]);
+            let f = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                Type::F64,
+                None,
+            );
+            let i = ctx.coerce_to_i64(Operand::Value(f));
+            ctx.relative_to_len(i, Operand::Value(len_for_norm))
         } else {
             let raw_target = ctx.lower_expr(args[0]);
             ctx.relative_to_len(raw_target, Operand::Value(len_for_norm))
@@ -2156,8 +2170,19 @@ pub(crate) fn try_lower_method_call(
                 ctx.expr_types.get(&args[1]),
                 Some(crate::check::Type::Undefined)
             );
+            let arg1_any = matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Any));
             if arg1_undef {
                 Operand::ConstI64(0)
+            } else if arg1_any {
+                let raw = ctx.lower_expr(args[1]);
+                let f = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                    Type::F64,
+                    None,
+                );
+                let i = ctx.coerce_to_i64(Operand::Value(f));
+                ctx.relative_to_len(i, Operand::Value(len_for_norm))
             } else {
                 let raw = ctx.lower_expr(args[1]);
                 ctx.relative_to_len(raw, Operand::Value(len_for_norm))
@@ -2170,8 +2195,19 @@ pub(crate) fn try_lower_method_call(
                 ctx.expr_types.get(&args[2]),
                 Some(crate::check::Type::Undefined)
             );
+            let arg2_any = matches!(ctx.expr_types.get(&args[2]), Some(crate::check::Type::Any));
             if arg2_undef {
                 Operand::Value(len_for_norm)
+            } else if arg2_any {
+                let raw = ctx.lower_expr(args[2]);
+                let f = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                    Type::F64,
+                    None,
+                );
+                let i = ctx.coerce_to_i64(Operand::Value(f));
+                ctx.relative_to_len(i, Operand::Value(len_for_norm))
             } else {
                 let raw = ctx.lower_expr(args[2]);
                 ctx.relative_to_len(raw, Operand::Value(len_for_norm))
@@ -2413,13 +2449,28 @@ pub(crate) fn try_lower_method_call(
         // end=undef → len (omitted default). Short-circuit each undef
         // slot before lower so relative_to_len isn't invoked on a
         // ConstPtrNull/I64 undef sentinel.
+        // S335 — Array.fill(v, Any [, Any]) per ES §23.1.3.7 step
+        // 5/9: ToIntegerOrInfinity accepts arbitrary-typed input.
+        // Decode Any via anyv_to_number → coerce_to_i64 before
+        // relative_to_len. Sister to S334.
         let start = if args.len() >= 2 {
             let arg1_undef = matches!(
                 ctx.expr_types.get(&args[1]),
                 Some(crate::check::Type::Undefined)
             );
+            let arg1_any = matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Any));
             if arg1_undef {
                 Operand::ConstI64(0)
+            } else if arg1_any {
+                let raw = ctx.lower_expr(args[1]);
+                let f = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                    Type::F64,
+                    None,
+                );
+                let i = ctx.coerce_to_i64(Operand::Value(f));
+                ctx.relative_to_len(i, Operand::Value(len_for_norm))
             } else {
                 let raw = ctx.lower_expr(args[1]);
                 ctx.relative_to_len(raw, Operand::Value(len_for_norm))
@@ -2432,8 +2483,19 @@ pub(crate) fn try_lower_method_call(
                 ctx.expr_types.get(&args[2]),
                 Some(crate::check::Type::Undefined)
             );
+            let arg2_any = matches!(ctx.expr_types.get(&args[2]), Some(crate::check::Type::Any));
             if arg2_undef {
                 Operand::Value(len_for_norm)
+            } else if arg2_any {
+                let raw = ctx.lower_expr(args[2]);
+                let f = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                    Type::F64,
+                    None,
+                );
+                let i = ctx.coerce_to_i64(Operand::Value(f));
+                ctx.relative_to_len(i, Operand::Value(len_for_norm))
             } else {
                 let raw = ctx.lower_expr(args[2]);
                 ctx.relative_to_len(raw, Operand::Value(len_for_norm))
