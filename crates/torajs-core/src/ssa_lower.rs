@@ -22371,8 +22371,22 @@ impl<'a> LowerCtx<'a> {
                                 return Operand::Value(v);
                             }
                             "replace" | "replaceAll" => {
-                                debug_assert_eq!(args.len(), 2);
                                 let repl = self.lower_expr(args[1]);
+                                // S321 — ES §22.1.3.{18,19} silently
+                                // ignore args past (regex, replacement).
+                                // Pre-S321 the `debug_assert_eq!(args.
+                                // len(), 2)` carve-out (release-build
+                                // assert disabled) skipped lowering
+                                // args[2..] → step()-style trailing
+                                // args silent-drop. Mirror S272 idiom
+                                // by lowering each trailing arg for
+                                // its side-effects before the regex
+                                // call. Sister to S286 (match /
+                                // matchAll) on the same regex-receiver
+                                // dispatch family.
+                                for &a in args.iter().skip(2) {
+                                    let _ = self.lower_expr(a);
+                                }
                                 let repl_ty = self.operand_ty(&repl);
                                 // P9.5-A1 / A1.1 — fn-callback dispatch.
                                 // Repl is either Str (existing $&/$N
