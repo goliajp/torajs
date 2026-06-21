@@ -20935,6 +20935,20 @@ impl<'a> LowerCtx<'a> {
                                     // already type_of'd them).
                                     debug_assert!(!args.is_empty());
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
+                                    // S312 — ES §24.2.3.1 evaluates
+                                    // trailing args left-to-right; the
+                                    // pre-S312 comment claimed silent-
+                                    // ignore but skipped the lower
+                                    // entirely → step()-style side-
+                                    // effect exprs were dropped at
+                                    // lower-time (silent-wrong, not
+                                    // silent-drop-of-result). Mirror
+                                    // S272 idiom by lowering each
+                                    // trailing arg for its side-effects
+                                    // before the Call.
+                                    for &a in args.iter().skip(1) {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     /* ANY_UNDEF = 5 (runtime_str.c
                                      * __TORAJS_ANY_UNDEF). The Set
                                      * value side never carries data,
@@ -21497,6 +21511,18 @@ impl<'a> LowerCtx<'a> {
                                     debug_assert!(args.len() >= 2);
                                     let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let (v_tag, v_val) = self.lower_to_tag_value(args[1]);
+                                    // S312 — ES §23.1.3.9 evaluates
+                                    // trailing args left-to-right; the
+                                    // pre-S312 comment claimed silent-
+                                    // ignore but skipped the lower
+                                    // entirely → step()-style side-
+                                    // effect exprs were dropped at
+                                    // lower-time. Mirror S272 idiom by
+                                    // lowering each trailing arg for
+                                    // its side-effects before the Call.
+                                    for &a in args.iter().skip(2) {
+                                        let _ = self.lower_expr(a);
+                                    }
                                     self.f.append_void(
                                         self.cur_block,
                                         InstKind::Call(
