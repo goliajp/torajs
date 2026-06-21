@@ -17813,15 +17813,31 @@ impl<'a> LowerCtx<'a> {
                             // no FpToSi is needed. Pass user-typed f64
                             // through unchecked is a known v0 hole; doc'd
                             // in the test port.
+                            //
+                            // S327 — accept Any radix per check.rs widen:
+                            // ES §19.2.5.1 step 2 ToInt32 already covers
+                            // arbitrary-typed input. Route Any through
+                            // anyv_to_number → coerce_to_i64 instead of
+                            // panicking. I64/I32/ConstI64 fast paths
+                            // preserved as-is; F64 / Any go through
+                            // coerce_to_i64 (NaN→0, ±∞→sat per spec).
                             let r_ty = self.operand_ty(&r);
-                            if r_ty != Type::I64
-                                && r_ty != Type::I32
-                                && !matches!(r, Operand::ConstI64(_))
+                            let r = if r_ty == Type::I64
+                                || r_ty == Type::I32
+                                || matches!(r, Operand::ConstI64(_))
                             {
-                                panic!(
-                                    "ssa-lower: Number.parseInt radix must be integer-typed; got {r_ty:?}"
+                                r
+                            } else if r_ty == Type::Any {
+                                let f = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(self.intrinsics.any_to_number, vec![r]),
+                                    Type::F64,
+                                    None,
                                 );
-                            }
+                                self.coerce_to_i64(Operand::Value(f))
+                            } else {
+                                self.coerce_to_i64(r)
+                            };
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(self.intrinsics.num_parse_int, vec![s, r]),

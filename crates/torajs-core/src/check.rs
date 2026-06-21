@@ -5252,7 +5252,16 @@ impl Checker {
                         // step 8 R==0 → R=10 default. ssa_lower mirror
                         // substitutes ConstI64(0) for the helper's
                         // auto-detect branch.
-                        if !matches!(r_ty, Type::Number | Type::Undefined) {
+                        //
+                        // S327 — widen accept Any radix. Spec
+                        // §19.2.5.1 step 2 calls ToInt32 on the radix,
+                        // which already coerces Any (NaN→0, ∞→0, etc.).
+                        // ssa_lower mirror routes Any through
+                        // coerce_to_i64 instead of panicking on the
+                        // integer-shape guard. Narrow widen — only the
+                        // Number.parseInt 2-arg shape; global parseInt
+                        // (line ~17219) has no shape guard.
+                        if !matches!(r_ty, Type::Number | Type::Undefined | Type::Any) {
                             return Err(format!(
                                 "Number.parseInt arg 1 must be number, got {r_ty:?}"
                             ));
