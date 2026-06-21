@@ -6150,9 +6150,24 @@ impl Checker {
                     // rejected explicit `o: any` operands at typecheck;
                     // widen here so the ssa_lower mirror routes Any
                     // through anyv_to_number → coerce_to_i64 → helper.
-                    // fromCodePoint stays Number-only because it throws
-                    // RangeError on non-finite / out-of-range — Any path
-                    // there needs explicit throw-shape alignment (L3b).
+                    if matches!(aty, Type::Any) {
+                        return Ok(Type::String);
+                    }
+                }
+                // S340 — `String.fromCodePoint(Any)` per ES §22.1.2.2 step 2:
+                // ToNumber accepts arbitrary-typed input; RangeError throw
+                // shape (non-integer / out-of-range [0, 0x10FFFF]) is
+                // enforced by the runtime helper `str_from_code_point`
+                // (pending throw + emit_throw_check propagates), so the
+                // Any path inherits the same throw semantics for free.
+                // Sister to S329 (fromCharCode Any).
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "String"
+                    && m == "fromCodePoint"
+                    && args.len() == 1
+                {
+                    let aty = self.type_of(ast, args[0])?;
                     if matches!(aty, Type::Any) {
                         return Ok(Type::String);
                     }
@@ -6212,7 +6227,11 @@ impl Checker {
                     }
                     for &aid in args {
                         let aty = self.type_of(ast, aid)?;
-                        if aty != Type::Number {
+                        // S340 — variadic Any per ES §22.1.2.{1,2} step 2:
+                        // ToNumber/ToUint16 accept arbitrary-typed input.
+                        // fromCodePoint inherits its RangeError throw shape
+                        // via the runtime helper. Sister to S329.
+                        if aty != Type::Number && !matches!(aty, Type::Any) {
                             return Err(format!("String.{m} args must be number, got {aty:?}"));
                         }
                     }

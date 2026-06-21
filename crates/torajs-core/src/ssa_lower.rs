@@ -17065,12 +17065,17 @@ impl<'a> LowerCtx<'a> {
                             matches!(self.expr_types.get(&aid), Some(check_mod::Type::Any));
                         let n = if arg_is_undef && !is_from_code_point {
                             Operand::ConstI64(0)
-                        } else if arg_is_any && !is_from_code_point {
+                        } else if arg_is_any {
                             // S329 — `String.fromCharCode(Any)` per ES
                             // §22.1.2.1 ToUint16: decode Any via
                             // anyv_to_number → coerce_to_i64. Helper sig
                             // is (i64) -> Str so the f64 intermediate
                             // gets FpToSi'd at the i64 boundary.
+                            // S340 — same path covers fromCodePoint Any;
+                            // runtime helper str_from_code_point still
+                            // throws RangeError on non-finite / OOR,
+                            // propagated by the per-arg emit_throw_check
+                            // below for is_from_code_point.
                             let raw = self.lower_expr(aid);
                             let f = self.f.append_inst(
                                 self.cur_block,
