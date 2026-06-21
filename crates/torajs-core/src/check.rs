@@ -2896,8 +2896,13 @@ impl Checker {
                 }
                 match (&obj_ty, name.as_str()) {
                     (Type::Object("console"), m)
-                        if matches!(m, "log" | "error" | "warn") =>
+                        if matches!(m, "log" | "error" | "warn" | "info" | "debug") =>
                     {
+                        // S328 — WHATWG console §1.1.{2,4}: `info` /
+                        // `debug` print to the same stream as `log`.
+                        // bun aliases info/debug to log (stdout); tr
+                        // routes through the same `print_*` intrinsic
+                        // family in ssa_lower.
                         Ok(Type::Function(vec![Type::Any], Box::new(Type::Void)))
                     }
                     // `Math` global — every method takes one number and
@@ -5754,14 +5759,16 @@ impl Checker {
                     let _ = args;
                     return Ok(resolved_ret);
                 }
-                // `console.{log,error,warn}(arg0, arg1, …)` — accept any
-                // arity. The standard typecheck path would reject ≠1 args
-                // because Type::Function has fixed arity. Args are typed
-                // Type::Any so any value is acceptable.
+                // `console.{log,error,warn,info,debug}(arg0, arg1, …)` —
+                // accept any arity. The standard typecheck path would
+                // reject ≠1 args because Type::Function has fixed
+                // arity. Args are typed Type::Any so any value is
+                // acceptable. S328 added `info` / `debug` per WHATWG
+                // console §1.1.{2,4}.
                 if let Expr::Member { obj, name } = ast.get_expr(*callee)
                     && let Expr::Ident(ns) = ast.get_expr(*obj)
                     && ns == "console"
-                    && matches!(name.as_str(), "log" | "error" | "warn")
+                    && matches!(name.as_str(), "log" | "error" | "warn" | "info" | "debug")
                 {
                     for &aid in args {
                         self.type_of(ast, aid)?;

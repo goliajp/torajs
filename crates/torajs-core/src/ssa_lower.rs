@@ -8689,6 +8689,12 @@ impl<'a> LowerCtx<'a> {
                 "log" => Some("log"),
                 "error" => Some("error"),
                 "warn" => Some("warn"),
+                // S328 — WHATWG console §1.1.{2,4} — info / debug
+                // alias log (stdout) in bun/node behavior. Print
+                // routing in `console_print_target` keeps both on
+                // the non-stderr branch.
+                "info" => Some("info"),
+                "debug" => Some("debug"),
                 _ => None,
             };
         }
@@ -8696,9 +8702,9 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// Pick the right print intrinsic for `console.<method>(<arg>)`.
-    /// log writes to stdout; error / warn write to stderr.
+    /// log / info / debug write to stdout; error / warn write to stderr.
     fn console_print_target(&self, method: &str, arg_ty: Type) -> FuncId {
-        let to_stderr = method != "log";
+        let to_stderr = matches!(method, "error" | "warn");
         match (arg_ty, to_stderr) {
             (Type::Str, false) => self.intrinsics.str_print,
             (Type::Str, true) => self.intrinsics.str_print_err,
