@@ -7243,9 +7243,14 @@ impl Checker {
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if matches!(src_ty, Type::String) {
+                        // S338 — `s.{padStart,padEnd}(Any [, fillStr])`
+                        // per ES §22.1.3.{16,17} step 1: ToLength
+                        // accepts arbitrary-typed input. Sister to
+                        // S332/S334. ssa_lower mirror routes Any
+                        // through anyv_to_number → coerce_to_i64.
                         if let Some(arg0) = args.first() {
                             let aty = self.type_of(ast, *arg0)?;
-                            if !matches!(aty, Type::Number | Type::Undefined) {
+                            if !matches!(aty, Type::Number | Type::Undefined | Type::Any) {
                                 return Err(format!(
                                     "String.{m_name} arg 0 must be number, got {aty:?}"
                                 ));

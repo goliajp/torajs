@@ -932,6 +932,24 @@ pub(crate) fn try_lower_method_call(
                         None,
                     );
                     argv.push(ctx.coerce_to_i64(Operand::Value(f)));
+                } else if matches!(method.as_str(), "padStart" | "padEnd")
+                    && i == 0
+                    && matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Any))
+                {
+                    // S338 — `s.{padStart,padEnd}(Any [, fillStr])` per
+                    // ES §22.1.3.{16,17} step 1: ToLength accepts
+                    // arbitrary-typed input. Decode Any via
+                    // anyv_to_number → coerce_to_i64 so the helper's
+                    // (Str, i64, Str) ABI sees a clean i64.
+                    // Sister to S332/S333.
+                    let raw = ctx.lower_expr(a);
+                    let f = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                        Type::F64,
+                        None,
+                    );
+                    argv.push(ctx.coerce_to_i64(Operand::Value(f)));
                 } else {
                     argv.push(ctx.lower_expr(a));
                 }
