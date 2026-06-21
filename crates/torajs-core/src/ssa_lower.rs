@@ -15977,11 +15977,18 @@ impl<'a> LowerCtx<'a> {
                 }
                 if let Expr::Ident(n) = self.ast.get_expr(*callee)
                     && n == "BigInt"
-                    && args.len() == 1
+                    && !args.is_empty()
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
                     self.consume_if_ident(args[0]);
+                    // S308 — lower-and-drop trailing args[1..] per S272
+                    // idiom so step()-style side-effect exprs fire per ES
+                    // §21.2.1 trailing-arg ignore (check.rs S308 already
+                    // typecheck-dropped).
+                    for &a in args.iter().skip(1) {
+                        let _ = self.lower_expr(a);
+                    }
                     let v = match arg_ty {
                         Type::BigInt => self.f.append_inst(
                             self.cur_block,
@@ -16037,6 +16044,13 @@ impl<'a> LowerCtx<'a> {
                         self.consume_if_ident(args[0]);
                         v
                     };
+                    // S308 — lower-and-drop trailing args[1..] per S272
+                    // idiom so step()-style side-effect exprs fire per ES
+                    // §20.4.1 trailing-arg ignore (check.rs S308 already
+                    // typecheck-dropped).
+                    for &a in args.iter().skip(1) {
+                        let _ = self.lower_expr(a);
+                    }
                     let v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(self.intrinsics.symbol_alloc, vec![desc_op]),

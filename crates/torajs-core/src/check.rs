@@ -5150,17 +5150,22 @@ impl Checker {
                 if let Expr::Ident(n) = ast.get_expr(*callee)
                     && n == "BigInt"
                 {
-                    if args.len() != 1 {
-                        return Err(format!(
-                            "BigInt(value) expects exactly 1 arg, got {}",
-                            args.len()
-                        ));
+                    if args.is_empty() {
+                        return Err("BigInt(value) expects exactly 1 arg, got 0".to_string());
                     }
                     let arg_ty = self.type_of(ast, args[0])?;
                     if !matches!(arg_ty, Type::BigInt | Type::String | Type::Number) {
                         return Err(format!(
                             "BigInt(value) — value must be bigint / string / number, got {arg_ty:?}"
                         ));
+                    }
+                    // S308 — typecheck-and-drop trailing args[1..] per ES
+                    // §21.2.1 trailing-arg ignore. Spec coerces only args[0];
+                    // ssa_lower mirror at ~16022 reads only args[0] so
+                    // args[1..] dropped at lower-time without further
+                    // change. Mirror requires lower-and-drop in SSA.
+                    for &a in args.iter().skip(1) {
+                        let _ = self.type_of(ast, a)?;
                     }
                     return Ok(Type::BigInt);
                 }
@@ -5170,16 +5175,19 @@ impl Checker {
                 if let Expr::Ident(n) = ast.get_expr(*callee)
                     && n == "Symbol"
                 {
-                    if args.len() > 1 {
-                        return Err(format!("Symbol() expects 0 or 1 arg, got {}", args.len()));
-                    }
-                    if args.len() == 1 {
+                    if !args.is_empty() {
                         let arg_ty = self.type_of(ast, args[0])?;
                         if !matches!(arg_ty, Type::String) {
                             return Err(format!(
                                 "Symbol(desc) — desc must be string, got {arg_ty:?}"
                             ));
                         }
+                    }
+                    // S308 — typecheck-and-drop trailing args[1..] per ES
+                    // §20.4.1 trailing-arg ignore (Symbol(desc, ...trailing)
+                    // — only desc is read; trailing dropped).
+                    for &a in args.iter().skip(1) {
+                        let _ = self.type_of(ast, a)?;
                     }
                     return Ok(Type::Symbol);
                 }
