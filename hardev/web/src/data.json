@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-21T11:04:03.500Z",
+  "generatedAt": "2026-06-21T11:19:59.929Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "8996fb94",
-    "commitSubject": "fix(num): `Number.parseFloat(Any)` widen + Any→Str decode",
+    "commit": "c3b11d05",
+    "commitSubject": "fix(arr): `Array.{indexOf,lastIndexOf,includes}(needle, Any fromIndex)`",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "c3b11d05",
+      "subject": "fix(arr): `Array.{indexOf,lastIndexOf,includes}(needle, Any fromIndex)`"
+    },
+    {
+      "hash": "b44d454f",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S326-S330)"
+    },
+    {
       "hash": "8996fb94",
       "subject": "fix(num): `Number.parseFloat(Any)` widen + Any→Str decode"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "43211ac4",
       "subject": "fix(promise): `Promise.{resolve,reject}` SSA lower-and-drop trailing args"
-    },
-    {
-      "hash": "792357b1",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S317-S321)"
-    },
-    {
-      "hash": "b982775b",
-      "subject": "fix(regex): s.{replace,replaceAll}(re, repl, ...trailing) ssa lower-and-drop"
     }
   ],
-  "headSha": "8996fb94",
+  "headSha": "c3b11d05",
   "autorun": {
     "total": 216,
     "baselineTarget": 10,
