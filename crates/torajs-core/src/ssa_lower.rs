@@ -19605,6 +19605,16 @@ impl<'a> LowerCtx<'a> {
                 {
                     let arg_op = self.lower_expr(args[0]);
                     self.consume_if_ident(args[0]);
+                    // S322 — lower-and-drop trailing args[1..] per S272
+                    // idiom so step()-style side-effect exprs fire per ES
+                    // §27.2.4.{7,8} trailing-arg ignore (check::promise_static
+                    // S263 already typecheck-dropped). Placed after args[0]
+                    // lower / before arg_ty dispatch so trailing eval is
+                    // exactly-once across thenable absorption + primitive +
+                    // heap return paths below.
+                    for &a in args.iter().skip(1) {
+                        let _ = self.lower_expr(a);
+                    }
                     let arg_ty = self.operand_ty(&arg_op);
                     // T-19.f — thenable absorption. Promise.resolve(p)
                     // where p is already a Promise routes to the
