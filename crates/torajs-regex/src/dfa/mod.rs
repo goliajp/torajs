@@ -171,10 +171,33 @@ pub fn analyze(root: &Node) -> DfaEligibility {
 /// terminal — ε via [`epsilon_closure`], lookaround/backref filter
 /// upstream in [`analyze`]. Out-of-range PCs (defensive) and `pc + 1`
 /// past program end are dropped.
+///
+/// Returns only the *ready* PCs (those whose next dispatch lands at
+/// `cursor + 1`). The full step output includes a *deferred* array (PCs
+/// from u-flag `.` that consumed a multi-byte code-point first byte and
+/// must wait `u_skip` continuation bytes before becoming ready); see
+/// [`byte_step_full`].
 pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8, flags: u8) -> BTreeSet<usize> {
-    let mut next: BTreeSet<usize> = BTreeSet::new();
+    byte_step_full(prog, states, byte, flags).0
+}
+
+/// Full byte-step: returns `(ready, deferred)` where
+/// `deferred[i]` is the set of PCs scheduled to become ready in
+/// `i + 1` continuation bytes (chunk 10b — `Op::AnyChar` under
+/// `RE_FLAG_U` schedules the post-`.` PC behind the UTF-8 multi-byte
+/// tail). For non-u-flag patterns `deferred` is always all-empty so
+/// state pool dedup matches the pre-10b BFS shape.
+pub fn byte_step_full(
+    prog: &Program,
+    states: &BTreeSet<usize>,
+    byte: u8,
+    flags: u8,
+) -> (BTreeSet<usize>, [BTreeSet<usize>; 3]) {
+    let mut ready: BTreeSet<usize> = BTreeSet::new();
+    let mut deferred: [BTreeSet<usize>; 3] = Default::default();
     let plen = prog.len();
     let s_flag = flags & crate::parser::RE_FLAG_S != 0;
+    let u_flag = flags & crate::parser::RE_FLAG_U != 0;
     for &pc in states.iter() {
         if pc >= plen {
             continue;
@@ -184,28 +207,60 @@ pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8, flags: u8) 
             Some(o) => o,
             None => continue,
         };
-        let advances = match op {
-            Op::Char => crate::vm::char_eq(ins.ch, byte, flags),
-            Op::AnyChar => s_flag || byte != b'\n',
-            Op::Class => {
-                let cls_idx = ins.a as usize;
-                if cls_idx >= prog.classes.len() {
-                    false
-                } else {
-                    let class = &prog.classes[cls_idx];
-                    class.test(byte) || class_test_case_fold(class, byte, flags)
+        match op {
+            Op::Char => {
+                if crate::vm::char_eq(ins.ch, byte, flags) {
+                    let n = pc + 1;
+                    if n < plen {
+                        ready.insert(n);
+                    }
                 }
             }
-            _ => false,
-        };
-        if advances {
-            let n = pc + 1;
-            if n < plen {
-                next.insert(n);
+            Op::AnyChar => {
+                if !(s_flag || byte != b'\n') {
+                    continue;
+                }
+                let n = pc + 1;
+                if n >= plen {
+                    continue;
+                }
+                // Under u-flag, multi-byte first byte parks PC behind
+                // the UTF-8 tail (matches NFA `utf8_len_for` defer in
+                // `match_at`). ASCII / invalid first bytes (incl.
+                // 0xC0/0xC1/0x80..0xBF/0xF5..0xFF) advance 1 byte so
+                // the matcher's cursor keeps progressing.
+                let u_skip = if u_flag {
+                    match byte {
+                        0xC2..=0xDF => 1,
+                        0xE0..=0xEF => 2,
+                        0xF0..=0xF4 => 3,
+                        _ => 0,
+                    }
+                } else {
+                    0
+                };
+                if u_skip == 0 {
+                    ready.insert(n);
+                } else {
+                    deferred[u_skip - 1].insert(n);
+                }
             }
+            Op::Class => {
+                let cls_idx = ins.a as usize;
+                if cls_idx < prog.classes.len() {
+                    let class = &prog.classes[cls_idx];
+                    if class.test(byte) || class_test_case_fold(class, byte, flags) {
+                        let n = pc + 1;
+                        if n < plen {
+                            ready.insert(n);
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
-    next
+    (ready, deferred)
 }
 
 /// `byte_step` helper (chunk 8.7) — true iff `class` contains the
@@ -391,24 +446,27 @@ fn pc_set_is_accept_at_end(
     pc_set_is_accept(prog, &closed)
 }
 
-/// Look up `(set, attr)` in the BFS interning map; insert + enqueue a
-/// new DFA state if absent. Empty PC sets always map to state 0
-/// (dead). Used by [`build_dfa`] for both initial-seed and successor-
-/// state insertion. The attr (chunk 8.6b) is part of the dedup key so
-/// states reached via different left-byte classes don't collapse —
-/// they have different WBound-resolution behaviour on outgoing
-/// transitions.
+/// Look up `(ready, deferred, attr)` in the BFS interning map; insert
+/// + enqueue a new DFA state if absent. States with empty ready and
+/// empty deferred map to state 0 (dead). Used by [`build_dfa`] for
+/// both initial-seed and successor-state insertion. The attr (chunk
+/// 8.6b) is part of the dedup key so states reached via different
+/// left-byte classes don't collapse — they have different WBound-
+/// resolution behaviour on outgoing transitions. The deferred array
+/// (chunk 10b) lets u-flag `.` park PCs behind the UTF-8 multi-byte
+/// tail without conflating them with ready PCs at the same cursor.
 fn intern_state(
     prog: &Program,
-    set: BTreeSet<usize>,
+    ready: BTreeSet<usize>,
+    deferred: [BTreeSet<usize>; 3],
     attr: LeftByteAttr,
     mflag: bool,
     needs_attr_split: bool,
     states: &mut Vec<DfaState>,
-    set_to_idx: &mut BTreeMap<(BTreeSet<usize>, LeftByteAttr), u32>,
-    work: &mut Vec<(BTreeSet<usize>, LeftByteAttr, u32)>,
+    set_to_idx: &mut BTreeMap<StateKey, u32>,
+    work: &mut Vec<WorkItem>,
 ) -> u32 {
-    if set.is_empty() {
+    if ready.is_empty() && deferred.iter().all(|d| d.is_empty()) {
         return 0;
     }
     // chunk 8.6b dedup — when the program emits no `Op::WBound` /
@@ -422,23 +480,34 @@ fn intern_state(
     } else {
         LeftByteAttr::TextStart
     };
-    let key = (set, effective_attr);
+    let key: StateKey = (ready, deferred, effective_attr);
     if let Some(&i) = set_to_idx.get(&key) {
         return i;
     }
-    let (set, _) = key;
+    let (ready, deferred, _) = key;
     let i = states.len() as u32;
     states.push(DfaState {
         transitions: [0u32; 256],
-        is_accept: pc_set_is_accept(prog, &set),
-        is_accept_at_end: pc_set_is_accept_at_end(prog, &set, attr, mflag),
+        is_accept: pc_set_is_accept(prog, &ready),
+        is_accept_at_end: pc_set_is_accept_at_end(prog, &ready, attr, mflag),
         // Mask filled in by BFS when the state is dequeued.
         accept_before_byte: [0u32; 8],
     });
-    set_to_idx.insert((set.clone(), effective_attr), i);
-    work.push((set, attr, i));
+    set_to_idx.insert((ready.clone(), deferred.clone(), effective_attr), i);
+    work.push((ready, deferred, attr, i));
     i
 }
+
+/// State-pool key: ready PCs (u_skip=0) + per-u_skip deferred PCs +
+/// LeftByteAttr. `deferred[i]` holds PCs that become ready in `i + 1`
+/// continuation bytes (chunk 10b).
+type StateKey = (BTreeSet<usize>, [BTreeSet<usize>; 3], LeftByteAttr);
+
+/// BFS work-queue entry: same shape as the pool key plus the assigned
+/// state index. Carries the original attr so `pc_set_is_accept_at_end`
+/// sees the true left-byte class (the pool key may have folded attr
+/// onto `TextStart` for dedup when `needs_attr_split` is false).
+type WorkItem = (BTreeSet<usize>, [BTreeSet<usize>; 3], LeftByteAttr, u32);
 
 /// chunk 8.6b — true iff the program (or any sub-program) emits any
 /// `Op::WBound` / `Op::NWBound`. Drives the state-pool key strategy
@@ -477,10 +546,15 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     // state 0: dead state, all transitions self-loop to 0.
     states.push(DfaState::default());
 
-    let mut set_to_idx: BTreeMap<(BTreeSet<usize>, LeftByteAttr), u32> = BTreeMap::new();
-    set_to_idx.insert((BTreeSet::new(), LeftByteAttr::TextStart), 0);
-    set_to_idx.insert((BTreeSet::new(), LeftByteAttr::Word), 0);
-    set_to_idx.insert((BTreeSet::new(), LeftByteAttr::NonWord), 0);
+    let mut set_to_idx: BTreeMap<StateKey, u32> = BTreeMap::new();
+    let empty_def: [BTreeSet<usize>; 3] = Default::default();
+    for attr in [
+        LeftByteAttr::TextStart,
+        LeftByteAttr::Word,
+        LeftByteAttr::NonWord,
+    ] {
+        set_to_idx.insert((BTreeSet::new(), empty_def.clone(), attr), 0);
+    }
 
     let mflag = flags & crate::parser::RE_FLAG_M != 0;
 
@@ -493,7 +567,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         }
     }
 
-    let mut work: Vec<(BTreeSet<usize>, LeftByteAttr, u32)> = Vec::new();
+    let mut work: Vec<WorkItem> = Vec::new();
 
     let needs_attr_split = prog_uses_word_boundary(prog);
 
@@ -505,6 +579,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     let start = intern_state(
         prog,
         initial_anchored,
+        empty_def.clone(),
         LeftByteAttr::TextStart,
         mflag,
         needs_attr_split,
@@ -517,6 +592,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     let start_mid_word = intern_state(
         prog,
         initial_mid_word,
+        empty_def.clone(),
         LeftByteAttr::Word,
         mflag,
         needs_attr_split,
@@ -530,6 +606,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     let start_mid_nonword = intern_state(
         prog,
         initial_mid_nonword,
+        empty_def.clone(),
         LeftByteAttr::NonWord,
         mflag,
         needs_attr_split,
@@ -538,20 +615,20 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         &mut work,
     );
 
-    while let Some((cur_set, cur_attr, cur_idx)) = work.pop() {
+    while let Some((cur_ready, cur_deferred, cur_attr, cur_idx)) = work.pop() {
         let mut transitions = [0u32; 256];
         let mut accept_before_byte = [0u32; 8];
         let ctx_at_cursor = ctx_for(cur_attr, mflag);
         for byte_u16 in 0u16..=255 {
             let byte = byte_u16 as u8;
-            // chunk 8.6b — re-close cur_set with right=byte to
+            // chunk 8.6b — re-close cur_ready with right=byte to
             // resolve WBound/NWBound at the cursor given left=cur_attr
-            // and right=class_of(byte). The cur_set entered the BFS
+            // and right=class_of(byte). The cur_ready entered the BFS
             // with right=None, so any WBound PCs are present-but-
             // unresolved; this re-closure resolves them per-byte.
             // Closure is idempotent for already-advanced PCs, so the
             // re-run never shrinks the set.
-            let cur_seeds: Vec<usize> = cur_set.iter().copied().collect();
+            let cur_seeds: Vec<usize> = cur_ready.iter().copied().collect();
             let closed_with_right =
                 epsilon_closure_full(prog, &cur_seeds, ctx_at_cursor, Some(byte));
             // chunk 8.6b — if the per-byte re-closure reaches Match,
@@ -562,12 +639,38 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
             if pc_set_is_accept(prog, &closed_with_right) {
                 mask_set(&mut accept_before_byte, byte);
             }
-            let stepped = byte_step(prog, &closed_with_right, byte, flags);
+            let (ready_from_step, mut deferred_from_step) =
+                byte_step_full(prog, &closed_with_right, byte, flags);
+            // chunk 10b — current deferred PCs transition based on the
+            // byte's UTF-8 role. Continuation byte 0x80..0xBF
+            // decrements every active u_skip by 1 (so u_skip=1 entries
+            // promote into the next ready seed); any other byte breaks
+            // an in-flight multi-byte sequence and kills the deferred
+            // PCs (matches the NFA: an incomplete UTF-8 sequence never
+            // commits).
+            let is_continuation = (0x80..=0xBF).contains(&byte);
+            let (promoted, mut next_deferred): (BTreeSet<usize>, [BTreeSet<usize>; 3]) =
+                if is_continuation {
+                    let [d0, d1, d2] = cur_deferred.clone();
+                    (d0, [d1, d2, BTreeSet::new()])
+                } else {
+                    (BTreeSet::new(), Default::default())
+                };
+            // Merge the byte-step's fresh deferred PCs into the carry-
+            // forward array.
+            for i in 0..3 {
+                if !deferred_from_step[i].is_empty() {
+                    let extra = core::mem::take(&mut deferred_from_step[i]);
+                    next_deferred[i].extend(extra);
+                }
+            }
+            let mut merged_seeds: Vec<usize> = Vec::new();
+            merged_seeds.extend(ready_from_step.iter().copied());
+            merged_seeds.extend(promoted.iter().copied());
             let next_attr = attr_of_byte(byte);
-            let closed = if stepped.is_empty() {
+            let next_ready = if merged_seeds.is_empty() {
                 BTreeSet::new()
             } else {
-                let seeds: Vec<usize> = stepped.iter().copied().collect();
                 // Post-step ctx (cursor k+1): left = the byte we just
                 // consumed. Under mflag this lets mid-pattern AnchorB
                 // re-fire when byte == `\n`. WBound stays unresolved
@@ -580,11 +683,12 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                     is_text_end: false,
                     mflag,
                 };
-                epsilon_closure_with_ctx(prog, &seeds, ctx_after)
+                epsilon_closure_with_ctx(prog, &merged_seeds, ctx_after)
             };
             let next_idx = intern_state(
                 prog,
-                closed,
+                next_ready,
+                next_deferred,
                 next_attr,
                 mflag,
                 needs_attr_split,
@@ -644,6 +748,27 @@ pub fn prog_ops_dfa_safe(_prog: &Program) -> bool {
     // a safety net so future opcode additions can wire a quick
     // blocker here without touching every call site.
     true
+}
+
+/// True iff the program (or any sub-program) emits any `Op::Class`.
+///
+/// chunk 10b — under `RE_FLAG_U` the DFA's byte-stream `byte_step`
+/// can't honour code-point class semantics for non-ASCII bytes
+/// (negation + `u_props` cover multi-byte code points the byte-test
+/// over-/under-reports for). The hot-path gate blocks u-flag programs
+/// containing any `Op::Class`; future chunks can split this into a
+/// "u-safe class" analyser (ASCII-only, no negate, no `u_props`) once
+/// the class encoder exposes the relevant bits cheaply.
+pub fn prog_uses_class(prog: &Program) -> bool {
+    fn scan(insts: &[crate::program::Inst]) -> bool {
+        insts
+            .iter()
+            .any(|ins| matches!(Op::from_u8(ins.op), Some(Op::Class)))
+    }
+    if scan(&prog.insts) {
+        return true;
+    }
+    prog.sub_progs.iter().any(|sub| scan(&sub.insts))
 }
 
 /// Drive a built [`DfaProgram`] over `hay`, returning the longest
@@ -2077,5 +2202,126 @@ mod tests {
         };
         let cl = crate::dfa::epsilon_closure_full(&prog, &[0], ctx_no_mflag, Some(b'a'));
         assert!(!cl.contains(&1));
+    }
+
+    // chunk 10b — u-flag `.` matches one code point (1-4 UTF-8 bytes)
+    // via the BFS deferred[u_skip] buckets. byte_step_full splits the
+    // PC into the right bucket on the first byte; subsequent
+    // continuation bytes promote it forward until it lands in `ready`
+    // exactly `cp_len` bytes after the first.
+
+    #[test]
+    fn byte_step_full_u_flag_anychar_routes_multi_byte_to_deferred() {
+        // 0: ANY; 1: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnyChar));
+        prog.emit(Inst::match_accept());
+        let u_s = crate::parser::RE_FLAG_U | crate::parser::RE_FLAG_S;
+        // ASCII first byte → ready advance (u_skip = 0).
+        let (ready, def) = byte_step_full(&prog, &set(&[0]), b'a', u_s);
+        assert_eq!(ready, set(&[1]));
+        assert!(def[0].is_empty() && def[1].is_empty() && def[2].is_empty());
+        // 2-byte first (0xCE) → deferred[0] (u_skip = 1).
+        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0xCE, u_s);
+        assert!(ready.is_empty());
+        assert_eq!(def[0], set(&[1]));
+        // 3-byte first (0xE6) → deferred[1] (u_skip = 2).
+        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0xE6, u_s);
+        assert!(ready.is_empty());
+        assert_eq!(def[1], set(&[1]));
+        // 4-byte first (0xF0) → deferred[2] (u_skip = 3).
+        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0xF0, u_s);
+        assert!(ready.is_empty());
+        assert_eq!(def[2], set(&[1]));
+        // Continuation byte alone (no prior multi-byte context) is an
+        // unpaired tail under u-flag — defensive 1-byte advance per
+        // `utf8_len_for`.
+        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0x80, u_s);
+        assert_eq!(ready, set(&[1]));
+        assert!(def.iter().all(|d| d.is_empty()));
+    }
+
+    #[test]
+    fn byte_step_full_without_u_flag_never_defers() {
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnyChar));
+        prog.emit(Inst::match_accept());
+        for b in [b'a', 0xCEu8, 0xE6, 0xF0, 0x80] {
+            let (_, def) = byte_step_full(&prog, &set(&[0]), b, crate::parser::RE_FLAG_S);
+            assert!(
+                def.iter().all(|d| d.is_empty()),
+                "byte 0x{b:02x} unexpectedly deferred without u-flag"
+            );
+        }
+    }
+
+    #[test]
+    fn dfa_search_u_flag_dot_consumes_four_byte_code_point() {
+        // /^.$/u — under u-flag `.` matches one code point; the
+        // anchored DFA walks 4 bytes and accepts at the haystack end
+        // via `is_accept_at_end` (AnchorE closes through Match).
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::simple(Op::AnyChar));
+        prog.emit(Inst::simple(Op::AnchorE));
+        prog.emit(Inst::match_accept());
+        let u = crate::parser::RE_FLAG_U;
+        let dfa = build_dfa(&prog, u);
+        // 😀 = U+1F600 = F0 9F 98 80 (4 bytes).
+        let smile: &[u8] = b"\xF0\x9F\x98\x80";
+        assert_eq!(dfa_search(&dfa, smile), Some(4));
+        // ASCII "a" — 1 byte cp, also matches.
+        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        // Two cps — `^.$` doesn't match.
+        assert_eq!(dfa_search(&dfa, b"ab"), None);
+        // 4-byte cp followed by extra ASCII — `$` fails after cp end.
+        let mut smile_plus = smile.to_vec();
+        smile_plus.push(b'x');
+        assert_eq!(dfa_search(&dfa, &smile_plus), None);
+    }
+
+    #[test]
+    fn dfa_search_u_flag_dot_two_byte_code_point_round_trip() {
+        // /^.$/u over "Ω" = U+03A9 = CE A9 (2 bytes).
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::simple(Op::AnyChar));
+        prog.emit(Inst::simple(Op::AnchorE));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        let omega: &[u8] = b"\xCE\xA9";
+        assert_eq!(dfa_search(&dfa, omega), Some(2));
+    }
+
+    #[test]
+    fn dfa_search_u_flag_dot_rejects_truncated_multi_byte_at_end() {
+        // /^.$/u over a 3-byte first byte with only 1 continuation —
+        // incomplete cp at hay end must not accept (deferred PCs are
+        // lost; `is_accept_at_end` operates on ready only).
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::simple(Op::AnyChar));
+        prog.emit(Inst::simple(Op::AnchorE));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        let truncated: &[u8] = b"\xE6\x88"; // first 2 of 3 bytes
+        assert_eq!(dfa_search(&dfa, truncated), None);
+    }
+
+    #[test]
+    fn prog_uses_class_scans_inner_and_subprograms() {
+        // Plain class — flagged.
+        let mut prog = Program::new();
+        let mut cc = CharClass::new();
+        cc.add_range(b'a', b'z');
+        let idx = prog.intern_class(&cc);
+        prog.emit(Inst::class_ref(idx));
+        prog.emit(Inst::match_accept());
+        assert!(prog_uses_class(&prog));
+        // No class — clear.
+        let mut prog2 = Program::new();
+        prog2.emit(Inst::char_lit(b'a'));
+        prog2.emit(Inst::match_accept());
+        assert!(!prog_uses_class(&prog2));
     }
 }
