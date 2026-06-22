@@ -298,16 +298,16 @@ pub fn search_from_with_ws(
 ) -> Option<MatchResult> {
     let slen = s.len() as i64;
     let mut st = from_pos;
-    // V0.2 P14 — DFA fast path (chunk 7 v3 audit edition).
-    // Hypothesis 4 from the chunk-7-v2 revert: `Program::dfa_cache`
-    // (UnsafeCell<Option<DfaProgram>> lazy slot, chunk 6) had a subtle
-    // lazy-init UB that surfaced as 30%-flaky SIGBUS in regex-021. To
-    // isolate the root cause, this audit edition bypasses the cache and
-    // builds the DFA inline per-search. If conformance holds 1129/0/4
-    // here, the cache is the regression source and a follow-up chunk
-    // restores it via a safer pattern (Cell<Box<>>, OnceCell, etc.).
+    // V0.2 P14 — DFA fast path (chunk 7 v3, per-call build).
+    // `build_dfa(prog)` runs once per call instead of caching on
+    // `Program`. The chunk 6 lazy cache shipped first but both the
+    // `UnsafeCell` and the chunk-7.5 `OnceCell` variants triggered a
+    // flaky SIGBUS in `regex-021-test-lastindex` once consumed from the
+    // hot path; the cache was deleted as dead substrate pending a
+    // chunk 7.6 deep audit of the RegExp/Program lifetime vs cached
+    // `&DfaProgram` across the SSA-lower ABI boundary.
     //
-    // Same flag gate as v2 (the v1 → v2 evolution stays correct here):
+    // Flag gate:
     // - `Program::can_dfa` excludes backref + lookaround.
     // - `dfa::prog_ops_dfa_safe` excludes SAVE / Anchor / WBound.
     // - `flags & (RE_FLAG_I | RE_FLAG_U) == 0` — DFA byte-step lacks

@@ -26,11 +26,16 @@
 //!   match-end position seen (per-byte, leftmost-longest semantics).
 //!   Single multiply-free index per step; on dead-state (idx 0) the
 //!   walk stops since no extension can ever accept.
-//! - **per-Program lazy DFA cache** ([`crate::program::Program::dfa_cache`]
-//!   + [`crate::program::Program::get_or_build_dfa`]) — `UnsafeCell<Option<DfaProgram>>`
-//!   slot on `Program` (mirror of `RegExp::workspace_cache`). Eligible
-//!   patterns build the DFA exactly once on first access; ineligible
-//!   patterns return `None` cheaply and stay out of the fast path.
+//! - **per-call build**, no cache yet. The chunk 6 lazy cache
+//!   (`Program::dfa_cache: UnsafeCell<Option<DfaProgram>>` +
+//!   `get_or_build_dfa`) shipped first but was deleted after the
+//!   chunk 7.5 OnceCell audit: both `UnsafeCell` and `OnceCell`
+//!   variants triggered a flaky SIGBUS in `regex-021-test-lastindex`
+//!   under hot-path consumption. Root cause family (RegExp lifetime
+//!   vs cached `&DfaProgram` across the SSA-lower ABI boundary) is
+//!   left to a future chunk 7.6 deep audit; chunk 7 v3 wire bypasses
+//!   the cache and `build_dfa(prog)` runs per `search_from_with_ws`
+//!   call instead.
 //!
 //! - **position-aware closure** ([`ctx::PositionCtx`] +
 //!   [`ctx::epsilon_closure_with_ctx`]) — chunk 8 substrate. Threads
