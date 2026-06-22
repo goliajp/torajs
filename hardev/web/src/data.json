@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T17:41:48.424Z",
+  "generatedAt": "2026-06-22T17:55:57.508Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "76aab5ef",
-    "commitSubject": "feat(torajs-regex): DFA u-flag `.` via deferred[u_skip] buckets (chunk 10b)",
+    "commit": "26312c22",
+    "commitSubject": "feat(torajs-regex): u-safe class refinement for DFA gate (chunk 10c)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "26312c22",
+      "subject": "feat(torajs-regex): u-safe class refinement for DFA gate (chunk 10c)"
+    },
+    {
+      "hash": "6f4a47af",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 76aab5ef DFA u-flag `.` deferred[u_skip] (chunk 10b)"
+    },
+    {
       "hash": "76aab5ef",
       "subject": "feat(torajs-regex): DFA u-flag `.` via deferred[u_skip] buckets (chunk 10b)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "ab9f0189",
       "subject": "chore(hardev/web): refresh dashboard snapshot — ab42cfbf Pike VM DFA chunk 9 (capture two-pass)"
-    },
-    {
-      "hash": "ab42cfbf",
-      "subject": "feat(torajs-regex): RE2-style two-pass capture extract (Pike VM DFA chunk 9)"
-    },
-    {
-      "hash": "a7395e9d",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 999adba8 Pike VM DFA chunk 8.8 (multiline ^)"
     }
   ],
-  "headSha": "76aab5ef",
+  "headSha": "26312c22",
   "autorun": {
     "total": 228,
     "baselineTarget": 10,
