@@ -1,0 +1,8 @@
+# chunk 10d byte-expansion of `\p{L}` makes each `match()` call walk a
+# multi-MB Alt-of-Concat trie; 100k iter × default 10 runs + 3 warmup
+# = 13× ~4-5 min per run on mini = 60+ min wall for this single
+# fixture. Trim to 3 runs + 1 warmup so the 7-fixture set fits a
+# normal bench pass; the median is still trustworthy at n=3 once the
+# bench is run 3 times via `--runs 3` for outer-loop interleaving.
+runs = 3
+warmup = 1
