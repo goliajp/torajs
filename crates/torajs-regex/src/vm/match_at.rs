@@ -356,7 +356,7 @@ mod tests {
 
     fn matches(pat: &str, hay: &str, flags: u8) -> Option<MatchResult> {
         let prog = build(pat, flags);
-        search_from(&prog, hay.as_bytes(), 0, flags, None)
+        search_from(&prog, hay.as_bytes(), 0, flags)
     }
 
     #[test]

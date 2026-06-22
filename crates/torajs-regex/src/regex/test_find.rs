@@ -36,7 +36,7 @@ pub unsafe extern "C" fn __torajs_regex_test(re_ptr: *const c_void, str_ptr: *co
     } else if sticky {
         match_anchor(&re.prog, &s, start, re.flags).map(|m| m.end)
     } else {
-        search_from(&re.prog, &s, start, re.flags, re.get_or_build_dfa()).map(|m| m.end)
+        search_from(&re.prog, &s, start, re.flags).map(|m| m.end)
     };
 
     match hit_end {
@@ -80,7 +80,7 @@ pub unsafe extern "C" fn __torajs_regex_find(
     if from > slen {
         return -1;
     }
-    match search_from(&re.prog, &s, from, re.flags, re.get_or_build_dfa()) {
+    match search_from(&re.prog, &s, from, re.flags) {
         Some(m) => (m.start << 32) | (m.end & 0xffff_ffff),
         None => -1,
     }

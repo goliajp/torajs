@@ -156,7 +156,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             h
         } else {
             let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, re.get_or_build_dfa())
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref)
         };
         let Some(m) = hit else { break };
         if out.is_null() {
@@ -226,7 +226,7 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     } else if sticky {
         match_anchor(&re.prog, &s, start, re.flags)
     } else {
-        search_from(&re.prog, &s, start, re.flags, re.get_or_build_dfa())
+        search_from(&re.prog, &s, start, re.flags)
     };
     let Some(m) = m else {
         if track {

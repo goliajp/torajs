@@ -286,24 +286,12 @@ pub struct MatchResult {
 /// `Some(MatchResult)` on hit, `None` on miss. Allocates a fresh
 /// [`Workspace`] internally — for tight loops use
 /// [`search_from_with_ws`].
-///
-/// `dfa_cached`(chunk 7.7)— optional cached DFA built once at the
-/// caller side (typically via [`crate::regex::RegExp::get_or_build_dfa`]).
-/// `None` falls back to inline `build_dfa(prog, flags)` per call
-/// (chunk 7 v3 shape; equivalent to the pre-chunk-7.7 surface
-/// behaviour).
-pub fn search_from(
-    prog: &Program,
-    s: &[u8],
-    from_pos: i64,
-    flags: u8,
-    dfa_cached: Option<&crate::dfa::DfaProgram>,
-) -> Option<MatchResult> {
+pub fn search_from(prog: &Program, s: &[u8], from_pos: i64, flags: u8) -> Option<MatchResult> {
     if prog.is_empty() {
         return None;
     }
     let mut ws = Workspace::for_program(prog);
-    search_from_with_ws(prog, s, from_pos, flags, &mut ws, dfa_cached)
+    search_from_with_ws(prog, s, from_pos, flags, &mut ws)
 }
 
 /// Tight-loop variant of [`search_from`]: caller owns the workspace
@@ -316,7 +304,6 @@ pub fn search_from_with_ws(
     from_pos: i64,
     flags: u8,
     ws: &mut Workspace,
-    dfa_cached: Option<&crate::dfa::DfaProgram>,
 ) -> Option<MatchResult> {
     let slen = s.len() as i64;
     let mut st = from_pos;
@@ -350,18 +337,8 @@ pub fn search_from_with_ws(
     // runs `vm_match_at(.., end_target = st + n)` for a second pass
     // that produces the winning thread's `saves`.
     let dfa_fast_path = prog.can_dfa && crate::dfa::prog_ops_dfa_safe(prog);
-    // chunk 7.7 — prefer the caller-cached DFA built once per-RegExp
-    // (`RegExp::get_or_build_dfa`); fall back to inline per-call build
-    // when the caller didn't pass one (vm unit tests, internal entry
-    // points without a RegExp host). Both paths share the gate so the
-    // call shape stays stable.
-    let dfa_built_local = if dfa_fast_path && dfa_cached.is_none() {
+    let dfa_built = if dfa_fast_path {
         Some(crate::dfa::build_dfa(prog, flags))
-    } else {
-        None
-    };
-    let dfa_built: Option<&crate::dfa::DfaProgram> = if dfa_fast_path {
-        dfa_cached.or(dfa_built_local.as_ref())
     } else {
         None
     };
@@ -401,7 +378,7 @@ pub fn search_from_with_ws(
             st += 1;
             continue;
         }
-        if let Some(dfa) = dfa_built {
+        if let Some(dfa) = dfa_built.as_ref() {
             // Anchored DFA at byte offset `st`. The DFA itself is
             // capture-blind (chunk 9: `Op::Save` is a no-op ε in the
             // closure), so the byte-step traversal finds `[st..end]`
@@ -550,7 +527,7 @@ mod tests {
     #[test]
     fn search_literal_match_at_offset() {
         let prog = build("abc", 0);
-        let r = search_from(&prog, b"xxabcyy", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"xxabcyy", 0, 0).expect("hit");
         assert_eq!(r.start, 2);
         assert_eq!(r.end, 5);
     }
@@ -558,13 +535,13 @@ mod tests {
     #[test]
     fn search_literal_miss_returns_none() {
         let prog = build("abc", 0);
-        assert!(search_from(&prog, b"xyz", 0, 0, None).is_none());
+        assert!(search_from(&prog, b"xyz", 0, 0).is_none());
     }
 
     #[test]
     fn search_with_alternation() {
         let prog = build("cat|dog", 0);
-        let r = search_from(&prog, b"the dog runs", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"the dog runs", 0, 0).expect("hit");
         assert_eq!(r.start, 4);
         assert_eq!(r.end, 7);
     }
@@ -572,7 +549,7 @@ mod tests {
     #[test]
     fn search_with_star_quantifier_greedy() {
         let prog = build("a*", 0);
-        let r = search_from(&prog, b"aaab", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"aaab", 0, 0).expect("hit");
         assert_eq!(r.start, 0);
         assert_eq!(r.end, 3);
     }
@@ -580,7 +557,7 @@ mod tests {
     #[test]
     fn search_captures_group() {
         let prog = build("(\\d+)", 0);
-        let r = search_from(&prog, b"x42y", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"x42y", 0, 0).expect("hit");
         assert_eq!(r.start, 1);
         assert_eq!(r.end, 3);
         assert_eq!(r.saves[2], 1); // group 1 start
@@ -599,7 +576,7 @@ mod tests {
         let prog = build("(abc)", 0);
         assert!(prog_has_save(&prog));
         assert!(crate::dfa::prog_ops_dfa_safe(&prog));
-        let r = search_from(&prog, b"xxabcyy", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"xxabcyy", 0, 0).expect("hit");
         assert_eq!(r.start, 2);
         assert_eq!(r.end, 5);
         assert_eq!(r.saves[2], 2); // group 1 start
@@ -612,7 +589,7 @@ mod tests {
         // branch and writes its capture slots.
         let prog = build("(cat|dog)", 0);
         assert!(crate::dfa::prog_ops_dfa_safe(&prog));
-        let r = search_from(&prog, b"--dog--", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"--dog--", 0, 0).expect("hit");
         assert_eq!(r.start, 2);
         assert_eq!(r.end, 5);
         assert_eq!(r.saves[2], 2);
@@ -626,7 +603,7 @@ mod tests {
         // the longest `a+` run that lets `b` match.
         let prog = build("(a+)b", 0);
         assert!(crate::dfa::prog_ops_dfa_safe(&prog));
-        let r = search_from(&prog, b"  aaab xx", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"  aaab xx", 0, 0).expect("hit");
         assert_eq!(r.start, 2);
         assert_eq!(r.end, 6);
         assert_eq!(r.saves[2], 2);
@@ -641,7 +618,7 @@ mod tests {
         let prog = build("abc", 0);
         assert!(!prog_has_save(&prog));
         assert!(crate::dfa::prog_ops_dfa_safe(&prog));
-        let r = search_from(&prog, b"xxabcyy", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"xxabcyy", 0, 0).expect("hit");
         assert_eq!(r.start, 2);
         assert_eq!(r.end, 5);
         assert_eq!(r.saves[0], -1);
@@ -660,7 +637,7 @@ mod tests {
     #[test]
     fn case_insensitive_match() {
         let prog = build("Hello", RE_FLAG_I);
-        let r = search_from(&prog, b"hello world", 0, RE_FLAG_I, None).expect("hit");
+        let r = search_from(&prog, b"hello world", 0, RE_FLAG_I).expect("hit");
         assert_eq!(r.start, 0);
         assert_eq!(r.end, 5);
     }
@@ -668,15 +645,15 @@ mod tests {
     #[test]
     fn anchor_beg_only_matches_at_start() {
         let prog = build("^abc", 0);
-        assert!(search_from(&prog, b"xabc", 0, 0, None).is_none());
-        assert!(search_from(&prog, b"abcx", 0, 0, None).is_some());
+        assert!(search_from(&prog, b"xabc", 0, 0).is_none());
+        assert!(search_from(&prog, b"abcx", 0, 0).is_some());
     }
 
     #[test]
     fn anchor_end_only_matches_at_end() {
         let prog = build("abc$", 0);
-        assert!(search_from(&prog, b"abcx", 0, 0, None).is_none());
-        assert!(search_from(&prog, b"xabc", 0, 0, None).is_some());
+        assert!(search_from(&prog, b"abcx", 0, 0).is_none());
+        assert!(search_from(&prog, b"xabc", 0, 0).is_some());
     }
 
     #[test]
@@ -686,13 +663,13 @@ mod tests {
         // haystack end with `Op::AnchorE` reachable via at-end ε.
         let prog = build("foo$", 0);
         assert!(crate::dfa::prog_ops_dfa_safe(&prog));
-        let r = search_from(&prog, b"xx foo", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"xx foo", 0, 0).expect("hit");
         assert_eq!(r.start, 3);
         assert_eq!(r.end, 6);
         // Same `foo` not at end: no hit.
-        assert!(search_from(&prog, b"foo bar", 0, 0, None).is_none());
+        assert!(search_from(&prog, b"foo bar", 0, 0).is_none());
         // Multiple `foo`s, only the trailing one matches.
-        let r = search_from(&prog, b"foo foo", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"foo foo", 0, 0).expect("hit");
         assert_eq!(r.start, 4);
         assert_eq!(r.end, 7);
     }
@@ -706,7 +683,7 @@ mod tests {
         // suffix's at-end accept fires.
         let prog = build("$", 0);
         assert!(crate::dfa::prog_ops_dfa_safe(&prog));
-        let r = search_from(&prog, b"abc", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"abc", 0, 0).expect("hit");
         assert_eq!(r.start, 3);
         assert_eq!(r.end, 3);
     }
@@ -723,18 +700,18 @@ mod tests {
         // → no boundary → no match at offset 1.
         // The outer search_from also advances st but every later st
         // also has word-prev. So no hit anywhere.
-        assert!(search_from(&prog, b"xfoo", 0, 0, None).is_none());
+        assert!(search_from(&prog, b"xfoo", 0, 0).is_none());
         // " foo": st=0 anchored start, left=None / non-word, right
         // =' ' (non-word) — boundary needs lw != rw; both false →
         // no boundary; NFA-equivalent dfa step finds none at st=0.
         // st=1 mid_nonword (prev=' '), left=NonWord, right='f' (word)
         // → boundary → match starting at st=1, end=4.
-        let r = search_from(&prog, b" foo", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b" foo", 0, 0).expect("hit");
         assert_eq!(r.start, 1);
         assert_eq!(r.end, 4);
         // At text-start "foo": left=None / non-word, right='f' /
         // word → boundary → match at st=0.
-        let r = search_from(&prog, b"foo", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"foo", 0, 0).expect("hit");
         assert_eq!(r.start, 0);
         assert_eq!(r.end, 3);
     }
@@ -748,11 +725,11 @@ mod tests {
         // boundary → NWBound advances → match at st=1, end=4.
         let prog = build("\\Bfoo", 0);
         assert!(crate::dfa::prog_ops_dfa_safe(&prog));
-        let r = search_from(&prog, b"xfoo", 0, 0, None).expect("hit");
+        let r = search_from(&prog, b"xfoo", 0, 0).expect("hit");
         assert_eq!(r.start, 1);
         assert_eq!(r.end, 4);
         // Standalone "foo": every position has a boundary (text-
         // start to 'f', or end of "foo"), so NWBound finds nothing.
-        assert!(search_from(&prog, b"foo", 0, 0, None).is_none());
+        assert!(search_from(&prog, b"foo", 0, 0).is_none());
     }
 }
