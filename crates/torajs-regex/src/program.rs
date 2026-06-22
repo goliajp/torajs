@@ -24,7 +24,9 @@
 //! re-consume (`BACKREF`).
 
 use crate::charclass::CharClass;
+use crate::dfa::DfaProgram;
 use alloc::{boxed::Box, vec::Vec};
+use core::cell::UnsafeCell;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -206,11 +208,53 @@ pub struct Program {
     /// `false` keeps the never-match stub (rejected case) safely
     /// out of any future fast path.
     pub can_dfa: bool,
+    /// Lazy per-Program DFA cache (mirror of [`crate::regex::RegExp::workspace_cache`]).
+    /// `None` until the first [`Program::get_or_build_dfa`] call;
+    /// subsequent calls reuse the built [`DfaProgram`] for every
+    /// search/replace invocation against this program. The build cost
+    /// (BFS subset construction over 256 input bytes per state) is paid
+    /// once at first use; downstream `dfa_search` is then table-walk.
+    ///
+    /// Single-threaded by v0.2's no-multi-thread substrate (§6.2 of the
+    /// design principles); biased-ARC multi-thread transition (v1.0+)
+    /// will rebuild per owner-thread or share-transition the cache
+    /// through the cross-thread atomic path.
+    pub dfa_cache: UnsafeCell<Option<DfaProgram>>,
 }
 
 impl Program {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Lazy-build the DFA on first call; return `Some(&DfaProgram)` if
+    /// this program is DFA-eligible ([`Program::can_dfa`] is `true`),
+    /// `None` otherwise.
+    ///
+    /// Callers must additionally gate on the absence of `SAVE` / `Anchor*` /
+    /// `WBound` / `NWBound` opcodes until chunks 8/9 land — those are
+    /// terminal in [`crate::dfa::epsilon_closure`] and the resulting
+    /// DFA does not yet represent their effects. Future chunks tighten
+    /// the gate inside this method.
+    ///
+    /// Build cost is paid exactly once per `Program` instance via the
+    /// `UnsafeCell` lazy slot; subsequent calls return the cached
+    /// reference. Single-threaded by v0.2 substrate convention; v1.0+
+    /// biased-ARC share will thread-local-index this cache (see field
+    /// docs).
+    pub fn get_or_build_dfa(&self) -> Option<&DfaProgram> {
+        if !self.can_dfa {
+            return None;
+        }
+        // SAFETY: v0.2 single-mutator substrate (§6.2 of the design
+        // principles) guarantees no concurrent access. Mirrors the
+        // `workspace_cache` UnsafeCell pattern on `RegExp`.
+        let cell_ptr = self.dfa_cache.get();
+        let opt: &mut Option<DfaProgram> = unsafe { &mut *cell_ptr };
+        if opt.is_none() {
+            *opt = Some(crate::dfa::build_dfa(self));
+        }
+        opt.as_ref()
     }
 
     /// Append an instruction; return its index (i32 to match the
@@ -334,5 +378,67 @@ mod tests {
     #[test]
     fn inst_size_matches_c_port() {
         assert_eq!(core::mem::size_of::<Inst>(), 12);
+    }
+
+    // get_or_build_dfa lazy-slot tests — exercise the UnsafeCell-backed
+    // DFA cache: gating on `can_dfa`, lazy build on first call, identity
+    // reuse on subsequent calls, and the post-build invariant that the
+    // cached `DfaProgram` reflects the program structure.
+
+    #[test]
+    fn get_or_build_dfa_returns_none_when_can_dfa_is_false() {
+        let mut p = Program::new();
+        p.emit(Inst::char_lit(b'a'));
+        p.emit(Inst::match_accept());
+        // default: can_dfa = false → cache stays unbuilt and we get None.
+        assert!(p.get_or_build_dfa().is_none());
+        // SAFETY: not concurrently accessed in this test. Mirror the
+        // unsafe in `get_or_build_dfa` to peek at the cache.
+        let cache_state = unsafe { &*p.dfa_cache.get() };
+        assert!(
+            cache_state.is_none(),
+            "rejected path must not eagerly build"
+        );
+    }
+
+    #[test]
+    fn get_or_build_dfa_builds_lazily_when_eligible() {
+        let mut p = Program::new();
+        p.emit(Inst::char_lit(b'a'));
+        p.emit(Inst::match_accept());
+        p.can_dfa = true;
+        // Cache empty before the call.
+        let pre = unsafe { &*p.dfa_cache.get() };
+        assert!(pre.is_none());
+        // First call builds the DFA in place.
+        let dfa = p.get_or_build_dfa().expect("can_dfa = true => Some");
+        // dead + start({0}) + accept({1}) = 3 states (same as direct
+        // build_dfa unit test in dfa.rs).
+        assert_eq!(dfa.states.len(), 3);
+        // Cache now Some.
+        let post = unsafe { &*p.dfa_cache.get() };
+        assert!(post.is_some());
+    }
+
+    #[test]
+    fn get_or_build_dfa_returns_same_dfa_across_calls() {
+        let mut p = Program::new();
+        p.emit(Inst::char_lit(b'x'));
+        p.emit(Inst::match_accept());
+        p.can_dfa = true;
+        let first = p.get_or_build_dfa().unwrap() as *const _;
+        let second = p.get_or_build_dfa().unwrap() as *const _;
+        assert_eq!(first, second, "lazy slot must reuse same DfaProgram");
+    }
+
+    #[test]
+    fn get_or_build_dfa_on_empty_program_returns_one_state() {
+        let mut p = Program::new();
+        p.can_dfa = true;
+        // empty Program → epsilon_closure({0}) = {} → DfaProgram with
+        // only the dead state, start = 0.
+        let dfa = p.get_or_build_dfa().unwrap();
+        assert_eq!(dfa.states.len(), 1);
+        assert_eq!(dfa.start, 0);
     }
 }

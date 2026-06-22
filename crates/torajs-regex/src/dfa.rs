@@ -26,11 +26,15 @@
 //!   match-end position seen (per-byte, leftmost-longest semantics).
 //!   Single multiply-free index per step; on dead-state (idx 0) the
 //!   walk stops since no extension can ever accept.
+//! - **per-Program lazy DFA cache** ([`crate::program::Program::dfa_cache`]
+//!   + [`crate::program::Program::get_or_build_dfa`]) — `UnsafeCell<Option<DfaProgram>>`
+//!   slot on `Program` (mirror of `RegExp::workspace_cache`). Eligible
+//!   patterns build the DFA exactly once on first access; ineligible
+//!   patterns return `None` cheaply and stay out of the fast path.
 //!
-//! Future chunks: per-RegExp DFA cache (UnsafeCell lazy slot), fast-path
-//! fork in `vm::search_from_with_ws`, position-context DFA states
-//! (Anchor / WBound), per-state save-mask (SAVE), and `u`-flag
-//! code-point step.
+//! Future chunks: fast-path fork in `vm::search_from_with_ws`,
+//! position-context DFA states (Anchor / WBound), per-state save-mask
+//! (SAVE), and `u`-flag code-point step.
 //! Tracking RFC: `.claude/rfcs/20260622-pike-vm-dfa/design.md`.
 
 use alloc::collections::{BTreeMap, BTreeSet};
