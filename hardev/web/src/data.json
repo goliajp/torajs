@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T18:20:43.951Z",
+  "generatedAt": "2026-06-22T19:21:24.820Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "20adf35d",
-    "commitSubject": "refactor(torajs-regex): split dfa/mod.rs build + search into sub-modules (file-size HARD)",
+    "commit": "fd2e97d5",
+    "commitSubject": "fix(torajs-regex): chunk 10d v2 — skip re-expanding byte_only leaves (fix infinite recursion)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,26 @@
   },
   "commits": [
     {
+      "hash": "fd2e97d5",
+      "subject": "fix(torajs-regex): chunk 10d v2 — skip re-expanding byte_only leaves (fix infinite recursion)"
+    },
+    {
+      "hash": "0d2c3bf1",
+      "subject": "feat(torajs-regex): DFA u-flag unsafe class via UTF-8 expansion (chunk 10d v2)"
+    },
+    {
+      "hash": "c33547d2",
+      "subject": "Revert \"feat(torajs-regex): DFA u-flag unsafe class via UTF-8 expansion (chunk 10d)\""
+    },
+    {
+      "hash": "5faf4e47",
+      "subject": "feat(torajs-regex): DFA u-flag unsafe class via UTF-8 expansion (chunk 10d)"
+    },
+    {
+      "hash": "3677d7f0",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 20adf35d dfa/mod.rs split (build + search)"
+    },
+    {
       "hash": "20adf35d",
       "subject": "refactor(torajs-regex): split dfa/mod.rs build + search into sub-modules (file-size HARD)"
     },
@@ -643,47 +663,38 @@
     {
       "hash": "2f26901c",
       "subject": "feat(torajs-regex): DFA AnyChar honours `\\n` exclusion without `s` flag (chunk 10a)"
-    },
-    {
-      "hash": "f98cf404",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 450a72b6 Pike VM DFA chunk 8.6b (WBound/NWBound)"
-    },
-    {
-      "hash": "450a72b6",
-      "subject": "fix(torajs-regex): chunk 8.6b zero-width accept before stepping byte (\\b at match end)"
-    },
-    {
-      "hash": "2b57739a",
-      "subject": "fix(torajs-regex): chunk 8.6b BFS closure API role + state dedup"
-    },
-    {
-      "hash": "a43d40d8",
-      "subject": "feat(torajs-regex): WBound/NWBound via LeftByteAttr state key (Pike VM DFA chunk 8.6b)"
-    },
-    {
-      "hash": "6b433996",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 03d3b274 Pike VM DFA chunk 8.6a (AnchorE)"
     }
   ],
-  "headSha": "20adf35d",
+  "headSha": "fd2e97d5",
   "autorun": {
-    "total": 228,
+    "total": 229,
     "baselineTarget": 10,
-    "bySelf": 223,
+    "bySelf": 224,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782147103-5eb7",
-      "at": "2026-06-22T16:51:43Z",
-      "ts": 1782147103,
+      "rotationId": "r-1782152528-345e",
+      "at": "2026-06-22T18:22:08Z",
+      "ts": 1782152528,
       "trigger": "self",
-      "prevHead": "f98cf404",
-      "handoffSha": "sha256:0daa24b18c6274a2a0348d65eeeb644fce8c149edf565284d9c9abde78db7c42",
-      "handoffAgeSec": 59,
+      "prevHead": "3677d7f0",
+      "handoffSha": "sha256:d77009254fda1ea7d524bf9548ed682ccf3d5ce5b15a7d4bae032e51739dba25",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782152528-345e",
+        "at": "2026-06-22T18:22:08Z",
+        "ts": 1782152528,
+        "trigger": "self",
+        "prevHead": "3677d7f0",
+        "handoffSha": "sha256:d77009254fda1ea7d524bf9548ed682ccf3d5ce5b15a7d4bae032e51739dba25",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782147103-5eb7",
         "at": "2026-06-22T16:51:43Z",
@@ -780,17 +791,6 @@
         "prevHead": "5473826c",
         "handoffSha": "sha256:e44842832d79264ca3b91da7771d842445cd04f3b8e804697cf3968d73dd1572",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782052153-3e8b",
-        "at": "2026-06-21T14:29:13Z",
-        "ts": 1782052153,
-        "trigger": "self",
-        "prevHead": "90efa1a8",
-        "handoffSha": "sha256:eda697b5b96600ca88d533cbe9d74cce4761ac4229718599a90f867f66c06ea4",
-        "handoffAgeSec": 193,
         "conformanceBefore": null,
         "commitsInSession": null
       }
