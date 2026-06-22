@@ -37,17 +37,19 @@ pub fn vm_match_at(
 
     ws.cur.clear();
     ws.cur.step_id = ws.next_step_id();
-    let empty_saves = [-1i64; REGEX_SAVE_SLOTS];
+    ws.arena.reset();
+    let seed_saves_id = ws.arena.alloc_empty();
     // Seed PC=0 through the epsilon expander.
     add_thread(
         &mut ws.cur,
         &mut ws.vc,
+        &mut ws.arena,
         0,
         prog,
         s,
         start_pos,
         flags,
-        &empty_saves,
+        seed_saves_id,
     );
 
     let mut end_pos: i64 = -1;
@@ -64,35 +66,34 @@ pub fn vm_match_at(
         // Iterate cur via index — body may push into cur (BACKREF
         // epsilon hop on empty capture) and we want to see those.
         while ti < ws.cur.list.len() && !saw_match_this_step {
-            // V0.2 P14-S10 — borrow-split. The pre-S10 shape snapshot-
-            // cloned the full 528-byte Thread every iter just to release
-            // the `&ws.cur.list[ti]` aliasing for the `add_thread(&mut
-            // ws.nxt, ...)` call. NLL with field-level disjoint borrows
-            // (`ws.cur.list[saves_idx].saves` borrows `ws.cur`,
-            // `&mut ws.nxt` borrows `ws.nxt`) accepts passing the saves
-            // by ref across the call, avoiding the clone on every input-
-            // consuming op. Op::Backref still needs an owned Thread (its
-            // handler calls `add_thread(&mut ws.cur, ...)` which aliases
-            // `ws.cur.list`).
-            let saves_idx = ti;
-            let pc = ws.cur.list[saves_idx].pc;
-            let br_offset = ws.cur.list[saves_idx].br_offset;
-            let u_skip = ws.cur.list[saves_idx].u_skip;
+            // V0.2 P14-S12 — saves arena. The pre-S10 shape cloned the
+            // full 528-byte Thread; S10 borrow-split removed the clone
+            // by passing the saves array by ref through NLL field-split
+            // borrows. S12 collapses the saves payload entirely: Thread
+            // is now 24 bytes (pc + br_offset + u_skip + saves_id), so
+            // `nxt.push(Thread{..})` inside `add_thread`'s terminal arm
+            // memcpys 24 bytes instead of 528. The capture-save rows
+            // live in `ws.arena`; the per-Thread `saves_id` indexes
+            // into it. Hot-loop arms forward `saves_id` by value (u32);
+            // only `Op::Save` allocates a fresh row via `alloc_clone`.
+            let t_pc = ws.cur.list[ti].pc;
+            let t_br_offset = ws.cur.list[ti].br_offset;
+            let t_u_skip = ws.cur.list[ti].u_skip;
+            let t_saves_id = ws.cur.list[ti].saves_id;
             ti += 1;
-            if u_skip > 0 {
+            if t_u_skip > 0 {
                 // u_skip defer — pass-through to nxt with skip
                 // decremented. Bypasses the visited table on
                 // purpose so the deferred thread isn't dropped.
-                let saves = ws.cur.list[saves_idx].saves;
                 ws.nxt.push(Thread {
-                    pc,
-                    br_offset,
-                    u_skip: u_skip - 1,
-                    saves,
+                    pc: t_pc,
+                    br_offset: t_br_offset,
+                    u_skip: t_u_skip - 1,
+                    saves_id: t_saves_id,
                 });
                 continue;
             }
-            let ins = prog.insts[pc];
+            let ins = prog.insts[t_pc];
             let Some(op) = Op::from_u8(ins.op) else {
                 continue;
             };
@@ -102,12 +103,13 @@ pub fn vm_match_at(
                         add_thread(
                             &mut ws.nxt,
                             &mut ws.vn,
-                            (pc + 1) as i32,
+                            &mut ws.arena,
+                            (t_pc + 1) as i32,
                             prog,
                             s,
                             pos + 1,
                             flags,
-                            &ws.cur.list[saves_idx].saves,
+                            t_saves_id,
                         );
                     }
                 }
@@ -128,12 +130,13 @@ pub fn vm_match_at(
                         add_thread(
                             &mut ws.nxt,
                             &mut ws.vn,
-                            (pc + 1) as i32,
+                            &mut ws.arena,
+                            (t_pc + 1) as i32,
                             prog,
                             s,
                             pos + adv,
                             flags,
-                            &ws.cur.list[saves_idx].saves,
+                            t_saves_id,
                         );
                         if adv > 1 {
                             let skip = (adv - 1) as i32;
@@ -165,12 +168,13 @@ pub fn vm_match_at(
                             add_thread(
                                 &mut ws.nxt,
                                 &mut ws.vn,
-                                (pc + 1) as i32,
+                                &mut ws.arena,
+                                (t_pc + 1) as i32,
                                 prog,
                                 s,
                                 pos + adv,
                                 flags,
-                                &ws.cur.list[saves_idx].saves,
+                                t_saves_id,
                             );
                             if adv > 1 {
                                 let skip = (adv - 1) as i32;
@@ -182,14 +186,14 @@ pub fn vm_match_at(
                     }
                 }
                 Op::Backref => {
-                    // BACKREF needs full Thread because handle_backref
-                    // may schedule into ws.cur (aliases ws.cur.list).
-                    let saves = ws.cur.list[saves_idx].saves;
+                    // BACKREF needs scalar Thread fields + saves_id;
+                    // handle_backref reads saves via the arena and may
+                    // schedule into ws.cur (alias-free via field-split).
                     let t = Thread {
-                        pc,
-                        br_offset,
-                        u_skip,
-                        saves,
+                        pc: t_pc,
+                        br_offset: t_br_offset,
+                        u_skip: t_u_skip,
+                        saves_id: t_saves_id,
                     };
                     handle_backref(prog, s, pos, flags, &t, ins.a, ws);
                 }
@@ -203,7 +207,7 @@ pub fn vm_match_at(
                         saw_match_this_step = true;
                         end_pos = pos;
                         if let Some(ref mut o) = out_saves {
-                            **o = ws.cur.list[saves_idx].saves;
+                            (*o).copy_from_slice(ws.arena.get(t_saves_id));
                         }
                     }
                 }
@@ -221,14 +225,17 @@ pub fn vm_match_at(
 
     // End-of-input: any thread sitting on MATCH after the loop is
     // also an acceptance.
-    for t in &ws.cur.list {
-        if prog.insts[t.pc].op == Op::Match as u8
-            && t.u_skip == 0
+    for ti in 0..ws.cur.list.len() {
+        let t_pc = ws.cur.list[ti].pc;
+        let t_u_skip = ws.cur.list[ti].u_skip;
+        let t_saves_id = ws.cur.list[ti].saves_id;
+        if prog.insts[t_pc].op == Op::Match as u8
+            && t_u_skip == 0
             && (end_target < 0 || slen == end_target)
         {
             end_pos = slen;
             if let Some(ref mut o) = out_saves {
-                **o = t.saves;
+                (*o).copy_from_slice(ws.arena.get(t_saves_id));
             }
             break;
         }
@@ -251,7 +258,8 @@ fn handle_backref(
     let slot_s = (2 * cap_idx) as usize;
     let slot_e = (2 * cap_idx + 1) as usize;
     let (cs, ce) = if cap_idx >= 1 && slot_e < REGEX_SAVE_SLOTS {
-        (t.saves[slot_s], t.saves[slot_e])
+        let row = ws.arena.get(t.saves_id);
+        (row[slot_s], row[slot_e])
     } else {
         (-1, -1)
     };
@@ -264,12 +272,13 @@ fn handle_backref(
         add_thread(
             &mut ws.cur,
             &mut ws.vc,
+            &mut ws.arena,
             (t.pc + 1) as i32,
             prog,
             s,
             pos,
             flags,
-            &t.saves,
+            t.saves_id,
         );
         return;
     }
@@ -286,12 +295,13 @@ fn handle_backref(
             add_thread(
                 &mut ws.nxt,
                 &mut ws.vn,
+                &mut ws.arena,
                 (t.pc + 1) as i32,
                 prog,
                 s,
                 pos + 1,
                 flags,
-                &t.saves,
+                t.saves_id,
             );
         } else {
             // Continue same pc next step with offset bumped. Direct
@@ -301,7 +311,7 @@ fn handle_backref(
                 pc: t.pc,
                 br_offset: new_offset,
                 u_skip: 0,
-                saves: t.saves,
+                saves_id: t.saves_id,
             });
         }
     }

@@ -35,7 +35,18 @@ use alloc::{vec, vec::Vec};
 /// every Thread in `cur` and advances PCs to `nxt` (or, for backref
 /// continuation / u-flag deferred bytes, back to `nxt` at the same
 /// `pc` with mutated bookkeeping).
-#[derive(Clone, Debug)]
+///
+/// V0.2 P14-S12 — saves arena. Pre-S12 the capture-save slots lived
+/// inline (`[i64; 64]` = 512 bytes/Thread → 528-byte Thread); every
+/// `nxt.push(Thread{..})` in the hot loop memcpy'd the whole 528
+/// bytes into the `Vec<Thread>` backing storage. saves now live in a
+/// `SavesArena` owned by [`Workspace`]; Thread carries a 4-byte
+/// `saves_id` handle. Thread shrinks from 528 → 24 bytes (22×); the
+/// hot-loop nxt.push memcpy collapses from 528 → 24 bytes. `Op::Save`
+/// pays one arena `alloc_clone` (still 512 bytes copy) per capture-
+/// boundary epsilon, but those fire ~O(1) per match versus the
+/// per-input-byte Thread copy that S10 borrow-split could not eliminate.
+#[derive(Clone, Copy, Debug)]
 pub struct Thread {
     /// Program counter (index into `Program.insts`).
     pub pc: usize,
@@ -47,21 +58,11 @@ pub struct Thread {
     /// Bypasses the visited table so deferred threads survive
     /// step-to-step swaps without colliding with fresh entrants.
     pub u_skip: i32,
-    /// Capture-group save slots, indexed `2*idx` (start) / `2*idx+1`
-    /// (end). `-1` sentinel = "not captured". Cloned across SPLIT
-    /// forks so a SAVE in one branch doesn't leak into the other.
-    pub saves: [i64; REGEX_SAVE_SLOTS],
-}
-
-impl Thread {
-    pub fn empty() -> Self {
-        Self {
-            pc: 0,
-            br_offset: 0,
-            u_skip: 0,
-            saves: [-1; REGEX_SAVE_SLOTS],
-        }
-    }
+    /// Handle into the Workspace `SavesArena` — identifies the row of
+    /// `REGEX_SAVE_SLOTS` `i64`s holding this thread's capture saves.
+    /// SPLIT forks each get a fresh `alloc_clone` so SAVE in one
+    /// branch doesn't leak into the other.
+    pub saves_id: u32,
 }
 
 /// Linked-list-replacement: `Vec<Thread>` with a `step_id` stamp
@@ -115,17 +116,74 @@ impl VisitedTable {
     }
 }
 
+/// Pool of capture-save rows. Each `alloc_*` returns a `u32` handle
+/// indexing into a flat `Vec<i64>` of `REGEX_SAVE_SLOTS`-wide rows.
+/// V0.2 P14-S12 — replaces the per-Thread inline `[i64; 64]` saves
+/// array so the Pike VM hot loop only memcpys 24-byte Threads instead
+/// of 528-byte Threads. Cleared at the top of each `vm_match_at` call
+/// (rows from a prior call are unused once `cur/nxt` are cleared).
+#[derive(Debug)]
+pub struct SavesArena {
+    pub data: Vec<i64>,
+}
+
+impl SavesArena {
+    pub fn with_capacity(rows: usize) -> Self {
+        Self {
+            data: Vec::with_capacity(rows * REGEX_SAVE_SLOTS),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.data.clear();
+    }
+
+    /// Allocate a fresh row initialised to `-1` (sentinel for
+    /// "not captured"). Returns the row's handle.
+    pub fn alloc_empty(&mut self) -> u32 {
+        let id = (self.data.len() / REGEX_SAVE_SLOTS) as u32;
+        let new_len = self.data.len() + REGEX_SAVE_SLOTS;
+        self.data.resize(new_len, -1);
+        id
+    }
+
+    /// Allocate a fresh row pre-populated with a copy of `src_id`'s
+    /// row. Used by `Op::Save` to fork a per-branch saves snapshot.
+    pub fn alloc_clone(&mut self, src_id: u32) -> u32 {
+        let src_start = (src_id as usize) * REGEX_SAVE_SLOTS;
+        let new_start = self.data.len();
+        let new_id = (new_start / REGEX_SAVE_SLOTS) as u32;
+        self.data.resize(new_start + REGEX_SAVE_SLOTS, -1);
+        self.data
+            .copy_within(src_start..src_start + REGEX_SAVE_SLOTS, new_start);
+        new_id
+    }
+
+    /// Read-only access to a row.
+    pub fn get(&self, id: u32) -> &[i64] {
+        let start = (id as usize) * REGEX_SAVE_SLOTS;
+        &self.data[start..start + REGEX_SAVE_SLOTS]
+    }
+
+    /// Write a single slot.
+    pub fn write_slot(&mut self, id: u32, slot: usize, val: i64) {
+        let start = (id as usize) * REGEX_SAVE_SLOTS;
+        self.data[start + slot] = val;
+    }
+}
+
 /// Reusable per-Program workspace — allocates once at search start;
 /// re-used across tight-loop iterations (replaceAll / matchAll /
-/// split) via [`search_from_with_ws`]. Size: `2 * (n_insts *
-/// sizeof::<Thread>() + n_insts * 4)` ≈ `2 * n_insts * 540 B`. For
-/// a 100-instruction program, ≈ 108 KB per workspace.
+/// split) via [`search_from_with_ws`]. Sized so `cur/nxt` lists and
+/// the saves arena each pre-reserve room for `n_insts` rows; growth
+/// happens on demand via `Vec::resize`.
 #[derive(Debug)]
 pub struct Workspace {
     pub cur: ThreadList,
     pub nxt: ThreadList,
     pub vc: VisitedTable,
     pub vn: VisitedTable,
+    pub arena: SavesArena,
     pub step_id: u32,
 }
 
@@ -137,6 +195,7 @@ impl Workspace {
             nxt: ThreadList::with_capacity(n),
             vc: VisitedTable::with_size(n),
             vn: VisitedTable::with_size(n),
+            arena: SavesArena::with_capacity(n),
             step_id: 0,
         }
     }

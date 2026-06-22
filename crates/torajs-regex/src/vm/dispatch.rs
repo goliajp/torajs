@@ -12,7 +12,7 @@
 //! at the parent's add_thread call site. Both allocate their own
 //! workspace because they recurse — they can't share the parent's.
 
-use super::{ThreadList, VisitedTable, Workspace};
+use super::{SavesArena, ThreadList, VisitedTable, Workspace};
 use crate::node::REGEX_SAVE_SLOTS;
 use crate::parser::{RE_FLAG_M, is_word_byte};
 use crate::program::{Op, Program};
@@ -22,16 +22,22 @@ use crate::vm::match_at::vm_match_at;
 /// Transitively expand epsilon ops reachable from `pc` and enqueue
 /// the resulting waiting threads into `tl`. Visited-table dedup
 /// keeps the recursion bounded (each PC processed once per step).
+///
+/// `saves_id` is an arena handle (V0.2 P14-S12): epsilon hops forward
+/// the same handle (no copy); `Op::Save` allocates a fresh row via
+/// `arena.alloc_clone` so the SPLIT-fork branch isolation invariant
+/// from the pre-S12 inline-saves shape is preserved.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn add_thread(
     tl: &mut ThreadList,
     vt: &mut VisitedTable,
+    arena: &mut SavesArena,
     pc: i32,
     prog: &Program,
     s: &[u8],
     pos: i64,
     flags: u8,
-    saves: &[i64; REGEX_SAVE_SLOTS],
+    saves_id: u32,
 ) {
     if pc < 0 || (pc as usize) >= prog.len() {
         return;
@@ -48,85 +54,79 @@ pub(super) fn add_thread(
     };
     let slen = s.len() as i64;
     match op {
-        Op::Jmp => add_thread(tl, vt, ins.a, prog, s, pos, flags, saves),
+        Op::Jmp => add_thread(tl, vt, arena, ins.a, prog, s, pos, flags, saves_id),
         Op::Split => {
-            add_thread(tl, vt, ins.a, prog, s, pos, flags, saves);
-            add_thread(tl, vt, ins.b, prog, s, pos, flags, saves);
+            add_thread(tl, vt, arena, ins.a, prog, s, pos, flags, saves_id);
+            add_thread(tl, vt, arena, ins.b, prog, s, pos, flags, saves_id);
         }
         Op::Save => {
-            let mut copy = *saves;
             let slot = ins.a;
+            let new_id = arena.alloc_clone(saves_id);
             if slot >= 0 && (slot as usize) < REGEX_SAVE_SLOTS {
-                copy[slot as usize] = pos;
+                arena.write_slot(new_id, slot as usize, pos);
             }
-            add_thread(tl, vt, pc + 1, prog, s, pos, flags, &copy);
+            add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, new_id);
         }
         Op::AnchorB => {
             let ok =
                 pos == 0 || (flags & RE_FLAG_M != 0 && pos > 0 && s[(pos - 1) as usize] == b'\n');
             if ok {
-                add_thread(tl, vt, pc + 1, prog, s, pos, flags, saves);
+                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }
         }
         Op::AnchorE => {
             let ok =
                 pos == slen || (flags & RE_FLAG_M != 0 && pos < slen && s[pos as usize] == b'\n');
             if ok {
-                add_thread(tl, vt, pc + 1, prog, s, pos, flags, saves);
+                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }
         }
         Op::WBound => {
             let left = pos > 0 && is_word_byte(s[(pos - 1) as usize]);
             let right = pos < slen && is_word_byte(s[pos as usize]);
             if left != right {
-                add_thread(tl, vt, pc + 1, prog, s, pos, flags, saves);
+                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }
         }
         Op::NWBound => {
             let left = pos > 0 && is_word_byte(s[(pos - 1) as usize]);
             let right = pos < slen && is_word_byte(s[pos as usize]);
             if left == right {
-                add_thread(tl, vt, pc + 1, prog, s, pos, flags, saves);
+                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }
         }
         Op::Lookahead => {
             let sub = &prog.sub_progs[ins.a as usize];
             if sub_probe(sub, s, pos, flags) {
-                add_thread(tl, vt, pc + 1, prog, s, pos, flags, saves);
+                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }
         }
         Op::NegLookahead => {
             let sub = &prog.sub_progs[ins.a as usize];
             if !sub_probe(sub, s, pos, flags) {
-                add_thread(tl, vt, pc + 1, prog, s, pos, flags, saves);
+                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }
         }
         Op::Lookbehind => {
             let sub = &prog.sub_progs[ins.a as usize];
             if sub_probe_ending_at(sub, s, pos, flags) {
-                add_thread(tl, vt, pc + 1, prog, s, pos, flags, saves);
+                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }
         }
         Op::NegLookbehind => {
             let sub = &prog.sub_progs[ins.a as usize];
             if !sub_probe_ending_at(sub, s, pos, flags) {
-                add_thread(tl, vt, pc + 1, prog, s, pos, flags, saves);
+                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }
         }
         // Real, input-consuming op — terminate the epsilon chain and
         // park the thread waiting for the inner-loop dispatcher.
         _ => {
-            // V0.2 P14-S11 — direct struct init skips the [-1; 64]
-            // saves initializer that `Thread::empty()` writes (which
-            // the subsequent `*saves` copy fully overwrites anyway).
-            // The pre-S11 shape compiled to memset(saves, 0xFF) +
-            // memcpy(saves, src, 512); the inliner doesn't always
-            // collapse the dead memset across this match arm.
             tl.push(Thread {
                 pc: upc,
                 br_offset: 0,
                 u_skip: 0,
-                saves: *saves,
+                saves_id,
             });
         }
     }
