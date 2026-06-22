@@ -318,10 +318,13 @@ pub fn search_from_with_ws(
     //
     // Flag gate:
     // - `Program::can_dfa` excludes backref + lookaround.
-    // - `dfa::prog_ops_dfa_safe` excludes AnchorE / WBound / NWBound.
+    // - `dfa::prog_ops_dfa_safe` excludes WBound / NWBound.
     //   (chunk 8.5 lifted AnchorB; chunk 9 lifted SAVE — DFA is
     //   capture-blind and the wire runs a second-pass Pike VM on the
-    //   DFA-found `[start..end]` window to extract captures.)
+    //   DFA-found `[start..end]` window to extract captures.
+    //   chunk 8.6a lifted AnchorE — every DFA state precomputes
+    //   `is_accept_at_end` so `$` fires when the byte walk lands on
+    //   the haystack end.)
     // - `flags & RE_FLAG_U == 0` — DFA byte-step lacks code-point
     //   awareness (`u` flag needs UTF-8 decode at boundaries — future
     //   chunk 10).
@@ -648,5 +651,37 @@ mod tests {
         let prog = build("abc$", 0);
         assert!(search_from(&prog, b"abcx", 0, 0).is_none());
         assert!(search_from(&prog, b"xabc", 0, 0).is_some());
+    }
+
+    #[test]
+    fn dfa_path_anchor_e_drives_at_end_accept() {
+        // chunk 8.6a: `/foo$/` exercises the DFA's `is_accept_at_end`
+        // path. Match commits only when the live state lands on the
+        // haystack end with `Op::AnchorE` reachable via at-end ε.
+        let prog = build("foo$", 0);
+        assert!(crate::dfa::prog_ops_dfa_safe(&prog));
+        let r = search_from(&prog, b"xx foo", 0, 0).expect("hit");
+        assert_eq!(r.start, 3);
+        assert_eq!(r.end, 6);
+        // Same `foo` not at end: no hit.
+        assert!(search_from(&prog, b"foo bar", 0, 0).is_none());
+        // Multiple `foo`s, only the trailing one matches.
+        let r = search_from(&prog, b"foo foo", 0, 0).expect("hit");
+        assert_eq!(r.start, 4);
+        assert_eq!(r.end, 7);
+    }
+
+    #[test]
+    fn dfa_path_anchor_e_only_pattern_matches_zero_width_end() {
+        // `/$/` on any haystack matches the zero-width position at
+        // `hay.len()`. With the DFA wire, `dfa_search` at offset 0
+        // misses (no byte consumer), so the outer `search_from`
+        // advances `st` until it hits `hay.len()` where the empty
+        // suffix's at-end accept fires.
+        let prog = build("$", 0);
+        assert!(crate::dfa::prog_ops_dfa_safe(&prog));
+        let r = search_from(&prog, b"abc", 0, 0).expect("hit");
+        assert_eq!(r.start, 3);
+        assert_eq!(r.end, 3);
     }
 }

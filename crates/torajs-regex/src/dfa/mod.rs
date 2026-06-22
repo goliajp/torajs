@@ -45,13 +45,16 @@
 //!   legacy closure; subsequent chunks thread the ctx through the
 //!   builder and executor.
 //!
-//! Future chunks: `AnchorE` / `WBound` / `NWBound` via build_dfa
-//! threading the right byte (chunk 8.6); `u`-flag code-point step
-//! (chunk 10). Capture support landed in chunk 9 via the RE2-style
-//! two-pass: `Op::Save` is a no-op ε in the closure (capture-blind
-//! DFA), and `vm::search_from_with_ws` runs a second-pass Pike VM on
-//! the DFA-found `[start..end]` window with `end_target = end` to
-//! extract captures.
+//! Future chunks: `WBound` / `NWBound` via state-key upgrade
+//! carrying the just-consumed left-byte class (chunk 8.6b); `u`-flag
+//! code-point step (chunk 10). `Op::AnchorE` (`$`) landed in chunk
+//! 8.6a — every DFA state precomputes `is_accept_at_end` (set
+//! re-closed under at-end ctx) and the executor consults it after
+//! the byte walk. Capture support landed in chunk 9 via the
+//! RE2-style two-pass: `Op::Save` is a no-op ε in the closure
+//! (capture-blind DFA), and `vm::search_from_with_ws` runs a
+//! second-pass Pike VM on the DFA-found `[start..end]` window with
+//! `end_target = end` to extract captures.
 //! Tracking RFC: `.claude/rfcs/20260622-pike-vm-dfa/design.md`.
 
 pub mod ctx;
@@ -201,19 +204,28 @@ fn class_test_case_fold(class: &crate::charclass::CharClass, byte: u8, flags: u8
 /// `transitions[byte]` is the destination state index (0 = dead state).
 /// `is_accept` is true iff the PC set this state represents contains an
 /// [`Op::Match`] PC (i.e. the NFA can accept at this byte position).
+/// `is_accept_at_end` (chunk 8.6a) is true iff the PC set, when
+/// re-closed under an at-end ctx (`is_text_end = true`), reaches an
+/// [`Op::Match`] — so the executor can accept a match that depends on
+/// `$` (`Op::AnchorE`) firing at the hay end.
 ///
 /// The 256-way transition table is dense — every byte slot is filled at
 /// build time, so the executor is a single `state = states[state].transitions[byte]`
 /// step per input byte. Memory cost is `256 * 4 = 1024` bytes per state
 /// plus 1 byte for the flag (padded to 4); future sparse map can replace
-/// it when state counts blow past a hot-cache budget. Capture groups (i64
-/// save slots) are *not* tracked yet — `SAVE` is terminal in
-/// [`epsilon_closure`] and a future chunk will add per-state save-masks.
+/// it when state counts blow past a hot-cache budget. Capture writes are
+/// handled by the wire's second-pass Pike VM, not in the DFA itself
+/// (chunk 9).
 pub struct DfaState {
     /// `transitions[byte]` = destination state index. 0 means dead.
     pub transitions: [u32; 256],
     /// True iff the NFA PC set behind this state contains [`Op::Match`].
     pub is_accept: bool,
+    /// chunk 8.6a — true iff re-closing the PC set under an at-end ctx
+    /// (`is_text_end = true`) reaches [`Op::Match`]. Set offline at
+    /// build time; consumed by [`dfa_search_from`] after the byte
+    /// walk to honour `Op::AnchorE` (`$`) at the haystack end.
+    pub is_accept_at_end: bool,
 }
 
 impl Default for DfaState {
@@ -221,6 +233,7 @@ impl Default for DfaState {
         Self {
             transitions: [0u32; 256],
             is_accept: false,
+            is_accept_at_end: false,
         }
     }
 }
@@ -243,6 +256,28 @@ fn pc_set_is_accept(prog: &Program, set: &BTreeSet<usize>) -> bool {
         .any(|&pc| pc < prog.len() && matches!(Op::from_u8(prog.insts[pc].op), Some(Op::Match)))
 }
 
+/// chunk 8.6a — true iff re-closing `set` under an at-end ctx
+/// (`is_text_end = true`) reaches an [`Op::Match`] PC. Used at build
+/// time to populate `DfaState::is_accept_at_end`; executor consults
+/// the flag after the byte walk so `Op::AnchorE` (`$`) can fire at
+/// the haystack end.
+///
+/// The at-end ctx uses `left_byte = None` and `mflag = false`: this
+/// chunk only resolves `Op::AnchorE`, leaving the mflag `$`-after-
+/// `\n` corner case (which would need the carried left_byte attr
+/// chunk 8.6b will add for WBound) to a later chunk.
+fn pc_set_is_accept_at_end(prog: &Program, set: &BTreeSet<usize>) -> bool {
+    let seeds: Vec<usize> = set.iter().copied().collect();
+    let at_end_ctx = PositionCtx {
+        left_byte: None,
+        is_text_start: false,
+        is_text_end: true,
+        mflag: false,
+    };
+    let closed = epsilon_closure_full(prog, &seeds, at_end_ctx, None);
+    pc_set_is_accept(prog, &closed)
+}
+
 /// Look up `set` in the BFS interning map; insert + enqueue a new DFA
 /// state if absent. Empty PC sets always map to state 0 (dead). Used by
 /// [`build_dfa`] for both initial-seed and successor-state insertion.
@@ -263,6 +298,7 @@ fn intern_state(
     states.push(DfaState {
         transitions: [0u32; 256],
         is_accept: pc_set_is_accept(prog, &set),
+        is_accept_at_end: pc_set_is_accept_at_end(prog, &set),
     });
     set_to_idx.insert(set.clone(), i);
     work.push((set, i));
@@ -350,34 +386,37 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
 }
 
 /// Stricter than [`crate::program::Program::can_dfa`]: also checks that
-/// no `Op::AnchorE` / `Op::WBound` / `Op::NWBound` opcodes appear in the
-/// program's bytecode (or any sub-program). `Op::AnchorB` (`^`) was
-/// dropped from the blocker list in chunk 8.5 — the position-aware
-/// builder resolves it via `start` / `start_mid` start states, and the
-/// executor picks the appropriate one based on whether the search
-/// cursor is at byte 0 of the haystack. `Op::Save` was dropped in
-/// chunk 9 — the DFA is capture-blind (Save is a no-op ε in the
-/// closure) and [`crate::vm::search_from_with_ws`] runs a second-pass
-/// Pike VM on the DFA-found `[start..end]` window with `end_target =
-/// end` so the winning thread's saves come out.
+/// no `Op::WBound` / `Op::NWBound` opcodes appear in the program's
+/// bytecode (or any sub-program).
 ///
-/// `Op::AnchorE` (`$`) / `Op::WBound` / `Op::NWBound` still depend on
-/// the right byte (or text-end) which is not threaded through the
-/// builder yet — see [`epsilon_closure_full`]'s `right_byte` parameter
-/// and the future chunk 8.6 wire. The Pike VM fallback consumes any
-/// program that fails this check.
+/// Cleared blockers so far:
+/// - `Op::AnchorB` (`^`, chunk 8.5) — position-aware builder resolves
+///   it via `start` / `start_mid` start states; the executor picks
+///   based on whether the search cursor is at byte 0 (or a line break
+///   under `RE_FLAG_M`, chunk 8.8).
+/// - `Op::Save` (chunk 9) — DFA is capture-blind (Save is a no-op ε in
+///   the closure) and [`crate::vm::search_from_with_ws`] runs a
+///   second-pass Pike VM on the DFA-found `[start..end]` window with
+///   `end_target = end` so the winning thread's saves come out.
+/// - `Op::AnchorE` (`$`, chunk 8.6a) — every DFA state precomputes
+///   `is_accept_at_end` (PC set re-closed under an at-end ctx); the
+///   executor consults the flag after the byte walk so `$` can fire
+///   at the haystack end.
+///
+/// `Op::WBound` / `Op::NWBound` still depend on the right byte at the
+/// current cursor and on the just-consumed left byte (state attr) —
+/// chunk 8.6b will add either lazy-closure-per-step or a state-key
+/// upgrade carrying the quantised left-byte class. The Pike VM
+/// fallback consumes any program that fails this check.
 ///
 /// Sub-programs (lookaround bodies) cannot appear when `can_dfa` is
 /// true (lookaround is itself a blocker in [`analyze`]) — the loop
 /// over `sub_progs` is a belt-and-suspenders defensive check.
 pub fn prog_ops_dfa_safe(prog: &Program) -> bool {
     fn scan(insts: &[crate::program::Inst]) -> bool {
-        !insts.iter().any(|ins| {
-            matches!(
-                Op::from_u8(ins.op),
-                Some(Op::AnchorE | Op::WBound | Op::NWBound)
-            )
-        })
+        !insts
+            .iter()
+            .any(|ins| matches!(Op::from_u8(ins.op), Some(Op::WBound | Op::NWBound)))
     }
     if !scan(&prog.insts) {
         return false;
@@ -451,14 +490,25 @@ fn dfa_search_from(dfa: &DfaProgram, hay: &[u8], start: u32) -> Option<usize> {
     if dfa.states[state as usize].is_accept {
         last_accept = Some(0);
     }
+    let mut alive = true;
     for (i, &byte) in hay.iter().enumerate() {
         state = dfa.states[state as usize].transitions[byte as usize];
         if state == 0 {
+            alive = false;
             break;
         }
         if dfa.states[state as usize].is_accept {
             last_accept = Some(i + 1);
         }
+    }
+    // chunk 8.6a — after consuming the haystack, if the live state's
+    // PC set reaches `Op::Match` under an at-end ε-closure
+    // (`Op::AnchorE` advances), record an accept at `hay.len()`. This
+    // beats any earlier mid-byte accept since leftmost-longest wants
+    // the longest match seen, and the at-end accept is by definition
+    // the last `is_accept`-ish observation.
+    if alive && dfa.states[state as usize].is_accept_at_end {
+        last_accept = Some(hay.len());
     }
     last_accept
 }
@@ -1454,7 +1504,7 @@ mod tests {
     }
 
     #[test]
-    fn prog_ops_dfa_safe_allows_anchor_b_and_save_rejects_others() {
+    fn prog_ops_dfa_safe_allows_anchors_and_save_rejects_wbounds() {
         // AnchorB-only program is safe (chunk 8.5).
         let mut p_anchor_b = Program::new();
         p_anchor_b.emit(Inst::simple(Op::AnchorB));
@@ -1469,13 +1519,63 @@ mod tests {
         p_save.emit(Inst::save(1));
         p_save.emit(Inst::match_accept());
         assert!(prog_ops_dfa_safe(&p_save));
-        // AnchorE / WBound / NWBound still block.
-        for op in [Op::AnchorE, Op::WBound, Op::NWBound] {
+        // AnchorE-only program is safe (chunk 8.6a — at-end accept).
+        let mut p_anchor_e = Program::new();
+        p_anchor_e.emit(Inst::char_lit(b'a'));
+        p_anchor_e.emit(Inst::simple(Op::AnchorE));
+        p_anchor_e.emit(Inst::match_accept());
+        assert!(prog_ops_dfa_safe(&p_anchor_e));
+        // WBound / NWBound still block.
+        for op in [Op::WBound, Op::NWBound] {
             let mut p = Program::new();
             p.emit(Inst::simple(op));
             p.emit(Inst::match_accept());
             assert!(!prog_ops_dfa_safe(&p), "{op:?} should still block");
         }
+    }
+
+    #[test]
+    fn build_dfa_anchor_e_at_haystack_end_accepts() {
+        // chunk 8.6a: `a$` — DFA must accept "a" only when the
+        // haystack ends right after the `a`. Mid-byte `is_accept`
+        // never fires on its own (Match PC is behind AnchorE).
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::simple(Op::AnchorE));
+        prog.emit(Inst::match_accept());
+        assert!(prog_ops_dfa_safe(&prog));
+        let dfa = build_dfa(&prog, 0);
+        // Standalone "a": consume one byte, then at-end accept.
+        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        // "ab": consume `a`, then byte `b` lives in a state whose
+        // PC set has the Match-after-AnchorE reachable only at end —
+        // but the haystack has not ended, so no accept here either.
+        assert_eq!(dfa_search(&dfa, b"ab"), None);
+        // Empty hay: start state has no path to Match via at-end
+        // closure (the `Op::Char` is still required).
+        assert_eq!(dfa_search(&dfa, b""), None);
+    }
+
+    #[test]
+    fn build_dfa_anchor_e_only_pattern_accepts_empty_hay_at_zero() {
+        // `$` alone — anchored DFA at offset 0 accepts only when
+        // the haystack is already empty. Mid-haystack ends are
+        // handled by the outer `search_from` loop (it advances `st`
+        // and re-anchors); a single `dfa_search(b"x")` call walks
+        // the byte 'x', finds no consumer (start state has no
+        // byte-step out), goes dead, and returns None.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorE));
+        prog.emit(Inst::match_accept());
+        assert!(prog_ops_dfa_safe(&prog));
+        let dfa = build_dfa(&prog, 0);
+        // Empty hay: start state's at-end closure reaches Match.
+        assert_eq!(dfa_search(&dfa, b""), Some(0));
+        // Non-empty hay: anchored DFA can't `consume` the byte (no
+        // Char/AnyChar in the program), state goes dead → None.
+        // The outer `search_from` is what runs dfa_search again at
+        // `st=hay.len()` to find the zero-width end accept.
+        assert_eq!(dfa_search(&dfa, b"x"), None);
     }
 
     #[test]
