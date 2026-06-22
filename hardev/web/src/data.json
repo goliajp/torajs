@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T12:04:15.305Z",
+  "generatedAt": "2026-06-22T12:32:52.215Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "1edfdd03",
-    "commitSubject": "feat(torajs-regex): wire DFA fast path bypassing cache (Pike VM DFA chunk 7 v3)",
+    "commit": "805c221d",
+    "commitSubject": "feat(torajs-regex): position-aware ε-closure substrate (Pike VM DFA chunk 8)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "805c221d",
+      "subject": "feat(torajs-regex): position-aware ε-closure substrate (Pike VM DFA chunk 8)"
+    },
+    {
+      "hash": "c9cfff99",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 1edfdd03 Pike VM DFA chunk 7 v3 ship"
+    },
+    {
       "hash": "1edfdd03",
       "subject": "feat(torajs-regex): wire DFA fast path bypassing cache (Pike VM DFA chunk 7 v3)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "669864d4",
       "subject": "feat(torajs-regex): DFA byte-step helper (Pike VM DFA chunk 3)"
-    },
-    {
-      "hash": "005df83e",
-      "subject": "feat(torajs-regex): DFA ε-closure helper (Pike VM DFA chunk 2)"
-    },
-    {
-      "hash": "9e3c7f45",
-      "subject": "feat(torajs-regex): DFA eligibility detection substrate (Pike VM DFA chunk 1)"
     }
   ],
-  "headSha": "1edfdd03",
+  "headSha": "805c221d",
   "autorun": {
     "total": 225,
     "baselineTarget": 10,
