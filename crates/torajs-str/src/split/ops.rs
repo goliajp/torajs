@@ -15,7 +15,7 @@
 use core::ffi::c_void;
 use core::ptr::NonNull;
 
-use torajs_rc::{__torajs_rc_inc, FLAG_SPLIT_BLOCK, HeapHeader, Tag};
+use torajs_rc::{__torajs_rc_inc, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, HeapHeader, Tag};
 
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use crate::split::pool::{self, ARR_HDR_SIZE};
@@ -131,7 +131,13 @@ pub fn out_count(s: &[u8], sep: &[u8], stride: usize) -> u64 {
 // ============================================================
 
 /// Initialize one inline substr struct at `substr_slot` and store
-/// its address into `*arr_ptr_slot`. Bumps `parent`'s refcount.
+/// its address into `*arr_ptr_slot`. Bumps `parent`'s refcount when
+/// `PARENT_RC` is true; const-generic so the static-parent fast path
+/// (caller observed `FLAG_STATIC_LITERAL` on `parent`) monomorphizes
+/// to zero `rc_inc` work — rc_inc on a static literal is a no-op by
+/// design, so eliding it preserves the rc balance with the matching
+/// `drop_pool_aware` substr drop (whose rc_dec on parent also early-
+/// returns for static literals).
 ///
 /// Mirrors the C `__torajs_split_init_inline` bit-for-bit. The
 /// header carries `Tag::Str` (not `Tag::Substr`) + `FLAG_SUBSTR_INLINE`
@@ -143,9 +149,10 @@ pub fn out_count(s: &[u8], sep: &[u8], stride: usize) -> u64 {
 ///
 /// `substr_slot` must be a 32-byte writable region; `arr_ptr_slot`
 /// must be a writable `*mut u8` slot; `parent` must be a valid
-/// Str heap pointer (the rc_inc call dereferences its header).
+/// Str heap pointer (the rc_inc call dereferences its header when
+/// `PARENT_RC`).
 #[inline]
-unsafe fn split_init_inline(
+unsafe fn split_init_inline<const PARENT_RC: bool>(
     substr_slot: *mut u8,
     arr_ptr_slot: *mut *mut u8,
     parent: *const u8,
@@ -167,7 +174,9 @@ unsafe fn split_init_inline(
         (substr_slot.add(SUBSTR_LEN_OFF) as *mut u64).write(len);
         (substr_slot.add(SUBSTR_PARENT_OFF) as *mut *const u8).write(parent);
         (substr_slot.add(SUBSTR_OFFSET_OFF) as *mut u64).write(offset);
-        __torajs_rc_inc(parent as *mut c_void);
+        if PARENT_RC {
+            __torajs_rc_inc(parent as *mut c_void);
+        }
         arr_ptr_slot.write(substr_slot);
     }
 }
@@ -216,74 +225,58 @@ unsafe fn write_arr_header(block: NonNull<u8>, out_count: u64) {
 /// `s` must be a valid Str heap block; `byte_len` its payload byte
 /// length.
 #[inline]
-unsafe fn single_token_block(s: *const u8, byte_len: u64) -> *mut u8 {
+unsafe fn single_token_block<const PARENT_RC: bool>(s: *const u8, byte_len: u64) -> *mut u8 {
     let block = pool::alloc(1);
     unsafe { write_arr_header(block, 1) };
     let slots_size = 8usize;
     let substrs_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE + slots_size) };
     let slots_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE) as *mut *mut u8 };
     unsafe {
-        split_init_inline(substrs_base, slots_base, s, 0, byte_len);
+        split_init_inline::<PARENT_RC>(substrs_base, slots_base, s, 0, byte_len);
     }
     block.as_ptr()
 }
 
-/// `s.split(sep)` — fresh `string[]` of substrings split by `sep`.
-/// Returns a single block carrying:
-/// - Arr header (24 bytes) with `FLAG_SPLIT_BLOCK`
-/// - N ptr slots (8 bytes each, N = `out_count`)
-/// - N inline 32-byte substr structs (FLAG_SUBSTR_INLINE)
-///
-/// Each slot's ptr points at its corresponding inline substr.
-/// Empty `sep` splits per-char ("ab".split("") → ["a","b"]).
-/// Per-iter malloc count: 1.
+/// True iff `s`'s `HeapHeader::flags` has `FLAG_STATIC_LITERAL` set
+/// — `.rodata`-baked Str literals whose rc operations are no-ops by
+/// the rc-runtime contract. Caller hoists this check out of the
+/// per-substr inline-init loop so the per-substr `__torajs_rc_inc`
+/// call site can be eliminated entirely on the static-parent path.
 ///
 /// # Safety
+/// `s` must point at a valid Str heap block (header at offset 0).
+#[inline]
+unsafe fn parent_is_static_literal(s: *const u8) -> bool {
+    let header = unsafe { &*(s as *const HeapHeader) };
+    header.flags & FLAG_STATIC_LITERAL != 0
+}
+
+/// Inner fill loop: emits all inline substrs into the pre-allocated
+/// split block. Const-generic over `PARENT_RC` so the caller-hoisted
+/// `FLAG_STATIC_LITERAL` check fully monomorphizes both arms — the
+/// static-parent monomorphization has zero `__torajs_rc_inc` call
+/// sites in the per-substr inner body.
 ///
-/// Both `s` and `sep` must be valid Str heap blocks.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mut u8 {
-    let (s_payload, s_len_cu, s_latin1) = unsafe { str_view(s) };
-    let (sep_payload, sep_len_cu, sep_latin1) = unsafe { str_view(sep) };
-    let stride: usize = if s_latin1 { 1 } else { 2 };
-
-    // Canonical-encoding short-circuit + needle widening, mirroring
-    // `lookup.rs::align_haystack_needle`:
-    // - Latin-1 haystack + UTF-16 needle → no match possible (the
-    //   needle's codepoint > 0xFF can't occur in a Latin-1
-    //   payload). Result is a single-token array containing all of
-    //   `s`.
-    // - UTF-16 haystack + Latin-1 needle → widen the needle to
-    //   UTF-16 LE so byte-aligned scanning matches the haystack's
-    //   u16 grid.
-    let widened_owned;
-    let sep_bytes: &[u8] = match (s_latin1, sep_latin1) {
-        (true, false) => {
-            // Impossible match — emit a single trailing token
-            // covering the whole haystack and return.
-            return unsafe { single_token_block(s, s_payload.len() as u64) };
-        }
-        (false, true) => {
-            widened_owned = widen_latin1_to_utf16(sep_payload);
-            widened_owned.as_slice()
-        }
-        _ => sep_payload,
-    };
-    let sep_byte_len = sep_bytes.len();
-
-    let oc = out_count(s_payload, sep_bytes, stride);
-    let block = pool::alloc(oc);
-    unsafe { write_arr_header(block, oc) };
-
-    let slots_size = (oc as usize) * 8;
-    let substrs_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE + slots_size) };
-    let slots_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE) as *mut *mut u8 };
-
+/// # Safety
+/// `substrs_base` / `slots_base` are the pre-computed bases inside a
+/// fresh `pool::alloc(out_count)` block; `s` is the parent Str heap
+/// ptr; encoded slice/cu/stride/sep_bytes pre-validated by the caller.
+#[inline(always)]
+unsafe fn fill_substrs<const PARENT_RC: bool>(
+    s: *const u8,
+    s_payload: &[u8],
+    s_len_cu: u32,
+    sep_bytes: &[u8],
+    sep_len_cu: u32,
+    stride: usize,
+    substrs_base: *mut u8,
+    slots_base: *mut *mut u8,
+) {
     if sep_len_cu == 0 {
         // Per-char split — emit one Substr per code unit of `s`.
         for k in 0..(s_len_cu as usize) {
             unsafe {
-                split_init_inline(
+                split_init_inline::<PARENT_RC>(
                     substrs_base.add(k * SUBSTR_SIZE),
                     slots_base.add(k),
                     s,
@@ -292,11 +285,10 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
                 );
             }
         }
-        return block.as_ptr();
+        return;
     }
 
-    // Generic path: walk s, emit a substr at every sep boundary,
-    // then a trailing substr for [start..s_byte_len].
+    let sep_byte_len = sep_bytes.len();
     let s_byte_len = s_payload.len();
     let mut ix: usize = 0;
     let mut start_byte: usize = 0;
@@ -304,16 +296,13 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
         // V0.2 P14-S6 — single-byte-needle SIMD fast path
         // (mirror of `count_matches`'s fast arm). LLVM
         // auto-vectorizes the byte-equality scan to NEON
-        // `pcmpeq + popcount` style code on ARM64. Keeps the
-        // per-match substr-init body intact (still serial),
-        // but eliminates the slice-equality branch + index
-        // arithmetic in the gap-scan hot loop.
+        // `pcmpeq + popcount` style code on ARM64.
         let target = sep_bytes[0];
         let mut i = 0;
         while i < s_byte_len {
             if s_payload[i] == target {
                 unsafe {
-                    split_init_inline(
+                    split_init_inline::<PARENT_RC>(
                         substrs_base.add(ix * SUBSTR_SIZE),
                         slots_base.add(ix),
                         s,
@@ -334,7 +323,7 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
         while i <= limit {
             if &s_payload[i..i + sep_byte_len] == sep_bytes {
                 unsafe {
-                    split_init_inline(
+                    split_init_inline::<PARENT_RC>(
                         substrs_base.add(ix * SUBSTR_SIZE),
                         slots_base.add(ix),
                         s,
@@ -352,13 +341,103 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
     }
     // Trailing token (may be empty if s ends with sep).
     unsafe {
-        split_init_inline(
+        split_init_inline::<PARENT_RC>(
             substrs_base.add(ix * SUBSTR_SIZE),
             slots_base.add(ix),
             s,
             start_byte as u64,
             (s_byte_len - start_byte) as u64,
         );
+    }
+}
+
+/// `s.split(sep)` — fresh `string[]` of substrings split by `sep`.
+/// Returns a single block carrying:
+/// - Arr header (24 bytes) with `FLAG_SPLIT_BLOCK`
+/// - N ptr slots (8 bytes each, N = `out_count`)
+/// - N inline 32-byte substr structs (FLAG_SUBSTR_INLINE)
+///
+/// Each slot's ptr points at its corresponding inline substr.
+/// Empty `sep` splits per-char ("ab".split("") → ["a","b"]).
+/// Per-iter malloc count: 1.
+///
+/// # Safety
+///
+/// Both `s` and `sep` must be valid Str heap blocks.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mut u8 {
+    // V0.2 P14-S9 — hoist `FLAG_STATIC_LITERAL` check on `parent` once;
+    // the inline-substr fill loop monomorphizes via `PARENT_RC` so the
+    // dominant `.rodata`-string bench shape (`"...".split(" ")` in a
+    // tight loop) drops every per-substr `__torajs_rc_inc(parent)` FFI
+    // call. The matching `drop_pool_aware` substr drop's `rc_dec` on
+    // parent also early-returns for static literals, so balance holds.
+    let parent_static = unsafe { parent_is_static_literal(s) };
+    let (s_payload, s_len_cu, s_latin1) = unsafe { str_view(s) };
+    let (sep_payload, sep_len_cu, sep_latin1) = unsafe { str_view(sep) };
+    let stride: usize = if s_latin1 { 1 } else { 2 };
+
+    // Canonical-encoding short-circuit + needle widening, mirroring
+    // `lookup.rs::align_haystack_needle`:
+    // - Latin-1 haystack + UTF-16 needle → no match possible (the
+    //   needle's codepoint > 0xFF can't occur in a Latin-1
+    //   payload). Result is a single-token array containing all of
+    //   `s`.
+    // - UTF-16 haystack + Latin-1 needle → widen the needle to
+    //   UTF-16 LE so byte-aligned scanning matches the haystack's
+    //   u16 grid.
+    let widened_owned;
+    let sep_bytes: &[u8] = match (s_latin1, sep_latin1) {
+        (true, false) => {
+            // Impossible match — emit a single trailing token
+            // covering the whole haystack and return.
+            return if parent_static {
+                unsafe { single_token_block::<false>(s, s_payload.len() as u64) }
+            } else {
+                unsafe { single_token_block::<true>(s, s_payload.len() as u64) }
+            };
+        }
+        (false, true) => {
+            widened_owned = widen_latin1_to_utf16(sep_payload);
+            widened_owned.as_slice()
+        }
+        _ => sep_payload,
+    };
+
+    let oc = out_count(s_payload, sep_bytes, stride);
+    let block = pool::alloc(oc);
+    unsafe { write_arr_header(block, oc) };
+
+    let slots_size = (oc as usize) * 8;
+    let substrs_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE + slots_size) };
+    let slots_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE) as *mut *mut u8 };
+
+    if parent_static {
+        unsafe {
+            fill_substrs::<false>(
+                s,
+                s_payload,
+                s_len_cu,
+                sep_bytes,
+                sep_len_cu,
+                stride,
+                substrs_base,
+                slots_base,
+            );
+        }
+    } else {
+        unsafe {
+            fill_substrs::<true>(
+                s,
+                s_payload,
+                s_len_cu,
+                sep_bytes,
+                sep_len_cu,
+                stride,
+                substrs_base,
+                slots_base,
+            );
+        }
     }
     block.as_ptr()
 }
@@ -383,8 +462,13 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
 /// `s` must be a valid Str heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_split_no_sep(s: *const u8) -> *mut u8 {
+    let parent_static = unsafe { parent_is_static_literal(s) };
     let (s_payload, _, _) = unsafe { str_view(s) };
-    unsafe { single_token_block(s, s_payload.len() as u64) }
+    if parent_static {
+        unsafe { single_token_block::<false>(s, s_payload.len() as u64) }
+    } else {
+        unsafe { single_token_block::<true>(s, s_payload.len() as u64) }
+    }
 }
 
 // ============================================================
