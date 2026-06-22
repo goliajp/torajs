@@ -7,6 +7,10 @@
 //! - **ε-closure** (`epsilon_closure`) — given a `Program` and a seed
 //!   PC list, return the set of PCs reachable via pure-ε transitions.
 //!   Building block for subset construction.
+//! - **byte step** (`byte_step`) — given a PC set already closed under
+//!   ε, return the PCs reached by consuming one input byte at each
+//!   byte-matching op (`Char`, `AnyChar`, `Class`). Feed back into
+//!   `epsilon_closure` for the next state.
 //!
 //! Future chunks: subset-construction NFA→DFA builder, per-RegExp
 //! state cache, fast-path fork in `vm::search_from_with_ws`.
@@ -94,6 +98,55 @@ pub fn analyze(root: &Node) -> DfaEligibility {
 /// chain terminates in O(n) where n = `prog.len()`. Out-of-range or
 /// unknown-opcode PCs are silently dropped (defensive — mirrors
 /// `vm/dispatch.rs::add_thread`).
+/// One byte-transition step over a state set.
+///
+/// `states` is presumed to already be ε-closed under [`epsilon_closure`].
+/// For each PC in `states`, inspect the op:
+/// - `Op::Char` — emit `pc + 1` iff `ins.ch == byte`
+/// - `Op::AnyChar` — emit `pc + 1` unconditionally (dot-all semantics;
+///   the JS `s` flag is the AOT-friendly choice. Future chunks can
+///   thread flag context if we need spec-exact `.` ≠ '\n' default.)
+/// - `Op::Class` — emit `pc + 1` iff `prog.classes[ins.a].test(byte)`.
+///   Test is ASCII-only (`u`-flag code-point tests need a separate
+///   step-by-codepoint helper — future chunk).
+/// - everything else — terminal in the byte step. ε ops are caller's
+///   job to handle via [`epsilon_closure`]; lookaround / backref are
+///   filtered upstream by [`analyze`].
+///
+/// Returns a deduped, sorted `BTreeSet<usize>`. Out-of-range PCs in
+/// `states` (defensive) and `pc + 1` past program end are silently
+/// dropped.
+pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8) -> BTreeSet<usize> {
+    let mut next: BTreeSet<usize> = BTreeSet::new();
+    let plen = prog.len();
+    for &pc in states.iter() {
+        if pc >= plen {
+            continue;
+        }
+        let ins = prog.insts[pc];
+        let op = match Op::from_u8(ins.op) {
+            Some(o) => o,
+            None => continue,
+        };
+        let advances = match op {
+            Op::Char => ins.ch == byte,
+            Op::AnyChar => true,
+            Op::Class => {
+                let cls_idx = ins.a as usize;
+                cls_idx < prog.classes.len() && prog.classes[cls_idx].test(byte)
+            }
+            _ => false,
+        };
+        if advances {
+            let n = pc + 1;
+            if n < plen {
+                next.insert(n);
+            }
+        }
+    }
+    next
+}
+
 pub fn epsilon_closure(prog: &Program, seeds: &[usize]) -> BTreeSet<usize> {
     let mut closure: BTreeSet<usize> = BTreeSet::new();
     let mut work: Vec<usize> = Vec::new();
@@ -453,5 +506,106 @@ mod tests {
         prog.emit(Inst::char_lit(b'b'));
         prog.emit(Inst::match_accept());
         assert_eq!(epsilon_closure(&prog, &[0, 3]), into_set(&[0, 2, 3, 5]));
+    }
+
+    // byte_step tests — single-byte transition over an already-ε-closed
+    // PC set.
+
+    use crate::charclass::CharClass;
+
+    fn set(v: &[usize]) -> BTreeSet<usize> {
+        v.iter().copied().collect()
+    }
+
+    #[test]
+    fn byte_step_empty_states_returns_empty() {
+        let prog = Program::new();
+        assert!(byte_step(&prog, &BTreeSet::new(), b'a').is_empty());
+    }
+
+    #[test]
+    fn byte_step_char_hit_advances_to_next_pc() {
+        // 0: CHAR a; 1: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        assert_eq!(byte_step(&prog, &set(&[0]), b'a'), set(&[1]));
+    }
+
+    #[test]
+    fn byte_step_char_miss_drops_pc() {
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        assert!(byte_step(&prog, &set(&[0]), b'b').is_empty());
+    }
+
+    #[test]
+    fn byte_step_anychar_always_advances() {
+        // 0: ANY; 1: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnyChar));
+        prog.emit(Inst::match_accept());
+        for b in [b'a', b'\n', 0u8, 0xff] {
+            assert_eq!(byte_step(&prog, &set(&[0]), b), set(&[1]), "byte 0x{b:02x}");
+        }
+    }
+
+    #[test]
+    fn byte_step_class_hit_and_miss() {
+        // 0: CLASS [a-c]; 1: MATCH
+        let mut prog = Program::new();
+        let mut cc = CharClass::new();
+        cc.add_range(b'a', b'c');
+        let idx = prog.intern_class(&cc);
+        prog.emit(Inst::class_ref(idx));
+        prog.emit(Inst::match_accept());
+        assert_eq!(byte_step(&prog, &set(&[0]), b'a'), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'c'), set(&[1]));
+        assert!(byte_step(&prog, &set(&[0]), b'd').is_empty());
+    }
+
+    #[test]
+    fn byte_step_jmp_and_split_are_inert() {
+        // 0: JMP 2; 1: SPLIT 0,2; 2: MATCH — none of these consume bytes.
+        let mut prog = Program::new();
+        prog.emit(Inst::jmp(2));
+        prog.emit(Inst::split(0, 2));
+        prog.emit(Inst::match_accept());
+        assert!(byte_step(&prog, &set(&[0, 1]), b'a').is_empty());
+    }
+
+    #[test]
+    fn byte_step_save_anchor_are_inert() {
+        // 0: SAVE 0; 1: ANCHOR_B; 2: WBOUND; 3: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::save(0));
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::simple(Op::WBound));
+        prog.emit(Inst::match_accept());
+        assert!(byte_step(&prog, &set(&[0, 1, 2]), b'a').is_empty());
+    }
+
+    #[test]
+    fn byte_step_unions_advances_across_state_set() {
+        // 0: CHAR a; 1: MATCH; 2: CHAR b; 3: MATCH
+        // states {0, 2}, byte 'a' → only pc 0 advances → {1}
+        // states {0, 2}, byte 'b' → only pc 2 advances → {3}
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::match_accept());
+        assert_eq!(byte_step(&prog, &set(&[0, 2]), b'a'), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0, 2]), b'b'), set(&[3]));
+    }
+
+    #[test]
+    fn byte_step_next_pc_past_end_is_dropped() {
+        // 0: CHAR a — pc 0's successor 1 is past end of (1-inst) program
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        // No MATCH terminator: pc 1 is out of range, must be dropped.
+        assert!(byte_step(&prog, &set(&[0]), b'a').is_empty());
     }
 }
