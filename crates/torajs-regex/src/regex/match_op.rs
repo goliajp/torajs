@@ -141,7 +141,10 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     // search_from_with_ws's Workspace is only needed in the `else`
     // branch. Sticky-only callers (typical `r.exec` / `str.match(r)`
     // with /y/) skip this ~50KB allocation entirely.
-    let mut ws: Option<Workspace> = None;
+    // V0.2 P14-S16 — reuse the per-RegExp cached Pike VM workspace
+    // (mirror of replace.rs P14-S8 / split.rs / match_all.rs / replace_fn.rs).
+    let ws_cell = re.workspace_cache.get();
+    let ws_outer = unsafe { &mut *ws_cell };
     let mut out: *mut c_void = core::ptr::null_mut();
     let mut pos: i64 = 0;
     while pos <= slen {
@@ -155,7 +158,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             re.last_index = h.as_ref().map(|m| m.end).unwrap_or(0);
             h
         } else {
-            let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
+            let ws_ref = ws_outer.get_or_insert_with(|| Workspace::for_program(&re.prog));
             search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref)
         };
         let Some(m) = hit else { break };

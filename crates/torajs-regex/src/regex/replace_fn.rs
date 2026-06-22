@@ -66,9 +66,10 @@ unsafe fn replace_fn_inner(
     // promise_then_closure.
     let fn_ptr = unsafe { *((closure_env as *mut u8).add(8) as *mut *mut c_void) };
 
-    // Lazy-init Workspace — sticky branch uses match_anchor's own
-    // Workspace; outer ws only needed in non-sticky branch.
-    let mut ws: Option<Workspace> = None;
+    // V0.2 P14-S16 — reuse the per-RegExp cached Pike VM workspace
+    // (mirror of replace.rs P14-S8 / split.rs / match_op.rs / match_all.rs).
+    let ws_cell = re.workspace_cache.get();
+    let ws_outer = unsafe { &mut *ws_cell };
     let mut out: Vec<u8> = Vec::with_capacity(s.len() + 16);
     let mut pos: i64 = 0;
     let sticky = re.flags & RE_FLAG_Y != 0;
@@ -76,7 +77,7 @@ unsafe fn replace_fn_inner(
         let m = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
+            let ws_ref = ws_outer.get_or_insert_with(|| Workspace::for_program(&re.prog));
             search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref)
         };
         let Some(m) = m else { break };
