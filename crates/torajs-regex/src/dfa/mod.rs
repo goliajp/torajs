@@ -64,6 +64,21 @@
 pub mod ctx;
 pub use ctx::{PositionCtx, epsilon_closure_full, epsilon_closure_with_ctx};
 
+// chunk 8.6b — closure-API role split:
+// - `epsilon_closure_with_ctx` is used for the BFS pre-step / post-
+//   step closure (WBound stays terminal here; it'll be resolved by
+//   the next BFS step when `right_byte` becomes known).
+// - `epsilon_closure_full(.., right_byte = Some(b))` is used inside
+//   the per-byte BFS step to resolve WBound/NWBound under the
+//   correct left/right class pair.
+// - `epsilon_closure_full(.., right_byte = None)` is used only for
+//   `pc_set_is_accept_at_end`, where `None` truly means "no upcoming
+//   byte" (cursor at haystack end) — WBound resolves against
+//   `(left, non-word)`.
+// Using `_full(.., None)` for BFS initial/post-step (right unknown,
+// not "at end") would let WBound eagerly advance whenever the left
+// is word-class, which is wrong.
+
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
@@ -325,17 +340,26 @@ fn pc_set_is_accept(prog: &Program, set: &BTreeSet<usize>) -> bool {
 /// the flag after the byte walk so `Op::AnchorE` (`$`) can fire at
 /// the haystack end.
 ///
-/// The at-end ctx uses `left_byte = None` and `mflag = false`: this
-/// chunk only resolves `Op::AnchorE`, leaving the mflag `$`-after-
-/// `\n` corner case (which would need the carried left_byte attr
-/// chunk 8.6b will add for WBound) to a later chunk.
-fn pc_set_is_accept_at_end(prog: &Program, set: &BTreeSet<usize>) -> bool {
+/// chunk 8.6b — the at-end ctx now uses the state's left-byte attr
+/// (instead of always `None`) and the compiled `mflag`. This lets
+/// WBound resolve under `(left = attr, right = None / non-word)` so
+/// patterns like `/\w$/` accept iff the live state's incoming byte
+/// was word-class. mflag `Op::AnchorB` after `\n` doesn't trigger
+/// here (the at-end check is about `$` / AnchorE, not `^`); but mflag
+/// `AnchorE` *before* `\n` is folded in by the closure's right=None
+/// path (right=None == non-word in `at_word_boundary`).
+fn pc_set_is_accept_at_end(
+    prog: &Program,
+    set: &BTreeSet<usize>,
+    attr: LeftByteAttr,
+    mflag: bool,
+) -> bool {
     let seeds: Vec<usize> = set.iter().copied().collect();
     let at_end_ctx = PositionCtx {
-        left_byte: None,
-        is_text_start: false,
+        left_byte: attr_to_left_byte(attr),
+        is_text_start: matches!(attr, LeftByteAttr::TextStart),
         is_text_end: true,
-        mflag: false,
+        mflag,
     };
     let closed = epsilon_closure_full(prog, &seeds, at_end_ctx, None);
     pc_set_is_accept(prog, &closed)
@@ -352,6 +376,8 @@ fn intern_state(
     prog: &Program,
     set: BTreeSet<usize>,
     attr: LeftByteAttr,
+    mflag: bool,
+    needs_attr_split: bool,
     states: &mut Vec<DfaState>,
     set_to_idx: &mut BTreeMap<(BTreeSet<usize>, LeftByteAttr), u32>,
     work: &mut Vec<(BTreeSet<usize>, LeftByteAttr, u32)>,
@@ -359,20 +385,53 @@ fn intern_state(
     if set.is_empty() {
         return 0;
     }
-    let key = (set, attr);
+    // chunk 8.6b dedup — when the program emits no `Op::WBound` /
+    // `Op::NWBound`, the LeftByteAttr never affects any outgoing
+    // transition, so all three attrs collapse onto the same physical
+    // state. Pool key folds onto `TextStart` in that case so
+    // `dfa.start == start_mid_word == start_mid_nonword` for plain
+    // patterns and the state count matches the pre-8.6b BFS shape.
+    let effective_attr = if needs_attr_split {
+        attr
+    } else {
+        LeftByteAttr::TextStart
+    };
+    let key = (set, effective_attr);
     if let Some(&i) = set_to_idx.get(&key) {
         return i;
     }
-    let (set, attr) = key;
+    let (set, _) = key;
     let i = states.len() as u32;
     states.push(DfaState {
         transitions: [0u32; 256],
         is_accept: pc_set_is_accept(prog, &set),
-        is_accept_at_end: pc_set_is_accept_at_end(prog, &set),
+        is_accept_at_end: pc_set_is_accept_at_end(prog, &set, attr, mflag),
     });
-    set_to_idx.insert((set.clone(), attr), i);
+    set_to_idx.insert((set.clone(), effective_attr), i);
     work.push((set, attr, i));
     i
+}
+
+/// chunk 8.6b — true iff the program (or any sub-program) emits any
+/// `Op::WBound` / `Op::NWBound`. Drives the state-pool key strategy
+/// in [`intern_state`]: programs with no `\b` / `\B` collapse
+/// LeftByteAttr down to `TextStart`, recovering the pre-8.6b state
+/// count (the attr field is a no-op for them).
+fn prog_uses_word_boundary(prog: &Program) -> bool {
+    fn scan(insts: &[crate::program::Inst]) -> bool {
+        insts
+            .iter()
+            .any(|ins| matches!(Op::from_u8(ins.op), Some(Op::WBound | Op::NWBound)))
+    }
+    if scan(&prog.insts) {
+        return true;
+    }
+    for sub in prog.sub_progs.iter() {
+        if scan(&sub.insts) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Subset-construction NFA → DFA builder (chunks 8.5/8.6a/8.6b/8.7/
@@ -408,34 +467,44 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
 
     let mut work: Vec<(BTreeSet<usize>, LeftByteAttr, u32)> = Vec::new();
 
+    let needs_attr_split = prog_uses_word_boundary(prog);
+
+    // chunk 8.6b — use `closure_with_ctx` (WBound terminal) for
+    // initial states, not `closure_full(.., None)`. See the
+    // closure-API role split note at the top of the file.
     let initial_anchored =
-        epsilon_closure_full(prog, &[0], ctx_for(LeftByteAttr::TextStart, mflag), None);
+        epsilon_closure_with_ctx(prog, &[0], ctx_for(LeftByteAttr::TextStart, mflag));
     let start = intern_state(
         prog,
         initial_anchored,
         LeftByteAttr::TextStart,
+        mflag,
+        needs_attr_split,
         &mut states,
         &mut set_to_idx,
         &mut work,
     );
 
-    let initial_mid_word =
-        epsilon_closure_full(prog, &[0], ctx_for(LeftByteAttr::Word, mflag), None);
+    let initial_mid_word = epsilon_closure_with_ctx(prog, &[0], ctx_for(LeftByteAttr::Word, mflag));
     let start_mid_word = intern_state(
         prog,
         initial_mid_word,
         LeftByteAttr::Word,
+        mflag,
+        needs_attr_split,
         &mut states,
         &mut set_to_idx,
         &mut work,
     );
 
     let initial_mid_nonword =
-        epsilon_closure_full(prog, &[0], ctx_for(LeftByteAttr::NonWord, mflag), None);
+        epsilon_closure_with_ctx(prog, &[0], ctx_for(LeftByteAttr::NonWord, mflag));
     let start_mid_nonword = intern_state(
         prog,
         initial_mid_nonword,
         LeftByteAttr::NonWord,
+        mflag,
+        needs_attr_split,
         &mut states,
         &mut set_to_idx,
         &mut work,
@@ -465,19 +534,23 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                 // Post-step ctx (cursor k+1): left = the byte we just
                 // consumed. Under mflag this lets mid-pattern AnchorB
                 // re-fire when byte == `\n`. WBound stays unresolved
-                // here (right = None) and surfaces on the next step.
+                // here — `closure_with_ctx` leaves it terminal so the
+                // next BFS step can resolve it under the upcoming
+                // right_byte.
                 let ctx_after = PositionCtx {
                     left_byte: Some(byte),
                     is_text_start: false,
                     is_text_end: false,
                     mflag,
                 };
-                epsilon_closure_full(prog, &seeds, ctx_after, None)
+                epsilon_closure_with_ctx(prog, &seeds, ctx_after)
             };
             let next_idx = intern_state(
                 prog,
                 closed,
                 next_attr,
+                mflag,
+                needs_attr_split,
                 &mut states,
                 &mut set_to_idx,
                 &mut work,
