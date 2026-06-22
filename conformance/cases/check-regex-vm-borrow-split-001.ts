@@ -23,9 +23,11 @@ console.log(out1);
 
 // match-all with capture group, verifying saves cleanly carry through
 const all1 = "abbc abc abbbbc".match(/a(b+)c/g);
-console.log(all1?.length);
-console.log(all1?.[0]);
-console.log(all1?.[2]);
+if (all1) {
+  console.log(all1.length);
+  console.log(all1[0]);
+  console.log(all1[2]);
+}
 
 // (2) Class — \d+ with capture
 const out2 = "x12y345z".replace(/(\d+)/g, "[$1]");
@@ -33,16 +35,22 @@ console.log(out2);
 
 // (3) AnyChar — dot with /s flag captures newline
 const m3 = "foo\nbar".match(/foo(.)bar/s);
-console.log(m3?.[1] === "\n");
+if (m3) {
+  console.log(m3[1] === "\n");
+}
 
 // (4) Backref — backref to non-empty capture
 const m4 = "aabbb".match(/(a+)\1/);
-console.log(m4?.[0]);
-console.log(m4?.[1]);
+if (m4) {
+  console.log(m4[0]);
+  console.log(m4[1]);
+}
 
 // (5) End-of-input MATCH — trailing thread MATCH after main while exits
 const m5 = "abc".match(/abc/);
-console.log(m5?.[0]);
+if (m5) {
+  console.log(m5[0]);
+}
 
 // (6) Mixed — Char + Class + Match, no capture groups
 const c6 = "Hello, World!".replace(/[A-Z]/g, "*");
