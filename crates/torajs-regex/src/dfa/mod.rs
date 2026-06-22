@@ -750,25 +750,57 @@ pub fn prog_ops_dfa_safe(_prog: &Program) -> bool {
     true
 }
 
-/// True iff the program (or any sub-program) emits any `Op::Class`.
+/// True iff `class` cannot match any non-ASCII byte (cp ≥ 0x80) — so
+/// the DFA's byte-stream `byte_step` honours its semantics under
+/// `RE_FLAG_U` without code-point decoding.
 ///
-/// chunk 10b — under `RE_FLAG_U` the DFA's byte-stream `byte_step`
-/// can't honour code-point class semantics for non-ASCII bytes
-/// (negation + `u_props` cover multi-byte code points the byte-test
-/// over-/under-reports for). The hot-path gate blocks u-flag programs
-/// containing any `Op::Class`; future chunks can split this into a
-/// "u-safe class" analyser (ASCII-only, no negate, no `u_props`) once
-/// the class encoder exposes the relevant bits cheaply.
-pub fn prog_uses_class(prog: &Program) -> bool {
-    fn scan(insts: &[crate::program::Inst]) -> bool {
-        insts
-            .iter()
-            .any(|ins| matches!(Op::from_u8(ins.op), Some(Op::Class)))
+/// "u-safe" requires three things: (1) no `negate` (`[^abc]` matches
+/// every multi-byte cp by inversion), (2) no `bits` set in the
+/// non-ASCII half (`bits[16..32]` — explicit non-ASCII byte entries
+/// like `[\xE6]`), (3) `u_props == 0` (no `\p{Letter}` / `\p{Number}`
+/// fold-in). A safe class only matches when the cursor sits on an
+/// ASCII byte; multi-byte first bytes (and continuation bytes) all
+/// route to dead.
+fn class_is_uflag_safe(class: &crate::charclass::CharClass) -> bool {
+    if class.negate || class.u_props != 0 {
+        return false;
     }
-    if scan(&prog.insts) {
+    class.bits[16..32].iter().all(|&b| b == 0)
+}
+
+/// True iff `prog` (or any sub-program) emits an `Op::Class` whose
+/// referenced [`CharClass`] is *not* u-safe (see
+/// [`class_is_uflag_safe`]).
+///
+/// chunk 10c — refines the chunk 10b `prog_uses_class` blocker into a
+/// finer analyser: u-flag patterns with `\d` / `\w` / `[a-z]` and
+/// other ASCII-only classes stay on the DFA fast path; only classes
+/// that could match non-ASCII bytes under code-point semantics
+/// (negate / non-ASCII bits / `\p` fold-ins) still fall back to the
+/// Pike VM. Sub-program classes (currently unreachable when
+/// `prog.can_dfa` is true) checked defensively.
+pub fn prog_uses_uflag_unsafe_class(prog: &Program) -> bool {
+    fn scan(prog: &Program) -> bool {
+        for ins in prog.insts.iter() {
+            if matches!(Op::from_u8(ins.op), Some(Op::Class)) {
+                let idx = ins.a as usize;
+                if idx >= prog.classes.len() {
+                    // Defensive — out-of-range class ref counts as
+                    // unsafe (the byte-step's miss-path would drop it
+                    // silently, but the gate plays it safe).
+                    return true;
+                }
+                if !class_is_uflag_safe(&prog.classes[idx]) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    if scan(prog) {
         return true;
     }
-    prog.sub_progs.iter().any(|sub| scan(&sub.insts))
+    prog.sub_progs.iter().any(|sub| scan(sub))
 }
 
 /// Drive a built [`DfaProgram`] over `hay`, returning the longest
@@ -2309,19 +2341,49 @@ mod tests {
     }
 
     #[test]
-    fn prog_uses_class_scans_inner_and_subprograms() {
-        // Plain class — flagged.
-        let mut prog = Program::new();
-        let mut cc = CharClass::new();
-        cc.add_range(b'a', b'z');
-        let idx = prog.intern_class(&cc);
-        prog.emit(Inst::class_ref(idx));
-        prog.emit(Inst::match_accept());
-        assert!(prog_uses_class(&prog));
+    fn prog_uses_uflag_unsafe_class_only_flags_non_safe_classes() {
+        // chunk 10c — `[a-z]` is u-safe (ASCII-only, no negate, no
+        // u_props): a u-flag pattern using it stays on the DFA path.
+        let mut safe_prog = Program::new();
+        let mut safe_cc = CharClass::new();
+        safe_cc.add_range(b'a', b'z');
+        let idx = safe_prog.intern_class(&safe_cc);
+        safe_prog.emit(Inst::class_ref(idx));
+        safe_prog.emit(Inst::match_accept());
+        assert!(!prog_uses_uflag_unsafe_class(&safe_prog));
+
+        // `[^a]` (negate) routes non-ASCII bytes to advance — unsafe.
+        let mut negate_prog = Program::new();
+        let mut negate_cc = CharClass::new();
+        negate_cc.add(b'a');
+        negate_cc.negate = true;
+        let idx = negate_prog.intern_class(&negate_cc);
+        negate_prog.emit(Inst::class_ref(idx));
+        negate_prog.emit(Inst::match_accept());
+        assert!(prog_uses_uflag_unsafe_class(&negate_prog));
+
+        // Explicit non-ASCII byte entry (`bits[16..32]` set) — unsafe.
+        let mut hi_prog = Program::new();
+        let mut hi_cc = CharClass::new();
+        hi_cc.bits[20] = 0x01; // arbitrary high-half bit
+        let idx = hi_prog.intern_class(&hi_cc);
+        hi_prog.emit(Inst::class_ref(idx));
+        hi_prog.emit(Inst::match_accept());
+        assert!(prog_uses_uflag_unsafe_class(&hi_prog));
+
+        // `\p{L}` (u_props != 0) — unsafe.
+        let mut up_prog = Program::new();
+        let mut up_cc = CharClass::new();
+        up_cc.add_property_letter();
+        let idx = up_prog.intern_class(&up_cc);
+        up_prog.emit(Inst::class_ref(idx));
+        up_prog.emit(Inst::match_accept());
+        assert!(prog_uses_uflag_unsafe_class(&up_prog));
+
         // No class — clear.
-        let mut prog2 = Program::new();
-        prog2.emit(Inst::char_lit(b'a'));
-        prog2.emit(Inst::match_accept());
-        assert!(!prog_uses_class(&prog2));
+        let mut none_prog = Program::new();
+        none_prog.emit(Inst::char_lit(b'a'));
+        none_prog.emit(Inst::match_accept());
+        assert!(!prog_uses_uflag_unsafe_class(&none_prog));
     }
 }

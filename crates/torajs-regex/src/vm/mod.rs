@@ -322,11 +322,14 @@ pub fn search_from_with_ws(
     //   8.5 / 8.6a / 8.6b / 8.7 / 8.8 / 9 / 10a cleared `^` / `$` / `\b`
     //   / `\B` / RE_FLAG_I (i) / RE_FLAG_M (m) / SAVE / AnyChar-w/o-s;
     //   the function stays as a safety net for future opcode adds.
-    // - `RE_FLAG_U` + `Op::Class` — under `u`, classes need code-point
-    //   semantics (negate / `u_props` cover multi-byte cps); chunk 10b
-    //   blocks the combination via `prog_uses_class`. AnyChar under
-    //   `u` is fine — the BFS parks PCs behind the UTF-8 tail via the
-    //   deferred[u_skip] array (chunk 10b).
+    // - `RE_FLAG_U` + unsafe `Op::Class` — under `u`, classes that can
+    //   match non-ASCII bytes (negate / `u_props` / explicit non-ASCII
+    //   bits) need code-point decoding the byte-step lacks. chunk 10c
+    //   refines the chunk 10b "any Class" blocker into a per-class
+    //   u-safe check (`prog_uses_uflag_unsafe_class`) so `\d` / `\w` /
+    //   `[a-z]` and other ASCII-only classes stay DFA-eligible.
+    //   AnyChar under `u` is fine — the BFS parks PCs behind the
+    //   UTF-8 tail via the deferred[u_skip] array (chunk 10b).
     //
     // On hit, when the program emits any `Op::Save`, the wire below
     // runs `vm_match_at(.., end_target = st + n)` for a second pass
@@ -334,7 +337,7 @@ pub fn search_from_with_ws(
     let uflag = flags & crate::parser::RE_FLAG_U != 0;
     let dfa_fast_path = prog.can_dfa
         && crate::dfa::prog_ops_dfa_safe(prog)
-        && (!uflag || !crate::dfa::prog_uses_class(prog));
+        && (!uflag || !crate::dfa::prog_uses_uflag_unsafe_class(prog));
     let dfa_built = if dfa_fast_path {
         Some(crate::dfa::build_dfa(prog, flags))
     } else {
