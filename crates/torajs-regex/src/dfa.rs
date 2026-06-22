@@ -12,11 +12,23 @@
 //!   byte-matching op (`Char`, `AnyChar`, `Class`). Feed back into
 //!   `epsilon_closure` for the next state.
 //!
-//! Future chunks: subset-construction NFA→DFA builder, per-RegExp
-//! state cache, fast-path fork in `vm::search_from_with_ws`.
+//! - **subset construction** (`build_dfa`) — BFS subset construction
+//!   driver that composes `epsilon_closure` + `byte_step` into a
+//!   [`DfaProgram`]: dense 256-way transitions per state, deduped via
+//!   `BTreeMap<BTreeSet<usize>, u32>`, state 0 reserved as the dead
+//!   state (empty PC set). Builder presumes caller already verified
+//!   `prog.can_dfa` (see [`analyze`]); SAVE / Anchor / WBound are
+//!   currently treated as terminal in [`epsilon_closure`], so the
+//!   resulting DFA does not correctly handle those features yet —
+//!   future chunks will revisit them.
+//!
+//! Future chunks: DFA executor + per-RegExp state cache, fast-path
+//! fork in `vm::search_from_with_ws`, position-context DFA states
+//! (Anchor / WBound), per-state save-mask (SAVE), and `u`-flag
+//! code-point step.
 //! Tracking RFC: `.claude/rfcs/20260622-pike-vm-dfa/design.md`.
 
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use crate::node::{Node, NodeKind};
@@ -145,6 +157,140 @@ pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8) -> BTreeSet
         }
     }
     next
+}
+
+/// One state of a [`DfaProgram`].
+///
+/// `transitions[byte]` is the destination state index (0 = dead state).
+/// `is_accept` is true iff the PC set this state represents contains an
+/// [`Op::Match`] PC (i.e. the NFA can accept at this byte position).
+///
+/// The 256-way transition table is dense — every byte slot is filled at
+/// build time, so the executor is a single `state = states[state].transitions[byte]`
+/// step per input byte. Memory cost is `256 * 4 = 1024` bytes per state
+/// plus 1 byte for the flag (padded to 4); future sparse map can replace
+/// it when state counts blow past a hot-cache budget. Capture groups (i64
+/// save slots) are *not* tracked yet — `SAVE` is terminal in
+/// [`epsilon_closure`] and a future chunk will add per-state save-masks.
+pub struct DfaState {
+    /// `transitions[byte]` = destination state index. 0 means dead.
+    pub transitions: [u32; 256],
+    /// True iff the NFA PC set behind this state contains [`Op::Match`].
+    pub is_accept: bool,
+}
+
+impl Default for DfaState {
+    fn default() -> Self {
+        Self {
+            transitions: [0u32; 256],
+            is_accept: false,
+        }
+    }
+}
+
+/// A built DFA — dense transition table + the start state index.
+///
+/// `states[0]` is the dead state (empty PC set, all transitions self-loop
+/// back to 0, never accepts). `states[start]` is the entry, computed as
+/// `epsilon_closure(prog, &[0])`. The total state count is bounded by
+/// `2^prog.len()` in theory and tiny in practice for typical patterns.
+///
+/// **Caller contract**: `build_dfa` does not re-verify [`analyze`]
+/// eligibility. Callers must check `prog.can_dfa` first and fall back to
+/// the Pike VM for ineligible patterns. Even when eligible, patterns
+/// involving `Op::Save` / `Op::AnchorB` / `Op::AnchorE` / `Op::WBound` /
+/// `Op::NWBound` will not match correctly until the position-context /
+/// save-mask chunks land; callers must additionally gate on absence of
+/// those features (or pay the cost of an extra VM fallback). The
+/// executor that consumes this struct will land in a follow-up chunk.
+pub struct DfaProgram {
+    pub states: Vec<DfaState>,
+    pub start: u32,
+}
+
+/// True iff `set` contains any [`Op::Match`] PC.
+fn pc_set_is_accept(prog: &Program, set: &BTreeSet<usize>) -> bool {
+    set.iter()
+        .any(|&pc| pc < prog.len() && matches!(Op::from_u8(prog.insts[pc].op), Some(Op::Match)))
+}
+
+/// Subset-construction NFA → DFA builder. BFS over PC-set states.
+///
+/// Walk:
+/// 1. State 0 is reserved as the dead state (empty PC set). Any
+///    transition that lands in an empty set points back to 0; the dead
+///    state's own transitions all self-loop to 0 (set at construction).
+/// 2. State 1 is `epsilon_closure(prog, &[0])` — the NFA entry's
+///    ε-closure.
+/// 3. For each unvisited state, compute the ε-closed successor set for
+///    each of the 256 input bytes. Look the set up in
+///    `set_to_idx: BTreeMap<BTreeSet<usize>, u32>`; reuse the existing
+///    index or push a new state and enqueue it.
+/// 4. Mark a state accepting iff its PC set contains [`Op::Match`].
+///
+/// The BTreeMap key is the canonical PC-set representation (already
+/// sorted + deduped), so equivalent NFA configurations collapse to a
+/// single DFA state. Build time is O(|states| · 256 · ε-closure cost);
+/// for typical AOT patterns total states stay in the low hundreds.
+pub fn build_dfa(prog: &Program) -> DfaProgram {
+    let mut states: Vec<DfaState> = Vec::new();
+    // state 0: dead state, all transitions self-loop to 0.
+    states.push(DfaState::default());
+
+    let mut set_to_idx: BTreeMap<BTreeSet<usize>, u32> = BTreeMap::new();
+    set_to_idx.insert(BTreeSet::new(), 0);
+
+    let initial = epsilon_closure(prog, &[0]);
+    if initial.is_empty() {
+        return DfaProgram { states, start: 0 };
+    }
+
+    let start_idx = states.len() as u32;
+    states.push(DfaState {
+        transitions: [0u32; 256],
+        is_accept: pc_set_is_accept(prog, &initial),
+    });
+    set_to_idx.insert(initial.clone(), start_idx);
+
+    // Work queue of (PC-set, state idx) pairs whose transitions are not
+    // yet filled. Pop-from-back is fine — order doesn't affect the DFA
+    // (BFS vs DFS just changes the state numbering of equivalent sets).
+    let mut work: Vec<(BTreeSet<usize>, u32)> = Vec::new();
+    work.push((initial, start_idx));
+
+    while let Some((cur_set, cur_idx)) = work.pop() {
+        let mut transitions = [0u32; 256];
+        for byte_u16 in 0u16..=255 {
+            let byte = byte_u16 as u8;
+            let stepped = byte_step(prog, &cur_set, byte);
+            let closed = if stepped.is_empty() {
+                BTreeSet::new()
+            } else {
+                let seeds: Vec<usize> = stepped.iter().copied().collect();
+                epsilon_closure(prog, &seeds)
+            };
+
+            let next_idx = if let Some(&i) = set_to_idx.get(&closed) {
+                i
+            } else {
+                let i = states.len() as u32;
+                states.push(DfaState {
+                    transitions: [0u32; 256],
+                    is_accept: pc_set_is_accept(prog, &closed),
+                });
+                set_to_idx.insert(closed.clone(), i);
+                work.push((closed, i));
+                i
+            };
+            transitions[byte as usize] = next_idx;
+        }
+        states[cur_idx as usize].transitions = transitions;
+    }
+
+    DfaProgram {
+        states,
+        start: start_idx,
+    }
 }
 
 pub fn epsilon_closure(prog: &Program, seeds: &[usize]) -> BTreeSet<usize> {
@@ -607,5 +753,246 @@ mod tests {
         prog.emit(Inst::char_lit(b'a'));
         // No MATCH terminator: pc 1 is out of range, must be dropped.
         assert!(byte_step(&prog, &set(&[0]), b'a').is_empty());
+    }
+
+    // build_dfa tests — composes epsilon_closure + byte_step into a
+    // deterministic table. Each test asserts state count + key
+    // transitions rather than the full 256-byte table for readability.
+
+    #[test]
+    fn build_dfa_empty_program_has_only_dead_state() {
+        let prog = Program::new();
+        let dfa = build_dfa(&prog);
+        assert_eq!(dfa.states.len(), 1);
+        assert_eq!(dfa.start, 0);
+        assert!(!dfa.states[0].is_accept);
+    }
+
+    #[test]
+    fn build_dfa_dead_state_self_loops_to_zero() {
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        for b in 0u16..=255 {
+            assert_eq!(dfa.states[0].transitions[b as usize], 0);
+        }
+        assert!(!dfa.states[0].is_accept);
+    }
+
+    #[test]
+    fn build_dfa_match_only_is_accept_immediately() {
+        // 0: MATCH — accepts empty string. ε-closure of {0} = {0}, has MATCH.
+        let mut prog = Program::new();
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        assert!(dfa.states[dfa.start as usize].is_accept);
+    }
+
+    #[test]
+    fn build_dfa_single_char_literal() {
+        // 0: CHAR a; 1: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        // dead + start({0}) + accept({1}) = 3 states.
+        assert_eq!(dfa.states.len(), 3);
+        assert_eq!(dfa.start, 1);
+        assert!(!dfa.states[dfa.start as usize].is_accept);
+        let accept = dfa.states[dfa.start as usize].transitions[b'a' as usize];
+        assert_ne!(accept, 0);
+        assert!(dfa.states[accept as usize].is_accept);
+        assert_eq!(dfa.states[dfa.start as usize].transitions[b'b' as usize], 0);
+    }
+
+    #[test]
+    fn build_dfa_literal_abc_walks_to_accept() {
+        // 0: CHAR a; 1: CHAR b; 2: CHAR c; 3: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::char_lit(b'c'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        let s1 = dfa.start as usize;
+        let s2 = dfa.states[s1].transitions[b'a' as usize] as usize;
+        assert_ne!(s2, 0);
+        let s3 = dfa.states[s2].transitions[b'b' as usize] as usize;
+        assert_ne!(s3, 0);
+        let s4 = dfa.states[s3].transitions[b'c' as usize] as usize;
+        assert_ne!(s4, 0);
+        assert!(dfa.states[s4].is_accept);
+        assert!(!dfa.states[s2].is_accept);
+        assert!(!dfa.states[s3].is_accept);
+        // wrong-byte transitions all route to dead.
+        assert_eq!(dfa.states[s1].transitions[b'z' as usize], 0);
+        assert_eq!(dfa.states[s2].transitions[b'z' as usize], 0);
+        assert_eq!(dfa.states[s3].transitions[b'z' as usize], 0);
+    }
+
+    #[test]
+    fn build_dfa_anychar_routes_every_byte_to_accept() {
+        // 0: ANY; 1: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnyChar));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        let start = dfa.start as usize;
+        let target = dfa.states[start].transitions[0];
+        assert_ne!(target, 0);
+        assert!(dfa.states[target as usize].is_accept);
+        for b in 0u16..=255 {
+            assert_eq!(
+                dfa.states[start].transitions[b as usize], target,
+                "byte 0x{b:02x}"
+            );
+        }
+    }
+
+    #[test]
+    fn build_dfa_class_only_in_range_advances() {
+        // 0: CLASS [a-c]; 1: MATCH
+        let mut prog = Program::new();
+        let mut cc = CharClass::new();
+        cc.add_range(b'a', b'c');
+        let idx = prog.intern_class(&cc);
+        prog.emit(Inst::class_ref(idx));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        let start = dfa.start as usize;
+        let target = dfa.states[start].transitions[b'a' as usize];
+        assert_ne!(target, 0);
+        assert!(dfa.states[target as usize].is_accept);
+        // all in-range bytes route to the same accept state.
+        assert_eq!(dfa.states[start].transitions[b'b' as usize], target);
+        assert_eq!(dfa.states[start].transitions[b'c' as usize], target);
+        // out-of-range bytes route to dead.
+        assert_eq!(dfa.states[start].transitions[b'd' as usize], 0);
+        assert_eq!(dfa.states[start].transitions[b'`' as usize], 0);
+    }
+
+    #[test]
+    fn build_dfa_alternation_both_branches_accept() {
+        // 0: SPLIT 1, 3; 1: CHAR a; 2: MATCH; 3: CHAR b; 4: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::split(1, 3));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        let start = dfa.start as usize;
+        let via_a = dfa.states[start].transitions[b'a' as usize];
+        let via_b = dfa.states[start].transitions[b'b' as usize];
+        assert_ne!(via_a, 0);
+        assert_ne!(via_b, 0);
+        assert!(dfa.states[via_a as usize].is_accept);
+        assert!(dfa.states[via_b as usize].is_accept);
+        // 'c' from start routes to dead.
+        assert_eq!(dfa.states[start].transitions[b'c' as usize], 0);
+    }
+
+    #[test]
+    fn build_dfa_kleene_star_self_loops_and_accepts_empty() {
+        // a*: 0: SPLIT 1, 3; 1: CHAR a; 2: JMP 0; 3: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::split(1, 3));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::jmp(0));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        // ε-closure({0}) walks SPLIT to {1, 3}; 3 = MATCH → start accepts.
+        assert!(dfa.states[dfa.start as usize].is_accept);
+        let via_a = dfa.states[dfa.start as usize].transitions[b'a' as usize];
+        assert_ne!(via_a, 0);
+        // After consuming 'a' we are back at an equivalent ε-closed set.
+        assert!(dfa.states[via_a as usize].is_accept);
+        assert_eq!(dfa.states[dfa.start as usize].transitions[b'b' as usize], 0);
+    }
+
+    #[test]
+    fn build_dfa_kleene_plus_self_loops_but_not_empty() {
+        // a+: 0: CHAR a; 1: SPLIT 0, 2; 2: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::split(0, 2));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        // Start ε-closure = {0} — no MATCH yet, so start does NOT accept.
+        assert!(!dfa.states[dfa.start as usize].is_accept);
+        let via_a = dfa.states[dfa.start as usize].transitions[b'a' as usize];
+        assert_ne!(via_a, 0);
+        assert!(dfa.states[via_a as usize].is_accept);
+        // Repeated 'a' from via_a must land on the same state (dedup).
+        let via_aa = dfa.states[via_a as usize].transitions[b'a' as usize];
+        assert_eq!(via_aa, via_a, "kleene-plus loops back to itself");
+        assert_eq!(dfa.states[via_a as usize].transitions[b'b' as usize], 0);
+    }
+
+    #[test]
+    fn build_dfa_dedup_equivalent_pc_sets() {
+        // (a|a)b — both alternatives converge on the same PC set after 'a';
+        // dedup must collapse them so the total state count stays minimal.
+        // 0: SPLIT 1, 3; 1: CHAR a; 2: JMP 4; 3: CHAR a; 4: CHAR b; 5: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::split(1, 3));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::jmp(4));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        let start = dfa.start as usize;
+        let after_a = dfa.states[start].transitions[b'a' as usize];
+        assert_ne!(after_a, 0);
+        let accept = dfa.states[after_a as usize].transitions[b'b' as usize];
+        assert_ne!(accept, 0);
+        assert!(dfa.states[accept as usize].is_accept);
+        // dead + start + after_a + accept = 4 states (no duplicate after_a).
+        assert_eq!(dfa.states.len(), 4);
+    }
+
+    #[test]
+    fn build_dfa_class_after_class_routes_only_via_lower_then_digit() {
+        // [a-z][0-9]: CLASS lower; CLASS digit; MATCH
+        let mut prog = Program::new();
+        let mut lower = CharClass::new();
+        lower.add_range(b'a', b'z');
+        let li = prog.intern_class(&lower);
+        let mut digit = CharClass::new();
+        digit.add_range(b'0', b'9');
+        let di = prog.intern_class(&digit);
+        prog.emit(Inst::class_ref(li));
+        prog.emit(Inst::class_ref(di));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        let start = dfa.start as usize;
+        let s1 = dfa.states[start].transitions[b'a' as usize];
+        assert_ne!(s1, 0);
+        let s2 = dfa.states[s1 as usize].transitions[b'5' as usize];
+        assert_ne!(s2, 0);
+        assert!(dfa.states[s2 as usize].is_accept);
+        // Uppercase from start = dead.
+        assert_eq!(dfa.states[start].transitions[b'A' as usize], 0);
+        // Digit from start = dead (must consume lower first).
+        assert_eq!(dfa.states[start].transitions[b'5' as usize], 0);
+        // Letter from s1 = dead (need a digit, not another letter).
+        assert_eq!(dfa.states[s1 as usize].transitions[b'x' as usize], 0);
+    }
+
+    #[test]
+    fn build_dfa_miss_routes_to_dead_then_self_loops() {
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        // miss from start lands on dead (idx 0)…
+        let dead = dfa.states[dfa.start as usize].transitions[b'b' as usize];
+        assert_eq!(dead, 0);
+        // …and dead self-loops on every byte.
+        for b in 0u16..=255 {
+            assert_eq!(dfa.states[0].transitions[b as usize], 0);
+        }
     }
 }
