@@ -302,40 +302,6 @@ pub fn build_dfa(prog: &Program) -> DfaProgram {
     }
 }
 
-/// Stricter than [`Program::can_dfa`]: also checks that no `Op::Save` /
-/// `Op::AnchorB` / `Op::AnchorE` / `Op::WBound` / `Op::NWBound` opcodes
-/// appear in the program's bytecode (or any sub-program). Those ops are
-/// still terminal in [`epsilon_closure`], so the built DFA silently
-/// mis-matches them; the Pike VM fallback consumes any program that
-/// fails this check.
-///
-/// Sub-programs (lookaround bodies) cannot appear when [`Program::can_dfa`]
-/// is true (lookaround is itself a blocker in [`analyze`]) — the loop
-/// over `sub_progs` is a belt-and-suspenders defensive check.
-///
-/// Future chunks tighten this: chunk 8 brings position-context state
-/// (Anchor/WBound), chunk 9 brings per-state save-mask (SAVE). Each
-/// removes ops from this gate as it lands.
-pub fn prog_ops_dfa_safe(prog: &Program) -> bool {
-    fn scan(insts: &[crate::program::Inst]) -> bool {
-        !insts.iter().any(|ins| {
-            matches!(
-                Op::from_u8(ins.op),
-                Some(Op::Save | Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound)
-            )
-        })
-    }
-    if !scan(&prog.insts) {
-        return false;
-    }
-    for sub in prog.sub_progs.iter() {
-        if !scan(&sub.insts) {
-            return false;
-        }
-    }
-    true
-}
-
 /// Drive a built [`DfaProgram`] over `hay`, returning the longest
 /// match-end byte offset reachable from `dfa.start` — anchored
 /// leftmost-longest semantics, starting at byte index 0.
