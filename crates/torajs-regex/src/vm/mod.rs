@@ -315,18 +315,16 @@ pub fn search_from_with_ws(
     // - `flags & RE_FLAG_U == 0` — DFA byte-step lacks code-point
     //   awareness (`u` flag needs UTF-8 decode at boundaries — future
     //   chunk 10).
-    // - `flags & RE_FLAG_M == 0` — under multiline, `^` also matches
-    //   after every newline, not only at text-start. The DFA built
-    //   here only resolves text-start AnchorB; pre-newline matches
-    //   would silently miss. (Future chunk: thread `m` flag through
-    //   build_dfa via line-aware ctx.)
     // - AnyChar requires `s` flag (DFA always advances on `.`).
     //
-    // chunk 8.7: `RE_FLAG_I` is no longer a blocker — `build_dfa`
-    // threads `flags` through `byte_step`, which calls `char_eq` /
-    // `class_test_case_fold` so `Op::Char` and `Op::Class` resolve
-    // ASCII case-pairs alongside the literal byte.
-    let flag_blockers = crate::parser::RE_FLAG_U | crate::parser::RE_FLAG_M;
+    // chunk 8.7: `RE_FLAG_I` no longer a blocker — `build_dfa` threads
+    // `flags` through `byte_step`, which calls `char_eq` /
+    // `class_test_case_fold` for ASCII case-pair resolution.
+    // chunk 8.8: `RE_FLAG_M` no longer a blocker — `build_dfa` threads
+    // `mflag` into `PositionCtx`, so `Op::AnchorB` advances when the
+    // ctx is at text-start *or* `left_byte == Some(b'\n')` (line-start
+    // under multiline).
+    let flag_blockers = crate::parser::RE_FLAG_U;
     let dfa_fast_path = prog.can_dfa
         && (flags & flag_blockers) == 0
         && crate::dfa::prog_ops_dfa_safe(prog)
@@ -377,14 +375,19 @@ pub fn search_from_with_ws(
             // only — capture slots stay all -1 (gate guarantees no SAVE
             // ops, so the Pike VM would emit the same all-`-1` saves).
             //
-            // chunk 8.5 entry-state selection: `st == 0` enters via
-            // `dfa.start` (closure under `is_text_start = true` — `^`
-            // advances through); `st > 0` enters via `dfa.start_mid`
-            // (closure under `is_text_start = false` — `^` blocks).
-            // For patterns without `Op::AnchorB` the two start states
-            // dedup to the same index, so the branch is free.
+            // chunk 8.5 / 8.8 entry-state selection. Use the
+            // text-start closure (`dfa.start` — `^` advanced) when the
+            // cursor is at a line boundary: byte 0 of the haystack, or
+            // — under `RE_FLAG_M` — immediately after a `\n` byte.
+            // Otherwise use `dfa.start_mid` (`^` blocked). Patterns
+            // without `Op::AnchorB` dedup the two indices, so the
+            // branch is free.
+            let at_line_start = st == 0
+                || (flags & crate::parser::RE_FLAG_M != 0
+                    && st > 0
+                    && s[(st - 1) as usize] == b'\n');
             let hay_suffix = &s[st as usize..];
-            let hit = if st == 0 {
+            let hit = if at_line_start {
                 crate::dfa::dfa_search(dfa, hay_suffix)
             } else {
                 crate::dfa::dfa_search_mid(dfa, hay_suffix)

@@ -222,19 +222,12 @@ impl Default for DfaState {
     }
 }
 
-/// A built DFA — dense transition table + the two anchored start state
-/// indices.
-///
-/// `states[0]` is the dead state (empty PC set, all transitions self-
-/// loop back to 0, never accepts). `start` enters with `is_text_start
-/// = true` (`^` advances); `start_mid` enters with `false` (`^`
-/// blocks). For patterns without `Op::AnchorB` the two coincide via
-/// the BFS dedup map.
-///
-/// **Caller contract**: [`build_dfa`] does not re-verify [`analyze`]
-/// eligibility — callers must check `prog.can_dfa` and additionally
-/// gate on [`prog_ops_dfa_safe`] (excludes `Op::Save` / `Op::AnchorE` /
-/// `Op::WBound` / `Op::NWBound`).
+/// A built DFA — dense transition table + two anchored start state
+/// indices. `states[0]` = dead (empty PC set, self-loops, never
+/// accepts). `start` enters with `is_text_start = true` (`^` advances);
+/// `start_mid` enters with `false` (`^` blocks); patterns without
+/// `Op::AnchorB` dedup the two. Caller must gate via `prog.can_dfa`
+/// + [`prog_ops_dfa_safe`] (excludes Save / AnchorE / WBound / NWBound).
 pub struct DfaProgram {
     pub states: Vec<DfaState>,
     pub start: u32,
@@ -273,27 +266,14 @@ fn intern_state(
     i
 }
 
-/// Subset-construction NFA → DFA builder. BFS over PC-set states with
-/// position-aware initial closures (chunk 8.5) and ASCII case-fold
-/// awareness (chunk 8.7).
-///
-/// Two start seeds are interned: `start` under
-/// `PositionCtx{is_text_start: true}` (`^` advances) and `start_mid`
-/// under `is_text_start: false` (`^` blocks). After byte consumption
-/// the BFS uses the mid-stream ctx — every successor state lives past
-/// the text start by definition. Patterns without `Op::AnchorB`
-/// dedup `start == start_mid`.
-///
-/// `flags` is the compile-time flag set (see [`crate::parser`]). Under
-/// `RE_FLAG_I` the byte-step advances on the ASCII case-pair of each
-/// `Op::Char` / `Op::Class` byte — different flag values build
-/// different DFAs (the wire keys the per-RegExp DFA on `flags`).
-///
-/// State 0 is reserved as the dead state; the dedup map
-/// `set_to_idx: BTreeMap<BTreeSet<usize>, u32>` canonicalises sorted
-/// PC sets so equivalent NFA configurations collapse. Right-byte-aware
-/// closure (resolving `Op::AnchorE` / `Op::WBound` / `Op::NWBound`) is
-/// future work — those ops stay blockers in [`prog_ops_dfa_safe`].
+/// Subset-construction NFA → DFA builder (chunks 8.5/8.7/8.8). Seeds
+/// two start states (`start` text-start, `start_mid` not) so the wire
+/// picks the right entry per cursor position. `flags` threads through
+/// [`byte_step`] (i-flag case-fold, chunk 8.7) and into `PositionCtx`
+/// (`RE_FLAG_M` enables AnchorB re-fire after a consumed `\n`, chunk
+/// 8.8). State 0 = dead; `set_to_idx` canonicalises sorted PC sets so
+/// equivalent NFA configurations collapse. AnchorE/WBound/NWBound stay
+/// blockers in [`prog_ops_dfa_safe`] until right-byte threading lands.
 pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     let mut states: Vec<DfaState> = Vec::new();
     // state 0: dead state, all transitions self-loop to 0.
@@ -302,15 +282,18 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     let mut set_to_idx: BTreeMap<BTreeSet<usize>, u32> = BTreeMap::new();
     set_to_idx.insert(BTreeSet::new(), 0);
 
+    let mflag = flags & crate::parser::RE_FLAG_M != 0;
     let ctx_anchored = PositionCtx {
         left_byte: None,
         is_text_start: true,
         is_text_end: false,
+        mflag,
     };
     let ctx_mid = PositionCtx {
         left_byte: None,
         is_text_start: false,
         is_text_end: false,
+        mflag,
     };
 
     let mut work: Vec<(BTreeSet<usize>, u32)> = Vec::new();
@@ -336,7 +319,19 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                 BTreeSet::new()
             } else {
                 let seeds: Vec<usize> = stepped.iter().copied().collect();
-                epsilon_closure_full(prog, &seeds, ctx_mid, None)
+                // Under mflag the post-step ctx carries left_byte =
+                // Some(byte) so mid-pattern AnchorB can re-fire after
+                // a consumed `\n`. Without mflag every byte yields the
+                // same default ctx (set dedup collapses 256-way loop).
+                let ctx_after = if mflag {
+                    PositionCtx {
+                        left_byte: Some(byte),
+                        ..ctx_mid
+                    }
+                } else {
+                    ctx_mid
+                };
+                epsilon_closure_full(prog, &seeds, ctx_after, None)
             };
             let next_idx = intern_state(prog, closed, &mut states, &mut set_to_idx, &mut work);
             transitions[byte as usize] = next_idx;
@@ -1571,5 +1566,82 @@ mod tests {
         }
         // Digits stay outside the (folded) class.
         assert_eq!(dfa_search(&dfa, b"7"), None);
+    }
+
+    // chunk 8.8 — `RE_FLAG_M` multiline `^`. `build_dfa` threads
+    // `mflag` into `PositionCtx`; `Op::AnchorB` advances when the ctx
+    // is at text-start *or* `left_byte == Some(b'\n')`. The
+    // `vm::search_from_with_ws` wire picks `dfa.start` at line-start
+    // cursor positions and `dfa.start_mid` elsewhere.
+
+    use crate::parser::RE_FLAG_M;
+
+    #[test]
+    fn build_dfa_mflag_for_anchor_b_pattern_compiles() {
+        // `^a`: 0: ANCHOR_B; 1: CHAR a; 2: MATCH
+        // Multiline `^` resolution is wire-level (see
+        // `vm::search_from_with_ws`: line-start positions re-enter via
+        // `dfa.start`). The BFS just has to produce a valid DFA — the
+        // `start` state mirrors the no-flag DFA (AnchorB advances under
+        // `is_text_start = true` regardless of mflag) and `start_mid`
+        // still blocks AnchorB (left_byte = None in ctx_mid_default).
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog, RE_FLAG_M);
+        // start (text_start=true closure) accepts 'a'.
+        let via_a = dfa.states[dfa.start as usize].transitions[b'a' as usize];
+        assert!(
+            dfa.states[via_a as usize].is_accept,
+            "start + 'a' must accept under mflag (text_start ctx)"
+        );
+        // start_mid (no left_byte) blocks AnchorB — all bytes dead.
+        for b in [b'a', b'\n', b'x'] {
+            assert_eq!(
+                dfa.states[dfa.start_mid as usize].transitions[b as usize], 0,
+                "byte {b:02x} from start_mid must be dead (wire re-enters at line-start)"
+            );
+        }
+    }
+
+    #[test]
+    fn epsilon_closure_full_anchor_b_advances_under_mflag_after_newline() {
+        // Direct ε-closure test against the new mflag semantic.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        // mflag = true, left = '\n': AnchorB advances.
+        let ctx_after_nl = PositionCtx {
+            left_byte: Some(b'\n'),
+            is_text_start: false,
+            is_text_end: false,
+            mflag: true,
+        };
+        let cl = crate::dfa::epsilon_closure_full(&prog, &[0], ctx_after_nl, Some(b'a'));
+        assert!(
+            cl.contains(&1),
+            "AnchorB must advance after \\n under mflag"
+        );
+        // mflag = true, left = 'a': AnchorB stays terminal.
+        let ctx_after_a = PositionCtx {
+            left_byte: Some(b'a'),
+            is_text_start: false,
+            is_text_end: false,
+            mflag: true,
+        };
+        let cl = crate::dfa::epsilon_closure_full(&prog, &[0], ctx_after_a, Some(b'b'));
+        assert!(!cl.contains(&1));
+        // mflag = false, left = '\n': AnchorB stays terminal (legacy
+        // semantic).
+        let ctx_no_mflag = PositionCtx {
+            left_byte: Some(b'\n'),
+            is_text_start: false,
+            is_text_end: false,
+            mflag: false,
+        };
+        let cl = crate::dfa::epsilon_closure_full(&prog, &[0], ctx_no_mflag, Some(b'a'));
+        assert!(!cl.contains(&1));
     }
 }
