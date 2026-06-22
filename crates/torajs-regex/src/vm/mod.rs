@@ -319,22 +319,19 @@ pub fn search_from_with_ws(
     // Flag gate:
     // - `Program::can_dfa` excludes backref + lookaround.
     // - `dfa::prog_ops_dfa_safe` no longer rejects any opcode — chunks
-    //   8.5 / 8.6a / 8.6b / 8.7 / 8.8 / 9 cleared `^` / `$` / `\b` /
-    //   `\B` / RE_FLAG_I (i) / RE_FLAG_M (m) / SAVE; the function
-    //   stays as a safety net for future opcode adds.
+    //   8.5 / 8.6a / 8.6b / 8.7 / 8.8 / 9 / 10a cleared `^` / `$` / `\b`
+    //   / `\B` / RE_FLAG_I (i) / RE_FLAG_M (m) / SAVE / AnyChar-w/o-s;
+    //   the function stays as a safety net for future opcode adds.
     // - `flags & RE_FLAG_U == 0` — DFA byte-step lacks code-point
     //   awareness (`u` flag needs UTF-8 decode at boundaries — future
-    //   chunk 10).
-    // - AnyChar requires `s` flag (DFA always advances on `.`).
+    //   chunk 10b).
     //
     // On hit, when the program emits any `Op::Save`, the wire below
     // runs `vm_match_at(.., end_target = st + n)` for a second pass
     // that produces the winning thread's `saves`.
     let flag_blockers = crate::parser::RE_FLAG_U;
-    let dfa_fast_path = prog.can_dfa
-        && (flags & flag_blockers) == 0
-        && crate::dfa::prog_ops_dfa_safe(prog)
-        && (!crate::dfa::prog_uses_anychar(prog) || (flags & crate::parser::RE_FLAG_S) != 0);
+    let dfa_fast_path =
+        prog.can_dfa && (flags & flag_blockers) == 0 && crate::dfa::prog_ops_dfa_safe(prog);
     let dfa_built = if dfa_fast_path {
         Some(crate::dfa::build_dfa(prog, flags))
     } else {

@@ -163,14 +163,18 @@ pub fn analyze(root: &Node) -> DfaEligibility {
 /// `vm/dispatch.rs::add_thread`).
 /// One byte-transition step over a state set (presumed ε-closed).
 /// `Op::Char` uses [`crate::vm::char_eq`] (case-pair under `RE_FLAG_I`);
-/// `Op::AnyChar` always advances (dot-all; the `s` flag is the AOT
-/// default); `Op::Class` tests the byte then [`class_test_case_fold`]
-/// for the i-flag pair. Other ops terminal — ε via [`epsilon_closure`],
-/// lookaround/backref filter upstream in [`analyze`]. Out-of-range PCs
-/// (defensive) and `pc + 1` past program end are dropped.
+/// `Op::AnyChar` advances on any byte except `\n` (0x0A) when
+/// `RE_FLAG_S` is unset (chunk 10a — the JS spec says `.` does not
+/// match line terminators unless `s` is set; the dot-all branch under
+/// `s` is the only way to match `\n` via `.`); `Op::Class` tests the
+/// byte then [`class_test_case_fold`] for the i-flag pair. Other ops
+/// terminal — ε via [`epsilon_closure`], lookaround/backref filter
+/// upstream in [`analyze`]. Out-of-range PCs (defensive) and `pc + 1`
+/// past program end are dropped.
 pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8, flags: u8) -> BTreeSet<usize> {
     let mut next: BTreeSet<usize> = BTreeSet::new();
     let plen = prog.len();
+    let s_flag = flags & crate::parser::RE_FLAG_S != 0;
     for &pc in states.iter() {
         if pc >= plen {
             continue;
@@ -182,7 +186,7 @@ pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8, flags: u8) 
         };
         let advances = match op {
             Op::Char => crate::vm::char_eq(ins.ch, byte, flags),
-            Op::AnyChar => true,
+            Op::AnyChar => s_flag || byte != b'\n',
             Op::Class => {
                 let cls_idx = ins.a as usize;
                 if cls_idx >= prog.classes.len() {
@@ -640,26 +644,6 @@ pub fn prog_ops_dfa_safe(_prog: &Program) -> bool {
     // a safety net so future opcode additions can wire a quick
     // blocker here without touching every call site.
     true
-}
-
-/// True iff the program (or any sub-program) emits an [`Op::AnyChar`]
-/// instruction (i.e. the source pattern contains `.`).
-///
-/// The DFA's [`byte_step`] always advances on any byte at an `AnyChar`
-/// PC, matching the JS `s` (dotall) flag semantics. Without the `s`
-/// flag, JS `.` must *not* match `\n`. The hot-path gate uses this to
-/// require either no `AnyChar` ops or the `s` flag set; otherwise the
-/// pattern falls back to Pike VM where `match_at` consults flags.
-pub fn prog_uses_anychar(prog: &Program) -> bool {
-    fn scan(insts: &[crate::program::Inst]) -> bool {
-        insts
-            .iter()
-            .any(|ins| matches!(Op::from_u8(ins.op), Some(Op::AnyChar)))
-    }
-    if scan(&prog.insts) {
-        return true;
-    }
-    prog.sub_progs.iter().any(|sub| scan(&sub.insts))
 }
 
 /// Drive a built [`DfaProgram`] over `hay`, returning the longest
@@ -1145,18 +1129,36 @@ mod tests {
     }
 
     #[test]
-    fn byte_step_anychar_always_advances() {
-        // 0: ANY; 1: MATCH
+    fn byte_step_anychar_advances_on_any_byte_under_s_flag() {
+        // chunk 10a — under `s`, `.` matches every byte (dot-all).
         let mut prog = Program::new();
         prog.emit(Inst::simple(Op::AnyChar));
         prog.emit(Inst::match_accept());
         for b in [b'a', b'\n', 0u8, 0xff] {
+            assert_eq!(
+                byte_step(&prog, &set(&[0]), b, crate::parser::RE_FLAG_S),
+                set(&[1]),
+                "byte 0x{b:02x}"
+            );
+        }
+    }
+
+    #[test]
+    fn byte_step_anychar_skips_newline_without_s_flag() {
+        // chunk 10a — without `s`, `.` advances on every byte except
+        // `\n` (0x0A). This honours the JS spec at the DFA level so the
+        // hot-path gate no longer needs to require the `s` flag.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnyChar));
+        prog.emit(Inst::match_accept());
+        for b in [b'a', 0u8, 0xff, b'\r'] {
             assert_eq!(
                 byte_step(&prog, &set(&[0]), b, 0),
                 set(&[1]),
                 "byte 0x{b:02x}"
             );
         }
+        assert!(byte_step(&prog, &set(&[0]), b'\n', 0).is_empty());
     }
 
     #[test]
@@ -1294,12 +1296,12 @@ mod tests {
     }
 
     #[test]
-    fn build_dfa_anychar_routes_every_byte_to_accept() {
-        // 0: ANY; 1: MATCH
+    fn build_dfa_anychar_routes_every_byte_to_accept_under_s_flag() {
+        // 0: ANY; 1: MATCH — under `s`, `.` matches every byte.
         let mut prog = Program::new();
         prog.emit(Inst::simple(Op::AnyChar));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog, 0);
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_S);
         let start = dfa.start as usize;
         let target = dfa.states[start].transitions[0];
         assert_ne!(target, 0);
@@ -1310,6 +1312,20 @@ mod tests {
                 "byte 0x{b:02x}"
             );
         }
+    }
+
+    #[test]
+    fn build_dfa_anychar_skips_newline_without_s_flag() {
+        // chunk 10a — without `s`, `.` routes `\n` to dead state.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnyChar));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog, 0);
+        let start = dfa.start as usize;
+        let target = dfa.states[start].transitions[b'a' as usize];
+        assert_ne!(target, 0);
+        assert!(dfa.states[target as usize].is_accept);
+        assert_eq!(dfa.states[start].transitions[b'\n' as usize], 0);
     }
 
     #[test]
@@ -1596,18 +1612,30 @@ mod tests {
 
     #[test]
     fn dfa_search_anychar_consumes_exactly_one_byte() {
-        // 0: ANY; 1: MATCH
+        // 0: ANY; 1: MATCH — chunk 10a `.` excludes `\n` without `s`.
         let dfa = build_dfa_for(&[Inst::simple(Op::AnyChar), Inst::match_accept()]);
-        // Start does not accept (no MATCH in {0}); first byte takes us
-        // to an accepting state — match length 1 regardless of byte.
+        // Start does not accept (no MATCH in {0}); first non-`\n` byte
+        // takes us to an accepting state — match length 1.
         assert_eq!(dfa_search(&dfa, b""), None);
         assert_eq!(dfa_search(&dfa, b"a"), Some(1));
-        assert_eq!(dfa_search(&dfa, b"\n"), Some(1));
+        // `\n` is the one byte `.` rejects without the `s` flag.
+        assert_eq!(dfa_search(&dfa, b"\n"), None);
         // After the accept, the DFA stays in an accepting state for one
         // more byte (the build queues the post-accept set), so longer
         // input still reports the longest accepting position — which is
         // length 1 because the post-accept set has no further MATCH.
         assert_eq!(dfa_search(&dfa, b"ab"), Some(1));
+    }
+
+    #[test]
+    fn dfa_search_anychar_matches_newline_under_s_flag() {
+        // chunk 10a — with `s`, `.` covers `\n` too.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnyChar));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_S);
+        assert_eq!(dfa_search(&dfa, b"\n"), Some(1));
+        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
     }
 
     // chunk 8.5 — position-aware build_dfa with `start` / `start_mid`.
