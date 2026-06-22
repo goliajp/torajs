@@ -322,22 +322,21 @@ pub fn search_from_with_ws(
     //   8.5 / 8.6a / 8.6b / 8.7 / 8.8 / 9 / 10a cleared `^` / `$` / `\b`
     //   / `\B` / RE_FLAG_I (i) / RE_FLAG_M (m) / SAVE / AnyChar-w/o-s;
     //   the function stays as a safety net for future opcode adds.
-    // - `RE_FLAG_U` + unsafe `Op::Class` — under `u`, classes that can
-    //   match non-ASCII bytes (negate / `u_props` / explicit non-ASCII
-    //   bits) need code-point decoding the byte-step lacks. chunk 10c
-    //   refines the chunk 10b "any Class" blocker into a per-class
-    //   u-safe check (`prog_uses_uflag_unsafe_class`) so `\d` / `\w` /
-    //   `[a-z]` and other ASCII-only classes stay DFA-eligible.
-    //   AnyChar under `u` is fine — the BFS parks PCs behind the
-    //   UTF-8 tail via the deferred[u_skip] array (chunk 10b).
+    // - chunk 10d cleared the last u-flag blocker — unsafe classes
+    //   (negate / `u_props` / non-ASCII bits) get compile-time
+    //   rewritten by `utf8_class_expand` into a byte-level Alt-of-
+    //   Concat over `Op::Class` instructions referencing
+    //   `byte_only` leaf classes (re2 / regex-syntax `Utf8Sequences`
+    //   range-based byte expansion), which the DFA byte-step walks
+    //   verbatim. The Pike VM second-pass for capture extraction
+    //   sees the same instructions and honours `byte_only` in
+    //   `match_at.rs::Op::Class`, so a `\p{L}u` pattern with a
+    //   capture group is fully DFA-resident.
     //
     // On hit, when the program emits any `Op::Save`, the wire below
     // runs `vm_match_at(.., end_target = st + n)` for a second pass
     // that produces the winning thread's `saves`.
-    let uflag = flags & crate::parser::RE_FLAG_U != 0;
-    let dfa_fast_path = prog.can_dfa
-        && crate::dfa::prog_ops_dfa_safe(prog)
-        && (!uflag || !crate::dfa::prog_uses_uflag_unsafe_class(prog));
+    let dfa_fast_path = prog.can_dfa && crate::dfa::prog_ops_dfa_safe(prog);
     let dfa_built = if dfa_fast_path {
         Some(crate::dfa::build_dfa(prog, flags))
     } else {
@@ -498,7 +497,7 @@ mod tests {
         let mut p = Parser::new(pat.as_bytes(), flags);
         let root = p.parse().expect("parse failed");
         let mut prog = Program::new();
-        compile(&mut prog, &root);
+        compile(&mut prog, &root, flags);
         prog.emit(Inst::match_accept());
         prog
     }

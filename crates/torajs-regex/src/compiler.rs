@@ -5,15 +5,29 @@
 //! bytecode into a [`Program`]. Backpatching uses the index returned
 //! by `Program::emit` + the `next_idx` cursor; jump targets are
 //! finalized once the relevant sub-tree is in place.
+//!
+//! chunk 10d — `flags` threaded through every entry to decide
+//! whether the u-flag is active. Under `u`, [`NodeKind::Class`]
+//! nodes whose [`CharClass`] is unsafe (negate / non-ASCII bits /
+//! `\p{}` fold-ins) are rewritten into a byte-level Alt of Concat
+//! by [`crate::utf8_class_expand::expand_unsafe_class`] and the
+//! expansion is compiled recursively — the resulting `Op::Class`
+//! instructions all reference `CharClass { byte_only: true, .. }`
+//! so the Pike VM second-pass also steps a single byte regardless
+//! of `u`.
 
 use crate::node::{Node, NodeKind};
+use crate::parser::RE_FLAG_U;
 use crate::program::{Inst, Op, Program};
+use crate::utf8_class_expand::expand_unsafe_class;
 use alloc::{boxed::Box, vec::Vec};
 
 /// Compile `node` into `prog`. The emitted bytecode is appended; the
 /// caller is responsible for the outer `OP_MATCH` once the root of the
-/// whole pattern has been compiled.
-pub fn compile(prog: &mut Program, node: &Node) {
+/// whole pattern has been compiled. `flags` carries the active regex
+/// flag bits (parsed by [`crate::flags::parse_flags`]) so the u-flag
+/// path can rewrite unsafe classes into byte-level alternatives.
+pub fn compile(prog: &mut Program, node: &Node, flags: u8) {
     match node.kind {
         NodeKind::Char => {
             prog.emit(Inst::char_lit(node.ch));
@@ -22,8 +36,13 @@ pub fn compile(prog: &mut Program, node: &Node) {
             prog.emit(Inst::simple(Op::AnyChar));
         }
         NodeKind::Class => {
-            let cidx = prog.intern_class(&node.cc);
-            prog.emit(Inst::class_ref(cidx));
+            let uflag = flags & RE_FLAG_U != 0;
+            if let Some(expansion) = expand_unsafe_class(&node.cc, uflag) {
+                compile(prog, &expansion, flags);
+            } else {
+                let cidx = prog.intern_class(&node.cc);
+                prog.emit(Inst::class_ref(cidx));
+            }
         }
         NodeKind::AnchorBeg => {
             prog.emit(Inst::simple(Op::AnchorB));
@@ -39,19 +58,19 @@ pub fn compile(prog: &mut Program, node: &Node) {
         }
         NodeKind::Concat => {
             for kid in &node.kids {
-                compile(prog, kid);
+                compile(prog, kid, flags);
             }
         }
-        NodeKind::Alt => compile_alt(prog, node),
-        NodeKind::Repeat => compile_repeat(prog, node),
-        NodeKind::Group => compile_group(prog, node),
+        NodeKind::Alt => compile_alt(prog, node, flags),
+        NodeKind::Repeat => compile_repeat(prog, node, flags),
+        NodeKind::Group => compile_group(prog, node, flags),
         NodeKind::Backref => {
             prog.emit(Inst::backref(node.capture_idx));
         }
         NodeKind::Lookahead
         | NodeKind::NegLookahead
         | NodeKind::Lookbehind
-        | NodeKind::NegLookbehind => compile_lookaround(prog, node),
+        | NodeKind::NegLookbehind => compile_lookaround(prog, node, flags),
     }
 }
 
@@ -65,7 +84,7 @@ pub fn compile(prog: &mut Program, node: &Node) {
 ///   Lalt2: compile(c)
 ///   Lend:
 /// ```
-fn compile_alt(prog: &mut Program, node: &Node) {
+fn compile_alt(prog: &mut Program, node: &Node, flags: u8) {
     let n_alts = node.kids.len();
     if n_alts == 0 {
         return; // defensive — parser doesn't produce empty Alt
@@ -74,7 +93,7 @@ fn compile_alt(prog: &mut Program, node: &Node) {
     for kid in &node.kids[..n_alts - 1] {
         let sidx = prog.emit(Inst::split(0, 0));
         let branch_start = prog.next_idx();
-        compile(prog, kid);
+        compile(prog, kid, flags);
         let jmp_idx = prog.emit(Inst::jmp(0));
         jmps.push(jmp_idx as usize);
         let next = prog.next_idx();
@@ -82,7 +101,7 @@ fn compile_alt(prog: &mut Program, node: &Node) {
         prog.insts[sidx as usize].b = next;
     }
     // Last alternative — no trailing JMP; falls through to Lend.
-    compile(prog, &node.kids[n_alts - 1]);
+    compile(prog, &node.kids[n_alts - 1], flags);
     let end = prog.next_idx();
     for jidx in jmps {
         prog.insts[jidx].a = end;
@@ -95,28 +114,28 @@ fn compile_alt(prog: &mut Program, node: &Node) {
 /// - For unbounded (`max == -1`), a SPLIT-loop Kleene star tail.
 /// - For bounded (`max - min` extras), a chain of `SPLIT (body, skip)`
 ///   wrappers — each loop iteration may exit early via `skip`.
-fn compile_repeat(prog: &mut Program, node: &Node) {
+fn compile_repeat(prog: &mut Program, node: &Node, flags: u8) {
     let Some(child) = node.child.as_deref() else {
         return;
     };
     // Unrolled mandatory prefix.
     for _ in 0..node.min {
-        compile(prog, child);
+        compile(prog, child, flags);
     }
     if node.max == -1 {
-        compile_kleene_tail(prog, child, node.lazy);
+        compile_kleene_tail(prog, child, node.lazy, flags);
     } else {
         let extra = node.max - node.min;
-        compile_bounded_extras(prog, child, extra, node.lazy);
+        compile_bounded_extras(prog, child, extra, node.lazy, flags);
     }
 }
 
 /// SPLIT-loop tail for unbounded repeats (`*` / `+` / `{n,}`).
 /// Greedy: `SPLIT body, after`; lazy: targets swapped.
-fn compile_kleene_tail(prog: &mut Program, child: &Node, lazy: bool) {
+fn compile_kleene_tail(prog: &mut Program, child: &Node, lazy: bool, flags: u8) {
     let split_idx = prog.emit(Inst::split(0, 0));
     let body_start = prog.next_idx();
-    compile(prog, child);
+    compile(prog, child, flags);
     prog.emit(Inst::jmp(split_idx));
     let after = prog.next_idx();
     if lazy {
@@ -131,7 +150,7 @@ fn compile_kleene_tail(prog: &mut Program, child: &Node, lazy: bool) {
 /// `extra` bounded optional iterations of `child`, each wrapped in a
 /// SPLIT that can fall through to `after_loop`. Backpatched once the
 /// extras are emitted.
-fn compile_bounded_extras(prog: &mut Program, child: &Node, extra: i32, lazy: bool) {
+fn compile_bounded_extras(prog: &mut Program, child: &Node, extra: i32, lazy: bool, flags: u8) {
     if extra <= 0 {
         return;
     }
@@ -140,7 +159,7 @@ fn compile_bounded_extras(prog: &mut Program, child: &Node, extra: i32, lazy: bo
         let sidx = prog.emit(Inst::split(0, 0));
         splits.push(sidx as usize);
         let body_start = prog.next_idx();
-        compile(prog, child);
+        compile(prog, child, flags);
         if lazy {
             prog.insts[sidx as usize].a = -1; // skip — patched below
             prog.insts[sidx as usize].b = body_start;
@@ -162,16 +181,16 @@ fn compile_bounded_extras(prog: &mut Program, child: &Node, extra: i32, lazy: bo
 
 /// `(...)` or `(?:...)`. Capturing groups bracket the child with two
 /// `SAVE` instructions writing `pos` to slots `2*idx` and `2*idx+1`.
-fn compile_group(prog: &mut Program, node: &Node) {
+fn compile_group(prog: &mut Program, node: &Node, flags: u8) {
     let Some(child) = node.child.as_deref() else {
         return;
     };
     if node.capture_idx > 0 {
         prog.emit(Inst::save(2 * node.capture_idx));
-        compile(prog, child);
+        compile(prog, child, flags);
         prog.emit(Inst::save(2 * node.capture_idx + 1));
     } else {
-        compile(prog, child);
+        compile(prog, child, flags);
     }
 }
 
@@ -179,10 +198,10 @@ fn compile_group(prog: &mut Program, node: &Node) {
 /// into a fresh sub-Program (with its own `OP_MATCH` terminator); the
 /// parent emits the appropriate `OP_*_LOOKAHEAD/BEHIND` op pointing at
 /// the sub-Program's index.
-fn compile_lookaround(prog: &mut Program, node: &Node) {
+fn compile_lookaround(prog: &mut Program, node: &Node, flags: u8) {
     let mut sub = Program::new();
     if let Some(child) = node.child.as_deref() {
-        compile(&mut sub, child);
+        compile(&mut sub, child, flags);
     }
     sub.emit(Inst::match_accept());
     let sub_idx = prog.add_sub(Box::new(sub));
@@ -206,7 +225,17 @@ mod tests {
         let mut p = Parser::new(pat.as_bytes(), 0);
         let root = p.parse().expect("parse failed");
         let mut prog = Program::new();
-        compile(&mut prog, &root);
+        compile(&mut prog, &root, 0);
+        prog.emit(Inst::match_accept());
+        prog
+    }
+
+    fn compile_pattern_uflag(pat: &str) -> Program {
+        let flags = crate::parser::RE_FLAG_U;
+        let mut p = Parser::new(pat.as_bytes(), flags);
+        let root = p.parse().expect("parse failed");
+        let mut prog = Program::new();
+        compile(&mut prog, &root, flags);
         prog.emit(Inst::match_accept());
         prog
     }
@@ -363,5 +392,42 @@ mod tests {
         // SAVE, CHAR a, SAVE, BACKREF 1, MATCH
         assert_eq!(prog.insts[3].op, Op::Backref as u8);
         assert_eq!(prog.insts[3].a, 1);
+    }
+
+    #[test]
+    fn uflag_safe_class_keeps_single_op_class() {
+        // `\d` under u flag is u-safe (ASCII-only, no negate, no
+        // u_props) — chunk 10d expansion is a no-op, so we still
+        // emit a single OP_CLASS pointing at an interned class.
+        let prog = compile_pattern_uflag("\\d");
+        assert_eq!(prog.insts[0].op, Op::Class as u8);
+        assert_eq!(prog.classes.len(), 1);
+        assert!(!prog.classes[0].byte_only);
+    }
+
+    #[test]
+    fn uflag_unsafe_negate_class_expands_into_byte_only_classes() {
+        // `[^a]u` triggers the chunk 10d AST rewrite. The leaf
+        // classes are `byte_only`, and the expansion produces an Alt
+        // over length groups so the bytecode starts with a SPLIT.
+        let prog = compile_pattern_uflag("[^a]");
+        assert!(prog.classes.iter().any(|c| c.byte_only));
+        let class_count = prog
+            .insts
+            .iter()
+            .filter(|i| i.op == Op::Class as u8)
+            .count();
+        assert!(class_count >= 2, "expected >=2 OP_CLASS, got {class_count}");
+    }
+
+    #[test]
+    fn uflag_property_letter_expands_with_multi_length_groups() {
+        // `\p{L}u` covers ASCII letters (1-byte) plus UCD non-ASCII
+        // letters (2/3-byte), so the expansion produces Alt over at
+        // least two length groups → top of the emitted bytecode is
+        // a SPLIT (the Alt lowering).
+        let prog = compile_pattern_uflag("\\p{L}");
+        assert_eq!(prog.insts[0].op, Op::Split as u8);
+        assert!(prog.classes.iter().any(|c| c.byte_only));
     }
 }
