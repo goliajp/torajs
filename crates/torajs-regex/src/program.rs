@@ -196,6 +196,16 @@ pub struct Program {
     /// RE2 / Hyperscan. On `str-replace-100k` no-match probe this
     /// drops the Pike VM cost from ~1011 ns/iter to ~30 ns/iter.
     pub prefix_byte: Option<u8>,
+    /// `true` iff the AST passes [`crate::dfa::analyze`] — no
+    /// backref / no lookaround — and thus is representable by a
+    /// classical subset-construction DFA. Set at compile time by
+    /// `regex/compile.rs` after `resolve_backrefs` runs (so named
+    /// backrefs are correctly accounted). Presently informational —
+    /// future chunks wire a DFA fast path in
+    /// `vm::search_from_with_ws` when this flag is set. Default
+    /// `false` keeps the never-match stub (rejected case) safely
+    /// out of any future fast path.
+    pub can_dfa: bool,
 }
 
 impl Program {

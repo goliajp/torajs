@@ -88,6 +88,10 @@ pub unsafe extern "C" fn __torajs_regex_compile(
     // path returns false silently.
     let mut prog = Program::new();
     let rejected = if let Some(root) = root_ok.take() {
+        // DFA eligibility — runs post-resolve so named backrefs are
+        // correctly identified as blockers. Informational only;
+        // future chunks gate a DFA fast path on this flag.
+        prog.can_dfa = crate::dfa::analyze(&root).is_eligible();
         compile(&mut prog, &root);
         prog.emit(Inst::match_accept());
         0u8
