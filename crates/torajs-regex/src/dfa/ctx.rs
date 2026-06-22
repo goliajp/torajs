@@ -147,6 +147,94 @@ pub fn epsilon_closure_with_ctx(
     closure
 }
 
+/// Right-byte-aware variant of [`epsilon_closure_with_ctx`] (chunk 8.3).
+///
+/// When the byte-step has the upcoming byte in hand, the four
+/// zero-width position ops (`Op::AnchorB`, `Op::AnchorE`,
+/// `Op::WBound`, `Op::NWBound`) can all be resolved instead of just
+/// the two anchors. `right_byte`:
+/// - `Some(b)` → the byte the cursor is about to consume (used to
+///   compute the word-boundary against `ctx.left_byte`);
+/// - `None` → at end-of-haystack (no upcoming byte).
+///
+/// Behaviour reuses [`epsilon_closure_with_ctx`] for the JMP / SPLIT /
+/// AnchorB / AnchorE branches and adds WBound / NWBound resolution.
+/// `Op::Save` stays terminal (chunk 9 future).
+///
+/// Chunk 8.3 keeps the builder/executor unchanged — the helper is the
+/// new substrate hooks 8.5+ thread through `build_dfa`.
+pub fn epsilon_closure_full(
+    prog: &Program,
+    seeds: &[usize],
+    ctx: PositionCtx,
+    right_byte: Option<u8>,
+) -> BTreeSet<usize> {
+    let mut closure: BTreeSet<usize> = BTreeSet::new();
+    let mut work: Vec<usize> = Vec::new();
+    for &seed in seeds {
+        if seed < prog.len() && closure.insert(seed) {
+            work.push(seed);
+        }
+    }
+    let at_wb = ctx.at_word_boundary(right_byte);
+    while let Some(pc) = work.pop() {
+        let ins = prog.insts[pc];
+        let op = match Op::from_u8(ins.op) {
+            Some(o) => o,
+            None => continue,
+        };
+        let next = match op {
+            Op::Jmp => Some(ins.a as usize),
+            Op::Split => {
+                let t1 = ins.a as usize;
+                let t2 = ins.b as usize;
+                if t1 < prog.len() && closure.insert(t1) {
+                    work.push(t1);
+                }
+                if t2 < prog.len() && closure.insert(t2) {
+                    work.push(t2);
+                }
+                None
+            }
+            Op::AnchorB => {
+                if ctx.is_text_start {
+                    Some(pc + 1)
+                } else {
+                    None
+                }
+            }
+            Op::AnchorE => {
+                if ctx.is_text_end {
+                    Some(pc + 1)
+                } else {
+                    None
+                }
+            }
+            Op::WBound => {
+                if at_wb {
+                    Some(pc + 1)
+                } else {
+                    None
+                }
+            }
+            Op::NWBound => {
+                if !at_wb {
+                    Some(pc + 1)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(t) = next {
+            if t < prog.len() && closure.insert(t) {
+                work.push(t);
+            }
+        }
+    }
+    closure
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,6 +391,104 @@ mod tests {
         prog.emit(Inst::match_accept());
         let ctx = PositionCtx::at_start(false);
         assert_eq!(epsilon_closure_with_ctx(&prog, &[0], ctx), into_set(&[0]));
+    }
+
+    // epsilon_closure_full tests — right-byte-aware variant that
+    // resolves WBound / NWBound on top of AnchorB / AnchorE.
+
+    #[test]
+    fn epsilon_closure_full_wbound_at_text_start_advances_into_word() {
+        // 0: WBOUND; 1: CHAR a; 2: MATCH
+        // text-start (left=None) + right='a' (word) → boundary, advance.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::WBound));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        let ctx = PositionCtx::at_start(false);
+        assert_eq!(
+            epsilon_closure_full(&prog, &[0], ctx, Some(b'a')),
+            into_set(&[0, 1])
+        );
+    }
+
+    #[test]
+    fn epsilon_closure_full_wbound_between_word_chars_blocks() {
+        // left='a' + right='b' → no boundary,WBound blocks.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::WBound));
+        prog.emit(Inst::char_lit(b'x'));
+        prog.emit(Inst::match_accept());
+        let ctx = PositionCtx {
+            left_byte: Some(b'a'),
+            is_text_start: false,
+            is_text_end: false,
+        };
+        assert_eq!(
+            epsilon_closure_full(&prog, &[0], ctx, Some(b'b')),
+            into_set(&[0])
+        );
+    }
+
+    #[test]
+    fn epsilon_closure_full_nwbound_between_word_chars_advances() {
+        // 0: NWBOUND; 1: CHAR a; 2: MATCH
+        // left='a' + right='b' (both word) → no boundary,NWBound passes.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::NWBound));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        let ctx = PositionCtx {
+            left_byte: Some(b'a'),
+            is_text_start: false,
+            is_text_end: false,
+        };
+        assert_eq!(
+            epsilon_closure_full(&prog, &[0], ctx, Some(b'b')),
+            into_set(&[0, 1])
+        );
+    }
+
+    #[test]
+    fn epsilon_closure_full_anchor_b_propagates_same_as_ctx_variant() {
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        let ctx_start = PositionCtx::at_start(false);
+        assert_eq!(
+            epsilon_closure_full(&prog, &[0], ctx_start, Some(b'a')),
+            into_set(&[0, 1])
+        );
+    }
+
+    #[test]
+    fn epsilon_closure_full_right_byte_none_at_text_end() {
+        // End-of-haystack: right_byte = None → no word char on the right.
+        // ctx.is_text_end = true, left='a' → \b boundary.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::WBound));
+        prog.emit(Inst::simple(Op::AnchorE));
+        prog.emit(Inst::match_accept());
+        let s = b"a";
+        let ctx_end = PositionCtx::at(1, s);
+        assert!(ctx_end.is_text_end);
+        assert_eq!(
+            epsilon_closure_full(&prog, &[0], ctx_end, None),
+            into_set(&[0, 1, 2])
+        );
+    }
+
+    #[test]
+    fn epsilon_closure_full_save_still_terminal() {
+        let mut prog = Program::new();
+        prog.emit(Inst::save(0));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        let ctx = PositionCtx::at_start(false);
+        assert_eq!(
+            epsilon_closure_full(&prog, &[0], ctx, Some(b'a')),
+            into_set(&[0])
+        );
     }
 
     #[test]
