@@ -136,7 +136,12 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     let global = re.flags & RE_FLAG_G != 0;
     let sticky = re.flags & RE_FLAG_Y != 0;
 
-    let mut ws = Workspace::for_program(&re.prog);
+    // Lazy-init Workspace — the `!global && sticky` branch below uses
+    // match_anchor which builds its own Workspace, so the outer
+    // search_from_with_ws's Workspace is only needed in the `else`
+    // branch. Sticky-only callers (typical `r.exec` / `str.match(r)`
+    // with /y/) skip this ~50KB allocation entirely.
+    let mut ws: Option<Workspace> = None;
     let mut out: *mut c_void = core::ptr::null_mut();
     let mut pos: i64 = 0;
     while pos <= slen {
@@ -150,7 +155,8 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             re.last_index = h.as_ref().map(|m| m.end).unwrap_or(0);
             h
         } else {
-            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws)
+            let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref)
         };
         let Some(m) = hit else { break };
         if out.is_null() {

@@ -29,7 +29,9 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
     let s = unsafe { str_slice(str_ptr) };
     let slen = s.len() as i64;
 
-    let mut ws = Workspace::for_program(&re.prog);
+    // Lazy-init Workspace — sticky branch uses match_anchor's own
+    // Workspace; outer ws only needed in non-sticky branch.
+    let mut ws: Option<Workspace> = None;
     let sticky = re.flags & RE_FLAG_Y != 0;
 
     let mut out = out;
@@ -38,7 +40,8 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
         let m = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws)
+            let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref)
         };
         let Some(m) = m else { break };
         if m.end == m.start {
