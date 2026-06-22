@@ -32,10 +32,22 @@
 //!   patterns build the DFA exactly once on first access; ineligible
 //!   patterns return `None` cheaply and stay out of the fast path.
 //!
-//! Future chunks: fast-path fork in `vm::search_from_with_ws`,
-//! position-context DFA states (Anchor / WBound), per-state save-mask
-//! (SAVE), and `u`-flag code-point step.
+//! - **position-aware closure** ([`ctx::PositionCtx`] +
+//!   [`ctx::epsilon_closure_with_ctx`]) — chunk 8 substrate. Threads
+//!   byte-position context (left-byte, text-start, text-end) through
+//!   the ε-closure so `Op::AnchorB` / `Op::AnchorE` advance instead of
+//!   staying terminal. Subset construction itself still uses the
+//!   legacy closure; subsequent chunks thread the ctx through the
+//!   builder and executor.
+//!
+//! Future chunks: thread `PositionCtx` through `build_dfa` and
+//! `dfa_search` so the gate stops excluding Anchor-only patterns;
+//! `WBound` / `NWBound` via the byte-step also seeing the right byte;
+//! per-state save-mask (SAVE); `u`-flag code-point step.
 //! Tracking RFC: `.claude/rfcs/20260622-pike-vm-dfa/design.md`.
+
+pub mod ctx;
+pub use ctx::{PositionCtx, epsilon_closure_with_ctx};
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
