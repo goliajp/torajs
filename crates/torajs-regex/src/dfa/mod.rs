@@ -66,11 +66,13 @@ pub use ctx::{PositionCtx, epsilon_closure_full, epsilon_closure_with_ctx};
 
 mod build;
 mod search;
+mod step;
 
 pub use build::build_dfa;
 pub use search::{
     DfaProgram, DfaState, dfa_search, dfa_search_mid, dfa_search_mid_nonword, dfa_search_mid_word,
 };
+pub use step::{byte_step, byte_step_full};
 
 // chunk 8.6b — closure-API role split:
 // - `epsilon_closure_with_ctx` is used for the BFS pre-step / post-
@@ -169,127 +171,14 @@ pub fn analyze(root: &Node) -> DfaEligibility {
 /// chain terminates in O(n) where n = `prog.len()`. Out-of-range or
 /// unknown-opcode PCs are silently dropped (defensive — mirrors
 /// `vm/dispatch.rs::add_thread`).
-/// One byte-transition step over a state set (presumed ε-closed).
-/// `Op::Char` uses [`crate::vm::char_eq`] (case-pair under `RE_FLAG_I`);
-/// `Op::AnyChar` advances on any byte except `\n` (0x0A) when
-/// `RE_FLAG_S` is unset (chunk 10a — the JS spec says `.` does not
-/// match line terminators unless `s` is set; the dot-all branch under
-/// `s` is the only way to match `\n` via `.`); `Op::Class` tests the
-/// byte then [`class_test_case_fold`] for the i-flag pair. Other ops
-/// terminal — ε via [`epsilon_closure`], lookaround/backref filter
-/// upstream in [`analyze`]. Out-of-range PCs (defensive) and `pc + 1`
-/// past program end are dropped.
-///
-/// Returns only the *ready* PCs (those whose next dispatch lands at
-/// `cursor + 1`). The full step output includes a *deferred* array (PCs
-/// from u-flag `.` that consumed a multi-byte code-point first byte and
-/// must wait `u_skip` continuation bytes before becoming ready); see
-/// [`byte_step_full`].
-pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8, flags: u8) -> BTreeSet<usize> {
-    byte_step_full(prog, states, byte, flags).0
-}
 
-/// Full byte-step: returns `(ready, deferred)` where
-/// `deferred[i]` is the set of PCs scheduled to become ready in
-/// `i + 1` continuation bytes (chunk 10b — `Op::AnyChar` under
-/// `RE_FLAG_U` schedules the post-`.` PC behind the UTF-8 multi-byte
-/// tail). For non-u-flag patterns `deferred` is always all-empty so
-/// state pool dedup matches the pre-10b BFS shape.
-pub fn byte_step_full(
-    prog: &Program,
-    states: &BTreeSet<usize>,
-    byte: u8,
-    flags: u8,
-) -> (BTreeSet<usize>, [BTreeSet<usize>; 3]) {
-    let mut ready: BTreeSet<usize> = BTreeSet::new();
-    let mut deferred: [BTreeSet<usize>; 3] = Default::default();
-    let plen = prog.len();
-    let s_flag = flags & crate::parser::RE_FLAG_S != 0;
-    let u_flag = flags & crate::parser::RE_FLAG_U != 0;
-    for &pc in states.iter() {
-        if pc >= plen {
-            continue;
-        }
-        let ins = prog.insts[pc];
-        let op = match Op::from_u8(ins.op) {
-            Some(o) => o,
-            None => continue,
-        };
-        match op {
-            Op::Char => {
-                if crate::vm::char_eq(ins.ch, byte, flags) {
-                    let n = pc + 1;
-                    if n < plen {
-                        ready.insert(n);
-                    }
-                }
-            }
-            Op::AnyChar => {
-                if !(s_flag || byte != b'\n') {
-                    continue;
-                }
-                let n = pc + 1;
-                if n >= plen {
-                    continue;
-                }
-                // Under u-flag, multi-byte first byte parks PC behind
-                // the UTF-8 tail (matches NFA `utf8_len_for` defer in
-                // `match_at`). ASCII / invalid first bytes (incl.
-                // 0xC0/0xC1/0x80..0xBF/0xF5..0xFF) advance 1 byte so
-                // the matcher's cursor keeps progressing.
-                let u_skip = if u_flag {
-                    match byte {
-                        0xC2..=0xDF => 1,
-                        0xE0..=0xEF => 2,
-                        0xF0..=0xF4 => 3,
-                        _ => 0,
-                    }
-                } else {
-                    0
-                };
-                if u_skip == 0 {
-                    ready.insert(n);
-                } else {
-                    deferred[u_skip - 1].insert(n);
-                }
-            }
-            Op::Class => {
-                let cls_idx = ins.a as usize;
-                if cls_idx < prog.classes.len() {
-                    let class = &prog.classes[cls_idx];
-                    if class.test(byte) || class_test_case_fold(class, byte, flags) {
-                        let n = pc + 1;
-                        if n < plen {
-                            ready.insert(n);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    (ready, deferred)
-}
-
-/// `byte_step` helper (chunk 8.7) — true iff `class` contains the
-/// ASCII case-pair of `byte` under `RE_FLAG_I`; otherwise false.
-fn class_test_case_fold(class: &crate::charclass::CharClass, byte: u8, flags: u8) -> bool {
-    if flags & crate::parser::RE_FLAG_I == 0 {
-        return false;
-    }
-    let paired = match byte {
-        b'A'..=b'Z' => byte | 0x20,
-        b'a'..=b'z' => byte & !0x20,
-        _ => return false,
-    };
-    class.test(paired)
-}
-
-// [chunk 10c split — see `dfa/build.rs` for the subset-construction
+// chunk 10c split — `dfa/build.rs` owns the subset-construction
 // builder + `LeftByteAttr` / `pc_set_is_accept_at_end` / `intern_state`
 // machinery; `dfa/search.rs` owns the executor + `DfaState` /
-// `DfaProgram` data types. Tests stay inline below since
-// `#[cfg(test)] mod tests` doesn't count toward the file-size limit.]
+// `DfaProgram` data types; chunk 10d follow-up split — `dfa/step.rs`
+// owns the byte-step transitions + case-fold helper. Tests stay inline
+// below since `#[cfg(test)] mod tests` doesn't count toward the
+// file-size limit.
 
 /// Stricter than [`crate::program::Program::can_dfa`]: chunks 8.5
 /// (`^`), 8.6a (`$`), 8.6b (`\b` / `\B`), and 9 (capture group SAVE)
