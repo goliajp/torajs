@@ -141,10 +141,18 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     // search_from_with_ws's Workspace is only needed in the `else`
     // branch. Sticky-only callers (typical `r.exec` / `str.match(r)`
     // with /y/) skip this ~50KB allocation entirely.
-    // V0.2 P14-S16 — reuse the per-RegExp cached Pike VM workspace
-    // (mirror of replace.rs P14-S8 / split.rs / match_all.rs / replace_fn.rs).
-    let ws_cell = re.workspace_cache.get();
-    let ws_outer = unsafe { &mut *ws_cell };
+    // V0.2 P14-S16 was reverted here: the caller obtains `&mut RegExp`
+    // via `as_regex_mut` because it needs to write `re.last_index`,
+    // so the UnsafeCell-based `re.workspace_cache.get()` pattern used
+    // in replace.rs / split.rs / match_all.rs / replace_fn.rs (where
+    // the RegExp is held via `as_regex` shared) would alias the
+    // exclusive borrow on RegExp with the new `&mut Option<Workspace>`
+    // = stacked-borrows UB. Iter-profile codegen + 8-parallel JIT
+    // stress reliably surfaces it as SIGBUS on regex-017-sticky. Keep
+    // the local lazy-init pattern until last_index migrates to
+    // Cell<i64> (so the function can take `&RegExp` and use the
+    // workspace_cache safely). L3b carry.
+    let mut ws: Option<Workspace> = None;
     let mut out: *mut c_void = core::ptr::null_mut();
     let mut pos: i64 = 0;
     while pos <= slen {
@@ -158,7 +166,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             re.last_index = h.as_ref().map(|m| m.end).unwrap_or(0);
             h
         } else {
-            let ws_ref = ws_outer.get_or_insert_with(|| Workspace::for_program(&re.prog));
+            let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
             search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref)
         };
         let Some(m) = hit else { break };
