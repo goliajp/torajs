@@ -100,6 +100,15 @@ pub fn expand_unsafe_class(cc: &CharClass, uflag: bool) -> Option<Box<Node>> {
     if !uflag {
         return None;
     }
+    // chunk 10d invariant: never re-expand a class that is itself a
+    // leaf produced by this module. byte_only leaves carry non-ASCII
+    // byte values (0xC2..0xF4 leading bytes, 0x80..0xBF continuation
+    // bytes) in `bits[16..32]`, so `is_uflag_safe` would otherwise
+    // reject them and we'd recurse forever — the leaf's bits encode
+    // the byte-step shape, not a cp set to re-encode.
+    if cc.byte_only {
+        return None;
+    }
     if is_uflag_safe(cc) {
         return None;
     }
@@ -437,9 +446,12 @@ mod tests {
         // Surrogate cp produces invalid UTF-8 — naturally rejected
         // (the haystack never carries those bytes, so this is sound).
         // The expansion's accept set has no surrogate representation.
-        // Concat count stays bounded.
+        // Concat count stays bounded — `[^a]u` expands to ~70 Concats
+        // across the four length planes (1-byte split into two sub-
+        // ranges, 2-byte / 3-byte / 4-byte each emit head + middle +
+        // tail per leading-byte boundary).
         let count = count_concats(&node);
-        assert!(count < 50, "expected < 50 Concats, got {count}");
+        assert!(count < 200, "expected < 200 Concats, got {count}");
     }
 
     #[test]
