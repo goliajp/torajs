@@ -151,7 +151,16 @@ pub fn vm_match_at(
                         let cc = &prog.classes[ins.a as usize];
                         let mut adv: i64 = 1;
                         let matched;
-                        if flags & RE_FLAG_U != 0 {
+                        // chunk 10d — byte-only leaf classes (emitted
+                        // by `utf8_class_expand` when rewriting a
+                        // u-flag unsafe class into a byte-level
+                        // Alt-of-Concat) step a single haystack byte
+                        // regardless of `u`. The cp-aware path stays
+                        // for hand-written classes whose semantics
+                        // expect "decode one cp at the cursor".
+                        if cc.byte_only {
+                            matched = cc.test(s[pos as usize]);
+                        } else if flags & RE_FLAG_U != 0 {
                             let ul = utf8_len_for(s[pos as usize]) as i64;
                             if ul >= 1 && pos + ul <= slen {
                                 let (cp, dec_len) = utf8_decode_cp(&s[pos as usize..]);
@@ -340,7 +349,7 @@ mod tests {
         let mut p = Parser::new(pat.as_bytes(), flags);
         let root = p.parse().expect("parse failed");
         let mut prog = Program::new();
-        compile(&mut prog, &root);
+        compile(&mut prog, &root, flags);
         prog.emit(Inst::match_accept());
         prog
     }

@@ -20,6 +20,15 @@ pub struct CharClass {
     /// `bits` (populated by `add_property_*`). Class-level `negate`
     /// still applies after the union.
     pub u_props: u8,
+    /// chunk 10d marker — `true` for the byte-level leaf classes that
+    /// [`crate::utf8_class_expand`] emits when rewriting a u-flag
+    /// unsafe class into an Alt-of-Concat of byte slots. The Pike VM
+    /// `Op::Class` interpreter honours this by stepping a single byte
+    /// (no UTF-8 cp decode) regardless of `RE_FLAG_U`, so the second-
+    /// pass capture-recovery walk lines up with the DFA's byte-stepping
+    /// fast path. Default `false` keeps all hand-written classes on the
+    /// historical cp-aware path.
+    pub byte_only: bool,
 }
 
 impl Default for CharClass {
@@ -34,6 +43,7 @@ impl CharClass {
             bits: [0; 32],
             negate: false,
             u_props: 0,
+            byte_only: false,
         }
     }
 
@@ -264,5 +274,12 @@ mod tests {
         assert!(!cc.test(b'A'));
         assert!(!cc.negate);
         assert_eq!(cc.u_props, 0);
+        assert!(!cc.byte_only);
+    }
+
+    #[test]
+    fn byte_only_defaults_off() {
+        let cc = CharClass::new();
+        assert!(!cc.byte_only);
     }
 }
