@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T15:54:28.802Z",
+  "generatedAt": "2026-06-22T16:49:03.033Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "03d3b274",
-    "commitSubject": "feat(torajs-regex): AnchorE via per-state is_accept_at_end (Pike VM DFA chunk 8.6a)",
+    "commit": "450a72b6",
+    "commitSubject": "fix(torajs-regex): chunk 8.6b zero-width accept before stepping byte (\\b at match end)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,22 @@
   },
   "commits": [
     {
+      "hash": "450a72b6",
+      "subject": "fix(torajs-regex): chunk 8.6b zero-width accept before stepping byte (\\b at match end)"
+    },
+    {
+      "hash": "2b57739a",
+      "subject": "fix(torajs-regex): chunk 8.6b BFS closure API role + state dedup"
+    },
+    {
+      "hash": "a43d40d8",
+      "subject": "feat(torajs-regex): WBound/NWBound via LeftByteAttr state key (Pike VM DFA chunk 8.6b)"
+    },
+    {
+      "hash": "6b433996",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 03d3b274 Pike VM DFA chunk 8.6a (AnchorE)"
+    },
+    {
       "hash": "03d3b274",
       "subject": "feat(torajs-regex): AnchorE via per-state is_accept_at_end (Pike VM DFA chunk 8.6a)"
     },
@@ -647,25 +663,9 @@
     {
       "hash": "873928ea",
       "subject": "chore(hardev/web): refresh dashboard snapshot — 4918fa20 Pike VM DFA chunk 8.5 + m-flag fix"
-    },
-    {
-      "hash": "4918fa20",
-      "subject": "fix(torajs-regex): block multiline AnchorB from DFA fast path (chunk 8.5 fix)"
-    },
-    {
-      "hash": "8639d0ab",
-      "subject": "feat(torajs-regex): wire PositionCtx into build_dfa (Pike VM DFA chunk 8.5)"
-    },
-    {
-      "hash": "4ae816be",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 43e3f1a4 dead dfa_cache substrate cleanup"
-    },
-    {
-      "hash": "43e3f1a4",
-      "subject": "chore(torajs-regex): remove dead Program::dfa_cache substrate (chunk 6 cleanup)"
     }
   ],
-  "headSha": "03d3b274",
+  "headSha": "450a72b6",
   "autorun": {
     "total": 227,
     "baselineTarget": 10,
