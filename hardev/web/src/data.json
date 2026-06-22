@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T13:17:04.116Z",
+  "generatedAt": "2026-06-22T14:10:16.298Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "43e3f1a4",
-    "commitSubject": "chore(torajs-regex): remove dead Program::dfa_cache substrate (chunk 6 cleanup)",
+    "commit": "4918fa20",
+    "commitSubject": "fix(torajs-regex): block multiline AnchorB from DFA fast path (chunk 8.5 fix)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,18 @@
   },
   "commits": [
     {
+      "hash": "4918fa20",
+      "subject": "fix(torajs-regex): block multiline AnchorB from DFA fast path (chunk 8.5 fix)"
+    },
+    {
+      "hash": "8639d0ab",
+      "subject": "feat(torajs-regex): wire PositionCtx into build_dfa (Pike VM DFA chunk 8.5)"
+    },
+    {
+      "hash": "4ae816be",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 43e3f1a4 dead dfa_cache substrate cleanup"
+    },
+    {
       "hash": "43e3f1a4",
       "subject": "chore(torajs-regex): remove dead Program::dfa_cache substrate (chunk 6 cleanup)"
     },
@@ -651,21 +663,9 @@
     {
       "hash": "b7841536",
       "subject": "Revert \"feat(torajs-regex): wire DFA fast path with flag-aware gate (Pike VM DFA chunk 7 v2)\""
-    },
-    {
-      "hash": "1e9c1bca",
-      "subject": "feat(torajs-regex): wire DFA fast path with flag-aware gate (Pike VM DFA chunk 7 v2)"
-    },
-    {
-      "hash": "792def92",
-      "subject": "Revert \"feat(torajs-regex): wire DFA fast path into search_from_with_ws (Pike VM DFA chunk 7)\""
-    },
-    {
-      "hash": "91fe447d",
-      "subject": "feat(torajs-regex): wire DFA fast path into search_from_with_ws (Pike VM DFA chunk 7)"
     }
   ],
-  "headSha": "43e3f1a4",
+  "headSha": "4918fa20",
   "autorun": {
     "total": 226,
     "baselineTarget": 10,
