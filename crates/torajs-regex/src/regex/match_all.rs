@@ -57,7 +57,7 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
             let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, re.get_or_build_dfa())
         };
         let Some(m) = hit else { break };
         outer = unsafe { append_inner(outer, re, &s, &m.saves, m.start, m.end) };

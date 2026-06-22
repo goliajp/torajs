@@ -99,7 +99,7 @@ fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
         let m = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws, re.get_or_build_dfa())
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
