@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T19:45:40.642Z",
+  "generatedAt": "2026-06-22T21:09:01.206Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "7f8a1a91",
-    "commitSubject": "refactor(torajs-regex): split dfa/mod.rs byte-step into sub-module (file-size prep)",
+    "commit": "02c8d863",
+    "commitSubject": "test(bench): trim uflag fixture runs (chunk 10d byte expansion is slow)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,38 @@
   },
   "commits": [
     {
+      "hash": "02c8d863",
+      "subject": "test(bench): trim uflag fixture runs (chunk 10d byte expansion is slow)"
+    },
+    {
+      "hash": "bad6b637",
+      "subject": "test(bench): add final 3 DFA-eligible regex fixtures (mflag / dotall / uflag)"
+    },
+    {
+      "hash": "d7f73f6d",
+      "subject": "test(bench): add 2 more DFA-eligible regex fixtures (wbound / safeclass)"
+    },
+    {
+      "hash": "983405dc",
+      "subject": "test(bench): add 2 narrow DFA-eligible regex fixtures (anchored / iflag)"
+    },
+    {
+      "hash": "d07d621d",
+      "subject": "Revert \"feat(torajs-regex): chunk 7.7 — DFA cache moved from Program to RegExp (Option A)\""
+    },
+    {
+      "hash": "c7113770",
+      "subject": "feat(torajs-regex): chunk 7.7 — DFA cache moved from Program to RegExp (Option A)"
+    },
+    {
+      "hash": "57df84a6",
+      "subject": "test(conformance): regex-024 — u-flag unsafe class via UTF-8 expansion w/ capture (chunk 10d v2 acceptance)"
+    },
+    {
+      "hash": "331b53ed",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 7f8a1a91 dfa/mod.rs step split + 1129/0/4 hold"
+    },
+    {
       "hash": "7f8a1a91",
       "subject": "refactor(torajs-regex): split dfa/mod.rs byte-step into sub-module (file-size prep)"
     },
@@ -631,59 +663,38 @@
     {
       "hash": "0d2c3bf1",
       "subject": "feat(torajs-regex): DFA u-flag unsafe class via UTF-8 expansion (chunk 10d v2)"
-    },
-    {
-      "hash": "c33547d2",
-      "subject": "Revert \"feat(torajs-regex): DFA u-flag unsafe class via UTF-8 expansion (chunk 10d)\""
-    },
-    {
-      "hash": "5faf4e47",
-      "subject": "feat(torajs-regex): DFA u-flag unsafe class via UTF-8 expansion (chunk 10d)"
-    },
-    {
-      "hash": "3677d7f0",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 20adf35d dfa/mod.rs split (build + search)"
-    },
-    {
-      "hash": "20adf35d",
-      "subject": "refactor(torajs-regex): split dfa/mod.rs build + search into sub-modules (file-size HARD)"
-    },
-    {
-      "hash": "67aee3b4",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 26312c22 u-safe class DFA gate (chunk 10c)"
-    },
-    {
-      "hash": "26312c22",
-      "subject": "feat(torajs-regex): u-safe class refinement for DFA gate (chunk 10c)"
-    },
-    {
-      "hash": "6f4a47af",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 76aab5ef DFA u-flag `.` deferred[u_skip] (chunk 10b)"
-    },
-    {
-      "hash": "76aab5ef",
-      "subject": "feat(torajs-regex): DFA u-flag `.` via deferred[u_skip] buckets (chunk 10b)"
     }
   ],
-  "headSha": "7f8a1a91",
+  "headSha": "02c8d863",
   "autorun": {
-    "total": 229,
+    "total": 230,
     "baselineTarget": 10,
-    "bySelf": 224,
+    "bySelf": 225,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782152528-345e",
-      "at": "2026-06-22T18:22:08Z",
-      "ts": 1782152528,
+      "rotationId": "r-1782157951-0b0f",
+      "at": "2026-06-22T19:52:31Z",
+      "ts": 1782157951,
       "trigger": "self",
-      "prevHead": "3677d7f0",
-      "handoffSha": "sha256:d77009254fda1ea7d524bf9548ed682ccf3d5ce5b15a7d4bae032e51739dba25",
-      "handoffAgeSec": 5,
+      "prevHead": "57df84a6",
+      "handoffSha": "sha256:5c7b6acd9fcce7fef181fdb387626c9e93333ca7140bdd0cafe2556c07a3e657",
+      "handoffAgeSec": 16,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782157951-0b0f",
+        "at": "2026-06-22T19:52:31Z",
+        "ts": 1782157951,
+        "trigger": "self",
+        "prevHead": "57df84a6",
+        "handoffSha": "sha256:5c7b6acd9fcce7fef181fdb387626c9e93333ca7140bdd0cafe2556c07a3e657",
+        "handoffAgeSec": 16,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782152528-345e",
         "at": "2026-06-22T18:22:08Z",
@@ -780,17 +791,6 @@
         "prevHead": "1a9bf78d",
         "handoffSha": "sha256:e7aa1afa6bad168df7c70e46756539ce1ab4819714d3ec45f865894dcac25999",
         "handoffAgeSec": 37,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782086805-4563",
-        "at": "2026-06-22T00:06:45Z",
-        "ts": 1782086805,
-        "trigger": "self",
-        "prevHead": "5473826c",
-        "handoffSha": "sha256:e44842832d79264ca3b91da7771d842445cd04f3b8e804697cf3968d73dd1572",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
