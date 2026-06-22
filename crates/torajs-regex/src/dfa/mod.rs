@@ -45,16 +45,20 @@
 //!   legacy closure; subsequent chunks thread the ctx through the
 //!   builder and executor.
 //!
-//! Future chunks: `WBound` / `NWBound` via state-key upgrade
-//! carrying the just-consumed left-byte class (chunk 8.6b); `u`-flag
-//! code-point step (chunk 10). `Op::AnchorE` (`$`) landed in chunk
-//! 8.6a — every DFA state precomputes `is_accept_at_end` (set
-//! re-closed under at-end ctx) and the executor consults it after
-//! the byte walk. Capture support landed in chunk 9 via the
-//! RE2-style two-pass: `Op::Save` is a no-op ε in the closure
-//! (capture-blind DFA), and `vm::search_from_with_ws` runs a
-//! second-pass Pike VM on the DFA-found `[start..end]` window with
-//! `end_target = end` to extract captures.
+//! Future chunks: `u`-flag code-point step (chunk 10). The full set
+//! of zero-width / capture opcodes is now DFA-resident:
+//! - `^` (chunk 8.5) — position-aware start states + line-break entry
+//!   selection in the wire.
+//! - `$` (chunk 8.6a) — per-state `is_accept_at_end` precomputed by
+//!   re-closing under an at-end ctx.
+//! - `\b` / `\B` (chunk 8.6b) — state key upgraded to `(PC set,
+//!   LeftByteAttr)` so the BFS step can re-close with `right_byte =
+//!   b` and resolve WBound/NWBound under the cursor's left/right
+//!   class pair.
+//! - capture group SAVE (chunk 9) — DFA is capture-blind (Save is a
+//!   no-op ε in the closure) and `vm::search_from_with_ws` runs a
+//!   second-pass Pike VM on the DFA-found `[start..end]` window with
+//!   `end_target = end` to extract captures.
 //! Tracking RFC: `.claude/rfcs/20260622-pike-vm-dfa/design.md`.
 
 pub mod ctx;
@@ -238,16 +242,75 @@ impl Default for DfaState {
     }
 }
 
-/// A built DFA — dense transition table + two anchored start state
+/// A built DFA — dense transition table + four anchored start state
 /// indices. `states[0]` = dead (empty PC set, self-loops, never
-/// accepts). `start` enters with `is_text_start = true` (`^` advances);
-/// `start_mid` enters with `false` (`^` blocks); patterns without
-/// `Op::AnchorB` dedup the two. Caller must gate via `prog.can_dfa`
-/// + [`prog_ops_dfa_safe`] (excludes Save / AnchorE / WBound / NWBound).
+/// accepts).
+///
+/// Start-state selection (chunk 8.6b):
+/// - `start` — cursor at text-start (offset 0) or — under `RE_FLAG_M`
+///   — immediately after `\n`. `is_text_start = true` so `^`
+///   advances; left attr folds in as `TextStart` (no preceding byte
+///   for WBound — `at_word_boundary` treats `None` as non-word).
+/// - `start_mid_word` — cursor at offset > 0 with the just-consumed
+///   byte being a word-class byte (`[A-Za-z0-9_]`). `^` blocks; WBound
+///   sees `left = Word`.
+/// - `start_mid_nonword` — cursor at offset > 0 with the just-
+///   consumed byte being non-word and not a line-start trigger. `^`
+///   blocks; WBound sees `left = NonWord`.
+/// - `start_mid` — back-compat alias, equals `start_mid_nonword` (the
+///   no-WBound case where `left_byte = None` had been the BFS seed).
+///
+/// Patterns without `Op::AnchorB` / `Op::WBound` / `Op::NWBound` dedup
+/// all four start states down. Caller must gate via `prog.can_dfa`
+/// + [`prog_ops_dfa_safe`].
 pub struct DfaProgram {
     pub states: Vec<DfaState>,
     pub start: u32,
     pub start_mid: u32,
+    pub start_mid_word: u32,
+    pub start_mid_nonword: u32,
+}
+
+/// chunk 8.6b — left-byte class carried as part of a DFA state's
+/// identity. The just-consumed byte's word/non-word class is the only
+/// thing `Op::WBound` / `Op::NWBound` need to see (besides the upcoming
+/// right byte, supplied by the BFS step), so a 3-way attr lets us key
+/// the state pool by `(PC set, attr)` without exploding into a per-
+/// byte map. `TextStart` covers both "no preceding byte" and the
+/// `RE_FLAG_M` line-start fold-in (left = `\n` is non-word so WBound
+/// sees the same boundary as text-start when right is word-class).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum LeftByteAttr {
+    TextStart,
+    Word,
+    NonWord,
+}
+
+/// Classify a byte's left-class for [`LeftByteAttr`]. Word class =
+/// ASCII `[A-Za-z0-9_]`, mirroring [`crate::dfa::ctx::PositionCtx::
+/// at_word_boundary`]'s `is_word_byte`.
+fn attr_of_byte(b: u8) -> LeftByteAttr {
+    if b.is_ascii_alphanumeric() || b == b'_' {
+        LeftByteAttr::Word
+    } else {
+        LeftByteAttr::NonWord
+    }
+}
+
+/// Pick a representative left byte for a [`LeftByteAttr`] so the
+/// closure can read `ctx.left_byte` uniformly. The value only matters
+/// for `at_word_boundary` (word vs non-word) and `AnchorB`-mflag
+/// (`Some(b'\n')`); the wire folds the mflag line-start case into
+/// `TextStart` so a representative `None`/`Some(b'a')`/`Some(b' ')`
+/// is enough — mflag mid-pattern AnchorB re-fire (left = `\n`) is
+/// handled separately when the BFS steps past `\n`, which surfaces in
+/// the post-step set under whatever attr the actual byte produced.
+fn attr_to_left_byte(attr: LeftByteAttr) -> Option<u8> {
+    match attr {
+        LeftByteAttr::TextStart => None,
+        LeftByteAttr::Word => Some(b'a'),
+        LeftByteAttr::NonWord => Some(b' '),
+    }
 }
 
 /// True iff `set` contains any [`Op::Match`] PC.
@@ -278,101 +341,147 @@ fn pc_set_is_accept_at_end(prog: &Program, set: &BTreeSet<usize>) -> bool {
     pc_set_is_accept(prog, &closed)
 }
 
-/// Look up `set` in the BFS interning map; insert + enqueue a new DFA
-/// state if absent. Empty PC sets always map to state 0 (dead). Used by
-/// [`build_dfa`] for both initial-seed and successor-state insertion.
+/// Look up `(set, attr)` in the BFS interning map; insert + enqueue a
+/// new DFA state if absent. Empty PC sets always map to state 0
+/// (dead). Used by [`build_dfa`] for both initial-seed and successor-
+/// state insertion. The attr (chunk 8.6b) is part of the dedup key so
+/// states reached via different left-byte classes don't collapse —
+/// they have different WBound-resolution behaviour on outgoing
+/// transitions.
 fn intern_state(
     prog: &Program,
     set: BTreeSet<usize>,
+    attr: LeftByteAttr,
     states: &mut Vec<DfaState>,
-    set_to_idx: &mut BTreeMap<BTreeSet<usize>, u32>,
-    work: &mut Vec<(BTreeSet<usize>, u32)>,
+    set_to_idx: &mut BTreeMap<(BTreeSet<usize>, LeftByteAttr), u32>,
+    work: &mut Vec<(BTreeSet<usize>, LeftByteAttr, u32)>,
 ) -> u32 {
     if set.is_empty() {
         return 0;
     }
-    if let Some(&i) = set_to_idx.get(&set) {
+    let key = (set, attr);
+    if let Some(&i) = set_to_idx.get(&key) {
         return i;
     }
+    let (set, attr) = key;
     let i = states.len() as u32;
     states.push(DfaState {
         transitions: [0u32; 256],
         is_accept: pc_set_is_accept(prog, &set),
         is_accept_at_end: pc_set_is_accept_at_end(prog, &set),
     });
-    set_to_idx.insert(set.clone(), i);
-    work.push((set, i));
+    set_to_idx.insert((set.clone(), attr), i);
+    work.push((set, attr, i));
     i
 }
 
-/// Subset-construction NFA → DFA builder (chunks 8.5/8.7/8.8). Seeds
-/// two start states (`start` text-start, `start_mid` not) so the wire
-/// picks the right entry per cursor position. `flags` threads through
+/// Subset-construction NFA → DFA builder (chunks 8.5/8.6a/8.6b/8.7/
+/// 8.8). Seeds four start states (`start` text-start; `start_mid_word`
+/// / `start_mid_nonword` per the just-consumed byte's class;
+/// `start_mid` = `start_mid_nonword` for back-compat). The wire picks
+/// the right entry per cursor position. `flags` threads through
 /// [`byte_step`] (i-flag case-fold, chunk 8.7) and into `PositionCtx`
-/// (`RE_FLAG_M` enables AnchorB re-fire after a consumed `\n`, chunk
-/// 8.8). State 0 = dead; `set_to_idx` canonicalises sorted PC sets so
-/// equivalent NFA configurations collapse. AnchorE/WBound/NWBound stay
-/// blockers in [`prog_ops_dfa_safe`] until right-byte threading lands.
+/// (`RE_FLAG_M` enables `Op::AnchorB` re-fire after a consumed `\n`,
+/// chunk 8.8). `set_to_idx` keys are `(PC set, LeftByteAttr)` so
+/// `Op::WBound` / `Op::NWBound` resolution can differ across cursor
+/// classes (chunk 8.6b). State 0 = dead.
 pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     let mut states: Vec<DfaState> = Vec::new();
     // state 0: dead state, all transitions self-loop to 0.
     states.push(DfaState::default());
 
-    let mut set_to_idx: BTreeMap<BTreeSet<usize>, u32> = BTreeMap::new();
-    set_to_idx.insert(BTreeSet::new(), 0);
+    let mut set_to_idx: BTreeMap<(BTreeSet<usize>, LeftByteAttr), u32> = BTreeMap::new();
+    set_to_idx.insert((BTreeSet::new(), LeftByteAttr::TextStart), 0);
+    set_to_idx.insert((BTreeSet::new(), LeftByteAttr::Word), 0);
+    set_to_idx.insert((BTreeSet::new(), LeftByteAttr::NonWord), 0);
 
     let mflag = flags & crate::parser::RE_FLAG_M != 0;
-    let ctx_anchored = PositionCtx {
-        left_byte: None,
-        is_text_start: true,
-        is_text_end: false,
-        mflag,
-    };
-    let ctx_mid = PositionCtx {
-        left_byte: None,
-        is_text_start: false,
-        is_text_end: false,
-        mflag,
-    };
 
-    let mut work: Vec<(BTreeSet<usize>, u32)> = Vec::new();
+    fn ctx_for(attr: LeftByteAttr, mflag: bool) -> PositionCtx {
+        PositionCtx {
+            left_byte: attr_to_left_byte(attr),
+            is_text_start: matches!(attr, LeftByteAttr::TextStart),
+            is_text_end: false,
+            mflag,
+        }
+    }
 
-    let initial_anchored = epsilon_closure_full(prog, &[0], ctx_anchored, None);
+    let mut work: Vec<(BTreeSet<usize>, LeftByteAttr, u32)> = Vec::new();
+
+    let initial_anchored =
+        epsilon_closure_full(prog, &[0], ctx_for(LeftByteAttr::TextStart, mflag), None);
     let start = intern_state(
         prog,
         initial_anchored,
+        LeftByteAttr::TextStart,
         &mut states,
         &mut set_to_idx,
         &mut work,
     );
 
-    let initial_mid = epsilon_closure_full(prog, &[0], ctx_mid, None);
-    let start_mid = intern_state(prog, initial_mid, &mut states, &mut set_to_idx, &mut work);
+    let initial_mid_word =
+        epsilon_closure_full(prog, &[0], ctx_for(LeftByteAttr::Word, mflag), None);
+    let start_mid_word = intern_state(
+        prog,
+        initial_mid_word,
+        LeftByteAttr::Word,
+        &mut states,
+        &mut set_to_idx,
+        &mut work,
+    );
 
-    while let Some((cur_set, cur_idx)) = work.pop() {
+    let initial_mid_nonword =
+        epsilon_closure_full(prog, &[0], ctx_for(LeftByteAttr::NonWord, mflag), None);
+    let start_mid_nonword = intern_state(
+        prog,
+        initial_mid_nonword,
+        LeftByteAttr::NonWord,
+        &mut states,
+        &mut set_to_idx,
+        &mut work,
+    );
+
+    while let Some((cur_set, cur_attr, cur_idx)) = work.pop() {
         let mut transitions = [0u32; 256];
+        let ctx_at_cursor = ctx_for(cur_attr, mflag);
         for byte_u16 in 0u16..=255 {
             let byte = byte_u16 as u8;
-            let stepped = byte_step(prog, &cur_set, byte, flags);
+            // chunk 8.6b — re-close cur_set with right=byte to
+            // resolve WBound/NWBound at the cursor given left=cur_attr
+            // and right=class_of(byte). The cur_set entered the BFS
+            // with right=None, so any WBound PCs are present-but-
+            // unresolved; this re-closure resolves them per-byte.
+            // Closure is idempotent for already-advanced PCs, so the
+            // re-run never shrinks the set.
+            let cur_seeds: Vec<usize> = cur_set.iter().copied().collect();
+            let closed_with_right =
+                epsilon_closure_full(prog, &cur_seeds, ctx_at_cursor, Some(byte));
+            let stepped = byte_step(prog, &closed_with_right, byte, flags);
+            let next_attr = attr_of_byte(byte);
             let closed = if stepped.is_empty() {
                 BTreeSet::new()
             } else {
                 let seeds: Vec<usize> = stepped.iter().copied().collect();
-                // Under mflag the post-step ctx carries left_byte =
-                // Some(byte) so mid-pattern AnchorB can re-fire after
-                // a consumed `\n`. Without mflag every byte yields the
-                // same default ctx (set dedup collapses 256-way loop).
-                let ctx_after = if mflag {
-                    PositionCtx {
-                        left_byte: Some(byte),
-                        ..ctx_mid
-                    }
-                } else {
-                    ctx_mid
+                // Post-step ctx (cursor k+1): left = the byte we just
+                // consumed. Under mflag this lets mid-pattern AnchorB
+                // re-fire when byte == `\n`. WBound stays unresolved
+                // here (right = None) and surfaces on the next step.
+                let ctx_after = PositionCtx {
+                    left_byte: Some(byte),
+                    is_text_start: false,
+                    is_text_end: false,
+                    mflag,
                 };
                 epsilon_closure_full(prog, &seeds, ctx_after, None)
             };
-            let next_idx = intern_state(prog, closed, &mut states, &mut set_to_idx, &mut work);
+            let next_idx = intern_state(
+                prog,
+                closed,
+                next_attr,
+                &mut states,
+                &mut set_to_idx,
+                &mut work,
+            );
             transitions[byte as usize] = next_idx;
         }
         states[cur_idx as usize].transitions = transitions;
@@ -381,51 +490,48 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     DfaProgram {
         states,
         start,
-        start_mid,
+        start_mid: start_mid_nonword,
+        start_mid_word,
+        start_mid_nonword,
     }
 }
 
-/// Stricter than [`crate::program::Program::can_dfa`]: also checks that
-/// no `Op::WBound` / `Op::NWBound` opcodes appear in the program's
-/// bytecode (or any sub-program).
+/// Stricter than [`crate::program::Program::can_dfa`]: chunks 8.5
+/// (`^`), 8.6a (`$`), 8.6b (`\b` / `\B`), and 9 (capture group SAVE)
+/// have all cleared their respective opcodes from the blocker list.
+/// What remains rejected here is just byte-step / op-set combinations
+/// the DFA substrate doesn't model — sub-programs (lookaround) are
+/// already rejected upstream by `can_dfa`.
 ///
-/// Cleared blockers so far:
+/// Cleared blockers (full chain):
 /// - `Op::AnchorB` (`^`, chunk 8.5) — position-aware builder resolves
-///   it via `start` / `start_mid` start states; the executor picks
-///   based on whether the search cursor is at byte 0 (or a line break
-///   under `RE_FLAG_M`, chunk 8.8).
-/// - `Op::Save` (chunk 9) — DFA is capture-blind (Save is a no-op ε in
-///   the closure) and [`crate::vm::search_from_with_ws`] runs a
-///   second-pass Pike VM on the DFA-found `[start..end]` window with
-///   `end_target = end` so the winning thread's saves come out.
+///   it via `start` / `start_mid*` start states; the executor picks
+///   per the cursor position (byte 0 — or a line break under
+///   `RE_FLAG_M`, chunk 8.8 — selects `start`).
 /// - `Op::AnchorE` (`$`, chunk 8.6a) — every DFA state precomputes
 ///   `is_accept_at_end` (PC set re-closed under an at-end ctx); the
 ///   executor consults the flag after the byte walk so `$` can fire
 ///   at the haystack end.
-///
-/// `Op::WBound` / `Op::NWBound` still depend on the right byte at the
-/// current cursor and on the just-consumed left byte (state attr) —
-/// chunk 8.6b will add either lazy-closure-per-step or a state-key
-/// upgrade carrying the quantised left-byte class. The Pike VM
-/// fallback consumes any program that fails this check.
+/// - `Op::WBound` / `Op::NWBound` (chunk 8.6b) — state key upgraded
+///   to `(PC set, LeftByteAttr)`; BFS re-closes the set with
+///   `right_byte = b` on each step, so `\b` / `\B` resolve with the
+///   true left/right class pair at the cursor.
+/// - `Op::Save` (chunk 9) — DFA is capture-blind (Save is a no-op ε in
+///   the closure) and [`crate::vm::search_from_with_ws`] runs a
+///   second-pass Pike VM on the DFA-found `[start..end]` window with
+///   `end_target = end` so the winning thread's saves come out.
 ///
 /// Sub-programs (lookaround bodies) cannot appear when `can_dfa` is
 /// true (lookaround is itself a blocker in [`analyze`]) — the loop
-/// over `sub_progs` is a belt-and-suspenders defensive check.
-pub fn prog_ops_dfa_safe(prog: &Program) -> bool {
-    fn scan(insts: &[crate::program::Inst]) -> bool {
-        !insts
-            .iter()
-            .any(|ins| matches!(Op::from_u8(ins.op), Some(Op::WBound | Op::NWBound)))
-    }
-    if !scan(&prog.insts) {
-        return false;
-    }
-    for sub in prog.sub_progs.iter() {
-        if !scan(&sub.insts) {
-            return false;
-        }
-    }
+/// over `sub_progs` is a belt-and-suspenders defensive check (it
+/// always returns true for `can_dfa`-eligible programs but stays so
+/// future opcode additions don't quietly slip past).
+pub fn prog_ops_dfa_safe(_prog: &Program) -> bool {
+    // No opcode is rejected at this layer any more — `can_dfa`
+    // upstream rules out backref / lookaround which are the only
+    // truly DFA-incompatible ops the AST can emit. Function stays as
+    // a safety net so future opcode additions can wire a quick
+    // blocker here without touching every call site.
     true
 }
 
@@ -476,12 +582,26 @@ pub fn dfa_search(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
     dfa_search_from(dfa, hay, dfa.start)
 }
 
-/// Like [`dfa_search`] but enters at `dfa.start_mid` — used when the
-/// wire is searching from `st > 0`, where `Op::AnchorB` must block.
-/// For patterns without `^` this is identical to [`dfa_search`] (the
-/// dedup map collapses both start states to the same index).
+/// Like [`dfa_search`] but enters at `dfa.start_mid_nonword` — back-
+/// compat alias for `dfa_search_mid_nonword`. Used when the wire only
+/// needs `^`-blocking without WBound class awareness.
 pub fn dfa_search_mid(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
     dfa_search_from(dfa, hay, dfa.start_mid)
+}
+
+/// chunk 8.6b — enter at `dfa.start_mid_word` (cursor `st > 0` and
+/// `s[st-1]` is a word-class byte). WBound on the first step sees
+/// `left = Word`. For patterns without `\b` / `\B` this dedups to
+/// `dfa.start_mid_nonword`.
+pub fn dfa_search_mid_word(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
+    dfa_search_from(dfa, hay, dfa.start_mid_word)
+}
+
+/// chunk 8.6b — enter at `dfa.start_mid_nonword` (cursor `st > 0` and
+/// `s[st-1]` is non-word and not a `\n` line-start under `RE_FLAG_M`).
+/// WBound on the first step sees `left = NonWord`.
+pub fn dfa_search_mid_nonword(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
+    dfa_search_from(dfa, hay, dfa.start_mid_nonword)
 }
 
 fn dfa_search_from(dfa: &DfaProgram, hay: &[u8], start: u32) -> Option<usize> {
@@ -1504,33 +1624,22 @@ mod tests {
     }
 
     #[test]
-    fn prog_ops_dfa_safe_allows_anchors_and_save_rejects_wbounds() {
-        // AnchorB-only program is safe (chunk 8.5).
-        let mut p_anchor_b = Program::new();
-        p_anchor_b.emit(Inst::simple(Op::AnchorB));
-        p_anchor_b.emit(Inst::char_lit(b'a'));
-        p_anchor_b.emit(Inst::match_accept());
-        assert!(prog_ops_dfa_safe(&p_anchor_b));
-        // Save-only program is safe (chunk 9 — capture-blind DFA;
-        // the wire runs a second-pass NFA at the DFA boundary).
-        let mut p_save = Program::new();
-        p_save.emit(Inst::save(0));
-        p_save.emit(Inst::char_lit(b'a'));
-        p_save.emit(Inst::save(1));
-        p_save.emit(Inst::match_accept());
-        assert!(prog_ops_dfa_safe(&p_save));
-        // AnchorE-only program is safe (chunk 8.6a — at-end accept).
-        let mut p_anchor_e = Program::new();
-        p_anchor_e.emit(Inst::char_lit(b'a'));
-        p_anchor_e.emit(Inst::simple(Op::AnchorE));
-        p_anchor_e.emit(Inst::match_accept());
-        assert!(prog_ops_dfa_safe(&p_anchor_e));
-        // WBound / NWBound still block.
-        for op in [Op::WBound, Op::NWBound] {
+    fn prog_ops_dfa_safe_accepts_every_can_dfa_op_after_chunk_8_6b() {
+        // All zero-width and capture opcodes are DFA-resident now:
+        // - AnchorB (chunk 8.5) via dual start states
+        // - Save (chunk 9) via second-pass NFA at DFA boundary
+        // - AnchorE (chunk 8.6a) via per-state is_accept_at_end
+        // - WBound / NWBound (chunk 8.6b) via LeftByteAttr state key
+        for op in [Op::AnchorB, Op::AnchorE, Op::WBound, Op::NWBound, Op::Save] {
             let mut p = Program::new();
-            p.emit(Inst::simple(op));
+            if matches!(op, Op::Save) {
+                p.emit(Inst::save(0));
+            } else {
+                p.emit(Inst::simple(op));
+            }
+            p.emit(Inst::char_lit(b'a'));
             p.emit(Inst::match_accept());
-            assert!(!prog_ops_dfa_safe(&p), "{op:?} should still block");
+            assert!(prog_ops_dfa_safe(&p), "{op:?} should now be safe");
         }
     }
 
@@ -1554,6 +1663,51 @@ mod tests {
         // Empty hay: start state has no path to Match via at-end
         // closure (the `Op::Char` is still required).
         assert_eq!(dfa_search(&dfa, b""), None);
+    }
+
+    #[test]
+    fn build_dfa_wbound_then_word_only_matches_at_boundary() {
+        // chunk 8.6b — `/\bfoo/` style: WBound at cursor=0 needs
+        // left=None|non-word + right=word. Standalone "foo" or
+        // " foo" hits; "xfoo" misses at offset 0 (word-word, no
+        // boundary). We test directly via dfa_search/dfa_search_mid*.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::WBound));
+        prog.emit(Inst::char_lit(b'f'));
+        prog.emit(Inst::char_lit(b'o'));
+        prog.emit(Inst::char_lit(b'o'));
+        prog.emit(Inst::match_accept());
+        assert!(prog_ops_dfa_safe(&prog));
+        let dfa = build_dfa(&prog, 0);
+        // Anchored at text-start: left=None (non-word), right='f'
+        // (word) → boundary → match "foo".
+        assert_eq!(dfa_search(&dfa, b"foo"), Some(3));
+        // Mid-nonword entry: left=NonWord, right='f' (word) →
+        // boundary → match.
+        assert_eq!(dfa_search_mid_nonword(&dfa, b"foo"), Some(3));
+        // Mid-word entry: left=Word, right='f' (word) → no boundary
+        // → no match at offset 0.
+        assert_eq!(dfa_search_mid_word(&dfa, b"foo"), None);
+    }
+
+    #[test]
+    fn build_dfa_nwbound_only_matches_inside_word_run() {
+        // chunk 8.6b — `/\Bfoo/`: NWBound advances when there is no
+        // boundary. So "foo" at offset 0 (left=None / non-word, right
+        // ='f' / word — boundary) does *not* match here.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::NWBound));
+        prog.emit(Inst::char_lit(b'f'));
+        prog.emit(Inst::char_lit(b'o'));
+        prog.emit(Inst::char_lit(b'o'));
+        prog.emit(Inst::match_accept());
+        assert!(prog_ops_dfa_safe(&prog));
+        let dfa = build_dfa(&prog, 0);
+        assert_eq!(dfa_search(&dfa, b"foo"), None);
+        assert_eq!(dfa_search_mid_nonword(&dfa, b"foo"), None);
+        // Mid-word entry: left=Word, right='f' (word) — no boundary,
+        // NWBound advances → match.
+        assert_eq!(dfa_search_mid_word(&dfa, b"foo"), Some(3));
     }
 
     #[test]

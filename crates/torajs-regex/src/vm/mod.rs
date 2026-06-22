@@ -318,29 +318,18 @@ pub fn search_from_with_ws(
     //
     // Flag gate:
     // - `Program::can_dfa` excludes backref + lookaround.
-    // - `dfa::prog_ops_dfa_safe` excludes WBound / NWBound.
-    //   (chunk 8.5 lifted AnchorB; chunk 9 lifted SAVE — DFA is
-    //   capture-blind and the wire runs a second-pass Pike VM on the
-    //   DFA-found `[start..end]` window to extract captures.
-    //   chunk 8.6a lifted AnchorE — every DFA state precomputes
-    //   `is_accept_at_end` so `$` fires when the byte walk lands on
-    //   the haystack end.)
+    // - `dfa::prog_ops_dfa_safe` no longer rejects any opcode — chunks
+    //   8.5 / 8.6a / 8.6b / 8.7 / 8.8 / 9 cleared `^` / `$` / `\b` /
+    //   `\B` / RE_FLAG_I (i) / RE_FLAG_M (m) / SAVE; the function
+    //   stays as a safety net for future opcode adds.
     // - `flags & RE_FLAG_U == 0` — DFA byte-step lacks code-point
     //   awareness (`u` flag needs UTF-8 decode at boundaries — future
     //   chunk 10).
     // - AnyChar requires `s` flag (DFA always advances on `.`).
     //
-    // chunk 8.7: `RE_FLAG_I` no longer a blocker — `build_dfa` threads
-    // `flags` through `byte_step`, which calls `char_eq` /
-    // `class_test_case_fold` for ASCII case-pair resolution.
-    // chunk 8.8: `RE_FLAG_M` no longer a blocker — `build_dfa` threads
-    // `mflag` into `PositionCtx`, so `Op::AnchorB` advances when the
-    // ctx is at text-start *or* `left_byte == Some(b'\n')` (line-start
-    // under multiline).
-    // chunk 9: SAVE no longer a blocker — DFA's `epsilon_closure` walks
-    // through `Op::Save` as a no-op ε (capture-blind), and on hit the
-    // wire below runs `vm_match_at(.., end_target = st + n)` for a
-    // second pass that produces the winning thread's `saves`.
+    // On hit, when the program emits any `Op::Save`, the wire below
+    // runs `vm_match_at(.., end_target = st + n)` for a second pass
+    // that produces the winning thread's `saves`.
     let flag_blockers = crate::parser::RE_FLAG_U;
     let dfa_fast_path = prog.can_dfa
         && (flags & flag_blockers) == 0
@@ -411,10 +400,22 @@ pub fn search_from_with_ws(
                     && st > 0
                     && s[(st - 1) as usize] == b'\n');
             let hay_suffix = &s[st as usize..];
+            // chunk 8.6b — when not at a line-start, pick the mid
+            // entry whose `LeftByteAttr` matches `s[st-1]`'s class so
+            // `Op::WBound` on the first step sees the correct
+            // left-byte class. Word class = ASCII `[A-Za-z0-9_]`,
+            // mirroring `at_word_boundary`. Patterns without `\b` /
+            // `\B` dedup the two mid states down.
             let hit = if at_line_start {
                 crate::dfa::dfa_search(dfa, hay_suffix)
             } else {
-                crate::dfa::dfa_search_mid(dfa, hay_suffix)
+                let prev = s[(st - 1) as usize];
+                let prev_is_word = prev.is_ascii_alphanumeric() || prev == b'_';
+                if prev_is_word {
+                    crate::dfa::dfa_search_mid_word(dfa, hay_suffix)
+                } else {
+                    crate::dfa::dfa_search_mid_nonword(dfa, hay_suffix)
+                }
             };
             if let Some(n) = hit {
                 let end = st + n as i64;
@@ -683,5 +684,50 @@ mod tests {
         let r = search_from(&prog, b"abc", 0, 0).expect("hit");
         assert_eq!(r.start, 3);
         assert_eq!(r.end, 3);
+    }
+
+    #[test]
+    fn dfa_path_wbound_picks_correct_mid_entry() {
+        // chunk 8.6b: `/\bfoo/` on "xfoo" must miss at offset 1
+        // (left='x' word, right='f' word → no boundary). On " foo"
+        // it hits at offset 1.
+        let prog = build("\\bfoo", 0);
+        assert!(crate::dfa::prog_ops_dfa_safe(&prog));
+        // Word-word boundary check: "xfoo" — wire selects mid_word at
+        // st=1; mid_word's first step has left=Word, right='f' (word)
+        // → no boundary → no match at offset 1.
+        // The outer search_from also advances st but every later st
+        // also has word-prev. So no hit anywhere.
+        assert!(search_from(&prog, b"xfoo", 0, 0).is_none());
+        // " foo": st=0 anchored start, left=None / non-word, right
+        // =' ' (non-word) — boundary needs lw != rw; both false →
+        // no boundary; NFA-equivalent dfa step finds none at st=0.
+        // st=1 mid_nonword (prev=' '), left=NonWord, right='f' (word)
+        // → boundary → match starting at st=1, end=4.
+        let r = search_from(&prog, b" foo", 0, 0).expect("hit");
+        assert_eq!(r.start, 1);
+        assert_eq!(r.end, 4);
+        // At text-start "foo": left=None / non-word, right='f' /
+        // word → boundary → match at st=0.
+        let r = search_from(&prog, b"foo", 0, 0).expect("hit");
+        assert_eq!(r.start, 0);
+        assert_eq!(r.end, 3);
+    }
+
+    #[test]
+    fn dfa_path_nwbound_picks_correct_mid_entry() {
+        // chunk 8.6b: `/\Bfoo/` — NWBound advances inside word runs.
+        // "xfoo": st=0 (left=None / non-word, right='x' / word —
+        // boundary, NWBound blocks). st=1 mid_word (left=Word), the
+        // wire selects mid_word; first step right='f' / word → no
+        // boundary → NWBound advances → match at st=1, end=4.
+        let prog = build("\\Bfoo", 0);
+        assert!(crate::dfa::prog_ops_dfa_safe(&prog));
+        let r = search_from(&prog, b"xfoo", 0, 0).expect("hit");
+        assert_eq!(r.start, 1);
+        assert_eq!(r.end, 4);
+        // Standalone "foo": every position has a boundary (text-
+        // start to 'f', or end of "foo"), so NWBound finds nothing.
+        assert!(search_from(&prog, b"foo", 0, 0).is_none());
     }
 }
