@@ -13,6 +13,7 @@
 //! workspace because they recurse — they can't share the parent's.
 
 use super::{SavesArena, ThreadList, VisitedTable, Workspace};
+use crate::node::REGEX_SAVE_SLOTS;
 use crate::parser::{RE_FLAG_M, is_word_byte};
 use crate::program::{Op, Program};
 use crate::vm::Thread;
@@ -61,7 +62,7 @@ pub(super) fn add_thread(
         Op::Save => {
             let slot = ins.a;
             let new_id = arena.alloc_clone(saves_id);
-            if slot >= 0 && (slot as usize) < arena.stride {
+            if slot >= 0 && (slot as usize) < REGEX_SAVE_SLOTS {
                 arena.write_slot(new_id, slot as usize, pos);
             }
             add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, new_id);

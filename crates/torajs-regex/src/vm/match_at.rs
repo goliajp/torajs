@@ -207,13 +207,7 @@ pub fn vm_match_at(
                         saw_match_this_step = true;
                         end_pos = pos;
                         if let Some(ref mut o) = out_saves {
-                            // Arena row is `stride`-wide (≤
-                            // REGEX_SAVE_SLOTS); caller buffer is the
-                            // full 64-wide array pre-initialised to
-                            // `-1`. Partial copy keeps tail slots at
-                            // the caller's sentinel value.
-                            let row = ws.arena.get(t_saves_id);
-                            (*o)[..row.len()].copy_from_slice(row);
+                            (*o).copy_from_slice(ws.arena.get(t_saves_id));
                         }
                     }
                 }
@@ -241,8 +235,7 @@ pub fn vm_match_at(
         {
             end_pos = slen;
             if let Some(ref mut o) = out_saves {
-                let row = ws.arena.get(t_saves_id);
-                (*o)[..row.len()].copy_from_slice(row);
+                (*o).copy_from_slice(ws.arena.get(t_saves_id));
             }
             break;
         }
@@ -264,13 +257,9 @@ fn handle_backref(
     let slen = s.len() as i64;
     let slot_s = (2 * cap_idx) as usize;
     let slot_e = (2 * cap_idx + 1) as usize;
-    let (cs, ce) = if cap_idx >= 1 {
+    let (cs, ce) = if cap_idx >= 1 && slot_e < REGEX_SAVE_SLOTS {
         let row = ws.arena.get(t.saves_id);
-        if slot_e < row.len() {
-            (row[slot_s], row[slot_e])
-        } else {
-            (-1, -1)
-        }
+        (row[slot_s], row[slot_e])
     } else {
         (-1, -1)
     };
