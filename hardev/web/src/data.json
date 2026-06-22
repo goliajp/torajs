@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T14:29:52.490Z",
+  "generatedAt": "2026-06-22T14:54:13.671Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "89f7fb37",
-    "commitSubject": "feat(torajs-regex): thread RE_FLAG_I case-fold into byte_step (Pike VM DFA chunk 8.7)",
+    "commit": "999adba8",
+    "commitSubject": "feat(torajs-regex): thread RE_FLAG_M multiline `^` into DFA path (Pike VM DFA chunk 8.8)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "999adba8",
+      "subject": "feat(torajs-regex): thread RE_FLAG_M multiline `^` into DFA path (Pike VM DFA chunk 8.8)"
+    },
+    {
+      "hash": "25e35f25",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 89f7fb37 Pike VM DFA chunk 8.7 (i-flag case-fold)"
+    },
+    {
       "hash": "89f7fb37",
       "subject": "feat(torajs-regex): thread RE_FLAG_I case-fold into byte_step (Pike VM DFA chunk 8.7)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "805c221d",
       "subject": "feat(torajs-regex): position-aware ε-closure substrate (Pike VM DFA chunk 8)"
-    },
-    {
-      "hash": "c9cfff99",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 1edfdd03 Pike VM DFA chunk 7 v3 ship"
-    },
-    {
-      "hash": "1edfdd03",
-      "subject": "feat(torajs-regex): wire DFA fast path bypassing cache (Pike VM DFA chunk 7 v3)"
     }
   ],
-  "headSha": "89f7fb37",
+  "headSha": "999adba8",
   "autorun": {
     "total": 226,
     "baselineTarget": 10,
