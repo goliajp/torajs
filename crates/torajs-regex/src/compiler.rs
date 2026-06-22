@@ -208,6 +208,7 @@ mod tests {
         let mut prog = Program::new();
         compile(&mut prog, &root);
         prog.emit(Inst::match_accept());
+        prog.compute_saves_stride();
         prog
     }
 

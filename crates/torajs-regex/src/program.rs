@@ -173,7 +173,7 @@ impl Inst {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Program {
     pub insts: Vec<Inst>,
     pub classes: Vec<CharClass>,
@@ -196,11 +196,57 @@ pub struct Program {
     /// RE2 / Hyperscan. On `str-replace-100k` no-match probe this
     /// drops the Pike VM cost from ~1011 ns/iter to ~30 ns/iter.
     pub prefix_byte: Option<u8>,
+    /// V0.2 P14-S17 — per-Program saves arena row stride, computed
+    /// once at compile time. `Workspace::for_program` reads this
+    /// instead of re-scanning `insts` on every cache-miss
+    /// allocation. Mirrors the `prefix_byte` lifecycle: emitted by
+    /// `compute_saves_stride()` after the final `OP_MATCH` is
+    /// appended, then read by every consumer that builds a
+    /// Workspace for this Program. `2` is the conservative default
+    /// (whole-match slots 0/1) for Programs lacking any `OP_SAVE`.
+    pub saves_stride: usize,
+}
+
+impl Default for Program {
+    fn default() -> Self {
+        Self {
+            insts: Vec::new(),
+            classes: Vec::new(),
+            sub_progs: Vec::new(),
+            prefix_byte: None,
+            // V0.2 P14-S17 — `2` is the conservative minimum (whole-
+            // match slots 0/1) for Programs that never call
+            // `compute_saves_stride`. `compute_saves_stride()` is
+            // expected to refine this when the Program is finalised;
+            // a zero default would divide-by-zero in `SavesArena`.
+            saves_stride: 2,
+        }
+    }
 }
 
 impl Program {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// V0.2 P14-S17 — finalise `saves_stride` after all `OP_SAVE`
+    /// instructions are emitted. Scans `insts` for the highest
+    /// `OP_SAVE` slot and stores `(max_slot + 1).max(2)` as the
+    /// per-row width of the saves arena. Sub-programs are NOT
+    /// recursed — each `Box<Program>` is expected to be finalised
+    /// at the site that built it (e.g. `compile_lookaround`).
+    pub fn compute_saves_stride(&mut self) {
+        let mut max_slot: i32 = -1;
+        for inst in &self.insts {
+            if inst.op == Op::Save as u8 && inst.a > max_slot {
+                max_slot = inst.a;
+            }
+        }
+        self.saves_stride = if max_slot < 0 {
+            2
+        } else {
+            (max_slot as usize) + 1
+        };
     }
 
     /// Append an instruction; return its index (i32 to match the
@@ -220,7 +266,8 @@ impl Program {
         idx
     }
 
-    pub fn add_sub(&mut self, sub: Box<Program>) -> i32 {
+    pub fn add_sub(&mut self, mut sub: Box<Program>) -> i32 {
+        sub.compute_saves_stride();
         let idx = self.sub_progs.len() as i32;
         self.sub_progs.push(sub);
         idx
@@ -278,6 +325,51 @@ mod tests {
         assert_eq!(idx, 0);
         assert_eq!(p.sub_progs[0].len(), 1);
         assert_eq!(p.sub_progs[0].insts[0].ch, b'x');
+    }
+
+    #[test]
+    fn compute_saves_stride_defaults_to_two() {
+        let p = Program::new();
+        assert_eq!(p.saves_stride, 2);
+    }
+
+    #[test]
+    fn compute_saves_stride_picks_max_save_slot() {
+        let mut p = Program::new();
+        p.emit(Inst::save(0));
+        p.emit(Inst::save(1));
+        p.emit(Inst::save(2));
+        p.emit(Inst::save(3));
+        p.compute_saves_stride();
+        // max OP_SAVE slot = 3 → stride = 4 (slots 0..=3).
+        assert_eq!(p.saves_stride, 4);
+    }
+
+    #[test]
+    fn compute_saves_stride_no_saves_keeps_two() {
+        let mut p = Program::new();
+        p.emit(Inst::char_lit(b'a'));
+        p.emit(Inst::match_accept());
+        p.compute_saves_stride();
+        assert_eq!(p.saves_stride, 2);
+    }
+
+    #[test]
+    fn add_sub_finalises_sub_stride() {
+        let mut p = Program::new();
+        let sub = Box::new({
+            let mut s = Program::new();
+            s.emit(Inst::save(0));
+            s.emit(Inst::save(1));
+            s.emit(Inst::save(2));
+            s.emit(Inst::save(3));
+            s
+        });
+        // pre-add: stride still at default
+        assert_eq!(sub.saves_stride, 2);
+        p.add_sub(sub);
+        // post-add: add_sub calls compute_saves_stride
+        assert_eq!(p.sub_progs[0].saves_stride, 4);
     }
 
     #[test]

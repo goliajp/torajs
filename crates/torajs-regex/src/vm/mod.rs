@@ -187,28 +187,6 @@ impl SavesArena {
     }
 }
 
-/// Scan a Program for the highest `OP_SAVE` slot reference and
-/// derive the per-row stride of the saves arena (slot 0/1 = whole
-/// match, slot `2*i`/`2*i+1` = capture group `i`). Returns the row
-/// width in `i64` slots. Programs without any `OP_SAVE` get a stride
-/// of `2` (enough to hold the implicit whole-match slots if SSA-lower
-/// later adds them); the true minimum useful stride is 0 but a
-/// non-zero stride keeps `alloc_*` from degenerating into no-op rows
-/// for the never-takes-this-branch case.
-fn detect_stride(prog: &Program) -> usize {
-    let mut max_slot: i32 = -1;
-    for inst in &prog.insts {
-        if inst.op == crate::program::Op::Save as u8 && inst.a > max_slot {
-            max_slot = inst.a;
-        }
-    }
-    if max_slot < 0 {
-        2
-    } else {
-        (max_slot as usize) + 1
-    }
-}
-
 /// Reusable per-Program workspace — allocates once at search start;
 /// re-used across tight-loop iterations (replaceAll / matchAll /
 /// split) via [`search_from_with_ws`]. Sized so `cur/nxt` lists and
@@ -227,7 +205,9 @@ pub struct Workspace {
 impl Workspace {
     pub fn for_program(prog: &Program) -> Self {
         let n = prog.len();
-        let stride = detect_stride(prog);
+        // V0.2 P14-S17 — saves stride is computed once at compile
+        // time and stored on Program; no per-Workspace inst scan.
+        let stride = prog.saves_stride;
         Self {
             cur: ThreadList::with_capacity(n),
             nxt: ThreadList::with_capacity(n),
@@ -388,6 +368,7 @@ mod tests {
         let mut prog = Program::new();
         compile(&mut prog, &root);
         prog.emit(Inst::match_accept());
+        prog.compute_saves_stride();
         prog
     }
 

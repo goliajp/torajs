@@ -96,6 +96,9 @@ pub unsafe extern "C" fn __torajs_regex_compile(
         prog.emit(Inst::match_accept());
         1u8
     };
+    // V0.2 P14-S17 — finalise saves stride on the top-level Program
+    // (sub_progs are finalised at `add_sub` time inside `compile_*`).
+    prog.compute_saves_stride();
 
     // V0.2 P14-S2 perf — detect a literal-byte prefix anchor.
     // Walk the emitted bytecode forward, skipping zero-width
