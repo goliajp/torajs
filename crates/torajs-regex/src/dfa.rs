@@ -32,9 +32,18 @@
 //!   patterns build the DFA exactly once on first access; ineligible
 //!   patterns return `None` cheaply and stay out of the fast path.
 //!
-//! Future chunks: fast-path fork in `vm::search_from_with_ws`,
-//! position-context DFA states (Anchor / WBound), per-state save-mask
-//! (SAVE), and `u`-flag code-point step.
+//! - **fast-path wire** ([`prog_ops_dfa_safe`] + [`prog_uses_anychar`]
+//!   gates consumed by `vm::search_from_with_ws`) — narrow the gate to
+//!   patterns the DFA actually models correctly: no SAVE / Anchor /
+//!   WBound (chunk 7's `prog_ops_dfa_safe`) and runtime flag
+//!   compatibility (no `i` for case-folding, no `u` for code-point
+//!   stepping, and AnyChar permitted only when `s` is set so dot-all
+//!   semantics match). Hot path forks to the lazy-built DFA when all
+//!   gates pass, else falls back to the Pike VM.
+//!
+//! Future chunks: position-context DFA states (Anchor / WBound),
+//! per-state save-mask (SAVE), `u`-flag code-point step, case-fold
+//! tables to lift the `i` gate.
 //! Tracking RFC: `.claude/rfcs/20260622-pike-vm-dfa/design.md`.
 
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -300,6 +309,60 @@ pub fn build_dfa(prog: &Program) -> DfaProgram {
         states,
         start: start_idx,
     }
+}
+
+/// Stricter than [`crate::program::Program::can_dfa`]: also checks that
+/// no `Op::Save` / `Op::AnchorB` / `Op::AnchorE` / `Op::WBound` /
+/// `Op::NWBound` opcodes appear in the program's bytecode (or any
+/// sub-program). Those ops are still terminal in [`epsilon_closure`],
+/// so the built DFA silently mis-matches them; the Pike VM fallback
+/// consumes any program that fails this check.
+///
+/// Sub-programs (lookaround bodies) cannot appear when `can_dfa` is
+/// true (lookaround is itself a blocker in [`analyze`]) — the loop
+/// over `sub_progs` is a belt-and-suspenders defensive check.
+///
+/// Future chunks tighten this: chunk 8 brings position-context state
+/// (Anchor/WBound), chunk 9 brings per-state save-mask (SAVE). Each
+/// removes ops from this gate as it lands.
+pub fn prog_ops_dfa_safe(prog: &Program) -> bool {
+    fn scan(insts: &[crate::program::Inst]) -> bool {
+        !insts.iter().any(|ins| {
+            matches!(
+                Op::from_u8(ins.op),
+                Some(Op::Save | Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound)
+            )
+        })
+    }
+    if !scan(&prog.insts) {
+        return false;
+    }
+    for sub in prog.sub_progs.iter() {
+        if !scan(&sub.insts) {
+            return false;
+        }
+    }
+    true
+}
+
+/// True iff the program (or any sub-program) emits an [`Op::AnyChar`]
+/// instruction (i.e. the source pattern contains `.`).
+///
+/// The DFA's [`byte_step`] always advances on any byte at an `AnyChar`
+/// PC, matching the JS `s` (dotall) flag semantics. Without the `s`
+/// flag, JS `.` must *not* match `\n`. The hot-path gate uses this to
+/// require either no `AnyChar` ops or the `s` flag set; otherwise the
+/// pattern falls back to Pike VM where `match_at` consults flags.
+pub fn prog_uses_anychar(prog: &Program) -> bool {
+    fn scan(insts: &[crate::program::Inst]) -> bool {
+        insts
+            .iter()
+            .any(|ins| matches!(Op::from_u8(ins.op), Some(Op::AnyChar)))
+    }
+    if scan(&prog.insts) {
+        return true;
+    }
+    prog.sub_progs.iter().any(|sub| scan(&sub.insts))
 }
 
 /// Drive a built [`DfaProgram`] over `hay`, returning the longest
