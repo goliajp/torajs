@@ -1,20 +1,22 @@
 //! NFA → DFA conversion substrate for backref-free patterns.
 //!
-//! Current chunk: eligibility detection only. `analyze` walks the
-//! post-resolve AST and reports whether the pattern uses only opcodes
-//! that subset construction can represent deterministically (Char /
-//! AnyChar / Class / Anchor* / WBound / NWBound / Concat / Alt /
-//! Repeat / Group). Backref + the four lookaround variants force NFA
-//! simulation and are surfaced as named blocker variants for future
-//! diagnostics.
+//! Layered chunks:
+//! - **Eligibility** (`analyze` + `DfaEligibility`) — pre-order AST
+//!   walker reporting whether the pattern uses only DFA-representable
+//!   opcodes. Result cached on `Program.can_dfa` at compile time.
+//! - **ε-closure** (`epsilon_closure`) — given a `Program` and a seed
+//!   PC list, return the set of PCs reachable via pure-ε transitions.
+//!   Building block for subset construction.
 //!
-//! Result is cached on `Program.can_dfa` at compile time and is
-//! presently informational — no DFA construction / fast path wired
-//! yet. Tracking RFC:
-//! `.claude/rfcs/20260622-pike-vm-dfa/design.md` (subset construction
-//! builder, per-RegExp state cache, `search_from_with_ws` fork point).
+//! Future chunks: subset-construction NFA→DFA builder, per-RegExp
+//! state cache, fast-path fork in `vm::search_from_with_ws`.
+//! Tracking RFC: `.claude/rfcs/20260622-pike-vm-dfa/design.md`.
+
+use alloc::collections::BTreeSet;
+use alloc::vec::Vec;
 
 use crate::node::{Node, NodeKind};
+use crate::program::{Op, Program};
 
 /// Outcome of DFA eligibility analysis.
 ///
@@ -69,6 +71,64 @@ pub fn analyze(root: &Node) -> DfaEligibility {
         }
     }
     DfaEligibility::Eligible
+}
+
+/// Compute the ε-closure of `seeds` under `prog` — the set of all PCs
+/// reachable from any `seeds[i]` via pure-ε transitions.
+///
+/// ε ops handled in this chunk: [`Op::Jmp`] (unconditional), [`Op::Split`]
+/// (both branches). Everything else (`Save`, the anchors, `WBound` /
+/// `NWBound`, the lookaround variants, every byte-consuming op) is
+/// terminal — its PC is recorded in the closure if it was reached, but
+/// the walk does not follow its successor.
+///
+/// Save / Anchor / WBound are kept terminal here because they carry
+/// state that a flat PC-set cannot represent: `Save` mutates a capture
+/// slot (future chunk: track per-state save-mask), the anchors depend on
+/// `pos` relative to text start / line boundaries (future chunk:
+/// position-context DFA states tracking left-byte / at-start / at-end),
+/// `WBound` / `NWBound` depend on the surrounding bytes. The subset
+/// construction will revisit these once the per-state context is added.
+///
+/// PCs are deduped via the returned `BTreeSet`, so a circular `JMP`
+/// chain terminates in O(n) where n = `prog.len()`. Out-of-range or
+/// unknown-opcode PCs are silently dropped (defensive — mirrors
+/// `vm/dispatch.rs::add_thread`).
+pub fn epsilon_closure(prog: &Program, seeds: &[usize]) -> BTreeSet<usize> {
+    let mut closure: BTreeSet<usize> = BTreeSet::new();
+    let mut work: Vec<usize> = Vec::new();
+    for &seed in seeds {
+        if seed < prog.len() && closure.insert(seed) {
+            work.push(seed);
+        }
+    }
+    while let Some(pc) = work.pop() {
+        let ins = prog.insts[pc];
+        let op = match Op::from_u8(ins.op) {
+            Some(o) => o,
+            None => continue,
+        };
+        match op {
+            Op::Jmp => {
+                let t = ins.a as usize;
+                if t < prog.len() && closure.insert(t) {
+                    work.push(t);
+                }
+            }
+            Op::Split => {
+                let t1 = ins.a as usize;
+                let t2 = ins.b as usize;
+                if t1 < prog.len() && closure.insert(t1) {
+                    work.push(t1);
+                }
+                if t2 < prog.len() && closure.insert(t2) {
+                    work.push(t2);
+                }
+            }
+            _ => {}
+        }
+    }
+    closure
 }
 
 #[cfg(test)]
@@ -281,5 +341,117 @@ mod tests {
             parse_and_analyze(b"(?<!foo)bar", 0),
             DfaEligibility::HasNegLookbehind
         );
+    }
+
+    // ε-closure tests — synthetic mini-Programs that exercise the JMP /
+    // SPLIT walk plus the "terminal" treatment of every other op.
+
+    use crate::program::Inst;
+
+    fn into_set(v: &[usize]) -> BTreeSet<usize> {
+        v.iter().copied().collect()
+    }
+
+    #[test]
+    fn epsilon_closure_of_empty_seed_list_is_empty() {
+        let prog = Program::new();
+        assert!(epsilon_closure(&prog, &[]).is_empty());
+    }
+
+    #[test]
+    fn seed_out_of_range_is_dropped() {
+        let prog = Program::new();
+        assert!(epsilon_closure(&prog, &[0, 999]).is_empty());
+    }
+
+    #[test]
+    fn seed_at_char_op_only_contains_self() {
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        assert_eq!(epsilon_closure(&prog, &[0]), into_set(&[0]));
+    }
+
+    #[test]
+    fn jmp_chain_walks_to_terminal_op() {
+        // 0: JMP 2 → 2: JMP 4 → 4: CHAR a → 5: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::jmp(2));
+        prog.emit(Inst::char_lit(b'x')); // unreachable filler
+        prog.emit(Inst::jmp(4));
+        prog.emit(Inst::char_lit(b'y')); // unreachable filler
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        assert_eq!(epsilon_closure(&prog, &[0]), into_set(&[0, 2, 4]));
+    }
+
+    #[test]
+    fn split_forks_both_targets() {
+        // 0: SPLIT 1, 3 — both targets are char ops (terminal)
+        let mut prog = Program::new();
+        prog.emit(Inst::split(1, 3));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept()); // unreachable filler
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::match_accept());
+        assert_eq!(epsilon_closure(&prog, &[0]), into_set(&[0, 1, 3]));
+    }
+
+    #[test]
+    fn split_to_split_walks_transitively() {
+        // 0: SPLIT 1,2; 1: SPLIT 3,4; 2: char; 3: char; 4: char
+        let mut prog = Program::new();
+        prog.emit(Inst::split(1, 2));
+        prog.emit(Inst::split(3, 4));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::char_lit(b'c'));
+        prog.emit(Inst::match_accept());
+        assert_eq!(epsilon_closure(&prog, &[0]), into_set(&[0, 1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn circular_jmp_terminates() {
+        // 0: JMP 1; 1: JMP 0 — must not loop forever
+        let mut prog = Program::new();
+        prog.emit(Inst::jmp(1));
+        prog.emit(Inst::jmp(0));
+        assert_eq!(epsilon_closure(&prog, &[0]), into_set(&[0, 1]));
+    }
+
+    #[test]
+    fn save_op_is_terminal_in_this_chunk() {
+        // 0: SAVE 0; 1: CHAR a — closure of {0} = {0} only (not {0, 1});
+        // SAVE walk is deferred to a future save-mask-aware chunk.
+        let mut prog = Program::new();
+        prog.emit(Inst::save(0));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        assert_eq!(epsilon_closure(&prog, &[0]), into_set(&[0]));
+    }
+
+    #[test]
+    fn anchor_b_is_terminal_in_this_chunk() {
+        // 0: ANCHOR_B; 1: CHAR a — closure of {0} = {0}; anchor walk
+        // deferred to a future position-context-aware chunk.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        assert_eq!(epsilon_closure(&prog, &[0]), into_set(&[0]));
+    }
+
+    #[test]
+    fn multi_seed_unions_per_seed_closures() {
+        // 0: JMP 2; 2: CHAR a; 3: JMP 5; 5: CHAR b
+        let mut prog = Program::new();
+        prog.emit(Inst::jmp(2));
+        prog.emit(Inst::char_lit(b'x')); // filler
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::jmp(5));
+        prog.emit(Inst::char_lit(b'y')); // filler
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::match_accept());
+        assert_eq!(epsilon_closure(&prog, &[0, 3]), into_set(&[0, 2, 3, 5]));
     }
 }
