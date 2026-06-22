@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T17:20:58.415Z",
+  "generatedAt": "2026-06-22T17:41:48.424Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "2f26901c",
-    "commitSubject": "feat(torajs-regex): DFA AnyChar honours `\\n` exclusion without `s` flag (chunk 10a)",
+    "commit": "76aab5ef",
+    "commitSubject": "feat(torajs-regex): DFA u-flag `.` via deferred[u_skip] buckets (chunk 10b)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "76aab5ef",
+      "subject": "feat(torajs-regex): DFA u-flag `.` via deferred[u_skip] buckets (chunk 10b)"
+    },
+    {
+      "hash": "fc2785b4",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 2f26901c DFA AnyChar `\\n` exclusion (chunk 10a)"
+    },
+    {
       "hash": "2f26901c",
       "subject": "feat(torajs-regex): DFA AnyChar honours `\\n` exclusion without `s` flag (chunk 10a)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "a7395e9d",
       "subject": "chore(hardev/web): refresh dashboard snapshot — 999adba8 Pike VM DFA chunk 8.8 (multiline ^)"
-    },
-    {
-      "hash": "999adba8",
-      "subject": "feat(torajs-regex): thread RE_FLAG_M multiline `^` into DFA path (Pike VM DFA chunk 8.8)"
-    },
-    {
-      "hash": "25e35f25",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 89f7fb37 Pike VM DFA chunk 8.7 (i-flag case-fold)"
     }
   ],
-  "headSha": "2f26901c",
+  "headSha": "76aab5ef",
   "autorun": {
     "total": 228,
     "baselineTarget": 10,
