@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T16:49:03.033Z",
+  "generatedAt": "2026-06-22T17:20:58.415Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "450a72b6",
-    "commitSubject": "fix(torajs-regex): chunk 8.6b zero-width accept before stepping byte (\\b at match end)",
+    "commit": "2f26901c",
+    "commitSubject": "feat(torajs-regex): DFA AnyChar honours `\\n` exclusion without `s` flag (chunk 10a)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "2f26901c",
+      "subject": "feat(torajs-regex): DFA AnyChar honours `\\n` exclusion without `s` flag (chunk 10a)"
+    },
+    {
+      "hash": "f98cf404",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 450a72b6 Pike VM DFA chunk 8.6b (WBound/NWBound)"
+    },
+    {
       "hash": "450a72b6",
       "subject": "fix(torajs-regex): chunk 8.6b zero-width accept before stepping byte (\\b at match end)"
     },
@@ -655,35 +663,38 @@
     {
       "hash": "25e35f25",
       "subject": "chore(hardev/web): refresh dashboard snapshot — 89f7fb37 Pike VM DFA chunk 8.7 (i-flag case-fold)"
-    },
-    {
-      "hash": "89f7fb37",
-      "subject": "feat(torajs-regex): thread RE_FLAG_I case-fold into byte_step (Pike VM DFA chunk 8.7)"
-    },
-    {
-      "hash": "873928ea",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 4918fa20 Pike VM DFA chunk 8.5 + m-flag fix"
     }
   ],
-  "headSha": "450a72b6",
+  "headSha": "2f26901c",
   "autorun": {
-    "total": 227,
+    "total": 228,
     "baselineTarget": 10,
-    "bySelf": 222,
+    "bySelf": 223,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782140137-542d",
-      "at": "2026-06-22T14:55:37Z",
-      "ts": 1782140137,
+      "rotationId": "r-1782147103-5eb7",
+      "at": "2026-06-22T16:51:43Z",
+      "ts": 1782147103,
       "trigger": "self",
-      "prevHead": "a7395e9d",
-      "handoffSha": "sha256:744780fbd2dd7ba87a555afc891e81051c613eac2775fc82df2cc2721f85620d",
-      "handoffAgeSec": 4,
+      "prevHead": "f98cf404",
+      "handoffSha": "sha256:0daa24b18c6274a2a0348d65eeeb644fce8c149edf565284d9c9abde78db7c42",
+      "handoffAgeSec": 59,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782147103-5eb7",
+        "at": "2026-06-22T16:51:43Z",
+        "ts": 1782147103,
+        "trigger": "self",
+        "prevHead": "f98cf404",
+        "handoffSha": "sha256:0daa24b18c6274a2a0348d65eeeb644fce8c149edf565284d9c9abde78db7c42",
+        "handoffAgeSec": 59,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782140137-542d",
         "at": "2026-06-22T14:55:37Z",
@@ -780,17 +791,6 @@
         "prevHead": "90efa1a8",
         "handoffSha": "sha256:eda697b5b96600ca88d533cbe9d74cce4761ac4229718599a90f867f66c06ea4",
         "handoffAgeSec": 193,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782046570-3d51",
-        "at": "2026-06-21T12:56:10Z",
-        "ts": 1782046570,
-        "trigger": "self",
-        "prevHead": "2ee8ed99",
-        "handoffSha": "sha256:0000ab4affbba7e9c73be36005b75bdf4fa59ef7ec0c28a48c4a0a86912b3913",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
