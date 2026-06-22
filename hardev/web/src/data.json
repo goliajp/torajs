@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T14:10:16.298Z",
+  "generatedAt": "2026-06-22T14:29:52.490Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "4918fa20",
-    "commitSubject": "fix(torajs-regex): block multiline AnchorB from DFA fast path (chunk 8.5 fix)",
+    "commit": "89f7fb37",
+    "commitSubject": "feat(torajs-regex): thread RE_FLAG_I case-fold into byte_step (Pike VM DFA chunk 8.7)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "89f7fb37",
+      "subject": "feat(torajs-regex): thread RE_FLAG_I case-fold into byte_step (Pike VM DFA chunk 8.7)"
+    },
+    {
+      "hash": "873928ea",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 4918fa20 Pike VM DFA chunk 8.5 + m-flag fix"
+    },
+    {
       "hash": "4918fa20",
       "subject": "fix(torajs-regex): block multiline AnchorB from DFA fast path (chunk 8.5 fix)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "1edfdd03",
       "subject": "feat(torajs-regex): wire DFA fast path bypassing cache (Pike VM DFA chunk 7 v3)"
-    },
-    {
-      "hash": "1e908a7c",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — b7841536 post-DFA chunk 4-6 + chunk 7 revert"
-    },
-    {
-      "hash": "b7841536",
-      "subject": "Revert \"feat(torajs-regex): wire DFA fast path with flag-aware gate (Pike VM DFA chunk 7 v2)\""
     }
   ],
-  "headSha": "4918fa20",
+  "headSha": "89f7fb37",
   "autorun": {
     "total": 226,
     "baselineTarget": 10,
