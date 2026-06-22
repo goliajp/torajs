@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T08:24:16.168Z",
+  "generatedAt": "2026-06-22T11:35:41.687Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "72c5b7af",
-    "commitSubject": "bench(regex): 3-run validate S15 stride-aware SavesArena hold post-Cell-migration-revert",
+    "commit": "b7841536",
+    "commitSubject": "Revert \"feat(torajs-regex): wire DFA fast path with flag-aware gate (Pike VM DFA chunk 7 v2)\"",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,84 @@
   },
   "commits": [
     {
+      "hash": "b7841536",
+      "subject": "Revert \"feat(torajs-regex): wire DFA fast path with flag-aware gate (Pike VM DFA chunk 7 v2)\""
+    },
+    {
+      "hash": "1e9c1bca",
+      "subject": "feat(torajs-regex): wire DFA fast path with flag-aware gate (Pike VM DFA chunk 7 v2)"
+    },
+    {
+      "hash": "792def92",
+      "subject": "Revert \"feat(torajs-regex): wire DFA fast path into search_from_with_ws (Pike VM DFA chunk 7)\""
+    },
+    {
+      "hash": "91fe447d",
+      "subject": "feat(torajs-regex): wire DFA fast path into search_from_with_ws (Pike VM DFA chunk 7)"
+    },
+    {
+      "hash": "afd7d70d",
+      "subject": "feat(torajs-regex): per-Program lazy DFA cache (Pike VM DFA chunk 6)"
+    },
+    {
+      "hash": "7059a648",
+      "subject": "feat(torajs-regex): DFA executor (Pike VM DFA chunk 5)"
+    },
+    {
+      "hash": "ebf128bd",
+      "subject": "feat(torajs-regex): DFA subset construction builder (Pike VM DFA chunk 4)"
+    },
+    {
+      "hash": "669864d4",
+      "subject": "feat(torajs-regex): DFA byte-step helper (Pike VM DFA chunk 3)"
+    },
+    {
+      "hash": "005df83e",
+      "subject": "feat(torajs-regex): DFA ε-closure helper (Pike VM DFA chunk 2)"
+    },
+    {
+      "hash": "9e3c7f45",
+      "subject": "feat(torajs-regex): DFA eligibility detection substrate (Pike VM DFA chunk 1)"
+    },
+    {
+      "hash": "b14e3fac",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 441188f-r2 bench (S15 hold, str-replace -37.8%)"
+    },
+    {
       "hash": "72c5b7af",
       "subject": "bench(regex): 3-run validate S15 stride-aware SavesArena hold post-Cell-migration-revert"
-    },
-    {
-      "hash": "5fd68131",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — session-end (S15 only, S16/S17 reverted)"
-    },
-    {
-      "hash": "441188f0",
-      "subject": "Revert \"perf(regex): S16 — workspace_cache reuse in split / match / matchAll / replace_fn\""
-    },
-    {
-      "hash": "fb203cfe",
-      "subject": "fix(regex): S18 — partial S16 revert in match_op.rs (UB: as_regex_mut + UnsafeCell::get alias)"
-    },
-    {
-      "hash": "98cc58a4",
-      "subject": "Revert \"perf(regex): S17 — pre-compute saves stride on Program at compile time\""
-    },
-    {
-      "hash": "c24f423b",
-      "subject": "perf(regex): S17 — pre-compute saves stride on Program at compile time"
-    },
-    {
-      "hash": "4d707bdc",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — S16 workspace_cache uniform"
-    },
-    {
-      "hash": "2c1c02bd",
-      "subject": "perf(regex): S16 — workspace_cache reuse in split / match / matchAll / replace_fn"
-    },
-    {
-      "hash": "d53d904b",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — S15 re-ship after revert"
-    },
-    {
-      "hash": "7d7a5811",
-      "subject": "perf(regex): S15 — re-ship stride-aware SavesArena after revert (root cause not reproducible)"
-    },
-    {
-      "hash": "06eee2d0",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — session-end (post-S12 + sticky lazy-alloc)"
-    },
-    {
-      "hash": "7ee9bede",
-      "subject": "perf(regex): lazy-init outer Workspace in sticky-only paths"
     }
   ],
-  "headSha": "72c5b7af",
+  "headSha": "b7841536",
   "autorun": {
-    "total": 223,
+    "total": 224,
     "baselineTarget": 10,
-    "bySelf": 218,
+    "bySelf": 219,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782112585-1acd",
-      "at": "2026-06-22T07:16:25Z",
-      "ts": 1782112585,
+      "rotationId": "r-1782120965-3d19",
+      "at": "2026-06-22T09:36:05Z",
+      "ts": 1782120965,
       "trigger": "self",
-      "prevHead": "5fd68131",
-      "handoffSha": "sha256:f7e76a2269e213938756bcba0c00acd9f339e69c2d6b1349239419940fe0ddab",
-      "handoffAgeSec": 5,
+      "prevHead": "669864d4",
+      "handoffSha": "sha256:29eb6d9e7adaaa7e09f2db52874e3c729a2fd4637742a3c01004088e6cbd96f7",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782120965-3d19",
+        "at": "2026-06-22T09:36:05Z",
+        "ts": 1782120965,
+        "trigger": "self",
+        "prevHead": "669864d4",
+        "handoffSha": "sha256:29eb6d9e7adaaa7e09f2db52874e3c729a2fd4637742a3c01004088e6cbd96f7",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782112585-1acd",
         "at": "2026-06-22T07:16:25Z",
@@ -779,17 +790,6 @@
         "trigger": "self",
         "prevHead": "792357b1",
         "handoffSha": "sha256:728aa05ee344e4deea28b8930e1f224a21dabfe013df6a8a8bc2497c17bafd76",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782019712-3c61",
-        "at": "2026-06-21T05:28:32Z",
-        "ts": 1782019712,
-        "trigger": "self",
-        "prevHead": "cf7a695a",
-        "handoffSha": "sha256:0a7119e105fffe2228c9f28f4c6857f66a69e88a63005d64f6ff28d029145e29",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
