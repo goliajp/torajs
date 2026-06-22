@@ -21,8 +21,13 @@
 //!   currently treated as terminal in [`epsilon_closure`], so the
 //!   resulting DFA does not correctly handle those features yet —
 //!   future chunks will revisit them.
+//! - **executor** (`dfa_search`) — straight-line byte walk that drives
+//!   a built [`DfaProgram`] over a haystack and returns the longest
+//!   match-end position seen (per-byte, leftmost-longest semantics).
+//!   Single multiply-free index per step; on dead-state (idx 0) the
+//!   walk stops since no extension can ever accept.
 //!
-//! Future chunks: DFA executor + per-RegExp state cache, fast-path
+//! Future chunks: per-RegExp DFA cache (UnsafeCell lazy slot), fast-path
 //! fork in `vm::search_from_with_ws`, position-context DFA states
 //! (Anchor / WBound), per-state save-mask (SAVE), and `u`-flag
 //! code-point step.
@@ -291,6 +296,46 @@ pub fn build_dfa(prog: &Program) -> DfaProgram {
         states,
         start: start_idx,
     }
+}
+
+/// Drive a built [`DfaProgram`] over `hay`, returning the longest
+/// match-end byte offset reachable from `dfa.start` — anchored
+/// leftmost-longest semantics, starting at byte index 0.
+///
+/// Walk:
+/// 1. If `dfa.states[dfa.start]` already accepts (empty-match patterns
+///    like `a*`), seed `last_accept = Some(0)`.
+/// 2. For each byte at index `i`, advance `state = states[state]
+///    .transitions[byte]`. If `state == 0` (dead), break — no
+///    suffix can ever accept past this point.
+/// 3. If the new `state` accepts, update `last_accept = Some(i + 1)`.
+/// 4. Return the last accept position seen (or `None` if start didn't
+///    accept and no transition reached an accepting state).
+///
+/// The returned offset is the byte-end of the match (exclusive), in
+/// `0..=hay.len()`. Match length is the offset itself for this
+/// anchored-at-0 entry point; the search-from-position variant lands
+/// in a later chunk that wires the executor to `vm::search_from_with_ws`.
+///
+/// **Cost**: one indexed table load + one branch per byte, no per-step
+/// allocation. Dead-state early-out skips the haystack tail when no
+/// further match is reachable.
+pub fn dfa_search(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
+    let mut state = dfa.start;
+    let mut last_accept: Option<usize> = None;
+    if dfa.states[state as usize].is_accept {
+        last_accept = Some(0);
+    }
+    for (i, &byte) in hay.iter().enumerate() {
+        state = dfa.states[state as usize].transitions[byte as usize];
+        if state == 0 {
+            break;
+        }
+        if dfa.states[state as usize].is_accept {
+            last_accept = Some(i + 1);
+        }
+    }
+    last_accept
 }
 
 pub fn epsilon_closure(prog: &Program, seeds: &[usize]) -> BTreeSet<usize> {
@@ -994,5 +1039,157 @@ mod tests {
         for b in 0u16..=255 {
             assert_eq!(dfa.states[0].transitions[b as usize], 0);
         }
+    }
+
+    // dfa_search tests — anchored leftmost-longest driver.
+
+    fn build_dfa_for(insts: &[Inst]) -> DfaProgram {
+        let mut prog = Program::new();
+        for ins in insts {
+            prog.emit(*ins);
+        }
+        build_dfa(&prog)
+    }
+
+    #[test]
+    fn dfa_search_literal_matches_at_exact_length() {
+        // 0: CHAR a; 1: CHAR b; 2: CHAR c; 3: MATCH
+        let dfa = build_dfa_for(&[
+            Inst::char_lit(b'a'),
+            Inst::char_lit(b'b'),
+            Inst::char_lit(b'c'),
+            Inst::match_accept(),
+        ]);
+        assert_eq!(dfa_search(&dfa, b"abc"), Some(3));
+        assert_eq!(dfa_search(&dfa, b"abcd"), Some(3)); // trailing byte ignored
+    }
+
+    #[test]
+    fn dfa_search_literal_misses_on_first_byte_mismatch() {
+        let dfa = build_dfa_for(&[Inst::char_lit(b'a'), Inst::match_accept()]);
+        assert_eq!(dfa_search(&dfa, b"b"), None);
+        assert_eq!(dfa_search(&dfa, b""), None);
+    }
+
+    #[test]
+    fn dfa_search_match_only_accepts_empty() {
+        let dfa = build_dfa_for(&[Inst::match_accept()]);
+        assert_eq!(dfa_search(&dfa, b""), Some(0));
+        // accepts empty prefix even with trailing bytes — dead-state
+        // halts the walk but the seeded `Some(0)` survives.
+        assert_eq!(dfa_search(&dfa, b"anything"), Some(0));
+    }
+
+    #[test]
+    fn dfa_search_kleene_star_matches_empty_and_extends() {
+        // a*: 0: SPLIT 1, 3; 1: CHAR a; 2: JMP 0; 3: MATCH
+        let dfa = build_dfa_for(&[
+            Inst::split(1, 3),
+            Inst::char_lit(b'a'),
+            Inst::jmp(0),
+            Inst::match_accept(),
+        ]);
+        assert_eq!(dfa_search(&dfa, b""), Some(0));
+        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, b"aaaa"), Some(4));
+        // hits dead on 'b' after consuming a's, returns longest seen.
+        assert_eq!(dfa_search(&dfa, b"aab"), Some(2));
+        assert_eq!(dfa_search(&dfa, b"b"), Some(0));
+    }
+
+    #[test]
+    fn dfa_search_kleene_plus_requires_one_byte() {
+        // a+: 0: CHAR a; 1: SPLIT 0, 2; 2: MATCH
+        let dfa = build_dfa_for(&[
+            Inst::char_lit(b'a'),
+            Inst::split(0, 2),
+            Inst::match_accept(),
+        ]);
+        assert_eq!(dfa_search(&dfa, b""), None);
+        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, b"aaaa"), Some(4));
+        assert_eq!(dfa_search(&dfa, b"b"), None);
+    }
+
+    #[test]
+    fn dfa_search_alternation_takes_either_branch() {
+        // 0: SPLIT 1, 3; 1: CHAR a; 2: MATCH; 3: CHAR b; 4: MATCH
+        let dfa = build_dfa_for(&[
+            Inst::split(1, 3),
+            Inst::char_lit(b'a'),
+            Inst::match_accept(),
+            Inst::char_lit(b'b'),
+            Inst::match_accept(),
+        ]);
+        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, b"b"), Some(1));
+        assert_eq!(dfa_search(&dfa, b"c"), None);
+    }
+
+    #[test]
+    fn dfa_search_leftmost_longest_prefers_extended_accept() {
+        // a*b: 0: SPLIT 1, 3; 1: CHAR a; 2: JMP 0; 3: CHAR b; 4: MATCH
+        // Start does not accept (no MATCH in ε-closure of {0,1,3}).
+        // 'aaab' should match 4 bytes.
+        let dfa = build_dfa_for(&[
+            Inst::split(1, 3),
+            Inst::char_lit(b'a'),
+            Inst::jmp(0),
+            Inst::char_lit(b'b'),
+            Inst::match_accept(),
+        ]);
+        assert_eq!(dfa_search(&dfa, b"b"), Some(1));
+        assert_eq!(dfa_search(&dfa, b"ab"), Some(2));
+        assert_eq!(dfa_search(&dfa, b"aaab"), Some(4));
+        // No 'b' tail → no match (the executor is anchored leftmost-longest,
+        // doesn't yet retry suffixes — that's the search-from-position chunk).
+        assert_eq!(dfa_search(&dfa, b"aaa"), None);
+    }
+
+    #[test]
+    fn dfa_search_dead_state_short_circuits_after_miss() {
+        // Pattern `ab`: walking "ac…" should stop at index 1 (state hits
+        // dead) and return None regardless of tail content.
+        let dfa = build_dfa_for(&[
+            Inst::char_lit(b'a'),
+            Inst::char_lit(b'b'),
+            Inst::match_accept(),
+        ]);
+        // Even with a megabyte of garbage, the executor only reads up to
+        // the first mismatch — but we just sanity-check the answer.
+        assert_eq!(dfa_search(&dfa, b"ac"), None);
+        assert_eq!(dfa_search(&dfa, b"axxxxxxxxxx"), None);
+    }
+
+    #[test]
+    fn dfa_search_class_range_matches_in_range_bytes() {
+        // [0-9]+: CLASS [0-9]; SPLIT 0, 2; MATCH
+        let mut prog = Program::new();
+        let mut digit = CharClass::new();
+        digit.add_range(b'0', b'9');
+        let di = prog.intern_class(&digit);
+        prog.emit(Inst::class_ref(di));
+        prog.emit(Inst::split(0, 2));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        assert_eq!(dfa_search(&dfa, b"42"), Some(2));
+        assert_eq!(dfa_search(&dfa, b"42x"), Some(2));
+        assert_eq!(dfa_search(&dfa, b"x"), None);
+    }
+
+    #[test]
+    fn dfa_search_anychar_consumes_exactly_one_byte() {
+        // 0: ANY; 1: MATCH
+        let dfa = build_dfa_for(&[Inst::simple(Op::AnyChar), Inst::match_accept()]);
+        // Start does not accept (no MATCH in {0}); first byte takes us
+        // to an accepting state — match length 1 regardless of byte.
+        assert_eq!(dfa_search(&dfa, b""), None);
+        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, b"\n"), Some(1));
+        // After the accept, the DFA stays in an accepting state for one
+        // more byte (the build queues the post-accept set), so longer
+        // input still reports the longest accepting position — which is
+        // length 1 because the post-accept set has no further MATCH.
+        assert_eq!(dfa_search(&dfa, b"ab"), Some(1));
     }
 }
