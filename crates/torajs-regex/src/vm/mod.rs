@@ -309,11 +309,19 @@ pub fn search_from_with_ws(
     //
     // Flag gate:
     // - `Program::can_dfa` excludes backref + lookaround.
-    // - `dfa::prog_ops_dfa_safe` excludes SAVE / Anchor / WBound.
+    // - `dfa::prog_ops_dfa_safe` excludes SAVE / AnchorE / WBound /
+    //   NWBound. (chunk 8.5 lifted AnchorB from this list — the DFA
+    //   now resolves `^` via `start` / `start_mid` start states.)
     // - `flags & (RE_FLAG_I | RE_FLAG_U) == 0` — DFA byte-step lacks
     //   case-fold and code-point awareness.
+    // - `flags & RE_FLAG_M == 0` — under multiline, `^` also matches
+    //   after every newline, not only at text-start. The DFA built
+    //   here only resolves text-start AnchorB; pre-newline matches
+    //   would silently miss. (Future chunk: thread `m` flag through
+    //   build_dfa via line-aware ctx.)
     // - AnyChar requires `s` flag (DFA always advances on `.`).
-    let flag_blockers = crate::parser::RE_FLAG_I | crate::parser::RE_FLAG_U;
+    let flag_blockers =
+        crate::parser::RE_FLAG_I | crate::parser::RE_FLAG_U | crate::parser::RE_FLAG_M;
     let dfa_fast_path = prog.can_dfa
         && (flags & flag_blockers) == 0
         && crate::dfa::prog_ops_dfa_safe(prog)
