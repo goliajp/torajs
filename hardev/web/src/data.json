@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T00:05:31.030Z",
+  "generatedAt": "2026-06-22T01:29:28.569Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "588cf290",
-    "commitSubject": "perf(regex): cache Pike VM Workspace per-RegExp via UnsafeCell",
+    "commit": "7d469f9d",
+    "commitSubject": "perf(regex): add_thread terminal arm direct struct init — skip dead saves memset",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,26 @@
   },
   "commits": [
     {
+      "hash": "7d469f9d",
+      "subject": "perf(regex): add_thread terminal arm direct struct init — skip dead saves memset"
+    },
+    {
+      "hash": "a0a05f13",
+      "subject": "fix(fixture): rewrite S10 borrow-split fixture without unsupported `?.[i]`"
+    },
+    {
+      "hash": "5f68ba4a",
+      "subject": "perf(regex): vm_match_at borrow-split — eliminate Thread clone on Char/AnyChar/Class"
+    },
+    {
+      "hash": "25a6034f",
+      "subject": "perf(str): str_split hoist FLAG_STATIC_LITERAL parent check — elide per-substr rc_inc"
+    },
+    {
+      "hash": "5473826c",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — perf-axis P14-S1..S8 (7 ship + 1 revert)"
+    },
+    {
       "hash": "588cf290",
       "subject": "perf(regex): cache Pike VM Workspace per-RegExp via UnsafeCell"
     },
@@ -643,47 +663,38 @@
     {
       "hash": "90efa1a8",
       "subject": "chore(hardev/web): refresh dashboard snapshot — narrow ES sweep ×5 (S339-S343)"
-    },
-    {
-      "hash": "76176c92",
-      "subject": "fix(num): global `isNaN(Any)` / `isFinite(Any)` silent-wrong"
-    },
-    {
-      "hash": "9a3aced1",
-      "subject": "fix(math): `Math.<unary/binary>(Any[, Any])` widen + Any→F64 coerce"
-    },
-    {
-      "hash": "41e71b8c",
-      "subject": "fix(num): Number.is{NaN,Finite,Integer,SafeInteger}(Any) silent-wrong"
-    },
-    {
-      "hash": "72fd5f3f",
-      "subject": "fix(str): `String.fromCodePoint(Any)` widen + Any→i64 coerce"
-    },
-    {
-      "hash": "f339a8f7",
-      "subject": "fix(arr): `xs.with(Any idx, val)` widen + Any→i64 coerce"
     }
   ],
-  "headSha": "588cf290",
+  "headSha": "7d469f9d",
   "autorun": {
-    "total": 219,
+    "total": 220,
     "baselineTarget": 10,
-    "bySelf": 214,
+    "bySelf": 215,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782052153-3e8b",
-      "at": "2026-06-21T14:29:13Z",
-      "ts": 1782052153,
+      "rotationId": "r-1782086805-4563",
+      "at": "2026-06-22T00:06:45Z",
+      "ts": 1782086805,
       "trigger": "self",
-      "prevHead": "90efa1a8",
-      "handoffSha": "sha256:eda697b5b96600ca88d533cbe9d74cce4761ac4229718599a90f867f66c06ea4",
-      "handoffAgeSec": 193,
+      "prevHead": "5473826c",
+      "handoffSha": "sha256:e44842832d79264ca3b91da7771d842445cd04f3b8e804697cf3968d73dd1572",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782086805-4563",
+        "at": "2026-06-22T00:06:45Z",
+        "ts": 1782086805,
+        "trigger": "self",
+        "prevHead": "5473826c",
+        "handoffSha": "sha256:e44842832d79264ca3b91da7771d842445cd04f3b8e804697cf3968d73dd1572",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782052153-3e8b",
         "at": "2026-06-21T14:29:13Z",
@@ -780,17 +791,6 @@
         "prevHead": "6279003d",
         "handoffSha": "sha256:9ecf27b1bb52a598d24a1dc2b23d659d37166fff59bcb548358295a07205f026",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1781964694-69cb",
-        "at": "2026-06-20T14:11:34Z",
-        "ts": 1781964694,
-        "trigger": "self",
-        "prevHead": "3de69b32",
-        "handoffSha": "sha256:94235bd9d77f57d1d30c309f3ec45aa067bcfe2caffda8142b6150d21ab5b11a",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
