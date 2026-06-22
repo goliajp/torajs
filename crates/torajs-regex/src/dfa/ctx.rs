@@ -94,7 +94,11 @@ fn is_word_byte(b: u8) -> bool {
 ///   they need *both* the left byte and the upcoming right byte;
 ///   right-byte awareness lives in the byte-step (chunk 8.5).
 ///
-/// `Op::Save` stays terminal (chunk 9 future).
+/// `Op::Save` is transparent here (chunk 9): the DFA byte-step is
+/// capture-blind so the closure walks through `Op::Save` as a no-op
+/// ε. Real capture-slot writes come from a second-pass Pike VM in
+/// [`crate::vm::search_from_with_ws`] (RE2-style two-pass), gated by
+/// the DFA's `[start..end]` boundary.
 ///
 /// Chunk 8 keeps the surface minimal — `build_dfa` itself still uses
 /// the legacy `epsilon_closure`; subsequent chunks thread the
@@ -150,6 +154,12 @@ pub fn epsilon_closure_with_ctx(
                     }
                 }
             }
+            Op::Save => {
+                let t = pc + 1;
+                if t < prog.len() && closure.insert(t) {
+                    work.push(t);
+                }
+            }
             _ => {}
         }
     }
@@ -175,7 +185,9 @@ fn anchor_b_advances(ctx: PositionCtx) -> bool {
 ///
 /// Behaviour reuses [`epsilon_closure_with_ctx`] for the JMP / SPLIT /
 /// AnchorB / AnchorE branches and adds WBound / NWBound resolution.
-/// `Op::Save` stays terminal (chunk 9 future).
+/// `Op::Save` is transparent (chunk 9): closure walks `pc + 1` as a
+/// no-op ε; capture writes come from a second-pass Pike VM in
+/// [`crate::vm::search_from_with_ws`].
 ///
 /// Chunk 8.3 keeps the builder/executor unchanged — the helper is the
 /// new substrate hooks 8.5+ thread through `build_dfa`.
@@ -240,6 +252,7 @@ pub fn epsilon_closure_full(
                     None
                 }
             }
+            Op::Save => Some(pc + 1),
             _ => None,
         };
         if let Some(t) = next {
@@ -401,14 +414,32 @@ mod tests {
     }
 
     #[test]
-    fn epsilon_closure_with_ctx_save_still_terminal() {
-        // SAVE remains terminal until per-state save-mask (chunk 9).
+    fn epsilon_closure_with_ctx_save_is_transparent_epsilon() {
+        // chunk 9: SAVE is a no-op ε in the capture-blind DFA closure.
+        // The walk traverses through it to the next PC.
         let mut prog = Program::new();
         prog.emit(Inst::save(0));
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::match_accept());
         let ctx = PositionCtx::at_start(false);
-        assert_eq!(epsilon_closure_with_ctx(&prog, &[0], ctx), into_set(&[0]));
+        assert_eq!(
+            epsilon_closure_with_ctx(&prog, &[0], ctx),
+            into_set(&[0, 1])
+        );
+    }
+
+    #[test]
+    fn epsilon_closure_with_ctx_save_chains_to_match() {
+        // Multiple SAVEs in a row all walk through.
+        let mut prog = Program::new();
+        prog.emit(Inst::save(0));
+        prog.emit(Inst::save(2));
+        prog.emit(Inst::match_accept());
+        let ctx = PositionCtx::at_start(true);
+        assert_eq!(
+            epsilon_closure_with_ctx(&prog, &[0], ctx),
+            into_set(&[0, 1, 2])
+        );
     }
 
     // epsilon_closure_full tests — right-byte-aware variant that
@@ -499,7 +530,8 @@ mod tests {
     }
 
     #[test]
-    fn epsilon_closure_full_save_still_terminal() {
+    fn epsilon_closure_full_save_is_transparent_epsilon() {
+        // chunk 9: SAVE walks through in the full closure too.
         let mut prog = Program::new();
         prog.emit(Inst::save(0));
         prog.emit(Inst::char_lit(b'a'));
@@ -507,7 +539,7 @@ mod tests {
         let ctx = PositionCtx::at_start(false);
         assert_eq!(
             epsilon_closure_full(&prog, &[0], ctx, Some(b'a')),
-            into_set(&[0])
+            into_set(&[0, 1])
         );
     }
 

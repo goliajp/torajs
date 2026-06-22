@@ -209,6 +209,15 @@ fn detect_stride(prog: &Program) -> usize {
     }
 }
 
+/// True iff `prog` emits any `Op::Save`. Used by the DFA fast path
+/// (chunk 9) to skip the second-pass Pike VM on patterns whose
+/// captures are trivially all-`-1`.
+fn prog_has_save(prog: &Program) -> bool {
+    prog.insts
+        .iter()
+        .any(|ins| ins.op == crate::program::Op::Save as u8)
+}
+
 /// Reusable per-Program workspace — allocates once at search start;
 /// re-used across tight-loop iterations (replaceAll / matchAll /
 /// split) via [`search_from_with_ws`]. Sized so `cur/nxt` lists and
@@ -309,9 +318,10 @@ pub fn search_from_with_ws(
     //
     // Flag gate:
     // - `Program::can_dfa` excludes backref + lookaround.
-    // - `dfa::prog_ops_dfa_safe` excludes SAVE / AnchorE / WBound /
-    //   NWBound. (chunk 8.5 lifted AnchorB from this list — the DFA
-    //   now resolves `^` via `start` / `start_mid` start states.)
+    // - `dfa::prog_ops_dfa_safe` excludes AnchorE / WBound / NWBound.
+    //   (chunk 8.5 lifted AnchorB; chunk 9 lifted SAVE — DFA is
+    //   capture-blind and the wire runs a second-pass Pike VM on the
+    //   DFA-found `[start..end]` window to extract captures.)
     // - `flags & RE_FLAG_U == 0` — DFA byte-step lacks code-point
     //   awareness (`u` flag needs UTF-8 decode at boundaries — future
     //   chunk 10).
@@ -324,6 +334,10 @@ pub fn search_from_with_ws(
     // `mflag` into `PositionCtx`, so `Op::AnchorB` advances when the
     // ctx is at text-start *or* `left_byte == Some(b'\n')` (line-start
     // under multiline).
+    // chunk 9: SAVE no longer a blocker — DFA's `epsilon_closure` walks
+    // through `Op::Save` as a no-op ε (capture-blind), and on hit the
+    // wire below runs `vm_match_at(.., end_target = st + n)` for a
+    // second pass that produces the winning thread's `saves`.
     let flag_blockers = crate::parser::RE_FLAG_U;
     let dfa_fast_path = prog.can_dfa
         && (flags & flag_blockers) == 0
@@ -371,9 +385,16 @@ pub fn search_from_with_ws(
             continue;
         }
         if let Some(dfa) = dfa_built.as_ref() {
-            // Anchored DFA at byte offset `st`. The DFA is byte-step
-            // only — capture slots stay all -1 (gate guarantees no SAVE
-            // ops, so the Pike VM would emit the same all-`-1` saves).
+            // Anchored DFA at byte offset `st`. The DFA itself is
+            // capture-blind (chunk 9: `Op::Save` is a no-op ε in the
+            // closure), so the byte-step traversal finds `[st..end]`
+            // without populating saves. When the pattern emitted any
+            // `Op::Save` ops we run a second-pass Pike VM at the same
+            // start with `end_target = end` — its leftmost-first
+            // semantics under that length restriction match the DFA's
+            // leftmost-longest hit, and the winning thread's snapshot
+            // is the JS-spec capture set. Patterns with no SAVE ops
+            // skip the second pass — saves stay all-`-1`.
             //
             // chunk 8.5 / 8.8 entry-state selection. Use the
             // text-start closure (`dfa.start` — `^` advanced) when the
@@ -393,10 +414,25 @@ pub fn search_from_with_ws(
                 crate::dfa::dfa_search_mid(dfa, hay_suffix)
             };
             if let Some(n) = hit {
+                let end = st + n as i64;
+                let mut saves = [-1i64; REGEX_SAVE_SLOTS];
+                if prog_has_save(prog) {
+                    // Second-pass NFA at exactly the DFA-found window
+                    // to pull captures out. If the NFA disagrees with
+                    // the DFA boundary we leave saves all-`-1` rather
+                    // than report a phantom — this should not happen
+                    // since the DFA's accept set is derived from the
+                    // same NFA's `Op::Match` PCs.
+                    let nfa_end =
+                        match_at::vm_match_at(prog, s, st, flags, ws, Some(&mut saves), end);
+                    if nfa_end != end {
+                        saves = [-1i64; REGEX_SAVE_SLOTS];
+                    }
+                }
                 return Some(MatchResult {
                     start: st,
-                    end: st + n as i64,
-                    saves: [-1i64; REGEX_SAVE_SLOTS],
+                    end,
+                    saves,
                 });
             }
             // Anchored DFA missed at `st`; advance one byte and retry.
@@ -520,6 +556,67 @@ mod tests {
         assert_eq!(r.end, 3);
         assert_eq!(r.saves[2], 1); // group 1 start
         assert_eq!(r.saves[3], 3); // group 1 end
+    }
+
+    #[test]
+    fn dfa_path_capture_group_extracts_saves_via_second_pass() {
+        // chunk 9: a capture group like `(abc)` now passes the
+        // `prog_ops_dfa_safe` gate. The DFA finds [start..end] and
+        // the wire's second-pass Pike VM extracts captures. Test
+        // `build` helper uses `compiler::compile` directly (no
+        // implicit whole-match Save 0/1 wrap — that's added by
+        // production regex/compile.rs), so we assert on group 1's
+        // slots only, mirroring `search_captures_group` above.
+        let prog = build("(abc)", 0);
+        assert!(prog_has_save(&prog));
+        assert!(crate::dfa::prog_ops_dfa_safe(&prog));
+        let r = search_from(&prog, b"xxabcyy", 0, 0).expect("hit");
+        assert_eq!(r.start, 2);
+        assert_eq!(r.end, 5);
+        assert_eq!(r.saves[2], 2); // group 1 start
+        assert_eq!(r.saves[3], 5); // group 1 end
+    }
+
+    #[test]
+    fn dfa_path_capture_alternation_extracts_saves() {
+        // `(cat|dog)` — DFA finds 3-byte match, NFA picks leftmost
+        // branch and writes its capture slots.
+        let prog = build("(cat|dog)", 0);
+        assert!(crate::dfa::prog_ops_dfa_safe(&prog));
+        let r = search_from(&prog, b"--dog--", 0, 0).expect("hit");
+        assert_eq!(r.start, 2);
+        assert_eq!(r.end, 5);
+        assert_eq!(r.saves[2], 2);
+        assert_eq!(r.saves[3], 5);
+    }
+
+    #[test]
+    fn dfa_path_capture_quantified_inner_extracts_saves() {
+        // `(a+)b` — quantified inner capture. Group 1 covers the
+        // run of `a`s. DFA scans for `a+b`; NFA second-pass commits
+        // the longest `a+` run that lets `b` match.
+        let prog = build("(a+)b", 0);
+        assert!(crate::dfa::prog_ops_dfa_safe(&prog));
+        let r = search_from(&prog, b"  aaab xx", 0, 0).expect("hit");
+        assert_eq!(r.start, 2);
+        assert_eq!(r.end, 6);
+        assert_eq!(r.saves[2], 2);
+        assert_eq!(r.saves[3], 5); // inner cap covers "aaa"
+    }
+
+    #[test]
+    fn dfa_path_no_save_pattern_skips_second_pass() {
+        // Patterns without any SAVE ops keep saves all-`-1` and
+        // never invoke the second-pass NFA (perf-relevant — the
+        // common `/literal/` case stays a pure DFA walk).
+        let prog = build("abc", 0);
+        assert!(!prog_has_save(&prog));
+        assert!(crate::dfa::prog_ops_dfa_safe(&prog));
+        let r = search_from(&prog, b"xxabcyy", 0, 0).expect("hit");
+        assert_eq!(r.start, 2);
+        assert_eq!(r.end, 5);
+        assert_eq!(r.saves[0], -1);
+        assert_eq!(r.saves[1], -1);
     }
 
     #[test]

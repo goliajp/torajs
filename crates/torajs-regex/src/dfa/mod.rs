@@ -45,10 +45,13 @@
 //!   legacy closure; subsequent chunks thread the ctx through the
 //!   builder and executor.
 //!
-//! Future chunks: thread `PositionCtx` through `build_dfa` and
-//! `dfa_search` so the gate stops excluding Anchor-only patterns;
-//! `WBound` / `NWBound` via the byte-step also seeing the right byte;
-//! per-state save-mask (SAVE); `u`-flag code-point step.
+//! Future chunks: `AnchorE` / `WBound` / `NWBound` via build_dfa
+//! threading the right byte (chunk 8.6); `u`-flag code-point step
+//! (chunk 10). Capture support landed in chunk 9 via the RE2-style
+//! two-pass: `Op::Save` is a no-op ε in the closure (capture-blind
+//! DFA), and `vm::search_from_with_ws` runs a second-pass Pike VM on
+//! the DFA-found `[start..end]` window with `end_target = end` to
+//! extract captures.
 //! Tracking RFC: `.claude/rfcs/20260622-pike-vm-dfa/design.md`.
 
 pub mod ctx;
@@ -347,12 +350,16 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
 }
 
 /// Stricter than [`crate::program::Program::can_dfa`]: also checks that
-/// no `Op::Save` / `Op::AnchorE` / `Op::WBound` / `Op::NWBound` opcodes
-/// appear in the program's bytecode (or any sub-program). `Op::AnchorB`
-/// (`^`) was dropped from the blocker list in chunk 8.5 — the
-/// position-aware builder resolves it via `start` / `start_mid` start
-/// states, and the executor picks the appropriate one based on whether
-/// the search cursor is at byte 0 of the haystack.
+/// no `Op::AnchorE` / `Op::WBound` / `Op::NWBound` opcodes appear in the
+/// program's bytecode (or any sub-program). `Op::AnchorB` (`^`) was
+/// dropped from the blocker list in chunk 8.5 — the position-aware
+/// builder resolves it via `start` / `start_mid` start states, and the
+/// executor picks the appropriate one based on whether the search
+/// cursor is at byte 0 of the haystack. `Op::Save` was dropped in
+/// chunk 9 — the DFA is capture-blind (Save is a no-op ε in the
+/// closure) and [`crate::vm::search_from_with_ws`] runs a second-pass
+/// Pike VM on the DFA-found `[start..end]` window with `end_target =
+/// end` so the winning thread's saves come out.
 ///
 /// `Op::AnchorE` (`$`) / `Op::WBound` / `Op::NWBound` still depend on
 /// the right byte (or text-end) which is not threaded through the
@@ -368,7 +375,7 @@ pub fn prog_ops_dfa_safe(prog: &Program) -> bool {
         !insts.iter().any(|ins| {
             matches!(
                 Op::from_u8(ins.op),
-                Some(Op::Save | Op::AnchorE | Op::WBound | Op::NWBound)
+                Some(Op::AnchorE | Op::WBound | Op::NWBound)
             )
         })
     }
@@ -1447,24 +1454,51 @@ mod tests {
     }
 
     #[test]
-    fn prog_ops_dfa_safe_allows_anchor_b_but_rejects_others() {
-        // AnchorB-only program is now safe (chunk 8.5).
+    fn prog_ops_dfa_safe_allows_anchor_b_and_save_rejects_others() {
+        // AnchorB-only program is safe (chunk 8.5).
         let mut p_anchor_b = Program::new();
         p_anchor_b.emit(Inst::simple(Op::AnchorB));
         p_anchor_b.emit(Inst::char_lit(b'a'));
         p_anchor_b.emit(Inst::match_accept());
         assert!(prog_ops_dfa_safe(&p_anchor_b));
-        // AnchorE / WBound / NWBound / Save still block.
+        // Save-only program is safe (chunk 9 — capture-blind DFA;
+        // the wire runs a second-pass NFA at the DFA boundary).
+        let mut p_save = Program::new();
+        p_save.emit(Inst::save(0));
+        p_save.emit(Inst::char_lit(b'a'));
+        p_save.emit(Inst::save(1));
+        p_save.emit(Inst::match_accept());
+        assert!(prog_ops_dfa_safe(&p_save));
+        // AnchorE / WBound / NWBound still block.
         for op in [Op::AnchorE, Op::WBound, Op::NWBound] {
             let mut p = Program::new();
             p.emit(Inst::simple(op));
             p.emit(Inst::match_accept());
             assert!(!prog_ops_dfa_safe(&p), "{op:?} should still block");
         }
-        let mut p_save = Program::new();
-        p_save.emit(Inst::save(0));
-        p_save.emit(Inst::match_accept());
-        assert!(!prog_ops_dfa_safe(&p_save));
+    }
+
+    #[test]
+    fn build_dfa_save_walks_through_to_accept() {
+        // chunk 9: build_dfa walks `Op::Save` as a no-op ε. The
+        // capture group `(a)` compiles to `Save(0) Char(a) Save(1)
+        // Match` (after the implicit whole-match Save 0/1 in
+        // production; here we test the closure shape directly): the
+        // resulting DFA must reach `Match` after consuming one `a`,
+        // exactly like a non-captured `/a/` would.
+        let mut prog = Program::new();
+        prog.emit(Inst::save(0));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::save(1));
+        prog.emit(Inst::match_accept());
+        assert!(prog_ops_dfa_safe(&prog));
+        let dfa = build_dfa(&prog, 0);
+        // Start state is not accept (need to consume `a` first).
+        assert!(!dfa.states[dfa.start as usize].is_accept);
+        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, b"axyz"), Some(1));
+        assert_eq!(dfa_search(&dfa, b""), None);
+        assert_eq!(dfa_search(&dfa, b"x"), None);
     }
 
     // chunk 8.7 — ASCII case-fold under `RE_FLAG_I`. `byte_step` and
