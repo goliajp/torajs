@@ -298,6 +298,31 @@ pub fn search_from_with_ws(
 ) -> Option<MatchResult> {
     let slen = s.len() as i64;
     let mut st = from_pos;
+    // V0.2 P14 — DFA fast path (chunk 7 v3 audit edition).
+    // Hypothesis 4 from the chunk-7-v2 revert: `Program::dfa_cache`
+    // (UnsafeCell<Option<DfaProgram>> lazy slot, chunk 6) had a subtle
+    // lazy-init UB that surfaced as 30%-flaky SIGBUS in regex-021. To
+    // isolate the root cause, this audit edition bypasses the cache and
+    // builds the DFA inline per-search. If conformance holds 1129/0/4
+    // here, the cache is the regression source and a follow-up chunk
+    // restores it via a safer pattern (Cell<Box<>>, OnceCell, etc.).
+    //
+    // Same flag gate as v2 (the v1 → v2 evolution stays correct here):
+    // - `Program::can_dfa` excludes backref + lookaround.
+    // - `dfa::prog_ops_dfa_safe` excludes SAVE / Anchor / WBound.
+    // - `flags & (RE_FLAG_I | RE_FLAG_U) == 0` — DFA byte-step lacks
+    //   case-fold and code-point awareness.
+    // - AnyChar requires `s` flag (DFA always advances on `.`).
+    let flag_blockers = crate::parser::RE_FLAG_I | crate::parser::RE_FLAG_U;
+    let dfa_fast_path = prog.can_dfa
+        && (flags & flag_blockers) == 0
+        && crate::dfa::prog_ops_dfa_safe(prog)
+        && (!crate::dfa::prog_uses_anychar(prog) || (flags & crate::parser::RE_FLAG_S) != 0);
+    let dfa_built = if dfa_fast_path {
+        Some(crate::dfa::build_dfa(prog))
+    } else {
+        None
+    };
     loop {
         // V0.2 P14-S2 — literal-prefix SIMD anchor. When the
         // compiled program's leading byte-consuming op is a plain
@@ -331,6 +356,22 @@ pub fn search_from_with_ws(
         // doesn't decode mid-sequence and accidentally satisfy
         // `[^\p{...}]`. P9.3-A2.
         if flags & crate::parser::RE_FLAG_U != 0 && st < slen && s[st as usize] & 0xC0 == 0x80 {
+            st += 1;
+            continue;
+        }
+        if let Some(dfa) = dfa_built.as_ref() {
+            // Anchored DFA at byte offset `st`. The DFA is byte-step
+            // only — capture slots stay all -1 (gate guarantees no SAVE
+            // ops, so the Pike VM would emit the same all-`-1` saves).
+            let hay_suffix = &s[st as usize..];
+            if let Some(n) = crate::dfa::dfa_search(dfa, hay_suffix) {
+                return Some(MatchResult {
+                    start: st,
+                    end: st + n as i64,
+                    saves: [-1i64; REGEX_SAVE_SLOTS],
+                });
+            }
+            // Anchored DFA missed at `st`; advance one byte and retry.
             st += 1;
             continue;
         }

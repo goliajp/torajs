@@ -302,6 +302,56 @@ pub fn build_dfa(prog: &Program) -> DfaProgram {
     }
 }
 
+/// Stricter than [`crate::program::Program::can_dfa`]: also checks that
+/// no `Op::Save` / `Op::AnchorB` / `Op::AnchorE` / `Op::WBound` /
+/// `Op::NWBound` opcodes appear in the program's bytecode (or any
+/// sub-program). Those ops are still terminal in [`epsilon_closure`],
+/// so the built DFA silently mis-matches them; the Pike VM fallback
+/// consumes any program that fails this check.
+///
+/// Sub-programs (lookaround bodies) cannot appear when `can_dfa` is
+/// true (lookaround is itself a blocker in [`analyze`]) — the loop
+/// over `sub_progs` is a belt-and-suspenders defensive check.
+pub fn prog_ops_dfa_safe(prog: &Program) -> bool {
+    fn scan(insts: &[crate::program::Inst]) -> bool {
+        !insts.iter().any(|ins| {
+            matches!(
+                Op::from_u8(ins.op),
+                Some(Op::Save | Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound)
+            )
+        })
+    }
+    if !scan(&prog.insts) {
+        return false;
+    }
+    for sub in prog.sub_progs.iter() {
+        if !scan(&sub.insts) {
+            return false;
+        }
+    }
+    true
+}
+
+/// True iff the program (or any sub-program) emits an [`Op::AnyChar`]
+/// instruction (i.e. the source pattern contains `.`).
+///
+/// The DFA's [`byte_step`] always advances on any byte at an `AnyChar`
+/// PC, matching the JS `s` (dotall) flag semantics. Without the `s`
+/// flag, JS `.` must *not* match `\n`. The hot-path gate uses this to
+/// require either no `AnyChar` ops or the `s` flag set; otherwise the
+/// pattern falls back to Pike VM where `match_at` consults flags.
+pub fn prog_uses_anychar(prog: &Program) -> bool {
+    fn scan(insts: &[crate::program::Inst]) -> bool {
+        insts
+            .iter()
+            .any(|ins| matches!(Op::from_u8(ins.op), Some(Op::AnyChar)))
+    }
+    if scan(&prog.insts) {
+        return true;
+    }
+    prog.sub_progs.iter().any(|sub| scan(&sub.insts))
+}
+
 /// Drive a built [`DfaProgram`] over `hay`, returning the longest
 /// match-end byte offset reachable from `dfa.start` — anchored
 /// leftmost-longest semantics, starting at byte index 0.
