@@ -34,7 +34,7 @@
 //!   under hot-path consumption. Root cause family (RegExp lifetime
 //!   vs cached `&DfaProgram` across the SSA-lower ABI boundary) is
 //!   left to a future chunk 7.6 deep audit; chunk 7 v3 wire bypasses
-//!   the cache and `build_dfa(prog)` runs per `search_from_with_ws`
+//!   the cache and `build_dfa(prog, flags)` runs per `search_from_with_ws`
 //!   call instead.
 //!
 //! - **position-aware closure** ([`ctx::PositionCtx`] +
@@ -136,25 +136,14 @@ pub fn analyze(root: &Node) -> DfaEligibility {
 /// chain terminates in O(n) where n = `prog.len()`. Out-of-range or
 /// unknown-opcode PCs are silently dropped (defensive — mirrors
 /// `vm/dispatch.rs::add_thread`).
-/// One byte-transition step over a state set.
-///
-/// `states` is presumed to already be ε-closed under [`epsilon_closure`].
-/// For each PC in `states`, inspect the op:
-/// - `Op::Char` — emit `pc + 1` iff `ins.ch == byte`
-/// - `Op::AnyChar` — emit `pc + 1` unconditionally (dot-all semantics;
-///   the JS `s` flag is the AOT-friendly choice. Future chunks can
-///   thread flag context if we need spec-exact `.` ≠ '\n' default.)
-/// - `Op::Class` — emit `pc + 1` iff `prog.classes[ins.a].test(byte)`.
-///   Test is ASCII-only (`u`-flag code-point tests need a separate
-///   step-by-codepoint helper — future chunk).
-/// - everything else — terminal in the byte step. ε ops are caller's
-///   job to handle via [`epsilon_closure`]; lookaround / backref are
-///   filtered upstream by [`analyze`].
-///
-/// Returns a deduped, sorted `BTreeSet<usize>`. Out-of-range PCs in
-/// `states` (defensive) and `pc + 1` past program end are silently
-/// dropped.
-pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8) -> BTreeSet<usize> {
+/// One byte-transition step over a state set (presumed ε-closed).
+/// `Op::Char` uses [`crate::vm::char_eq`] (case-pair under `RE_FLAG_I`);
+/// `Op::AnyChar` always advances (dot-all; the `s` flag is the AOT
+/// default); `Op::Class` tests the byte then [`class_test_case_fold`]
+/// for the i-flag pair. Other ops terminal — ε via [`epsilon_closure`],
+/// lookaround/backref filter upstream in [`analyze`]. Out-of-range PCs
+/// (defensive) and `pc + 1` past program end are dropped.
+pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8, flags: u8) -> BTreeSet<usize> {
     let mut next: BTreeSet<usize> = BTreeSet::new();
     let plen = prog.len();
     for &pc in states.iter() {
@@ -167,11 +156,16 @@ pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8) -> BTreeSet
             None => continue,
         };
         let advances = match op {
-            Op::Char => ins.ch == byte,
+            Op::Char => crate::vm::char_eq(ins.ch, byte, flags),
             Op::AnyChar => true,
             Op::Class => {
                 let cls_idx = ins.a as usize;
-                cls_idx < prog.classes.len() && prog.classes[cls_idx].test(byte)
+                if cls_idx >= prog.classes.len() {
+                    false
+                } else {
+                    let class = &prog.classes[cls_idx];
+                    class.test(byte) || class_test_case_fold(class, byte, flags)
+                }
             }
             _ => false,
         };
@@ -183,6 +177,20 @@ pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8) -> BTreeSet
         }
     }
     next
+}
+
+/// `byte_step` helper (chunk 8.7) — true iff `class` contains the
+/// ASCII case-pair of `byte` under `RE_FLAG_I`; otherwise false.
+fn class_test_case_fold(class: &crate::charclass::CharClass, byte: u8, flags: u8) -> bool {
+    if flags & crate::parser::RE_FLAG_I == 0 {
+        return false;
+    }
+    let paired = match byte {
+        b'A'..=b'Z' => byte | 0x20,
+        b'a'..=b'z' => byte & !0x20,
+        _ => return false,
+    };
+    class.test(paired)
 }
 
 /// One state of a [`DfaProgram`].
@@ -266,7 +274,8 @@ fn intern_state(
 }
 
 /// Subset-construction NFA → DFA builder. BFS over PC-set states with
-/// position-aware initial closures (chunk 8.5).
+/// position-aware initial closures (chunk 8.5) and ASCII case-fold
+/// awareness (chunk 8.7).
 ///
 /// Two start seeds are interned: `start` under
 /// `PositionCtx{is_text_start: true}` (`^` advances) and `start_mid`
@@ -275,12 +284,17 @@ fn intern_state(
 /// the text start by definition. Patterns without `Op::AnchorB`
 /// dedup `start == start_mid`.
 ///
+/// `flags` is the compile-time flag set (see [`crate::parser`]). Under
+/// `RE_FLAG_I` the byte-step advances on the ASCII case-pair of each
+/// `Op::Char` / `Op::Class` byte — different flag values build
+/// different DFAs (the wire keys the per-RegExp DFA on `flags`).
+///
 /// State 0 is reserved as the dead state; the dedup map
 /// `set_to_idx: BTreeMap<BTreeSet<usize>, u32>` canonicalises sorted
 /// PC sets so equivalent NFA configurations collapse. Right-byte-aware
 /// closure (resolving `Op::AnchorE` / `Op::WBound` / `Op::NWBound`) is
 /// future work — those ops stay blockers in [`prog_ops_dfa_safe`].
-pub fn build_dfa(prog: &Program) -> DfaProgram {
+pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     let mut states: Vec<DfaState> = Vec::new();
     // state 0: dead state, all transitions self-loop to 0.
     states.push(DfaState::default());
@@ -317,7 +331,7 @@ pub fn build_dfa(prog: &Program) -> DfaProgram {
         let mut transitions = [0u32; 256];
         for byte_u16 in 0u16..=255 {
             let byte = byte_u16 as u8;
-            let stepped = byte_step(prog, &cur_set, byte);
+            let stepped = byte_step(prog, &cur_set, byte, flags);
             let closed = if stepped.is_empty() {
                 BTreeSet::new()
             } else {
@@ -820,7 +834,7 @@ mod tests {
     #[test]
     fn byte_step_empty_states_returns_empty() {
         let prog = Program::new();
-        assert!(byte_step(&prog, &BTreeSet::new(), b'a').is_empty());
+        assert!(byte_step(&prog, &BTreeSet::new(), b'a', 0).is_empty());
     }
 
     #[test]
@@ -829,7 +843,7 @@ mod tests {
         let mut prog = Program::new();
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::match_accept());
-        assert_eq!(byte_step(&prog, &set(&[0]), b'a'), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'a', 0), set(&[1]));
     }
 
     #[test]
@@ -837,7 +851,7 @@ mod tests {
         let mut prog = Program::new();
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::match_accept());
-        assert!(byte_step(&prog, &set(&[0]), b'b').is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'b', 0).is_empty());
     }
 
     #[test]
@@ -847,7 +861,11 @@ mod tests {
         prog.emit(Inst::simple(Op::AnyChar));
         prog.emit(Inst::match_accept());
         for b in [b'a', b'\n', 0u8, 0xff] {
-            assert_eq!(byte_step(&prog, &set(&[0]), b), set(&[1]), "byte 0x{b:02x}");
+            assert_eq!(
+                byte_step(&prog, &set(&[0]), b, 0),
+                set(&[1]),
+                "byte 0x{b:02x}"
+            );
         }
     }
 
@@ -860,9 +878,9 @@ mod tests {
         let idx = prog.intern_class(&cc);
         prog.emit(Inst::class_ref(idx));
         prog.emit(Inst::match_accept());
-        assert_eq!(byte_step(&prog, &set(&[0]), b'a'), set(&[1]));
-        assert_eq!(byte_step(&prog, &set(&[0]), b'c'), set(&[1]));
-        assert!(byte_step(&prog, &set(&[0]), b'd').is_empty());
+        assert_eq!(byte_step(&prog, &set(&[0]), b'a', 0), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'c', 0), set(&[1]));
+        assert!(byte_step(&prog, &set(&[0]), b'd', 0).is_empty());
     }
 
     #[test]
@@ -872,7 +890,7 @@ mod tests {
         prog.emit(Inst::jmp(2));
         prog.emit(Inst::split(0, 2));
         prog.emit(Inst::match_accept());
-        assert!(byte_step(&prog, &set(&[0, 1]), b'a').is_empty());
+        assert!(byte_step(&prog, &set(&[0, 1]), b'a', 0).is_empty());
     }
 
     #[test]
@@ -883,7 +901,7 @@ mod tests {
         prog.emit(Inst::simple(Op::AnchorB));
         prog.emit(Inst::simple(Op::WBound));
         prog.emit(Inst::match_accept());
-        assert!(byte_step(&prog, &set(&[0, 1, 2]), b'a').is_empty());
+        assert!(byte_step(&prog, &set(&[0, 1, 2]), b'a', 0).is_empty());
     }
 
     #[test]
@@ -896,8 +914,8 @@ mod tests {
         prog.emit(Inst::match_accept());
         prog.emit(Inst::char_lit(b'b'));
         prog.emit(Inst::match_accept());
-        assert_eq!(byte_step(&prog, &set(&[0, 2]), b'a'), set(&[1]));
-        assert_eq!(byte_step(&prog, &set(&[0, 2]), b'b'), set(&[3]));
+        assert_eq!(byte_step(&prog, &set(&[0, 2]), b'a', 0), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0, 2]), b'b', 0), set(&[3]));
     }
 
     #[test]
@@ -906,7 +924,7 @@ mod tests {
         let mut prog = Program::new();
         prog.emit(Inst::char_lit(b'a'));
         // No MATCH terminator: pc 1 is out of range, must be dropped.
-        assert!(byte_step(&prog, &set(&[0]), b'a').is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'a', 0).is_empty());
     }
 
     // build_dfa tests — composes epsilon_closure + byte_step into a
@@ -916,7 +934,7 @@ mod tests {
     #[test]
     fn build_dfa_empty_program_has_only_dead_state() {
         let prog = Program::new();
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         assert_eq!(dfa.states.len(), 1);
         assert_eq!(dfa.start, 0);
         assert!(!dfa.states[0].is_accept);
@@ -927,7 +945,7 @@ mod tests {
         let mut prog = Program::new();
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         for b in 0u16..=255 {
             assert_eq!(dfa.states[0].transitions[b as usize], 0);
         }
@@ -939,7 +957,7 @@ mod tests {
         // 0: MATCH — accepts empty string. ε-closure of {0} = {0}, has MATCH.
         let mut prog = Program::new();
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         assert!(dfa.states[dfa.start as usize].is_accept);
     }
 
@@ -949,7 +967,7 @@ mod tests {
         let mut prog = Program::new();
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         // dead + start({0}) + accept({1}) = 3 states.
         assert_eq!(dfa.states.len(), 3);
         assert_eq!(dfa.start, 1);
@@ -968,7 +986,7 @@ mod tests {
         prog.emit(Inst::char_lit(b'b'));
         prog.emit(Inst::char_lit(b'c'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         let s1 = dfa.start as usize;
         let s2 = dfa.states[s1].transitions[b'a' as usize] as usize;
         assert_ne!(s2, 0);
@@ -991,7 +1009,7 @@ mod tests {
         let mut prog = Program::new();
         prog.emit(Inst::simple(Op::AnyChar));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         let start = dfa.start as usize;
         let target = dfa.states[start].transitions[0];
         assert_ne!(target, 0);
@@ -1013,7 +1031,7 @@ mod tests {
         let idx = prog.intern_class(&cc);
         prog.emit(Inst::class_ref(idx));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         let start = dfa.start as usize;
         let target = dfa.states[start].transitions[b'a' as usize];
         assert_ne!(target, 0);
@@ -1035,7 +1053,7 @@ mod tests {
         prog.emit(Inst::match_accept());
         prog.emit(Inst::char_lit(b'b'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         let start = dfa.start as usize;
         let via_a = dfa.states[start].transitions[b'a' as usize];
         let via_b = dfa.states[start].transitions[b'b' as usize];
@@ -1055,7 +1073,7 @@ mod tests {
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::jmp(0));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         // ε-closure({0}) walks SPLIT to {1, 3}; 3 = MATCH → start accepts.
         assert!(dfa.states[dfa.start as usize].is_accept);
         let via_a = dfa.states[dfa.start as usize].transitions[b'a' as usize];
@@ -1072,7 +1090,7 @@ mod tests {
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::split(0, 2));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         // Start ε-closure = {0} — no MATCH yet, so start does NOT accept.
         assert!(!dfa.states[dfa.start as usize].is_accept);
         let via_a = dfa.states[dfa.start as usize].transitions[b'a' as usize];
@@ -1096,7 +1114,7 @@ mod tests {
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::char_lit(b'b'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         let start = dfa.start as usize;
         let after_a = dfa.states[start].transitions[b'a' as usize];
         assert_ne!(after_a, 0);
@@ -1120,7 +1138,7 @@ mod tests {
         prog.emit(Inst::class_ref(li));
         prog.emit(Inst::class_ref(di));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         let start = dfa.start as usize;
         let s1 = dfa.states[start].transitions[b'a' as usize];
         assert_ne!(s1, 0);
@@ -1140,7 +1158,7 @@ mod tests {
         let mut prog = Program::new();
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         // miss from start lands on dead (idx 0)…
         let dead = dfa.states[dfa.start as usize].transitions[b'b' as usize];
         assert_eq!(dead, 0);
@@ -1157,7 +1175,7 @@ mod tests {
         for ins in insts {
             prog.emit(*ins);
         }
-        build_dfa(&prog)
+        build_dfa(&prog, 0)
     }
 
     #[test]
@@ -1280,7 +1298,7 @@ mod tests {
         prog.emit(Inst::class_ref(di));
         prog.emit(Inst::split(0, 2));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         assert_eq!(dfa_search(&dfa, b"42"), Some(2));
         assert_eq!(dfa_search(&dfa, b"42x"), Some(2));
         assert_eq!(dfa_search(&dfa, b"x"), None);
@@ -1326,7 +1344,7 @@ mod tests {
         prog.emit(Inst::simple(Op::AnchorB));
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         assert_ne!(dfa.start, dfa.start_mid);
         // From `start`, byte 'a' advances to an accepting state.
         let via_a = dfa.states[dfa.start as usize].transitions[b'a' as usize];
@@ -1348,7 +1366,7 @@ mod tests {
         prog.emit(Inst::char_lit(b'b'));
         prog.emit(Inst::char_lit(b'c'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         // anchored entry: `^abc` matches the start of "abc..." and
         // returns the match length (3 bytes consumed past anchor).
         assert_eq!(dfa_search(&dfa, b"abc"), Some(3));
@@ -1366,7 +1384,7 @@ mod tests {
         prog.emit(Inst::char_lit(b'b'));
         prog.emit(Inst::char_lit(b'c'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         assert_eq!(dfa_search_mid(&dfa, b"abc"), None);
         assert_eq!(dfa_search_mid(&dfa, b"abcdef"), None);
         assert_eq!(dfa_search_mid(&dfa, b""), None);
@@ -1405,7 +1423,7 @@ mod tests {
         prog.emit(Inst::match_accept());
         prog.emit(Inst::char_lit(b'b'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         assert_ne!(dfa.start, dfa.start_mid);
         assert_eq!(dfa_search(&dfa, b"a"), Some(1));
         assert_eq!(dfa_search(&dfa, b"b"), Some(1));
@@ -1424,7 +1442,7 @@ mod tests {
         let mut prog = Program::new();
         prog.emit(Inst::simple(Op::AnchorB));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog);
+        let dfa = build_dfa(&prog, 0);
         assert!(dfa.states[dfa.start as usize].is_accept);
         assert!(!dfa.states[dfa.start_mid as usize].is_accept);
         assert_eq!(dfa_search(&dfa, b""), Some(0));
@@ -1452,5 +1470,106 @@ mod tests {
         p_save.emit(Inst::save(0));
         p_save.emit(Inst::match_accept());
         assert!(!prog_ops_dfa_safe(&p_save));
+    }
+
+    // chunk 8.7 — ASCII case-fold under `RE_FLAG_I`. `byte_step` and
+    // `build_dfa` now thread the flag and resolve `Op::Char` /
+    // `Op::Class` against the case-paired byte when `i` is set.
+
+    use crate::parser::RE_FLAG_I;
+
+    #[test]
+    fn byte_step_i_flag_char_advances_on_both_cases() {
+        // 0: CHAR 'a'; 1: MATCH — under i flag both 'a' and 'A' advance.
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        // Plain (no flag): only 'a' advances.
+        assert_eq!(byte_step(&prog, &set(&[0]), b'a', 0), set(&[1]));
+        assert!(byte_step(&prog, &set(&[0]), b'A', 0).is_empty());
+        // Under i: both 'a' and 'A' advance.
+        assert_eq!(byte_step(&prog, &set(&[0]), b'a', RE_FLAG_I), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'A', RE_FLAG_I), set(&[1]));
+        // Non-alpha bytes still respect literal compare.
+        assert!(byte_step(&prog, &set(&[0]), b'0', RE_FLAG_I).is_empty());
+    }
+
+    #[test]
+    fn byte_step_i_flag_class_matches_case_paired_byte() {
+        // 0: CLASS [a-c]; 1: MATCH — under i flag 'A' / 'B' / 'C' also
+        // match.
+        let mut prog = Program::new();
+        let mut cc = CharClass::new();
+        cc.add_range(b'a', b'c');
+        let idx = prog.intern_class(&cc);
+        prog.emit(Inst::class_ref(idx));
+        prog.emit(Inst::match_accept());
+        // Plain: only lowercase.
+        assert_eq!(byte_step(&prog, &set(&[0]), b'a', 0), set(&[1]));
+        assert!(byte_step(&prog, &set(&[0]), b'A', 0).is_empty());
+        // i flag: uppercase pair matches via class_test_case_fold.
+        assert_eq!(byte_step(&prog, &set(&[0]), b'A', RE_FLAG_I), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'C', RE_FLAG_I), set(&[1]));
+        // Out-of-class bytes still miss.
+        assert!(byte_step(&prog, &set(&[0]), b'D', RE_FLAG_I).is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'1', RE_FLAG_I).is_empty());
+    }
+
+    #[test]
+    fn build_dfa_i_flag_literal_accepts_both_cases() {
+        // /abc/i: 0: CHAR a; 1: CHAR b; 2: CHAR c; 3: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::char_lit(b'c'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog, RE_FLAG_I);
+        // All eight case combinations of "abc" should accept under i.
+        for hay in [
+            &b"abc"[..],
+            b"ABC",
+            b"Abc",
+            b"aBc",
+            b"abC",
+            b"AbC",
+            b"aBC",
+            b"ABc",
+        ] {
+            assert_eq!(dfa_search(&dfa, hay), Some(3), "hay={hay:?}");
+        }
+        // Non-alpha mismatch still misses.
+        assert_eq!(dfa_search(&dfa, b"axc"), None);
+        assert_eq!(dfa_search(&dfa, b"abd"), None);
+    }
+
+    #[test]
+    fn build_dfa_no_i_flag_does_not_case_fold() {
+        // Same /abc/ without flag — only "abc" matches.
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::char_lit(b'c'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog, 0);
+        assert_eq!(dfa_search(&dfa, b"abc"), Some(3));
+        assert_eq!(dfa_search(&dfa, b"ABC"), None);
+        assert_eq!(dfa_search(&dfa, b"Abc"), None);
+    }
+
+    #[test]
+    fn build_dfa_i_flag_class_range_case_folds() {
+        // /[a-z]/i: under i flag also matches A-Z.
+        let mut prog = Program::new();
+        let mut lower = CharClass::new();
+        lower.add_range(b'a', b'z');
+        let li = prog.intern_class(&lower);
+        prog.emit(Inst::class_ref(li));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog, RE_FLAG_I);
+        for hay in [&b"a"[..], b"z", b"M", b"Z"] {
+            assert_eq!(dfa_search(&dfa, hay), Some(1), "hay={hay:?}");
+        }
+        // Digits stay outside the (folded) class.
+        assert_eq!(dfa_search(&dfa, b"7"), None);
     }
 }

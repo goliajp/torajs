@@ -312,22 +312,27 @@ pub fn search_from_with_ws(
     // - `dfa::prog_ops_dfa_safe` excludes SAVE / AnchorE / WBound /
     //   NWBound. (chunk 8.5 lifted AnchorB from this list — the DFA
     //   now resolves `^` via `start` / `start_mid` start states.)
-    // - `flags & (RE_FLAG_I | RE_FLAG_U) == 0` — DFA byte-step lacks
-    //   case-fold and code-point awareness.
+    // - `flags & RE_FLAG_U == 0` — DFA byte-step lacks code-point
+    //   awareness (`u` flag needs UTF-8 decode at boundaries — future
+    //   chunk 10).
     // - `flags & RE_FLAG_M == 0` — under multiline, `^` also matches
     //   after every newline, not only at text-start. The DFA built
     //   here only resolves text-start AnchorB; pre-newline matches
     //   would silently miss. (Future chunk: thread `m` flag through
     //   build_dfa via line-aware ctx.)
     // - AnyChar requires `s` flag (DFA always advances on `.`).
-    let flag_blockers =
-        crate::parser::RE_FLAG_I | crate::parser::RE_FLAG_U | crate::parser::RE_FLAG_M;
+    //
+    // chunk 8.7: `RE_FLAG_I` is no longer a blocker — `build_dfa`
+    // threads `flags` through `byte_step`, which calls `char_eq` /
+    // `class_test_case_fold` so `Op::Char` and `Op::Class` resolve
+    // ASCII case-pairs alongside the literal byte.
+    let flag_blockers = crate::parser::RE_FLAG_U | crate::parser::RE_FLAG_M;
     let dfa_fast_path = prog.can_dfa
         && (flags & flag_blockers) == 0
         && crate::dfa::prog_ops_dfa_safe(prog)
         && (!crate::dfa::prog_uses_anychar(prog) || (flags & crate::parser::RE_FLAG_S) != 0);
     let dfa_built = if dfa_fast_path {
-        Some(crate::dfa::build_dfa(prog))
+        Some(crate::dfa::build_dfa(prog, flags))
     } else {
         None
     };
