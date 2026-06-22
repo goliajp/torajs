@@ -116,12 +116,18 @@ pub(super) fn add_thread(
         // Real, input-consuming op — terminate the epsilon chain and
         // park the thread waiting for the inner-loop dispatcher.
         _ => {
-            let mut t = Thread::empty();
-            t.pc = upc;
-            t.br_offset = 0;
-            t.u_skip = 0;
-            t.saves = *saves;
-            tl.push(t);
+            // V0.2 P14-S11 — direct struct init skips the [-1; 64]
+            // saves initializer that `Thread::empty()` writes (which
+            // the subsequent `*saves` copy fully overwrites anyway).
+            // The pre-S11 shape compiled to memset(saves, 0xFF) +
+            // memcpy(saves, src, 512); the inliner doesn't always
+            // collapse the dead memset across this match arm.
+            tl.push(Thread {
+                pc: upc,
+                br_offset: 0,
+                u_skip: 0,
+                saves: *saves,
+            });
         }
     }
 }
