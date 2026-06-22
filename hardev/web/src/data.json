@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T14:54:13.671Z",
+  "generatedAt": "2026-06-22T15:34:54.248Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "999adba8",
-    "commitSubject": "feat(torajs-regex): thread RE_FLAG_M multiline `^` into DFA path (Pike VM DFA chunk 8.8)",
+    "commit": "ab42cfbf",
+    "commitSubject": "feat(torajs-regex): RE2-style two-pass capture extract (Pike VM DFA chunk 9)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "ab42cfbf",
+      "subject": "feat(torajs-regex): RE2-style two-pass capture extract (Pike VM DFA chunk 9)"
+    },
+    {
+      "hash": "a7395e9d",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 999adba8 Pike VM DFA chunk 8.8 (multiline ^)"
+    },
+    {
       "hash": "999adba8",
       "subject": "feat(torajs-regex): thread RE_FLAG_M multiline `^` into DFA path (Pike VM DFA chunk 8.8)"
     },
@@ -655,35 +663,38 @@
     {
       "hash": "8cfe037f",
       "subject": "feat(torajs-regex): right-byte-aware ε-closure (Pike VM DFA chunk 8.3)"
-    },
-    {
-      "hash": "0c19b076",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 805c221d Pike VM DFA chunk 8 (PositionCtx + epsilon_closure_with_ctx)"
-    },
-    {
-      "hash": "805c221d",
-      "subject": "feat(torajs-regex): position-aware ε-closure substrate (Pike VM DFA chunk 8)"
     }
   ],
-  "headSha": "999adba8",
+  "headSha": "ab42cfbf",
   "autorun": {
-    "total": 226,
+    "total": 227,
     "baselineTarget": 10,
-    "bySelf": 221,
+    "bySelf": 222,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782134211-4773",
-      "at": "2026-06-22T13:16:51Z",
-      "ts": 1782134211,
+      "rotationId": "r-1782140137-542d",
+      "at": "2026-06-22T14:55:37Z",
+      "ts": 1782140137,
       "trigger": "self",
-      "prevHead": "43e3f1a4",
-      "handoffSha": "sha256:e4146c306e0353a03806335a4e5cd8528d6698a7583e4994f67897d8e0c65e03",
-      "handoffAgeSec": 1376,
+      "prevHead": "a7395e9d",
+      "handoffSha": "sha256:744780fbd2dd7ba87a555afc891e81051c613eac2775fc82df2cc2721f85620d",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782140137-542d",
+        "at": "2026-06-22T14:55:37Z",
+        "ts": 1782140137,
+        "trigger": "self",
+        "prevHead": "a7395e9d",
+        "handoffSha": "sha256:744780fbd2dd7ba87a555afc891e81051c613eac2775fc82df2cc2721f85620d",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782134211-4773",
         "at": "2026-06-22T13:16:51Z",
@@ -779,17 +790,6 @@
         "trigger": "self",
         "prevHead": "2ee8ed99",
         "handoffSha": "sha256:0000ab4affbba7e9c73be36005b75bdf4fa59ef7ec0c28a48c4a0a86912b3913",
-        "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782040876-47f9",
-        "at": "2026-06-21T11:21:16Z",
-        "ts": 1782040876,
-        "trigger": "self",
-        "prevHead": "3c1d770a",
-        "handoffSha": "sha256:8dc700025d873bd6350740f9b1eb3faf4e4a00d9a1c5337963266be5fd7e32ab",
         "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
