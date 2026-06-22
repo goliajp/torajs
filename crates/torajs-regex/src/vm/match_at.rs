@@ -64,24 +64,35 @@ pub fn vm_match_at(
         // Iterate cur via index — body may push into cur (BACKREF
         // epsilon hop on empty capture) and we want to see those.
         while ti < ws.cur.list.len() && !saw_match_this_step {
-            // Snapshot the thread (bounded ~540-byte clone) so we
-            // can call into add_thread (&mut ws.cur / &mut ws.nxt)
-            // without aliasing the indexed read.
-            let t = ws.cur.list[ti].clone();
+            // V0.2 P14-S10 — borrow-split. The pre-S10 shape snapshot-
+            // cloned the full 528-byte Thread every iter just to release
+            // the `&ws.cur.list[ti]` aliasing for the `add_thread(&mut
+            // ws.nxt, ...)` call. NLL with field-level disjoint borrows
+            // (`ws.cur.list[saves_idx].saves` borrows `ws.cur`,
+            // `&mut ws.nxt` borrows `ws.nxt`) accepts passing the saves
+            // by ref across the call, avoiding the clone on every input-
+            // consuming op. Op::Backref still needs an owned Thread (its
+            // handler calls `add_thread(&mut ws.cur, ...)` which aliases
+            // `ws.cur.list`).
+            let saves_idx = ti;
+            let pc = ws.cur.list[saves_idx].pc;
+            let br_offset = ws.cur.list[saves_idx].br_offset;
+            let u_skip = ws.cur.list[saves_idx].u_skip;
             ti += 1;
-            if t.u_skip > 0 {
+            if u_skip > 0 {
                 // u_skip defer — pass-through to nxt with skip
                 // decremented. Bypasses the visited table on
                 // purpose so the deferred thread isn't dropped.
+                let saves = ws.cur.list[saves_idx].saves;
                 ws.nxt.push(Thread {
-                    pc: t.pc,
-                    br_offset: t.br_offset,
-                    u_skip: t.u_skip - 1,
-                    saves: t.saves,
+                    pc,
+                    br_offset,
+                    u_skip: u_skip - 1,
+                    saves,
                 });
                 continue;
             }
-            let ins = prog.insts[t.pc];
+            let ins = prog.insts[pc];
             let Some(op) = Op::from_u8(ins.op) else {
                 continue;
             };
@@ -91,12 +102,12 @@ pub fn vm_match_at(
                         add_thread(
                             &mut ws.nxt,
                             &mut ws.vn,
-                            (t.pc + 1) as i32,
+                            (pc + 1) as i32,
                             prog,
                             s,
                             pos + 1,
                             flags,
-                            &t.saves,
+                            &ws.cur.list[saves_idx].saves,
                         );
                     }
                 }
@@ -117,12 +128,12 @@ pub fn vm_match_at(
                         add_thread(
                             &mut ws.nxt,
                             &mut ws.vn,
-                            (t.pc + 1) as i32,
+                            (pc + 1) as i32,
                             prog,
                             s,
                             pos + adv,
                             flags,
-                            &t.saves,
+                            &ws.cur.list[saves_idx].saves,
                         );
                         if adv > 1 {
                             let skip = (adv - 1) as i32;
@@ -154,12 +165,12 @@ pub fn vm_match_at(
                             add_thread(
                                 &mut ws.nxt,
                                 &mut ws.vn,
-                                (t.pc + 1) as i32,
+                                (pc + 1) as i32,
                                 prog,
                                 s,
                                 pos + adv,
                                 flags,
-                                &t.saves,
+                                &ws.cur.list[saves_idx].saves,
                             );
                             if adv > 1 {
                                 let skip = (adv - 1) as i32;
@@ -171,6 +182,15 @@ pub fn vm_match_at(
                     }
                 }
                 Op::Backref => {
+                    // BACKREF needs full Thread because handle_backref
+                    // may schedule into ws.cur (aliases ws.cur.list).
+                    let saves = ws.cur.list[saves_idx].saves;
+                    let t = Thread {
+                        pc,
+                        br_offset,
+                        u_skip,
+                        saves,
+                    };
                     handle_backref(prog, s, pos, flags, &t, ins.a, ws);
                 }
                 Op::Match => {
@@ -183,7 +203,7 @@ pub fn vm_match_at(
                         saw_match_this_step = true;
                         end_pos = pos;
                         if let Some(ref mut o) = out_saves {
-                            **o = t.saves;
+                            **o = ws.cur.list[saves_idx].saves;
                         }
                     }
                 }
