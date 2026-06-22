@@ -363,8 +363,20 @@ pub fn search_from_with_ws(
             // Anchored DFA at byte offset `st`. The DFA is byte-step
             // only — capture slots stay all -1 (gate guarantees no SAVE
             // ops, so the Pike VM would emit the same all-`-1` saves).
+            //
+            // chunk 8.5 entry-state selection: `st == 0` enters via
+            // `dfa.start` (closure under `is_text_start = true` — `^`
+            // advances through); `st > 0` enters via `dfa.start_mid`
+            // (closure under `is_text_start = false` — `^` blocks).
+            // For patterns without `Op::AnchorB` the two start states
+            // dedup to the same index, so the branch is free.
             let hay_suffix = &s[st as usize..];
-            if let Some(n) = crate::dfa::dfa_search(dfa, hay_suffix) {
+            let hit = if st == 0 {
+                crate::dfa::dfa_search(dfa, hay_suffix)
+            } else {
+                crate::dfa::dfa_search_mid(dfa, hay_suffix)
+            };
+            if let Some(n) = hit {
                 return Some(MatchResult {
                     start: st,
                     end: st + n as i64,

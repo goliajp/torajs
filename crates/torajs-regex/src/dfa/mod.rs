@@ -52,7 +52,7 @@
 //! Tracking RFC: `.claude/rfcs/20260622-pike-vm-dfa/design.md`.
 
 pub mod ctx;
-pub use ctx::{PositionCtx, epsilon_closure_with_ctx};
+pub use ctx::{PositionCtx, epsilon_closure_full, epsilon_closure_with_ctx};
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
@@ -214,24 +214,23 @@ impl Default for DfaState {
     }
 }
 
-/// A built DFA — dense transition table + the start state index.
+/// A built DFA — dense transition table + the two anchored start state
+/// indices.
 ///
-/// `states[0]` is the dead state (empty PC set, all transitions self-loop
-/// back to 0, never accepts). `states[start]` is the entry, computed as
-/// `epsilon_closure(prog, &[0])`. The total state count is bounded by
-/// `2^prog.len()` in theory and tiny in practice for typical patterns.
+/// `states[0]` is the dead state (empty PC set, all transitions self-
+/// loop back to 0, never accepts). `start` enters with `is_text_start
+/// = true` (`^` advances); `start_mid` enters with `false` (`^`
+/// blocks). For patterns without `Op::AnchorB` the two coincide via
+/// the BFS dedup map.
 ///
-/// **Caller contract**: `build_dfa` does not re-verify [`analyze`]
-/// eligibility. Callers must check `prog.can_dfa` first and fall back to
-/// the Pike VM for ineligible patterns. Even when eligible, patterns
-/// involving `Op::Save` / `Op::AnchorB` / `Op::AnchorE` / `Op::WBound` /
-/// `Op::NWBound` will not match correctly until the position-context /
-/// save-mask chunks land; callers must additionally gate on absence of
-/// those features (or pay the cost of an extra VM fallback). The
-/// executor that consumes this struct will land in a follow-up chunk.
+/// **Caller contract**: [`build_dfa`] does not re-verify [`analyze`]
+/// eligibility — callers must check `prog.can_dfa` and additionally
+/// gate on [`prog_ops_dfa_safe`] (excludes `Op::Save` / `Op::AnchorE` /
+/// `Op::WBound` / `Op::NWBound`).
 pub struct DfaProgram {
     pub states: Vec<DfaState>,
     pub start: u32,
+    pub start_mid: u32,
 }
 
 /// True iff `set` contains any [`Op::Match`] PC.
@@ -240,24 +239,47 @@ fn pc_set_is_accept(prog: &Program, set: &BTreeSet<usize>) -> bool {
         .any(|&pc| pc < prog.len() && matches!(Op::from_u8(prog.insts[pc].op), Some(Op::Match)))
 }
 
-/// Subset-construction NFA → DFA builder. BFS over PC-set states.
+/// Look up `set` in the BFS interning map; insert + enqueue a new DFA
+/// state if absent. Empty PC sets always map to state 0 (dead). Used by
+/// [`build_dfa`] for both initial-seed and successor-state insertion.
+fn intern_state(
+    prog: &Program,
+    set: BTreeSet<usize>,
+    states: &mut Vec<DfaState>,
+    set_to_idx: &mut BTreeMap<BTreeSet<usize>, u32>,
+    work: &mut Vec<(BTreeSet<usize>, u32)>,
+) -> u32 {
+    if set.is_empty() {
+        return 0;
+    }
+    if let Some(&i) = set_to_idx.get(&set) {
+        return i;
+    }
+    let i = states.len() as u32;
+    states.push(DfaState {
+        transitions: [0u32; 256],
+        is_accept: pc_set_is_accept(prog, &set),
+    });
+    set_to_idx.insert(set.clone(), i);
+    work.push((set, i));
+    i
+}
+
+/// Subset-construction NFA → DFA builder. BFS over PC-set states with
+/// position-aware initial closures (chunk 8.5).
 ///
-/// Walk:
-/// 1. State 0 is reserved as the dead state (empty PC set). Any
-///    transition that lands in an empty set points back to 0; the dead
-///    state's own transitions all self-loop to 0 (set at construction).
-/// 2. State 1 is `epsilon_closure(prog, &[0])` — the NFA entry's
-///    ε-closure.
-/// 3. For each unvisited state, compute the ε-closed successor set for
-///    each of the 256 input bytes. Look the set up in
-///    `set_to_idx: BTreeMap<BTreeSet<usize>, u32>`; reuse the existing
-///    index or push a new state and enqueue it.
-/// 4. Mark a state accepting iff its PC set contains [`Op::Match`].
+/// Two start seeds are interned: `start` under
+/// `PositionCtx{is_text_start: true}` (`^` advances) and `start_mid`
+/// under `is_text_start: false` (`^` blocks). After byte consumption
+/// the BFS uses the mid-stream ctx — every successor state lives past
+/// the text start by definition. Patterns without `Op::AnchorB`
+/// dedup `start == start_mid`.
 ///
-/// The BTreeMap key is the canonical PC-set representation (already
-/// sorted + deduped), so equivalent NFA configurations collapse to a
-/// single DFA state. Build time is O(|states| · 256 · ε-closure cost);
-/// for typical AOT patterns total states stay in the low hundreds.
+/// State 0 is reserved as the dead state; the dedup map
+/// `set_to_idx: BTreeMap<BTreeSet<usize>, u32>` canonicalises sorted
+/// PC sets so equivalent NFA configurations collapse. Right-byte-aware
+/// closure (resolving `Op::AnchorE` / `Op::WBound` / `Op::NWBound`) is
+/// future work — those ops stay blockers in [`prog_ops_dfa_safe`].
 pub fn build_dfa(prog: &Program) -> DfaProgram {
     let mut states: Vec<DfaState> = Vec::new();
     // state 0: dead state, all transitions self-loop to 0.
@@ -266,23 +288,30 @@ pub fn build_dfa(prog: &Program) -> DfaProgram {
     let mut set_to_idx: BTreeMap<BTreeSet<usize>, u32> = BTreeMap::new();
     set_to_idx.insert(BTreeSet::new(), 0);
 
-    let initial = epsilon_closure(prog, &[0]);
-    if initial.is_empty() {
-        return DfaProgram { states, start: 0 };
-    }
+    let ctx_anchored = PositionCtx {
+        left_byte: None,
+        is_text_start: true,
+        is_text_end: false,
+    };
+    let ctx_mid = PositionCtx {
+        left_byte: None,
+        is_text_start: false,
+        is_text_end: false,
+    };
 
-    let start_idx = states.len() as u32;
-    states.push(DfaState {
-        transitions: [0u32; 256],
-        is_accept: pc_set_is_accept(prog, &initial),
-    });
-    set_to_idx.insert(initial.clone(), start_idx);
-
-    // Work queue of (PC-set, state idx) pairs whose transitions are not
-    // yet filled. Pop-from-back is fine — order doesn't affect the DFA
-    // (BFS vs DFS just changes the state numbering of equivalent sets).
     let mut work: Vec<(BTreeSet<usize>, u32)> = Vec::new();
-    work.push((initial, start_idx));
+
+    let initial_anchored = epsilon_closure_full(prog, &[0], ctx_anchored, None);
+    let start = intern_state(
+        prog,
+        initial_anchored,
+        &mut states,
+        &mut set_to_idx,
+        &mut work,
+    );
+
+    let initial_mid = epsilon_closure_full(prog, &[0], ctx_mid, None);
+    let start_mid = intern_state(prog, initial_mid, &mut states, &mut set_to_idx, &mut work);
 
     while let Some((cur_set, cur_idx)) = work.pop() {
         let mut transitions = [0u32; 256];
@@ -293,21 +322,9 @@ pub fn build_dfa(prog: &Program) -> DfaProgram {
                 BTreeSet::new()
             } else {
                 let seeds: Vec<usize> = stepped.iter().copied().collect();
-                epsilon_closure(prog, &seeds)
+                epsilon_closure_full(prog, &seeds, ctx_mid, None)
             };
-
-            let next_idx = if let Some(&i) = set_to_idx.get(&closed) {
-                i
-            } else {
-                let i = states.len() as u32;
-                states.push(DfaState {
-                    transitions: [0u32; 256],
-                    is_accept: pc_set_is_accept(prog, &closed),
-                });
-                set_to_idx.insert(closed.clone(), i);
-                work.push((closed, i));
-                i
-            };
+            let next_idx = intern_state(prog, closed, &mut states, &mut set_to_idx, &mut work);
             transitions[byte as usize] = next_idx;
         }
         states[cur_idx as usize].transitions = transitions;
@@ -315,16 +332,24 @@ pub fn build_dfa(prog: &Program) -> DfaProgram {
 
     DfaProgram {
         states,
-        start: start_idx,
+        start,
+        start_mid,
     }
 }
 
 /// Stricter than [`crate::program::Program::can_dfa`]: also checks that
-/// no `Op::Save` / `Op::AnchorB` / `Op::AnchorE` / `Op::WBound` /
-/// `Op::NWBound` opcodes appear in the program's bytecode (or any
-/// sub-program). Those ops are still terminal in [`epsilon_closure`],
-/// so the built DFA silently mis-matches them; the Pike VM fallback
-/// consumes any program that fails this check.
+/// no `Op::Save` / `Op::AnchorE` / `Op::WBound` / `Op::NWBound` opcodes
+/// appear in the program's bytecode (or any sub-program). `Op::AnchorB`
+/// (`^`) was dropped from the blocker list in chunk 8.5 — the
+/// position-aware builder resolves it via `start` / `start_mid` start
+/// states, and the executor picks the appropriate one based on whether
+/// the search cursor is at byte 0 of the haystack.
+///
+/// `Op::AnchorE` (`$`) / `Op::WBound` / `Op::NWBound` still depend on
+/// the right byte (or text-end) which is not threaded through the
+/// builder yet — see [`epsilon_closure_full`]'s `right_byte` parameter
+/// and the future chunk 8.6 wire. The Pike VM fallback consumes any
+/// program that fails this check.
 ///
 /// Sub-programs (lookaround bodies) cannot appear when `can_dfa` is
 /// true (lookaround is itself a blocker in [`analyze`]) — the loop
@@ -334,7 +359,7 @@ pub fn prog_ops_dfa_safe(prog: &Program) -> bool {
         !insts.iter().any(|ins| {
             matches!(
                 Op::from_u8(ins.op),
-                Some(Op::Save | Op::AnchorB | Op::AnchorE | Op::WBound | Op::NWBound)
+                Some(Op::Save | Op::AnchorE | Op::WBound | Op::NWBound)
             )
         })
     }
@@ -371,7 +396,10 @@ pub fn prog_uses_anychar(prog: &Program) -> bool {
 
 /// Drive a built [`DfaProgram`] over `hay`, returning the longest
 /// match-end byte offset reachable from `dfa.start` — anchored
-/// leftmost-longest semantics, starting at byte index 0.
+/// leftmost-longest semantics, starting at byte index 0 of `hay` *which
+/// is also byte 0 of the original haystack*. Use this when the wire
+/// is searching from `st == 0` so `Op::AnchorB` (`^`) advances through
+/// the start closure.
 ///
 /// Walk:
 /// 1. If `dfa.states[dfa.start]` already accepts (empty-match patterns
@@ -384,15 +412,25 @@ pub fn prog_uses_anychar(prog: &Program) -> bool {
 ///    accept and no transition reached an accepting state).
 ///
 /// The returned offset is the byte-end of the match (exclusive), in
-/// `0..=hay.len()`. Match length is the offset itself for this
-/// anchored-at-0 entry point; the search-from-position variant lands
-/// in a later chunk that wires the executor to `vm::search_from_with_ws`.
+/// `0..=hay.len()`.
 ///
 /// **Cost**: one indexed table load + one branch per byte, no per-step
 /// allocation. Dead-state early-out skips the haystack tail when no
 /// further match is reachable.
 pub fn dfa_search(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
-    let mut state = dfa.start;
+    dfa_search_from(dfa, hay, dfa.start)
+}
+
+/// Like [`dfa_search`] but enters at `dfa.start_mid` — used when the
+/// wire is searching from `st > 0`, where `Op::AnchorB` must block.
+/// For patterns without `^` this is identical to [`dfa_search`] (the
+/// dedup map collapses both start states to the same index).
+pub fn dfa_search_mid(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
+    dfa_search_from(dfa, hay, dfa.start_mid)
+}
+
+fn dfa_search_from(dfa: &DfaProgram, hay: &[u8], start: u32) -> Option<usize> {
+    let mut state = start;
     let mut last_accept: Option<usize> = None;
     if dfa.states[state as usize].is_accept {
         last_accept = Some(0);
@@ -1262,5 +1300,157 @@ mod tests {
         // input still reports the longest accepting position — which is
         // length 1 because the post-accept set has no further MATCH.
         assert_eq!(dfa_search(&dfa, b"ab"), Some(1));
+    }
+
+    // chunk 8.5 — position-aware build_dfa with `start` / `start_mid`.
+    // `^` (AnchorB) advances through `start` (text_start=true closure)
+    // but stays terminal in `start_mid` (text_start=false closure).
+
+    #[test]
+    fn build_dfa_pattern_without_anchor_dedups_start_states() {
+        // Plain `a` — no AnchorB, so the text_start=true and
+        // text_start=false closures coincide; the dedup map collapses
+        // them to the same DFA state.
+        let dfa = build_dfa_for(&[Inst::char_lit(b'a'), Inst::match_accept()]);
+        assert_eq!(dfa.start, dfa.start_mid);
+        assert_ne!(dfa.start, 0);
+    }
+
+    #[test]
+    fn build_dfa_anchor_b_distinct_start_states() {
+        // `^a`: 0: ANCHOR_B; 1: CHAR a; 2: MATCH
+        // start (text_start=true): closure = {0, 1} (ANCHOR_B advances)
+        // start_mid (text_start=false): closure = {0} (ANCHOR_B blocks),
+        // with no byte-step out of pc 0 (it's an inert ε op).
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        assert_ne!(dfa.start, dfa.start_mid);
+        // From `start`, byte 'a' advances to an accepting state.
+        let via_a = dfa.states[dfa.start as usize].transitions[b'a' as usize];
+        assert_ne!(via_a, 0);
+        assert!(dfa.states[via_a as usize].is_accept);
+        // From `start_mid`, byte 'a' dead-ends — `^` blocked the closure.
+        assert_eq!(
+            dfa.states[dfa.start_mid as usize].transitions[b'a' as usize],
+            0
+        );
+    }
+
+    #[test]
+    fn dfa_search_anchor_b_matches_at_text_start() {
+        // `^abc`: 0: ANCHOR_B; 1: CHAR a; 2: CHAR b; 3: CHAR c; 4: MATCH
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::char_lit(b'c'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        // anchored entry: `^abc` matches the start of "abc..." and
+        // returns the match length (3 bytes consumed past anchor).
+        assert_eq!(dfa_search(&dfa, b"abc"), Some(3));
+        assert_eq!(dfa_search(&dfa, b"abcdef"), Some(3));
+        assert_eq!(dfa_search(&dfa, b"xabc"), None);
+    }
+
+    #[test]
+    fn dfa_search_mid_anchor_b_always_misses() {
+        // Same `^abc`: from start_mid the AnchorB closure blocks, so
+        // no input ever matches via dfa_search_mid.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::char_lit(b'c'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        assert_eq!(dfa_search_mid(&dfa, b"abc"), None);
+        assert_eq!(dfa_search_mid(&dfa, b"abcdef"), None);
+        assert_eq!(dfa_search_mid(&dfa, b""), None);
+    }
+
+    #[test]
+    fn dfa_search_pattern_without_anchor_both_entries_equivalent() {
+        // Plain `abc` — start and start_mid coincide, so both entries
+        // return identical results.
+        let dfa = build_dfa_for(&[
+            Inst::char_lit(b'a'),
+            Inst::char_lit(b'b'),
+            Inst::char_lit(b'c'),
+            Inst::match_accept(),
+        ]);
+        for hay in [&b""[..], b"abc", b"abcd", b"axc"] {
+            assert_eq!(
+                dfa_search(&dfa, hay),
+                dfa_search_mid(&dfa, hay),
+                "hay={hay:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dfa_search_anchor_b_alternation_anchored_branch_only() {
+        // `^a|b`: SPLIT 1, 4; 1: ANCHOR_B; 2: CHAR a; 3: MATCH;
+        //         4: CHAR b; 5: MATCH
+        // start (text_start=true): both branches alive — accepts "a" or "b".
+        // start_mid (text_start=false): anchored branch dies, only "b" path
+        // remains.
+        let mut prog = Program::new();
+        prog.emit(Inst::split(1, 4));
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        prog.emit(Inst::char_lit(b'b'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        assert_ne!(dfa.start, dfa.start_mid);
+        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, b"b"), Some(1));
+        // From start_mid, 'a' branch is dead — only 'b' matches.
+        assert_eq!(dfa_search_mid(&dfa, b"a"), None);
+        assert_eq!(dfa_search_mid(&dfa, b"b"), Some(1));
+    }
+
+    #[test]
+    fn build_dfa_anchor_b_then_match_accepts_empty_at_start() {
+        // `^`: 0: ANCHOR_B; 1: MATCH
+        // start: closure = {0, 1} (anchor advances, match in set) →
+        // start state already accepts (empty match at text-start).
+        // start_mid: closure = {0} (anchor blocks) → start_mid does
+        // not accept.
+        let mut prog = Program::new();
+        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog);
+        assert!(dfa.states[dfa.start as usize].is_accept);
+        assert!(!dfa.states[dfa.start_mid as usize].is_accept);
+        assert_eq!(dfa_search(&dfa, b""), Some(0));
+        assert_eq!(dfa_search(&dfa, b"x"), Some(0));
+        assert_eq!(dfa_search_mid(&dfa, b""), None);
+        assert_eq!(dfa_search_mid(&dfa, b"x"), None);
+    }
+
+    #[test]
+    fn prog_ops_dfa_safe_allows_anchor_b_but_rejects_others() {
+        // AnchorB-only program is now safe (chunk 8.5).
+        let mut p_anchor_b = Program::new();
+        p_anchor_b.emit(Inst::simple(Op::AnchorB));
+        p_anchor_b.emit(Inst::char_lit(b'a'));
+        p_anchor_b.emit(Inst::match_accept());
+        assert!(prog_ops_dfa_safe(&p_anchor_b));
+        // AnchorE / WBound / NWBound / Save still block.
+        for op in [Op::AnchorE, Op::WBound, Op::NWBound] {
+            let mut p = Program::new();
+            p.emit(Inst::simple(op));
+            p.emit(Inst::match_accept());
+            assert!(!prog_ops_dfa_safe(&p), "{op:?} should still block");
+        }
+        let mut p_save = Program::new();
+        p_save.emit(Inst::save(0));
+        p_save.emit(Inst::match_accept());
+        assert!(!prog_ops_dfa_safe(&p_save));
     }
 }
