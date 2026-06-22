@@ -245,6 +245,15 @@ pub struct DfaState {
     /// build time; consumed by [`dfa_search_from`] after the byte
     /// walk to honour `Op::AnchorE` (`$`) at the haystack end.
     pub is_accept_at_end: bool,
+    /// chunk 8.6b — 256-bit packed mask. Bit `b` is set iff re-closing
+    /// the PC set at this state with `right_byte = Some(b)` reaches
+    /// `Op::Match`. Lets the executor record a zero-width accept at
+    /// cursor `i` *before* stepping byte `hay[i]` — required for
+    /// patterns like `/\bword\b/` where the trailing `\b` resolves
+    /// against the byte the cursor is about to consume, but the
+    /// resulting `Op::Match` is zero-width (it never survives a
+    /// `byte_step` that doesn't consume).
+    pub accept_before_byte: [u32; 8],
 }
 
 impl Default for DfaState {
@@ -253,8 +262,21 @@ impl Default for DfaState {
             transitions: [0u32; 256],
             is_accept: false,
             is_accept_at_end: false,
+            accept_before_byte: [0u32; 8],
         }
     }
+}
+
+/// Read bit `byte` of a 256-bit packed mask.
+#[inline]
+fn mask_get(mask: &[u32; 8], byte: u8) -> bool {
+    (mask[(byte >> 5) as usize] >> (byte & 31)) & 1 != 0
+}
+
+/// Set bit `byte` of a 256-bit packed mask.
+#[inline]
+fn mask_set(mask: &mut [u32; 8], byte: u8) {
+    mask[(byte >> 5) as usize] |= 1u32 << (byte & 31);
 }
 
 /// A built DFA — dense transition table + four anchored start state
@@ -406,6 +428,8 @@ fn intern_state(
         transitions: [0u32; 256],
         is_accept: pc_set_is_accept(prog, &set),
         is_accept_at_end: pc_set_is_accept_at_end(prog, &set, attr, mflag),
+        // Mask filled in by BFS when the state is dequeued.
+        accept_before_byte: [0u32; 8],
     });
     set_to_idx.insert((set.clone(), effective_attr), i);
     work.push((set, attr, i));
@@ -512,6 +536,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
 
     while let Some((cur_set, cur_attr, cur_idx)) = work.pop() {
         let mut transitions = [0u32; 256];
+        let mut accept_before_byte = [0u32; 8];
         let ctx_at_cursor = ctx_for(cur_attr, mflag);
         for byte_u16 in 0u16..=255 {
             let byte = byte_u16 as u8;
@@ -525,6 +550,14 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
             let cur_seeds: Vec<usize> = cur_set.iter().copied().collect();
             let closed_with_right =
                 epsilon_closure_full(prog, &cur_seeds, ctx_at_cursor, Some(byte));
+            // chunk 8.6b — if the per-byte re-closure reaches Match,
+            // record a zero-width accept at this cursor before the
+            // byte is stepped (else `byte_step` drops Match since
+            // it's not byte-consuming). The executor reads
+            // `accept_before_byte` ahead of consuming `hay[i]`.
+            if pc_set_is_accept(prog, &closed_with_right) {
+                mask_set(&mut accept_before_byte, byte);
+            }
             let stepped = byte_step(prog, &closed_with_right, byte, flags);
             let next_attr = attr_of_byte(byte);
             let closed = if stepped.is_empty() {
@@ -558,6 +591,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
             transitions[byte as usize] = next_idx;
         }
         states[cur_idx as usize].transitions = transitions;
+        states[cur_idx as usize].accept_before_byte = accept_before_byte;
     }
 
     DfaProgram {
@@ -685,6 +719,17 @@ fn dfa_search_from(dfa: &DfaProgram, hay: &[u8], start: u32) -> Option<usize> {
     }
     let mut alive = true;
     for (i, &byte) in hay.iter().enumerate() {
+        // chunk 8.6b — zero-width accept before stepping byte `i`.
+        // Patterns like `/\bword\b/`: the trailing `\b` resolves
+        // against the byte the cursor is about to consume (right =
+        // byte) plus the just-consumed left byte; the resulting
+        // Op::Match is zero-width so it never survives a byte_step.
+        // The BFS precomputes `accept_before_byte` per state per
+        // byte so the executor can record the accept here at cursor
+        // `i` (not `i + 1`).
+        if mask_get(&dfa.states[state as usize].accept_before_byte, byte) {
+            last_accept = Some(i);
+        }
         state = dfa.states[state as usize].transitions[byte as usize];
         if state == 0 {
             alive = false;
