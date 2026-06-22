@@ -92,7 +92,7 @@ pub unsafe extern "C" fn __torajs_regex_compile(
         // correctly identified as blockers. Informational only;
         // future chunks gate a DFA fast path on this flag.
         prog.can_dfa = crate::dfa::analyze(&root).is_eligible();
-        compile(&mut prog, &root, flag_bits);
+        compile(&mut prog, &root);
         prog.emit(Inst::match_accept());
         0u8
     } else {

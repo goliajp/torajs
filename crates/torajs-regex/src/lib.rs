@@ -64,7 +64,6 @@ pub mod regex;
 pub mod resolve;
 pub mod ucd;
 pub mod utf8;
-pub mod utf8_class_expand;
 pub mod vm;
 
 // Cross-tier extern "C" stubs for cargo unit tests — real symbols
