@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T12:32:52.215Z",
+  "generatedAt": "2026-06-22T12:54:10.814Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "805c221d",
-    "commitSubject": "feat(torajs-regex): position-aware ε-closure substrate (Pike VM DFA chunk 8)",
+    "commit": "8cfe037f",
+    "commitSubject": "feat(torajs-regex): right-byte-aware ε-closure (Pike VM DFA chunk 8.3)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "8cfe037f",
+      "subject": "feat(torajs-regex): right-byte-aware ε-closure (Pike VM DFA chunk 8.3)"
+    },
+    {
+      "hash": "0c19b076",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — 805c221d Pike VM DFA chunk 8 (PositionCtx + epsilon_closure_with_ctx)"
+    },
+    {
       "hash": "805c221d",
       "subject": "feat(torajs-regex): position-aware ε-closure substrate (Pike VM DFA chunk 8)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "7059a648",
       "subject": "feat(torajs-regex): DFA executor (Pike VM DFA chunk 5)"
-    },
-    {
-      "hash": "ebf128bd",
-      "subject": "feat(torajs-regex): DFA subset construction builder (Pike VM DFA chunk 4)"
-    },
-    {
-      "hash": "669864d4",
-      "subject": "feat(torajs-regex): DFA byte-step helper (Pike VM DFA chunk 3)"
     }
   ],
-  "headSha": "805c221d",
+  "headSha": "8cfe037f",
   "autorun": {
     "total": 225,
     "baselineTarget": 10,
