@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T11:35:41.687Z",
+  "generatedAt": "2026-06-22T12:04:15.305Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "b7841536",
-    "commitSubject": "Revert \"feat(torajs-regex): wire DFA fast path with flag-aware gate (Pike VM DFA chunk 7 v2)\"",
+    "commit": "1edfdd03",
+    "commitSubject": "feat(torajs-regex): wire DFA fast path bypassing cache (Pike VM DFA chunk 7 v3)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "1edfdd03",
+      "subject": "feat(torajs-regex): wire DFA fast path bypassing cache (Pike VM DFA chunk 7 v3)"
+    },
+    {
+      "hash": "1e908a7c",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — b7841536 post-DFA chunk 4-6 + chunk 7 revert"
+    },
+    {
       "hash": "b7841536",
       "subject": "Revert \"feat(torajs-regex): wire DFA fast path with flag-aware gate (Pike VM DFA chunk 7 v2)\""
     },
@@ -655,35 +663,38 @@
     {
       "hash": "9e3c7f45",
       "subject": "feat(torajs-regex): DFA eligibility detection substrate (Pike VM DFA chunk 1)"
-    },
-    {
-      "hash": "b14e3fac",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 441188f-r2 bench (S15 hold, str-replace -37.8%)"
-    },
-    {
-      "hash": "72c5b7af",
-      "subject": "bench(regex): 3-run validate S15 stride-aware SavesArena hold post-Cell-migration-revert"
     }
   ],
-  "headSha": "b7841536",
+  "headSha": "1edfdd03",
   "autorun": {
-    "total": 224,
+    "total": 225,
     "baselineTarget": 10,
-    "bySelf": 219,
+    "bySelf": 220,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782120965-3d19",
-      "at": "2026-06-22T09:36:05Z",
-      "ts": 1782120965,
+      "rotationId": "r-1782128193-5439",
+      "at": "2026-06-22T11:36:33Z",
+      "ts": 1782128193,
       "trigger": "self",
-      "prevHead": "669864d4",
-      "handoffSha": "sha256:29eb6d9e7adaaa7e09f2db52874e3c729a2fd4637742a3c01004088e6cbd96f7",
-      "handoffAgeSec": 10,
+      "prevHead": "1e908a7c",
+      "handoffSha": "sha256:c79ea0c76e1cfbe7cadb5541c64d504eda25641b18e3a8329a52fdd1753796df",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782128193-5439",
+        "at": "2026-06-22T11:36:33Z",
+        "ts": 1782128193,
+        "trigger": "self",
+        "prevHead": "1e908a7c",
+        "handoffSha": "sha256:c79ea0c76e1cfbe7cadb5541c64d504eda25641b18e3a8329a52fdd1753796df",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782120965-3d19",
         "at": "2026-06-22T09:36:05Z",
@@ -780,17 +791,6 @@
         "prevHead": "a815ab11",
         "handoffSha": "sha256:81e563487c414e795084e97f8c71546bb8ee1242da5910edb942a406e7e65e8e",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782026917-050f",
-        "at": "2026-06-21T07:28:37Z",
-        "ts": 1782026917,
-        "trigger": "self",
-        "prevHead": "792357b1",
-        "handoffSha": "sha256:728aa05ee344e4deea28b8930e1f224a21dabfe013df6a8a8bc2497c17bafd76",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
