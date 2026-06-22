@@ -298,41 +298,6 @@ pub fn search_from_with_ws(
 ) -> Option<MatchResult> {
     let slen = s.len() as i64;
     let mut st = from_pos;
-    // V0.2 P14 — DFA fast path for backref/lookaround/SAVE/Anchor/WBound-free
-    // patterns. `Program::get_or_build_dfa` builds the subset-construction
-    // DFA lazily on first hit; subsequent searches walk a flat 256-way
-    // byte-table per state. Hoisted outside the loop because the gate
-    // result depends only on the immutable program + runtime flags.
-    //
-    // Gate composition:
-    // - `Program::can_dfa` (set by `regex/compile.rs`) excludes backref +
-    //   lookaround (the four `Op::Look*` ops). Set after `resolve_backrefs`.
-    // - `dfa::prog_ops_dfa_safe` additionally excludes SAVE / Anchor* /
-    //   WBound / NWBound — those are still terminal in
-    //   `dfa::epsilon_closure`, so a built DFA would silently mis-match.
-    // - `i` flag — DFA `byte_step` uses raw `ins.ch == byte`, no `char_eq`
-    //   case-fold; case-insensitive must take the Pike VM path.
-    // - `u` flag — DFA byte-steps without code-point boundary awareness;
-    //   multi-byte input would either SIGSEGV (out-of-class) or silently
-    //   mis-match (unicode property classes need code-point input).
-    // - `s` flag interaction with `Op::AnyChar` — DFA `byte_step` advances
-    //   on every byte at `Op::AnyChar`, mirroring `s` (dot-all) semantics.
-    //   Without `s`, JS `.` must not match `\n`. So if the program emits
-    //   any `AnyChar`, gate on `s` being set.
-    //
-    // Future chunks 8 (position-context state), 9 (per-state save-mask)
-    // remove ops from this gate; future chunks may also lift `i` / `u`
-    // via case-fold tables and code-point DFA states.
-    let flag_blockers = crate::parser::RE_FLAG_I | crate::parser::RE_FLAG_U;
-    let dfa_fast_path = prog.can_dfa
-        && (flags & flag_blockers) == 0
-        && crate::dfa::prog_ops_dfa_safe(prog)
-        && (!crate::dfa::prog_uses_anychar(prog) || (flags & crate::parser::RE_FLAG_S) != 0);
-    let dfa_opt = if dfa_fast_path {
-        prog.get_or_build_dfa()
-    } else {
-        None
-    };
     loop {
         // V0.2 P14-S2 — literal-prefix SIMD anchor. When the
         // compiled program's leading byte-consuming op is a plain
@@ -366,22 +331,6 @@ pub fn search_from_with_ws(
         // doesn't decode mid-sequence and accidentally satisfy
         // `[^\p{...}]`. P9.3-A2.
         if flags & crate::parser::RE_FLAG_U != 0 && st < slen && s[st as usize] & 0xC0 == 0x80 {
-            st += 1;
-            continue;
-        }
-        if let Some(dfa) = dfa_opt {
-            // Anchored DFA at byte offset `st`. The DFA is byte-step
-            // only — capture slots stay all -1 (gate guarantees no SAVE
-            // ops, so the Pike VM would emit the same all-`-1` saves).
-            let hay_suffix = &s[st as usize..];
-            if let Some(n) = crate::dfa::dfa_search(dfa, hay_suffix) {
-                return Some(MatchResult {
-                    start: st,
-                    end: st + n as i64,
-                    saves: [-1i64; REGEX_SAVE_SLOTS],
-                });
-            }
-            // Anchored DFA missed at `st`; advance one byte and retry.
             st += 1;
             continue;
         }
