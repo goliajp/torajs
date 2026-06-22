@@ -44,10 +44,10 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
     let s = unsafe { str_slice(str_ptr) };
     let slen = s.len() as i64;
 
-    // V0.2 P14-S16 — reuse the per-RegExp cached Pike VM workspace
-    // (mirror of replace.rs P14-S8 / split.rs / match_op.rs / replace_fn.rs).
-    let ws_cell = re.workspace_cache.get();
-    let ws_outer = unsafe { &mut *ws_cell };
+    // Lazy-init Workspace — sticky path uses match_anchor's own
+    // Workspace; the outer ws is only needed for the non-sticky
+    // search_from_with_ws branch. Sticky callers skip the ~50KB alloc.
+    let mut ws: Option<Workspace> = None;
     let sticky = re.flags & RE_FLAG_Y != 0;
 
     let mut outer = outer;
@@ -56,7 +56,7 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
         let hit = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            let ws_ref = ws_outer.get_or_insert_with(|| Workspace::for_program(&re.prog));
+            let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
             search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref)
         };
         let Some(m) = hit else { break };
