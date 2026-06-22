@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T04:17:59.746Z",
+  "generatedAt": "2026-06-22T04:33:57.147Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "5369d535",
-    "commitSubject": "Revert \"perf(regex): stride-aware SavesArena — per-Program row width\"",
+    "commit": "7ee9bede",
+    "commitSubject": "perf(regex): lazy-init outer Workspace in sticky-only paths",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "7ee9bede",
+      "subject": "perf(regex): lazy-init outer Workspace in sticky-only paths"
+    },
+    {
+      "hash": "7abf84e8",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — perf-axis P14-S12 saves arena ship"
+    },
+    {
       "hash": "5369d535",
       "subject": "Revert \"perf(regex): stride-aware SavesArena — per-Program row width\""
     },
@@ -655,17 +663,9 @@
     {
       "hash": "5473826c",
       "subject": "chore(hardev/web): refresh dashboard snapshot — perf-axis P14-S1..S8 (7 ship + 1 revert)"
-    },
-    {
-      "hash": "588cf290",
-      "subject": "perf(regex): cache Pike VM Workspace per-RegExp via UnsafeCell"
-    },
-    {
-      "hash": "1934a9cb",
-      "subject": "perf(json): jsb_finalize skips is_latin1 scan + dead UTF-16 branch"
     }
   ],
-  "headSha": "5369d535",
+  "headSha": "7ee9bede",
   "autorun": {
     "total": 221,
     "baselineTarget": 10,
