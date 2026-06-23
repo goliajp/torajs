@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T09:23:50.013Z",
+  "generatedAt": "2026-06-23T12:33:42.144Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "1fd2e319",
-    "commitSubject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 10f/11e ship FAILED + variance unbounded",
+    "commit": "5116207d",
+    "commitSubject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 11a debuginfo=0 OUT",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,10 @@
   },
   "commits": [
     {
+      "hash": "5116207d",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 11a debuginfo=0 OUT"
+    },
+    {
       "hash": "1fd2e319",
       "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 10f/11e ship FAILED + variance unbounded"
     },
@@ -659,31 +663,38 @@
     {
       "hash": "02c8d863",
       "subject": "test(bench): trim uflag fixture runs (chunk 10d byte expansion is slow)"
-    },
-    {
-      "hash": "bad6b637",
-      "subject": "test(bench): add final 3 DFA-eligible regex fixtures (mflag / dotall / uflag)"
     }
   ],
-  "headSha": "1fd2e319",
+  "headSha": "5116207d",
   "autorun": {
-    "total": 232,
+    "total": 233,
     "baselineTarget": 10,
-    "bySelf": 227,
+    "bySelf": 228,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782189921-2f90",
-      "at": "2026-06-23T04:45:21Z",
-      "ts": 1782189921,
+      "rotationId": "r-1782206640-3230",
+      "at": "2026-06-23T09:24:00Z",
+      "ts": 1782206640,
       "trigger": "self",
-      "prevHead": "51e42cad",
-      "handoffSha": "sha256:a399f37bfe18eaef9272a7a2004554c0ead40b6fac990bb27ba0d7e8d323b761",
-      "handoffAgeSec": 13,
+      "prevHead": "5116207d",
+      "handoffSha": "sha256:7d003a3cbcf41f59e21a98e57665565b6e504b00d178a5efc6f2c190ad911177",
+      "handoffAgeSec": 352,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782206640-3230",
+        "at": "2026-06-23T09:24:00Z",
+        "ts": 1782206640,
+        "trigger": "self",
+        "prevHead": "5116207d",
+        "handoffSha": "sha256:7d003a3cbcf41f59e21a98e57665565b6e504b00d178a5efc6f2c190ad911177",
+        "handoffAgeSec": 352,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782189921-2f90",
         "at": "2026-06-23T04:45:21Z",
@@ -780,17 +791,6 @@
         "prevHead": "669864d4",
         "handoffSha": "sha256:29eb6d9e7adaaa7e09f2db52874e3c729a2fd4637742a3c01004088e6cbd96f7",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782112585-1acd",
-        "at": "2026-06-22T07:16:25Z",
-        "ts": 1782112585,
-        "trigger": "self",
-        "prevHead": "5fd68131",
-        "handoffSha": "sha256:f7e76a2269e213938756bcba0c00acd9f339e69c2d6b1349239419940fe0ddab",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
