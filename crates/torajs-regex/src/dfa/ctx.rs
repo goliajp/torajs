@@ -199,6 +199,25 @@ pub fn epsilon_closure_full(
 ) -> BTreeSet<usize> {
     let mut closure: BTreeSet<usize> = BTreeSet::new();
     let mut work: Vec<usize> = Vec::new();
+    epsilon_closure_full_into(prog, seeds, ctx, right_byte, &mut closure, &mut work);
+    closure
+}
+
+/// chunk 7.7 v2 step 12 Round 2 polish — `epsilon_closure_full` 的
+/// fill-into 变体。Caller 提供 `closure` + `work` 两个 scratch buffer
+/// 复用,避免 256-byte BFS 内循环每次 allocate。`closure` 在 enter 时
+/// 被 `clear()`(保留 capacity),`work` 同理。语义跟
+/// [`epsilon_closure_full`] 完全等价 — 后者是 thin wrapper。
+pub fn epsilon_closure_full_into(
+    prog: &Program,
+    seeds: &[usize],
+    ctx: PositionCtx,
+    right_byte: Option<u8>,
+    closure: &mut BTreeSet<usize>,
+    work: &mut Vec<usize>,
+) {
+    closure.clear();
+    work.clear();
     for &seed in seeds {
         if seed < prog.len() && closure.insert(seed) {
             work.push(seed);
@@ -261,7 +280,6 @@ pub fn epsilon_closure_full(
             }
         }
     }
-    closure
 }
 
 #[cfg(test)]

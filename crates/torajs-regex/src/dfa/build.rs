@@ -14,7 +14,9 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use crate::dfa::byte_step_full;
-use crate::dfa::ctx::{PositionCtx, epsilon_closure_full, epsilon_closure_with_ctx};
+use crate::dfa::ctx::{
+    PositionCtx, epsilon_closure_full, epsilon_closure_full_into, epsilon_closure_with_ctx,
+};
 use crate::dfa::search::{DfaProgram, DfaState, mask_set};
 use crate::program::{Op, Program};
 
@@ -270,6 +272,12 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
 
     let mut cur_seeds: Vec<usize> = Vec::new();
     let mut merged_seeds: Vec<usize> = Vec::new();
+    // chunk 7.7 v2 step 12 Round 2 polish — hoist epsilon_closure_full
+    // 的 closure + work scratch buffers across the entire BFS so the
+    // 256-byte inner loop reuses one allocation instead of allocating
+    // fresh BTreeSet / Vec per byte (was 256× per state).
+    let mut closed_with_right: BTreeSet<usize> = BTreeSet::new();
+    let mut closure_work: Vec<usize> = Vec::new();
     while let Some((cur_ready, cur_deferred, cur_attr, cur_idx)) = work.pop() {
         let mut transitions = [0u32; 256];
         let mut accept_before_byte = [0u32; 8];
@@ -288,8 +296,14 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
             // unresolved; this re-closure resolves them per-byte.
             // Closure is idempotent for already-advanced PCs, so the
             // re-run never shrinks the set.
-            let closed_with_right =
-                epsilon_closure_full(prog, &cur_seeds, ctx_at_cursor, Some(byte));
+            epsilon_closure_full_into(
+                prog,
+                &cur_seeds,
+                ctx_at_cursor,
+                Some(byte),
+                &mut closed_with_right,
+                &mut closure_work,
+            );
             // chunk 8.6b — if the per-byte re-closure reaches Match,
             // record a zero-width accept at this cursor before the
             // byte is stepped (else `byte_step` drops Match since
