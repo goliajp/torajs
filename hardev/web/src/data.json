@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T03:27:03.373Z",
+  "generatedAt": "2026-06-23T04:31:09.748Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "e57d4d92",
-    "commitSubject": "test(bench): chunk 7 v3 baseline DFA-eligible 6-fixture perf (vs bun-aot)",
+    "commit": "8d144341",
+    "commitSubject": "feat(torajs-regex): chunk 7.7 v2 step 1 — Option A infrastructure (default-disabled callers)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "8d144341",
+      "subject": "feat(torajs-regex): chunk 7.7 v2 step 1 — Option A infrastructure (default-disabled callers)"
+    },
+    {
+      "hash": "11f92a80",
+      "subject": "chore(hardev/web): refresh dashboard snapshot — e57d4d92 bench 6-fixture DFA perf"
+    },
+    {
       "hash": "e57d4d92",
       "subject": "test(bench): chunk 7 v3 baseline DFA-eligible 6-fixture perf (vs bun-aot)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "331b53ed",
       "subject": "chore(hardev/web): refresh dashboard snapshot — 7f8a1a91 dfa/mod.rs step split + 1129/0/4 hold"
-    },
-    {
-      "hash": "7f8a1a91",
-      "subject": "refactor(torajs-regex): split dfa/mod.rs byte-step into sub-module (file-size prep)"
-    },
-    {
-      "hash": "2759a374",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — fd2e97d5 chunk 10d v2 ship + 1129/0/4 hold"
     }
   ],
-  "headSha": "e57d4d92",
+  "headSha": "8d144341",
   "autorun": {
     "total": 231,
     "baselineTarget": 10,
