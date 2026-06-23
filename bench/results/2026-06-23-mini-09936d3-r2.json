@@ -1,0 +1,60 @@
+{
+  "started_at": "2026-06-23T00:49:50Z",
+  "host": "mini",
+  "git_sha": "09936d38e10eb41437c3edbc933e354a952a9035",
+  "runs": 3,
+  "rows": [
+    {
+      "case": "regex-dfa-safeclass-100k",
+      "runtime": "bun-aot",
+      "runtime_version": "1.3.14",
+      "status": "ok",
+      "compile_ms": 58.49775,
+      "run_ms": 15.2082295,
+      "run_stddev_ms": 0.013999999999999346,
+      "artifact_bytes": 63446114,
+      "artifact_sha256": "773c9e76d336252f57f917be9f9423f53847db3d9315be3e77d54b75425d3d35",
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "regex-dfa-safeclass-100k",
+      "runtime": "rust",
+      "runtime_version": null,
+      "status": "skipped",
+      "compile_ms": null,
+      "run_ms": null,
+      "run_stddev_ms": null,
+      "artifact_bytes": null,
+      "artifact_sha256": null,
+      "stdout_match": null,
+      "error": null
+    },
+    {
+      "case": "regex-dfa-safeclass-100k",
+      "runtime": "torajs-run",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 9006.445166500002,
+      "run_stddev_ms": 8.564458499997272,
+      "artifact_bytes": null,
+      "artifact_sha256": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "regex-dfa-safeclass-100k",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 45.782625,
+      "run_ms": 8752.537771,
+      "run_stddev_ms": 3.5710000000017317,
+      "artifact_bytes": 1510265,
+      "artifact_sha256": "7d4545e232f20ed61de568d833f4ff4305fbf0be6f3883f29ee55ffd62d31872",
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}
