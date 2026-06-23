@@ -115,6 +115,23 @@ pub struct RegExp {
     /// re-allocates the cache through the cross-thread atomic
     /// path.
     pub workspace_cache: core::cell::UnsafeCell<Option<crate::vm::Workspace>>,
+    /// V0.2 P14 chunk 7.7 — per-RegExp lazy DFA cache. Mirrors the
+    /// `workspace_cache` UnsafeCell pattern at the same struct level,
+    /// hosting the cache on the owning heap allocation rather than on
+    /// the nested `prog: Program` field. Chunks 6+7 hosted this on
+    /// `Program::dfa_cache` and got 30%-flaky SIGBUS in
+    /// `regex-021-test-lastindex` from the cross-call `&DfaProgram`
+    /// borrow; chunk 7.5's `OnceCell` swap kept the 2/10 SIGBUS, so
+    /// chunk 7 v3 shipped per-call inline `build_dfa(prog, flags)` and
+    /// the cache was deleted as dead substrate. Chunk 7.6 audit
+    /// (`.claude/rfcs/20260623-chunk-7.6-cache-ub-audit/diagnosis.md`)
+    /// ruled the workspace-cache layout safe and Option A (move cache
+    /// to RegExp) the fix direction; chunk 7.7 implements that move.
+    ///
+    /// Built lazily by [`RegExp::get_or_build_dfa`]; consumed by
+    /// `vm::search_from_with_ws` via the `dfa_cached` parameter when
+    /// the caller passes the cached ref through.
+    pub dfa_cache: core::cell::UnsafeCell<Option<crate::dfa::DfaProgram>>,
 }
 
 // ---- Cross-tier extern declarations ----
@@ -288,4 +305,54 @@ pub unsafe fn as_regex<'a>(p: *const c_void) -> &'a RegExp {
 /// regex's refcount + nothing else holds a `&RegExp` alias.
 pub unsafe fn as_regex_mut<'a>(p: *mut c_void) -> &'a mut RegExp {
     unsafe { &mut *(p as *mut RegExp) }
+}
+
+impl RegExp {
+    /// V0.2 P14 chunk 7.7 — lazy-build the per-RegExp DFA. Returns
+    /// `Some(&DfaProgram)` when the program is DFA-eligible (no
+    /// backref / lookaround) and the underlying NFA opcodes are safe
+    /// (`crate::dfa::prog_ops_dfa_safe`); `None` otherwise. Eligibility
+    /// is recomputed on each call (cheap O(insts.len()) scan); the DFA
+    /// itself is built once on the first eligible call and cached.
+    ///
+    /// Mirrors [`RegExp::workspace_cache`] (`UnsafeCell<Option<T>>`
+    /// lazy slot) at the same struct level. Chunk 6+7 hosted the
+    /// cache on `Program::dfa_cache` and got 30%-flaky SIGBUS in
+    /// `regex-021-test-lastindex` — chunk 7.6 audit RFC ruled the
+    /// workspace_cache layout safe by comparison (`workspace_cache` 0
+    /// regression; same `UnsafeCell<Option<T>>` pattern), so the move
+    /// to `RegExp::dfa_cache` here is Option A from the audit
+    /// (`.claude/rfcs/20260623-chunk-7.6-cache-ub-audit/diagnosis.md`).
+    ///
+    /// Build cost = BFS subset construction over 256 input bytes per
+    /// state; amortised across the RegExp's lifetime via the cached
+    /// slot. Multi-thread (v1.0+) reroutes through the biased-ARC
+    /// share-transition path; the field doc on
+    /// [`RegExp::workspace_cache`] explains the convention this
+    /// follows.
+    ///
+    /// V0.2 P14 chunk 7.7 v2 step 1 (infrastructure-only ship): this
+    /// method exists but all 8 surface callers pass `None` to
+    /// `search_from{,_with_ws}` (binary-equivalent chunk 7 v3 per-call
+    /// inline build);step 2 flips callers to `re.get_or_build_dfa()`
+    /// behind instrument hooks to reproduce the SIGBUS for ablation.
+    #[allow(dead_code)]
+    pub fn get_or_build_dfa(&self) -> Option<&crate::dfa::DfaProgram> {
+        if !self.prog.can_dfa {
+            return None;
+        }
+        if !crate::dfa::prog_ops_dfa_safe(&self.prog) {
+            return None;
+        }
+        // SAFETY: v0.2 single-mutator substrate (§6.2 of the design
+        // principles) guarantees no concurrent access; mirrors the
+        // workspace_cache UnsafeCell access pattern in
+        // `regex/replace.rs::replace_inner`.
+        let cell_ptr = self.dfa_cache.get();
+        let opt: &mut Option<crate::dfa::DfaProgram> = unsafe { &mut *cell_ptr };
+        if opt.is_none() {
+            *opt = Some(crate::dfa::build_dfa(&self.prog, self.flags));
+        }
+        opt.as_ref()
+    }
 }

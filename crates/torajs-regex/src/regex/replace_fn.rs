@@ -77,7 +77,7 @@ unsafe fn replace_fn_inner(
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
             let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, None)
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);

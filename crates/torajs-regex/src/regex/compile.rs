@@ -147,6 +147,10 @@ pub unsafe extern "C" fn __torajs_regex_compile(
         last_index: 0,
         // V0.2 P14-S8 — lazy-init Pike VM workspace cache.
         workspace_cache: core::cell::UnsafeCell::new(None),
+        // V0.2 P14 chunk 7.7 — lazy-init per-RegExp DFA cache. Mirror
+        // of workspace_cache; first-use builds via
+        // [`RegExp::get_or_build_dfa`].
+        dfa_cache: core::cell::UnsafeCell::new(None),
     });
     Box::into_raw(re) as *mut c_void
 }

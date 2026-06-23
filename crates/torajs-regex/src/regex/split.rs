@@ -41,7 +41,7 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
             let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, None)
         };
         let Some(m) = m else { break };
         if m.end == m.start {
