@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T08:49:22.763Z",
+  "generatedAt": "2026-06-23T09:08:47.956Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "a181b130",
-    "commitSubject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 6 matrix + step 4/8 ship FAILED + noise reframe",
+    "commit": "cddf1c18",
+    "commitSubject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 9 n=500 calibration done",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,10 @@
   },
   "commits": [
     {
+      "hash": "cddf1c18",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 9 n=500 calibration done"
+    },
+    {
       "hash": "a181b130",
       "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 6 matrix + step 4/8 ship FAILED + noise reframe"
     },
@@ -659,13 +663,9 @@
     {
       "hash": "983405dc",
       "subject": "test(bench): add 2 narrow DFA-eligible regex fixtures (anchored / iflag)"
-    },
-    {
-      "hash": "d07d621d",
-      "subject": "Revert \"feat(torajs-regex): chunk 7.7 — DFA cache moved from Program to RegExp (Option A)\""
     }
   ],
-  "headSha": "a181b130",
+  "headSha": "cddf1c18",
   "autorun": {
     "total": 232,
     "baselineTarget": 10,
