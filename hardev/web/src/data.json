@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T21:04:49.752Z",
+  "generatedAt": "2026-06-23T21:59:24.718Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "3c67587f",
-    "commitSubject": "perf(torajs-regex): hoist cur_seeds + merged_seeds Vec alloc out of 256-byte DFA build inner loop",
+    "commit": "2807d417",
+    "commitSubject": "perf(torajs-regex): add epsilon_closure_full_into + hoist BTreeSet/Vec across DFA build BFS",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "2807d417",
+      "subject": "perf(torajs-regex): add epsilon_closure_full_into + hoist BTreeSet/Vec across DFA build BFS"
+    },
+    {
+      "hash": "ba6d7ed4",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 perf attack Round 1 polish +21% landed + gate 1130/0/4"
+    },
+    {
       "hash": "3c67587f",
       "subject": "perf(torajs-regex): hoist cur_seeds + merged_seeds Vec alloc out of 256-byte DFA build inner loop"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "8d144341",
       "subject": "feat(torajs-regex): chunk 7.7 v2 step 1 — Option A infrastructure (default-disabled callers)"
-    },
-    {
-      "hash": "11f92a80",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — e57d4d92 bench 6-fixture DFA perf"
-    },
-    {
-      "hash": "e57d4d92",
-      "subject": "test(bench): chunk 7 v3 baseline DFA-eligible 6-fixture perf (vs bun-aot)"
     }
   ],
-  "headSha": "3c67587f",
+  "headSha": "2807d417",
   "autorun": {
     "total": 233,
     "baselineTarget": 10,
