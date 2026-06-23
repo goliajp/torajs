@@ -268,10 +268,17 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         &mut work,
     );
 
+    let mut cur_seeds: Vec<usize> = Vec::new();
+    let mut merged_seeds: Vec<usize> = Vec::new();
     while let Some((cur_ready, cur_deferred, cur_attr, cur_idx)) = work.pop() {
         let mut transitions = [0u32; 256];
         let mut accept_before_byte = [0u32; 8];
         let ctx_at_cursor = ctx_for(cur_attr, mflag);
+        // chunk 7.7 v2 step 12 polish — hoist cur_seeds Vec materialise
+        // outside the 256-byte loop; cur_ready is invariant within this
+        // BFS step so the same Vec contents apply to every byte.
+        cur_seeds.clear();
+        cur_seeds.extend(cur_ready.iter().copied());
         for byte_u16 in 0u16..=255 {
             let byte = byte_u16 as u8;
             // chunk 8.6b — re-close cur_ready with right=byte to
@@ -281,7 +288,6 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
             // unresolved; this re-closure resolves them per-byte.
             // Closure is idempotent for already-advanced PCs, so the
             // re-run never shrinks the set.
-            let cur_seeds: Vec<usize> = cur_ready.iter().copied().collect();
             let closed_with_right =
                 epsilon_closure_full(prog, &cur_seeds, ctx_at_cursor, Some(byte));
             // chunk 8.6b — if the per-byte re-closure reaches Match,
@@ -317,7 +323,10 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                     next_deferred[i].extend(extra);
                 }
             }
-            let mut merged_seeds: Vec<usize> = Vec::new();
+            // chunk 7.7 v2 step 12 polish — reuse hoisted merged_seeds
+            // buffer; .clear() drops length to 0 without freeing capacity
+            // so subsequent extend reuses the existing allocation.
+            merged_seeds.clear();
             merged_seeds.extend(ready_from_step.iter().copied());
             merged_seeds.extend(promoted.iter().copied());
             let next_attr = attr_of_byte(byte);
