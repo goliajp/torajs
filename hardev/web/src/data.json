@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T09:18:24.469Z",
+  "generatedAt": "2026-06-23T09:23:50.013Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "0189c18d",
-    "commitSubject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 10 n=500 matrix + step 10f ship FAILED + doc-comment LLVM finding",
+    "commit": "1fd2e319",
+    "commitSubject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 10f/11e ship FAILED + variance unbounded",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,10 @@
   },
   "commits": [
     {
+      "hash": "1fd2e319",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 10f/11e ship FAILED + variance unbounded"
+    },
+    {
       "hash": "0189c18d",
       "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 10 n=500 matrix + step 10f ship FAILED + doc-comment LLVM finding"
     },
@@ -659,13 +663,9 @@
     {
       "hash": "bad6b637",
       "subject": "test(bench): add final 3 DFA-eligible regex fixtures (mflag / dotall / uflag)"
-    },
-    {
-      "hash": "d7f73f6d",
-      "subject": "test(bench): add 2 more DFA-eligible regex fixtures (wbound / safeclass)"
     }
   ],
-  "headSha": "0189c18d",
+  "headSha": "1fd2e319",
   "autorun": {
     "total": 232,
     "baselineTarget": 10,
