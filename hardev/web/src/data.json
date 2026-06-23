@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T04:44:23.708Z",
+  "generatedAt": "2026-06-23T08:42:26.077Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "6a9a2503",
-    "commitSubject": "chore(hardev/web): refresh dashboard snapshot — 8d144341 chunk 7.7 v2 step 1 ship + step 2 28% SIGBUS finding",
+    "commit": "51e42cad",
+    "commitSubject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 1/2/3/5 ablation findings landed",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,10 @@
   },
   "commits": [
     {
+      "hash": "51e42cad",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 1/2/3/5 ablation findings landed"
+    },
+    {
       "hash": "6a9a2503",
       "subject": "chore(hardev/web): refresh dashboard snapshot — 8d144341 chunk 7.7 v2 step 1 ship + step 2 28% SIGBUS finding"
     },
@@ -659,31 +663,38 @@
     {
       "hash": "c7113770",
       "subject": "feat(torajs-regex): chunk 7.7 — DFA cache moved from Program to RegExp (Option A)"
-    },
-    {
-      "hash": "57df84a6",
-      "subject": "test(conformance): regex-024 — u-flag unsafe class via UTF-8 expansion w/ capture (chunk 10d v2 acceptance)"
     }
   ],
-  "headSha": "6a9a2503",
+  "headSha": "51e42cad",
   "autorun": {
-    "total": 231,
+    "total": 232,
     "baselineTarget": 10,
-    "bySelf": 226,
+    "bySelf": 227,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782163366-0f2c",
-      "at": "2026-06-22T21:22:46Z",
-      "ts": 1782163366,
+      "rotationId": "r-1782189921-2f90",
+      "at": "2026-06-23T04:45:21Z",
+      "ts": 1782189921,
       "trigger": "self",
-      "prevHead": "09936d38",
-      "handoffSha": "sha256:6ca5b50e3af9b26e049d3047cb40e792fe66c7f4cc5b309dc4d7030e6a53997d",
-      "handoffAgeSec": 644,
+      "prevHead": "51e42cad",
+      "handoffSha": "sha256:a399f37bfe18eaef9272a7a2004554c0ead40b6fac990bb27ba0d7e8d323b761",
+      "handoffAgeSec": 13,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782189921-2f90",
+        "at": "2026-06-23T04:45:21Z",
+        "ts": 1782189921,
+        "trigger": "self",
+        "prevHead": "51e42cad",
+        "handoffSha": "sha256:a399f37bfe18eaef9272a7a2004554c0ead40b6fac990bb27ba0d7e8d323b761",
+        "handoffAgeSec": 13,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782163366-0f2c",
         "at": "2026-06-22T21:22:46Z",
@@ -780,17 +791,6 @@
         "prevHead": "5fd68131",
         "handoffSha": "sha256:f7e76a2269e213938756bcba0c00acd9f339e69c2d6b1349239419940fe0ddab",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782102992-03b1",
-        "at": "2026-06-22T04:36:32Z",
-        "ts": 1782102992,
-        "trigger": "self",
-        "prevHead": "06eee2d0",
-        "handoffSha": "sha256:a17d49a9d2fd1fda60eff6951ca0489a70de1e761ec7c1f7ce61c36141da8fd4",
-        "handoffAgeSec": 56,
         "conformanceBefore": null,
         "commitsInSession": null
       }
