@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T12:33:42.144Z",
+  "generatedAt": "2026-06-23T21:04:49.752Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "5116207d",
-    "commitSubject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 11a debuginfo=0 OUT",
+    "commit": "3c67587f",
+    "commitSubject": "perf(torajs-regex): hoist cur_seeds + merged_seeds Vec alloc out of 256-byte DFA build inner loop",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "3c67587f",
+      "subject": "perf(torajs-regex): hoist cur_seeds + merged_seeds Vec alloc out of 256-byte DFA build inner loop"
+    },
+    {
+      "hash": "0a871636",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 11b/11c-alt/11d toolchain ablation matrix all OUT + branch B fired"
+    },
+    {
       "hash": "5116207d",
       "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 11a debuginfo=0 OUT"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "e57d4d92",
       "subject": "test(bench): chunk 7 v3 baseline DFA-eligible 6-fixture perf (vs bun-aot)"
-    },
-    {
-      "hash": "09936d38",
-      "subject": "chore(hardev/web): refresh dashboard snapshot — 02c8d863 chunk 7.6 audit + chunk 7.7 attempt + 7 bench fixture"
-    },
-    {
-      "hash": "02c8d863",
-      "subject": "test(bench): trim uflag fixture runs (chunk 10d byte expansion is slow)"
     }
   ],
-  "headSha": "5116207d",
+  "headSha": "3c67587f",
   "autorun": {
     "total": 233,
     "baselineTarget": 10,
