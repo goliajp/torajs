@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T08:42:26.077Z",
+  "generatedAt": "2026-06-23T08:49:22.763Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "51e42cad",
-    "commitSubject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 1/2/3/5 ablation findings landed",
+    "commit": "a181b130",
+    "commitSubject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 6 matrix + step 4/8 ship FAILED + noise reframe",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,10 @@
   },
   "commits": [
     {
+      "hash": "a181b130",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 6 matrix + step 4/8 ship FAILED + noise reframe"
+    },
+    {
       "hash": "51e42cad",
       "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 1/2/3/5 ablation findings landed"
     },
@@ -659,13 +663,9 @@
     {
       "hash": "d07d621d",
       "subject": "Revert \"feat(torajs-regex): chunk 7.7 — DFA cache moved from Program to RegExp (Option A)\""
-    },
-    {
-      "hash": "c7113770",
-      "subject": "feat(torajs-regex): chunk 7.7 — DFA cache moved from Program to RegExp (Option A)"
     }
   ],
-  "headSha": "51e42cad",
+  "headSha": "a181b130",
   "autorun": {
     "total": 232,
     "baselineTarget": 10,
