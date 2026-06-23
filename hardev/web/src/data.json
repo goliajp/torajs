@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T23:22:01.795Z",
+  "generatedAt": "2026-06-23T23:57:51.767Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "59965153",
-    "commitSubject": "test(bench): chunk 7.7 v2 step 12 R3-A polish A/B sub-noise — REVERTED",
+    "commit": "5dcd73a7",
+    "commitSubject": "test(bench): chunk 7.7 v2 step 12 C1 thread-local DFA cache ablation — REVERTED",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "5dcd73a7",
+      "subject": "test(bench): chunk 7.7 v2 step 12 C1 thread-local DFA cache ablation — REVERTED"
+    },
+    {
+      "hash": "751602ad",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 R3-A revert + Decomp Phase A close + A1/A2/A2+A3 ablation chain data"
+    },
+    {
       "hash": "59965153",
       "subject": "test(bench): chunk 7.7 v2 step 12 R3-A polish A/B sub-noise — REVERTED"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "cddf1c18",
       "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 9 n=500 calibration done"
-    },
-    {
-      "hash": "a181b130",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 6 matrix + step 4/8 ship FAILED + noise reframe"
-    },
-    {
-      "hash": "51e42cad",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 1/2/3/5 ablation findings landed"
     }
   ],
-  "headSha": "59965153",
+  "headSha": "5dcd73a7",
   "autorun": {
     "total": 234,
     "baselineTarget": 10,
