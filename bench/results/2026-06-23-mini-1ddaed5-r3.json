@@ -1,0 +1,34 @@
+{
+  "started_at": "2026-06-23T22:31:35Z",
+  "host": "mini",
+  "git_sha": "1ddaed58a27ff9106922c3e5b602d853739a0a2a",
+  "runs": 3,
+  "rows": [
+    {
+      "case": "regex-dfa-wbound-100k",
+      "runtime": "torajs-run",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 8964.220812500002,
+      "run_stddev_ms": 17.754457999997612,
+      "artifact_bytes": null,
+      "artifact_sha256": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "regex-dfa-wbound-100k",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 44.425458,
+      "run_ms": 8863.278833999999,
+      "run_stddev_ms": 21.386000499996953,
+      "artifact_bytes": 1510537,
+      "artifact_sha256": "46d8e29a15901b091b9428d7f08282ae081e678704db314b1b4036b3d061b014",
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}
