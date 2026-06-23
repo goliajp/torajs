@@ -1,0 +1,31 @@
+{
+  "kind": "chunk-7.7-v2-step-2-sigbus-ablation",
+  "started_at": "2026-06-24T0",
+  "host": "mini",
+  "git_sha_baseline": "751602ad",
+  "rustc": "1.97.0-nightly (9eb3be26b 2026-05-18)",
+  "fixture": "conformance/cases/regex-021-test-lastindex.ts",
+  "binary": "target/release/tr (cargo build --workspace --release)",
+  "method": "fresh release build + run fixture N=500 per batch, count SIGBUS via $? >= 128",
+  "ablation_chain": [
+    {
+      "step": "C1",
+      "label": "thread-local DFA cache via static-mut BTreeMap (per torajs-mmalloc CORE_ALLOC precedent), flip 8 callers to re.get_or_build_dfa(), keep Option<&DfaProgram> ABI in search_from",
+      "scope_loc": "approx 120 LOC across 10 files (new regex/dfa_cache.rs + RegExp field removal + 8 caller flip + lifecycle::remove)",
+      "batch_1": { "pass": 401, "sigbus": 99, "n": 500, "sigbus_pct": 19.8 },
+      "batch_2": { "pass": 417, "sigbus": 83, "n": 500, "sigbus_pct": 16.6 },
+      "cumulative_sigbus_pct": 18.2,
+      "vs_A2_A3_baseline_21pct": "approximately on par (delta -3pp within noise)",
+      "outcome": "OUT — moving cache out of struct alone does not eliminate SIGBUS"
+    },
+    {
+      "step": "C1+A3",
+      "label": "C1 plus flip search_from{,_with_ws} ABI Option<&DfaProgram> -> Option<*const DfaProgram> with unsafe deref at call boundary inside vm/mod.rs",
+      "scope_loc": "approx 150 LOC (C1 base + 25 LOC ABI flip)",
+      "batch_1": { "pass": 399, "sigbus": 101, "n": 500, "sigbus_pct": 20.2 },
+      "outcome": "OUT — A3 layer on top of C1 gave no additional reduction, refuting per-layer 50pct halving hypothesis from A2 -> A2+A3 baseline"
+    }
+  ],
+  "decision": "Revert C1 and C1+A3 local + mini. Baseline regex-021 30/30 pass 0 sigbus verified. Per L3a #24 fallback trigger (>=15pct SIGBUS, layer increment <5pp), the next ceiling-first attack is C2 (AOT-precompile DFA in tr build pipeline, multi-sprint substrate). The 50pct-halving pattern from A1/A2/A2+A3 does NOT extrapolate to C1; either the noalias hypothesis is incomplete or the remaining SIGBUS is a different UB pattern (not aliasing-related).",
+  "next": "L3a hotify C2 AOT-precompile DFA exploration as next ceiling-first step (or pivot to C3 YARR-style native regex JIT if C2 scope is similar but ceiling lower)."
+}
