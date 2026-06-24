@@ -42,6 +42,15 @@ unsafe extern "C" {
     /// torajs-mmalloc libc-compat realloc — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_libc_realloc"]
     fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
+
+    /// torajs-mmalloc libc-compat malloc / free — used by the pool-aware
+    /// grow path in `__torajs_arr_push` (alloc-new + memcpy + free-old
+    /// replaces `realloc` so cap=0 blocks re-enter the array pool —
+    /// Round 4 wire-back chunk 2 attack #4, 2026-06-25).
+    #[link_name = "__torajs_libc_malloc"]
+    fn malloc(n: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_free"]
+    fn free(p: *mut c_void);
 }
 
 /// `arr.length = v` validator (ES §9.4.2.4: throw RangeError if `v`
@@ -174,9 +183,42 @@ pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
         if len == cap {
             let new_cap = if cap == 0 { 4 } else { cap * 2 };
             let new_total = (new_cap as usize) * 8 + ARR_HDR_DATA_OFF;
-            arr = unsafe { realloc(arr as *mut c_void, new_total) as *mut u8 };
+            // Pool-aware grow (Round 4 wire-back chunk 2 attack #4):
+            // alloc new (pool-first) + memcpy + free old (pool-first).
+            // Replaces `realloc` so the freed cap=0 / cap=N block re-enters
+            // the cap-match pool — without this, the fast `[].push(x)`
+            // pattern realloc's the cap=0 block in-place, leaving alloc(0)
+            // forever pool-miss on subsequent iterations.
+            let old_arr = arr;
+            let new_arr: *mut u8 = if (new_cap as u64) <= crate::pool::POOL_CAP_MAX {
+                let r = crate::pool::pop_cap_match(new_cap as u64);
+                if !r.is_null() {
+                    r
+                } else {
+                    unsafe { malloc(new_total) as *mut u8 }
+                }
+            } else {
+                unsafe { malloc(new_total) as *mut u8 }
+            };
+            // head was compacted to 0 immediately above; copy header (24B)
+            // + live slots [0..len) only.
+            let copy_total = ARR_HDR_DATA_OFF + (len as usize) * 8;
+            unsafe { core::ptr::copy_nonoverlapping(old_arr, new_arr, copy_total) };
+            arr = new_arr;
             unsafe {
                 *(arr.add(ARR_HDR_CAP_OFF) as *mut u32) = new_cap as u32;
+            }
+            // Free old: regular Array<T> reaching arr_push cannot carry
+            // FLAG_ARR_ANY (uses arr_push_any) / FLAG_SPLIT_BLOCK (split
+            // result is immutable) / FLAG_STATIC_LITERAL (would COW
+            // upstream). Push directly to the cap-match pool; libc free
+            // on pool full.
+            let count = crate::pool::current_count();
+            let pushed = (cap as u64) <= crate::pool::POOL_CAP_MAX
+                && count < crate::pool::POOL_SLOTS
+                && crate::pool::push(old_arr, cap as u64);
+            if !pushed {
+                unsafe { free(old_arr as *mut c_void) };
             }
         }
     }
