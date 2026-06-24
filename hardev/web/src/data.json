@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T02:09:23.993Z",
+  "generatedAt": "2026-06-24T04:06:40.303Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c7578731",
-    "commitSubject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5b scaffold — user_regex_baked_layout module",
+    "commit": "4b039d7a",
+    "commitSubject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5c.2c — wire baked_regex payload through archive_emit",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "4b039d7a",
+      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5c.2c — wire baked_regex payload through archive_emit"
+    },
+    {
+      "hash": "67a0996a",
+      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5c.2b — wire baked_regex rebase targets into chain-LC pipeline"
+    },
+    {
+      "hash": "2c6bef2a",
+      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5c.2a — wire baked_regex into DataConstLayout"
+    },
+    {
+      "hash": "fa593366",
+      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5c.1 — baked DFA rebase target derivation"
+    },
+    {
+      "hash": "3e817c07",
+      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5b.2 — baked DFA region layout + payload + sym apply"
+    },
+    {
+      "hash": "98b2b140",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C-1 to C-5b scaffold ship + 6 gates 1130/0/4 ✓"
+    },
+    {
       "hash": "c7578731",
       "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5b scaffold — user_regex_baked_layout module"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "3cef8650",
       "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 C2 Phase C-1 — DfaState repr(C) + BakedDfaMeta C-ABI"
-    },
-    {
-      "hash": "d2063f36",
-      "subject": "test(torajs-regex): chunk 7.7 v2 step 12 C2 Phase B — DfaStates::Static path unit test"
-    },
-    {
-      "hash": "3cd5b764",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase B (DfaStates enum) ship + gate 1130/0/4 ✓"
-    },
-    {
-      "hash": "eb878269",
-      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 C2 Phase B — DfaStates enum wraps Vec/static slice"
-    },
-    {
-      "hash": "0977d96b",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C1 thread-local DFA cache REVERTED + L3a #24 fallback trigger fired → C2 pivot"
-    },
-    {
-      "hash": "5dcd73a7",
-      "subject": "test(bench): chunk 7.7 v2 step 12 C1 thread-local DFA cache ablation — REVERTED"
-    },
-    {
-      "hash": "751602ad",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 R3-A revert + Decomp Phase A close + A1/A2/A2+A3 ablation chain data"
     }
   ],
-  "headSha": "c7578731",
+  "headSha": "4b039d7a",
   "autorun": {
-    "total": 235,
+    "total": 236,
     "baselineTarget": 10,
-    "bySelf": 230,
+    "bySelf": 231,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782260337-67fa",
-      "at": "2026-06-24T00:18:57Z",
-      "ts": 1782260337,
+      "rotationId": "r-1782267058-2e39",
+      "at": "2026-06-24T02:10:58Z",
+      "ts": 1782267058,
       "trigger": "self",
-      "prevHead": "d2063f36",
-      "handoffSha": "sha256:2827f78936c854967b1d0dad3f4c3885b2bcb04c887411ae9db86c58f7402c53",
-      "handoffAgeSec": 13,
+      "prevHead": "98b2b140",
+      "handoffSha": "sha256:1ac9f44b1affa318464f19c9fa8675c28c8170298f88b276e37fb5df3a9bdc84",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782267058-2e39",
+        "at": "2026-06-24T02:10:58Z",
+        "ts": 1782267058,
+        "trigger": "self",
+        "prevHead": "98b2b140",
+        "handoffSha": "sha256:1ac9f44b1affa318464f19c9fa8675c28c8170298f88b276e37fb5df3a9bdc84",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782260337-67fa",
         "at": "2026-06-24T00:18:57Z",
@@ -780,17 +791,6 @@
         "prevHead": "a7395e9d",
         "handoffSha": "sha256:744780fbd2dd7ba87a555afc891e81051c613eac2775fc82df2cc2721f85620d",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782134211-4773",
-        "at": "2026-06-22T13:16:51Z",
-        "ts": 1782134211,
-        "trigger": "self",
-        "prevHead": "43e3f1a4",
-        "handoffSha": "sha256:e4146c306e0353a03806335a4e5cd8528d6698a7583e4994f67897d8e0c65e03",
-        "handoffAgeSec": 1376,
         "conformanceBefore": null,
         "commitsInSession": null
       }
