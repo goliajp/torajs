@@ -133,3 +133,62 @@ pub(super) fn prog_uses_word_boundary(prog: &Program) -> bool {
     }
     false
 }
+
+/// Round 3 Phase B sub-batch 6 attack #R-G — fill the
+/// `monotone_accept` bit on every built state. Called once by
+/// [`super::build::build_dfa`] after BFS completes and all
+/// `transitions[b]` slots / `pending_class` triples are populated.
+/// Pure read-modify-write — no NFA / Program access.
+///
+/// A state is monotone-accept iff:
+///   1. `is_accept == true`, AND
+///   2. every non-dead `transitions[b]` (b in 0..256) lands on a
+///      state with `is_accept == true`, AND
+///   3. when `pending_class.active != 0`, both `yes_target` and
+///      `no_target` either equal 0 (dead) or land on an
+///      `is_accept` state.
+///
+/// The condition is conservative (a transition to a non-accept
+/// state stays `false` even if the byte is practically
+/// unreachable from any start), keeping the analysis cheap and
+/// obviously correct.
+pub(super) fn compute_monotone_accept(states: &mut [super::search::DfaState]) {
+    // Snapshot `is_accept` per state so the per-state loop below can
+    // probe targets without re-borrowing `states[]` mutably.
+    let is_accept: alloc::vec::Vec<bool> = states.iter().map(|s| s.is_accept).collect();
+    for i in 1..states.len() {
+        if !is_accept[i] {
+            continue;
+        }
+        let mut monotone = true;
+        // Probe every transition target. 0 (dead) is treated as a
+        // valid exit — the monotone run ends, last_accept already
+        // points at the right cursor.
+        for b in 0..256 {
+            let target = states[i].transitions[b] as usize;
+            if target == 0 {
+                continue;
+            }
+            if !is_accept[target] {
+                monotone = false;
+                break;
+            }
+        }
+        // K-PROPERTY pending fallback (Round 3 Path A v2) — when a
+        // state has `pending_class.active != 0`, the executor may
+        // route a UTF-8 cp through `yes_target` (cp matches) or
+        // `no_target` (cp misses / invalid). Both must land on
+        // accepting (or dead) states to preserve monotonicity.
+        if monotone && states[i].pending_class.active != 0 {
+            let yes = states[i].pending_class.yes_target as usize;
+            let no = states[i].pending_class.no_target as usize;
+            if yes != 0 && !is_accept[yes] {
+                monotone = false;
+            }
+            if monotone && no != 0 && !is_accept[no] {
+                monotone = false;
+            }
+        }
+        states[i].monotone_accept = monotone;
+    }
+}
