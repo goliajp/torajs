@@ -193,12 +193,20 @@ pub fn char_eq(a: u8, b: u8, flags: u8) -> bool {
 /// [`Workspace`] internally — for tight loops use
 /// [`search_from_with_ws`].
 ///
-/// `dfa_cached`(chunk 7.7)— optional cached DFA built once at the
-/// caller side (typically via [`crate::regex::RegExp::baked_dfa_view`]
-/// for AOT-eligible literal regexes).
-/// `None` falls back to inline `build_dfa(prog, flags)` per call
-/// (chunk 7 v3 shape; equivalent to the pre-chunk-7.7 surface
-/// behaviour).
+/// `dfa_cached`(Round 3 Phase B sub-batch 7.2)— DFA borrowed once at
+/// the caller side. Every production surface caller in
+/// `crate::regex::*` (replace / replace_fn / match_op / test_find /
+/// match_all / split) now passes
+/// `re.baked_dfa_view().as_ref().or(re.dfa_runtime.as_ref())` — the
+/// AOT-baked view for AOT-eligible literal regexes, else the runtime
+/// DFA eager-built at `__torajs_regex_compile` ctor and owned by
+/// `RegExp.dfa_runtime`. `None` is left as a vm-test / internal-
+/// fallback path: when the caller didn't (or couldn't) bind a DFA,
+/// the function inline-builds `build_dfa(prog, flags)` per call so
+/// vm unit tests with `dfa_cached = None` still exercise the DFA
+/// fast path. The dead-on-the-surface fallback is preserved
+/// intentionally — vm tests rely on it for DFA-path regression
+/// coverage (e.g. `path_a_v4_regex024_subcase_*`).
 pub fn search_from(
     prog: &Program,
     s: &[u8],
@@ -241,14 +249,21 @@ pub fn search_from_with_ws(
 ) -> Option<MatchResult> {
     let slen = s.len() as i64;
     let mut st = from_pos;
-    // V0.2 P14 — DFA fast path (chunk 7 v3, per-call build).
-    // `build_dfa(prog)` runs once per call instead of caching on
-    // `Program`. The chunk 6 lazy cache shipped first but both the
-    // `UnsafeCell` and the chunk-7.5 `OnceCell` variants triggered a
-    // flaky SIGBUS in `regex-021-test-lastindex` once consumed from the
-    // hot path; the cache was deleted as dead substrate pending a
-    // chunk 7.6 deep audit of the RegExp/Program lifetime vs cached
-    // `&DfaProgram` across the SSA-lower ABI boundary.
+    // V0.2 P14 — DFA fast path.
+    // History: chunk 6 lazy `UnsafeCell<Option<DfaProgram>>` cache and
+    // the chunk-7.5 `OnceCell` variant both triggered a flaky SIGBUS
+    // in `regex-021-test-lastindex` from the hot path; chunk 7 v3
+    // deleted that interior-mutable cache and moved DFA build into
+    // this function (per-call). Round 3 Phase B sub-batch 7.2
+    // (2026-06-25) moved the build back out — `RegExp.dfa_runtime`
+    // eager-builds once at `__torajs_regex_compile` ctor with a plain
+    // `Option<DfaProgram>` (no `UnsafeCell`), so the chunk-7.6 SIGBUS
+    // UB family is structurally closed without losing per-RegExp
+    // amortisation. Surface callers now always pass `dfa_cached =
+    // Some(...)` for DFA-eligible programs; the `dfa_built_local`
+    // fallback below stays for vm-tests / internal callers without
+    // a RegExp host (`fn search_from` reaches us with
+    // `dfa_cached = None`).
     //
     // Flag gate:
     // - `Program::can_dfa` excludes backref + lookaround.
@@ -271,11 +286,14 @@ pub fn search_from_with_ws(
     // runs `vm_match_at(.., end_target = st + n)` for a second pass
     // that produces the winning thread's `saves`.
     let dfa_fast_path = prog.can_dfa && crate::dfa::prog_ops_dfa_safe(prog);
-    // chunk 7.7 — prefer the caller-cached DFA built once per-RegExp
-    // (`RegExp::baked_dfa_view`); fall back to inline per-call build
-    // when the caller didn't pass one (vm unit tests, internal entry
-    // points without a RegExp host). Both paths share the gate so the
-    // call shape stays stable.
+    // Round 3 Phase B sub-batch 7.2 (2026-06-25) — production surface
+    // callers always provide a `dfa_cached` (AOT-baked view or
+    // `RegExp.dfa_runtime`). The local build fires only for vm tests /
+    // internal entry points without a RegExp host (e.g. `search_from`
+    // which forwards `dfa_cached = None`); preserved for DFA-path
+    // regression coverage in unit tests (`path_a_v4_regex024_subcase_*`
+    // and friends explicitly walk `dfa_cached = None` to exercise the
+    // build path on toy programs).
     let dfa_built_local = if dfa_fast_path && dfa_cached.is_none() {
         Some(crate::dfa::build_dfa(prog, flags))
     } else {
