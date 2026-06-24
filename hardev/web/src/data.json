@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T17:52:50.998Z",
+  "generatedAt": "2026-06-24T21:48:17.227Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "d81200be",
-    "commitSubject": "test(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 6 — add monotone_accept invariant tests",
+    "commit": "bd918337",
+    "commitSubject": "docs(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 7.3 — reframe vm dfa_built_local as test/internal fallback",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,18 @@
   },
   "commits": [
     {
+      "hash": "bd918337",
+      "subject": "docs(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 7.3 — reframe vm dfa_built_local as test/internal fallback"
+    },
+    {
+      "hash": "85370574",
+      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 7.2 — eager-build RegExp.dfa_runtime at ctor"
+    },
+    {
+      "hash": "c5342773",
+      "subject": "chore(hardev/web): refresh dashboard — Round 3 Phase B sub-batch 5/6/7.1 + relocate + monotone tests (d81200be)"
+    },
+    {
       "hash": "d81200be",
       "subject": "test(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 6 — add monotone_accept invariant tests"
     },
@@ -651,39 +663,38 @@
     {
       "hash": "88cb32f6",
       "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 1 — attacks #R-A1 + #R-A2 + #R-E"
-    },
-    {
-      "hash": "307ab9c9",
-      "subject": "test(bench): chunk 7.7 v2 step 12 Round 3 — F-R4 uflag-cprange isolation fixture"
-    },
-    {
-      "hash": "7a6da3af",
-      "subject": "test(bench): chunk 7.7 v2 step 12 Round 2 — isolation fixture archive (F-A/F-B/F-C)"
-    },
-    {
-      "hash": "10a10cdc",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 Round 2 paradigm-shift finding (4539a9f4)"
     }
   ],
-  "headSha": "d81200be",
+  "headSha": "bd918337",
   "autorun": {
-    "total": 240,
+    "total": 241,
     "baselineTarget": 10,
-    "bySelf": 235,
+    "bySelf": 236,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782317396-105d",
-      "at": "2026-06-24T16:09:56Z",
-      "ts": 1782317396,
+      "rotationId": "r-1782323652-6cd4",
+      "at": "2026-06-24T17:54:12Z",
+      "ts": 1782323652,
       "trigger": "self",
-      "prevHead": "ad11a755",
-      "handoffSha": "sha256:cb34d316286e1a5c2973ef6a5b92d6fa07f45773820e73cf3af6292f5a2a8896",
-      "handoffAgeSec": 23,
+      "prevHead": "c5342773",
+      "handoffSha": "sha256:1eb06f5baa92dca47be628edac8e4bc3b1aaab005e657f90e230dddc8c574bd3",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782323652-6cd4",
+        "at": "2026-06-24T17:54:12Z",
+        "ts": 1782323652,
+        "trigger": "self",
+        "prevHead": "c5342773",
+        "handoffSha": "sha256:1eb06f5baa92dca47be628edac8e4bc3b1aaab005e657f90e230dddc8c574bd3",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782317396-105d",
         "at": "2026-06-24T16:09:56Z",
@@ -780,17 +791,6 @@
         "prevHead": "51e42cad",
         "handoffSha": "sha256:a399f37bfe18eaef9272a7a2004554c0ead40b6fac990bb27ba0d7e8d323b761",
         "handoffAgeSec": 13,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782163366-0f2c",
-        "at": "2026-06-22T21:22:46Z",
-        "ts": 1782163366,
-        "trigger": "self",
-        "prevHead": "09936d38",
-        "handoffSha": "sha256:6ca5b50e3af9b26e049d3047cb40e792fe66c7f4cc5b309dc4d7030e6a53997d",
-        "handoffAgeSec": 644,
         "conformanceBefore": null,
         "commitsInSession": null
       }
