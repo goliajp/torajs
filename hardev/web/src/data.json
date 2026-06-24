@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T22:34:03.063Z",
+  "generatedAt": "2026-06-24T23:13:36.863Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "59835492",
-    "commitSubject": "feat(torajs-regex): Round 4 wire-back Phase B chunk 1 — cached static \"index\" / \"input\" / \"groups\" keys",
+    "commit": "218a86b7",
+    "commitSubject": "feat(torajs-arr): Round 4 wire-back Phase B chunk 2 — pool-aware arr_push grow",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "218a86b7",
+      "subject": "feat(torajs-arr): Round 4 wire-back Phase B chunk 2 — pool-aware arr_push grow"
+    },
+    {
+      "hash": "946c43c2",
+      "subject": "chore(hardev/web): refresh dashboard — Round 4 wire-back Phase A + chunk 1 ship (59835492)"
+    },
+    {
       "hash": "59835492",
       "subject": "feat(torajs-regex): Round 4 wire-back Phase B chunk 1 — cached static \"index\" / \"input\" / \"groups\" keys"
     },
@@ -655,35 +663,38 @@
     {
       "hash": "e38ff0a3",
       "subject": "refactor(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 7 — R-H.1 delete dead dfa_cache + get_or_build_dfa"
-    },
-    {
-      "hash": "f5142ed0",
-      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 6 — attack #R-G DfaState monotone_accept + inner-loop fast path"
-    },
-    {
-      "hash": "4ad7bbd1",
-      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 5 — attack #R-A3 MatchResult NoSaves/WithSaves split"
     }
   ],
-  "headSha": "59835492",
+  "headSha": "218a86b7",
   "autorun": {
-    "total": 241,
+    "total": 242,
     "baselineTarget": 10,
-    "bySelf": 236,
+    "bySelf": 237,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782323652-6cd4",
-      "at": "2026-06-24T17:54:12Z",
-      "ts": 1782323652,
+      "rotationId": "r-1782340550-7c88",
+      "at": "2026-06-24T22:35:50Z",
+      "ts": 1782340550,
       "trigger": "self",
-      "prevHead": "c5342773",
-      "handoffSha": "sha256:1eb06f5baa92dca47be628edac8e4bc3b1aaab005e657f90e230dddc8c574bd3",
-      "handoffAgeSec": 4,
+      "prevHead": "946c43c2",
+      "handoffSha": "sha256:8775cbc16933b1485fc3b934faa288ae2e19ea6e13bbc1ebd9c43f6789d85dde",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782340550-7c88",
+        "at": "2026-06-24T22:35:50Z",
+        "ts": 1782340550,
+        "trigger": "self",
+        "prevHead": "946c43c2",
+        "handoffSha": "sha256:8775cbc16933b1485fc3b934faa288ae2e19ea6e13bbc1ebd9c43f6789d85dde",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782323652-6cd4",
         "at": "2026-06-24T17:54:12Z",
@@ -780,17 +791,6 @@
         "prevHead": "5116207d",
         "handoffSha": "sha256:7d003a3cbcf41f59e21a98e57665565b6e504b00d178a5efc6f2c190ad911177",
         "handoffAgeSec": 352,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782189921-2f90",
-        "at": "2026-06-23T04:45:21Z",
-        "ts": 1782189921,
-        "trigger": "self",
-        "prevHead": "51e42cad",
-        "handoffSha": "sha256:a399f37bfe18eaef9272a7a2004554c0ead40b6fac990bb27ba0d7e8d323b761",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
