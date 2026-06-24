@@ -139,6 +139,11 @@ fn intern_state(
         transitions: [0u32; 256],
         is_accept: pc_set_is_accept(prog, &ready),
         is_accept_at_end: pc_set_is_accept_at_end(prog, &ready, attr, mflag),
+        // Round 3 Phase B sub-batch 6 attack #R-G — patched by
+        // `compute_monotone_accept` after the BFS completes and all
+        // `transitions[b]` slots are populated. `false` here keeps
+        // the executor's monotone-accept fast path off until then.
+        monotone_accept: false,
         // Mask filled in by BFS when the state is dequeued (skipped
         // for pending K-PROPERTY states whose `pending_class.active`
         // short-circuits the per-byte transitions path entirely).
@@ -211,6 +216,52 @@ fn intern_state(
     // there); no behavioural change versus v3-A.
     work.push((ready, deferred, attr, i));
     i
+}
+
+/// Round 3 Phase B sub-batch 6 attack #R-G — fill the
+/// `monotone_accept` bit on every built state. Called once after BFS
+/// completes and all `transitions[b]` slots / `pending_class` triples
+/// are populated. Pure read-modify-write — no NFA / Program access.
+fn compute_monotone_accept(states: &mut [DfaState]) {
+    // Snapshot `is_accept` per state so the per-state loop below can
+    // probe targets without re-borrowing `states[]` mutably.
+    let is_accept: alloc::vec::Vec<bool> = states.iter().map(|s| s.is_accept).collect();
+    for i in 1..states.len() {
+        // Skip the dead state (state 0) and any non-accepting state.
+        if !is_accept[i] {
+            continue;
+        }
+        let mut monotone = true;
+        // Probe every transition target. 0 (dead) is treated as a
+        // valid exit — the monotone run ends, last_accept already
+        // points at the right cursor.
+        for b in 0..256 {
+            let target = states[i].transitions[b] as usize;
+            if target == 0 {
+                continue;
+            }
+            if !is_accept[target] {
+                monotone = false;
+                break;
+            }
+        }
+        // K-PROPERTY pending fallback (Round 3 Path A v2) — when a
+        // state has `pending_class.active != 0`, the executor may
+        // route a UTF-8 cp through `yes_target` (cp matches) or
+        // `no_target` (cp misses / invalid). Both must land on
+        // accepting (or dead) states to preserve monotonicity.
+        if monotone && states[i].pending_class.active != 0 {
+            let yes = states[i].pending_class.yes_target as usize;
+            let no = states[i].pending_class.no_target as usize;
+            if yes != 0 && !is_accept[yes] {
+                monotone = false;
+            }
+            if monotone && no != 0 && !is_accept[no] {
+                monotone = false;
+            }
+        }
+        states[i].monotone_accept = monotone;
+    }
 }
 
 /// Subset-construction NFA → DFA builder (chunks 8.5/8.6a/8.6b/8.7/
@@ -420,6 +471,20 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     let any_accept_before_byte = states
         .iter()
         .any(|s| s.accept_before_byte.iter().any(|w| *w != 0));
+    // Round 3 Phase B sub-batch 6 attack #R-G — derive
+    // `monotone_accept` per state. A state is monotone-accept iff:
+    // (1) it accepts (`is_accept == true`); AND
+    // (2) every non-dead `transitions[b]` (b in 0..256) lands on a
+    //     state that also accepts; AND
+    // (3) if `pending_class.active != 0`, both `yes_target` and
+    //     `no_target` either equal 0 (dead) or land on an accepting
+    //     state.
+    // The executor's hot path consults this bit to skip the per-byte
+    // `last_accept = Some(cursor)` write inside a self-loop run on
+    // `\p{L}+/u`-class patterns. Cost: O(states × 256) build-time scan
+    // (cold path, ~0.3 µs for the 4-state `\p{L}+/u` DFA); the runtime
+    // save is ~2-8 ns/iter on letter-heavy haystacks.
+    compute_monotone_accept(&mut states);
     DfaProgram {
         // chunk 7.7 v2 step 12 C2 Phase B — wrap as DfaStates::Owned;
         // Phase C will emit DfaStates::Static(&'static [...]) from the

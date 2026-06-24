@@ -68,6 +68,7 @@ mod build;
 mod build_helpers;
 mod pending_class;
 mod search;
+mod state;
 mod step;
 
 pub use build::build_dfa;
