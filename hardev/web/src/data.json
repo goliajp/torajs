@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T21:48:17.227Z",
+  "generatedAt": "2026-06-24T22:34:03.063Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "bd918337",
-    "commitSubject": "docs(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 7.3 — reframe vm dfa_built_local as test/internal fallback",
+    "commit": "59835492",
+    "commitSubject": "feat(torajs-regex): Round 4 wire-back Phase B chunk 1 — cached static \"index\" / \"input\" / \"groups\" keys",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,22 @@
   },
   "commits": [
     {
+      "hash": "59835492",
+      "subject": "feat(torajs-regex): Round 4 wire-back Phase B chunk 1 — cached static \"index\" / \"input\" / \"groups\" keys"
+    },
+    {
+      "hash": "14edf894",
+      "subject": "test(bench): Round 4 wire-back baseline archive — regex-wireback-minlit-100k n=3 mini"
+    },
+    {
+      "hash": "7bacf29a",
+      "subject": "test(bench): Round 4 wire-back isolation fixture regex-wireback-minlit-100k"
+    },
+    {
+      "hash": "4398ab0a",
+      "subject": "chore(hardev/web): refresh dashboard — Round 3 Phase B sub-batch 7.2/7.3 ship + Phase B CLOSE (bd918337)"
+    },
+    {
       "hash": "bd918337",
       "subject": "docs(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 7.3 — reframe vm dfa_built_local as test/internal fallback"
     },
@@ -647,25 +663,9 @@
     {
       "hash": "4ad7bbd1",
       "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 5 — attack #R-A3 MatchResult NoSaves/WithSaves split"
-    },
-    {
-      "hash": "ad11a755",
-      "subject": "chore(hardev/web): refresh dashboard — Round 3 Phase B sub-batch 4 Path A v3+v4 close (bd373081)"
-    },
-    {
-      "hash": "bd373081",
-      "subject": "fix(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 4 — Path A §2.5.E v4 fix multi-Op capture (#R-J regex-024 regression)"
-    },
-    {
-      "hash": "c276cd82",
-      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 4 — attack #R-J Path A §2.5.E (v3 option A multi-PC K-PROPERTY pending_class)"
-    },
-    {
-      "hash": "88cb32f6",
-      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 1 — attacks #R-A1 + #R-A2 + #R-E"
     }
   ],
-  "headSha": "bd918337",
+  "headSha": "59835492",
   "autorun": {
     "total": 241,
     "baselineTarget": 10,
