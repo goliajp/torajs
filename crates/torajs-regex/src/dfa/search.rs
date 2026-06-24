@@ -35,7 +35,15 @@
 /// locks declared field order + C alignment so the AOT pipeline
 /// (ssa_lower) can emit a byte-identical `[DfaState; N]` static into
 /// `.rodata` and the `DfaStates::Static(&'static [...])` reader (Phase
-/// B) deserialises it byte-for-byte. Layout on aarch64-apple-darwin:
+/// B) deserialises it byte-for-byte.
+///
+/// Round 3 Phase B sub-batch 4 attack #R-J v2 (§2.5.E, 2026-06-24) —
+/// appended a 12-byte [`PendingClass`] triple for K-PROPERTY cp-step
+/// support, growing the layout to 1072 bytes. The new field is
+/// [`PendingClass::INERT`] for every state that is NOT a K-PROPERTY
+/// pending state, so the executor's hot path adds only one byte read +
+/// one branch on `pending_class.active != 0`. Layout on
+/// aarch64-apple-darwin:
 ///
 /// | offset | size | field |
 /// | ------ | ---- | ----- |
@@ -44,8 +52,9 @@
 /// | 1025   | 1    | is_accept_at_end |
 /// | 1026   | 2    | (padding to align 4) |
 /// | 1028   | 32   | accept_before_byte[8] |
+/// | 1060   | 12   | pending_class (Round 3 Path A v2) |
 ///
-/// total = 1060 bytes, align 4. The unit test
+/// total = 1072 bytes, align 4. The unit test
 /// `dfa_state_repr_c_layout_locked` enforces this layout so accidental
 /// field-reorder / type-change breaks `cargo test` before reaching the
 /// AOT byte emitter (where the same miscalculation would corrupt
@@ -70,6 +79,17 @@ pub struct DfaState {
     /// resulting `Op::Match` is zero-width (it never survives a
     /// `byte_step` that doesn't consume).
     pub accept_before_byte: [u32; 8],
+    /// Round 3 Phase B sub-batch 4 attack #R-J v2 (§2.5.E) — fixed-size
+    /// per-state K-PROPERTY cp-step handler triple. When
+    /// `pending_class.active != 0` the executor short-circuits the
+    /// 256-way `transitions[byte]` lookup, decodes 1-4 UTF-8 bytes as
+    /// one cp, calls
+    /// `prog.classes[pending_class.class_idx].test_cp(cp)`, then
+    /// transitions to `yes_target` (matched, advances by utf8_len) or
+    /// `no_target` (not matched / invalid UTF-8). Default
+    /// [`PendingClass::INERT`] (all-zero) keeps non-K-PROPERTY states on
+    /// the existing dense-transitions fast path.
+    pub pending_class: PendingClass,
 }
 
 impl Default for DfaState {
@@ -79,9 +99,16 @@ impl Default for DfaState {
             is_accept: false,
             is_accept_at_end: false,
             accept_before_byte: [0u32; 8],
+            pending_class: PendingClass::INERT,
         }
     }
 }
+
+// Round 3 Phase B sub-batch 4 attack #R-J v2 (§2.5.E) — `PendingClass`
+// + the build-side K-PROPERTY predicates live in
+// `super::pending_class`; re-exported through `dfa/mod.rs` so external
+// callers see the unchanged `crate::dfa::PendingClass` surface.
+pub use super::pending_class::PendingClass;
 
 /// Read bit `byte` of a 256-bit packed mask.
 #[inline]
@@ -239,8 +266,13 @@ pub struct BakedDfaMeta {
 /// prefix accepts. The executor never backtracks (the BFS already
 /// folded leftmost-longest priority into the start state's transition
 /// graph). Enters at [`DfaProgram::start`] (text-start ctx).
-pub fn dfa_search(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
-    dfa_search_from(dfa, hay, dfa.start)
+///
+/// Round 3 Phase B sub-batch 4 attack #R-J v2 — takes `prog: &Program`
+/// so the K-PROPERTY pending-class handler can read
+/// `prog.classes[pending_class.class_idx]` for the `test_cp(cp)` call.
+/// Patterns without K-PROPERTY pending states never touch `prog`.
+pub fn dfa_search(dfa: &DfaProgram, prog: &crate::program::Program, hay: &[u8]) -> Option<usize> {
+    dfa_search_from(dfa, prog, hay, dfa.start)
 }
 
 /// Like [`dfa_search`] but enters at `dfa.start_mid_nonword` — back-
@@ -248,23 +280,40 @@ pub fn dfa_search(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
 /// pattern entry. New code should prefer [`dfa_search_mid_word`] /
 /// [`dfa_search_mid_nonword`] explicitly per the cursor's left-byte
 /// class (chunk 8.6b).
-pub fn dfa_search_mid(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
-    dfa_search_from(dfa, hay, dfa.start_mid)
+pub fn dfa_search_mid(
+    dfa: &DfaProgram,
+    prog: &crate::program::Program,
+    hay: &[u8],
+) -> Option<usize> {
+    dfa_search_from(dfa, prog, hay, dfa.start_mid)
 }
 
 /// chunk 8.6b — mid-pattern entry when the just-consumed byte at
 /// `cursor - 1` is a word-class byte (`[A-Za-z0-9_]`).
-pub fn dfa_search_mid_word(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
-    dfa_search_from(dfa, hay, dfa.start_mid_word)
+pub fn dfa_search_mid_word(
+    dfa: &DfaProgram,
+    prog: &crate::program::Program,
+    hay: &[u8],
+) -> Option<usize> {
+    dfa_search_from(dfa, prog, hay, dfa.start_mid_word)
 }
 
 /// chunk 8.6b — mid-pattern entry when the just-consumed byte at
 /// `cursor - 1` is non-word and not a line-start (`\n`) trigger.
-pub fn dfa_search_mid_nonword(dfa: &DfaProgram, hay: &[u8]) -> Option<usize> {
-    dfa_search_from(dfa, hay, dfa.start_mid_nonword)
+pub fn dfa_search_mid_nonword(
+    dfa: &DfaProgram,
+    prog: &crate::program::Program,
+    hay: &[u8],
+) -> Option<usize> {
+    dfa_search_from(dfa, prog, hay, dfa.start_mid_nonword)
 }
 
-fn dfa_search_from(dfa: &DfaProgram, hay: &[u8], start: u32) -> Option<usize> {
+fn dfa_search_from(
+    dfa: &DfaProgram,
+    prog: &crate::program::Program,
+    hay: &[u8],
+    start: u32,
+) -> Option<usize> {
     let mut state = start;
     let mut last_accept: Option<usize> = None;
     if dfa.states[state as usize].is_accept {
@@ -279,25 +328,150 @@ fn dfa_search_from(dfa: &DfaProgram, hay: &[u8], start: u32) -> Option<usize> {
     // 100k-iter `/\p{L}+/u`-style fixtures this saves ~35 ns/iter; the
     // single hoisted bool check costs ~1 ns per call.
     let any_aab = dfa.any_accept_before_byte;
-    for (i, &byte) in hay.iter().enumerate() {
-        // chunk 8.6b — zero-width accept before stepping byte `i`.
-        // Patterns like `/\bword\b/`: the trailing `\b` resolves
-        // against the byte the cursor is about to consume (right =
-        // byte) plus the just-consumed left byte; the resulting
-        // Op::Match is zero-width so it never survives a byte_step.
-        // The BFS precomputes `accept_before_byte` per state per
-        // byte so the executor can record the accept here at cursor
-        // `i` (not `i + 1`).
+    // Round 3 Phase B sub-batch 4 attack #R-J v2 (§2.5.E) — the K-
+    // PROPERTY pending-class handler must advance the cursor by the
+    // UTF-8 byte length of the decoded cp (1-4 bytes), so we replace
+    // the `for (i, &byte) in hay.iter().enumerate()` form with a
+    // `while cursor < hay.len()` loop that owns its cursor explicitly.
+    // Sibling fixtures still advance by 1 byte per iter and pay only
+    // one extra `pending_class.active` byte-read + branch on the hot
+    // path (sub-1 ns/iter on M-series ARM).
+    let mut cursor: usize = 0;
+    while cursor < hay.len() {
+        let byte = hay[cursor];
+        // chunk 8.6b — zero-width accept before stepping byte at
+        // `cursor`. Patterns like `/\bword\b/`: the trailing `\b`
+        // resolves against the byte the cursor is about to consume
+        // (right = byte) plus the just-consumed left byte; the
+        // resulting Op::Match is zero-width so it never survives a
+        // byte_step. The BFS precomputes `accept_before_byte` per state
+        // per byte so the executor can record the accept here at
+        // `cursor` (not `cursor + utf8_len`).
         if any_aab && mask_get(&dfa.states[state as usize].accept_before_byte, byte) {
-            last_accept = Some(i);
+            last_accept = Some(cursor);
         }
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 — K-PROPERTY
+        // pending-class handler. When the current state carries an
+        // active pending_class triple, decode one UTF-8 cp at the
+        // cursor (1-4 bytes), call `prog.classes[class_idx].test_cp(cp)`,
+        // and branch to `yes_target` (matched, advance by utf8_len) or
+        // `no_target` (not matched / invalid UTF-8 / truncated, advance
+        // by 1 byte). The 256-way `transitions[byte]` lookup is
+        // short-circuited for these states (the table is all-zero on
+        // pending states by construction).
+        let pc = dfa.states[state as usize].pending_class;
+        if pc.active != 0 {
+            // Step 1: lead-byte → utf8_len classification.
+            let utf8_len: usize = if byte < 0x80 {
+                1
+            } else {
+                match byte {
+                    0xC2..=0xDF => 2,
+                    0xE0..=0xEF => 3,
+                    0xF0..=0xF4 => 4,
+                    _ => {
+                        // Invalid lead (0x80..0xC1 / 0xF5..0xFF): treat
+                        // as cp-miss, route to no_target, advance 1
+                        // byte so the search loop can retry / exit.
+                        state = pc.no_target;
+                        cursor += 1;
+                        if state == 0 {
+                            alive = false;
+                            break;
+                        }
+                        if dfa.states[state as usize].is_accept {
+                            last_accept = Some(cursor);
+                        }
+                        continue;
+                    }
+                }
+            };
+            // Step 2: truncated tail — abort sequence to no_target,
+            // exit the loop. `cursor` is never read after the break;
+            // the post-walk `is_accept_at_end` check skips when
+            // `alive == false` (no_target == 0 = dead state).
+            if cursor + utf8_len > hay.len() {
+                state = pc.no_target;
+                alive = state != 0;
+                break;
+            }
+            // Step 3: continuation-byte validity. For utf8_len > 1
+            // every byte in cursor+1..cursor+utf8_len must satisfy
+            // `& 0xC0 == 0x80`. An invalid continuation byte means the
+            // would-be sequence is malformed; treat as cp-miss, route
+            // to no_target, advance 1 byte (NOT utf8_len — the leftover
+            // bytes may be the start of a fresh sequence).
+            let mut valid_cont = true;
+            for i in 1..utf8_len {
+                if (hay[cursor + i] & 0xC0) != 0x80 {
+                    valid_cont = false;
+                    break;
+                }
+            }
+            if !valid_cont {
+                state = pc.no_target;
+                cursor += 1;
+                if state == 0 {
+                    alive = false;
+                    break;
+                }
+                if dfa.states[state as usize].is_accept {
+                    last_accept = Some(cursor);
+                }
+                continue;
+            }
+            // Step 4: decode cp via the standard UTF-8 shift-OR
+            // pattern. `lead` masked by the per-length payload-bit
+            // table; continuation bytes contribute the low 6 bits.
+            let cp: i32 = match utf8_len {
+                1 => byte as i32,
+                2 => (((byte & 0x1F) as i32) << 6) | ((hay[cursor + 1] & 0x3F) as i32),
+                3 => {
+                    (((byte & 0x0F) as i32) << 12)
+                        | (((hay[cursor + 1] & 0x3F) as i32) << 6)
+                        | ((hay[cursor + 2] & 0x3F) as i32)
+                }
+                4 => {
+                    (((byte & 0x07) as i32) << 18)
+                        | (((hay[cursor + 1] & 0x3F) as i32) << 12)
+                        | (((hay[cursor + 2] & 0x3F) as i32) << 6)
+                        | ((hay[cursor + 3] & 0x3F) as i32)
+                }
+                _ => byte as i32, // unreachable — utf8_len ∈ {1,2,3,4}
+            };
+            // Step 5: cc.test_cp(cp) decides yes/no. Class table is
+            // hot-cache-resident for the small class counts K-PROPERTY
+            // patterns emit (well under 16 classes).
+            let cls_idx = pc.class_idx as usize;
+            let matched = if cls_idx < prog.classes.len() {
+                prog.classes[cls_idx].test_cp(cp)
+            } else {
+                // Defensive: class_idx out of range = no match. Should
+                // not happen in well-formed BFS output.
+                false
+            };
+            state = if matched { pc.yes_target } else { pc.no_target };
+            cursor += utf8_len;
+            if state == 0 {
+                alive = false;
+                break;
+            }
+            if dfa.states[state as usize].is_accept {
+                last_accept = Some(cursor);
+            }
+            continue;
+        }
+        // Sibling-fixture fast path — no K-PROPERTY pending, do the
+        // ordinary 256-way transitions table dispatch (one byte
+        // consumed per iter, matches the pre-v2 behaviour exactly).
         state = dfa.states[state as usize].transitions[byte as usize];
+        cursor += 1;
         if state == 0 {
             alive = false;
             break;
         }
         if dfa.states[state as usize].is_accept {
-            last_accept = Some(i + 1);
+            last_accept = Some(cursor);
         }
     }
     // chunk 8.6a — after consuming the haystack, if the live state's
@@ -315,6 +489,7 @@ fn dfa_search_from(dfa: &DfaProgram, hay: &[u8], start: u32) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::program::Program;
     use core::mem::{align_of, offset_of, size_of};
 
     /// Phase C-1 layout lock — `DfaState` is the byte-for-byte ground
@@ -329,9 +504,18 @@ mod tests {
         assert_eq!(offset_of!(DfaState, is_accept), 1024);
         assert_eq!(offset_of!(DfaState, is_accept_at_end), 1025);
         assert_eq!(offset_of!(DfaState, accept_before_byte), 1028);
-        assert_eq!(size_of::<DfaState>(), 1060);
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 — pending_class
+        // triple appended at offset 1060, growing the struct to 1072
+        // bytes. align stays 4 (`u32` is widest field).
+        assert_eq!(offset_of!(DfaState, pending_class), 1060);
+        assert_eq!(size_of::<DfaState>(), 1072);
         assert_eq!(align_of::<DfaState>(), 4);
     }
+
+    // Round 3 Phase B sub-batch 4 attack #R-J v2 — `PendingClass` has
+    // its own layout-lock test in `dfa/pending_class.rs::tests::
+    // pending_class_layout_locked`; the `DfaState` layout-lock above
+    // covers its placement at offset 1060.
 
     /// Phase C-1 layout lock — `BakedDfaMeta` mirrors the
     /// 32-byte AOT metadata struct ssa_lower emits per literal regex.
@@ -369,6 +553,11 @@ mod tests {
                 is_accept: false,
                 is_accept_at_end: false,
                 accept_before_byte: [0; 8],
+                // Round 3 Phase B sub-batch 4 attack #R-J v2 — hand-
+                // built `DfaState` literals must initialise the new
+                // `pending_class` tail; `INERT` keeps the state on the
+                // ordinary 256-way dispatch path.
+                pending_class: PendingClass::INERT,
             },
             // start: byte 'a' moves to accept; everything else dies.
             DfaState {
@@ -380,6 +569,7 @@ mod tests {
                 is_accept: false,
                 is_accept_at_end: false,
                 accept_before_byte: [0; 8],
+                pending_class: PendingClass::INERT,
             },
             // accept state.
             DfaState {
@@ -387,8 +577,14 @@ mod tests {
                 is_accept: true,
                 is_accept_at_end: false,
                 accept_before_byte: [0; 8],
+                pending_class: PendingClass::INERT,
             },
         ];
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 — `dfa_search` now
+        // takes `prog: &Program` to look up the K-PROPERTY class table
+        // when a state's `pending_class.active != 0`. This fixture has
+        // no K-PROPERTY pending state, so an empty `Program` is enough.
+        let prog = Program::new();
         let dfa = DfaProgram {
             states: DfaStates::Static(&STATES),
             start: 1,
@@ -398,9 +594,9 @@ mod tests {
             all_starts_equal: true,
             any_accept_before_byte: false,
         };
-        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
-        assert_eq!(dfa_search(&dfa, b"abc"), Some(1));
-        assert_eq!(dfa_search(&dfa, b"xyz"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"abc"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"xyz"), None);
         // sanity: states[i] auto-deref-and-index path active.
         assert_eq!(dfa.states[1].transitions[b'a' as usize], 2);
         assert!(dfa.states[2].is_accept);

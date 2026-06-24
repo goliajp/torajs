@@ -67,6 +67,19 @@ impl CharClass {
         if self.negate { !in_set } else { in_set }
     }
 
+    /// Round 3 Path A — true iff this class is a "pure property" u-flag
+    /// unsafe class: `u_props` set, no `negate`, no explicit non-ASCII
+    /// byte bits (`bits[16..32]` all zero). K-PROPERTY classes skip
+    /// chunk-10d Alt-of-Concat expansion; the DFA build pre-emits a
+    /// pending K-PROPERTY state whose executor handler decodes one UTF-8
+    /// cp per step and consults [`Self::test_cp`]. Other unsafe-class
+    /// kinds (K-NEG `negate == true`, K-EXPLICIT-BIT non-ASCII bits set,
+    /// K-MIXED combo) still flow through `utf8_class_expand` and the
+    /// chunk-10d byte-step path.
+    pub fn is_uflag_property_only(&self) -> bool {
+        self.u_props != 0 && !self.negate && self.bits[16..32].iter().all(|&b| b == 0)
+    }
+
     /// Code-point membership test for the u flag — port of `cc_test_cp`.
     ///
     /// `cp < 128` is bitmap-tested. `cp ≥ 128` with no `u_props` set is
@@ -262,6 +275,44 @@ mod tests {
         assert!(!cc.test_cp(0x03B1)); // Greek alpha
         // Non-letter cp now IS a member.
         assert!(cc.test_cp(b'5' as i32));
+    }
+
+    #[test]
+    fn is_uflag_property_only_classifies_correctly() {
+        // Round 3 Path A v2 — predicate gate for the DFA pending K-PROPERTY
+        // emit. Must return true only for "pure property" classes (u_props
+        // set, no negate, no explicit non-ASCII bits); K-NEG / K-MIXED /
+        // K-EXPLICIT-BIT must return false so they keep flowing through
+        // chunk-10d utf8_class_expand.
+        let mut letter = CharClass::new();
+        letter.add_property_letter();
+        assert!(
+            letter.is_uflag_property_only(),
+            "pure \\p{{L}} = K-PROPERTY"
+        );
+
+        let mut letter_neg = letter;
+        letter_neg.negate = true;
+        assert!(
+            !letter_neg.is_uflag_property_only(),
+            "negated \\p{{L}} is K-NEG"
+        );
+
+        let mut digit_safe = CharClass::new();
+        digit_safe.add_digit();
+        assert!(
+            !digit_safe.is_uflag_property_only(),
+            "\\d has no u_props bits"
+        );
+
+        let mut letter_plus_explicit = CharClass::new();
+        letter_plus_explicit.add_property_letter();
+        // Set a bit in bits[16..32] (non-ASCII byte range) — K-MIXED.
+        letter_plus_explicit.bits[24] = 0x01;
+        assert!(
+            !letter_plus_explicit.is_uflag_property_only(),
+            "\\p{{L}} + explicit non-ASCII byte bit = K-MIXED"
+        );
     }
 
     #[test]

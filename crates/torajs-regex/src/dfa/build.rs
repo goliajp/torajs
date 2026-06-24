@@ -13,91 +13,15 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
-use crate::dfa::byte_step_full;
-use crate::dfa::ctx::{
-    PositionCtx, epsilon_closure_full, epsilon_closure_full_into, epsilon_closure_with_ctx,
+use crate::dfa::build_helpers::{
+    LeftByteAttr, attr_of_byte, ctx_for, pc_set_is_accept, pc_set_is_accept_at_end,
+    prog_uses_word_boundary,
 };
+use crate::dfa::byte_step_full;
+use crate::dfa::ctx::{PositionCtx, epsilon_closure_full_into, epsilon_closure_with_ctx};
+use crate::dfa::pending_class::{PendingClass, classify_kproperty_shape};
 use crate::dfa::search::{DfaProgram, DfaState, mask_set};
-use crate::program::{Op, Program};
-
-/// chunk 8.6b — left-byte class carried as part of a DFA state's
-/// identity. The just-consumed byte's word/non-word class is the only
-/// thing `Op::WBound` / `Op::NWBound` need to see (besides the upcoming
-/// right byte, supplied by the BFS step), so a 3-way attr lets us key
-/// the state pool by `(PC set, attr)` without exploding into a per-
-/// byte map. `TextStart` covers both "no preceding byte" and the
-/// `RE_FLAG_M` line-start fold-in (left = `\n` is non-word so WBound
-/// sees the same boundary as text-start when right is word-class).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum LeftByteAttr {
-    TextStart,
-    Word,
-    NonWord,
-}
-
-/// Classify a byte's left-class for [`LeftByteAttr`]. Word class =
-/// ASCII `[A-Za-z0-9_]`, mirroring [`crate::dfa::ctx::PositionCtx::
-/// at_word_boundary`]'s `is_word_byte`.
-fn attr_of_byte(b: u8) -> LeftByteAttr {
-    if b.is_ascii_alphanumeric() || b == b'_' {
-        LeftByteAttr::Word
-    } else {
-        LeftByteAttr::NonWord
-    }
-}
-
-/// Pick a representative left byte for a [`LeftByteAttr`] so the
-/// closure can read `ctx.left_byte` uniformly. The value only matters
-/// for `at_word_boundary` (word vs non-word) and `AnchorB`-mflag
-/// (`Some(b'\n')`); the wire folds the mflag line-start case into
-/// `TextStart` so a representative `None`/`Some(b'a')`/`Some(b' ')`
-/// is enough — mflag mid-pattern AnchorB re-fire (left = `\n`) is
-/// handled separately when the BFS steps past `\n`, which surfaces in
-/// the post-step set under whatever attr the actual byte produced.
-fn attr_to_left_byte(attr: LeftByteAttr) -> Option<u8> {
-    match attr {
-        LeftByteAttr::TextStart => None,
-        LeftByteAttr::Word => Some(b'a'),
-        LeftByteAttr::NonWord => Some(b' '),
-    }
-}
-
-/// True iff `set` contains any [`Op::Match`] PC.
-fn pc_set_is_accept(prog: &Program, set: &BTreeSet<usize>) -> bool {
-    set.iter()
-        .any(|&pc| pc < prog.len() && matches!(Op::from_u8(prog.insts[pc].op), Some(Op::Match)))
-}
-
-/// chunk 8.6a — true iff re-closing `set` under an at-end ctx
-/// (`is_text_end = true`) reaches an [`Op::Match`] PC. Used at build
-/// time to populate `DfaState::is_accept_at_end`; executor consults
-/// the flag after the byte walk so `Op::AnchorE` (`$`) can fire at
-/// the haystack end.
-///
-/// chunk 8.6b — the at-end ctx now uses the state's left-byte attr
-/// (instead of always `None`) and the compiled `mflag`. This lets
-/// WBound resolve under `(left = attr, right = None / non-word)` so
-/// patterns like `/\w$/` accept iff the live state's incoming byte
-/// was word-class. mflag `Op::AnchorB` after `\n` doesn't trigger
-/// here (the at-end check is about `$` / AnchorE, not `^`); but mflag
-/// `AnchorE` *before* `\n` is folded in by the closure's right=None
-/// path (right=None == non-word in `at_word_boundary`).
-fn pc_set_is_accept_at_end(
-    prog: &Program,
-    set: &BTreeSet<usize>,
-    attr: LeftByteAttr,
-    mflag: bool,
-) -> bool {
-    let seeds: Vec<usize> = set.iter().copied().collect();
-    let at_end_ctx = PositionCtx {
-        left_byte: attr_to_left_byte(attr),
-        is_text_start: matches!(attr, LeftByteAttr::TextStart),
-        is_text_end: true,
-        mflag,
-    };
-    let closed = epsilon_closure_full(prog, &seeds, at_end_ctx, None);
-    pc_set_is_accept(prog, &closed)
-}
+use crate::program::Program;
 
 /// State-pool key: ready PCs (u_skip=0) + per-u_skip deferred PCs +
 /// LeftByteAttr. `deferred[i]` holds PCs that become ready in `i + 1`
@@ -109,6 +33,57 @@ type StateKey = (BTreeSet<usize>, [BTreeSet<usize>; 3], LeftByteAttr);
 /// sees the true left-byte class (the pool key may have folded attr
 /// onto `TextStart` for dedup when `needs_attr_split` is false).
 type WorkItem = (BTreeSet<usize>, [BTreeSet<usize>; 3], LeftByteAttr, u32);
+
+/// Round 3 Phase B sub-batch 4 attack #R-J v3 option A — compute the
+/// `PendingClass` triple for a `(ready, deferred)` state being interned.
+/// Pure-predicate analysis (does the ready set qualify as K-PROPERTY-
+/// shaped?) lives in [`crate::dfa::pending_class::classify_kproperty_shape`];
+/// this wrapper handles the side-effecting recursive `intern_state`
+/// for the yes_target state and assembles the final `PendingClass`.
+/// Returns `PendingClass::INERT` for any ready set the classifier
+/// rejects → caller falls back to the ordinary 256-way transitions
+/// path.
+#[allow(clippy::too_many_arguments)]
+fn compute_pending_class_for(
+    prog: &Program,
+    ready: &BTreeSet<usize>,
+    deferred: &[BTreeSet<usize>; 3],
+    attr: LeftByteAttr,
+    mflag: bool,
+    needs_attr_split: bool,
+    flags: u8,
+    states: &mut Vec<DfaState>,
+    set_to_idx: &mut BTreeMap<StateKey, u32>,
+    work: &mut Vec<WorkItem>,
+) -> PendingClass {
+    let Some(shape) = classify_kproperty_shape(prog, ready, deferred, flags) else {
+        return PendingClass::INERT;
+    };
+    // Compute yes_target = ε-closure(union of pc + 1 per K-PROPERTY
+    // pc) and intern recursively. The recursive intern may push
+    // additional states; that's fine — they fill the states vec at
+    // indices < the pending state we are about to push.
+    let post_ready = epsilon_closure_with_ctx(prog, &shape.yes_seeds, ctx_for(attr, mflag));
+    let yes_target = intern_state(
+        prog,
+        post_ready,
+        Default::default(),
+        attr,
+        mflag,
+        needs_attr_split,
+        flags,
+        states,
+        set_to_idx,
+        work,
+    );
+    PendingClass {
+        active: 1,
+        _pad: 0,
+        class_idx: shape.class_idx,
+        yes_target,
+        no_target: 0, // dead — non-matching cp aborts the scan
+    }
+}
 
 /// Look up `(ready, deferred, attr)` in the BFS interning map; insert
 /// + enqueue a new DFA state if absent. States with empty ready and
@@ -126,6 +101,7 @@ fn intern_state(
     attr: LeftByteAttr,
     mflag: bool,
     needs_attr_split: bool,
+    flags: u8,
     states: &mut Vec<DfaState>,
     set_to_idx: &mut BTreeMap<StateKey, u32>,
     work: &mut Vec<WorkItem>,
@@ -149,39 +125,81 @@ fn intern_state(
         return i;
     }
     let (ready, deferred, _) = key;
+    // Round 3 Phase B sub-batch 4 attack #R-J v3 option A — reserve
+    // the state slot BEFORE computing pending_class so the recursive
+    // intern of yes_target can dedup against this very state. v3-A's
+    // K-PROPERTY-shaped multi-PC support introduces a self-referential
+    // cycle for the `/\p{L}+/u` loop-body state {3, 1, 2, 4} where
+    // yes_target = ε-closure({3}) = {3, 1, 2, 4} again. The placeholder
+    // INERT pending_class is patched in below after the recursive
+    // intern completes; the dedup map insert here ensures the cycle
+    // hits the cache instead of recursing forever.
     let i = states.len() as u32;
     states.push(DfaState {
         transitions: [0u32; 256],
         is_accept: pc_set_is_accept(prog, &ready),
         is_accept_at_end: pc_set_is_accept_at_end(prog, &ready, attr, mflag),
-        // Mask filled in by BFS when the state is dequeued.
+        // Mask filled in by BFS when the state is dequeued (skipped
+        // for pending K-PROPERTY states whose `pending_class.active`
+        // short-circuits the per-byte transitions path entirely).
         accept_before_byte: [0u32; 8],
+        // Placeholder — patched below once compute_pending_class_for
+        // returns. The recursive yes_target intern may dedup back to
+        // this state's index `i` while pending_class is still INERT;
+        // that's OK because the dedup hit short-circuits before the
+        // recursive caller ever reads pending_class, and we patch the
+        // field on `states[i]` before this function returns.
+        pending_class: PendingClass::INERT,
     });
     set_to_idx.insert((ready.clone(), deferred.clone(), effective_attr), i);
-    work.push((ready, deferred, attr, i));
-    i
-}
 
-/// chunk 8.6b — true iff the program (or any sub-program) emits any
-/// `Op::WBound` / `Op::NWBound`. Drives the state-pool key strategy
-/// in [`intern_state`]: programs with no `\b` / `\B` collapse
-/// LeftByteAttr down to `TextStart`, recovering the pre-8.6b state
-/// count (the attr field is a no-op for them).
-fn prog_uses_word_boundary(prog: &Program) -> bool {
-    fn scan(insts: &[crate::program::Inst]) -> bool {
-        insts
-            .iter()
-            .any(|ins| matches!(Op::from_u8(ins.op), Some(Op::WBound | Op::NWBound)))
+    // Round 3 Phase B sub-batch 4 attack #R-J v3 option A — compute
+    // the pending_class triple if the ready set is a "K-PROPERTY
+    // shape" set:
+    //
+    // - singleton {pc} where pc is K-PROPERTY (v2 case, e.g. start
+    //   state of `/\p{L}+/u`), or
+    // - multi-PC set where every byte-consuming PC is K-PROPERTY with
+    //   the SAME class_idx and every other PC is ε-only (Match /
+    //   Split / Jmp / Save / Anchor / WBound / NWBound — none consume
+    //   a byte under byte_step_full). This is the `+`/`*` Kleene
+    //   loop-body case like `{Split, Class[\p{L}], Match}` where all
+    //   non-Class PCs are reached only through ε-walks.
+    //
+    // The mid-match non-ASCII letter regression v2 §3.4.E surfaced
+    // was caused by v2 declining to emit pending_class for these
+    // multi-PC sets and falling back to byte_step_full's
+    // `class.test(byte)` ASCII-only path. v3 closes that gap. See
+    // `.claude/rfcs/20260624-uflag-100k-round3-path-a/spec-v2-25E-
+    // checkpoint-fail.md` for the full root cause.
+    let pending_class = compute_pending_class_for(
+        prog,
+        &ready,
+        &deferred,
+        attr,
+        mflag,
+        needs_attr_split,
+        flags,
+        states,
+        set_to_idx,
+        work,
+    );
+    // Patch the pending_class field on the reserved slot. Until here
+    // `states[i].pending_class == INERT` so any recursive dedup hit
+    // already returned `i` safely.
+    states[i as usize].pending_class = pending_class;
+
+    // Skip BFS enqueue for K-PROPERTY pending states — the executor
+    // short-circuits `transitions[byte]` via `pending_class.active`
+    // and the BFS would otherwise emit byte-level transitions over the
+    // class's ASCII bitmap that the executor never reads. Skipping the
+    // enqueue keeps `transitions` all-zero (the natural "dead" route
+    // for any byte the executor accidentally tries) and avoids
+    // spurious successor states in the pool.
+    if pending_class.active == 0 {
+        work.push((ready, deferred, attr, i));
     }
-    if scan(&prog.insts) {
-        return true;
-    }
-    for sub in prog.sub_progs.iter() {
-        if scan(&sub.insts) {
-            return true;
-        }
-    }
-    false
+    i
 }
 
 /// Subset-construction NFA → DFA builder (chunks 8.5/8.6a/8.6b/8.7/
@@ -213,15 +231,6 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
 
     let mflag = flags & crate::parser::RE_FLAG_M != 0;
 
-    fn ctx_for(attr: LeftByteAttr, mflag: bool) -> PositionCtx {
-        PositionCtx {
-            left_byte: attr_to_left_byte(attr),
-            is_text_start: matches!(attr, LeftByteAttr::TextStart),
-            is_text_end: false,
-            mflag,
-        }
-    }
-
     let mut work: Vec<WorkItem> = Vec::new();
 
     let needs_attr_split = prog_uses_word_boundary(prog);
@@ -238,6 +247,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         LeftByteAttr::TextStart,
         mflag,
         needs_attr_split,
+        flags,
         &mut states,
         &mut set_to_idx,
         &mut work,
@@ -251,6 +261,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         LeftByteAttr::Word,
         mflag,
         needs_attr_split,
+        flags,
         &mut states,
         &mut set_to_idx,
         &mut work,
@@ -265,6 +276,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         LeftByteAttr::NonWord,
         mflag,
         needs_attr_split,
+        flags,
         &mut states,
         &mut set_to_idx,
         &mut work,
@@ -368,6 +380,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                 next_attr,
                 mflag,
                 needs_attr_split,
+                flags,
                 &mut states,
                 &mut set_to_idx,
                 &mut work,

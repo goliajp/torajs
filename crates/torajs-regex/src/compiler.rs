@@ -37,7 +37,19 @@ pub fn compile(prog: &mut Program, node: &Node, flags: u8) {
         }
         NodeKind::Class => {
             let uflag = flags & RE_FLAG_U != 0;
-            if let Some(expansion) = expand_unsafe_class(&node.cc, uflag) {
+            // Round 3 Path A v2 — K-PROPERTY (pure-property u-flag
+            // classes: u_props set, no negate, no explicit non-ASCII
+            // bits) skip chunk-10d Alt-of-Concat expansion. The DFA
+            // build pre-emits a pending K-PROPERTY state whose executor
+            // handler decodes one UTF-8 cp per step and consults
+            // `class.test_cp(cp)`; the Pike VM second-pass cp-aware
+            // branch (`match_at.rs` lines 149-191) already handles the
+            // same class. K-NEG / K-EXPLICIT-BIT / K-MIXED still flow
+            // through `expand_unsafe_class` (chunk-10d byte-step).
+            if uflag && node.cc.is_uflag_property_only() {
+                let cidx = prog.intern_class(&node.cc);
+                prog.emit(Inst::class_ref(cidx));
+            } else if let Some(expansion) = expand_unsafe_class(&node.cc, uflag) {
                 compile(prog, &expansion, flags);
             } else {
                 let cidx = prog.intern_class(&node.cc);
@@ -421,13 +433,20 @@ mod tests {
     }
 
     #[test]
-    fn uflag_property_letter_expands_with_multi_length_groups() {
-        // `\p{L}u` covers ASCII letters (1-byte) plus UCD non-ASCII
-        // letters (2/3-byte), so the expansion produces Alt over at
-        // least two length groups → top of the emitted bytecode is
-        // a SPLIT (the Alt lowering).
+    fn uflag_property_letter_emits_single_op_class() {
+        // Round 3 Path A v2 — `\p{L}/u` is K-PROPERTY (u_props set, no
+        // negate, no explicit non-ASCII bits). Compiler emits a single
+        // `Op::Class` referencing the cp-range form; the DFA build
+        // pre-emits a pending K-PROPERTY state whose executor handler
+        // decodes one UTF-8 cp per step under u-flag. Was a SPLIT
+        // cascade from `utf8_class_expand` Alt-of-Concat (chunk-10d).
         let prog = compile_pattern_uflag("\\p{L}");
-        assert_eq!(prog.insts[0].op, Op::Split as u8);
-        assert!(prog.classes.iter().any(|c| c.byte_only));
+        assert_eq!(prog.insts[0].op, Op::Class as u8);
+        assert_eq!(prog.classes.len(), 1);
+        // K-PROPERTY class is NOT marked byte_only — the executor
+        // consults `test_cp(cp)`, not `test(byte)`.
+        assert!(!prog.classes[0].byte_only);
+        assert_ne!(prog.classes[0].u_props, 0);
+        assert!(prog.classes[0].is_uflag_property_only());
     }
 }

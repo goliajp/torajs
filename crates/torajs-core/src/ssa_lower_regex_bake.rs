@@ -76,8 +76,10 @@ pub(crate) fn try_bake_regex_dfa(
         return None;
     }
 
-    // ABI-locked: `DfaState` is `#[repr(C)]`, 1060 bytes on
-    // aarch64-apple-darwin. `dfa_state_repr_c_layout_locked` in
+    // ABI-locked: `DfaState` is `#[repr(C)]`, 1072 bytes on
+    // aarch64-apple-darwin (Round 3 Phase B sub-batch 4 attack #R-J v2,
+    // up from 1060 — 12-byte `PendingClass` triple appended for K-
+    // PROPERTY cp-step support). `dfa_state_repr_c_layout_locked` in
     // torajs-regex pins the layout — if it ever drifts the test
     // breaks before the byte emitter sees a corrupt payload. The
     // run-time reader reconstructs `&[DfaState]` from the same byte
@@ -132,8 +134,10 @@ mod tests {
         let e = &buf[0];
         assert_eq!(e.index, 0);
         assert!(e.states_len > 0);
-        // 1060 bytes / DfaState on aarch64-apple-darwin.
-        assert_eq!(e.states_payload.len(), e.states_len as usize * 1060);
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 — DfaState size
+        // 1060 → 1072 bytes (12-byte PendingClass triple appended) on
+        // aarch64-apple-darwin.
+        assert_eq!(e.states_payload.len(), e.states_len as usize * 1072);
     }
 
     #[test]
@@ -199,20 +203,23 @@ mod tests {
     }
 
     #[test]
-    fn uflag_pclass_eligible_large_payload() {
-        // Confirms the uflag-100k outlier path: the literal IS DFA-
-        // eligible (after utf8_class_expand rewrites \p{L} into a
-        // byte-level Alt), so try_bake_regex_dfa returns Some(idx).
-        // The payload is large (state count ~256 ≈ 25× of a plain
-        // \w+ pattern). The 10× run-time gap reported in Phase C is
-        // a dfa_search executor concern, not an ssa_lower gate
-        // miss — see docs/chunk-7.7-v2-step-12-c2-uflag-outlier.md.
+    fn uflag_pclass_eligible_small_payload() {
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 — K-PROPERTY now
+        // skips chunk-10d Alt-of-Concat expansion. The DFA build pre-
+        // emits a pending K-PROPERTY state with a fixed-size triple;
+        // the post-pending state holds the `+` Kleene loop body. The
+        // literal IS still DFA-eligible (just much smaller than the
+        // ~256 chunk-10d expansion), so `try_bake_regex_dfa` still
+        // returns `Some(idx)` and bakes a tiny payload (~4 states for
+        // `\p{L}+/u`). The closed gap is the central perf win.
         let mut buf = Vec::new();
         let idx = try_bake_regex_dfa(&mut buf, r"\p{L}+", "u");
         assert_eq!(idx, Some(0));
         assert!(
-            buf[0].states_len >= 50,
-            "uflag \\p{{L}}+ should expand to many DFA states, got {}",
+            buf[0].states_len > 0 && buf[0].states_len <= 10,
+            "uflag \\p{{L}}+ should collapse to ≤ 10 DFA states with \
+             Path A v2 (single pending K-PROPERTY state + post-pending \
+             loop), got {}",
             buf[0].states_len
         );
     }
@@ -221,9 +228,16 @@ mod tests {
     /// regex-dfa-* fixtures (mini, host benchmark @ 171d1226 vs
     /// bun-aot 1.3.14). Locked here so future polish of the byte-
     /// step executor can A/B-compare without manually rebuilding
-    /// each pattern's DFA. `assert!` only on the well-bounded
-    /// ratios (uflag vs anchored ≥ 10×) so chunk-10d minor
-    /// state-count drift doesn't break the test.
+    /// each pattern's DFA.
+    ///
+    /// Round 3 Phase B sub-batch 4 attack #R-J v2 — the assertion
+    /// direction inverts: uflag's chunk-10d Alt-of-Concat expansion
+    /// is replaced by a fixed-size pending K-PROPERTY state, so
+    /// uflag's state count is now SMALLER (was ≥10× anchored, now
+    /// ≤3× anchored). Bumping back to ≥10× would mean Path A
+    /// reverted; checking ≤3× catches both that and any future
+    /// regression that re-introduces chunk-10d expansion for
+    /// K-PROPERTY classes.
     #[test]
     fn ground_truth_states_len_per_fixture() {
         let fixtures = [
@@ -242,15 +256,15 @@ mod tests {
             assert_eq!(idx, Some(0), "{name} ({pat}, {fl}) should be eligible");
             counts.push((name, buf[0].states_len));
         }
-        // uflag's state count must be much larger than the other
-        // six (utf8_class_expand evidence). 10× lower bound mirrors
-        // the run-time gap reported in Phase C.
         let uflag_count = counts.last().unwrap().1;
         let anchored_count = counts[0].1;
         assert!(
-            uflag_count >= anchored_count * 10,
-            "uflag should have ≥10× the states of anchored — got \
-             uflag={uflag_count}, anchored={anchored_count}",
+            uflag_count <= anchored_count * 3,
+            "Round 3 Path A v2 — uflag K-PROPERTY now skips chunk-10d \
+             Alt-of-Concat expansion; state count drops to within 3× \
+             of anchored. Got uflag={uflag_count}, \
+             anchored={anchored_count}. A regression to ≥10× would \
+             mean Path A reverted.",
         );
     }
 }

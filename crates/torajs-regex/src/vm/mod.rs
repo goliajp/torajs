@@ -458,7 +458,7 @@ pub fn search_from_with_ws(
             // work; jump straight into `dfa_search` at `dfa.start`.
             // For `/\p{L}+/u`-style fixtures this saves ~12 ns/iter.
             let hit = if dfa.all_starts_equal {
-                crate::dfa::dfa_search(dfa, hay_suffix)
+                crate::dfa::dfa_search(dfa, prog, hay_suffix)
             } else {
                 // chunk 8.6b — when not at a line-start, pick the mid
                 // entry whose `LeftByteAttr` matches `s[st-1]`'s class
@@ -471,14 +471,14 @@ pub fn search_from_with_ws(
                         && st > 0
                         && s[(st - 1) as usize] == b'\n');
                 if at_line_start {
-                    crate::dfa::dfa_search(dfa, hay_suffix)
+                    crate::dfa::dfa_search(dfa, prog, hay_suffix)
                 } else {
                     let prev = s[(st - 1) as usize];
                     let prev_is_word = prev.is_ascii_alphanumeric() || prev == b'_';
                     if prev_is_word {
-                        crate::dfa::dfa_search_mid_word(dfa, hay_suffix)
+                        crate::dfa::dfa_search_mid_word(dfa, prog, hay_suffix)
                     } else {
-                        crate::dfa::dfa_search_mid_nonword(dfa, hay_suffix)
+                        crate::dfa::dfa_search_mid_nonword(dfa, prog, hay_suffix)
                     }
                 }
             };

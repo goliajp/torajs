@@ -65,10 +65,13 @@ pub mod ctx;
 pub use ctx::{PositionCtx, epsilon_closure_full, epsilon_closure_with_ctx};
 
 mod build;
+mod build_helpers;
+mod pending_class;
 mod search;
 mod step;
 
 pub use build::build_dfa;
+pub use pending_class::PendingClass;
 pub use search::{
     BakedDfaMeta, DfaProgram, DfaState, DfaStates, dfa_search, dfa_search_mid,
     dfa_search_mid_nonword, dfa_search_mid_word,
@@ -961,87 +964,93 @@ mod tests {
 
     // dfa_search tests — anchored leftmost-longest driver.
 
-    fn build_dfa_for(insts: &[Inst]) -> DfaProgram {
+    /// Round 3 Phase B sub-batch 4 attack #R-J v2 — `dfa_search` now
+    /// takes `prog: &Program` to look up K-PROPERTY class tables. This
+    /// helper used to discard `prog` after `build_dfa`; it now returns
+    /// the `(Program, DfaProgram)` pair so callers can pass `&prog`
+    /// to `dfa_search` / `dfa_search_mid*`.
+    fn build_dfa_for(insts: &[Inst]) -> (Program, DfaProgram) {
         let mut prog = Program::new();
         for ins in insts {
             prog.emit(*ins);
         }
-        build_dfa(&prog, 0)
+        let dfa = build_dfa(&prog, 0);
+        (prog, dfa)
     }
 
     #[test]
     fn dfa_search_literal_matches_at_exact_length() {
         // 0: CHAR a; 1: CHAR b; 2: CHAR c; 3: MATCH
-        let dfa = build_dfa_for(&[
+        let (prog, dfa) = build_dfa_for(&[
             Inst::char_lit(b'a'),
             Inst::char_lit(b'b'),
             Inst::char_lit(b'c'),
             Inst::match_accept(),
         ]);
-        assert_eq!(dfa_search(&dfa, b"abc"), Some(3));
-        assert_eq!(dfa_search(&dfa, b"abcd"), Some(3)); // trailing byte ignored
+        assert_eq!(dfa_search(&dfa, &prog, b"abc"), Some(3));
+        assert_eq!(dfa_search(&dfa, &prog, b"abcd"), Some(3)); // trailing byte ignored
     }
 
     #[test]
     fn dfa_search_literal_misses_on_first_byte_mismatch() {
-        let dfa = build_dfa_for(&[Inst::char_lit(b'a'), Inst::match_accept()]);
-        assert_eq!(dfa_search(&dfa, b"b"), None);
-        assert_eq!(dfa_search(&dfa, b""), None);
+        let (prog, dfa) = build_dfa_for(&[Inst::char_lit(b'a'), Inst::match_accept()]);
+        assert_eq!(dfa_search(&dfa, &prog, b"b"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b""), None);
     }
 
     #[test]
     fn dfa_search_match_only_accepts_empty() {
-        let dfa = build_dfa_for(&[Inst::match_accept()]);
-        assert_eq!(dfa_search(&dfa, b""), Some(0));
+        let (prog, dfa) = build_dfa_for(&[Inst::match_accept()]);
+        assert_eq!(dfa_search(&dfa, &prog, b""), Some(0));
         // accepts empty prefix even with trailing bytes — dead-state
         // halts the walk but the seeded `Some(0)` survives.
-        assert_eq!(dfa_search(&dfa, b"anything"), Some(0));
+        assert_eq!(dfa_search(&dfa, &prog, b"anything"), Some(0));
     }
 
     #[test]
     fn dfa_search_kleene_star_matches_empty_and_extends() {
         // a*: 0: SPLIT 1, 3; 1: CHAR a; 2: JMP 0; 3: MATCH
-        let dfa = build_dfa_for(&[
+        let (prog, dfa) = build_dfa_for(&[
             Inst::split(1, 3),
             Inst::char_lit(b'a'),
             Inst::jmp(0),
             Inst::match_accept(),
         ]);
-        assert_eq!(dfa_search(&dfa, b""), Some(0));
-        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
-        assert_eq!(dfa_search(&dfa, b"aaaa"), Some(4));
+        assert_eq!(dfa_search(&dfa, &prog, b""), Some(0));
+        assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"aaaa"), Some(4));
         // hits dead on 'b' after consuming a's, returns longest seen.
-        assert_eq!(dfa_search(&dfa, b"aab"), Some(2));
-        assert_eq!(dfa_search(&dfa, b"b"), Some(0));
+        assert_eq!(dfa_search(&dfa, &prog, b"aab"), Some(2));
+        assert_eq!(dfa_search(&dfa, &prog, b"b"), Some(0));
     }
 
     #[test]
     fn dfa_search_kleene_plus_requires_one_byte() {
         // a+: 0: CHAR a; 1: SPLIT 0, 2; 2: MATCH
-        let dfa = build_dfa_for(&[
+        let (prog, dfa) = build_dfa_for(&[
             Inst::char_lit(b'a'),
             Inst::split(0, 2),
             Inst::match_accept(),
         ]);
-        assert_eq!(dfa_search(&dfa, b""), None);
-        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
-        assert_eq!(dfa_search(&dfa, b"aaaa"), Some(4));
-        assert_eq!(dfa_search(&dfa, b"b"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b""), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"aaaa"), Some(4));
+        assert_eq!(dfa_search(&dfa, &prog, b"b"), None);
     }
 
     #[test]
     fn dfa_search_alternation_takes_either_branch() {
         // 0: SPLIT 1, 3; 1: CHAR a; 2: MATCH; 3: CHAR b; 4: MATCH
-        let dfa = build_dfa_for(&[
+        let (prog, dfa) = build_dfa_for(&[
             Inst::split(1, 3),
             Inst::char_lit(b'a'),
             Inst::match_accept(),
             Inst::char_lit(b'b'),
             Inst::match_accept(),
         ]);
-        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
-        assert_eq!(dfa_search(&dfa, b"b"), Some(1));
-        assert_eq!(dfa_search(&dfa, b"c"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"b"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"c"), None);
     }
 
     #[test]
@@ -1049,34 +1058,34 @@ mod tests {
         // a*b: 0: SPLIT 1, 3; 1: CHAR a; 2: JMP 0; 3: CHAR b; 4: MATCH
         // Start does not accept (no MATCH in ε-closure of {0,1,3}).
         // 'aaab' should match 4 bytes.
-        let dfa = build_dfa_for(&[
+        let (prog, dfa) = build_dfa_for(&[
             Inst::split(1, 3),
             Inst::char_lit(b'a'),
             Inst::jmp(0),
             Inst::char_lit(b'b'),
             Inst::match_accept(),
         ]);
-        assert_eq!(dfa_search(&dfa, b"b"), Some(1));
-        assert_eq!(dfa_search(&dfa, b"ab"), Some(2));
-        assert_eq!(dfa_search(&dfa, b"aaab"), Some(4));
+        assert_eq!(dfa_search(&dfa, &prog, b"b"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"ab"), Some(2));
+        assert_eq!(dfa_search(&dfa, &prog, b"aaab"), Some(4));
         // No 'b' tail → no match (the executor is anchored leftmost-longest,
         // doesn't yet retry suffixes — that's the search-from-position chunk).
-        assert_eq!(dfa_search(&dfa, b"aaa"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"aaa"), None);
     }
 
     #[test]
     fn dfa_search_dead_state_short_circuits_after_miss() {
         // Pattern `ab`: walking "ac…" should stop at index 1 (state hits
         // dead) and return None regardless of tail content.
-        let dfa = build_dfa_for(&[
+        let (prog, dfa) = build_dfa_for(&[
             Inst::char_lit(b'a'),
             Inst::char_lit(b'b'),
             Inst::match_accept(),
         ]);
         // Even with a megabyte of garbage, the executor only reads up to
         // the first mismatch — but we just sanity-check the answer.
-        assert_eq!(dfa_search(&dfa, b"ac"), None);
-        assert_eq!(dfa_search(&dfa, b"axxxxxxxxxx"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"ac"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"axxxxxxxxxx"), None);
     }
 
     #[test]
@@ -1090,26 +1099,26 @@ mod tests {
         prog.emit(Inst::split(0, 2));
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, 0);
-        assert_eq!(dfa_search(&dfa, b"42"), Some(2));
-        assert_eq!(dfa_search(&dfa, b"42x"), Some(2));
-        assert_eq!(dfa_search(&dfa, b"x"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"42"), Some(2));
+        assert_eq!(dfa_search(&dfa, &prog, b"42x"), Some(2));
+        assert_eq!(dfa_search(&dfa, &prog, b"x"), None);
     }
 
     #[test]
     fn dfa_search_anychar_consumes_exactly_one_byte() {
         // 0: ANY; 1: MATCH — chunk 10a `.` excludes `\n` without `s`.
-        let dfa = build_dfa_for(&[Inst::simple(Op::AnyChar), Inst::match_accept()]);
+        let (prog, dfa) = build_dfa_for(&[Inst::simple(Op::AnyChar), Inst::match_accept()]);
         // Start does not accept (no MATCH in {0}); first non-`\n` byte
         // takes us to an accepting state — match length 1.
-        assert_eq!(dfa_search(&dfa, b""), None);
-        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b""), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
         // `\n` is the one byte `.` rejects without the `s` flag.
-        assert_eq!(dfa_search(&dfa, b"\n"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"\n"), None);
         // After the accept, the DFA stays in an accepting state for one
         // more byte (the build queues the post-accept set), so longer
         // input still reports the longest accepting position — which is
         // length 1 because the post-accept set has no further MATCH.
-        assert_eq!(dfa_search(&dfa, b"ab"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"ab"), Some(1));
     }
 
     #[test]
@@ -1119,8 +1128,8 @@ mod tests {
         prog.emit(Inst::simple(Op::AnyChar));
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, crate::parser::RE_FLAG_S);
-        assert_eq!(dfa_search(&dfa, b"\n"), Some(1));
-        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"\n"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
     }
 
     // chunk 8.5 — position-aware build_dfa with `start` / `start_mid`.
@@ -1132,7 +1141,7 @@ mod tests {
         // Plain `a` — no AnchorB, so the text_start=true and
         // text_start=false closures coincide; the dedup map collapses
         // them to the same DFA state.
-        let dfa = build_dfa_for(&[Inst::char_lit(b'a'), Inst::match_accept()]);
+        let (_prog, dfa) = build_dfa_for(&[Inst::char_lit(b'a'), Inst::match_accept()]);
         assert_eq!(dfa.start, dfa.start_mid);
         assert_ne!(dfa.start, 0);
     }
@@ -1172,9 +1181,9 @@ mod tests {
         let dfa = build_dfa(&prog, 0);
         // anchored entry: `^abc` matches the start of "abc..." and
         // returns the match length (3 bytes consumed past anchor).
-        assert_eq!(dfa_search(&dfa, b"abc"), Some(3));
-        assert_eq!(dfa_search(&dfa, b"abcdef"), Some(3));
-        assert_eq!(dfa_search(&dfa, b"xabc"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"abc"), Some(3));
+        assert_eq!(dfa_search(&dfa, &prog, b"abcdef"), Some(3));
+        assert_eq!(dfa_search(&dfa, &prog, b"xabc"), None);
     }
 
     #[test]
@@ -1188,16 +1197,16 @@ mod tests {
         prog.emit(Inst::char_lit(b'c'));
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, 0);
-        assert_eq!(dfa_search_mid(&dfa, b"abc"), None);
-        assert_eq!(dfa_search_mid(&dfa, b"abcdef"), None);
-        assert_eq!(dfa_search_mid(&dfa, b""), None);
+        assert_eq!(dfa_search_mid(&dfa, &prog, b"abc"), None);
+        assert_eq!(dfa_search_mid(&dfa, &prog, b"abcdef"), None);
+        assert_eq!(dfa_search_mid(&dfa, &prog, b""), None);
     }
 
     #[test]
     fn dfa_search_pattern_without_anchor_both_entries_equivalent() {
         // Plain `abc` — start and start_mid coincide, so both entries
         // return identical results.
-        let dfa = build_dfa_for(&[
+        let (prog, dfa) = build_dfa_for(&[
             Inst::char_lit(b'a'),
             Inst::char_lit(b'b'),
             Inst::char_lit(b'c'),
@@ -1205,8 +1214,8 @@ mod tests {
         ]);
         for hay in [&b""[..], b"abc", b"abcd", b"axc"] {
             assert_eq!(
-                dfa_search(&dfa, hay),
-                dfa_search_mid(&dfa, hay),
+                dfa_search(&dfa, &prog, hay),
+                dfa_search_mid(&dfa, &prog, hay),
                 "hay={hay:?}"
             );
         }
@@ -1228,11 +1237,11 @@ mod tests {
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, 0);
         assert_ne!(dfa.start, dfa.start_mid);
-        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
-        assert_eq!(dfa_search(&dfa, b"b"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"b"), Some(1));
         // From start_mid, 'a' branch is dead — only 'b' matches.
-        assert_eq!(dfa_search_mid(&dfa, b"a"), None);
-        assert_eq!(dfa_search_mid(&dfa, b"b"), Some(1));
+        assert_eq!(dfa_search_mid(&dfa, &prog, b"a"), None);
+        assert_eq!(dfa_search_mid(&dfa, &prog, b"b"), Some(1));
     }
 
     #[test]
@@ -1248,10 +1257,10 @@ mod tests {
         let dfa = build_dfa(&prog, 0);
         assert!(dfa.states[dfa.start as usize].is_accept);
         assert!(!dfa.states[dfa.start_mid as usize].is_accept);
-        assert_eq!(dfa_search(&dfa, b""), Some(0));
-        assert_eq!(dfa_search(&dfa, b"x"), Some(0));
-        assert_eq!(dfa_search_mid(&dfa, b""), None);
-        assert_eq!(dfa_search_mid(&dfa, b"x"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b""), Some(0));
+        assert_eq!(dfa_search(&dfa, &prog, b"x"), Some(0));
+        assert_eq!(dfa_search_mid(&dfa, &prog, b""), None);
+        assert_eq!(dfa_search_mid(&dfa, &prog, b"x"), None);
     }
 
     #[test]
@@ -1286,14 +1295,14 @@ mod tests {
         assert!(prog_ops_dfa_safe(&prog));
         let dfa = build_dfa(&prog, 0);
         // Standalone "a": consume one byte, then at-end accept.
-        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
         // "ab": consume `a`, then byte `b` lives in a state whose
         // PC set has the Match-after-AnchorE reachable only at end —
         // but the haystack has not ended, so no accept here either.
-        assert_eq!(dfa_search(&dfa, b"ab"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"ab"), None);
         // Empty hay: start state has no path to Match via at-end
         // closure (the `Op::Char` is still required).
-        assert_eq!(dfa_search(&dfa, b""), None);
+        assert_eq!(dfa_search(&dfa, &prog, b""), None);
     }
 
     #[test]
@@ -1312,13 +1321,13 @@ mod tests {
         let dfa = build_dfa(&prog, 0);
         // Anchored at text-start: left=None (non-word), right='f'
         // (word) → boundary → match "foo".
-        assert_eq!(dfa_search(&dfa, b"foo"), Some(3));
+        assert_eq!(dfa_search(&dfa, &prog, b"foo"), Some(3));
         // Mid-nonword entry: left=NonWord, right='f' (word) →
         // boundary → match.
-        assert_eq!(dfa_search_mid_nonword(&dfa, b"foo"), Some(3));
+        assert_eq!(dfa_search_mid_nonword(&dfa, &prog, b"foo"), Some(3));
         // Mid-word entry: left=Word, right='f' (word) → no boundary
         // → no match at offset 0.
-        assert_eq!(dfa_search_mid_word(&dfa, b"foo"), None);
+        assert_eq!(dfa_search_mid_word(&dfa, &prog, b"foo"), None);
     }
 
     #[test]
@@ -1334,11 +1343,11 @@ mod tests {
         prog.emit(Inst::match_accept());
         assert!(prog_ops_dfa_safe(&prog));
         let dfa = build_dfa(&prog, 0);
-        assert_eq!(dfa_search(&dfa, b"foo"), None);
-        assert_eq!(dfa_search_mid_nonword(&dfa, b"foo"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"foo"), None);
+        assert_eq!(dfa_search_mid_nonword(&dfa, &prog, b"foo"), None);
         // Mid-word entry: left=Word, right='f' (word) — no boundary,
         // NWBound advances → match.
-        assert_eq!(dfa_search_mid_word(&dfa, b"foo"), Some(3));
+        assert_eq!(dfa_search_mid_word(&dfa, &prog, b"foo"), Some(3));
     }
 
     #[test]
@@ -1355,12 +1364,12 @@ mod tests {
         assert!(prog_ops_dfa_safe(&prog));
         let dfa = build_dfa(&prog, 0);
         // Empty hay: start state's at-end closure reaches Match.
-        assert_eq!(dfa_search(&dfa, b""), Some(0));
+        assert_eq!(dfa_search(&dfa, &prog, b""), Some(0));
         // Non-empty hay: anchored DFA can't `consume` the byte (no
         // Char/AnyChar in the program), state goes dead → None.
         // The outer `search_from` is what runs dfa_search again at
         // `st=hay.len()` to find the zero-width end accept.
-        assert_eq!(dfa_search(&dfa, b"x"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"x"), None);
     }
 
     #[test]
@@ -1380,10 +1389,10 @@ mod tests {
         let dfa = build_dfa(&prog, 0);
         // Start state is not accept (need to consume `a` first).
         assert!(!dfa.states[dfa.start as usize].is_accept);
-        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
-        assert_eq!(dfa_search(&dfa, b"axyz"), Some(1));
-        assert_eq!(dfa_search(&dfa, b""), None);
-        assert_eq!(dfa_search(&dfa, b"x"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"axyz"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b""), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"x"), None);
     }
 
     // chunk 8.7 — ASCII case-fold under `RE_FLAG_I`. `byte_step` and
@@ -1449,11 +1458,11 @@ mod tests {
             b"aBC",
             b"ABc",
         ] {
-            assert_eq!(dfa_search(&dfa, hay), Some(3), "hay={hay:?}");
+            assert_eq!(dfa_search(&dfa, &prog, hay), Some(3), "hay={hay:?}");
         }
         // Non-alpha mismatch still misses.
-        assert_eq!(dfa_search(&dfa, b"axc"), None);
-        assert_eq!(dfa_search(&dfa, b"abd"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"axc"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"abd"), None);
     }
 
     #[test]
@@ -1465,9 +1474,9 @@ mod tests {
         prog.emit(Inst::char_lit(b'c'));
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, 0);
-        assert_eq!(dfa_search(&dfa, b"abc"), Some(3));
-        assert_eq!(dfa_search(&dfa, b"ABC"), None);
-        assert_eq!(dfa_search(&dfa, b"Abc"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"abc"), Some(3));
+        assert_eq!(dfa_search(&dfa, &prog, b"ABC"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"Abc"), None);
     }
 
     #[test]
@@ -1481,10 +1490,10 @@ mod tests {
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, RE_FLAG_I);
         for hay in [&b"a"[..], b"z", b"M", b"Z"] {
-            assert_eq!(dfa_search(&dfa, hay), Some(1), "hay={hay:?}");
+            assert_eq!(dfa_search(&dfa, &prog, hay), Some(1), "hay={hay:?}");
         }
         // Digits stay outside the (folded) class.
-        assert_eq!(dfa_search(&dfa, b"7"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"7"), None);
     }
 
     // chunk 8.8 — `RE_FLAG_M` multiline `^`. `build_dfa` threads
@@ -1629,15 +1638,15 @@ mod tests {
         let dfa = build_dfa(&prog, u);
         // 😀 = U+1F600 = F0 9F 98 80 (4 bytes).
         let smile: &[u8] = b"\xF0\x9F\x98\x80";
-        assert_eq!(dfa_search(&dfa, smile), Some(4));
+        assert_eq!(dfa_search(&dfa, &prog, smile), Some(4));
         // ASCII "a" — 1 byte cp, also matches.
-        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
         // Two cps — `^.$` doesn't match.
-        assert_eq!(dfa_search(&dfa, b"ab"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b"ab"), None);
         // 4-byte cp followed by extra ASCII — `$` fails after cp end.
         let mut smile_plus = smile.to_vec();
         smile_plus.push(b'x');
-        assert_eq!(dfa_search(&dfa, &smile_plus), None);
+        assert_eq!(dfa_search(&dfa, &prog, &smile_plus), None);
     }
 
     #[test]
@@ -1650,7 +1659,7 @@ mod tests {
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
         let omega: &[u8] = b"\xCE\xA9";
-        assert_eq!(dfa_search(&dfa, omega), Some(2));
+        assert_eq!(dfa_search(&dfa, &prog, omega), Some(2));
     }
 
     #[test]
@@ -1665,6 +1674,250 @@ mod tests {
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
         let truncated: &[u8] = b"\xE6\x88"; // first 2 of 3 bytes
-        assert_eq!(dfa_search(&dfa, truncated), None);
+        assert_eq!(dfa_search(&dfa, &prog, truncated), None);
+    }
+
+    // -------------------------------------------------------------------
+    // Round 3 Phase B sub-batch 4 attack #R-J v2 (§2.5.E)
+    //
+    // K-PROPERTY pending-class executor handler tests. Compile-time
+    // entry: `compile_uflag_pattern` builds a Program with K-PROPERTY
+    // routing (no chunk-10d expansion); `build_dfa(..., RE_FLAG_U)`
+    // emits the pending state. The state-count checkpoint
+    // (`path_a_v2_letter_state_count_bound`) is the §3.4.E v2 STOP
+    // gate — if it fails (> 10 states for `\p{L}+/u`), the §2.5.E
+    // mechanism is unsound and the impl must NOT proceed to bench /
+    // conformance.
+    // -------------------------------------------------------------------
+
+    fn compile_uflag_pattern(pat: &str) -> Program {
+        use crate::compiler::compile;
+        use crate::parser::Parser;
+        use crate::resolve::resolve_backrefs;
+        let flags = crate::parser::RE_FLAG_U;
+        let mut p = Parser::new(pat.as_bytes(), flags);
+        let mut root = p.parse().expect("Path A v2 test pattern must parse");
+        let names = p.names.clone();
+        resolve_backrefs(&mut root, &names, p.n_captures);
+        let mut prog = Program::new();
+        compile(&mut prog, &root, flags);
+        prog.emit(Inst::match_accept());
+        prog
+    }
+
+    /// §4.3 test A — `\p{L}/u` (no `+`) compiles to a single Op::Class.
+    #[test]
+    fn path_a_v2_property_letter_compiles_to_single_op_class() {
+        let prog = compile_uflag_pattern("\\p{L}");
+        // [Op::Class, Op::Match]
+        assert_eq!(prog.insts.len(), 2);
+        assert_eq!(prog.insts[0].op, Op::Class as u8);
+        assert_eq!(prog.insts[1].op, Op::Match as u8);
+        assert_eq!(prog.classes.len(), 1);
+        assert!(prog.classes[0].is_uflag_property_only());
+    }
+
+    /// §4.3 test B — §3.4.E v2 STOP gate. `\p{L}+/u` must yield ≤ 10
+    /// DFA states (expected actual: 4-5). If this fails, the v2 §2.5.E
+    /// mechanism is unsound — impl must NOT proceed to bench/conformance
+    /// and must surface to main session for redesign.
+    #[test]
+    fn path_a_v2_letter_state_count_bound() {
+        let prog = compile_uflag_pattern("\\p{L}+");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        let n = dfa.states.len();
+        assert!(
+            n <= 10,
+            "Path A v2 §3.4.E — \\p{{L}}+/u should yield ≤ 10 DFA \
+             states (expected 4-5), got {n}. If > 10, the v2 §2.5.E \
+             pending_class mechanism is unsound — STOP commit.",
+        );
+    }
+
+    /// §4.3 test C — ASCII letters accepted via the K-PROPERTY pending
+    /// handler. Start state is pending(\p{L}); first ASCII byte goes
+    /// through the cp handler with utf8_len=1 → matches → yes_target.
+    #[test]
+    fn path_a_v2_property_letter_matches_ascii() {
+        let prog = compile_uflag_pattern("\\p{L}+");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        assert_eq!(dfa_search(&dfa, &prog, b"Hello"), Some(5));
+        // "abc123" — stops at '1' which is K-NUMBER not K-LETTER.
+        assert_eq!(dfa_search(&dfa, &prog, b"abc123"), Some(3));
+        // Pure digits — first char already a miss → None.
+        assert_eq!(dfa_search(&dfa, &prog, b"123"), None);
+        assert_eq!(dfa_search(&dfa, &prog, b""), None);
+    }
+
+    /// §4.3 test D — non-ASCII letters accepted via multi-byte UTF-8
+    /// decoding in the pending handler. Greek α (U+03B1 = 0xCE 0xB1)
+    /// and CJK 中 (U+4E2D = 0xE4 0xB8 0xAD) are both K-LETTER cps.
+    #[test]
+    fn path_a_v2_property_letter_matches_non_ascii_first_cp() {
+        let prog = compile_uflag_pattern("\\p{L}+");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        // Greek α + non-letter '!' — pending handler consumes the
+        // 2-byte cp, then post-pending byte-step on '!' dies. Match
+        // length = 2 bytes (one cp).
+        assert_eq!(dfa_search(&dfa, &prog, &[0xCE, 0xB1, b'!']), Some(2));
+        // CJK 中 — 3-byte cp, single iteration. Match length = 3.
+        assert_eq!(dfa_search(&dfa, &prog, &[0xE4, 0xB8, 0xAD, b'!']), Some(3));
+    }
+
+    /// §4.3 test E — non-letters rejected (cp-miss routes to no_target
+    /// = dead). `'5'` (ASCII digit, not K-LETTER) and Arabic-Indic 4
+    /// (U+0664, K-NUMBER but not K-LETTER) both miss.
+    #[test]
+    fn path_a_v2_property_letter_rejects_non_letters() {
+        let prog = compile_uflag_pattern("\\p{L}+");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        assert_eq!(dfa_search(&dfa, &prog, b"5!"), None);
+        // Arabic-Indic 4 (0xD9 0xA4) — K-NUMBER, not K-LETTER.
+        assert_eq!(dfa_search(&dfa, &prog, &[0xD9, 0xA4]), None);
+    }
+
+    /// §4.3 test F.1 — invalid UTF-8 lead byte (0xFF) routes to dead
+    /// via the executor's `_ => return no_target` arm.
+    #[test]
+    fn path_a_v2_invalid_lead_drops_to_dead() {
+        let prog = compile_uflag_pattern("\\p{L}+");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        // 0xFF is an invalid UTF-8 lead → no_target = dead → None.
+        assert_eq!(dfa_search(&dfa, &prog, &[0xFF]), None);
+    }
+
+    /// §4.3 test F.2 — truncated multi-byte sequence at hay end. Lead
+    /// 0xE4 expects 3 total bytes; only 2 given → no_target = dead.
+    #[test]
+    fn path_a_v2_truncated_sequence_drops_to_dead() {
+        let prog = compile_uflag_pattern("\\p{L}+");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        assert_eq!(dfa_search(&dfa, &prog, &[0xE4, 0xB8]), None);
+        // Lone continuation byte 0xBF — invalid lead path.
+        assert_eq!(dfa_search(&dfa, &prog, &[0xBF]), None);
+    }
+
+    /// §4.3 test F.3 — invalid continuation byte. Lead 0xCE (2-byte
+    /// lead) followed by another lead 0xCE (NOT a valid continuation
+    /// `0x80..=0xBF`) → cp-miss → no_target.
+    #[test]
+    fn path_a_v2_invalid_continuation_drops_to_dead() {
+        let prog = compile_uflag_pattern("\\p{L}+");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        assert_eq!(dfa_search(&dfa, &prog, &[0xCE, 0xCE]), None);
+    }
+
+    /// §4.3 test G — cp-boundary edge: 2-byte plane minimum letter
+    /// U+00C0 (À) = 0xC3 0x80. 4-byte plane Linear B Aa (U+10000) is
+    /// outside curated UCD_LETTER → reject.
+    #[test]
+    fn path_a_v2_cp_boundary_decoding() {
+        let prog = compile_uflag_pattern("\\p{L}+");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        // U+00C0 À — 2-byte K-LETTER → match.
+        assert_eq!(dfa_search(&dfa, &prog, &[0xC3, 0x80]), Some(2));
+        // U+10000 Linear B Aa — 4-byte cp, outside curated UCD_LETTER
+        // → reject (handler decodes cp + class.test_cp(cp) returns
+        // false).
+        assert_eq!(dfa_search(&dfa, &prog, &[0xF0, 0x90, 0x80, 0x80]), None);
+    }
+
+    /// §4.3 test I — nested K-PROPERTY under repeat
+    /// (`(?:\p{L}+){2,}`). Must compile + match without state-count
+    /// explosion. Risk R4 mitigation.
+    #[test]
+    fn path_a_v2_nested_kproperty_under_repeat() {
+        let prog = compile_uflag_pattern("(?:\\p{L}+){2,}");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        let n = dfa.states.len();
+        assert!(
+            n <= 20,
+            "Path A v2 — nested K-PROPERTY under repeat state count: \
+             {n} (≤ 20 expected)"
+        );
+        // Match the first \p{L}+ — second iteration of {2,} can match
+        // against the same letters (no space between iterations
+        // required since (?:X+){2,} ≡ X+).
+        assert_eq!(dfa_search(&dfa, &prog, b"abc def"), Some(3));
+    }
+
+    /// Round 3 Phase B sub-batch 4 attack #R-J v3 option A — mid-match
+    /// non-ASCII letter correctness. Under v2 (singleton-only pending
+    /// detection) the post-pending state {1, 2, 4} fell back to
+    /// `byte_step_full`'s ASCII-only `class.test(byte)`, silently
+    /// dropping every non-ASCII cp after position 0. v3-A extends
+    /// `compute_pending_class_for` to also handle multi-PC sets where
+    /// every byte-consuming PC is the same K-PROPERTY class, so the
+    /// loop-body state's pending_class drives the cp handler on EVERY
+    /// iteration of `\p{L}+/u`, not just the first.
+    ///
+    /// This is the v3-A acceptance gate; failure means the multi-PC
+    /// extension is unsound and v3-A must STOP commit.
+    #[test]
+    fn path_a_v3_letter_multi_byte_mid_match() {
+        let prog = compile_uflag_pattern("\\p{L}+");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+
+        // ASCII-only baselines (must not regress vs v2).
+        assert_eq!(dfa_search(&dfa, &prog, b"Hello"), Some(5));
+        assert_eq!(dfa_search(&dfa, &prog, b"12345"), None);
+
+        // Mid-match Greek α (U+03B1 = 0xCE 0xB1): "Hellα!" must
+        // consume all 6 bytes (4 ASCII letters + 2-byte α). v2
+        // returned Some(4) — α was dropped at the post-pending
+        // boundary because the multi-PC ready set fell back to
+        // `class.test(byte)` (ASCII bitmap only). v3-A's multi-PC
+        // pending_class handler reads the cp via the executor handler
+        // on every loop iteration → Some(6).
+        let hay_hell_alpha = b"Hell\xCE\xB1!";
+        assert_eq!(
+            dfa_search(&dfa, &prog, hay_hell_alpha),
+            Some(6),
+            "v3-A — Greek α mid-match must be consumed (v2 regression \
+             returned Some(4))"
+        );
+
+        // Two CJK letters: 漢 (U+6F22 = 0xE6 0xBC 0xA2) + 字
+        // (U+5B57 = 0xE5 0xAD 0x97) = 6 bytes letter run.
+        let kanji = b"\xE6\xBC\xA2\xE5\xAD\x97!";
+        assert_eq!(
+            dfa_search(&dfa, &prog, kanji),
+            Some(6),
+            "v3-A — second CJK 字 must be consumed (v2 regression \
+             returned Some(3))"
+        );
+
+        // Mixed ASCII + Greek + space terminator: 3 ASCII + 2-byte α
+        // = 5 bytes letter run.
+        let mixed = b"abc\xCE\xB1 def";
+        assert_eq!(
+            dfa_search(&dfa, &prog, mixed),
+            Some(5),
+            "v3-A — ASCII+Greek mixed run must reach the space"
+        );
+    }
+
+    /// §4.3 test J — K-MIXED (\p{L} plus explicit non-ASCII bit) must
+    /// still flow through `utf8_class_expand`. Compiles to MULTIPLE
+    /// Op::Class instructions (chunk-10d byte-step path). Risk R5
+    /// mitigation.
+    #[test]
+    fn path_a_v2_kmixed_still_expands() {
+        // `\d` is K-SAFE (ASCII-only), but `\d|\p{L}` would coalesce
+        // into a single class via OR-union, blocked by negate-only.
+        // Use a K-NEG (`[^a]`) for confirmation: it negates → not
+        // K-PROPERTY → still expands.
+        let prog = compile_uflag_pattern("[^a]");
+        let class_count = prog
+            .insts
+            .iter()
+            .filter(|i| i.op == Op::Class as u8)
+            .count();
+        assert!(
+            class_count > 1,
+            "K-NEG ([^a]/u) should expand to > 1 Op::Class — Path A \
+             v2 should NOT take this path through pending_class. Got \
+             class_count = {class_count}"
+        );
     }
 }

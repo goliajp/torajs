@@ -42,8 +42,9 @@ pub(super) const OUTER_META_ALIGN: u32 = 8;
 pub(super) const OUTER_STATES_PTR_OFFSET_IN_META: u32 = 0;
 /// On-disk size of one `DfaState` per the `#[repr(C)]` layout doc on
 /// `torajs_regex::dfa::DfaState`. 256*4 transitions + 2*1 bool +
-/// 2-byte pad + 8*4 accept_before_byte = 1060 bytes.
-pub(super) const INNER_DFA_STATE_SIZE: u32 = 1060;
+/// 2-byte pad + 8*4 accept_before_byte + 12-byte `PendingClass` triple
+/// = 1072 bytes (Round 3 Phase B sub-batch 4 attack #R-J v2 §2.5.E).
+pub(super) const INNER_DFA_STATE_SIZE: u32 = 1072;
 /// `DfaState` alignment (driven by the `u32` transitions array).
 pub(super) const INNER_DFA_STATE_ALIGN: u32 = 4;
 
@@ -119,7 +120,7 @@ pub fn compute_user_regex_baked_layout(
     // is already DfaState-aligned (8-byte segment alignment is a
     // superset of 4-byte INNER_DFA_STATE_ALIGN), so the per-entry
     // inner tables sit at running=0 + multiples of INNER_DFA_STATE_SIZE
-    // (1060 — itself a multiple of 4). No intra-phase pad required.
+    // (1072 — itself a multiple of 4). No intra-phase pad required.
     let mut inner_vaddrs: Vec<(u64, u32)> = Vec::with_capacity(entries.len());
     for e in entries {
         running = align_up(running, INNER_DFA_STATE_ALIGN);
@@ -415,33 +416,38 @@ mod tests {
         assert_eq!(p.states_file_offset, 0x4_0000);
         assert_eq!(p.states_vaddr, 0x1_0001_0000);
         assert_eq!(p.states_len, 1);
-        // Inner block: 1 * 1060 = 1060 bytes. align_up(1060, 8) = 1064.
-        assert_eq!(p.meta_file_offset, 0x4_0000 + 1064);
-        assert_eq!(p.meta_vaddr, 0x1_0001_0000 + 1064);
-        // total = 1064 + 32 = 1096.
-        assert_eq!(layout.total_size, 1096);
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 — DfaState size
+        // bumped 1060 → 1072 (12-byte PendingClass triple appended).
+        // Inner block: 1 * 1072 = 1072 bytes. align_up(1072, 8) = 1072
+        // (already 8-aligned — was 1064 with pad 4 at the old size).
+        assert_eq!(p.meta_file_offset, 0x4_0000 + 1072);
+        assert_eq!(p.meta_vaddr, 0x1_0001_0000 + 1072);
+        // total = 1072 + 32 = 1104.
+        assert_eq!(layout.total_size, 1104);
     }
 
     #[test]
     fn multi_entry_layout_alignment() {
-        // entry0 states_len=1 → inner @ 0, span 1060
-        // entry1 states_len=2 → inner @ 1060 (already 4-aligned), span 2120
-        // running = 3180; align_up(3180, 8) = 3184
-        // meta0 @ 3184, meta1 @ 3216, total = 3248
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 — sizes bumped
+        // from 1060/3184/3248 to 1072/3216/3248.
+        // entry0 states_len=1 → inner @ 0, span 1072
+        // entry1 states_len=2 → inner @ 1072 (already 4-aligned), span 2144
+        // running = 3216; align_up(3216, 8) = 3216 (already 8-aligned)
+        // meta0 @ 3216, meta1 @ 3248, total = 3280
         let entries = vec![make_entry(3, 1), make_entry(5, 2)];
         let layout = compute_user_regex_baked_layout(&entries, 0x10_0000, 0x2_0000_0000);
         assert_eq!(layout.entries.len(), 2);
         assert_eq!(layout.entries[0].states_file_offset, 0x10_0000);
         assert_eq!(layout.entries[0].states_vaddr, 0x2_0000_0000);
-        assert_eq!(layout.entries[1].states_file_offset, 0x10_0000 + 1060);
-        assert_eq!(layout.entries[1].states_vaddr, 0x2_0000_0000 + 1060);
-        assert_eq!(layout.entries[0].meta_file_offset, 0x10_0000 + 3184);
-        assert_eq!(layout.entries[0].meta_vaddr, 0x2_0000_0000 + 3184);
-        assert_eq!(layout.entries[1].meta_file_offset, 0x10_0000 + 3216);
-        assert_eq!(layout.entries[1].meta_vaddr, 0x2_0000_0000 + 3216);
+        assert_eq!(layout.entries[1].states_file_offset, 0x10_0000 + 1072);
+        assert_eq!(layout.entries[1].states_vaddr, 0x2_0000_0000 + 1072);
+        assert_eq!(layout.entries[0].meta_file_offset, 0x10_0000 + 3216);
+        assert_eq!(layout.entries[0].meta_vaddr, 0x2_0000_0000 + 3216);
+        assert_eq!(layout.entries[1].meta_file_offset, 0x10_0000 + 3248);
+        assert_eq!(layout.entries[1].meta_vaddr, 0x2_0000_0000 + 3248);
         assert_eq!(layout.entries[0].meta_sym, "___torajs_baked_regex_3");
         assert_eq!(layout.entries[1].meta_sym, "___torajs_baked_regex_5");
-        assert_eq!(layout.total_size, 3248);
+        assert_eq!(layout.total_size, 3280);
     }
 
     #[test]
@@ -471,9 +477,13 @@ mod tests {
         // assertion can distinguish "0 written because dyld will
         // overwrite" from "0 written because the link value never
         // reached the slot".
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 — inner state size
+        // bumped 1060 → 1072 (12-byte PendingClass tail). The last
+        // byte of an inner state image is now at offset 1071, and the
+        // inner-to-outer pad disappears (1072 is already 8-aligned).
         let mut states_payload = vec![0u8; INNER_DFA_STATE_SIZE as usize];
         states_payload[0] = 0xAB;
-        states_payload[1059] = 0xCD;
+        states_payload[1071] = 0xCD;
         let entries = vec![UserBakedRegexEntry {
             index: 0,
             states_payload,
@@ -491,30 +501,27 @@ mod tests {
         let link_value: u64 = 0xDEAD_BEEF_CAFE_BABE;
         let payload = build_user_regex_baked_payload(&layout, &entries, &[link_value]);
         assert_eq!(payload.len() as u32, layout.total_size);
-        // Inner table @ 0..1060.
+        // Inner table @ 0..1072.
         assert_eq!(payload[0], 0xAB);
-        assert_eq!(payload[1059], 0xCD);
-        // Pad @ 1060..1064.
-        assert_eq!(&payload[1060..1064], &[0u8; 4]);
-        // BakedDfaMeta @ 1064..1096.
-        // states_ptr u64 @ +0 → chain-LC link value (dyld stamps
-        // states_vaddr at load time).
-        assert_eq!(&payload[1064..1072], &link_value.to_le_bytes());
+        assert_eq!(payload[1071], 0xCD);
+        // No inter-block pad — 1072 is already 8-aligned (was 1060,
+        // padded to 1064). BakedDfaMeta @ 1072..1104.
+        assert_eq!(&payload[1072..1080], &link_value.to_le_bytes());
         // states_len u32 @ +8 → 1.
-        assert_eq!(&payload[1072..1076], &1u32.to_le_bytes());
+        assert_eq!(&payload[1080..1084], &1u32.to_le_bytes());
         // start u32 @ +12 → 0x11.
-        assert_eq!(&payload[1076..1080], &0x11u32.to_le_bytes());
+        assert_eq!(&payload[1084..1088], &0x11u32.to_le_bytes());
         // start_mid u32 @ +16 → 0x22.
-        assert_eq!(&payload[1080..1084], &0x22u32.to_le_bytes());
+        assert_eq!(&payload[1088..1092], &0x22u32.to_le_bytes());
         // start_mid_word u32 @ +20 → 0x33.
-        assert_eq!(&payload[1084..1088], &0x33u32.to_le_bytes());
+        assert_eq!(&payload[1092..1096], &0x33u32.to_le_bytes());
         // start_mid_nonword u32 @ +24 → 0x44.
-        assert_eq!(&payload[1088..1092], &0x44u32.to_le_bytes());
+        assert_eq!(&payload[1096..1100], &0x44u32.to_le_bytes());
         // Round 3 Phase B attack #R-E — `any_accept_before_byte` u8 at
         // +28 followed by 3 bytes of tail padding (total 4-byte slot
         // unchanged from the original tail-pad layout). `true → 1`.
-        assert_eq!(payload[1092], 1);
-        assert_eq!(&payload[1093..1096], &[0u8; 3]);
+        assert_eq!(payload[1100], 1);
+        assert_eq!(&payload[1101..1104], &[0u8; 3]);
     }
 
     #[test]
@@ -547,7 +554,9 @@ mod tests {
         let layout =
             build_user_regex_baked_region(&entries, true, 0x4_0000, 0x1_0001_0000).unwrap();
         assert_eq!(layout.entries.len(), 1);
-        assert_eq!(layout.total_size, 1096);
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 — total size
+        // 1096 → 1104 (1072 inner + 0 pad + 32 meta).
+        assert_eq!(layout.total_size, 1104);
     }
 
     #[test]
@@ -560,8 +569,9 @@ mod tests {
 
     #[test]
     fn rebase_targets_single_entry() {
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 — inner state
+        // size 1060 → 1072. meta now at 0x1_0001_0000 + 1072 = 0x1_0001_0430.
         // Layout starts at vaddr 0x1_0001_0000. inner states @ 0x1_0001_0000.
-        // meta @ 0x1_0001_0000 + 1064 = 0x1_0001_0428.
         // seg_vmaddr_base = 0x1_0001_0000 (= __DATA_CONST segment base).
         // image_vmaddr_base = 0x1_0000_0000 (= __TEXT segment base).
         let entries = vec![make_entry(0, 1)];
@@ -569,27 +579,29 @@ mod tests {
         let targets =
             compute_user_regex_baked_rebase_targets(&layout, 0x1_0001_0000, 0x1_0000_0000);
         assert_eq!(targets.len(), 1);
-        // Slot = meta_vaddr + 0 - seg_vmaddr_base = 0x1_0001_0428 - 0x1_0001_0000 = 0x428.
-        assert_eq!(targets[0].0, 0x428);
+        // Slot = meta_vaddr + 0 - seg_vmaddr_base = 0x1_0001_0430 - 0x1_0001_0000 = 0x430.
+        assert_eq!(targets[0].0, 0x430);
         // Target = states_vaddr - image_vmaddr_base = 0x1_0001_0000 - 0x1_0000_0000 = 0x1_0000.
         assert_eq!(targets[0].1, 0x1_0000);
     }
 
     #[test]
     fn rebase_targets_multi_entry_order() {
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 — inner state
+        // size 1060 → 1072 propagates through all offsets.
         // entry0 states_len=1, entry1 states_len=2.
-        // inner: entry0 @ 0..1060, entry1 @ 1060..3180
-        // outer: align_up(3180, 8) = 3184; meta0 @ 3184, meta1 @ 3216
+        // inner: entry0 @ 0..1072, entry1 @ 1072..3216
+        // outer: align_up(3216, 8) = 3216 (already 8-aligned); meta0 @ 3216, meta1 @ 3248
         let entries = vec![make_entry(0, 1), make_entry(1, 2)];
         let layout = compute_user_regex_baked_layout(&entries, 0x4_0000, 0x1_0001_0000);
         let targets =
             compute_user_regex_baked_rebase_targets(&layout, 0x1_0001_0000, 0x1_0000_0000);
         assert_eq!(targets.len(), 2);
-        // entry0 slot @ 3184, target @ 0x1_0000.
-        assert_eq!(targets[0].0, 3184);
+        // entry0 slot @ 3216, target @ 0x1_0000.
+        assert_eq!(targets[0].0, 3216);
         assert_eq!(targets[0].1, 0x1_0000);
-        // entry1 slot @ 3216, target @ 0x1_0000 + 1060.
-        assert_eq!(targets[1].0, 3216);
-        assert_eq!(targets[1].1, 0x1_0000 + 1060);
+        // entry1 slot @ 3248, target @ 0x1_0000 + 1072.
+        assert_eq!(targets[1].0, 3248);
+        assert_eq!(targets[1].1, 0x1_0000 + 1072);
     }
 }
