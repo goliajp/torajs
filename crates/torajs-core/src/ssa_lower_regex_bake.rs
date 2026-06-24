@@ -112,3 +112,102 @@ pub(crate) fn try_bake_regex_dfa(
     });
     Some(idx)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_free_eligible_literal_pushes_entry() {
+        let mut buf = Vec::new();
+        let idx = try_bake_regex_dfa(&mut buf, r"hello\d+", "");
+        assert_eq!(idx, Some(0));
+        assert_eq!(buf.len(), 1);
+        let e = &buf[0];
+        assert_eq!(e.index, 0);
+        assert!(e.states_len > 0);
+        // 1060 bytes / DfaState on aarch64-apple-darwin.
+        assert_eq!(e.states_payload.len(), e.states_len as usize * 1060);
+    }
+
+    #[test]
+    fn capture_using_literal_returns_none() {
+        let mut buf = Vec::new();
+        let idx = try_bake_regex_dfa(&mut buf, r"(hello)\d+", "");
+        assert_eq!(idx, None);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn backref_returns_none() {
+        let mut buf = Vec::new();
+        let idx = try_bake_regex_dfa(&mut buf, r"(\w+)\1", "");
+        assert_eq!(idx, None);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn lookahead_returns_none() {
+        let mut buf = Vec::new();
+        let idx = try_bake_regex_dfa(&mut buf, r"hello(?=world)", "");
+        assert_eq!(idx, None);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn invalid_pattern_returns_none() {
+        let mut buf = Vec::new();
+        let idx = try_bake_regex_dfa(&mut buf, r"[", "");
+        assert_eq!(idx, None);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn anchored_word_class_eligible() {
+        let mut buf = Vec::new();
+        let idx = try_bake_regex_dfa(&mut buf, r"^\w+", "");
+        assert_eq!(idx, Some(0));
+        assert_eq!(buf.len(), 1);
+        assert!(buf[0].states_len > 0);
+    }
+
+    #[test]
+    fn multiple_literals_get_sequential_indices() {
+        let mut buf = Vec::new();
+        let i0 = try_bake_regex_dfa(&mut buf, r"foo", "");
+        let i1 = try_bake_regex_dfa(&mut buf, r"bar", "");
+        let i2 = try_bake_regex_dfa(&mut buf, r"baz", "");
+        assert_eq!((i0, i1, i2), (Some(0), Some(1), Some(2)));
+        assert_eq!(buf.len(), 3);
+        for (i, e) in buf.iter().enumerate() {
+            assert_eq!(e.index, i as u32);
+        }
+    }
+
+    #[test]
+    fn iflag_capture_free_eligible() {
+        let mut buf = Vec::new();
+        let idx = try_bake_regex_dfa(&mut buf, r"hello", "i");
+        assert_eq!(idx, Some(0));
+        assert_eq!(buf.len(), 1);
+    }
+
+    #[test]
+    fn uflag_pclass_eligible_large_payload() {
+        // Confirms the uflag-100k outlier path: the literal IS DFA-
+        // eligible (after utf8_class_expand rewrites \p{L} into a
+        // byte-level Alt), so try_bake_regex_dfa returns Some(idx).
+        // The payload is large (state count ~256 ≈ 25× of a plain
+        // \w+ pattern). The 10× run-time gap reported in Phase C is
+        // a dfa_search executor concern, not an ssa_lower gate
+        // miss — see docs/chunk-7.7-v2-step-12-c2-uflag-outlier.md.
+        let mut buf = Vec::new();
+        let idx = try_bake_regex_dfa(&mut buf, r"\p{L}+", "u");
+        assert_eq!(idx, Some(0));
+        assert!(
+            buf[0].states_len >= 50,
+            "uflag \\p{{L}}+ should expand to many DFA states, got {}",
+            buf[0].states_len
+        );
+    }
+}
