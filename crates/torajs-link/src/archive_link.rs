@@ -33,6 +33,7 @@ use crate::user_class_layouts_layout::user_class_layouts_extra_defined_syms;
 use crate::user_data_globals_layout::{
     build_user_data_globals_region, user_data_globals_extra_defined_syms,
 };
+use crate::user_regex_baked_layout::user_regex_baked_extra_defined_syms;
 use crate::user_strings_layout::{build_user_strings_region, user_strings_extra_defined_syms};
 use crate::user_vtables_layout::user_vtables_extra_defined_syms;
 use std::collections::BTreeMap;
@@ -64,6 +65,14 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     extra.extend(class_name_table_extra_defined_syms(
         &cfg.class_names,
         cfg.force_emit_class_names_globals,
+    ));
+    // C-5c.2d — outer `___torajs_baked_regex_<i>` syms close the worklist
+    // for `RelocKind::Page21/PageOff12 { target_sym }` against AOT-baked
+    // DFA meta blocks. Inner `states_sym` stays internal (never reloc'd
+    // from user code; reader goes through chain-LC rebased
+    // `BakedDfaMeta::states_ptr`).
+    extra.extend(user_regex_baked_extra_defined_syms(
+        &cfg.baked_regex_entries,
     ));
     let required =
         compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;

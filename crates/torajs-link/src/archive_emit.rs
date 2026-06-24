@@ -43,6 +43,7 @@ use crate::user_class_layouts_layout::{
     apply_user_class_layouts_overrides, build_user_class_layouts_payload,
 };
 use crate::user_data_globals_layout::apply_user_data_global_overrides;
+use crate::user_regex_baked_layout::apply_user_regex_baked_overrides;
 use crate::user_strings_emit::apply_user_string_overrides;
 use crate::user_vtables_layout::{apply_user_vtable_overrides, build_user_vtables_payload};
 
@@ -86,6 +87,14 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     );
     apply_fn_name_table_overrides(&layout.fn_name_table_layout, &mut effective_sym_table);
     apply_class_name_table_overrides(&layout.class_name_table_layout, &mut effective_sym_table);
+    // C-5c.2d — outer `___torajs_baked_regex_<i>` syms point at each
+    // entry's `BakedDfaMeta` block in __DATA_CONST. Inner `states_sym`
+    // is not registered (reader goes through chain-LC rebased
+    // `BakedDfaMeta::states_ptr` slot, see C-5c.2b/c).
+    apply_user_regex_baked_overrides(
+        &layout.data_const_layout.baked_regex_layout,
+        &mut effective_sym_table,
+    );
 
     // chunk 2b-4: dyld-rebase member `__DATA,*` slots under ASLR.
     let data_rebase_targets = compute_member_data_rebase_targets(
