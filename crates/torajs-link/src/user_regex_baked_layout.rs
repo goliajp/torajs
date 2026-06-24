@@ -26,6 +26,7 @@
 //! C-5a's plumbing and the non-empty arms here are exercised only by unit
 //! tests.
 
+use crate::chained_fixups_starts::RebaseTarget;
 use crate::exec::UserBakedRegexEntry;
 use crate::resolve::SymTable;
 
@@ -215,6 +216,38 @@ pub fn apply_user_regex_baked_overrides(layout: &UserRegexBakedLayout, sym_table
     for entry in &layout.entries {
         sym_table.insert(entry.meta_sym.clone(), entry.meta_vaddr);
     }
+}
+
+/// Derive the chain-fixup rebase target list for the baked-regex
+/// region. One target per entry: the `BakedDfaMeta::states_ptr` slot
+/// (= meta_vaddr + OUTER_STATES_PTR_OFFSET_IN_META) → `states_vaddr`.
+/// Mirrors `compute_class_layouts_rebase_targets`'s `(slot_vaddr -
+/// seg_vmaddr_base, target_vaddr - image_vmaddr_base)` convention.
+pub fn compute_user_regex_baked_rebase_targets(
+    layout: &UserRegexBakedLayout,
+    seg_vmaddr_base: u64,
+    image_vmaddr_base: u64,
+) -> Vec<RebaseTarget> {
+    layout
+        .entries
+        .iter()
+        .map(|entry| {
+            let slot_vaddr = entry.meta_vaddr + u64::from(OUTER_STATES_PTR_OFFSET_IN_META);
+            debug_assert!(
+                slot_vaddr >= seg_vmaddr_base,
+                "baked_regex states_ptr slot vaddr {slot_vaddr:#x} cannot precede segment base {seg_vmaddr_base:#x}",
+            );
+            debug_assert!(
+                entry.states_vaddr >= image_vmaddr_base,
+                "baked_regex states target {:#x} cannot precede image base {image_vmaddr_base:#x}",
+                entry.states_vaddr,
+            );
+            (
+                slot_vaddr - seg_vmaddr_base,
+                entry.states_vaddr - image_vmaddr_base,
+            )
+        })
+        .collect()
 }
 
 /// Pipeline helper validating the C-5c chain-LC precondition + layout
@@ -480,5 +513,48 @@ mod tests {
             build_user_regex_baked_region(&entries, true, 0x4_0000, 0x1_0001_0000).unwrap();
         assert_eq!(layout.entries.len(), 1);
         assert_eq!(layout.total_size, 1096);
+    }
+
+    #[test]
+    fn rebase_targets_empty_when_layout_empty() {
+        let layout = compute_user_regex_baked_layout(&[], 0x4_0000, 0x1_0001_0000);
+        let targets =
+            compute_user_regex_baked_rebase_targets(&layout, 0x1_0000_0000, 0x1_0000_0000);
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn rebase_targets_single_entry() {
+        // Layout starts at vaddr 0x1_0001_0000. inner states @ 0x1_0001_0000.
+        // meta @ 0x1_0001_0000 + 1064 = 0x1_0001_0428.
+        // seg_vmaddr_base = 0x1_0001_0000 (= __DATA_CONST segment base).
+        // image_vmaddr_base = 0x1_0000_0000 (= __TEXT segment base).
+        let entries = vec![make_entry(0, 1)];
+        let layout = compute_user_regex_baked_layout(&entries, 0x4_0000, 0x1_0001_0000);
+        let targets =
+            compute_user_regex_baked_rebase_targets(&layout, 0x1_0001_0000, 0x1_0000_0000);
+        assert_eq!(targets.len(), 1);
+        // Slot = meta_vaddr + 0 - seg_vmaddr_base = 0x1_0001_0428 - 0x1_0001_0000 = 0x428.
+        assert_eq!(targets[0].0, 0x428);
+        // Target = states_vaddr - image_vmaddr_base = 0x1_0001_0000 - 0x1_0000_0000 = 0x1_0000.
+        assert_eq!(targets[0].1, 0x1_0000);
+    }
+
+    #[test]
+    fn rebase_targets_multi_entry_order() {
+        // entry0 states_len=1, entry1 states_len=2.
+        // inner: entry0 @ 0..1060, entry1 @ 1060..3180
+        // outer: align_up(3180, 8) = 3184; meta0 @ 3184, meta1 @ 3216
+        let entries = vec![make_entry(0, 1), make_entry(1, 2)];
+        let layout = compute_user_regex_baked_layout(&entries, 0x4_0000, 0x1_0001_0000);
+        let targets =
+            compute_user_regex_baked_rebase_targets(&layout, 0x1_0001_0000, 0x1_0000_0000);
+        assert_eq!(targets.len(), 2);
+        // entry0 slot @ 3184, target @ 0x1_0000.
+        assert_eq!(targets[0].0, 3184);
+        assert_eq!(targets[0].1, 0x1_0000);
+        // entry1 slot @ 3216, target @ 0x1_0000 + 1060.
+        assert_eq!(targets[1].0, 3216);
+        assert_eq!(targets[1].1, 0x1_0000 + 1060);
     }
 }
