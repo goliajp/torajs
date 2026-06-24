@@ -197,6 +197,42 @@ unsafe extern "C" {
 ///
 /// Caller guarantees that `p` is non-null, well-aligned, and
 /// references a tora-Str-layout block whose bytes outlive `'a`.
+/// chunk 7.7 v2 step 12 C2 Phase B-1 attack #A — zero-copy `&[u8]`
+/// view over a tora `Str *` payload when (and only when) the payload
+/// is ASCII Latin-1. Returns `None` for non-ASCII Latin-1 / UTF-16
+/// payloads — caller must fall back to [`str_slice`] for those
+/// (transcode allocates a fresh `Vec<u8>`).
+///
+/// The ASCII Latin-1 fast path is the overwhelmingly common case for
+/// regex match bench fixtures (and any `match` / `exec` against a
+/// human-keyboard string), so taking a borrow there avoids ~80 ns/iter
+/// of `payload.to_vec()` alloc+memcpy on `__torajs_str_match_regex` /
+/// `__torajs_regex_exec` hot-path call sites.
+///
+/// # Safety
+///
+/// Same contract as [`str_slice`] — `p` is non-null, well-aligned,
+/// references a live tora-Str-layout block. Additionally the caller
+/// must ensure the returned slice's lifetime `'a` does not outlive
+/// the underlying Str buffer; in practice the slice is bound to the
+/// `__torajs_str_match_regex` / `__torajs_regex_exec` call's stack
+/// frame, which is shorter than any caller-held Str reference.
+pub unsafe fn str_slice_ascii_view<'a>(p: *const c_void) -> Option<&'a [u8]> {
+    let s = p as *const u8;
+    let length = unsafe { *(s.add(8) as *const u32) };
+    let flags = unsafe { *(s.add(6) as *const u16) };
+    let is_latin1 = (flags & 0x0002) != 0;
+    if !is_latin1 {
+        return None;
+    }
+    let payload =
+        unsafe { core::slice::from_raw_parts::<'a, u8>(s.add(STR_HDR_SIZE), length as usize) };
+    if !payload.iter().all(|&b| b <= 0x7F) {
+        return None;
+    }
+    Some(payload)
+}
+
 pub unsafe fn str_slice(p: *const c_void) -> Vec<u8> {
     // P11.1-S2.1 — Str payload is encoded (Latin-1 or UTF-16 LE)
     // rather than raw UTF-8 bytes. The regex engine operates on

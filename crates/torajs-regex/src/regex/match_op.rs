@@ -1,13 +1,14 @@
 //! `__torajs_str_match_regex` + `__torajs_regex_exec` +
 //! `attach_groups` — port of `runtime_regex.c` L2257-2387, L2929-2988.
 
+use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_arrprops_set, __torajs_dynobj_alloc,
     __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_rc_inc, __torajs_str_drop,
     ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, abort_unsupported, as_regex_mut, str_from_bytes,
-    str_slice,
+    str_slice, str_slice_ascii_view,
 };
 use crate::node::{REGEX_MAX_CAPTURES, REGEX_SAVE_SLOTS};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -130,7 +131,19 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     if re.rejected != 0 {
         abort_unsupported(re);
     }
-    let s = unsafe { str_slice(str_ptr) };
+    // chunk 7.7 v2 step 12 C2 Phase B-1 attack #A — zero-copy
+    // ASCII Latin-1 view; transcode fallback for non-ASCII Latin-1
+    // / UTF-16 payloads. `_s_owned` is alive for the whole fn body
+    // so the view's `'_` lifetime is safely bounded by `str_ptr`'s
+    // caller-held reference.
+    let _s_owned: Vec<u8>;
+    let s: &[u8] = match unsafe { str_slice_ascii_view(str_ptr) } {
+        Some(view) => view,
+        None => {
+            _s_owned = unsafe { str_slice(str_ptr) };
+            &_s_owned
+        }
+    };
     let slen = s.len() as i64;
 
     let global = re.flags & RE_FLAG_G != 0;
@@ -216,7 +229,16 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     if re.rejected != 0 {
         abort_unsupported(re);
     }
-    let s = unsafe { str_slice(str_ptr) };
+    // chunk 7.7 v2 step 12 C2 Phase B-1 attack #A — zero-copy ASCII
+    // Latin-1 view; mirrors `__torajs_str_match_regex` rationale.
+    let _s_owned: Vec<u8>;
+    let s: &[u8] = match unsafe { str_slice_ascii_view(str_ptr) } {
+        Some(view) => view,
+        None => {
+            _s_owned = unsafe { str_slice(str_ptr) };
+            &_s_owned
+        }
+    };
     let slen = s.len() as i64;
 
     let sticky = re.flags & RE_FLAG_Y != 0;

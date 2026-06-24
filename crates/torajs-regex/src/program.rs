@@ -206,6 +206,16 @@ pub struct Program {
     /// `false` keeps the never-match stub (rejected case) safely
     /// out of any future fast path.
     pub can_dfa: bool,
+    /// chunk 7.7 v2 step 12 C2 Phase B-1 attack #J — true iff
+    /// `insts` contains any [`Op::Save`]. Set once at compile time by
+    /// `regex/compile.rs` after `compile()` emits all instructions.
+    /// Read by `vm::search_from_with_ws` on every DFA fast-path hit
+    /// to decide whether to run the second-pass Pike VM. Replaces
+    /// the prior per-call O(N) linear scan in `vm::prog_has_save`,
+    /// which after chunk-10d `utf8_class_expand` is O(200+) for
+    /// patterns like `/\p{L}+/u` and showed up as ~13% of per-iter
+    /// budget in the uflag-100k decomposition.
+    pub has_save: bool,
 }
 
 impl Program {

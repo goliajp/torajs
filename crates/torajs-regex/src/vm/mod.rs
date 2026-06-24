@@ -211,11 +211,15 @@ fn detect_stride(prog: &Program) -> usize {
 
 /// True iff `prog` emits any `Op::Save`. Used by the DFA fast path
 /// (chunk 9) to skip the second-pass Pike VM on patterns whose
-/// captures are trivially all-`-1`.
+/// captures are trivially all-`-1`. Reads the `Program::has_save`
+/// flag set once at compile time (`regex/compile.rs`) — chunk 7.7
+/// v2 step 12 C2 Phase B-1 attack #J eliminated the prior per-call
+/// O(N) linear scan over `prog.insts`, which after chunk-10d
+/// `utf8_class_expand` had become ~200 ns/iter (13% of per-iter
+/// budget) on `/\p{L}+/u`-class patterns.
+#[inline]
 fn prog_has_save(prog: &Program) -> bool {
-    prog.insts
-        .iter()
-        .any(|ins| ins.op == crate::program::Op::Save as u8)
+    prog.has_save
 }
 
 /// Reusable per-Program workspace — allocates once at search start;
@@ -522,6 +526,15 @@ mod tests {
         let mut prog = Program::new();
         compile(&mut prog, &root, flags);
         prog.emit(Inst::match_accept());
+        // Mirror `regex/compile.rs` — `Program::has_save` is the
+        // compile-time cache of `insts.iter().any(...Op::Save)` and
+        // production callers always set it; tests that build a
+        // Program manually must set it too so `prog_has_save` reflects
+        // truth (attack #J reads this field, not the live insts).
+        prog.has_save = prog
+            .insts
+            .iter()
+            .any(|ins| ins.op == crate::program::Op::Save as u8);
         prog
     }
 

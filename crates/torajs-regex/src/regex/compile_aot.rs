@@ -102,6 +102,10 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
         prog.can_dfa = crate::dfa::analyze(&root).is_eligible();
         compile(&mut prog, &root, flag_bits);
         prog.emit(Inst::match_accept());
+        prog.has_save = prog
+            .insts
+            .iter()
+            .any(|ins| ins.op == crate::program::Op::Save as u8);
         0u8
     } else {
         prog.emit(Inst::char_lit(0xff));
