@@ -203,3 +203,59 @@ fn dfa_search_from(dfa: &DfaProgram, hay: &[u8], start: u32) -> Option<usize> {
     }
     last_accept
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Phase B validation — a hand-built `DfaProgram` whose `states`
+    /// uses `DfaStates::Static(&'static [...])` (the Phase C
+    /// production shape) drives `dfa_search` correctly. Mirrors the
+    /// trivial accept-on-byte-a fixture in `crate::dfa::tests::
+    /// build_dfa_single_char_literal` so a regression in either
+    /// `Owned` or `Static` deref path is locally caught.
+    #[test]
+    fn dfa_search_works_with_static_states() {
+        // state 0 = dead; state 1 = start (transitions[b'a'] = 2);
+        // state 2 = accept (self-loop dead).
+        static STATES: [DfaState; 3] = [
+            DfaState {
+                transitions: [0; 256],
+                is_accept: false,
+                is_accept_at_end: false,
+                accept_before_byte: [0; 8],
+            },
+            // start: byte 'a' moves to accept; everything else dies.
+            DfaState {
+                transitions: {
+                    let mut t = [0u32; 256];
+                    t[b'a' as usize] = 2;
+                    t
+                },
+                is_accept: false,
+                is_accept_at_end: false,
+                accept_before_byte: [0; 8],
+            },
+            // accept state.
+            DfaState {
+                transitions: [0; 256],
+                is_accept: true,
+                is_accept_at_end: false,
+                accept_before_byte: [0; 8],
+            },
+        ];
+        let dfa = DfaProgram {
+            states: DfaStates::Static(&STATES),
+            start: 1,
+            start_mid: 1,
+            start_mid_word: 1,
+            start_mid_nonword: 1,
+        };
+        assert_eq!(dfa_search(&dfa, b"a"), Some(1));
+        assert_eq!(dfa_search(&dfa, b"abc"), Some(1));
+        assert_eq!(dfa_search(&dfa, b"xyz"), None);
+        // sanity: states[i] auto-deref-and-index path active.
+        assert_eq!(dfa.states[1].transitions[b'a' as usize], 2);
+        assert!(dfa.states[2].is_accept);
+    }
+}
