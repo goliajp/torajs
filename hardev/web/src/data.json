@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T07:05:08.299Z",
+  "generatedAt": "2026-06-24T16:08:29.452Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "4539a9f4",
-    "commitSubject": "test(bench): chunk 7.7 v2 step 12 Round 2 — F-B + F-C isolation fixtures + paradigm-shift finding",
+    "commit": "bd373081",
+    "commitSubject": "fix(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 4 — Path A §2.5.E v4 fix multi-Op capture (#R-J regex-024 regression)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "bd373081",
+      "subject": "fix(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 4 — Path A §2.5.E v4 fix multi-Op capture (#R-J regex-024 regression)"
+    },
+    {
+      "hash": "c276cd82",
+      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 4 — attack #R-J Path A §2.5.E (v3 option A multi-PC K-PROPERTY pending_class)"
+    },
+    {
+      "hash": "88cb32f6",
+      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 1 — attacks #R-A1 + #R-A2 + #R-E"
+    },
+    {
+      "hash": "307ab9c9",
+      "subject": "test(bench): chunk 7.7 v2 step 12 Round 3 — F-R4 uflag-cprange isolation fixture"
+    },
+    {
+      "hash": "7a6da3af",
+      "subject": "test(bench): chunk 7.7 v2 step 12 Round 2 — isolation fixture archive (F-A/F-B/F-C)"
+    },
+    {
+      "hash": "10a10cdc",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 Round 2 paradigm-shift finding (4539a9f4)"
+    },
+    {
       "hash": "4539a9f4",
       "subject": "test(bench): chunk 7.7 v2 step 12 Round 2 — F-B + F-C isolation fixtures + paradigm-shift finding"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "d74b697a",
       "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C ship close (33208499 sanity gate 1130/0/4 ✓)"
-    },
-    {
-      "hash": "33208499",
-      "subject": "test(torajs-core): chunk 7.7 v2 step 12 C2 Phase C-6 — ground-truth states_len per regex-dfa-* fixture"
-    },
-    {
-      "hash": "966bd4a6",
-      "subject": "test(torajs-core): chunk 7.7 v2 step 12 C2 Phase C-6 — try_bake_regex_dfa boundary tests (9 cases)"
-    },
-    {
-      "hash": "9fd357ee",
-      "subject": "docs(chunk-7.7-v2-step-12-c2): uflag-100k outlier — Phase A decomposition prep note"
-    },
-    {
-      "hash": "bc85ba2b",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C bench result archive (a11b8d1e)"
-    },
-    {
-      "hash": "a11b8d1e",
-      "subject": "test(bench): chunk 7.7 v2 step 12 C2 Phase C ship — 7-fixture torajs AOT vs bun-aot acceptance"
-    },
-    {
-      "hash": "8a0a5129",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C-5c.2d + C-6 ship + bench acceptance"
     }
   ],
-  "headSha": "4539a9f4",
+  "headSha": "bd373081",
   "autorun": {
-    "total": 238,
+    "total": 239,
     "baselineTarget": 10,
-    "bySelf": 233,
+    "bySelf": 234,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782279550-535a",
-      "at": "2026-06-24T05:39:10Z",
-      "ts": 1782279550,
+      "rotationId": "r-1782285050-7409",
+      "at": "2026-06-24T07:10:50Z",
+      "ts": 1782285050,
       "trigger": "self",
-      "prevHead": "d74b697a",
-      "handoffSha": "sha256:797bae7aed70913b8f63ea23c27a2434a755a740661e43d107c0f7f2fdfb0a11",
-      "handoffAgeSec": 862,
+      "prevHead": "7a6da3af",
+      "handoffSha": "sha256:442bca0d8562d0d878b4ccd52e67f4b995680f09f7d6bc4fc8fa2ed18c1037eb",
+      "handoffAgeSec": 228,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782285050-7409",
+        "at": "2026-06-24T07:10:50Z",
+        "ts": 1782285050,
+        "trigger": "self",
+        "prevHead": "7a6da3af",
+        "handoffSha": "sha256:442bca0d8562d0d878b4ccd52e67f4b995680f09f7d6bc4fc8fa2ed18c1037eb",
+        "handoffAgeSec": 228,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782279550-535a",
         "at": "2026-06-24T05:39:10Z",
@@ -780,17 +791,6 @@
         "prevHead": "57df84a6",
         "handoffSha": "sha256:5c7b6acd9fcce7fef181fdb387626c9e93333ca7140bdd0cafe2556c07a3e657",
         "handoffAgeSec": 16,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782152528-345e",
-        "at": "2026-06-22T18:22:08Z",
-        "ts": 1782152528,
-        "trigger": "self",
-        "prevHead": "3677d7f0",
-        "handoffSha": "sha256:d77009254fda1ea7d524bf9548ed682ccf3d5ce5b15a7d4bae032e51739dba25",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
