@@ -379,7 +379,10 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     }
 
     DfaProgram {
-        states,
+        // chunk 7.7 v2 step 12 C2 Phase B — wrap as DfaStates::Owned;
+        // Phase C will emit DfaStates::Static(&'static [...]) from the
+        // tr build pipeline.
+        states: crate::dfa::search::DfaStates::Owned(states),
         start,
         start_mid: start_mid_nonword,
         start_mid_word,

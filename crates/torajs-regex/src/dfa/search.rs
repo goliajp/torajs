@@ -95,8 +95,39 @@ pub(super) fn mask_set(mask: &mut [u32; 8], byte: u8) {
 /// Patterns without `Op::AnchorB` / `Op::WBound` / `Op::NWBound` dedup
 /// all four start states down. Caller must gate via `prog.can_dfa`
 /// + [`super::prog_ops_dfa_safe`].
+/// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase B (2026-06-24) — prep for
+/// AOT-precompile DFA. Wraps `DfaProgram::states` so the same struct
+/// supports both:
+/// - runtime `build_dfa` returns `DfaStates::Owned(Vec<DfaState>)`
+/// - tr build pipeline emits `DfaStates::Static(&'static [DfaState])`
+///   from .rodata-baked tables (Phase C)
+///
+/// Read sites stay `dfa.states[i]` via `Deref<Target = [DfaState]>` +
+/// auto-deref-and-index; no per-call-site changes needed beyond the
+/// `build_dfa` wrap site. `DfaState` does NOT need `Clone` (vs Cow's
+/// `ToOwned` requirement), so the slice-ification has zero cost on
+/// the cold path.
+pub enum DfaStates {
+    Owned(alloc::vec::Vec<DfaState>),
+    /// Reserved for Phase C — currently no producer; the variant
+    /// lives so `dfa.states.deref()` lowers identically for both
+    /// shapes today and stays stable when Phase C lands.
+    Static(&'static [DfaState]),
+}
+
+impl core::ops::Deref for DfaStates {
+    type Target = [DfaState];
+    #[inline]
+    fn deref(&self) -> &[DfaState] {
+        match self {
+            Self::Owned(v) => v.as_slice(),
+            Self::Static(s) => s,
+        }
+    }
+}
+
 pub struct DfaProgram {
-    pub states: alloc::vec::Vec<DfaState>,
+    pub states: DfaStates,
     pub start: u32,
     pub start_mid: u32,
     pub start_mid_word: u32,
