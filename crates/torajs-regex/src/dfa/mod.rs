@@ -742,6 +742,67 @@ mod tests {
         assert!(dfa.states[dfa.start as usize].is_accept);
     }
 
+    /// Round 3 Phase B sub-batch 6 attack #R-G — `compute_monotone_
+    /// accept` invariants. A single-char literal `/a/` has three
+    /// states: dead (0), start (non-accept, only `a` advances), and
+    /// accept (no outgoing transitions). The accept state qualifies
+    /// for `monotone_accept = true` — it is `is_accept` and every
+    /// transition either goes to dead (= valid exit) or to an
+    /// accepting state (none exist here, so the for-loop never finds
+    /// a non-accept target). The start state stays `false` because
+    /// `is_accept == false` short-circuits before the transition
+    /// scan.
+    #[test]
+    fn monotone_accept_single_char_literal() {
+        let mut prog = Program::new();
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog, 0);
+        let start = dfa.start as usize;
+        assert!(!dfa.states[start].monotone_accept);
+        let accept = dfa.states[start].transitions[b'a' as usize] as usize;
+        assert!(dfa.states[accept].is_accept);
+        assert!(dfa.states[accept].monotone_accept);
+        // Dead state stays `false` — the `is_accept` short-circuit
+        // skips it before the transition scan.
+        assert!(!dfa.states[0].monotone_accept);
+    }
+
+    /// Round 3 Phase B sub-batch 6 attack #R-G — Kleene-plus over a
+    /// single byte (`/a+/`) has a self-looping accept state whose
+    /// `transitions[b'a']` returns to itself and all other
+    /// `transitions[b]` go to dead. Both target classes (self =
+    /// accept, dead = exit) qualify, so `monotone_accept` is `true`.
+    /// This is the substrate shape `\p{L}+/u` collapses to once the
+    /// K-PROPERTY pending-class fast path is folded in.
+    #[test]
+    fn monotone_accept_kleene_plus_single_byte() {
+        // /a+/ encoded by hand: SPLIT(1, 3); CHAR a; JMP 0; MATCH.
+        let mut prog = Program::new();
+        prog.emit(Inst::split(1, 3));
+        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(Inst::jmp(0));
+        prog.emit(Inst::match_accept());
+        let dfa = build_dfa(&prog, 0);
+        let start = dfa.start as usize;
+        // The `a`-loop accept state is reached via a single `a` from
+        // start; it self-loops on `a` and dies on any other byte.
+        let after_a = dfa.states[start].transitions[b'a' as usize] as usize;
+        assert!(dfa.states[after_a].is_accept);
+        assert!(dfa.states[after_a].monotone_accept);
+        // Self-loop on `a` is the only non-dead transition.
+        assert_eq!(
+            dfa.states[after_a].transitions[b'a' as usize] as usize,
+            after_a
+        );
+        for b in 0u16..=255 {
+            if b == b'a' as u16 {
+                continue;
+            }
+            assert_eq!(dfa.states[after_a].transitions[b as usize], 0);
+        }
+    }
+
     #[test]
     fn build_dfa_single_char_literal() {
         // 0: CHAR a; 1: MATCH
