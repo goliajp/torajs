@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T05:12:29.479Z",
+  "generatedAt": "2026-06-24T05:35:39.164Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "a11b8d1e",
-    "commitSubject": "test(bench): chunk 7.7 v2 step 12 C2 Phase C ship — 7-fixture torajs AOT vs bun-aot acceptance",
+    "commit": "33208499",
+    "commitSubject": "test(torajs-core): chunk 7.7 v2 step 12 C2 Phase C-6 — ground-truth states_len per regex-dfa-* fixture",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,22 @@
   },
   "commits": [
     {
+      "hash": "33208499",
+      "subject": "test(torajs-core): chunk 7.7 v2 step 12 C2 Phase C-6 — ground-truth states_len per regex-dfa-* fixture"
+    },
+    {
+      "hash": "966bd4a6",
+      "subject": "test(torajs-core): chunk 7.7 v2 step 12 C2 Phase C-6 — try_bake_regex_dfa boundary tests (9 cases)"
+    },
+    {
+      "hash": "9fd357ee",
+      "subject": "docs(chunk-7.7-v2-step-12-c2): uflag-100k outlier — Phase A decomposition prep note"
+    },
+    {
+      "hash": "bc85ba2b",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C bench result archive (a11b8d1e)"
+    },
+    {
       "hash": "a11b8d1e",
       "subject": "test(bench): chunk 7.7 v2 step 12 C2 Phase C ship — 7-fixture torajs AOT vs bun-aot acceptance"
     },
@@ -647,25 +663,9 @@
     {
       "hash": "2c6bef2a",
       "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5c.2a — wire baked_regex into DataConstLayout"
-    },
-    {
-      "hash": "fa593366",
-      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5c.1 — baked DFA rebase target derivation"
-    },
-    {
-      "hash": "3e817c07",
-      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5b.2 — baked DFA region layout + payload + sym apply"
-    },
-    {
-      "hash": "98b2b140",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C-1 to C-5b scaffold ship + 6 gates 1130/0/4 ✓"
-    },
-    {
-      "hash": "c7578731",
-      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5b scaffold — user_regex_baked_layout module"
     }
   ],
-  "headSha": "a11b8d1e",
+  "headSha": "33208499",
   "autorun": {
     "total": 237,
     "baselineTarget": 10,
