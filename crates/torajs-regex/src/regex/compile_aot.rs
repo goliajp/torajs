@@ -156,7 +156,6 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
         n_named_captures,
         last_index: 0,
         workspace_cache: core::cell::UnsafeCell::new(None),
-        dfa_cache: core::cell::UnsafeCell::new(None),
         baked_dfa,
     });
     Box::into_raw(re) as *mut c_void

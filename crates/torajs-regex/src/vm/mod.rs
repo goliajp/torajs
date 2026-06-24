@@ -194,7 +194,8 @@ pub fn char_eq(a: u8, b: u8, flags: u8) -> bool {
 /// [`search_from_with_ws`].
 ///
 /// `dfa_cached`(chunk 7.7)— optional cached DFA built once at the
-/// caller side (typically via [`crate::regex::RegExp::get_or_build_dfa`]).
+/// caller side (typically via [`crate::regex::RegExp::baked_dfa_view`]
+/// for AOT-eligible literal regexes).
 /// `None` falls back to inline `build_dfa(prog, flags)` per call
 /// (chunk 7 v3 shape; equivalent to the pre-chunk-7.7 surface
 /// behaviour).
@@ -271,7 +272,7 @@ pub fn search_from_with_ws(
     // that produces the winning thread's `saves`.
     let dfa_fast_path = prog.can_dfa && crate::dfa::prog_ops_dfa_safe(prog);
     // chunk 7.7 — prefer the caller-cached DFA built once per-RegExp
-    // (`RegExp::get_or_build_dfa`); fall back to inline per-call build
+    // (`RegExp::baked_dfa_view`); fall back to inline per-call build
     // when the caller didn't pass one (vm unit tests, internal entry
     // points without a RegExp host). Both paths share the gate so the
     // call shape stays stable.
