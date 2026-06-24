@@ -30,6 +30,27 @@
 /// flag (padded to 4); future sparse map can replace it when state
 /// counts blow past a hot-cache budget. Capture writes are handled by
 /// the wire's second-pass Pike VM, not in the DFA itself (chunk 9).
+///
+/// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-1 (2026-06-24) — `#[repr(C)]`
+/// locks declared field order + C alignment so the AOT pipeline
+/// (ssa_lower) can emit a byte-identical `[DfaState; N]` static into
+/// `.rodata` and the `DfaStates::Static(&'static [...])` reader (Phase
+/// B) deserialises it byte-for-byte. Layout on aarch64-apple-darwin:
+///
+/// | offset | size | field |
+/// | ------ | ---- | ----- |
+/// | 0      | 1024 | transitions[256] |
+/// | 1024   | 1    | is_accept |
+/// | 1025   | 1    | is_accept_at_end |
+/// | 1026   | 2    | (padding to align 4) |
+/// | 1028   | 32   | accept_before_byte[8] |
+///
+/// total = 1060 bytes, align 4. The unit test
+/// `dfa_state_repr_c_layout_locked` enforces this layout so accidental
+/// field-reorder / type-change breaks `cargo test` before reaching the
+/// AOT byte emitter (where the same miscalculation would corrupt
+/// `.rodata` silently).
+#[repr(C)]
 pub struct DfaState {
     /// `transitions[byte]` = destination state index. 0 means dead.
     pub transitions: [u32; 256],
@@ -134,6 +155,61 @@ pub struct DfaProgram {
     pub start_mid_nonword: u32,
 }
 
+/// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-1 (2026-06-24) — C-ABI
+/// metadata struct emitted by the AOT pipeline (ssa_lower) alongside a
+/// `[DfaState; N]` static into the user binary's `.rodata`. The
+/// runtime constructor `__torajs_regex_compile_from_static_dfa`
+/// (Phase C-2) reads one of these to build a `DfaProgram` whose
+/// `states` is `DfaStates::Static(...)` over the baked slice, then
+/// pre-fills `RegExp::dfa_cache` so the surface match path never
+/// touches the (single-mutator UB-flaky) lazy build path for
+/// AOT-eligible literal regexes — the central reason Phase C exists.
+///
+/// Layout on aarch64-apple-darwin:
+///
+/// | offset | size | field |
+/// | ------ | ---- | ----- |
+/// | 0      | 8    | states_ptr (chain-LC rebased at link) |
+/// | 8      | 4    | states_len |
+/// | 12     | 4    | start |
+/// | 16     | 4    | start_mid |
+/// | 20     | 4    | start_mid_word |
+/// | 24     | 4    | start_mid_nonword |
+/// | 28     | 4    | (tail padding to align 8) |
+///
+/// total = 32 bytes, align 8 (pointer-aligned, native word size). The
+/// unit test `baked_dfa_meta_repr_c_layout_locked` enforces this
+/// layout — accidental field-reorder or type-change is caught before
+/// the AOT byte emitter rather than corrupting linker output.
+#[repr(C)]
+// Phase C-1 data type only; the runtime consumer
+// `__torajs_regex_compile_from_static_dfa` lands in Phase C-2 and the
+// ssa_lower-side AOT emitter in C-4/C-6. `#[expect(dead_code)]` would
+// be more precise but flips unfulfilled under `cfg(test)` (the layout
+// unit tests use `size_of` + `offset_of!` so the struct counts as
+// constructed there). `#[allow(dead_code)]` is portable across both
+// cfgs; the docstring + this comment record the "C-2 removes" plan.
+#[allow(dead_code)]
+pub struct BakedDfaMeta {
+    /// Pointer to a `.rodata`-backed `[DfaState; states_len]` table.
+    /// Rebased by the chain-LC dyld fixup chain at load time (same
+    /// mechanism vtable + class_layouts ride on) so ASLR slide is
+    /// honoured. Always non-null in well-formed input.
+    pub states_ptr: *const DfaState,
+    /// Number of `DfaState` entries at `states_ptr`. Stored as `u32`
+    /// not `usize` since DFA state count is bounded by the BFS subset
+    /// construction's state cap (well under 4 billion); locking the
+    /// width keeps the C-ABI struct word-portable across host
+    /// architectures should that ever matter.
+    pub states_len: u32,
+    /// Four anchored start state indices — exact mirror of
+    /// `DfaProgram::{start, start_mid, start_mid_word, start_mid_nonword}`.
+    pub start: u32,
+    pub start_mid: u32,
+    pub start_mid_word: u32,
+    pub start_mid_nonword: u32,
+}
+
 /// Drive a built [`DfaProgram`] over `hay`, returning the longest
 /// prefix `hay[..n]` accepted by the anchored DFA — or `None` when no
 /// prefix accepts. The executor never backtracks (the BFS already
@@ -207,6 +283,38 @@ fn dfa_search_from(dfa: &DfaProgram, hay: &[u8], start: u32) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::mem::{align_of, offset_of, size_of};
+
+    /// Phase C-1 layout lock — `DfaState` is the byte-for-byte ground
+    /// truth the AOT pipeline (ssa_lower) emits into `.rodata`. Any
+    /// reorder / type-change here must be matched in the byte emitter
+    /// or the `.rodata` slice will be misread at runtime — catching
+    /// drift at `cargo test` time is cheaper than diagnosing
+    /// SIGSEGV / wrong-match silent corruption.
+    #[test]
+    fn dfa_state_repr_c_layout_locked() {
+        assert_eq!(offset_of!(DfaState, transitions), 0);
+        assert_eq!(offset_of!(DfaState, is_accept), 1024);
+        assert_eq!(offset_of!(DfaState, is_accept_at_end), 1025);
+        assert_eq!(offset_of!(DfaState, accept_before_byte), 1028);
+        assert_eq!(size_of::<DfaState>(), 1060);
+        assert_eq!(align_of::<DfaState>(), 4);
+    }
+
+    /// Phase C-1 layout lock — `BakedDfaMeta` mirrors the
+    /// 32-byte AOT metadata struct ssa_lower emits per literal regex.
+    /// See doc comment on the struct for the offset table.
+    #[test]
+    fn baked_dfa_meta_repr_c_layout_locked() {
+        assert_eq!(offset_of!(BakedDfaMeta, states_ptr), 0);
+        assert_eq!(offset_of!(BakedDfaMeta, states_len), 8);
+        assert_eq!(offset_of!(BakedDfaMeta, start), 12);
+        assert_eq!(offset_of!(BakedDfaMeta, start_mid), 16);
+        assert_eq!(offset_of!(BakedDfaMeta, start_mid_word), 20);
+        assert_eq!(offset_of!(BakedDfaMeta, start_mid_nonword), 24);
+        assert_eq!(size_of::<BakedDfaMeta>(), 32);
+        assert_eq!(align_of::<BakedDfaMeta>(), 8);
+    }
 
     /// Phase B validation — a hand-built `DfaProgram` whose `states`
     /// uses `DfaStates::Static(&'static [...])` (the Phase C
