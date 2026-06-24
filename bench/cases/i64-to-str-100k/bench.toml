@@ -1,0 +1,4 @@
+# Isolation fixture for Number.toString(int) substrate cost.
+# Round 2 decomp (`.claude/rfcs/20260624-jsland-substrate-round2/decomposition.md`)
+# §10 F-A. Default 10 runs + 3 warmup is fine — each iter is small
+# (5-10ms torajs / 1-2ms bun) so the whole bench fits seconds.
