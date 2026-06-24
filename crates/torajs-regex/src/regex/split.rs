@@ -36,7 +36,9 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
     // Phase C-3 — bind AOT-baked DFA view once. See match_all for the
     // same pattern and the rationale (zero `dfa_cache` reads on the
     // hot search loop once Phase C-4+ delivers baked entries).
+    // Round 3 Phase B sub-batch 7.2 — runtime-baked DFA fallback.
     let dfa_view = re.baked_dfa_view();
+    let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
 
     let mut out = out;
     let mut pos: i64 = 0;
@@ -48,15 +50,7 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
             // Round 3 Phase B attack #R-A1 — split currently routes
             // through `str_slice` (transcodes to owned bytes), so the
             // ASCII-view shortcut isn't on this path. Pass `false`.
-            search_from_with_ws(
-                &re.prog,
-                &s,
-                pos,
-                re.flags,
-                ws_ref,
-                dfa_view.as_ref(),
-                false,
-            )
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false)
         };
         let Some(m) = m else { break };
         if m.end == m.start {

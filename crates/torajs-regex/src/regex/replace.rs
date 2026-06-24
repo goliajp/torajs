@@ -97,7 +97,14 @@ fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
     let sticky = re.flags & RE_FLAG_Y != 0;
     // Phase C-3 — bind the AOT-baked DFA view once outside the loop.
     // See match_all.rs for the rationale.
+    // Round 3 Phase B sub-batch 7.2 — prefer the AOT-baked view, fall
+    // back to the runtime-baked `RegExp.dfa_runtime` (eager-built at
+    // `__torajs_regex_compile` ctor for DFA-eligible runtime literals).
+    // Either way `dfa_ref: Option<&DfaProgram>` is the wire shape into
+    // `vm::search_from_with_ws`; the vm's per-call `dfa_built_local`
+    // path becomes dead in sub-batch 7.3.
     let dfa_view = re.baked_dfa_view();
+    let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
     while pos <= slen {
         let m = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
@@ -105,7 +112,7 @@ fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
             // Round 3 Phase B attack #R-A1 — replace currently routes
             // through `str_slice` (transcodes to owned bytes), so the
             // ASCII-view shortcut isn't on this path. Pass `false`.
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws, dfa_view.as_ref(), false)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws, dfa_ref, false)
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);

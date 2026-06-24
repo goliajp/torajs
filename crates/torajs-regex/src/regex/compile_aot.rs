@@ -157,6 +157,12 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
         last_index: 0,
         workspace_cache: core::cell::UnsafeCell::new(None),
         baked_dfa,
+        // Round 3 Phase B sub-batch 7.2 — AOT path uses the
+        // `.rodata`-baked DFA via `baked_dfa` / `baked_dfa_view`,
+        // so the runtime-build slot stays `None` (avoids both a
+        // wasteful per-ctor `build_dfa` and a duplicate `DfaProgram`
+        // allocation when the baked view already serves matches).
+        dfa_runtime: None,
     });
     Box::into_raw(re) as *mut c_void
 }

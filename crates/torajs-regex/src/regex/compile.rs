@@ -134,6 +134,24 @@ pub unsafe extern "C" fn __torajs_regex_compile(
         }
     }
 
+    // Round 3 Phase B sub-batch 7.2 — eager-build runtime DFA at ctor
+    // time when the program is DFA-eligible, so the per-call
+    // `dfa_built_local` path in `vm::search_from_with_ws` becomes
+    // dead (deleted in sub-batch 7.3). For non-AOT-baked literal
+    // regexes hot-looped via LICM-hoisted `for i { s.match(re) }`,
+    // moves ~1-3 µs/iter of `build_dfa(...)` out of the inner loop
+    // into a one-shot RegExp constructor cost.
+    //
+    // Storage `Option<DfaProgram>` (no `UnsafeCell`) — eagerly
+    // populated once at ctor, immutable for the RegExp's lifetime;
+    // closes the chunk-7.6 SIGBUS UB family which originated from
+    // interior-mutable cache shapes.
+    let dfa_runtime = if rejected == 0 && prog.can_dfa && crate::dfa::prog_ops_dfa_safe(&prog) {
+        Some(crate::dfa::build_dfa(&prog, flag_bits))
+    } else {
+        None
+    };
+
     let re = Box::new(RegExp {
         header: HeapHeader {
             refcount: 1,
@@ -157,6 +175,7 @@ pub unsafe extern "C" fn __torajs_regex_compile(
         // when the user binary's AOT pipeline emitted a
         // `BakedDfaMeta` for this literal regex.
         baked_dfa: None,
+        dfa_runtime,
     });
     Box::into_raw(re) as *mut c_void
 }

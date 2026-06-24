@@ -70,7 +70,9 @@ unsafe fn replace_fn_inner(
     // Workspace; outer ws only needed in non-sticky branch.
     let mut ws: Option<Workspace> = None;
     // Phase C-3 — baked DFA view bound once. See match_all.rs.
+    // Round 3 Phase B sub-batch 7.2 — AOT then runtime-baked fallback.
     let dfa_view = re.baked_dfa_view();
+    let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
     let mut out: Vec<u8> = Vec::with_capacity(s.len() + 16);
     let mut pos: i64 = 0;
     let sticky = re.flags & RE_FLAG_Y != 0;
@@ -83,15 +85,7 @@ unsafe fn replace_fn_inner(
             // routes through `str_slice` (transcodes to owned bytes),
             // so the ASCII-view shortcut isn't on this path. Pass
             // `false`; semantics preserved.
-            search_from_with_ws(
-                &re.prog,
-                &s,
-                pos,
-                re.flags,
-                ws_ref,
-                dfa_view.as_ref(),
-                false,
-            )
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false)
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);

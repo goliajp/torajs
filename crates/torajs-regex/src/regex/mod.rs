@@ -139,6 +139,32 @@ pub struct RegExp {
     /// the chunk-7.6 / chunk-7.7 SIGBUS (see `dfa_cache` doc above
     /// for the trail).
     pub baked_dfa: Option<core::ptr::NonNull<crate::dfa::BakedDfaMeta>>,
+    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Round 3 Phase B sub-batch 7.2
+    /// (2026-06-25) — runtime-baked DFA cache. The `__torajs_regex_compile`
+    /// constructor eager-builds `build_dfa(&prog, flag_bits)` once when the
+    /// program is DFA-eligible (`prog.can_dfa && prog_ops_dfa_safe(&prog)`)
+    /// and stores the owned `DfaProgram` here, so the surface match path
+    /// (`__torajs_str_match_regex` / `__torajs_regex_exec` / replace /
+    /// matchAll / split) can borrow it through [`RegExp::dfa_runtime`]
+    /// and never re-build per call. Closes the
+    /// `vm::search_from_with_ws::dfa_built_local` per-call build path
+    /// (deleted in sub-batch 7.3).
+    ///
+    /// Always `None` for the AOT path (`compile_aot.rs`) — those
+    /// regexes have a `.rodata`-baked DFA reachable through
+    /// [`RegExp::baked_dfa_view`] which is preferred over the runtime
+    /// build in every surface caller (`baked_dfa_view().as_ref().or(re.dfa_runtime.as_ref())`).
+    ///
+    /// Storage shape rationale: plain `Option<DfaProgram>` (no
+    /// `UnsafeCell`) because the slot is written once at ctor and
+    /// immutable for the RegExp's lifetime. The interior-mutable
+    /// cache shape that produced the chunk-7.6 SIGBUS family
+    /// (`UnsafeCell<Option<DfaProgram>>`, also the deleted
+    /// chunk-7.5 `OnceCell` variant) is structurally avoided here —
+    /// no cross-call mutation, no aliasing-with-mutation, drop is the
+    /// natural chain via `Box::from_raw(re_ptr as *mut RegExp)` in
+    /// `__torajs_regex_drop`.
+    pub dfa_runtime: Option<crate::dfa::DfaProgram>,
 }
 
 // ---- Cross-tier extern declarations ----

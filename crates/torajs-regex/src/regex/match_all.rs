@@ -50,13 +50,14 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
     let mut ws: Option<Workspace> = None;
     let sticky = re.flags & RE_FLAG_Y != 0;
     // Phase C-3 — bind the AOT-baked DFA view once outside the loop.
-    // `None` when this RegExp came from `__torajs_regex_compile`
-    // (runtime literal / `new RegExp`); the surface match path then
-    // falls through to `search_from_with_ws`'s inline `build_dfa`
-    // per-call path, preserving baseline behaviour. AOT regexes
-    // (Phase C-4/C-5/C-6 onwards) short-circuit straight to the
-    // `.rodata`-baked DFA — zero `dfa_cache` access on the hot loop.
+    // Round 3 Phase B sub-batch 7.2 — fall back to runtime-baked
+    // `RegExp.dfa_runtime` (eager-built once at
+    // `__torajs_regex_compile` ctor for every DFA-eligible literal).
+    // The earlier `None` fall-through to `search_from_with_ws`'s
+    // inline per-call `build_dfa` becomes dead in sub-batch 7.3; AOT
+    // regexes still short-circuit straight to the `.rodata`-baked DFA.
     let dfa_view = re.baked_dfa_view();
+    let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
 
     let mut outer = outer;
     let mut pos: i64 = 0;
@@ -70,15 +71,7 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
             // freshly-allocated Vec<u8>), so the ASCII-view shortcut
             // isn't on this path. Pass `false`; the u-flag
             // continuation-byte gate stays correct for any haystack.
-            search_from_with_ws(
-                &re.prog,
-                &s,
-                pos,
-                re.flags,
-                ws_ref,
-                dfa_view.as_ref(),
-                false,
-            )
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false)
         };
         let Some(m) = hit else { break };
         outer = unsafe { append_inner(outer, re, &s, m.saves(), m.start, m.end) };

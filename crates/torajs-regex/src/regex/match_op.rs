@@ -161,7 +161,9 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     let mut ws: Option<Workspace> = None;
     // Phase C-3 — bind the AOT-baked DFA view once outside the loop;
     // see match_all.rs for the rationale.
+    // Round 3 Phase B sub-batch 7.2 — runtime-baked DFA fallback.
     let dfa_view = re.baked_dfa_view();
+    let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
     let mut out: *mut c_void = core::ptr::null_mut();
     let mut pos: i64 = 0;
     while pos <= slen {
@@ -182,7 +184,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
                 pos,
                 re.flags,
                 ws_ref,
-                dfa_view.as_ref(),
+                dfa_ref,
                 haystack_is_ascii,
             )
         };
@@ -259,13 +261,15 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     let start = if track { re.last_index.max(0) } else { 0 };
 
     // Phase C-3 — single-shot exec hits the same baked-DFA short-circuit.
+    // Round 3 Phase B sub-batch 7.2 — runtime-baked DFA fallback.
     let dfa_view = re.baked_dfa_view();
+    let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
     let m = if track && start > slen {
         None
     } else if sticky {
         match_anchor(&re.prog, &s, start, re.flags)
     } else {
-        search_from(&re.prog, &s, start, re.flags, dfa_view.as_ref())
+        search_from(&re.prog, &s, start, re.flags, dfa_ref)
     };
     let Some(m) = m else {
         if track {
