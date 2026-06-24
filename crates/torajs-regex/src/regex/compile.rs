@@ -151,6 +151,12 @@ pub unsafe extern "C" fn __torajs_regex_compile(
         // of workspace_cache; first-use builds via
         // [`RegExp::get_or_build_dfa`].
         dfa_cache: core::cell::UnsafeCell::new(None),
+        // V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-2 — runtime
+        // compile path: no AOT-baked DFA. Set non-`None` only by
+        // [`super::compile_aot::__torajs_regex_compile_from_static_dfa`]
+        // when the user binary's AOT pipeline emitted a
+        // `BakedDfaMeta` for this literal regex.
+        baked_dfa: None,
     });
     Box::into_raw(re) as *mut c_void
 }

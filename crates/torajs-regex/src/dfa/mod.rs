@@ -70,7 +70,8 @@ mod step;
 
 pub use build::build_dfa;
 pub use search::{
-    DfaProgram, DfaState, dfa_search, dfa_search_mid, dfa_search_mid_nonword, dfa_search_mid_word,
+    BakedDfaMeta, DfaProgram, DfaState, DfaStates, dfa_search, dfa_search_mid,
+    dfa_search_mid_nonword, dfa_search_mid_word,
 };
 pub use step::{byte_step, byte_step_full};
 

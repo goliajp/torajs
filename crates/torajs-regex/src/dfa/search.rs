@@ -182,14 +182,6 @@ pub struct DfaProgram {
 /// layout — accidental field-reorder or type-change is caught before
 /// the AOT byte emitter rather than corrupting linker output.
 #[repr(C)]
-// Phase C-1 data type only; the runtime consumer
-// `__torajs_regex_compile_from_static_dfa` lands in Phase C-2 and the
-// ssa_lower-side AOT emitter in C-4/C-6. `#[expect(dead_code)]` would
-// be more precise but flips unfulfilled under `cfg(test)` (the layout
-// unit tests use `size_of` + `offset_of!` so the struct counts as
-// constructed there). `#[allow(dead_code)]` is portable across both
-// cfgs; the docstring + this comment record the "C-2 removes" plan.
-#[allow(dead_code)]
 pub struct BakedDfaMeta {
     /// Pointer to a `.rodata`-backed `[DfaState; states_len]` table.
     /// Rebased by the chain-LC dyld fixup chain at load time (same

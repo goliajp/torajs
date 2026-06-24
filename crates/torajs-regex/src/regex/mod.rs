@@ -21,6 +21,7 @@
 //! - [`split`] — `__torajs_str_split_regex`.
 
 pub mod compile;
+pub mod compile_aot;
 pub mod lifecycle;
 pub mod match_all;
 pub mod match_op;
@@ -132,6 +133,29 @@ pub struct RegExp {
     /// `vm::search_from_with_ws` via the `dfa_cached` parameter when
     /// the caller passes the cached ref through.
     pub dfa_cache: core::cell::UnsafeCell<Option<crate::dfa::DfaProgram>>,
+    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-2 (2026-06-24) —
+    /// optional AOT-baked DFA metadata pointer. `None` when this
+    /// `RegExp` came from `__torajs_regex_compile` (runtime literal /
+    /// `new RegExp(...)` path); `Some(meta)` when it came from
+    /// `__torajs_regex_compile_from_static_dfa`, in which case
+    /// `meta.states_ptr` points at a `.rodata`-baked `[DfaState; N]`
+    /// owned by the user binary and the four start indices are
+    /// pre-computed too.
+    ///
+    /// `NonNull<BakedDfaMeta>` is the right shape here — the pointee
+    /// lives in `.rodata` for the program's lifetime, so the slot
+    /// requires no destructor work (`Box::from_raw` drop path in
+    /// `__torajs_regex_drop` leaves the meta untouched), and the
+    /// `None` discriminant keeps the original runtime path
+    /// allocation-free.
+    ///
+    /// Consumed by [`RegExp::baked_dfa_view`] which stack-constructs
+    /// a `DfaProgram` whose `states` is `DfaStates::Static(...)`
+    /// over the baked slice — completely sidestepping the
+    /// `UnsafeCell<Option<DfaProgram>>` borrow shape that produced
+    /// the chunk-7.6 / chunk-7.7 SIGBUS (see `dfa_cache` doc above
+    /// for the trail).
+    pub baked_dfa: Option<core::ptr::NonNull<crate::dfa::BakedDfaMeta>>,
 }
 
 // ---- Cross-tier extern declarations ----
@@ -354,5 +378,43 @@ impl RegExp {
             *opt = Some(crate::dfa::build_dfa(&self.prog, self.flags));
         }
         opt.as_ref()
+    }
+
+    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-2 — view the
+    /// AOT-baked DFA (when present) as an owned [`crate::dfa::DfaProgram`]
+    /// whose `states` is `DfaStates::Static(&'static [DfaState])`
+    /// over the `.rodata`-baked slice. Returns `None` when this
+    /// `RegExp` came from the runtime `__torajs_regex_compile` path
+    /// (no `baked_dfa` set) — callers fall back to the per-call
+    /// `build_dfa` path or the lazy `get_or_build_dfa` cache.
+    ///
+    /// The returned `DfaProgram` is a thin stack-owned view: the
+    /// state slice payload lives in `.rodata` for the program's
+    /// lifetime, and `DfaProgram`'s 16-byte slice header (ptr +
+    /// len) plus 16 bytes of `start*` fields fit in 56 bytes on
+    /// aarch64 — well under the cost of one DFA build. Crucially,
+    /// the view is **not** stored in any `UnsafeCell` slot: the
+    /// caller `let`-binds it on the stack and borrows it through
+    /// `Option::as_ref` directly into `search_from_with_ws`, so the
+    /// borrow shape that produced the chunk-7.6 SIGBUS never
+    /// reappears for AOT-eligible literal regexes.
+    pub fn baked_dfa_view(&self) -> Option<crate::dfa::DfaProgram> {
+        let meta_ptr = self.baked_dfa?;
+        // SAFETY: `meta_ptr` was stored by
+        // `__torajs_regex_compile_from_static_dfa` from the
+        // `.rodata`-resident `BakedDfaMeta` the AOT pipeline
+        // emitted; the pointee + the slice it indirects to live for
+        // the program's lifetime, so the resulting `&'static`
+        // borrows are sound.
+        let meta = unsafe { meta_ptr.as_ref() };
+        let states_slice: &'static [crate::dfa::DfaState] =
+            unsafe { core::slice::from_raw_parts(meta.states_ptr, meta.states_len as usize) };
+        Some(crate::dfa::DfaProgram {
+            states: crate::dfa::DfaStates::Static(states_slice),
+            start: meta.start,
+            start_mid: meta.start_mid,
+            start_mid_word: meta.start_mid_word,
+            start_mid_nonword: meta.start_mid_nonword,
+        })
     }
 }
