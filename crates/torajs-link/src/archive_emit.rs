@@ -102,22 +102,25 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     let data_rebase_link_values =
         recompute_chained_fixups_with_data_rebase(&mut layout, &data_rebase_targets);
 
-    // e7b-4/e8-2b + Step 3b.4-5 + W-J A3c: 4-way split
+    // e7b-4/e8-2b + Step 3b.4-5 + W-J A3c + C-5c.2c: 5-way split
     // text_rebase_link_values = vtable | class_layouts |
-    // fn_name_table | class_name_table. class_layouts count is the
-    // middle slice computed by subtraction so the split arithmetic
-    // stays single-source-of-truth even if other counts drift.
+    // fn_name_table | class_name_table | baked_regex. class_layouts
+    // count is the middle slice computed by subtraction so the split
+    // arithmetic stays single-source-of-truth even if other counts
+    // drift.
     let total_text_rebase = layout.text_rebase_link_values.len();
     let vtable_count = layout.vtable_rebase_target_count;
     let fn_name_count = layout.fn_name_rebase_target_count;
     let class_name_count = layout.class_name_rebase_target_count;
+    let baked_regex_count = layout.baked_regex_rebase_target_count;
     let class_count = total_text_rebase
-        .checked_sub(vtable_count + fn_name_count + class_name_count)
-        .expect("text_rebase_link_values has fewer entries than the 3 fixed regions combined");
+        .checked_sub(vtable_count + fn_name_count + class_name_count + baked_regex_count)
+        .expect("text_rebase_link_values has fewer entries than the 4 fixed regions combined");
     let (vtable_lv, rest) = layout.text_rebase_link_values.split_at(vtable_count);
     let (class_lv, rest) = rest.split_at(class_count);
-    let (fn_name_lv, class_name_lv) = rest.split_at(fn_name_count);
-    debug_assert_eq!(class_name_lv.len(), class_name_count);
+    let (fn_name_lv, rest) = rest.split_at(fn_name_count);
+    let (class_name_lv, baked_regex_lv) = rest.split_at(class_name_count);
+    debug_assert_eq!(baked_regex_lv.len(), baked_regex_count);
     let user_vtables_payload = build_user_vtables_payload(&layout.user_vtables_layout, vtable_lv);
     let user_class_layouts_payload =
         build_user_class_layouts_payload(&layout.data_const_layout.class_layouts_layout, class_lv);
@@ -125,6 +128,11 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         build_fn_name_table_payload(&layout.fn_name_table_layout, fn_name_lv);
     let class_name_table_payload =
         build_class_name_table_payload(&layout.class_name_table_layout, class_name_lv);
+    let user_regex_baked_payload = crate::user_regex_baked_layout::build_user_regex_baked_payload(
+        &layout.data_const_layout.baked_regex_layout,
+        &cfg.baked_regex_entries,
+        baked_regex_lv,
+    );
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
 
     // S7-C5 — patch each member's __text in place against effective sym table.
@@ -172,6 +180,7 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &user_class_layouts_payload,
         &fn_name_table_payload,
         &class_name_table_payload,
+        &user_regex_baked_payload,
     );
     Ok(bytes)
 }
@@ -189,6 +198,7 @@ fn emit_binary(
     user_class_layouts_payload: &[u8],
     fn_name_table_payload: &[u8],
     class_name_table_payload: &[u8],
+    user_regex_baked_payload: &[u8],
 ) -> Vec<u8> {
     let EmitLcMeta {
         has_dyld,
@@ -377,6 +387,7 @@ fn emit_binary(
         user_class_layouts_payload,
         fn_name_table_payload,
         class_name_table_payload,
+        user_regex_baked_payload,
     );
     if has_dyld {
         write_la_ptr_section(&mut buf, layout);
@@ -790,7 +801,19 @@ mod tests {
         // Drive emit_binary directly — apply_relocs is happy
         // because cfg.sym_table covers `_malloc`.
         let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &cfg.sym_table);
-        let bytes = emit_binary(&cfg, &layout, &[], &[], &[], &resolved, &[], &[], &[], &[]);
+        let bytes = emit_binary(
+            &cfg,
+            &layout,
+            &[],
+            &[],
+            &[],
+            &resolved,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+        );
 
         assert_eq!(
             bytes.len() as u32,

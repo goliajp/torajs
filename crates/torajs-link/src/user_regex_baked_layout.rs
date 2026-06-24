@@ -154,18 +154,28 @@ pub fn compute_user_regex_baked_layout(
 
 /// Byte-emit the baked-regex region: inner `[DfaState; N]` tables
 /// followed by aligned outer `BakedDfaMeta` structs. `states_ptr`
-/// slots are zero-filled — chain-LC rebase (C-5c) will stamp them in
-/// place at link time with the runtime `states_vaddr`.
+/// slots receive their chain-LC link value (encoded by
+/// `chained_fixups_starts` so dyld stamps `states_vaddr` after ASLR
+/// slide). `baked_regex_link_values` carries one u64 per entry,
+/// produced by the same emit pipeline that drives vtable /
+/// class_layouts / fn_name / class_name slots.
 pub fn build_user_regex_baked_payload(
     layout: &UserRegexBakedLayout,
     entries: &[UserBakedRegexEntry],
+    baked_regex_link_values: &[u64],
 ) -> Vec<u8> {
     let mut buf: Vec<u8> = Vec::with_capacity(layout.total_size as usize);
     if layout.total_size == 0 {
         debug_assert!(entries.is_empty());
+        debug_assert!(baked_regex_link_values.is_empty());
         return buf;
     }
     debug_assert_eq!(layout.entries.len(), entries.len());
+    debug_assert_eq!(
+        baked_regex_link_values.len(),
+        entries.len(),
+        "baked_regex_link_values must carry one u64 per entry — emit-pass split misaligned",
+    );
     let region_start = layout.file_offset;
     // Phase 1: inner DfaState arrays. Each entry's payload is the
     // pre-serialised `#[repr(C)] DfaState` byte image authored by
@@ -184,13 +194,19 @@ pub fn build_user_regex_baked_payload(
         buf.extend_from_slice(&entry.states_payload);
     }
     // Phase 2: outer BakedDfaMeta structs.
-    for (placement, entry) in layout.entries.iter().zip(entries.iter()) {
+    for ((placement, entry), lv) in layout
+        .entries
+        .iter()
+        .zip(entries.iter())
+        .zip(baked_regex_link_values.iter())
+    {
         pad_buf_to(&mut buf, region_start, placement.meta_file_offset);
         let meta_start = buf.len();
-        // states_ptr u64 @ OUTER_STATES_PTR_OFFSET_IN_META — zero now,
-        // chain-LC rebase will overwrite with the load-time vaddr.
+        // states_ptr u64 @ OUTER_STATES_PTR_OFFSET_IN_META — encoded
+        // chain-LC link value (dyld walks the chain at load time and
+        // stamps `states_vaddr` after ASLR slide).
         debug_assert_eq!(OUTER_STATES_PTR_OFFSET_IN_META, 0);
-        buf.extend_from_slice(&0u64.to_le_bytes());
+        buf.extend_from_slice(&lv.to_le_bytes());
         debug_assert_eq!(buf.len() - meta_start, 8);
         // states_len u32 + 4 start indices u32 = 5 * 4 bytes.
         buf.extend_from_slice(&entry.states_len.to_le_bytes());
@@ -444,7 +460,11 @@ mod tests {
     #[test]
     fn payload_byte_image_single_one_state_entry() {
         // Build entry with a recognisable inner pattern + non-zero
-        // start indices to verify outer meta byte layout.
+        // start indices to verify outer meta byte layout. Hand a
+        // sentinel chain-LC link value so the states_ptr slot
+        // assertion can distinguish "0 written because dyld will
+        // overwrite" from "0 written because the link value never
+        // reached the slot".
         let mut states_payload = vec![0u8; INNER_DFA_STATE_SIZE as usize];
         states_payload[0] = 0xAB;
         states_payload[1059] = 0xCD;
@@ -458,7 +478,8 @@ mod tests {
             start_mid_nonword: 0x44,
         }];
         let layout = compute_user_regex_baked_layout(&entries, 0x4_0000, 0x1_0001_0000);
-        let payload = build_user_regex_baked_payload(&layout, &entries);
+        let link_value: u64 = 0xDEAD_BEEF_CAFE_BABE;
+        let payload = build_user_regex_baked_payload(&layout, &entries, &[link_value]);
         assert_eq!(payload.len() as u32, layout.total_size);
         // Inner table @ 0..1060.
         assert_eq!(payload[0], 0xAB);
@@ -466,8 +487,9 @@ mod tests {
         // Pad @ 1060..1064.
         assert_eq!(&payload[1060..1064], &[0u8; 4]);
         // BakedDfaMeta @ 1064..1096.
-        // states_ptr u64 @ +0 → 0 (chain-LC rebase target).
-        assert_eq!(&payload[1064..1072], &0u64.to_le_bytes());
+        // states_ptr u64 @ +0 → chain-LC link value (dyld stamps
+        // states_vaddr at load time).
+        assert_eq!(&payload[1064..1072], &link_value.to_le_bytes());
         // states_len u32 @ +8 → 1.
         assert_eq!(&payload[1072..1076], &1u32.to_le_bytes());
         // start u32 @ +12 → 0x11.
@@ -485,7 +507,7 @@ mod tests {
     #[test]
     fn payload_empty_for_empty_input() {
         let layout = compute_user_regex_baked_layout(&[], 0x4_0000, 0x1_0001_0000);
-        let payload = build_user_regex_baked_payload(&layout, &[]);
+        let payload = build_user_regex_baked_payload(&layout, &[], &[]);
         assert!(payload.is_empty());
     }
 

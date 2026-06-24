@@ -261,6 +261,7 @@ pub fn write_data_const_payload(
     user_class_layouts_payload: &[u8],
     fn_name_table_payload: &[u8],
     class_name_table_payload: &[u8],
+    user_regex_baked_payload: &[u8],
 ) {
     if !layout.has_data_const {
         return;
@@ -273,6 +274,7 @@ pub fn write_data_const_payload(
     buf.extend_from_slice(user_class_layouts_payload);
     buf.extend_from_slice(fn_name_table_payload);
     buf.extend_from_slice(class_name_table_payload);
+    buf.extend_from_slice(user_regex_baked_payload);
 }
 
 #[cfg(test)]
