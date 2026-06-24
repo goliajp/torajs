@@ -97,7 +97,7 @@ unsafe fn replace_fn_inner(
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
         let match_str = unsafe { str_from_bytes(&s[m.start as usize..m.end as usize]) };
         let mut caps: [*mut c_void; 9] = [core::ptr::null_mut(); 9];
-        unsafe { build_capture_strs(n_caps, &m.saves, &s, &mut caps) };
+        unsafe { build_capture_strs(n_caps, m.saves(), &s, &mut caps) };
         let ret_str = unsafe {
             invoke_replace_cb(
                 n_caps,

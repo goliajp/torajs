@@ -351,6 +351,19 @@ mod tests {
         let mut prog = Program::new();
         compile(&mut prog, &root, flags);
         prog.emit(Inst::match_accept());
+        // Mirror `regex/compile.rs` / `vm/mod.rs::tests::build` —
+        // `prog.has_save` is the compile-time cache of
+        // `insts.iter().any(...Op::Save)`. Production callers always
+        // set it; the chunk-7.7-step12 Round 3 Phase B sub-batch 5
+        // attack #R-A3 (NoSaves/WithSaves split) wires the `search_*`
+        // entry points to gate the 512-byte saves init on this field,
+        // so tests that build a Program manually must set it too —
+        // otherwise capture-group fixtures like `((a)(b))` take the
+        // NoSaves fast path and surface all-`-1` saves.
+        prog.has_save = prog
+            .insts
+            .iter()
+            .any(|ins| ins.op == crate::program::Op::Save as u8);
         prog
     }
 
@@ -433,12 +446,12 @@ mod tests {
     fn nested_capture_groups() {
         let r = matches("((a)(b))", "ab", 0).expect("hit");
         // Group 1 = "ab", group 2 = "a", group 3 = "b".
-        assert_eq!(r.saves[2], 0);
-        assert_eq!(r.saves[3], 2);
-        assert_eq!(r.saves[4], 0);
-        assert_eq!(r.saves[5], 1);
-        assert_eq!(r.saves[6], 1);
-        assert_eq!(r.saves[7], 2);
+        assert_eq!(r.saves()[2], 0);
+        assert_eq!(r.saves()[3], 2);
+        assert_eq!(r.saves()[4], 0);
+        assert_eq!(r.saves()[5], 1);
+        assert_eq!(r.saves()[6], 1);
+        assert_eq!(r.saves()[7], 2);
     }
 
     #[test]

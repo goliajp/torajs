@@ -196,8 +196,8 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             // Append captures.
             let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
             for i in 1..=n_cap_lim {
-                let gs = m.saves[2 * i];
-                let ge = m.saves[2 * i + 1];
+                let gs = m.saves()[2 * i];
+                let ge = m.saves()[2 * i + 1];
                 if gs < 0 || ge < 0 {
                     out = unsafe { __torajs_arr_push(out, 0) };
                 } else {
@@ -209,7 +209,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             // index / input / groups attach in print order.
             unsafe {
                 attach_exec_props(out, str_ptr, m.start);
-                attach_groups(out, re, &s, &m.saves);
+                attach_groups(out, re, &s, m.saves());
             }
             break;
         }
@@ -281,8 +281,8 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     out = unsafe { __torajs_arr_push(out, whole as i64) };
     let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
     for i in 1..=n_cap_lim {
-        let gs = m.saves[2 * i];
-        let ge = m.saves[2 * i + 1];
+        let gs = m.saves()[2 * i];
+        let ge = m.saves()[2 * i + 1];
         if gs < 0 || ge < 0 {
             out = unsafe { __torajs_arr_push(out, 0) };
         } else {
@@ -292,7 +292,7 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     }
     unsafe {
         attach_exec_props(out, str_ptr, m.start);
-        attach_groups(out, re, &s, &m.saves);
+        attach_groups(out, re, &s, m.saves());
     }
     out
 }

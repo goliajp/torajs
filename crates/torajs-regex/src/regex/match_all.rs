@@ -81,7 +81,7 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
             )
         };
         let Some(m) = hit else { break };
-        outer = unsafe { append_inner(outer, re, &s, &m.saves, m.start, m.end) };
+        outer = unsafe { append_inner(outer, re, &s, m.saves(), m.start, m.end) };
         pos = if m.end == m.start { m.end + 1 } else { m.end };
     }
     outer

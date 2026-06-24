@@ -109,7 +109,7 @@ fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
-        expand_repl(repl, s, m.start, m.end, &m.saves, re.n_captures, &mut out);
+        expand_repl(repl, s, m.start, m.end, m.saves(), re.n_captures, &mut out);
         if m.end == m.start {
             if m.start < slen {
                 out.push(s[m.start as usize]);
