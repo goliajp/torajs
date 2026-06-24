@@ -31,12 +31,17 @@ pub unsafe extern "C" fn __torajs_regex_test(re_ptr: *const c_void, str_ptr: *co
         start = 0;
     }
 
+    // Phase C-3 — `re.test(s)` is single-shot from `start`; bind the
+    // AOT-baked DFA view if any so the search short-circuits the
+    // runtime `build_dfa`. `None` for runtime regexes preserves
+    // baseline.
+    let dfa_view = re.baked_dfa_view();
     let hit_end = if track && start > slen {
         None
     } else if sticky {
         match_anchor(&re.prog, &s, start, re.flags).map(|m| m.end)
     } else {
-        search_from(&re.prog, &s, start, re.flags, None).map(|m| m.end)
+        search_from(&re.prog, &s, start, re.flags, dfa_view.as_ref()).map(|m| m.end)
     };
 
     match hit_end {
@@ -80,7 +85,10 @@ pub unsafe extern "C" fn __torajs_regex_find(
     if from > slen {
         return -1;
     }
-    match search_from(&re.prog, &s, from, re.flags, None) {
+    // Phase C-3 — same baked-DFA short-circuit on the lower-level
+    // `__torajs_regex_find` helper.
+    let dfa_view = re.baked_dfa_view();
+    match search_from(&re.prog, &s, from, re.flags, dfa_view.as_ref()) {
         Some(m) => (m.start << 32) | (m.end & 0xffff_ffff),
         None => -1,
     }

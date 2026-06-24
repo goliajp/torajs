@@ -95,11 +95,14 @@ fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::with_capacity(s.len() + 16);
     let mut pos: i64 = 0;
     let sticky = re.flags & RE_FLAG_Y != 0;
+    // Phase C-3 — bind the AOT-baked DFA view once outside the loop.
+    // See match_all.rs for the rationale.
+    let dfa_view = re.baked_dfa_view();
     while pos <= slen {
         let m = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws, None)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws, dfa_view.as_ref())
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);

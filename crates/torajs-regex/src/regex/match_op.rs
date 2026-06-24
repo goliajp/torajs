@@ -142,6 +142,9 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     // branch. Sticky-only callers (typical `r.exec` / `str.match(r)`
     // with /y/) skip this ~50KB allocation entirely.
     let mut ws: Option<Workspace> = None;
+    // Phase C-3 — bind the AOT-baked DFA view once outside the loop;
+    // see match_all.rs for the rationale.
+    let dfa_view = re.baked_dfa_view();
     let mut out: *mut c_void = core::ptr::null_mut();
     let mut pos: i64 = 0;
     while pos <= slen {
@@ -156,7 +159,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             h
         } else {
             let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, None)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_view.as_ref())
         };
         let Some(m) = hit else { break };
         if out.is_null() {
@@ -221,12 +224,14 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     let track = sticky || global;
     let start = if track { re.last_index.max(0) } else { 0 };
 
+    // Phase C-3 — single-shot exec hits the same baked-DFA short-circuit.
+    let dfa_view = re.baked_dfa_view();
     let m = if track && start > slen {
         None
     } else if sticky {
         match_anchor(&re.prog, &s, start, re.flags)
     } else {
-        search_from(&re.prog, &s, start, re.flags, None)
+        search_from(&re.prog, &s, start, re.flags, dfa_view.as_ref())
     };
     let Some(m) = m else {
         if track {

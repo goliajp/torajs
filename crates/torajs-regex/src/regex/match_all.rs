@@ -49,6 +49,14 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
     // search_from_with_ws branch. Sticky callers skip the ~50KB alloc.
     let mut ws: Option<Workspace> = None;
     let sticky = re.flags & RE_FLAG_Y != 0;
+    // Phase C-3 — bind the AOT-baked DFA view once outside the loop.
+    // `None` when this RegExp came from `__torajs_regex_compile`
+    // (runtime literal / `new RegExp`); the surface match path then
+    // falls through to `search_from_with_ws`'s inline `build_dfa`
+    // per-call path, preserving baseline behaviour. AOT regexes
+    // (Phase C-4/C-5/C-6 onwards) short-circuit straight to the
+    // `.rodata`-baked DFA — zero `dfa_cache` access on the hot loop.
+    let dfa_view = re.baked_dfa_view();
 
     let mut outer = outer;
     let mut pos: i64 = 0;
@@ -57,7 +65,7 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
             let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, None)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_view.as_ref())
         };
         let Some(m) = hit else { break };
         outer = unsafe { append_inner(outer, re, &s, &m.saves, m.start, m.end) };

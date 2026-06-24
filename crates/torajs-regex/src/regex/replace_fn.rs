@@ -69,6 +69,8 @@ unsafe fn replace_fn_inner(
     // Lazy-init Workspace — sticky branch uses match_anchor's own
     // Workspace; outer ws only needed in non-sticky branch.
     let mut ws: Option<Workspace> = None;
+    // Phase C-3 — baked DFA view bound once. See match_all.rs.
+    let dfa_view = re.baked_dfa_view();
     let mut out: Vec<u8> = Vec::with_capacity(s.len() + 16);
     let mut pos: i64 = 0;
     let sticky = re.flags & RE_FLAG_Y != 0;
@@ -77,7 +79,7 @@ unsafe fn replace_fn_inner(
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
             let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, None)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_view.as_ref())
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
