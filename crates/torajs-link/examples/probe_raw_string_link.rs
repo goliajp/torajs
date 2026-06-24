@@ -106,6 +106,7 @@ fn main() {
         force_emit_fn_name_globals: false,
         class_names: Vec::new(),
         force_emit_class_names_globals: false,
+        baked_regex_entries: Vec::new(),
     };
 
     match link_to_exec_with_archives(&cfg) {

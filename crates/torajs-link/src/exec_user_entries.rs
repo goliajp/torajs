@@ -92,6 +92,42 @@ pub struct UserFieldMetaEntry {
     pub type_tag: u8,
 }
 
+/// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-5a — one AOT-baked
+/// regex per literal in the user binary. The link layer materialises
+/// each entry as a `(BakedDfaMeta, [DfaState; N])` pair in
+/// `__DATA_CONST` next to the vtable + class_layouts blobs; the
+/// `__torajs_baked_regex_<index>` outer symbol points at the
+/// `BakedDfaMeta` struct so the ssa_lower-emitted
+/// `__torajs_regex_compile_from_static_dfa(meta_ptr, pat, flag)`
+/// call has a vaddr to land on. Mirrors `ssa::BakedRegexEntry` minus
+/// the SSA-side wiring — fields are byte-for-byte the same. Phase
+/// C-5a defines the type + extends `LinkConfig` only; Phase C-5b
+/// adds the `user_regex_baked_layout` module that consumes it; C-5c
+/// hangs the inner `states_ptr` slot onto the chain-LC rebase chain.
+#[derive(Debug, Clone)]
+pub struct UserBakedRegexEntry {
+    /// Position in `LinkConfig::baked_regex_entries` — surfaces in
+    /// the emitted symbol name `__torajs_baked_regex_<index>`.
+    pub index: u32,
+    /// Raw byte image of `[DfaState; states_len]` per the
+    /// `#[repr(C)] struct DfaState` ABI (1060 bytes per state on
+    /// aarch64 — see `torajs_regex::dfa::DfaState`). ssa_lower
+    /// (Phase C-6) serialises the host-built DFA into this buffer
+    /// before pushing the entry.
+    pub states_payload: Vec<u8>,
+    /// `DfaState` count `states_payload` encodes. C-5b's emit
+    /// pipeline asserts `states_payload.len() == states_len * 1060`.
+    pub states_len: u32,
+    /// Four anchored start state indices, mirroring
+    /// `DfaProgram::{start, start_mid, start_mid_word,
+    /// start_mid_nonword}`. Materialised into the `BakedDfaMeta`
+    /// 32-byte struct verbatim.
+    pub start: u32,
+    pub start_mid: u32,
+    pub start_mid_word: u32,
+    pub start_mid_nonword: u32,
+}
+
 /// e4 — user-binary top-level mutable global slot. `__DATA,__bss`
 /// zerofill (loader supplies zeros). `size`/`align_log2` from SSA `Type`.
 #[derive(Debug, Clone)]

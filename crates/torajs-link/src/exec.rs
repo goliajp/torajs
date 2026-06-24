@@ -52,8 +52,8 @@ pub struct UserStringEntry {
 }
 
 pub use crate::exec_user_entries::{
-    UserClassLayoutEntry, UserClassNameEntry, UserDataGlobalEntry, UserFieldMetaEntry,
-    UserFnNameEntry, UserVtableEntry,
+    UserBakedRegexEntry, UserClassLayoutEntry, UserClassNameEntry, UserDataGlobalEntry,
+    UserFieldMetaEntry, UserFnNameEntry, UserVtableEntry,
 };
 
 /// Configuration for `link_to_exec` — caller supplies the per-fn
@@ -129,6 +129,19 @@ pub struct LinkConfig {
     /// unconditionally (same rationale as
     /// `force_emit_fn_name_globals`). Probes default `false`.
     pub force_emit_class_names_globals: bool,
+    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-5a — per-literal-RegExp
+    /// AOT-baked DFA blob. ssa_lower's Phase C-6 `Expr::Regex` AOT
+    /// gate pushes one entry per DFA-eligible literal regex (`/abc/`,
+    /// `/foo\d+/g`, ...); torajs-link's Phase C-5b
+    /// `user_regex_baked_layout` materialises each as a
+    /// `BakedDfaMeta` 32-byte struct + `[DfaState; N]` payload in
+    /// `__DATA_CONST`. The user binary calls
+    /// `__torajs_regex_compile_from_static_dfa(meta_ptr, pat, flag)`
+    /// against each `__torajs_baked_regex_<index>` symbol instead of
+    /// the runtime `__torajs_regex_compile` for the corresponding
+    /// literal. Empty default keeps every pre-C-5 byte stream
+    /// byte-identical until the upstream emit lands.
+    pub baked_regex_entries: Vec<UserBakedRegexEntry>,
 }
 
 /// Layout decisions the link driver makes before any bytes are emitted.
@@ -517,6 +530,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let layout = compute_layout(&cfg);
 
@@ -576,6 +590,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         let layout = compute_layout(&cfg);
@@ -600,6 +615,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // mach_header_64.filetype @ offset 12..16
@@ -633,6 +649,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // The first 16 bytes after the page boundary should match
@@ -664,6 +681,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 
@@ -792,6 +810,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 

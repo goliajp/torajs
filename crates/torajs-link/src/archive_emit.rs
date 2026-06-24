@@ -589,6 +589,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let archive_bytes = link_to_exec_with_archives(&cfg).unwrap();
         let baseline_bytes = link_to_exec(&cfg);
@@ -635,6 +636,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -707,6 +709,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).expect("link_to_exec_with_archives");
 
@@ -777,6 +780,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let layout = compute_archive_layout(&cfg).expect("layout");
         assert!(!layout.dyld_imports.is_empty(), "dyld_imports populated");
@@ -873,6 +877,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         // SD-2b — link must succeed even though cfg.sym_table is
         // empty. SD-2a's plumbing populates `layout.stub_vaddrs`;
@@ -961,6 +966,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let link_bytes =
             link_to_exec_with_archives(&cfg).expect("link must succeed against mixed externs");
@@ -1002,6 +1008,7 @@ mod tests {
             force_emit_fn_name_globals: false,
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
         };
         let bytes = link_to_exec_with_archives(&cfg).unwrap();
 

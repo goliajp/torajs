@@ -394,6 +394,26 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
         // statics unconditionally so `tr build` must emit the
         // zero-count global on class-name-free programs.
         force_emit_class_names_globals: true,
+        // V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-5a — per-literal
+        // baked DFA entries. ssa_lower's Phase C-6 `Expr::Regex`
+        // arm will push entries into `ssa_module.baked_regex_entries`
+        // when the literal is DFA-eligible; here we forward them to
+        // the link layer's `UserBakedRegexEntry` schema. Until
+        // Phase C-6 lands the SSA Vec stays empty so this map yields
+        // an empty Vec and the link layer skips emit.
+        baked_regex_entries: ssa_module
+            .baked_regex_entries
+            .iter()
+            .map(|e| torajs_link::exec::UserBakedRegexEntry {
+                index: e.index,
+                states_payload: e.states_payload.clone(),
+                states_len: e.states_len,
+                start: e.start,
+                start_mid: e.start_mid,
+                start_mid_word: e.start_mid_word,
+                start_mid_nonword: e.start_mid_nonword,
+            })
+            .collect(),
     }
 }
 

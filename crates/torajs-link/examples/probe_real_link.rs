@@ -114,6 +114,7 @@ fn main() {
         force_emit_fn_name_globals: false,
         class_names: Vec::new(),
         force_emit_class_names_globals: false,
+        baked_regex_entries: Vec::new(),
     };
 
     // Pre-link: query compute_archive_layout directly so we can see
