@@ -219,6 +219,7 @@ pub mod ssa_lower_process_on;
 pub(crate) mod ssa_lower_promise_chain;
 pub(crate) mod ssa_lower_promise_thunk;
 pub mod ssa_lower_push_loop_detect;
+pub(crate) mod ssa_lower_regex_bake;
 pub(crate) mod ssa_lower_splice;
 pub mod ssa_lower_str;
 pub mod ssa_lower_substr_trim_into;

@@ -29,8 +29,8 @@ use crate::ast::{self, Ast, BinOp as AstBinOp, Expr, ExprId, Param, Stmt};
 use crate::check::{self as check_mod, GenericCallSites, type_to_ann};
 use crate::short_str_encode::encode_short_str_literal;
 use crate::ssa::{
-    self, BinOp as SsaBinOp, BlockId, FPred, FnNameEntry, FuncId, IPred, InstKind, Module, Operand,
-    Terminator, Type, ValueId,
+    self, BakedRegexEntry, BinOp as SsaBinOp, BlockId, FPred, FnNameEntry, FuncId, IPred, InstKind,
+    Module, Operand, Terminator, Type, ValueId,
 };
 use crate::ssa_lower_body_returns_closure::body_returns_closure;
 use crate::ssa_lower_closure_captures::collect_closure_captures_in_stmt;
@@ -5336,6 +5336,13 @@ fn lower_inner(
     // struct fields / fn params / fn returns all share one table.
     // Written into module.arr_layouts at the very end of `lower()`.
     let mut arr_layouts: Vec<Type> = Vec::new();
+    // V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-6 — host-built baked DFA
+    // collection. `LowerCtx::try_bake_regex_dfa` pushes entries on
+    // DFA-eligible literal regex sites; written into
+    // module.baked_regex_entries at the end so the link layer's
+    // user_regex_baked_layout pipeline (C-5b/c) can lay out the
+    // BakedDfaMeta + [DfaState; N] payload in __DATA_CONST.
+    let mut baked_regex_buf: Vec<BakedRegexEntry> = Vec::new();
     // M2 Phase B Stage 2 — fn-pointer signature interner. Same threading
     // pattern as arr_layouts: collected during pass 0.5 / 1 / 2 and
     // written into `module.signatures` at the end.
@@ -6299,6 +6306,7 @@ fn lower_inner(
                 &intrinsics,
                 &aliases,
                 &mut arr_layouts,
+                &mut baked_regex_buf,
                 &mut fn_sigs,
                 &mut struct_layouts,
                 &mut inst_memo,
@@ -6374,6 +6382,7 @@ fn lower_inner(
             &intrinsics,
             &aliases,
             &mut arr_layouts,
+            &mut baked_regex_buf,
             &mut fn_sigs,
             &mut struct_layouts,
             &mut inst_memo,
@@ -6424,6 +6433,7 @@ fn lower_inner(
                 &intrinsics,
                 &aliases,
                 &mut arr_layouts,
+                &mut baked_regex_buf,
                 &mut fn_sigs,
                 &mut struct_layouts,
                 &mut inst_memo,
@@ -6470,6 +6480,7 @@ fn lower_inner(
     module.arr_layouts = arr_layouts;
     module.signatures = fn_sigs;
     module.struct_layouts = struct_layouts;
+    module.baked_regex_entries = baked_regex_buf;
 
     /* T-24 — populate per-class vtables. Slot order matches
      * `ast.method_index` (sorted-by-name index). For each class C, slot
@@ -7349,6 +7360,7 @@ fn synthesize_main(
     intrinsics: &Intrinsics,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
+    baked_regex_buf: &mut Vec<BakedRegexEntry>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &mut Vec<Vec<(String, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
@@ -7382,6 +7394,7 @@ fn synthesize_main(
             num_f64_slots,
             promise_thunks,
             arr_layouts,
+            baked_regex_buf,
             fn_sigs,
             struct_layouts,
             inst_memo,
@@ -7627,6 +7640,7 @@ fn lower_fn(
     intrinsics: &Intrinsics,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
+    baked_regex_buf: &mut Vec<BakedRegexEntry>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &mut Vec<Vec<(String, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
@@ -7737,6 +7751,7 @@ fn lower_fn(
         num_f64_slots,
         promise_thunks,
         arr_layouts,
+        baked_regex_buf,
         fn_sigs,
         struct_layouts,
         inst_memo,
@@ -8070,6 +8085,16 @@ pub(crate) struct LowerCtx<'a> {
     /// introduce new `T[]` instantiations; they intern lazily here.
     /// Written into `module.arr_layouts` at the end of `lower()`.
     pub(crate) arr_layouts: &'a mut Vec<Type>,
+    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-6 — host-built baked
+    /// DFA buffer. `try_bake_regex_dfa` pushes one entry per AOT-
+    /// eligible literal regex; written into
+    /// `module.baked_regex_entries` at the end of `lower()`, then
+    /// `cmd_build` forwards them into `LinkConfig::baked_regex_entries`
+    /// for the user_regex_baked_layout pipeline (C-5b/c) to lay out
+    /// the `BakedDfaMeta` + `[DfaState; N]` payload in __DATA_CONST.
+    /// Ineligible literals + `new RegExp(...)` keep routing through
+    /// `__torajs_regex_compile`.
+    pub(crate) baked_regex_buf: &'a mut Vec<BakedRegexEntry>,
     /// Mutable view of the lowering-phase fn-pointer signature interner.
     /// `__fn(P1|P2)->R` annotations intern lazily; written into
     /// `module.signatures` at the end of `lower()`. M2 Phase B Stage 2.
@@ -15047,15 +15072,56 @@ impl<'a> LowerCtx<'a> {
                 self.cur_block = ssa::BlockId(0);
                 let pat_v = self.intern_string_literal(pattern);
                 let flag_v = self.intern_string_literal(flags);
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.regex_compile,
-                        vec![Operand::Value(pat_v), Operand::Value(flag_v)],
-                    ),
-                    Type::RegExp,
-                    None,
+                // V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-6 — AOT
+                // gate: capture-free + DFA-eligible literal regex
+                // gets a baked-DFA payload pushed into
+                // `module.baked_regex_entries`. The lowered call
+                // switches to `__torajs_regex_compile_from_static_dfa`
+                // (3-arg form: meta_ptr, pat, flag) so the runtime
+                // surface match path reads
+                // `RegExp::baked_dfa_view` directly and skips
+                // `build_dfa`. Ineligible patterns + capture-using
+                // literals + `new RegExp(...)` keep using the
+                // 2-arg `regex_compile`. The hoist-into-entry-block
+                // + per-fn dedup cache (V0.2 perf — fn-scope const
+                // RegExp LICM) applies to both arms.
+                let baked_idx = crate::ssa_lower_regex_bake::try_bake_regex_dfa(
+                    self.baked_regex_buf,
+                    pattern,
+                    flags,
                 );
+                let v = if let Some(idx) = baked_idx {
+                    let meta_sym = format!("___torajs_baked_regex_{idx}");
+                    let meta_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::GlobalRef(meta_sym),
+                        Type::Ptr,
+                        None,
+                    );
+                    self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.regex_compile_from_static_dfa,
+                            vec![
+                                Operand::Value(meta_ptr),
+                                Operand::Value(pat_v),
+                                Operand::Value(flag_v),
+                            ],
+                        ),
+                        Type::RegExp,
+                        None,
+                    )
+                } else {
+                    self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.regex_compile,
+                            vec![Operand::Value(pat_v), Operand::Value(flag_v)],
+                        ),
+                        Type::RegExp,
+                        None,
+                    )
+                };
                 self.cur_block = saved_block;
                 self.regex_lit_cache.insert(key, v);
                 Operand::Value(v)

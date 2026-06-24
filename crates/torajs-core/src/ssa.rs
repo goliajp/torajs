@@ -28,8 +28,8 @@ mod module_methods;
 mod op_impls;
 
 pub use module_methods::{
-    ClassLayoutMeta, DataGlobal, FieldMetaSpec, FnNameEntry, Module, StringLiteral, VtableGlobal,
-    demo_fib40, field_type_tag_of,
+    BakedRegexEntry, ClassLayoutMeta, DataGlobal, FieldMetaSpec, FnNameEntry, Module,
+    StringLiteral, VtableGlobal, demo_fib40, field_type_tag_of,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
