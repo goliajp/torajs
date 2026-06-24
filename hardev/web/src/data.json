@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T05:07:22.802Z",
+  "generatedAt": "2026-06-24T05:12:29.479Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "171d1226",
-    "commitSubject": "feat(torajs-core): chunk 7.7 v2 step 12 C2 Phase C-6 — ssa_lower AOT gate in Expr::Regex",
+    "commit": "a11b8d1e",
+    "commitSubject": "test(bench): chunk 7.7 v2 step 12 C2 Phase C ship — 7-fixture torajs AOT vs bun-aot acceptance",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "a11b8d1e",
+      "subject": "test(bench): chunk 7.7 v2 step 12 C2 Phase C ship — 7-fixture torajs AOT vs bun-aot acceptance"
+    },
+    {
+      "hash": "8a0a5129",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C-5c.2d + C-6 ship + bench acceptance"
+    },
+    {
       "hash": "171d1226",
       "subject": "feat(torajs-core): chunk 7.7 v2 step 12 C2 Phase C-6 — ssa_lower AOT gate in Expr::Regex"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "c7578731",
       "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5b scaffold — user_regex_baked_layout module"
-    },
-    {
-      "hash": "9ac30353",
-      "subject": "feat(torajs-link,cli): chunk 7.7 v2 step 12 C2 Phase C-5a — UserBakedRegexEntry + LinkConfig field"
-    },
-    {
-      "hash": "3a103211",
-      "subject": "feat(torajs-core): chunk 7.7 v2 step 12 C2 Phase C-4 — AOT regex intrinsic + Module.baked_regex_entries"
     }
   ],
-  "headSha": "171d1226",
+  "headSha": "a11b8d1e",
   "autorun": {
     "total": 237,
     "baselineTarget": 10,
