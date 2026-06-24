@@ -1,0 +1,8 @@
+# Round 3 Phase A isolation fixture F-R4. `[A-Za-z]+/u` keeps the u flag
+# but uses a u-safe cp-range class — no `utf8_class_expand` rewrite,
+# DFA stays tiny. Used to localize whether the regex-dfa-uflag-100k
+# gap lives in u-flag wire (continuation-byte advance, etc.) or in
+# `\p{L}` Alt-of-Concat expansion. Sibling-band ratio (~1.75-2×) here
+# confirms the gap source is the `\p{L}` expansion path.
+runs = 3
+warmup = 1
