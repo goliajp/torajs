@@ -1,0 +1,34 @@
+{
+  "started_at": "2026-06-24T21:54:56Z",
+  "host": "mini",
+  "git_sha": "c5342773be8aa3ccbd9fb139e58f96663ca5b919",
+  "runs": 3,
+  "rows": [
+    {
+      "case": "regex-wireback-minlit-100k",
+      "runtime": "bun-aot",
+      "runtime_version": "1.3.14",
+      "status": "ok",
+      "compile_ms": 57.925,
+      "run_ms": 10.047749999999999,
+      "run_stddev_ms": 0.005208500000001948,
+      "artifact_bytes": 63446114,
+      "artifact_sha256": "ae7d7d09929e463303f211402c332653f752af5b0844ea54a3fb8544eb797aed",
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "regex-wireback-minlit-100k",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 43.403083,
+      "run_ms": 19.9609375,
+      "run_stddev_ms": 0.06791649999999905,
+      "artifact_bytes": 1510705,
+      "artifact_sha256": "cd2e86fea7c335821303b7d56fb10785f3bd9dd35c414d3d08b2dda90e29fbdc",
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}
