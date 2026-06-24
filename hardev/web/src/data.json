@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-23T23:57:51.767Z",
+  "generatedAt": "2026-06-24T00:14:43.386Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "5dcd73a7",
-    "commitSubject": "test(bench): chunk 7.7 v2 step 12 C1 thread-local DFA cache ablation — REVERTED",
+    "commit": "eb878269",
+    "commitSubject": "feat(torajs-regex): chunk 7.7 v2 step 12 C2 Phase B — DfaStates enum wraps Vec/static slice",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "eb878269",
+      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 C2 Phase B — DfaStates enum wraps Vec/static slice"
+    },
+    {
+      "hash": "0977d96b",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C1 thread-local DFA cache REVERTED + L3a #24 fallback trigger fired → C2 pivot"
+    },
+    {
       "hash": "5dcd73a7",
       "subject": "test(bench): chunk 7.7 v2 step 12 C1 thread-local DFA cache ablation — REVERTED"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "1fd2e319",
       "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 10f/11e ship FAILED + variance unbounded"
-    },
-    {
-      "hash": "0189c18d",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 10 n=500 matrix + step 10f ship FAILED + doc-comment LLVM finding"
-    },
-    {
-      "hash": "cddf1c18",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 9 n=500 calibration done"
     }
   ],
-  "headSha": "5dcd73a7",
+  "headSha": "eb878269",
   "autorun": {
     "total": 234,
     "baselineTarget": 10,
