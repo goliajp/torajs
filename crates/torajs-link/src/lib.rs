@@ -87,6 +87,7 @@ pub mod tlv_descriptor_layout;
 pub mod tlv_thunk_emit;
 pub mod user_class_layouts_layout;
 pub mod user_data_globals_layout;
+pub mod user_regex_baked_layout;
 pub mod user_strings_emit;
 pub mod user_strings_layout;
 pub mod user_vtables_layout;
