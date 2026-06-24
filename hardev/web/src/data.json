@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T16:08:29.452Z",
+  "generatedAt": "2026-06-24T17:52:50.998Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "bd373081",
-    "commitSubject": "fix(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 4 — Path A §2.5.E v4 fix multi-Op capture (#R-J regex-024 regression)",
+    "commit": "d81200be",
+    "commitSubject": "test(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 6 — add monotone_accept invariant tests",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "d81200be",
+      "subject": "test(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 6 — add monotone_accept invariant tests"
+    },
+    {
+      "hash": "f24efafd",
+      "subject": "refactor(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 6 followup — relocate compute_monotone_accept to build_helpers"
+    },
+    {
+      "hash": "e38ff0a3",
+      "subject": "refactor(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 7 — R-H.1 delete dead dfa_cache + get_or_build_dfa"
+    },
+    {
+      "hash": "f5142ed0",
+      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 6 — attack #R-G DfaState monotone_accept + inner-loop fast path"
+    },
+    {
+      "hash": "4ad7bbd1",
+      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 5 — attack #R-A3 MatchResult NoSaves/WithSaves split"
+    },
+    {
+      "hash": "ad11a755",
+      "subject": "chore(hardev/web): refresh dashboard — Round 3 Phase B sub-batch 4 Path A v3+v4 close (bd373081)"
+    },
+    {
       "hash": "bd373081",
       "subject": "fix(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 4 — Path A §2.5.E v4 fix multi-Op capture (#R-J regex-024 regression)"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "10a10cdc",
       "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 Round 2 paradigm-shift finding (4539a9f4)"
-    },
-    {
-      "hash": "4539a9f4",
-      "subject": "test(bench): chunk 7.7 v2 step 12 Round 2 — F-B + F-C isolation fixtures + paradigm-shift finding"
-    },
-    {
-      "hash": "61e82d37",
-      "subject": "test(bench): chunk 7.7 v2 step 12 Round 2 — i64-to-str-100k F-A isolation fixture"
-    },
-    {
-      "hash": "4008a4ae",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase B-1 ship + 7-fixture archive (5a483069)"
-    },
-    {
-      "hash": "5a483069",
-      "subject": "test(bench): chunk 7.7 v2 step 12 C2 Phase B-1 ship — 7-fixture archive"
-    },
-    {
-      "hash": "b22f494f",
-      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 C2 Phase B-1 — uflag-100k attacks #J + #A"
-    },
-    {
-      "hash": "d74b697a",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C ship close (33208499 sanity gate 1130/0/4 ✓)"
     }
   ],
-  "headSha": "bd373081",
+  "headSha": "d81200be",
   "autorun": {
-    "total": 239,
+    "total": 240,
     "baselineTarget": 10,
-    "bySelf": 234,
+    "bySelf": 235,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782285050-7409",
-      "at": "2026-06-24T07:10:50Z",
-      "ts": 1782285050,
+      "rotationId": "r-1782317396-105d",
+      "at": "2026-06-24T16:09:56Z",
+      "ts": 1782317396,
       "trigger": "self",
-      "prevHead": "7a6da3af",
-      "handoffSha": "sha256:442bca0d8562d0d878b4ccd52e67f4b995680f09f7d6bc4fc8fa2ed18c1037eb",
-      "handoffAgeSec": 228,
+      "prevHead": "ad11a755",
+      "handoffSha": "sha256:cb34d316286e1a5c2973ef6a5b92d6fa07f45773820e73cf3af6292f5a2a8896",
+      "handoffAgeSec": 23,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782317396-105d",
+        "at": "2026-06-24T16:09:56Z",
+        "ts": 1782317396,
+        "trigger": "self",
+        "prevHead": "ad11a755",
+        "handoffSha": "sha256:cb34d316286e1a5c2973ef6a5b92d6fa07f45773820e73cf3af6292f5a2a8896",
+        "handoffAgeSec": 23,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782285050-7409",
         "at": "2026-06-24T07:10:50Z",
@@ -780,17 +791,6 @@
         "prevHead": "09936d38",
         "handoffSha": "sha256:6ca5b50e3af9b26e049d3047cb40e792fe66c7f4cc5b309dc4d7030e6a53997d",
         "handoffAgeSec": 644,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782157951-0b0f",
-        "at": "2026-06-22T19:52:31Z",
-        "ts": 1782157951,
-        "trigger": "self",
-        "prevHead": "57df84a6",
-        "handoffSha": "sha256:5c7b6acd9fcce7fef181fdb387626c9e93333ca7140bdd0cafe2556c07a3e657",
-        "handoffAgeSec": 16,
         "conformanceBefore": null,
         "commitsInSession": null
       }
