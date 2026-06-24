@@ -350,108 +350,86 @@ fn dfa_search_from(
         if any_aab && mask_get(&dfa.states[state as usize].accept_before_byte, byte) {
             last_accept = Some(cursor);
         }
-        // Round 3 Phase B sub-batch 4 attack #R-J v2 — K-PROPERTY
-        // pending-class handler. When the current state carries an
-        // active pending_class triple, decode one UTF-8 cp at the
-        // cursor (1-4 bytes), call `prog.classes[class_idx].test_cp(cp)`,
-        // and branch to `yes_target` (matched, advance by utf8_len) or
-        // `no_target` (not matched / invalid UTF-8 / truncated, advance
-        // by 1 byte). The 256-way `transitions[byte]` lookup is
-        // short-circuited for these states (the table is all-zero on
-        // pending states by construction).
+        // v4 (regex-024 regression fix) — try ordinary 256-way
+        // transitions table dispatch FIRST. A non-zero next state
+        // means byte_step already routed this byte (ASCII letters via
+        // K-PROPERTY's ASCII bitmap, digits via a sibling non-K-
+        // PROPERTY `Op::Class` in mixed-PC ready sets, etc.).
+        let next = dfa.states[state as usize].transitions[byte as usize];
+        if next != 0 {
+            state = next;
+            cursor += 1;
+            if dfa.states[state as usize].is_accept {
+                last_accept = Some(cursor);
+            }
+            continue;
+        }
+        // Round 3 Phase B sub-batch 4 attack #R-J v2 + v4 fallback —
+        // K-PROPERTY pending-class handler. transitions[byte] was 0
+        // (the ordinary byte_step couldn't route this byte). If the
+        // state carries an active pending_class triple, decode one
+        // UTF-8 cp at the cursor (1-4 bytes), call
+        // `prog.classes[class_idx].test_cp(cp)`, and branch to
+        // `yes_target` (matched, advance by utf8_len) or `no_target`
+        // (not matched / invalid UTF-8 / truncated, advance by 1
+        // byte). For "pure pending" states (singleton K-PROPERTY
+        // ready set like `/\p{L}+/u`'s start), every byte routes
+        // here; for "mixed pending" states (e.g. `(\p{L})(\d+)
+        // (\p{L})/u`'s post-`\d+`-loop), only bytes the ordinary
+        // byte_step couldn't claim arrive here — typically non-ASCII
+        // UTF-8 lead bytes whose full cp is a K-PROPERTY member.
         let pc = dfa.states[state as usize].pending_class;
-        if pc.active != 0 {
-            // Step 1: lead-byte → utf8_len classification.
-            let utf8_len: usize = if byte < 0x80 {
-                1
-            } else {
-                match byte {
-                    0xC2..=0xDF => 2,
-                    0xE0..=0xEF => 3,
-                    0xF0..=0xF4 => 4,
-                    _ => {
-                        // Invalid lead (0x80..0xC1 / 0xF5..0xFF): treat
-                        // as cp-miss, route to no_target, advance 1
-                        // byte so the search loop can retry / exit.
-                        state = pc.no_target;
-                        cursor += 1;
-                        if state == 0 {
-                            alive = false;
-                            break;
-                        }
-                        if dfa.states[state as usize].is_accept {
-                            last_accept = Some(cursor);
-                        }
-                        continue;
+        if pc.active == 0 {
+            // No pending fallback — the dead route is final.
+            state = 0;
+            alive = false;
+            break;
+        }
+        // Step 1: lead-byte → utf8_len classification.
+        let utf8_len: usize = if byte < 0x80 {
+            1
+        } else {
+            match byte {
+                0xC2..=0xDF => 2,
+                0xE0..=0xEF => 3,
+                0xF0..=0xF4 => 4,
+                _ => {
+                    // Invalid lead (0x80..0xC1 / 0xF5..0xFF): treat
+                    // as cp-miss, route to no_target, advance 1
+                    // byte so the search loop can retry / exit.
+                    state = pc.no_target;
+                    cursor += 1;
+                    if state == 0 {
+                        alive = false;
+                        break;
                     }
+                    if dfa.states[state as usize].is_accept {
+                        last_accept = Some(cursor);
+                    }
+                    continue;
                 }
-            };
-            // Step 2: truncated tail — abort sequence to no_target,
-            // exit the loop. `cursor` is never read after the break;
-            // the post-walk `is_accept_at_end` check skips when
-            // `alive == false` (no_target == 0 = dead state).
-            if cursor + utf8_len > hay.len() {
-                state = pc.no_target;
-                alive = state != 0;
+            }
+        };
+        // Step 2: truncated tail — abort sequence to no_target,
+        // exit the loop. `cursor` is never read after the break;
+        // the post-walk `is_accept_at_end` check skips when
+        // `alive == false` (no_target == 0 = dead state).
+        if cursor + utf8_len > hay.len() {
+            state = pc.no_target;
+            alive = state != 0;
+            break;
+        }
+        // Step 3: continuation-byte validity.
+        let mut valid_cont = true;
+        for i in 1..utf8_len {
+            if (hay[cursor + i] & 0xC0) != 0x80 {
+                valid_cont = false;
                 break;
             }
-            // Step 3: continuation-byte validity. For utf8_len > 1
-            // every byte in cursor+1..cursor+utf8_len must satisfy
-            // `& 0xC0 == 0x80`. An invalid continuation byte means the
-            // would-be sequence is malformed; treat as cp-miss, route
-            // to no_target, advance 1 byte (NOT utf8_len — the leftover
-            // bytes may be the start of a fresh sequence).
-            let mut valid_cont = true;
-            for i in 1..utf8_len {
-                if (hay[cursor + i] & 0xC0) != 0x80 {
-                    valid_cont = false;
-                    break;
-                }
-            }
-            if !valid_cont {
-                state = pc.no_target;
-                cursor += 1;
-                if state == 0 {
-                    alive = false;
-                    break;
-                }
-                if dfa.states[state as usize].is_accept {
-                    last_accept = Some(cursor);
-                }
-                continue;
-            }
-            // Step 4: decode cp via the standard UTF-8 shift-OR
-            // pattern. `lead` masked by the per-length payload-bit
-            // table; continuation bytes contribute the low 6 bits.
-            let cp: i32 = match utf8_len {
-                1 => byte as i32,
-                2 => (((byte & 0x1F) as i32) << 6) | ((hay[cursor + 1] & 0x3F) as i32),
-                3 => {
-                    (((byte & 0x0F) as i32) << 12)
-                        | (((hay[cursor + 1] & 0x3F) as i32) << 6)
-                        | ((hay[cursor + 2] & 0x3F) as i32)
-                }
-                4 => {
-                    (((byte & 0x07) as i32) << 18)
-                        | (((hay[cursor + 1] & 0x3F) as i32) << 12)
-                        | (((hay[cursor + 2] & 0x3F) as i32) << 6)
-                        | ((hay[cursor + 3] & 0x3F) as i32)
-                }
-                _ => byte as i32, // unreachable — utf8_len ∈ {1,2,3,4}
-            };
-            // Step 5: cc.test_cp(cp) decides yes/no. Class table is
-            // hot-cache-resident for the small class counts K-PROPERTY
-            // patterns emit (well under 16 classes).
-            let cls_idx = pc.class_idx as usize;
-            let matched = if cls_idx < prog.classes.len() {
-                prog.classes[cls_idx].test_cp(cp)
-            } else {
-                // Defensive: class_idx out of range = no match. Should
-                // not happen in well-formed BFS output.
-                false
-            };
-            state = if matched { pc.yes_target } else { pc.no_target };
-            cursor += utf8_len;
+        }
+        if !valid_cont {
+            state = pc.no_target;
+            cursor += 1;
             if state == 0 {
                 alive = false;
                 break;
@@ -461,11 +439,34 @@ fn dfa_search_from(
             }
             continue;
         }
-        // Sibling-fixture fast path — no K-PROPERTY pending, do the
-        // ordinary 256-way transitions table dispatch (one byte
-        // consumed per iter, matches the pre-v2 behaviour exactly).
-        state = dfa.states[state as usize].transitions[byte as usize];
-        cursor += 1;
+        // Step 4: decode cp via the standard UTF-8 shift-OR pattern.
+        let cp: i32 = match utf8_len {
+            1 => byte as i32,
+            2 => (((byte & 0x1F) as i32) << 6) | ((hay[cursor + 1] & 0x3F) as i32),
+            3 => {
+                (((byte & 0x0F) as i32) << 12)
+                    | (((hay[cursor + 1] & 0x3F) as i32) << 6)
+                    | ((hay[cursor + 2] & 0x3F) as i32)
+            }
+            4 => {
+                (((byte & 0x07) as i32) << 18)
+                    | (((hay[cursor + 1] & 0x3F) as i32) << 12)
+                    | (((hay[cursor + 2] & 0x3F) as i32) << 6)
+                    | ((hay[cursor + 3] & 0x3F) as i32)
+            }
+            _ => byte as i32, // unreachable — utf8_len ∈ {1,2,3,4}
+        };
+        // Step 5: cc.test_cp(cp) decides yes/no.
+        let cls_idx = pc.class_idx as usize;
+        let matched = if cls_idx < prog.classes.len() {
+            prog.classes[cls_idx].test_cp(cp)
+        } else {
+            // Defensive: class_idx out of range = no match. Should
+            // not happen in well-formed BFS output.
+            false
+        };
+        state = if matched { pc.yes_target } else { pc.no_target };
+        cursor += utf8_len;
         if state == 0 {
             alive = false;
             break;

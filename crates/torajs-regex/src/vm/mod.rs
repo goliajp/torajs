@@ -804,4 +804,78 @@ mod tests {
         // start to 'f', or end of "foo"), so NWBound finds nothing.
         assert!(search_from(&prog, b"foo", 0, 0, None).is_none());
     }
+
+    // Round 3 Phase B sub-batch 4 attack #R-J v4 — regex-024 fix
+    // diagnostic. Both subcases below are reproductions of the two
+    // failing fixtures in `conformance/cases/regex-024-uflag-unsafe-
+    // class-capture.ts`: multi-Op concat patterns mixing K-PROPERTY
+    // with capture groups that v3 mis-built.
+    #[test]
+    fn path_a_v4_regex024_subcase_1_letter_digit_letter_capture() {
+        // /(\p{L})(\d+)(\p{L})/u on "x123Ω".
+        // Expected m[1..3] = "x", "123", "Ω"; total bytes = 1 + 3 + 2 = 6.
+        let flags = crate::parser::RE_FLAG_U;
+        let prog = build("(\\p{L})(\\d+)(\\p{L})", flags);
+        let hay = "x123\u{03A9}".as_bytes();
+        // Sanity: direct DFA search must also see the match (v3-A
+        // regression returned None here because the post-`\d+`-loop
+        // state had a multi-PC ready set containing both K-PROPERTY
+        // and non-K-PROPERTY byte-consumers; v3-A's
+        // `classify_kproperty_shape` rejected such states and the
+        // chunk-10d byte_step ASCII-only path then dropped Ω).
+        let dfa = crate::dfa::build_dfa(&prog, flags);
+        assert_eq!(
+            crate::dfa::dfa_search(&dfa, &prog, hay),
+            Some(6),
+            "v4 — direct DFA must find /(\\p{{L}})(\\d+)(\\p{{L}})/u over \
+             x123Ω as 6 bytes (was None under v3-A)"
+        );
+        let r = search_from(&prog, hay, 0, flags, None).expect("subcase 1 must match");
+        assert_eq!(r.start, 0);
+        assert_eq!(r.end, 6);
+        // Captures via Pike VM second-pass.
+        assert_eq!(&hay[r.saves[2] as usize..r.saves[3] as usize], b"x");
+        assert_eq!(&hay[r.saves[4] as usize..r.saves[5] as usize], b"123");
+        assert_eq!(
+            &hay[r.saves[6] as usize..r.saves[7] as usize],
+            "\u{03A9}".as_bytes(),
+        );
+    }
+
+    #[test]
+    fn path_a_v4_regex024_subcase_2_letter_nonletter_letter_capture() {
+        // /(\p{L}+)(\P{L}+)(\p{L}+)/u on "abc 漢字" — capture:
+        // ("abc"," ","漢字"). Multi-K-PROPERTY chain mixed with K-NEG
+        // (`\P{L}` negates → utf8_class_expand emits byte-only Class
+        // chain). v3-A's post-第一-`\p{L}+` ready set is mixed
+        // K-PROPERTY + byte_only Class which the v3 gate rejected.
+        // v4 keeps transitions[] for the byte_only path AND pending_
+        // class fallback for the K-PROPERTY path.
+        let flags = crate::parser::RE_FLAG_U;
+        let prog = build("(\\p{L}+)(\\P{L}+)(\\p{L}+)", flags);
+        let hay = "abc \u{6F22}\u{5B57}";
+        // 3 (abc) + 1 (space) + 6 (2*3 CJK bytes) = 10
+        let dfa = crate::dfa::build_dfa(&prog, flags);
+        assert_eq!(
+            crate::dfa::dfa_search(&dfa, &prog, hay.as_bytes()),
+            Some(10),
+            "v4 — direct DFA must find /(\\p{{L}}+)(\\P{{L}}+)(\\p{{L}}+)/u over \
+             'abc 漢字' as 10 bytes",
+        );
+        let r = search_from(&prog, hay.as_bytes(), 0, flags, None).expect("subcase 2 must match");
+        assert_eq!(r.start, 0);
+        assert_eq!(r.end, 10);
+        assert_eq!(
+            &hay.as_bytes()[r.saves[2] as usize..r.saves[3] as usize],
+            b"abc"
+        );
+        assert_eq!(
+            &hay.as_bytes()[r.saves[4] as usize..r.saves[5] as usize],
+            b" "
+        );
+        assert_eq!(
+            &hay.as_bytes()[r.saves[6] as usize..r.saves[7] as usize],
+            "\u{6F22}\u{5B57}".as_bytes(),
+        );
+    }
 }

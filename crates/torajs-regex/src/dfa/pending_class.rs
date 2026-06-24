@@ -104,30 +104,6 @@ pub(crate) fn kproperty_pc_for(prog: &Program, pc: usize, flags: u8) -> Option<u
     }
 }
 
-/// Round 3 Phase B sub-batch 4 attack #R-J v3 option A — true iff `pc`
-/// points to an op that is NEVER byte-consuming under
-/// [`crate::dfa::byte_step_full`]. The three byte-consuming ops are
-/// `Op::Char`, `Op::AnyChar`, `Op::Class`; every other op (`Split`,
-/// `Jmp`, `Save`, `AnchorB`, `AnchorE`, `WBound`, `NWBound`, `Match`)
-/// is either an ε-walker (handled by the closure) or terminal at the
-/// PC level. Lookaround / Backref are DFA-blocked upstream by
-/// `analyze` so they never reach a `DfaProgram`; defensively treat
-/// them as ε-only here too (the function never executes against a
-/// program containing them).
-///
-/// Used by `compute_pending_class_for` to gate the v3 multi-PC K-
-/// PROPERTY pending detection: a ready set is K-PROPERTY-shaped iff
-/// every non-K-PROPERTY PC in it is ε-only.
-pub(crate) fn is_epsilon_only_pc(prog: &Program, pc: usize) -> bool {
-    let Some(ins) = prog.insts.get(pc) else {
-        return true; // out-of-range, defensive
-    };
-    match Op::from_u8(ins.op) {
-        Some(Op::Char | Op::AnyChar | Op::Class) => false,
-        _ => true,
-    }
-}
-
 /// Round 3 Phase B sub-batch 4 attack #R-J v3 option A — analysis of a
 /// `(ready, deferred)` PC set to decide whether it is "K-PROPERTY
 /// shaped" for the pending_class mechanism. Pure predicate — no
@@ -183,17 +159,26 @@ pub(crate) fn classify_kproperty_shape(
         }
     }
     let class_idx = kp_class_idx?;
-    for &pc in ready.iter() {
-        let is_kp = kp_pcs.iter().any(|&kp| kp == pc);
-        if !is_kp && !is_epsilon_only_pc(prog, pc) {
-            // Non-K-PROPERTY byte-consumer in the set (e.g. plain
-            // `Op::Char` or non-K-PROPERTY `Op::Class` from a pattern
-            // like `(\p{L}|a)+/u`). The K-PROPERTY pending handler
-            // would override `transitions[byte]` for ALL bytes, losing
-            // the alt branch. Caller falls back to normal byte-step.
-            return None;
-        }
-    }
+    // v4 (regex-024 regression fix) — non-K-PROPERTY byte-consumers in
+    // the ready set are NOT a disqualifier any more. The DFA build now
+    // enqueues "mixed" states for ordinary byte_step (so transitions[]
+    // populates for the non-K-PROPERTY byte path, e.g. `\d+` digits in
+    // `(\p{L})(\d+)(\p{L})/u`'s middle state) AND records the K-
+    // PROPERTY pending_class triple. At executor time the
+    // pending_class handler is consulted ONLY when transitions[byte]
+    // would have routed to dead (state 0) — i.e. for bytes the
+    // ordinary byte_step couldn't consume but a K-PROPERTY cp can.
+    //
+    // Pre-v4 (v3-A) this gate rejected multi-PC sets where a non-K-
+    // PROPERTY byte-consumer coexisted with K-PROPERTY (the "post-
+    // digit-loop" state of `(\p{L})(\d+)(\p{L})/u` had {Split, Class[d],
+    // Match, Class[\p{L}]} multi-PC ready set, gate fired, no pending
+    // emitted, transitions[0xCE] = 0 → DFA fails on non-ASCII letter
+    // input). The v4 fallback-style pending closes that case while
+    // keeping the v3-A loop-body (`\p{L}+/u`) state unchanged
+    // (transitions stays all-zero there because no non-K-PROPERTY
+    // byte-consumer participates in byte_step; the pending handler
+    // takes every byte).
     let yes_seeds: Vec<usize> = kp_pcs.iter().map(|&pc| pc + 1).collect();
     Some(KPropertyShape {
         class_idx: class_idx as u16,

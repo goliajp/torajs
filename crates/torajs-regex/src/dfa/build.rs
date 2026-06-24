@@ -189,16 +189,27 @@ fn intern_state(
     // already returned `i` safely.
     states[i as usize].pending_class = pending_class;
 
-    // Skip BFS enqueue for K-PROPERTY pending states — the executor
-    // short-circuits `transitions[byte]` via `pending_class.active`
-    // and the BFS would otherwise emit byte-level transitions over the
-    // class's ASCII bitmap that the executor never reads. Skipping the
-    // enqueue keeps `transitions` all-zero (the natural "dead" route
-    // for any byte the executor accidentally tries) and avoids
-    // spurious successor states in the pool.
-    if pending_class.active == 0 {
-        work.push((ready, deferred, attr, i));
-    }
+    // v4 (regex-024 regression fix) — ALWAYS enqueue for BFS, even
+    // when pending_class.active != 0. The executor (v4 `dfa_search_
+    // from`) now consults `transitions[byte]` FIRST and only falls
+    // back to the pending_class handler when `transitions[byte] == 0`
+    // (dead). For K-PROPERTY-shaped multi-PC states with a non-K-
+    // PROPERTY byte-consumer in the ready set (e.g. `(\p{L})(\d+)
+    // (\p{L})/u`'s post-`\d+`-loop state, whose ready set contains
+    // both the digit `Op::Class` and the trailing K-PROPERTY `Op::
+    // Class`), byte_step populates transitions[] for the digit branch
+    // AND the ASCII letter branch; the pending_class handler then
+    // covers the non-ASCII letter case (transitions[0xCE]=0 → fire
+    // cp decode → yes_target). Pre-v4 these mixed states fell back to
+    // chunk-10d byte_step's ASCII-only `class.test(byte)` and dropped
+    // every non-ASCII letter mid-match.
+    //
+    // For the "pure pending" case (state 1 = singleton K-PROPERTY in
+    // `/\p{L}+/u`), the byte_step still runs but populates
+    // transitions[ASCII-letter] = yes_target (consistent) and
+    // transitions[non-ASCII-byte] = 0 (the pending handler will fire
+    // there); no behavioural change versus v3-A.
+    work.push((ready, deferred, attr, i));
     i
 }
 
