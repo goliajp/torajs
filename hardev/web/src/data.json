@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T06:36:44.372Z",
+  "generatedAt": "2026-06-24T07:05:08.299Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "5a483069",
-    "commitSubject": "test(bench): chunk 7.7 v2 step 12 C2 Phase B-1 ship — 7-fixture archive",
+    "commit": "4539a9f4",
+    "commitSubject": "test(bench): chunk 7.7 v2 step 12 Round 2 — F-B + F-C isolation fixtures + paradigm-shift finding",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,18 @@
   },
   "commits": [
     {
+      "hash": "4539a9f4",
+      "subject": "test(bench): chunk 7.7 v2 step 12 Round 2 — F-B + F-C isolation fixtures + paradigm-shift finding"
+    },
+    {
+      "hash": "61e82d37",
+      "subject": "test(bench): chunk 7.7 v2 step 12 Round 2 — i64-to-str-100k F-A isolation fixture"
+    },
+    {
+      "hash": "4008a4ae",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase B-1 ship + 7-fixture archive (5a483069)"
+    },
+    {
       "hash": "5a483069",
       "subject": "test(bench): chunk 7.7 v2 step 12 C2 Phase B-1 ship — 7-fixture archive"
     },
@@ -651,21 +663,9 @@
     {
       "hash": "8a0a5129",
       "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C-5c.2d + C-6 ship + bench acceptance"
-    },
-    {
-      "hash": "171d1226",
-      "subject": "feat(torajs-core): chunk 7.7 v2 step 12 C2 Phase C-6 — ssa_lower AOT gate in Expr::Regex"
-    },
-    {
-      "hash": "3e2f003b",
-      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5c.2d — wire baked_regex sym table + worklist closure"
-    },
-    {
-      "hash": "03999aa6",
-      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C-5b.2 → C-5c.2c ship + 5 gates 1130/0/4 ✓"
     }
   ],
-  "headSha": "5a483069",
+  "headSha": "4539a9f4",
   "autorun": {
     "total": 238,
     "baselineTarget": 10,
