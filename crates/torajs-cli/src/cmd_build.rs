@@ -412,6 +412,9 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
                 start_mid: e.start_mid,
                 start_mid_word: e.start_mid_word,
                 start_mid_nonword: e.start_mid_nonword,
+                // Round 3 Phase B attack #R-E — propagate host-baked
+                // flag through the SSA → link bridge.
+                any_accept_before_byte: e.any_accept_before_byte,
             })
             .collect(),
     }

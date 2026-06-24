@@ -126,6 +126,11 @@ pub struct UserBakedRegexEntry {
     pub start_mid: u32,
     pub start_mid_word: u32,
     pub start_mid_nonword: u32,
+    /// Round 3 Phase B attack #R-E — host-pre-computed mirror of
+    /// `DfaProgram::any_accept_before_byte`. Emitted at offset 28 of
+    /// the `BakedDfaMeta` (existing tail pad); `OUTER_META_SIZE`
+    /// stays at 32 bytes.
+    pub any_accept_before_byte: bool,
 }
 
 /// e4 — user-binary top-level mutable global slot. `__DATA,__bss`

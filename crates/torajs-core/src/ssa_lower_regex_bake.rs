@@ -109,6 +109,12 @@ pub(crate) fn try_bake_regex_dfa(
         start_mid: dfa.start_mid,
         start_mid_word: dfa.start_mid_word,
         start_mid_nonword: dfa.start_mid_nonword,
+        // Round 3 Phase B attack #R-E — host-baked mirror of the
+        // runtime-built DFA's `any_accept_before_byte` flag. The
+        // executor reads it to gate the per-byte `accept_before_byte`
+        // mask check; for patterns without `\b` / `\B` / multiline-`$`
+        // this is `false`, saving ~35 ns/iter.
+        any_accept_before_byte: dfa.any_accept_before_byte,
     });
     Some(idx)
 }

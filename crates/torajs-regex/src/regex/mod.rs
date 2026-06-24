@@ -445,12 +445,26 @@ impl RegExp {
         let meta = unsafe { meta_ptr.as_ref() };
         let states_slice: &'static [crate::dfa::DfaState] =
             unsafe { core::slice::from_raw_parts(meta.states_ptr, meta.states_len as usize) };
+        // Round 3 Phase B attack #R-A2 — derive `all_starts_equal`
+        // locally from the four baked start indices. Saves baking the
+        // bool into `BakedDfaMeta` (already-stored fields suffice);
+        // the ~5 ns compare runs once per `__torajs_str_match_regex`
+        // call, not per-iter, so it's free against the saved 12
+        // ns/iter inside the loop.
+        let all_starts_equal = meta.start == meta.start_mid
+            && meta.start == meta.start_mid_word
+            && meta.start == meta.start_mid_nonword;
         Some(crate::dfa::DfaProgram {
             states: crate::dfa::DfaStates::Static(states_slice),
             start: meta.start,
             start_mid: meta.start_mid,
             start_mid_word: meta.start_mid_word,
             start_mid_nonword: meta.start_mid_nonword,
+            all_starts_equal,
+            // Round 3 Phase B attack #R-E — baked at host build time
+            // by ssa_lower (see `try_bake_regex_dfa`); reading the
+            // `.rodata` byte is free.
+            any_accept_before_byte: meta.any_accept_before_byte,
         })
     }
 }

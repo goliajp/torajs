@@ -153,6 +153,23 @@ pub struct DfaProgram {
     pub start_mid: u32,
     pub start_mid_word: u32,
     pub start_mid_nonword: u32,
+    /// Round 3 Phase B attack #R-A2 — `true` iff
+    /// `start == start_mid == start_mid_word == start_mid_nonword`.
+    /// Patterns without `^` / `\b` / `\B` / multiline-`^` dedup the
+    /// four start indices during BFS (`needs_attr_split == false`); the
+    /// runtime `at_line_start` + `prev_is_word` selection branch is
+    /// then wasted work. The wire (`vm::search_from_with_ws`) reads
+    /// this flag and short-circuits to a single `dfa_search` when set.
+    pub all_starts_equal: bool,
+    /// Round 3 Phase B attack #R-E — `true` iff at least one
+    /// `DfaState` in `states` has a non-zero `accept_before_byte`
+    /// mask (i.e. the pattern contains `\b` / `\B` / multiline-`$` /
+    /// other zero-width accepts). When `false`, the per-byte
+    /// `mask_get` call in `dfa_search_from` is wasted work and the
+    /// executor gates it off, saving ~35 ns/iter on no-`\b` patterns
+    /// (every fixture without word-boundary or other zero-width
+    /// accept site benefits).
+    pub any_accept_before_byte: bool,
 }
 
 /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-1 (2026-06-24) — C-ABI
@@ -165,7 +182,9 @@ pub struct DfaProgram {
 /// touches the (single-mutator UB-flaky) lazy build path for
 /// AOT-eligible literal regexes — the central reason Phase C exists.
 ///
-/// Layout on aarch64-apple-darwin:
+/// Layout on aarch64-apple-darwin (Round 3 Phase B sub-batch 1
+/// extension — `any_accept_before_byte` baked into existing tail pad
+/// at offset 28; `OUTER_META_SIZE` stays 32):
 ///
 /// | offset | size | field |
 /// | ------ | ---- | ----- |
@@ -175,12 +194,18 @@ pub struct DfaProgram {
 /// | 16     | 4    | start_mid |
 /// | 20     | 4    | start_mid_word |
 /// | 24     | 4    | start_mid_nonword |
-/// | 28     | 4    | (tail padding to align 8) |
+/// | 28     | 1    | any_accept_before_byte (attack #R-E) |
+/// | 29     | 3    | (tail padding to align 8) |
 ///
 /// total = 32 bytes, align 8 (pointer-aligned, native word size). The
 /// unit test `baked_dfa_meta_repr_c_layout_locked` enforces this
 /// layout — accidental field-reorder or type-change is caught before
 /// the AOT byte emitter rather than corrupting linker output.
+///
+/// Note `all_starts_equal` (attack #R-A2) is NOT baked — the four
+/// `start*` indices already live in this struct, so the runtime
+/// `baked_dfa_view` constructor derives the flag locally for ~5 ns
+/// once per call (amortised across all 100k iters of a hot loop).
 #[repr(C)]
 pub struct BakedDfaMeta {
     /// Pointer to a `.rodata`-backed `[DfaState; states_len]` table.
@@ -200,6 +225,13 @@ pub struct BakedDfaMeta {
     pub start_mid: u32,
     pub start_mid_word: u32,
     pub start_mid_nonword: u32,
+    /// Round 3 Phase B attack #R-E — host-pre-computed mirror of
+    /// `DfaProgram::any_accept_before_byte`. Lives in the 4-byte tail
+    /// pad of the original layout so the struct size stays 32 bytes
+    /// (`OUTER_META_SIZE` unchanged) and the chain-LC rebase slot at
+    /// offset 0 doesn't move. ssa_lower computes this from the
+    /// built DFA's per-state masks before serialising the entry.
+    pub any_accept_before_byte: bool,
 }
 
 /// Drive a built [`DfaProgram`] over `hay`, returning the longest
@@ -239,6 +271,14 @@ fn dfa_search_from(dfa: &DfaProgram, hay: &[u8], start: u32) -> Option<usize> {
         last_accept = Some(0);
     }
     let mut alive = true;
+    // Round 3 Phase B attack #R-E — hoist `any_accept_before_byte` into
+    // the loop guard. When the build pass observed no state with a
+    // non-zero `accept_before_byte` mask (the common case: any pattern
+    // without `\b` / `\B` / multiline-`$` / other zero-width accept
+    // sites), skip the per-byte `mask_get` load + branch entirely. For
+    // 100k-iter `/\p{L}+/u`-style fixtures this saves ~35 ns/iter; the
+    // single hoisted bool check costs ~1 ns per call.
+    let any_aab = dfa.any_accept_before_byte;
     for (i, &byte) in hay.iter().enumerate() {
         // chunk 8.6b — zero-width accept before stepping byte `i`.
         // Patterns like `/\bword\b/`: the trailing `\b` resolves
@@ -248,7 +288,7 @@ fn dfa_search_from(dfa: &DfaProgram, hay: &[u8], start: u32) -> Option<usize> {
         // The BFS precomputes `accept_before_byte` per state per
         // byte so the executor can record the accept here at cursor
         // `i` (not `i + 1`).
-        if mask_get(&dfa.states[state as usize].accept_before_byte, byte) {
+        if any_aab && mask_get(&dfa.states[state as usize].accept_before_byte, byte) {
             last_accept = Some(i);
         }
         state = dfa.states[state as usize].transitions[byte as usize];
@@ -304,6 +344,11 @@ mod tests {
         assert_eq!(offset_of!(BakedDfaMeta, start_mid), 16);
         assert_eq!(offset_of!(BakedDfaMeta, start_mid_word), 20);
         assert_eq!(offset_of!(BakedDfaMeta, start_mid_nonword), 24);
+        // Round 3 Phase B attack #R-E — `any_accept_before_byte` sits
+        // in the original 4-byte tail pad; struct stays 32 bytes /
+        // align 8, so `OUTER_META_SIZE` in user_regex_baked_layout is
+        // unchanged.
+        assert_eq!(offset_of!(BakedDfaMeta, any_accept_before_byte), 28);
         assert_eq!(size_of::<BakedDfaMeta>(), 32);
         assert_eq!(align_of::<BakedDfaMeta>(), 8);
     }
@@ -350,6 +395,8 @@ mod tests {
             start_mid: 1,
             start_mid_word: 1,
             start_mid_nonword: 1,
+            all_starts_equal: true,
+            any_accept_before_byte: false,
         };
         assert_eq!(dfa_search(&dfa, b"a"), Some(1));
         assert_eq!(dfa_search(&dfa, b"abc"), Some(1));

@@ -378,6 +378,24 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         states[cur_idx as usize].accept_before_byte = accept_before_byte;
     }
 
+    // Round 3 Phase B attack #R-A2 — derive `all_starts_equal` from the
+    // four BFS-interned start indices. `needs_attr_split == false` (no
+    // `^` / `\b` / `\B` / multiline-`^` in pattern) already collapses
+    // all four to the same state; the runtime wire reads this flag and
+    // short-circuits the `at_line_start` / `prev_is_word` selection.
+    // `start_mid_nonword` doubles as the returned `start_mid` field,
+    // so checking equality against the two unique mid-entries is
+    // sufficient (transitive: a == b && a == c implies b == c).
+    let all_starts_equal = start == start_mid_word && start == start_mid_nonword;
+    // Round 3 Phase B attack #R-E — derive `any_accept_before_byte` by
+    // OR-ing every state's 256-bit mask. Set iff at least one bit is
+    // non-zero. Cost: O(states × 8 u32 ORs) at build time (cold path,
+    // amortised); the runtime hot loop reads a single bool. For
+    // `/\p{L}+/u` (no `\b`) this short-circuits the per-byte mask
+    // load + branch (~35 ns/iter saved).
+    let any_accept_before_byte = states
+        .iter()
+        .any(|s| s.accept_before_byte.iter().any(|w| *w != 0));
     DfaProgram {
         // chunk 7.7 v2 step 12 C2 Phase B — wrap as DfaStates::Owned;
         // Phase C will emit DfaStates::Static(&'static [...]) from the
@@ -387,5 +405,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         start_mid: start_mid_nonword,
         start_mid_word,
         start_mid_nonword,
+        all_starts_equal,
+        any_accept_before_byte,
     }
 }

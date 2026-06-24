@@ -102,7 +102,10 @@ fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
         let m = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws, dfa_view.as_ref())
+            // Round 3 Phase B attack #R-A1 — replace currently routes
+            // through `str_slice` (transcodes to owned bytes), so the
+            // ASCII-view shortcut isn't on this path. Pass `false`.
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws, dfa_view.as_ref(), false)
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);

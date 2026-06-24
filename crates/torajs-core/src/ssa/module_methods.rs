@@ -421,6 +421,11 @@ pub struct BakedRegexEntry {
     pub start_mid: u32,
     pub start_mid_word: u32,
     pub start_mid_nonword: u32,
+    /// Round 3 Phase B attack #R-E — host-pre-computed mirror of
+    /// `DfaProgram::any_accept_before_byte`. Lands at offset 28 in
+    /// the emitted `BakedDfaMeta` 32-byte struct (existing tail pad);
+    /// `OUTER_META_SIZE` stays at 32 bytes.
+    pub any_accept_before_byte: bool,
 }
 
 #[derive(Debug, Clone)]

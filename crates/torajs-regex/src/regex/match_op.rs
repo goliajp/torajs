@@ -136,12 +136,16 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     // / UTF-16 payloads. `_s_owned` is alive for the whole fn body
     // so the view's `'_` lifetime is safely bounded by `str_ptr`'s
     // caller-held reference.
+    // Round 3 Phase B attack #R-A1 — capture the ASCII-view discrimination
+    // so the hot-loop call can pass it down to `search_from_with_ws`,
+    // letting the u-flag continuation-byte gate short-circuit on
+    // ASCII-only haystacks.
     let _s_owned: Vec<u8>;
-    let s: &[u8] = match unsafe { str_slice_ascii_view(str_ptr) } {
-        Some(view) => view,
+    let (s, haystack_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(str_ptr) } {
+        Some(view) => (view, true),
         None => {
             _s_owned = unsafe { str_slice(str_ptr) };
-            &_s_owned
+            (&_s_owned, false)
         }
     };
     let slen = s.len() as i64;
@@ -172,7 +176,15 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             h
         } else {
             let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_view.as_ref())
+            search_from_with_ws(
+                &re.prog,
+                &s,
+                pos,
+                re.flags,
+                ws_ref,
+                dfa_view.as_ref(),
+                haystack_is_ascii,
+            )
         };
         let Some(m) = hit else { break };
         if out.is_null() {

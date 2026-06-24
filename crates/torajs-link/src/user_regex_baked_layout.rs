@@ -215,9 +215,12 @@ pub fn build_user_regex_baked_payload(
         buf.extend_from_slice(&entry.start_mid_word.to_le_bytes());
         buf.extend_from_slice(&entry.start_mid_nonword.to_le_bytes());
         debug_assert_eq!(buf.len() - meta_start, 28);
-        // Tail pad — keeps the next BakedDfaMeta at OUTER_META_ALIGN
-        // and locks the struct stride at OUTER_META_SIZE.
-        buf.extend_from_slice(&[0u8; 4]);
+        // Round 3 Phase B attack #R-E — `any_accept_before_byte` bool
+        // at offset 28 (Rust `#[repr(C)]` bool = 1 byte: 0 or 1). The
+        // remaining 3 bytes fall under the original tail pad so
+        // `OUTER_META_SIZE` stays at 32 / `OUTER_META_ALIGN` at 8.
+        buf.push(if entry.any_accept_before_byte { 1 } else { 0 });
+        buf.extend_from_slice(&[0u8; 3]);
         debug_assert_eq!(buf.len() - meta_start, OUTER_META_SIZE as usize);
     }
     debug_assert_eq!(buf.len() as u32, layout.total_size);
@@ -357,6 +360,7 @@ mod tests {
                 start_mid: 0,
                 start_mid_word: 0,
                 start_mid_nonword: 0,
+                any_accept_before_byte: false,
             },
             UserBakedRegexEntry {
                 index: 7,
@@ -366,6 +370,7 @@ mod tests {
                 start_mid: 0,
                 start_mid_word: 0,
                 start_mid_nonword: 0,
+                any_accept_before_byte: false,
             },
         ];
         let syms = user_regex_baked_extra_defined_syms(&entries);
@@ -395,6 +400,7 @@ mod tests {
             start_mid: 0,
             start_mid_word: 0,
             start_mid_nonword: 0,
+            any_accept_before_byte: false,
         }
     }
 
@@ -476,6 +482,10 @@ mod tests {
             start_mid: 0x22,
             start_mid_word: 0x33,
             start_mid_nonword: 0x44,
+            // Round 3 Phase B attack #R-E — bake a non-zero value so
+            // the byte-image test exercises the emit path (`true → 1`
+            // at offset 28).
+            any_accept_before_byte: true,
         }];
         let layout = compute_user_regex_baked_layout(&entries, 0x4_0000, 0x1_0001_0000);
         let link_value: u64 = 0xDEAD_BEEF_CAFE_BABE;
@@ -500,8 +510,11 @@ mod tests {
         assert_eq!(&payload[1084..1088], &0x33u32.to_le_bytes());
         // start_mid_nonword u32 @ +24 → 0x44.
         assert_eq!(&payload[1088..1092], &0x44u32.to_le_bytes());
-        // Tail pad @ +28 → 4 zero bytes.
-        assert_eq!(&payload[1092..1096], &[0u8; 4]);
+        // Round 3 Phase B attack #R-E — `any_accept_before_byte` u8 at
+        // +28 followed by 3 bytes of tail padding (total 4-byte slot
+        // unchanged from the original tail-pad layout). `true → 1`.
+        assert_eq!(payload[1092], 1);
+        assert_eq!(&payload[1093..1096], &[0u8; 3]);
     }
 
     #[test]

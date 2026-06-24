@@ -45,7 +45,18 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
             let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_view.as_ref())
+            // Round 3 Phase B attack #R-A1 — split currently routes
+            // through `str_slice` (transcodes to owned bytes), so the
+            // ASCII-view shortcut isn't on this path. Pass `false`.
+            search_from_with_ws(
+                &re.prog,
+                &s,
+                pos,
+                re.flags,
+                ws_ref,
+                dfa_view.as_ref(),
+                false,
+            )
         };
         let Some(m) = m else { break };
         if m.end == m.start {
