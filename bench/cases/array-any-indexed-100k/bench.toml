@@ -1,0 +1,3 @@
+# Isolation fixture for Array<Any> indexed read substrate cost.
+# Round 2 decomp (`.claude/rfcs/20260624-jsland-substrate-round2/decomposition.md`)
+# §10 F-C. 100k iter of `arr[i%100]` on pre-built 100-element array.

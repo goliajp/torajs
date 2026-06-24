@@ -1,0 +1,3 @@
+# Isolation fixture for Str.+ ASCII concat substrate cost.
+# Round 2 decomp (`.claude/rfcs/20260624-jsland-substrate-round2/decomposition.md`)
+# §10 F-B. 100k iter of `prefix + 'x'` (no Number.toString interference).
