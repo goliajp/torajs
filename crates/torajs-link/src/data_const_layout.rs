@@ -26,6 +26,7 @@ use crate::fn_name_table_layout::{
 };
 use crate::lc::APPLE_SILICON_PAGE_SIZE;
 use crate::user_class_layouts_layout::{UserClassLayoutsLayout, compute_user_class_layouts_layout};
+use crate::user_regex_baked_layout::{UserRegexBakedLayout, compute_user_regex_baked_layout};
 use crate::user_vtables_layout::{UserVtablesLayout, compute_user_vtables_layout};
 use torajs_obj::{SegmentCommand64, VM_PROT_READ, VM_PROT_WRITE};
 
@@ -66,6 +67,16 @@ pub struct DataConstLayout {
     /// the `SG_READ_ONLY` host pattern carries over. Empty layout
     /// (`total_size == 0`) when `cfg.class_names.is_empty()`.
     pub class_name_table_layout: ClassNameTableLayout,
+    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-5c.2a — AOT-baked
+    /// DFA region placed after class_name_table inside the same
+    /// `__DATA_CONST` segment. Each `UserBakedRegexEntry` becomes a
+    /// `(BakedDfaMeta, [DfaState; N])` pair; the `BakedDfaMeta::states_ptr`
+    /// slot needs chain-LC rebase so the same `SG_READ_ONLY` post-mprotect
+    /// path that hosts vtables / class_layouts hosts this region too.
+    /// Empty layout (`total_size == 0`) when `cfg.baked_regex_entries`
+    /// is empty — current state, since the SSA-side `Module` never
+    /// pushes entries until Phase C-6 trips the AOT gate.
+    pub baked_regex_layout: UserRegexBakedLayout,
     /// File offset of the `__DATA_CONST` segment's first byte.
     /// Equals `text_segment_file_offset + text_vmsize` in our layout.
     pub segment_file_offset: u32,
@@ -104,6 +115,7 @@ pub fn compute_data_const_layout(
     force_emit_fn_name_globals: bool,
     class_names: &[crate::exec::UserClassNameEntry],
     force_emit_class_names_globals: bool,
+    baked_regex_entries: &[crate::exec::UserBakedRegexEntry],
     segment_file_offset_base: u32,
     segment_vmaddr_base: u64,
 ) -> DataConstLayout {
@@ -114,12 +126,14 @@ pub fn compute_data_const_layout(
         && !force_emit_fn_name_globals
         && class_names.is_empty()
         && !force_emit_class_names_globals
+        && baked_regex_entries.is_empty()
     {
         return DataConstLayout {
             vtable_layout: UserVtablesLayout::default(),
             class_layouts_layout: UserClassLayoutsLayout::default(),
             fn_name_table_layout: FnNameTableLayout::default(),
             class_name_table_layout: ClassNameTableLayout::default(),
+            baked_regex_layout: UserRegexBakedLayout::default(),
             segment_file_offset: segment_file_offset_base,
             segment_vmaddr: segment_vmaddr_base,
             segment_filesize: 0,
@@ -183,10 +197,15 @@ pub fn compute_data_const_layout(
         class_name_vaddr,
         force_emit_class_names_globals,
     );
+    let baked_regex_cursor = class_name_cursor + class_name_table_layout.total_size;
+    let baked_regex_vaddr = class_name_vaddr + u64::from(class_name_table_layout.total_size);
+    let baked_regex_layout =
+        compute_user_regex_baked_layout(baked_regex_entries, baked_regex_cursor, baked_regex_vaddr);
     let total_region_size = vtable_layout.total_size
         + class_layouts_layout.total_size
         + fn_name_table_layout.total_size
-        + class_name_table_layout.total_size;
+        + class_name_table_layout.total_size
+        + baked_regex_layout.total_size;
     // Page-align so dyld's chained-fixup page walker can index from
     // the segment base — `page_start[]` always covers whole pages.
     let segment_vmsize =
@@ -196,6 +215,7 @@ pub fn compute_data_const_layout(
         class_layouts_layout,
         fn_name_table_layout,
         class_name_table_layout,
+        baked_regex_layout,
         segment_file_offset: segment_file_offset_base,
         segment_vmaddr: segment_vmaddr_base,
         segment_filesize: segment_vmsize,
@@ -285,6 +305,7 @@ mod tests {
             false,
             &[],
             false,
+            &[],
             0x4000,
             0x1_0000_4000,
         );
@@ -305,6 +326,7 @@ mod tests {
             false,
             &[],
             false,
+            &[],
             0x4000,
             0x1_0000_4000,
         );
@@ -336,6 +358,7 @@ mod tests {
             false,
             &[],
             false,
+            &[],
             0x4000,
             0x1_0000_4000,
         );
@@ -358,6 +381,7 @@ mod tests {
             false,
             &[],
             false,
+            &[],
             0x8000,
             0x1_0000_8000,
         );
@@ -381,6 +405,7 @@ mod tests {
             false,
             &[],
             false,
+            &[],
             0x4000,
             0x1_0000_4000,
         );
@@ -408,6 +433,7 @@ mod tests {
             false,
             &[],
             false,
+            &[],
             0x4000,
             0x1_0000_4000,
         );
@@ -432,6 +458,7 @@ mod tests {
             false,
             &[],
             false,
+            &[],
             0x4000,
             0x1_0000_4000,
         );

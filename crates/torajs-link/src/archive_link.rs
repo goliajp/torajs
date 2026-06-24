@@ -205,6 +205,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         cfg.force_emit_fn_name_globals,
         &cfg.class_names,
         cfg.force_emit_class_names_globals,
+        &cfg.baked_regex_entries,
         text_vmsize as u32,
         TEXT_VMADDR_BASE + text_vmsize,
     );
