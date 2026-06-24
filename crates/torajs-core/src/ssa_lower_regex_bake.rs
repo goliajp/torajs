@@ -210,4 +210,41 @@ mod tests {
             buf[0].states_len
         );
     }
+
+    /// Ground-truth DFA state count vs run-time delta for the 7
+    /// regex-dfa-* fixtures (mini, host benchmark @ 171d1226 vs
+    /// bun-aot 1.3.14). Locked here so future polish of the byte-
+    /// step executor can A/B-compare without manually rebuilding
+    /// each pattern's DFA. `assert!` only on the well-bounded
+    /// ratios (uflag vs anchored ≥ 10×) so chunk-10d minor
+    /// state-count drift doesn't break the test.
+    #[test]
+    fn ground_truth_states_len_per_fixture() {
+        let fixtures = [
+            (r"^\w+", "", "anchored"),
+            (r"hello", "i", "iflag"),
+            (r"\w+\b", "", "wbound"),
+            (r"hello$", "m", "mflag"),
+            (r".+", "s", "dotall"),
+            (r"[abc]+", "", "safeclass"),
+            (r"\p{L}+", "u", "uflag"),
+        ];
+        let mut counts = Vec::new();
+        for (pat, fl, name) in fixtures {
+            let mut buf = Vec::new();
+            let idx = try_bake_regex_dfa(&mut buf, pat, fl);
+            assert_eq!(idx, Some(0), "{name} ({pat}, {fl}) should be eligible");
+            counts.push((name, buf[0].states_len));
+        }
+        // uflag's state count must be much larger than the other
+        // six (utf8_class_expand evidence). 10× lower bound mirrors
+        // the run-time gap reported in Phase C.
+        let uflag_count = counts.last().unwrap().1;
+        let anchored_count = counts[0].1;
+        assert!(
+            uflag_count >= anchored_count * 10,
+            "uflag should have ≥10× the states of anchored — got \
+             uflag={uflag_count}, anchored={anchored_count}",
+        );
+    }
 }
