@@ -13,6 +13,7 @@ use crate::fn_name_table_layout::fn_name_table_rebase_targets_from_layouts;
 use crate::layout_types::ArchiveLayout;
 use crate::lc::TEXT_VMADDR_BASE;
 use crate::user_class_layouts_layout::compute_class_layouts_rebase_targets;
+use crate::user_regex_baked_layout::compute_user_regex_baked_rebase_targets;
 use crate::user_vtables_layout::vtable_rebase_targets_from_fn_vaddrs;
 
 /// Args bundle for [`compute_chained_fixups_outputs`] — keeps the
@@ -131,10 +132,16 @@ pub fn recompute_chained_fixups_with_data_rebase(
         layout.data_const_layout.segment_vmaddr,
         TEXT_VMADDR_BASE,
     );
+    let baked_regex_rebase_targets = compute_user_regex_baked_rebase_targets(
+        &layout.data_const_layout.baked_regex_layout,
+        layout.data_const_layout.segment_vmaddr,
+        TEXT_VMADDR_BASE,
+    );
     let mut combined_text_rebase = vtable_rebase_targets;
     combined_text_rebase.extend(class_layouts_rebase_targets);
     combined_text_rebase.extend(fn_name_table_rebase_targets);
     combined_text_rebase.extend(class_name_table_rebase_targets);
+    combined_text_rebase.extend(baked_regex_rebase_targets);
     let tlv_thunk_offsets: Vec<u64> = layout
         .tlv_descriptors
         .iter()

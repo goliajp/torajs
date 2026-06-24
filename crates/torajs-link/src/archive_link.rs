@@ -391,6 +391,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         vtable_rebase_target_count,
         fn_name_rebase_target_count,
         class_name_rebase_target_count,
+        baked_regex_rebase_target_count,
     } = assemble_text_rebase_targets(&data_const_layout, &fn_vaddrs, &user_strings_layout);
 
     // e8: __DATA_CONST idx=2; __DATA shifts to idx 3 when has_data_const.
@@ -487,6 +488,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         vtable_rebase_target_count,
         fn_name_rebase_target_count,
         class_name_rebase_target_count,
+        baked_regex_rebase_target_count,
     })
 }
 

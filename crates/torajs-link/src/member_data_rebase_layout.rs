@@ -428,6 +428,7 @@ mod tests {
             vtable_rebase_target_count: 0,
             fn_name_rebase_target_count: 0,
             class_name_rebase_target_count: 0,
+            baked_regex_rebase_target_count: 0,
         }
     }
 }

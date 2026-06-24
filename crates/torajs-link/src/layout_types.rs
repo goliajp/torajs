@@ -220,6 +220,14 @@ pub struct ArchiveLayout {
     /// `text_rebase_link_values` lines up:
     /// `vtable_lv | class_lv | fn_name_lv | class_name_lv`.
     pub class_name_rebase_target_count: usize,
+    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-5c.2b — count of
+    /// baked-regex chain-fixup slots (= `1 × baked_regex_entries.len()`
+    /// for the single `BakedDfaMeta::states_ptr` slot per entry; 0
+    /// when `cfg.baked_regex_entries.is_empty()`). archive_emit.rs
+    /// uses this as the fifth split point so the 5-way split of
+    /// `text_rebase_link_values` lines up:
+    /// `vtable_lv | class_lv | fn_name_lv | class_name_lv | baked_regex_lv`.
+    pub baked_regex_rebase_target_count: usize,
 }
 
 /// Failures `compute_archive_layout` can report.
