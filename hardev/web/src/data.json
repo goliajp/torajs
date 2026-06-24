@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T23:13:36.863Z",
+  "generatedAt": "2026-06-24T23:33:59.084Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "218a86b7",
-    "commitSubject": "feat(torajs-arr): Round 4 wire-back Phase B chunk 2 — pool-aware arr_push grow",
+    "commit": "56f1a575",
+    "commitSubject": "chore(hardev/web, plan-state): Round 4 wire-back Phase B chunk 2 ship — refresh dashboard + plan-state (218a86b7)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,10 @@
   },
   "commits": [
     {
+      "hash": "56f1a575",
+      "subject": "chore(hardev/web, plan-state): Round 4 wire-back Phase B chunk 2 ship — refresh dashboard + plan-state (218a86b7)"
+    },
+    {
       "hash": "218a86b7",
       "subject": "feat(torajs-arr): Round 4 wire-back Phase B chunk 2 — pool-aware arr_push grow"
     },
@@ -659,13 +663,9 @@
     {
       "hash": "f24efafd",
       "subject": "refactor(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 6 followup — relocate compute_monotone_accept to build_helpers"
-    },
-    {
-      "hash": "e38ff0a3",
-      "subject": "refactor(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 7 — R-H.1 delete dead dfa_cache + get_or_build_dfa"
     }
   ],
-  "headSha": "218a86b7",
+  "headSha": "56f1a575",
   "autorun": {
     "total": 242,
     "baselineTarget": 10,
