@@ -2072,6 +2072,22 @@ fn lower_inner(
         &[Type::Str, Type::Str],
         Type::RegExp,
     );
+    // V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-4 — AOT-baked DFA
+    // companion to `__torajs_regex_compile`. Takes the `BakedDfaMeta`
+    // pointer (`.rodata`-resident, chain-LC rebased) as a 3rd arg
+    // and stamps it onto `RegExp::baked_dfa` so the surface match
+    // path's `re.baked_dfa_view()` (Phase C-2 + C-3) short-circuits
+    // the runtime `build_dfa`. Used by the Phase C-6 AOT gate in
+    // the `Expr::Regex` lowering arm when the literal is
+    // DFA-eligible; literal lowering keeps falling back to plain
+    // `regex_compile` for ineligible patterns + `new RegExp(...)`.
+    let regex_compile_from_static_dfa_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_regex_compile_from_static_dfa",
+        &[Type::Ptr, Type::Str, Type::Str],
+        Type::RegExp,
+    );
     let regex_test_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5824,6 +5840,7 @@ fn lower_inner(
         substr_concat_str_substr: substr_concat_str_substr_id,
         substr_concat_substr_substr: substr_concat_substr_substr_id,
         regex_compile: regex_compile_id,
+        regex_compile_from_static_dfa: regex_compile_from_static_dfa_id,
         regex_test: regex_test_id,
         regex_get_source: regex_get_source_id,
         regex_get_flags: regex_get_flags_id,
@@ -6839,6 +6856,9 @@ pub(crate) struct Intrinsics {
     /// methods (`s.match`, `s.replace`, `re.exec`, ...) land in
     /// follow-up sub-phases as more `__torajs_regex_*` helpers.
     pub(crate) regex_compile: FuncId,
+    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-4 — AOT-baked DFA
+    /// variant. See the declare site for the contract.
+    pub(crate) regex_compile_from_static_dfa: FuncId,
     pub(crate) regex_test: FuncId,
     pub(crate) regex_get_source: FuncId,
     pub(crate) regex_get_flags: FuncId,
