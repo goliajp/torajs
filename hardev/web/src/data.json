@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T05:35:39.164Z",
+  "generatedAt": "2026-06-24T06:36:44.372Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "33208499",
-    "commitSubject": "test(torajs-core): chunk 7.7 v2 step 12 C2 Phase C-6 — ground-truth states_len per regex-dfa-* fixture",
+    "commit": "5a483069",
+    "commitSubject": "test(bench): chunk 7.7 v2 step 12 C2 Phase B-1 ship — 7-fixture archive",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,18 @@
   },
   "commits": [
     {
+      "hash": "5a483069",
+      "subject": "test(bench): chunk 7.7 v2 step 12 C2 Phase B-1 ship — 7-fixture archive"
+    },
+    {
+      "hash": "b22f494f",
+      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 C2 Phase B-1 — uflag-100k attacks #J + #A"
+    },
+    {
+      "hash": "d74b697a",
+      "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C ship close (33208499 sanity gate 1130/0/4 ✓)"
+    },
+    {
       "hash": "33208499",
       "subject": "test(torajs-core): chunk 7.7 v2 step 12 C2 Phase C-6 — ground-truth states_len per regex-dfa-* fixture"
     },
@@ -651,39 +663,38 @@
     {
       "hash": "03999aa6",
       "subject": "chore(hardev/web): refresh dashboard — chunk 7.7 v2 step 12 C2 Phase C-5b.2 → C-5c.2c ship + 5 gates 1130/0/4 ✓"
-    },
-    {
-      "hash": "4b039d7a",
-      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5c.2c — wire baked_regex payload through archive_emit"
-    },
-    {
-      "hash": "67a0996a",
-      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5c.2b — wire baked_regex rebase targets into chain-LC pipeline"
-    },
-    {
-      "hash": "2c6bef2a",
-      "subject": "feat(torajs-link): chunk 7.7 v2 step 12 C2 Phase C-5c.2a — wire baked_regex into DataConstLayout"
     }
   ],
-  "headSha": "33208499",
+  "headSha": "5a483069",
   "autorun": {
-    "total": 237,
+    "total": 238,
     "baselineTarget": 10,
-    "bySelf": 232,
+    "bySelf": 233,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782274035-58ef",
-      "at": "2026-06-24T04:07:15Z",
-      "ts": 1782274035,
+      "rotationId": "r-1782279550-535a",
+      "at": "2026-06-24T05:39:10Z",
+      "ts": 1782279550,
       "trigger": "self",
-      "prevHead": "03999aa6",
-      "handoffSha": "sha256:a881879e79566d96a1bd9583b64330550f547f9f58f93b2f1cea7214b1260ead",
-      "handoffAgeSec": 76,
+      "prevHead": "d74b697a",
+      "handoffSha": "sha256:797bae7aed70913b8f63ea23c27a2434a755a740661e43d107c0f7f2fdfb0a11",
+      "handoffAgeSec": 862,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782279550-535a",
+        "at": "2026-06-24T05:39:10Z",
+        "ts": 1782279550,
+        "trigger": "self",
+        "prevHead": "d74b697a",
+        "handoffSha": "sha256:797bae7aed70913b8f63ea23c27a2434a755a740661e43d107c0f7f2fdfb0a11",
+        "handoffAgeSec": 862,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782274035-58ef",
         "at": "2026-06-24T04:07:15Z",
@@ -780,17 +791,6 @@
         "prevHead": "3677d7f0",
         "handoffSha": "sha256:d77009254fda1ea7d524bf9548ed682ccf3d5ce5b15a7d4bae032e51739dba25",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782147103-5eb7",
-        "at": "2026-06-22T16:51:43Z",
-        "ts": 1782147103,
-        "trigger": "self",
-        "prevHead": "f98cf404",
-        "handoffSha": "sha256:0daa24b18c6274a2a0348d65eeeb644fce8c149edf565284d9c9abde78db7c42",
-        "handoffAgeSec": 59,
         "conformanceBefore": null,
         "commitsInSession": null
       }
