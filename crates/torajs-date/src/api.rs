@@ -4,14 +4,9 @@
 
 use core::ffi::c_void;
 
-use crate::civil::civil_from_days;
-use crate::getters::decompose;
 use crate::parse::parse_iso;
-use crate::tm::{Tm, components_to_local_ms, localtime_decompose};
-use crate::{
-    __torajs_rc_dec, __torajs_str_alloc_pooled, DATE_PARSE_FAIL, Date, HeapHeader, STR_HDR_SIZE,
-    TAG_DATE, as_date, as_date_mut,
-};
+use crate::tm::{components_to_local_ms, localtime_decompose};
+use crate::{__torajs_rc_dec, DATE_PARSE_FAIL, Date, HeapHeader, TAG_DATE, as_date, as_date_mut};
 
 // ---- Time source ----
 
