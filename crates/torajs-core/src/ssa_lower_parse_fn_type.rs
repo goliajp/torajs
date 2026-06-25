@@ -1,0 +1,104 @@
+//! `__fn(P1|P2|...)->R` annotation decoder — extracted from
+//! `ssa_lower_parse_type.rs` so that file fits under the 500-prod-LOC
+//! file-size hard limit (`rules/common/file-size.md`). Pure mechanical
+//! pull, no semantic change.
+//!
+//! Same encoding produced by `parser::parse_type_ann` and decoded
+//! the same depth-aware way as `check.rs::resolve_type_ann` so SSA +
+//! check agree on the signature structure.
+
+use std::collections::HashMap;
+
+use crate::ssa::{self, Type};
+use crate::ssa_lower::intern_fn_sig;
+use crate::ssa_lower_parse_type::parse_type;
+
+/// Decode `__fn(P1|P2|...)->R` into `Type::FnSig(id)` if `s` starts
+/// with `__fn(`; returns `None` otherwise so `parse_type` can fall
+/// through to the next annotation form.
+///
+/// Recursively invokes `parse_type` on each param + the return type
+/// so the same alias / arr-layout / fn-sig / generic-struct /
+/// struct-layout / inst-memo state used by the parent walk is threaded
+/// through.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn try_parse_fn_type(
+    s: &str,
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    inst_memo: &mut HashMap<String, ssa::StructId>,
+) -> Option<Type> {
+    let rest = s.strip_prefix("__fn(")?;
+    let bytes = rest.as_bytes();
+    let mut depth: i32 = 1;
+    let mut close_idx = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    close_idx = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close = close_idx.unwrap_or_else(|| panic!("ssa-lower: malformed fn-type `{s}`"));
+    let params_str = &rest[..close];
+    let after = &rest[close + 1..];
+    let ret_str = after
+        .strip_prefix("->")
+        .unwrap_or_else(|| panic!("ssa-lower: malformed fn-type ret `{s}`"));
+
+    // Split params at depth-0 `|`.
+    let mut params: Vec<Type> = Vec::new();
+    let mut depth2: i32 = 0;
+    let mut last = 0usize;
+    let pb = params_str.as_bytes();
+    for (i, &b) in pb.iter().enumerate() {
+        match b {
+            b'(' => depth2 += 1,
+            b')' => depth2 -= 1,
+            b'|' if depth2 == 0 => {
+                params.push(parse_type(
+                    Some(&params_str[last..i]),
+                    aliases,
+                    arr_layouts,
+                    fn_sigs,
+                    generic_struct_decls,
+                    struct_layouts,
+                    inst_memo,
+                ));
+                last = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if !params_str.is_empty() {
+        params.push(parse_type(
+            Some(&params_str[last..]),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        ));
+    }
+    let ret = parse_type(
+        Some(ret_str),
+        aliases,
+        arr_layouts,
+        fn_sigs,
+        generic_struct_decls,
+        struct_layouts,
+        inst_memo,
+    );
+    let id = intern_fn_sig(fn_sigs, params, ret);
+    Some(Type::FnSig(id))
+}

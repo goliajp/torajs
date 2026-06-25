@@ -142,80 +142,18 @@ pub(crate) fn parse_type(
         struct_layouts.push(fields);
         return Type::Obj(id);
     }
-    // M2 Phase B Stage 2 — fn type `__fn(P1|P2|...)->R`. Same encoding
-    // produced by parser::parse_type_ann; same depth-aware decoding as
-    // check.rs's resolve_type_ann (so SSA + check agree on the signature
-    // structure).
-    if let Some(rest) = s.strip_prefix("__fn(") {
-        let bytes = rest.as_bytes();
-        let mut depth: i32 = 1;
-        let mut close_idx = None;
-        for (i, &b) in bytes.iter().enumerate() {
-            match b {
-                b'(' => depth += 1,
-                b')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close_idx = Some(i);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let close = close_idx.unwrap_or_else(|| panic!("ssa-lower: malformed fn-type `{s}`"));
-        let params_str = &rest[..close];
-        let after = &rest[close + 1..];
-        let ret_str = after
-            .strip_prefix("->")
-            .unwrap_or_else(|| panic!("ssa-lower: malformed fn-type ret `{s}`"));
-
-        // Split params at depth-0 `|`.
-        let mut params: Vec<Type> = Vec::new();
-        let mut depth2: i32 = 0;
-        let mut last = 0usize;
-        let pb = params_str.as_bytes();
-        for (i, &b) in pb.iter().enumerate() {
-            match b {
-                b'(' => depth2 += 1,
-                b')' => depth2 -= 1,
-                b'|' if depth2 == 0 => {
-                    params.push(parse_type(
-                        Some(&params_str[last..i]),
-                        aliases,
-                        arr_layouts,
-                        fn_sigs,
-                        generic_struct_decls,
-                        struct_layouts,
-                        inst_memo,
-                    ));
-                    last = i + 1;
-                }
-                _ => {}
-            }
-        }
-        if !params_str.is_empty() {
-            params.push(parse_type(
-                Some(&params_str[last..]),
-                aliases,
-                arr_layouts,
-                fn_sigs,
-                generic_struct_decls,
-                struct_layouts,
-                inst_memo,
-            ));
-        }
-        let ret = parse_type(
-            Some(ret_str),
-            aliases,
-            arr_layouts,
-            fn_sigs,
-            generic_struct_decls,
-            struct_layouts,
-            inst_memo,
-        );
-        let id = intern_fn_sig(fn_sigs, params, ret);
-        return Type::FnSig(id);
+    // M2 Phase B Stage 2 — fn type `__fn(P1|P2|...)->R` decoder lives
+    // in the sibling `ssa_lower_parse_fn_type` module.
+    if let Some(ty) = crate::ssa_lower_parse_fn_type::try_parse_fn_type(
+        s,
+        aliases,
+        arr_layouts,
+        fn_sigs,
+        generic_struct_decls,
+        struct_layouts,
+        inst_memo,
+    ) {
+        return ty;
     }
     // P3.closure-in-struct-field — TypeDecl field types tagged with
     // `__cls(P)->R` by the `tag_struct_field_closure_types` desugar
