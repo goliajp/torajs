@@ -24,12 +24,14 @@
 //   will land in step 2 when we lower `while`.
 
 mod function_methods;
+mod module_extras;
 mod module_methods;
 mod op_impls;
 
+pub use module_extras::demo_fib40;
 pub use module_methods::{
     BakedRegexEntry, ClassLayoutMeta, DataGlobal, FieldMetaSpec, FnNameEntry, Module,
-    StringLiteral, VtableGlobal, demo_fib40, field_type_tag_of,
+    StringLiteral, VtableGlobal, field_type_tag_of,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
