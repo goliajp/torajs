@@ -127,6 +127,7 @@ pub mod pool;
 pub mod print;
 pub mod slice;
 pub mod split;
+pub mod str_drop;
 pub mod substr;
 pub mod substr_methods;
 pub mod symbol;
