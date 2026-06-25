@@ -11,18 +11,25 @@
 //! indexing semantics, ...) edit the right block without dragging
 //! the surrounding god-fn into every diff.
 //!
-//! ## CARVE-OUT — god-file refactor transition state
+//! ## Post-decomp state — under 500-LOC hard cap
 //!
-//! This file currently > 500 LOC (file-size HARD RULE soft-warns
-//! at 300 / hard-limits at 500). Reason: this is a single-extract
-//! commit that moves the full dispatch arm verbatim from
-//! `ssa_lower.rs` so the god-file shrinks today, before P11.1's
-//! substrate edits begin. Subsequent P11.1 sub-steps will split
-//! this file into method-category sub-modules
-//! (`ssa_lower_str/{view,search,transform,structural}.rs`). Until
-//! then, **no new method-dispatch arms may be added** to the
-//! extracted block — per `common/file-size.md` known-debt rule,
-//! the dispatch table can only shrink or hold.
+//! Originally extracted from `ssa_lower.rs` at 2179 LOC, this file
+//! retains only the receiver-lower / arg-setup / dispatch chain. All
+//! per-method blocks have been pulled into sibling `ssa_lower_str_*`
+//! modules:
+//!
+//! - Substr-receiver, charAt-family wedges, Str spec-default short-
+//!   circuits, generic Str-method dispatch, Arr join/flat, Arr sort,
+//!   Str/Arr concat, Arr copy-within, Arr reverse/toReversed/with,
+//!   Arr fill, Arr slice + index empty-args short-circuit, Arr
+//!   indexOf/lastIndexOf/includes scan, Arr.at(i?).
+//!
+//! Each per-method sibling returns `Option<Operand>` and is called
+//! through the dispatch chain in `try_lower_method_call` below.
+//! Two carve-out siblings remain over the 500-LOC hard cap — see
+//! [`ssa_lower_str_str_dispatch`] and
+//! [`ssa_lower_str_arr_index_search`] — and have their own
+//! second-pass splits documented in their module docs.
 //!
 //! ### Explicit P11.1 helper exception
 //!
@@ -52,8 +59,8 @@
 // extraction sized for sub-division in subsequent P11.1 sub-steps.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{BinOp as SsaBinOp, FPred, IPred, InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa_lower::LowerCtx;
 
 /// Load the `length` field off a Str / Substr operand and widen to
 /// `i64` so the resulting [`Operand`] can flow into the i64-shaped
@@ -248,105 +255,9 @@ pub(crate) fn try_lower_method_call(
     {
         return Some(v);
     }
-    // `arr.at(i?)` — element at i with negative-index wrap.
-    // Inline SSA: idx = i < 0 ? len + i : i; load at idx.
-    // Out-of-bounds is UB (matches the unchecked indexing
-    // convention).
-    //
-    // Arity defaults per ES §23.1.3.1 step 2-3: undefined index
-    // routes through ToIntegerOrInfinity → 0, so `arr.at()`
-    // returns `arr[0]`. 0-arg form emits `i_val = ConstI64(0)`
-    // and skips through the rest of the negative-wrap select.
-    // S242 — Array<T>.at(idx, ...trailing) trailing-arg ignore per
-    // ES §23.1.3.1: args[1..] is never read (i_val uses args[0] only).
-    // S299 — widen upper-cap `args.len() <= 2` → no cap + lower-and-drop
-    // args[1..] so step()-style side-effect exprs fire per ES eval-then-
-    // discard semantics. Mirrors check.rs S299.
-    if let Type::Arr(arr_id) = recv_ty
-        && method == "at"
+    if let Some(v) = crate::ssa_lower_str_arr_at::try_dispatch(ctx, &method, args, recv_op, recv_ty)
     {
-        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-        for &a in args.iter().skip(1) {
-            let _ = ctx.lower_expr(a);
-        }
-        // ES §23.1.3.1 step 2 — ToIntegerOrInfinity on `index`. The
-        // inline ICmp/Add/LoadDyn chain below is i64-only; without
-        // this coerce, f64 args (`a.at(1.5)`) panic backend GPR
-        // materialization. coerce_to_i64 const-folds NaN → 0 and
-        // ±∞ → i64::{MAX,MIN} (spec), FpToSi otherwise.
-        //
-        // S225 — explicit `undefined` index lowers as a ConstPtrNull
-        // which coerce_to_i64 cannot materialize (same shape as the
-        // S222 charAt early-intercept). Short-circuit to ConstI64(0)
-        // before coerce so the negative-wrap select picks arr[0].
-        let i_val = if args.is_empty() {
-            Operand::ConstI64(0)
-        } else if matches!(
-            ctx.expr_types.get(&args[0]),
-            Some(crate::check::Type::Undefined)
-        ) {
-            Operand::ConstI64(0)
-        } else {
-            let raw = ctx.lower_expr(args[0]);
-            ctx.coerce_to_i64(raw)
-        };
-        let len = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-            Type::I64,
-            None,
-        );
-        let is_neg = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::ICmp(IPred::Slt, i_val, Operand::ConstI64(0)),
-            Type::Bool,
-            None,
-        );
-        let i_plus_len = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, i_val, Operand::Value(len)),
-            Type::I64,
-            None,
-        );
-        // adj = is_neg ? i + len : i (via select-shape:
-        // alloca + cond_br).
-        let adj_slot = ctx.alloca_in_entry(Type::I64, Some("__at_idx"));
-        let neg_blk = ctx.f.add_block();
-        let pos_blk = ctx.f.add_block();
-        let after_blk = ctx.f.add_block();
-        let cb = ctx.cur_block;
-        ctx.f.set_term(
-            cb,
-            Terminator::CondBr {
-                cond: Operand::Value(is_neg),
-                then_blk: neg_blk,
-                else_blk: pos_blk,
-            },
-        );
-        ctx.f.append_void(
-            neg_blk,
-            InstKind::Store(Operand::Value(i_plus_len), Operand::Value(adj_slot), 0),
-        );
-        ctx.f.set_term(neg_blk, Terminator::Br(after_blk));
-        ctx.f
-            .append_void(pos_blk, InstKind::Store(i_val, Operand::Value(adj_slot), 0));
-        ctx.f.set_term(pos_blk, Terminator::Br(after_blk));
-        ctx.cur_block = after_blk;
-        let adj = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(adj_slot), 0),
-            Type::I64,
-            None,
-        );
-        // T-13.5 deque: head-aware offset for arr.at(i).
-        let off = ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(adj), 3, false);
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::LoadDyn(elem_ty, recv_op, off),
-            elem_ty,
-            None,
-        );
-        return Some(Operand::Value(v));
+        return Some(v);
     }
     if let Some(v) =
         crate::ssa_lower_str_arr_copy_within::try_dispatch(ctx, &method, args, recv_op, recv_ty)

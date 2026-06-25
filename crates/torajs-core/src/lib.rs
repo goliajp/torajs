@@ -224,6 +224,7 @@ pub mod ssa_lower_push_loop_detect;
 pub(crate) mod ssa_lower_regex_bake;
 pub(crate) mod ssa_lower_splice;
 pub mod ssa_lower_str;
+pub(crate) mod ssa_lower_str_arr_at;
 pub(crate) mod ssa_lower_str_arr_copy_within;
 pub(crate) mod ssa_lower_str_arr_fill;
 pub(crate) mod ssa_lower_str_arr_index_search;
