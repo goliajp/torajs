@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-24T23:33:59.084Z",
+  "generatedAt": "2026-06-25T06:29:22.775Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "56f1a575",
-    "commitSubject": "chore(hardev/web, plan-state): Round 4 wire-back Phase B chunk 2 ship — refresh dashboard + plan-state (218a86b7)",
+    "commit": "49e93fe4",
+    "commitSubject": "feat(torajs-arr, ssa_lower, str, promise, meta): Round 4 wire-back chunk 5a+5b — inline arr props_dynobj slot",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "49e93fe4",
+      "subject": "feat(torajs-arr, ssa_lower, str, promise, meta): Round 4 wire-back chunk 5a+5b — inline arr props_dynobj slot"
+    },
+    {
+      "hash": "d25b811d",
+      "subject": "chore(hardev/web): dashboard refresh — Round 4 chunk 2 ship + chunk 3 attempt+revert + fresh decomp"
+    },
+    {
       "hash": "56f1a575",
       "subject": "chore(hardev/web, plan-state): Round 4 wire-back Phase B chunk 2 ship — refresh dashboard + plan-state (218a86b7)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "c5342773",
       "subject": "chore(hardev/web): refresh dashboard — Round 3 Phase B sub-batch 5/6/7.1 + relocate + monotone tests (d81200be)"
-    },
-    {
-      "hash": "d81200be",
-      "subject": "test(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 6 — add monotone_accept invariant tests"
-    },
-    {
-      "hash": "f24efafd",
-      "subject": "refactor(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 6 followup — relocate compute_monotone_accept to build_helpers"
     }
   ],
-  "headSha": "56f1a575",
+  "headSha": "49e93fe4",
   "autorun": {
     "total": 242,
     "baselineTarget": 10,
