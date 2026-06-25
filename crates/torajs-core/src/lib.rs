@@ -227,6 +227,7 @@ pub mod ssa_lower_str;
 pub(crate) mod ssa_lower_str_arr_at;
 pub(crate) mod ssa_lower_str_arr_copy_within;
 pub(crate) mod ssa_lower_str_arr_fill;
+pub(crate) mod ssa_lower_str_arr_index_coerce;
 pub(crate) mod ssa_lower_str_arr_index_eq;
 pub(crate) mod ssa_lower_str_arr_index_search;
 pub(crate) mod ssa_lower_str_arr_inplace;
