@@ -225,6 +225,7 @@ pub(crate) mod ssa_lower_regex_bake;
 pub(crate) mod ssa_lower_splice;
 pub mod ssa_lower_str;
 pub(crate) mod ssa_lower_str_arr_join_flat;
+pub(crate) mod ssa_lower_str_arr_sort;
 pub(crate) mod ssa_lower_str_charat_wedges;
 pub(crate) mod ssa_lower_str_short_circuits;
 pub(crate) mod ssa_lower_str_str_dispatch;
