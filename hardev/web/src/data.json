@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-25T15:13:42.444Z",
+  "generatedAt": "2026-06-25T20:09:14.448Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "f304c652",
-    "commitSubject": "refactor(torajs-core): extract __fn(...) decoder to ssa_lower_parse_fn_type",
+    "commit": "352fd307",
+    "commitSubject": "refactor(torajs-core): extract Arr.index-search needle coerce",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,95 @@
   },
   "commits": [
     {
-      "hash": "f304c652",
-      "subject": "refactor(torajs-core): extract __fn(...) decoder to ssa_lower_parse_fn_type"
+      "hash": "352fd307",
+      "subject": "refactor(torajs-core): extract Arr.index-search needle coerce"
     },
     {
-      "hash": "f7d6a1d0",
-      "subject": "refactor(torajs-str): extract SplitIter section to split/iter.rs sibling"
+      "hash": "a12fb5e3",
+      "subject": "refactor(torajs-core): extract Arr.index-search compare dispatch"
     },
     {
-      "hash": "6c405e8c",
-      "subject": "fix(torajs-date): trim unused api.rs imports after api_strings extract"
+      "hash": "7461b7d9",
+      "subject": "refactor(torajs-core): extract Arr.at(i?) dispatch from ssa_lower_str"
     },
     {
-      "hash": "d9aa3e05",
-      "subject": "refactor(torajs-date): extract Date string-formatter FFI shims to api_strings.rs"
+      "hash": "e5c288f0",
+      "subject": "refactor(torajs-core): extract Arr.indexOf/lastIndexOf/includes scan"
     },
     {
-      "hash": "113f799e",
-      "subject": "refactor: extract ann_substitute + condense any.rs module doc"
+      "hash": "f898e03c",
+      "subject": "refactor(torajs-core): extract Arr.slice+index empty-args fast-paths"
     },
     {
-      "hash": "7cfccb11",
-      "subject": "refactor: condense module docs to shrink 3 newly-over-500 prod files"
+      "hash": "cedb3793",
+      "subject": "refactor(torajs-core): extract Arr.fill dispatch from ssa_lower_str"
     },
     {
-      "hash": "bc5f1180",
-      "subject": "fix(torajs-core): trim unused BinOp/IPred/InstKind/Operand/Terminator imports"
+      "hash": "49dcbe3a",
+      "subject": "refactor(torajs-core): extract Arr.reverse+toReversed+with dispatch"
     },
     {
-      "hash": "3007e9be",
-      "subject": "refactor(torajs-core): extract impl StringLiteral + demo_fib40 to module_extras"
+      "hash": "8528c0b0",
+      "subject": "refactor(torajs-core): extract Arr.copyWithin dispatch from ssa_lower_str"
     },
     {
-      "hash": "c54bf2a9",
-      "subject": "refactor(torajs-str): extract substr trim + concat to sibling modules"
+      "hash": "791dfdf9",
+      "subject": "refactor(torajs-core): extract Str/Arr concat dispatch from ssa_lower_str"
     },
     {
-      "hash": "7d1ea496",
-      "subject": "fix(torajs-str): make PayloadBuf::len pub(crate) for lookup_ffi access"
+      "hash": "35c623e0",
+      "subject": "refactor(torajs-core): extract Arr.sort+toSorted dispatch from ssa_lower_str"
     },
     {
-      "hash": "76828f50",
-      "subject": "refactor(torajs-str): extract lookup FFI shims to lookup_ffi.rs"
+      "hash": "6823dce2",
+      "subject": "refactor(torajs-core): extract Arr.join+toString+toLocaleString+flat dispatch"
     },
     {
-      "hash": "7f5421d0",
-      "subject": "refactor(torajs-str): extract __torajs_str_drop / __torajs_str_free to str_drop.rs"
+      "hash": "90984b35",
+      "subject": "refactor(torajs-core): extract generic Str-method dispatch from ssa_lower_str"
     }
   ],
-  "headSha": "f304c652",
+  "headSha": "352fd307",
   "autorun": {
-    "total": 243,
+    "total": 245,
     "baselineTarget": 10,
-    "bySelf": 238,
+    "bySelf": 240,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782369079-1f1d",
-      "at": "2026-06-25T06:31:19Z",
-      "ts": 1782369079,
+      "rotationId": "r-1782411683-46cc",
+      "at": "2026-06-25T18:21:23Z",
+      "ts": 1782411683,
       "trigger": "self",
-      "prevHead": "d770213f",
-      "handoffSha": "sha256:5ba710cd87207a4ffb8ff9e06bea921b7e47ac51334e5ad1110c4c1e28351d84",
-      "handoffAgeSec": 5,
+      "prevHead": "cedb3793",
+      "handoffSha": "sha256:e1861ba718a657aff5e99bd5642ac5fd8783f713abcb0842dfba1e0feed0e18e",
+      "handoffAgeSec": 11195,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782411683-46cc",
+        "at": "2026-06-25T18:21:23Z",
+        "ts": 1782411683,
+        "trigger": "self",
+        "prevHead": "cedb3793",
+        "handoffSha": "sha256:e1861ba718a657aff5e99bd5642ac5fd8783f713abcb0842dfba1e0feed0e18e",
+        "handoffAgeSec": 11195,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1782400529-539d",
+        "at": "2026-06-25T15:15:29Z",
+        "ts": 1782400529,
+        "trigger": "self",
+        "prevHead": "b0413b42",
+        "handoffSha": "sha256:e1861ba718a657aff5e99bd5642ac5fd8783f713abcb0842dfba1e0feed0e18e",
+        "handoffAgeSec": 40,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782369079-1f1d",
         "at": "2026-06-25T06:31:19Z",
@@ -768,28 +790,6 @@
         "trigger": "self",
         "prevHead": "98b2b140",
         "handoffSha": "sha256:1ac9f44b1affa318464f19c9fa8675c28c8170298f88b276e37fb5df3a9bdc84",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782260337-67fa",
-        "at": "2026-06-24T00:18:57Z",
-        "ts": 1782260337,
-        "trigger": "self",
-        "prevHead": "d2063f36",
-        "handoffSha": "sha256:2827f78936c854967b1d0dad3f4c3885b2bcb04c887411ae9db86c58f7402c53",
-        "handoffAgeSec": 13,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782252037-3efd",
-        "at": "2026-06-23T22:00:37Z",
-        "ts": 1782252037,
-        "trigger": "self",
-        "prevHead": "1ddaed58",
-        "handoffSha": "sha256:cf4c5ac818b09b39383982bb17c8b61535af79e5514052efb227398f4b0579df",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
