@@ -1,0 +1,401 @@
+//! P6.1 — `<Map>.{set|has|delete|get|clear|keys|values|entries|forEach}`
+//! lowering pulled out of [`crate::ssa_lower::lower_expr_inner`] `Expr::Call`
+//! dispatch as chunk-2 of the `Expr::Call` god-arm decomp (chunk-1 was
+//! `ssa_lower_call_arr_ho` covering the Arr higher-order methods).
+//!
+//! All 9 methods share the same `Expr::Member` outer dispatch + Map
+//! receiver-type detection, so they're co-located in one sibling instead
+//! of split per method. Repeated shapes within Map's methods are folded
+//! into 2 tiny helpers:
+//! - `emit_predicate_call`: has / delete (both call an `i64`-returning
+//!   intrinsic then ICmp != 0 → Bool).
+//! - `emit_iter_create`: keys / values / entries (all return `MapIter`
+//!   from a 1-arg `Call(intrinsic, [recv])`).
+//! `forEach` is the only big body (~170 LOC iterator loop) and stays
+//! inline — splitting it to a helper would not reduce LOC and would
+//! force threading 4 stack slots through a signature.
+//!
+//! Returns `Some(result)` when the callee matches `<Map-typed>.{Map-method}`;
+//! `None` lets the caller fall through to the Set / RegExp / Date / generic
+//! method dispatch arms below.
+
+use crate::ast::{Expr, ExprId};
+use crate::check as check_mod;
+use crate::ssa::{
+    FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId,
+};
+use crate::ssa_lower::LowerCtx;
+
+/// Try to lower a Map-method call. Returns `Some` when dispatched.
+pub(crate) fn try_lower(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let (obj, name) = match ctx.ast.get_expr(callee) {
+        Expr::Member { obj, name } => (*obj, name.clone()),
+        _ => return None,
+    };
+    let m_name = name;
+    if !matches!(
+        m_name.as_str(),
+        "set" | "get" | "has" | "delete" | "clear"
+            | "forEach" | "keys" | "values" | "entries"
+    ) {
+        return None;
+    }
+    // Receiver Map detection — local Ident is the common shape; class-field
+    // receiver (`new W().m.set(...)` where `m: Map<K,V>`) is an Expr::Member
+    // whose checked type is `check::Type::Map`. Without the second branch
+    // the Member receiver falls through to the module.method dispatch below
+    // and panics "unsupported member call shape: set".
+    let recv_ty_hint = match ctx.ast.get_expr(obj) {
+        Expr::Ident(n) => ctx.locals.get(n).map(|info| info.ty),
+        Expr::Member { .. } | Expr::Index { .. } | Expr::Call { .. } => {
+            match ctx.expr_types.get(&obj) {
+                Some(check_mod::Type::Map) => Some(Type::Map),
+                Some(check_mod::Type::Set) => Some(Type::Set),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    if recv_ty_hint != Some(Type::Map) {
+        return None;
+    }
+    let recv_op = ctx.lower_expr(obj);
+    Some(dispatch_map_method(ctx, m_name.as_str(), recv_op, args))
+}
+
+fn dispatch_map_method(
+    ctx: &mut LowerCtx<'_>,
+    method: &str,
+    recv_op: Operand,
+    args: &[ExprId],
+) -> Operand {
+    match method {
+        "set" => emit_map_set(ctx, recv_op, args),
+        "has" => {
+            // S200 — spec §24.1.3.4 has(key) step 1: key defaults to undefined;
+            // typed Map<K,V> with K ≠ Any never stores undefined keys, so the
+            // result is fixed false. Skip the helper Call to dodge the 1-arg
+            // debug_assert below.
+            if args.is_empty() {
+                return Operand::ConstBool(false);
+            }
+            emit_predicate_call(ctx, recv_op, args, ctx.intrinsics.map_has)
+        }
+        "delete" => {
+            // S200 — spec §24.1.3.3 delete(key) step 1: same default-undefined
+            // rule as `has`; typed Map<K,V> can't store undefined keys so the
+            // no-op delete returns false.
+            if args.is_empty() {
+                return Operand::ConstBool(false);
+            }
+            emit_predicate_call(ctx, recv_op, args, ctx.intrinsics.map_delete)
+        }
+        "get" => emit_map_get(ctx, recv_op, args),
+        "clear" => {
+            // S264/S300 — trailing args ignored per spec §23.1.3.3 + S272
+            // lower-and-drop so step()-style side-effect exprs fire per ES
+            // eval-then-discard semantics.
+            for &a in args.iter() {
+                let _ = ctx.lower_expr(a);
+            }
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.map_clear, vec![recv_op]),
+            );
+            Operand::ConstI64(0)
+        }
+        "keys" => emit_iter_create(ctx, recv_op, args, ctx.intrinsics.map_iter_create_keys),
+        "values" => {
+            emit_iter_create(ctx, recv_op, args, ctx.intrinsics.map_iter_create_values)
+        }
+        "entries" => {
+            // P6.4c — `m.entries()` yields a MapIter that emits `[k, v]`
+            // Array<Any> pairs per step. The runtime helper allocs the
+            // 2-element array fresh each call (Map.set value held in the
+            // table is rc_inc'd into the array).
+            emit_iter_create(ctx, recv_op, args, ctx.intrinsics.map_iter_create_entries)
+        }
+        "forEach" => emit_map_for_each(ctx, recv_op, args),
+        _ => unreachable!(),
+    }
+}
+
+/// `m.set(k, v, ...trailing)` per ES §23.1.3.9. Returns the map itself
+/// (S127-5) so `m.set(k1,v1).set(k2,v2)` chains; the rc_inc keeps the
+/// returned value's ref independent of the caller's binding.
+fn emit_map_set(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Operand {
+    // S248 — trailing slots type-checked + dropped here (widen `== 2` →
+    // `>= 2`; args[2..] silent-ignored at lower-time).
+    debug_assert!(args.len() >= 2);
+    let (k_tag, k_val) = ctx.lower_to_tag_value(args[0]);
+    let (v_tag, v_val) = ctx.lower_to_tag_value(args[1]);
+    // S312 — ES §23.1.3.9 evaluates trailing args left-to-right; pre-S312
+    // skipped the lower entirely → step()-style side-effect exprs dropped
+    // at lower-time. Mirror S272 idiom by lowering each trailing arg for
+    // its side-effects before the Call.
+    for &a in args.iter().skip(2) {
+        let _ = ctx.lower_expr(a);
+    }
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.map_set,
+            vec![recv_op, k_tag, k_val, v_tag, v_val],
+        ),
+    );
+    ctx.emit_rc_inc(recv_op);
+    recv_op
+}
+
+/// has / delete shared shape: 1 key arg, trailing-drop, intrinsic call
+/// returning i64, ICmp != 0 → Bool.
+fn emit_predicate_call(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    args: &[ExprId],
+    intrinsic: FuncId,
+) -> Operand {
+    // S264 — trailing args ignored per spec.
+    debug_assert!(!args.is_empty());
+    let (k_tag, k_val) = ctx.lower_to_tag_value(args[0]);
+    // S296 — lower-and-drop trailing args past the 1 useful key slot
+    // per ES trailing-arg ignore (S272 idiom).
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(intrinsic, vec![recv_op, k_tag, k_val]),
+        Type::I64,
+        None,
+    );
+    let b = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    Operand::Value(b)
+}
+
+/// `m.get(key)` per spec §24.1.3.6 — reads an out (tag, val) pair from
+/// stack slots and rewraps as an Any-box. Empty-args fast-path returns
+/// undefined directly (typed Map<K,V> can't store undefined keys → lookup
+/// miss).
+fn emit_map_get(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Operand {
+    // S200 — spec §24.1.3.6 step 1: key defaults to undefined; typed
+    // Map<K,V> can't store undefined keys, lookup misses → return undefined
+    // directly (any_box tag ANY_UNDEF = 5, val = 0).
+    if args.is_empty() {
+        let box_v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        );
+        return Operand::Value(box_v);
+    }
+    // S264 — trailing args ignored per spec.
+    debug_assert!(!args.is_empty());
+    let (k_tag, k_val) = ctx.lower_to_tag_value(args[0]);
+    // S296 — lower-and-drop trailing args past the 1 useful key slot per
+    // ES §24.1.3.6 trailing-arg ignore (S272 idiom).
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    // Out-slots for (tag, value).
+    let tag_slot = ctx.alloca(Type::I64, Some("map_get_tag"));
+    let val_slot = ctx.alloca(Type::I64, Some("map_get_val"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.map_get,
+            vec![
+                recv_op,
+                k_tag,
+                k_val,
+                Operand::Value(tag_slot),
+                Operand::Value(val_slot),
+            ],
+        ),
+    );
+    let tag_v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),
+        Type::I64,
+        None,
+    );
+    let val_v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(val_slot), 0),
+        Type::I64,
+        None,
+    );
+    // Wrap the (tag, val) into an Any-box.
+    let box_v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_box,
+            vec![Operand::Value(tag_v), Operand::Value(val_v)],
+        ),
+        Type::Any,
+        None,
+    );
+    Operand::Value(box_v)
+}
+
+/// keys / values / entries shared shape: trailing-drop + 1-arg Call to a
+/// `map_iter_create_*` intrinsic returning MapIter.
+///
+/// keys / values return a stateful MapIter scanning entries[] yielding
+/// the key / value side of each live (k, v) pair (P6.4b). entries yields
+/// `[k, v]` Array<Any> pairs per step (P6.4c — runtime helper allocs the
+/// 2-element array fresh each call, table values rc_inc'd into it).
+fn emit_iter_create(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    args: &[ExprId],
+    intrinsic: FuncId,
+) -> Operand {
+    // S277 — eval-and-drop trailing args.
+    for &a in args.iter() {
+        let _ = ctx.lower_expr(a);
+    }
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(intrinsic, vec![recv_op]),
+        Type::MapIter,
+        None,
+    );
+    Operand::Value(v)
+}
+
+/// `m.forEach(cb, ...trailing)` per spec §23.1.3.5. Iterator-loop pattern:
+/// `map_iter_next` advances a sentinel cursor (-1 = start) through live
+/// entries, loads (key_tag, key_val, val_tag, val_val) into stack slots,
+/// re-boxes into Any pairs, then calls `cb(value, key, map)`. Devirts to
+/// direct call when args[0] is a known Closure/FnDecl.
+fn emit_map_for_each(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    args: &[ExprId],
+) -> Operand {
+    // S316 — ES §23.1.3.5 silently ignores trailing args past cb. check.rs
+    // S270 typecheck-drops them; mirror lower-and-drop here (S272 idiom).
+    debug_assert!(!args.is_empty());
+    // Lower the callback (Closure or FnSig). Devirt opportunity if args[0]
+    // is an Expr::Closure or Ident → known FuncId.
+    let known_fid: Option<FuncId> = match ctx.ast.get_expr(args[0]) {
+        Expr::Closure { fn_name, .. } => ctx.fn_table.get(fn_name).copied(),
+        Expr::Ident(name) => ctx.fn_table.get(name).copied(),
+        _ => None,
+    };
+    let fn_val = ctx.lower_expr(args[0]);
+    let fn_ty = ctx.operand_ty(&fn_val);
+    // S316 — trailing args lower after cb-lower so eval order is
+    // cb → trailing → loop.
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+
+    let i_slot = ctx.alloca(Type::I64, Some("__map_iter_i"));
+    // Sentinel: cursor == -1 (i64) tells runtime to start from entries[0]
+    // (insertion-order walk); each call advances cursor to the next live
+    // entry's index.
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::ConstI64(-1), Operand::Value(i_slot), 0),
+    );
+    let kt_slot = ctx.alloca(Type::I64, Some("__map_iter_kt"));
+    let kv_slot = ctx.alloca(Type::I64, Some("__map_iter_kv"));
+    let vt_slot = ctx.alloca(Type::I64, Some("__map_iter_vt"));
+    let vv_slot = ctx.alloca(Type::I64, Some("__map_iter_vv"));
+
+    let header_blk = ctx.f.add_block();
+    let body_blk = ctx.f.add_block();
+    let after_blk = ctx.f.add_block();
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
+
+    // header — advance the iterator; exit when no more live entries.
+    ctx.cur_block = header_blk;
+    let live = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.map_iter_next,
+            vec![
+                recv_op,
+                Operand::Value(i_slot),
+                Operand::Value(kt_slot),
+                Operand::Value(kv_slot),
+                Operand::Value(vt_slot),
+                Operand::Value(vv_slot),
+            ],
+        ),
+        Type::I64,
+        None,
+    );
+    let cond = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(live), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(cond),
+            then_blk: body_blk,
+            else_blk: after_blk,
+        },
+    );
+
+    // body — re-box the (tag, payload) pairs into Any-boxes, then call
+    // the closure with (value, key, map) per spec §23.1.3.6.
+    ctx.cur_block = body_blk;
+    let kt_v = load_i64(ctx, kt_slot);
+    let kv_v = load_i64(ctx, kv_slot);
+    let vt_v = load_i64(ctx, vt_slot);
+    let vv_v = load_i64(ctx, vv_slot);
+    let k_box = box_pair(ctx, kt_v, kv_v);
+    let v_box = box_pair(ctx, vt_v, vv_v);
+    // The Map receiver is passed as the 3rd callback arg per spec.
+    // rc_inc since each iteration transfers a fresh ref into the closure.
+    ctx.emit_rc_inc(recv_op);
+    let cb_args = vec![Operand::Value(v_box), Operand::Value(k_box), recv_op];
+    let _ = match known_fid {
+        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args),
+        None => ctx.call_fn_value(fn_val, fn_ty, cb_args),
+    };
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
+
+    ctx.cur_block = after_blk;
+    Operand::ConstI64(0)
+}
+
+fn load_i64(ctx: &mut LowerCtx<'_>, slot: ValueId) -> ValueId {
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(slot), 0),
+        Type::I64,
+        None,
+    )
+}
+
+fn box_pair(ctx: &mut LowerCtx<'_>, tag: ValueId, val: ValueId) -> ValueId {
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_box,
+            vec![Operand::Value(tag), Operand::Value(val)],
+        ),
+        Type::Any,
+        None,
+    )
+}
