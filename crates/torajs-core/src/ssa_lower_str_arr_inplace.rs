@@ -1,0 +1,154 @@
+//! Array-receiver in-place / clone-then-rewrite shapes
+//! (`reverse` / `toReversed` / `with`) — ninth sub-split carved out
+//! of [`ssa_lower_str::try_lower_method_call`]. Lowers the three
+//! short-body Arr-receiver methods that produce either the same
+//! pointer (in-place) or a fresh clone with a localised rewrite:
+//!
+//! - `reverse()` — in-place via `arr_reverse`, returns receiver.
+//! - `toReversed()` — `arr_to_reversed` clones first then reverses.
+//! - `with(idx, value)` — clones the receiver, then performs the
+//!   element-type-aware drop-old / inc-new sequence on the single
+//!   target slot so the surrounding refcount discipline stays
+//!   balanced for non-Copy elements.
+//!
+//! Returns `None` for non-Arr receivers or methods outside this
+//! dispatch so the caller can keep trying the remaining branches.
+
+use crate::ast::ExprId;
+use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+
+/// Try to lower `<Arr>.reverse | toReversed | with(idx, value)`.
+/// Returns `Some(value)` when handled; `None` otherwise.
+pub(crate) fn try_dispatch(
+    ctx: &mut LowerCtx<'_>,
+    method: &str,
+    args: &[ExprId],
+    recv_op: Operand,
+    recv_ty: Type,
+) -> Option<Operand> {
+    // `arr.reverse()` — in-place over the receiver,
+    // returns the same array pointer for chaining.
+    // S287 — accept any trailing operands per ES §23.1.3.27
+    // trailing-arg ignore; lower-and-drop so step()-style
+    // side-effect exprs fire per ES eval-then-discard (S272
+    // idiom). Runtime helper ABI is single-arg `recv`.
+    if let Type::Arr(arr_id) = recv_ty
+        && method == "reverse"
+    {
+        for &a in args.iter() {
+            let _ = ctx.lower_expr(a);
+        }
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.arr_reverse, vec![recv_op]),
+            Type::Arr(arr_id),
+            None,
+        );
+        return Some(Operand::Value(v));
+    }
+    // `arr.toReversed()` — non-mutating reverse. Fresh
+    // alloc + reverse-direction slot copy via the C
+    // runtime; original untouched. Phase B refcount:
+    // for non-Copy elements, inc each derived slot to
+    // share ownership with the source (see arr.slice
+    // for rationale).
+    if let Type::Arr(arr_id) = recv_ty
+        && method == "toReversed"
+    {
+        // S287 — accept trailing args per ES §23.1.3.33; lower-
+        // and-drop before the call to fire side-effect exprs.
+        for &a in args.iter() {
+            let _ = ctx.lower_expr(a);
+        }
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.arr_to_reversed, vec![recv_op]),
+            Type::Arr(arr_id),
+            None,
+        );
+        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        if elem_ty.is_refcounted() {
+            let len = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
+                Type::I64,
+                None,
+            );
+            ctx.emit_arr_rc_inc_range(Operand::Value(v), Operand::ConstI64(0), Operand::Value(len));
+        }
+        return Some(Operand::Value(v));
+    }
+    // `arr.with(i, v)` — non-mutating index update. The
+    // C helper memcpy's the source array, then writes
+    // `v` into the (negative-wrapped) `i` slot. Out-of-
+    // bounds `i` is UB. Element value passed as i64 (the
+    // 8-byte slot width); f64 elements would need a
+    // bitcast not yet in the IR (matches `fill`).
+    //
+    // Phase B refcount: for non-Copy elements, the
+    // derived array shares ownership of all non-`i`
+    // slots with the source AND of slot `i` with the
+    // caller's `v`. inc every slot uniformly — caller's
+    // drop on `v` and source's per-slot drops balance
+    // against the derived array's own per-slot drops.
+    if let Type::Arr(arr_id) = recv_ty
+        && method == "with"
+        && args.len() >= 2
+    {
+        // S339 — `xs.with(Any idx, val)` per ES §23.1.3.39 step 2:
+        // ToIntegerOrInfinity accepts arbitrary-typed input. Decode
+        // Any via anyv_to_number → coerce_to_i64 so the helper's
+        // (Arr, i64, v: i64) ABI sees a clean i64 idx. Pattern A
+        // sister to S331/S332/S333/S334/S335. check.rs mirror at
+        // ~8729 widens the strict-Number gate to accept Any.
+        let arg0_any = matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any));
+        let i_val = if arg0_any {
+            let raw = ctx.lower_expr(args[0]);
+            let f = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                Type::F64,
+                None,
+            );
+            ctx.coerce_to_i64(Operand::Value(f))
+        } else {
+            ctx.lower_expr(args[0])
+        };
+        let v_val = ctx.lower_expr(args[1]);
+        let v_ty = ctx.operand_ty(&v_val);
+        if v_ty == Type::F64 {
+            panic!("ssa-lower: Array.with on f64 elements not yet supported (need IR bitcast)");
+        }
+        // S283 — lower-and-drop trailing args[2..] per S272 idiom so
+        // step()-style side-effect exprs fire per ES eval-then-discard
+        // semantics. The arr_with helper is 2-arg only; trailing slots
+        // never reach it.
+        for &a in args.iter().skip(2) {
+            let _ = ctx.lower_expr(a);
+        }
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.arr_with, vec![recv_op, i_val, v_val]),
+            Type::Arr(arr_id),
+            None,
+        );
+        // ES §23.1.3.39 step 7 — out-of-range index throws
+        // RangeError. The runtime helper records a pending throw via
+        // TLS and returns a null ptr; propagate immediately so the
+        // following rc-inc walk never touches the null result.
+        ctx.emit_throw_check(None);
+        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        if elem_ty.is_refcounted() {
+            let len = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
+                Type::I64,
+                None,
+            );
+            ctx.emit_arr_rc_inc_range(Operand::Value(v), Operand::ConstI64(0), Operand::Value(len));
+        }
+        return Some(Operand::Value(v));
+    }
+    None
+}
