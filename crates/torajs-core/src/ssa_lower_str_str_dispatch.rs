@@ -284,88 +284,10 @@ pub(crate) fn try_dispatch(
                 }
             }
         }
-        // V3-18 m1.h.36 — String.slice / substring with
-        // 0 or 1 args: fill in the missing positions
-        // with start=0, end=str.length (per JS spec).
-        if matches!(method, "slice" | "substring") && args.len() < 2 {
-            if args.is_empty() {
-                argv.push(Operand::ConstI64(0));
-            }
-            // Read the receiver's length from the str
-            // header (offset 8) — same shape as
-            // s.length elsewhere.
-            let len = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, recv_op, 8),
-                Type::I64,
-                None,
-            );
-            argv.push(Operand::Value(len));
-        }
-        // T-49 — String.substr 0/1-arg defaults. substr's
-        // 2nd arg is a *length* not an end index; missing
-        // length means "remaining", which we encode as
-        // i64::MAX so the runtime helper's
-        // `length > avail ? avail` clamp picks it up.
-        if method == "substr" && args.len() < 2 {
-            if args.is_empty() {
-                argv.push(Operand::ConstI64(0));
-            }
-            argv.push(Operand::ConstI64(i64::MAX));
-        }
-        // V3-18 m1.h.45 — String.padStart / padEnd with 1
-        // arg: default fill string is " " per JS spec
-        // §21.1.3.16.
-        //
-        // S201 — 0-arg form: per ES §22.1.3.{16,17} step 1
-        // `ToLength(undefined) = 0`, and step 2 returns S
-        // unchanged because `0 <= S.length`. Push
-        // (maxLen=0, fill=" ") so the helper takes the
-        // no-pad path and returns a fresh clone of S.
-        if matches!(method, "padStart" | "padEnd") {
-            if args.is_empty() {
-                argv.push(Operand::ConstI64(0));
-            }
-            if args.len() <= 1 {
-                let space = ctx.intern_string_literal(" ");
-                argv.push(Operand::Value(space));
-            }
-        }
-        // ES §22.1.3.1 step 2-3 — `s.at(index?)` undefined index
-        // routes through ToIntegerOrInfinity → 0, so `s.at()`
-        // returns `s[0]`. The `str_at` helper requires both
-        // (str_ptr, i) args; push the default 0 when omitted.
-        if method == "at" && args.is_empty() {
-            argv.push(Operand::ConstI64(0));
-        }
-        // ES §22.1.3.{8,13,14,21,22} — `searchString` defaults to
-        // `undefined` when omitted; the algorithm reads it via
-        // ToString → "undefined". For 0-arg `s.indexOf() /
-        // includes() / lastIndexOf() / startsWith() / endsWith()`,
-        // emit the literal "undefined" so the runtime helpers see a
-        // valid Str needle. Matches bun (returns -1/false unless the
-        // haystack contains "undefined").
-        if matches!(
-            method,
-            "indexOf" | "lastIndexOf" | "includes" | "startsWith" | "endsWith"
-        ) && args.is_empty()
-        {
-            let u = ctx.intern_string_literal("undefined");
-            argv.push(Operand::Value(u));
-        }
-        // S207 — String.replace / replaceAll with fewer-than-2
-        // args per ES §22.1.3.18 / §22.1.3.19 step 4 + step 6a:
-        // missing slots default to undefined, ToString'd to the
-        // literal "undefined". Helper expects both (searchString,
-        // replaceValue) as Str. 0-arg → push "undefined" twice;
-        // 1-arg → push "undefined" for the missing replaceValue.
-        if matches!(method, "replace" | "replaceAll") && args.len() < 2 {
-            let u = ctx.intern_string_literal("undefined");
-            if args.is_empty() {
-                argv.push(Operand::Value(u));
-            }
-            argv.push(Operand::Value(u));
-        }
+        // Append missing positional slots into argv to match each
+        // Str method's runtime helper ABI. Spec carve-outs and
+        // S-number traces documented in `ssa_lower_str_str_defaults`.
+        crate::ssa_lower_str_str_defaults::fill_missing(ctx, method, args, recv_op, &mut argv);
         // V3-18 m1.h.50 — String.indexOf / lastIndexOf
         // with the 2-arg (needle, fromIndex) shape route
         // to the dedicated _from runtime helpers.

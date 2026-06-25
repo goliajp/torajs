@@ -237,6 +237,7 @@ pub(crate) mod ssa_lower_str_arr_sort;
 pub(crate) mod ssa_lower_str_charat_wedges;
 pub(crate) mod ssa_lower_str_concat_dispatch;
 pub(crate) mod ssa_lower_str_short_circuits;
+pub(crate) mod ssa_lower_str_str_defaults;
 pub(crate) mod ssa_lower_str_str_dispatch;
 pub(crate) mod ssa_lower_str_str_split;
 pub(crate) mod ssa_lower_str_str_trailing;
