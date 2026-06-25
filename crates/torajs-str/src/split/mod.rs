@@ -43,5 +43,6 @@
 //! emitted (`define_split_iter_next`) until the P3.1-g
 //! consolidation into Rust ([`ops`]).
 
+pub mod iter;
 pub mod ops;
 pub mod pool;
