@@ -1,10 +1,9 @@
-//! Type-annotation string resolution — `resolve_type_ann_full` and its
-//! in-flight-guarded recursive core, split out of check.rs (file-size
-//! known-debt: check.rs only shrinks). The in-flight set names every
-//! generic instantiation currently being expanded so a recursive
-//! `type Rec<T> = { next: Rec<T> | null }` closes its back-edge as a
-//! nominal `Type::ClassRef("Rec<number>")` instead of recursing forever
-//! (mirror of the non-generic V3-05 placeholder scheme).
+//! Type-annotation string resolution — `resolve_type_ann_full` and
+//! its in-flight-guarded recursive core, split out of check.rs. The
+//! in-flight set names every generic instantiation currently being
+//! expanded so a recursive `type Rec<T> = { next: Rec<T> | null }`
+//! closes its back-edge as nominal `Type::ClassRef("Rec<number>")`
+//! instead of recursing forever (V3-05 placeholder scheme mirror).
 
 use std::collections::HashMap;
 

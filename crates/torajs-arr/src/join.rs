@@ -1,20 +1,11 @@
-//! `arr.join(sep)` family + `toReversed` + `with`.
-//!
-//! Port of `runtime_str.c::__torajs_arr_join{,_i64,_f64,_bool,_substr}`
-//! + `_to_reversed` + `_with` (P4.1-h, 2026-05-23).
-//!
-//! Each join variant is a two-pass implementation: pass 1 sums output
-//! length per-element-type, pass 2 allocates the final Str + memcpys
-//! every piece + the separator between adjacent pieces.
-//!
-//! `_to_reversed` / `_with` are ES2023 non-mutating array updates —
-//! single malloc + element-wise copy from source. T-13.5 deque-aware
-//! (source `head_offset` folded via the slot pointer helpers).
-//!
-//! Output Str allocation goes through cross-tier
-//! [`crate::str_bridge::alloc_str_raw`] which wraps `__torajs_str_alloc_pooled`
-//! from libtorajs_str.a (Layer-2 sibling; same extern pattern as
-//! torajs-num and torajs-bigint).
+//! `arr.join(sep)` family + ES2023 `toReversed` + `with`. Port of
+//! `runtime_str.c::__torajs_arr_join{,_i64,_f64,_bool,_substr}` +
+//! `_to_reversed` + `_with` (P4.1-h, 2026-05-23). Each join is
+//! two-pass (sum lengths, then alloc + memcpy + interleaved sep);
+//! the non-mutating updates are single malloc + deque-aware element
+//! copy. Output Str allocation goes through cross-tier
+//! [`crate::str_bridge::alloc_str_raw`] (wraps
+//! `__torajs_str_alloc_pooled` from libtorajs_str.a).
 
 use core::ffi::c_void;
 

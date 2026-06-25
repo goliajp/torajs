@@ -1,10 +1,9 @@
 //! Type-annotation string → `ssa::Type` resolution (`parse_type`),
-//! split out of ssa_lower.rs (file-size known-debt: ssa_lower.rs only
-//! shrinks). Generic struct instantiations resolve through a
-//! reserve-first persistent memo (`inst_memo`) so recursive aliases
-//! (`type Rec<T> = { next: Rec<T> | null }`) close their back-edge on
-//! the reserved nominal sid — the lower-layer mirror of the checker's
-//! in-flight ClassRef scheme (see rfcs/20260612-generic-recursive-alias).
+//! split out of ssa_lower.rs. Generic struct instantiations resolve
+//! through a reserve-first persistent memo (`inst_memo`) so recursive
+//! aliases like `type Rec<T> = { next: Rec<T> | null }` close their
+//! back-edge on the reserved nominal sid — see
+//! rfcs/20260612-generic-recursive-alias.
 
 use std::collections::HashMap;
 
