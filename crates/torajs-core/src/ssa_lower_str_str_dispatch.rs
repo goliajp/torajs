@@ -181,111 +181,12 @@ pub(crate) fn try_dispatch(
             for (i, &a) in args.iter().enumerate() {
                 let arg_undef =
                     matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
-                // S238 — String.localeCompare(other, locales?, options?) per
-                // ES §22.1.3.10 trailing-arg ignore: tora's bytewise helper
-                // has no Intl-locale awareness, so the trailing slots are
-                // dropped at lower-time. The helper signature stays
-                // (Str, Str) and never receives the extra operands.
-                //
-                // S285 — was `break` (silently dropped trailing exprs).
-                // Lower-and-drop each so step()-style side-effect exprs
-                // fire per ES eval-then-discard semantics. Same S272
-                // idiom (S278/S284 applied this to sibling families).
-                if method == "localeCompare" && i > 0 {
-                    let _ = ctx.lower_expr(a);
-                    continue;
-                }
-                // S239 — String.{indexOf,lastIndexOf,includes,startsWith,
-                // endsWith}(needle, fromIndex, ...trailing) trailing-arg
-                // ignore per ES §22.1.3.{8,10,5,21,7}. Drop args beyond
-                // i=1 so the _from helper's (Str, Str, I64) ABI never
-                // sees the extra operands.
-                //
-                // S278 — was `break` (silently dropped trailing exprs).
-                // Lower-and-drop each so step()-style side-effect exprs
-                // fire per ES eval-then-discard semantics. Same S272
-                // idiom now applied to S239 String path.
-                if matches!(
-                    method,
-                    "indexOf" | "lastIndexOf" | "includes" | "startsWith" | "endsWith"
-                ) && i > 1
-                {
-                    let _ = ctx.lower_expr(a);
-                    continue;
-                }
-                // S240 — String.{at,charAt,charCodeAt,codePointAt,
-                // repeat,normalize}(useful, ...trailing) trailing-arg
-                // ignore per ES §22.1.3.{1,2,3,4,17,13}: drop args
-                // beyond i=0 so the helper's 1-arg ABI never sees the
-                // extra operands.
-                //
-                // S272 — was `break` (silently dropped trailing exprs).
-                // Lower-and-drop each so step()-style side-effect exprs
-                // fire per ES eval-then-discard semantics. The operand
-                // value is discarded (never pushed into argv).
-                if matches!(
-                    method,
-                    "at" | "charAt"
-                        | "charCodeAt"
-                        | "codePointAt"
-                        | "repeat"
-                        | "normalize"
-                        | "search"
-                ) && i > 0
-                {
-                    let _ = ctx.lower_expr(a);
-                    continue;
-                }
-                // S281 — String.{trim,trimStart,trimEnd,trimLeft,
-                // trimRight,toUpperCase,toLowerCase,toWellFormed,
-                // isWellFormed}(...trailing) trailing-arg ignore per
-                // ES §22.1.3.{28-34,10}. These are spec-defined 0-arg
-                // methods — drop every operand (i >= 0) so the helper's
-                // recv-only ABI never sees any of them. Lower-and-drop
-                // each so step()-style side-effect exprs fire per ES
-                // eval-then-discard semantics (same S272 idiom).
-                // toLocale{Upper,Lower}Case excluded — they own the
-                // drop_args=true path (~614) which skips the entire
-                // loop, so they never reach here.
-                if matches!(
-                    method,
-                    "trim"
-                        | "trimStart"
-                        | "trimEnd"
-                        | "trimLeft"
-                        | "trimRight"
-                        | "toUpperCase"
-                        | "toLowerCase"
-                        | "toWellFormed"
-                        | "isWellFormed"
-                ) {
-                    let _ = ctx.lower_expr(a);
-                    continue;
-                }
-                // S241 — String.{slice,substring,substr,padStart,padEnd}
-                // (a, b, ...trailing) trailing-arg ignore per ES
-                // §22.1.3.{20,22,23,16,17}: drop args beyond i=1 so the
-                // helper's 2-arg ABI never sees the extra operands.
-                //
-                // S284 — was `break` (silently dropped trailing exprs).
-                // Lower-and-drop each so step()-style side-effect exprs
-                // fire per ES eval-then-discard semantics. Same S272
-                // idiom (S278 also applied this to the S239 family).
-                if matches!(
-                    method,
-                    "slice" | "substring" | "substr" | "padStart" | "padEnd"
-                ) && i > 1
-                {
-                    let _ = ctx.lower_expr(a);
-                    continue;
-                }
-                // S282 — String.{replace,replaceAll,split}(useful, useful,
-                // ...trailing) trailing-arg ignore per ES §22.1.3.{18,
-                // 19,21}. Helpers are 2-arg only (str_replace /
-                // str_replace_all / str_split). Lower-and-drop args
-                // beyond i=1 per S272 idiom so step()-style side-effect
-                // exprs fire.
-                if matches!(method, "replace" | "replaceAll" | "split") && i > 1 {
+                // Per-method trailing-arg-ignore — drop args beyond the
+                // helper ABI arity (lower-and-drop so step()-style
+                // side-effect exprs still fire per S272 idiom). Spec
+                // carve-outs (S238/S239/S240/S281/S241/S282) are
+                // documented in `ssa_lower_str_str_trailing`.
+                if crate::ssa_lower_str_str_trailing::should_drop(method, i) {
                     let _ = ctx.lower_expr(a);
                     continue;
                 }
