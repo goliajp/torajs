@@ -1,14 +1,13 @@
-//! `impl Module` (interning + pretty-print roots) and the
-//! hand-built `demo_fib40` fixture.
+//! `impl Module` (interning + pretty-print roots) and the SSA-side
+//! type / global definitions (`Module` / `StringLiteral` / `DataGlobal`
+//! / `ClassLayoutMeta` / `VtableGlobal` / etc). `impl StringLiteral`
+//! and `demo_fib40` live in the sibling `module_extras.rs`.
 //!
 //! Extracted from `ssa.rs` (2026-05-25, god-file decomp batch 16).
 
 use std::fmt::Write;
 
-use super::{
-    ArrId, BinOp, FuncId, Function, IPred, InstKind, Operand, SigId, StringId, StructId,
-    Terminator, Type,
-};
+use super::{ArrId, FuncId, Function, SigId, StringId, StructId, Type};
 
 #[derive(Debug, Clone, Default)]
 pub struct Module {
