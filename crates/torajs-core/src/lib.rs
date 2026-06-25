@@ -202,6 +202,8 @@ pub(crate) mod ssa_lower_arr_any_push;
 pub(crate) mod ssa_lower_arr_from_set;
 pub(crate) mod ssa_lower_arr_mutators;
 pub mod ssa_lower_body_returns_closure;
+pub(crate) mod ssa_lower_call_arr_ho;
+pub(crate) mod ssa_lower_call_arr_ho_loop;
 pub mod ssa_lower_closure_captures;
 pub(crate) mod ssa_lower_console_log_multiarg;
 pub(crate) mod ssa_lower_container_width;
