@@ -60,8 +60,12 @@ pub const STR_HDR_SIZE: usize = 16;
 /// Array<T> layout offsets used by Promise.all / .race / .allSettled
 /// / .any walks. Re-declared here so torajs-promise doesn't pull in
 /// a torajs-arr dep — same independent-layout pattern the original
-/// runtime_promise.c used.
-pub const ARR_HDR_SIZE: usize = 24;
+/// runtime_promise.c used. Must move in lockstep with
+/// `torajs_arr::layout::ARR_SLOTS_OFF` and
+/// `torajs_core::ssa_lower::ARR_DATA_OFF` — Round 4 chunk 5a (2026-06-25)
+/// bumped the array header from 24 → 32 bytes to make room for the
+/// inline `props_dynobj` slot at offset 24.
+pub const ARR_HDR_SIZE: usize = 32;
 pub const ARR_LEN_OFF: usize = 8;
 pub const ARR_HEAD_OFF: usize = 20;
 

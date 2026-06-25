@@ -60,16 +60,26 @@ const OBJ_VTABLE_OFF: u64 = 16;
 ///   offset 8  — len (u64)
 ///   offset 16 — cap (u32)
 ///   offset 20 — head (u32) — physical-slot offset of logical[0]; O(1) shift
-///   offset 24 — slot data (N * 8 bytes physical capacity)
+///   offset 24 — props_dynobj (Round 4 chunk 5a)
+///   offset 32 — slot data (N * 8 bytes physical capacity)
 ///
-/// Logical index i lives at physical offset `24 + (head + i) * 8`.
+/// Logical index i lives at physical offset `32 + (head + i) * 8`.
 /// Sites that access elements on a possibly-shifted array (Index, drop
 /// walk, inc walk, pop) must add `head*8` to the byte offset; sites that
 /// operate on freshly-allocated arrays (literal init, freshly-built dst
 /// in concat/slice/spread) can skip the head load since head=0 there.
 pub(crate) const ARR_LEN_OFF: u64 = 8;
 const ARR_HEAD_OFF: u64 = 20;
-pub(crate) const ARR_DATA_OFF: u64 = 24;
+/// Inline `props_dynobj` slot (Round 4 chunk 5a). Mirrors
+/// `torajs_arr::layout::ARR_PROPS_OFF`. NULL when no `arr.x = v`
+/// was ever written; chunk 5b+ flips arrprops_set to inline it.
+#[allow(dead_code)]
+pub(crate) const ARR_PROPS_OFF: u64 = 24;
+/// Slot data offset — bumped 24 → 32 in Round 4 chunk 5a so the
+/// new `props_dynobj` u64 fits at offset 24. Cross-crate sync:
+/// `torajs_arr::layout::ARR_SLOTS_OFF` + `torajs_str::split::pool::ARR_HDR_SIZE`
+/// must equal this.
+pub(crate) const ARR_DATA_OFF: u64 = 32;
 
 /// Phase 2C refcount: Closure env layout:
 ///
@@ -26149,14 +26159,14 @@ impl<'a> LowerCtx<'a> {
                     let on_stack =
                         self.ast.stack_array_literals.contains(&eid) && !elem_ty.is_refcounted();
                     let arr_ptr = if on_stack {
-                        // Layout: [hdr:8][len:8][cap:8][slots:N*8].
-                        // Header packed as one i64 store: rc=0 in low
-                        // 32 bits, tag=ARR(2) in [32..48], flags=
-                        // STATIC_LITERAL(4) in [48..64]. STATIC flag
-                        // means rc_inc / rc_dec / arr_drop / arr_free
-                        // all no-op on this pointer — stack reclaim
-                        // is automatic at fn return.
-                        let total_bytes = 24u64 + (n as u64) * 8;
+                        // Layout (Round 4 chunk 5a): [hdr:8][len:8][cap:8]
+                        // [props:8][slots:N*8] — header bumped 24 → 32 to
+                        // match `torajs_arr::layout::ARR_SLOTS_OFF` and
+                        // `ARR_DATA_OFF` so the slot-store offsets below
+                        // (`ARR_DATA_OFF + i*8`) land on the correct slot.
+                        // STATIC_LITERAL flag → arrprops_set short-circuits,
+                        // so the props slot is a NULL padding only.
+                        let total_bytes = ARR_DATA_OFF + (n as u64) * 8;
                         let p = self.f.append_inst(
                             self.cur_block,
                             InstKind::AllocaBytes(total_bytes),
@@ -26173,6 +26183,11 @@ impl<'a> LowerCtx<'a> {
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(Operand::ConstI64(n), Operand::Value(p), 16),
+                        );
+                        // Round 4 chunk 5a — props_dynobj at +24 = NULL.
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::ConstI64(0), Operand::Value(p), ARR_PROPS_OFF),
                         );
                         p
                     } else {

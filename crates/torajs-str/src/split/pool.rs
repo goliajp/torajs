@@ -21,19 +21,30 @@ use crate::substr::SUBSTR_SIZE;
 // ============================================================
 // Layout constants (cross-layer — Arr is P4.x territory).
 //
-// Mirrors `runtime_str.c`:
-//   #define __TORAJS_ARR_HDR_SIZE   24
-//   #define __TORAJS_ARR_LEN(p)     u64 at +8
-//   #define __TORAJS_ARR_CAP(p)     u32 at +16
-//   #define __TORAJS_ARR_HEAD(p)    u32 at +20
+// Mirrors the canonical Array layout in `torajs-arr::layout`. After
+// Round 4 chunk 5a (2026-06-25) the header is 32 bytes:
+//   offset 0  — universal heap header (refcount + type_tag + flags)
+//   offset 8  — len u64
+//   offset 16 — cap u32 + head_offset u32 (packed)
+//   offset 24 — props_dynobj u64 (NULL for split blocks; chunk 5b+
+//                 enables inline arr-props via this slot)
+//   offset 32 — slots[cap] (each 8B substr_ptr for split blocks)
 //
-// When `torajs-arr` lands (P4.x torajs-arr crate) these consts
-// move there and this file imports them. Until then, defined
-// locally so split doesn't reach into Layer-3 unported code.
+// Split blocks additionally carry `cap × SUBSTR_SIZE` inline substrs
+// trailing the slot table — local to split's emit, not part of the
+// shared Array layout. The three values must move in lockstep with
+// `torajs_arr::layout::ARR_SLOTS_OFF` / `ARR_PROPS_OFF` and
+// `torajs_core::ssa_lower::ARR_DATA_OFF` (chunk 5a comment in each).
 // ============================================================
 
-pub(crate) const ARR_HDR_SIZE: usize = 24;
+pub(crate) const ARR_HDR_SIZE: usize = 32;
 pub(crate) const ARR_CAP_OFF: usize = 16;
+/// Inline `props_dynobj` slot (Round 4 chunk 5a). Split blocks
+/// initialize this to NULL in [`crate::split::ops::write_arr_header`]
+/// so `__torajs_arr_drop`'s eventual inline-props dispatch (chunk 5b+)
+/// observes a clean slot.
+#[allow(dead_code)]
+pub(crate) const ARR_PROPS_OFF: usize = 24;
 
 const POOL_SLOTS: usize = 16;
 
@@ -52,7 +63,8 @@ static COUNT: AtomicUsize = AtomicUsize::new(0);
 // ============================================================
 
 /// Exact byte size of a split block for the given `cap`:
-/// `ARR_HDR_SIZE + cap * 8 + cap * SUBSTR_SIZE` = `24 + 40 * cap`.
+/// `ARR_HDR_SIZE + cap * 8 + cap * SUBSTR_SIZE` = `32 + 40 * cap`
+/// (Round 4 chunk 5a: header bumped 24 → 32).
 #[inline]
 pub fn block_size(cap: u64) -> usize {
     let cap_u = cap as usize;
@@ -183,10 +195,12 @@ mod tests {
 
     #[test]
     fn block_size_matches_c_formula() {
-        assert_eq!(block_size(0), 24);
-        assert_eq!(block_size(1), 24 + 8 + 32);
-        assert_eq!(block_size(3), 24 + 24 + 96);
-        assert_eq!(block_size(10), 24 + 80 + 320);
+        // Round 4 chunk 5a: ARR_HDR_SIZE bumped 24 → 32 for inline
+        // props_dynobj slot. block_size = 32 + cap × 40 (8 slot + 32 substr).
+        assert_eq!(block_size(0), 32);
+        assert_eq!(block_size(1), 32 + 8 + 32);
+        assert_eq!(block_size(3), 32 + 24 + 96);
+        assert_eq!(block_size(10), 32 + 80 + 320);
     }
 
     #[test]

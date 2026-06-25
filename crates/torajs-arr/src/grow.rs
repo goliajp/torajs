@@ -25,9 +25,12 @@ const ARR_HDR_CAP_OFF: usize = 16;
 /// deque packed cap + head).
 const ARR_HDR_HEAD_OFF: usize = 20;
 
-/// Offset of the slot array within an array heap block (24 = 8B header
-/// + 8B len + 4B cap + 4B head). Mirrors ssa_lower's deque-layout table.
-const ARR_HDR_DATA_OFF: usize = 24;
+/// Offset of the slot array within an array heap block. Mirrors
+/// `crate::layout::ARR_SLOTS_OFF` (single source of truth) — bumped
+/// 24 → 32 in Round 4 chunk 5a so the inline `props_dynobj` slot
+/// fits between cap/head and slots. ssa_lower's deque-layout table
+/// is kept in sync via `torajs_core::ssa_lower::ARR_DATA_OFF`.
+use crate::layout::ARR_SLOTS_OFF as ARR_HDR_DATA_OFF;
 
 unsafe extern "C" {
     /// Cross-tier — provided by torajs-throw at `tr build` link time

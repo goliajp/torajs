@@ -47,7 +47,7 @@ use core::ffi::c_void;
 
 use torajs_rc::FLAG_ARR_ANY;
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF, TAG_ARR};
+use crate::layout::{ARR_LEN_OFF, ARR_PROPS_OFF, ARR_SLOTS_OFF, TAG_ARR};
 
 /// Tag value for ANY_UNDEF — returned by OOB get to match JS spec.
 const ANY_UNDEF: u64 = 5;
@@ -107,6 +107,8 @@ unsafe fn write_header_any(p: *mut u8, len: u64, cap: u32) {
         *(p.add(ARR_LEN_OFF) as *mut u64) = len;
         *(p.add(ARR_CAP_LOW32_OFF) as *mut u32) = cap;
         *(p.add(ARR_HEAD_OFF) as *mut u32) = 0; // Any-arrays never deque-shift
+        // Round 4 chunk 5a — inline props_dynobj slot initialized to NULL.
+        *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
     }
 }
 

@@ -167,8 +167,9 @@ pub unsafe extern "C" fn __torajs_arr_entries_by_tag(
     for i in 0..len {
         // Raw slot value as i64 (8-byte stride; F64 / Ptr round-trip
         // via i64 bits is ABI-safe since LLVM stores both in the
-        // same machine word).
-        let slot_off = 24 + ((head + i) as usize) * 8;
+        // same machine word). Slot data at offset 32 (Round 4
+        // chunk 5a layout: header 8 + len 8 + cap/head 8 + props 8).
+        let slot_off = 32 + ((head + i) as usize) * 8;
         let slot = unsafe { (base.add(slot_off) as *const i64).read() };
         if val_tag == 4 {
             // ANY_HEAP — push_any takes an owning ref; bump rc so

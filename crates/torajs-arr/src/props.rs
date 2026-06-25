@@ -1,58 +1,32 @@
-//! Array side-table for `arr.x = v` custom properties.
+//! Inline `arr.x = v` custom properties.
 //!
-//! Port of `runtime_str.c::__torajs_arrprops_*` (P4.1-i, 2026-05-23).
+//! Round 4 chunk 5b (2026-06-25) — flipped from a global side-table
+//! (hash bucket → dynobj per array) to an inline `props_dynobj` slot
+//! stored directly in the array header at offset
+//! [`crate::layout::ARR_PROPS_OFF`] (= 24). This eliminates the
+//! per-call hash-bucket walk + node alloc/free pair that used to
+//! dominate the regex wire-back `arr.index = N; arr.input = S` path
+//! (Round 4 decomp S10+S13 = ~64 ns/match cross-tier cost).
 //!
-//! Arrays normally don't have non-index properties, but JS allows
-//! `arr.customField = ...` for any array. Rather than bloating every
-//! array header with an unused dynobj slot (would shift `ARR_DATA_OFF`
-//! and break ~28 call sites + cost 8 bytes per array), we keep a
-//! global pointer-keyed side-table that's empty for the common case.
-//!
-//! Layout:
-//! - 256 hash buckets, FxHash-equivalent murmur over the array pointer
-//! - Each bucket is a singly-linked list of `Node { arr_ptr, dynobj, next }`
-//! - `dynobj` is a tagged Any-keyed key-value store (in C runtime_str.c,
-//!   not Rust yet — set/get/drop_entry call into C via cross-tier extern)
+//! Arrays normally don't carry non-index properties, so the slot is
+//! initialized to NULL by [`crate::alloc::__torajs_arr_alloc_pooled`] /
+//! [`crate::any::write_header_any`] / [`crates/torajs-str::split::ops::
+//! write_arr_header`] / stack-alloc literal emit, and the common-case
+//! read becomes a single 8-byte load + null-check.
 //!
 //! ## Drop hook
 //!
 //! [`__torajs_arrprops_drop_entry`] is invoked from
 //! `crate::drop::__torajs_arr_drop` / `__torajs_arr_drop_any` on
-//! refcount→0. It walks the bucket, removes the matching node, and
-//! releases the dynobj via `__torajs_value_drop_heap`. Arrays that
-//! never had `.x = v` written: bucket walk finds nothing → cheap
-//! no-op (single hash + load + null check).
-//!
-//! ## Single-threaded by contract
-//!
-//! Same rationale as `crate::pool` — tora runtime is single-threaded;
-//! `AtomicPtr` + `Ordering::Relaxed` compiles to the same instructions
-//! as `static mut` while satisfying Rust 2024 `static_mut_refs` lint.
+//! refcount→0. It reads the inline slot once; if non-NULL, drops the
+//! dynobj via `__torajs_value_drop_heap`. Arrays that never had
+//! `.x = v` written: single load + null branch → no-op.
 
 use core::ffi::c_void;
-use std::sync::atomic::{AtomicPtr, Ordering};
 
-/// 256 hash buckets — matches C `__TORAJS_ARRPROPS_BUCKETS`.
-const ARRPROPS_BUCKETS: usize = 256;
-
-#[repr(C)]
-struct Node {
-    arr_ptr: *mut c_void,
-    dynobj: *mut c_void,
-    next: *mut Node,
-}
-
-/// Bucket head pointers. NULL = empty bucket.
-static TABLE: [AtomicPtr<Node>; ARRPROPS_BUCKETS] =
-    [const { AtomicPtr::new(core::ptr::null_mut()) }; ARRPROPS_BUCKETS];
+use crate::layout::ARR_PROPS_OFF;
 
 unsafe extern "C" {
-    /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
-    fn malloc(n: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
-
     /// Cross-tier — runtime_str.c's dynamic-property object alloc.
     /// (Pure C for now; ports to torajs-dynobj in P4.2.)
     fn __torajs_dynobj_alloc() -> *mut c_void;
@@ -73,65 +47,32 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
-/// Splitmix64-style finalizer over the array pointer. Same shape as
-/// C `__torajs_arrprops_hash` — keeps bucket distribution flat even
-/// when allocator returns sequential addresses.
+/// Inline slot pointer for the array's props_dynobj.
+///
+/// # Safety
+/// `arr_ptr` must be a live array heap block (any of regular
+/// `Array<T>` / `Array<Any>` / split-block — all share the 32-byte
+/// header laid out by `torajs_arr::layout`).
 #[inline]
-fn hash(p: *mut c_void) -> u32 {
-    let mut x = p as usize as u64;
-    x = (x ^ (x >> 33)).wrapping_mul(0xff51afd7ed558ccd);
-    x = (x ^ (x >> 33)).wrapping_mul(0xc4ceb9fe1a85ec53);
-    x ^= x >> 33;
-    (x % ARRPROPS_BUCKETS as u64) as u32
+unsafe fn props_slot_ptr(arr_ptr: *mut c_void) -> *mut *mut c_void {
+    unsafe { (arr_ptr as *mut u8).add(ARR_PROPS_OFF) as *mut *mut c_void }
 }
 
-/// Find the node for `arr_ptr` in its bucket, or `null` if absent.
-unsafe fn find(arr_ptr: *mut c_void) -> *mut Node {
-    let h = hash(arr_ptr) as usize;
-    let mut n = TABLE[h].load(Ordering::Relaxed);
-    while !n.is_null() {
-        unsafe {
-            if (*n).arr_ptr == arr_ptr {
-                return n;
-            }
-            n = (*n).next;
-        }
-    }
-    core::ptr::null_mut()
-}
-
-/// Side-table lookup → the array's props dynobj, or NULL when the
+/// Inline-slot lookup → the array's props dynobj, or NULL when the
 /// array never had a property written. Used by the print family to
 /// emit the `[ 1, 2, x: 5 ]` props face.
+///
+/// # Safety
+/// `arr_ptr` is a live array heap block (caller's typecheck ensures).
 pub(crate) unsafe fn dynobj_of(arr_ptr: *mut c_void) -> *mut c_void {
-    let n = unsafe { find(arr_ptr) };
-    if n.is_null() {
-        core::ptr::null_mut()
-    } else {
-        unsafe { (*n).dynobj }
-    }
+    unsafe { *props_slot_ptr(arr_ptr) }
 }
 
-/// Find or insert a node for `arr_ptr`. Newly inserted node has
-/// `dynobj = NULL`; caller (`set`) allocates the dynobj lazily.
-unsafe fn intern(arr_ptr: *mut c_void) -> *mut Node {
-    unsafe {
-        let existing = find(arr_ptr);
-        if !existing.is_null() {
-            return existing;
-        }
-        let h = hash(arr_ptr) as usize;
-        let n = malloc(core::mem::size_of::<Node>()) as *mut Node;
-        (*n).arr_ptr = arr_ptr;
-        (*n).dynobj = core::ptr::null_mut();
-        // Push at head of bucket chain.
-        (*n).next = TABLE[h].load(Ordering::Relaxed);
-        TABLE[h].store(n, Ordering::Relaxed);
-        n
-    }
-}
-
-/// `arr.key = (tag, value)` — lazily allocate the dynobj on first set.
+/// `arr.key = (tag, value)` — lazily allocate the dynobj on first
+/// set, store the pointer in the inline slot, then delegate the
+/// per-key write to `__torajs_dynobj_set`. The slot is passed by
+/// pointer so `dynobj_set`'s realloc-on-grow path can write back
+/// the new dynobj pointer without an additional store here.
 ///
 /// # Safety
 /// `arr_ptr` is an array heap pointer (lifetime ≥ the calling scope);
@@ -144,79 +85,65 @@ pub unsafe extern "C" fn __torajs_arrprops_set(
     value: i64,
 ) {
     unsafe {
-        let n = intern(arr_ptr);
-        if (*n).dynobj.is_null() {
-            (*n).dynobj = __torajs_dynobj_alloc();
+        let slot = props_slot_ptr(arr_ptr);
+        if (*slot).is_null() {
+            *slot = __torajs_dynobj_alloc();
         }
-        __torajs_dynobj_set(&raw mut (*n).dynobj, key, tag as u64, value as u64);
+        __torajs_dynobj_set(slot, key, tag as u64, value as u64);
     }
 }
 
 /// Read `arr.key`'s tag, or `ANY_UNDEF=5` if not set.
+///
+/// # Safety
+/// `arr_ptr` is a live array heap block; `key` is a Str pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arrprops_get_tag(
     arr_ptr: *mut c_void,
     key: *const c_void,
 ) -> u64 {
     unsafe {
-        let n = find(arr_ptr);
-        if n.is_null() || (*n).dynobj.is_null() {
+        let dynobj = *props_slot_ptr(arr_ptr);
+        if dynobj.is_null() {
             return 5; // ANY_UNDEF
         }
-        __torajs_dynobj_get_tag((*n).dynobj, key)
+        __torajs_dynobj_get_tag(dynobj, key)
     }
 }
 
 /// Read `arr.key`'s value, or 0 if not set.
+///
+/// # Safety
+/// `arr_ptr` is a live array heap block; `key` is a Str pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arrprops_get_value(
     arr_ptr: *mut c_void,
     key: *const c_void,
 ) -> u64 {
     unsafe {
-        let n = find(arr_ptr);
-        if n.is_null() || (*n).dynobj.is_null() {
+        let dynobj = *props_slot_ptr(arr_ptr);
+        if dynobj.is_null() {
             return 0;
         }
-        __torajs_dynobj_get_value((*n).dynobj, key)
+        __torajs_dynobj_get_value(dynobj, key)
     }
 }
 
 /// Drop hook — called from `arr_drop` / `arr_drop_any` on rc→0.
-/// Walks the bucket chain, removes + frees the matching node + dec's
-/// the dynobj's refcount. Arrays that never had props written: cheap
-/// no-op.
+/// Reads the inline slot once; if non-NULL, releases the dynobj
+/// via `__torajs_value_drop_heap`. Arrays that never had props
+/// written: single load + null branch → no-op.
+///
+/// # Safety
+/// `arr_ptr` is a live array heap block reaching rc=0 in the caller.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arrprops_drop_entry(arr_ptr: *mut c_void) {
-    let h = hash(arr_ptr) as usize;
-    let mut prev: *mut AtomicPtr<Node> = &TABLE[h] as *const _ as *mut _;
     unsafe {
-        let mut n = (*prev).load(Ordering::Relaxed);
-        while !n.is_null() {
-            if (*n).arr_ptr == arr_ptr {
-                // Unlink: write `next` into the slot that pointed at `n`.
-                let next = (*n).next;
-                // First entry case — prev points to TABLE[h] head;
-                // mid-chain case — prev points to predecessor's `next`
-                // field. Both updated via AtomicPtr / raw ptr store.
-                if prev as *const _ == &TABLE[h] as *const _ {
-                    TABLE[h].store(next, Ordering::Relaxed);
-                } else {
-                    // prev is &(predecessor.next) cast to AtomicPtr; raw
-                    // write since predecessor.next is a regular *mut Node.
-                    *(prev as *mut *mut Node) = next;
-                }
-                if !(*n).dynobj.is_null() {
-                    __torajs_value_drop_heap((*n).dynobj);
-                }
-                free(n as *mut c_void);
-                return;
-            }
-            // Advance: prev now tracks `&n.next`, which is a regular
-            // *mut Node — alias it via AtomicPtr for the head-vs-mid
-            // check above (same byte layout under single-threaded model).
-            prev = &raw mut (*n).next as *mut AtomicPtr<Node>;
-            n = (*n).next;
+        let slot = props_slot_ptr(arr_ptr);
+        let dynobj = *slot;
+        if !dynobj.is_null() {
+            *slot = core::ptr::null_mut();
+            __torajs_value_drop_heap(dynobj);
         }
     }
 }

@@ -186,7 +186,8 @@ unsafe fn split_init_inline<const PARENT_RC: bool>(
 // ============================================================
 
 /// Initialize the Arr header on a fresh split block: refcount=1,
-/// tag=Arr, flags=SPLIT_BLOCK, len/cap = `out_count`, head=0.
+/// tag=Arr, flags=SPLIT_BLOCK, len/cap = `out_count`, head=0, and
+/// (Round 4 chunk 5a) props_dynobj = NULL at offset 24.
 ///
 /// # Safety
 ///
@@ -205,6 +206,11 @@ unsafe fn write_arr_header(block: NonNull<u8>, out_count: u64) {
         // high u32). cap = out_count, head = 0 — write as a single
         // u64 store to mirror the C macro pair.
         (block.as_ptr().add(16) as *mut u64).write(out_count & 0xFFFF_FFFF);
+        // Round 4 chunk 5a — inline props_dynobj slot initialized to
+        // NULL. Split blocks rarely carry `arr.x = v` writes, but the
+        // slot must be valid for the eventual inline arrprops dispatch
+        // (chunk 5b+) to read a clean pointer.
+        (block.as_ptr().add(24) as *mut u64).write(0);
     }
 }
 

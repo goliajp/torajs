@@ -23,7 +23,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{FLAG_ARR_ANY, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, HeapHeader};
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF, TAG_ARR};
+use crate::layout::{ARR_LEN_OFF, ARR_PROPS_OFF, ARR_SLOTS_OFF, TAG_ARR};
 use crate::pool::{POOL_CAP_MAX, POOL_SLOTS, pop_cap_match, push};
 
 unsafe extern "C" {
@@ -83,6 +83,9 @@ pub unsafe extern "C" fn __torajs_arr_alloc_pooled(cap: u64) -> *mut u8 {
         // cap (u32) + head_offset (u32, T-13.5)
         *(p.add(ARR_CAP_LOW32_OFF) as *mut u32) = cap as u32;
         *(p.add(ARR_CAP_LOW32_OFF + 4) as *mut u32) = 0;
+        // Round 4 chunk 5a — inline props_dynobj slot initialized to
+        // NULL. Set by arrprops_set (chunk 5b+) on first `arr.x = v`.
+        *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
     }
     p
 }
