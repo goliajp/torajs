@@ -8,16 +8,14 @@ use torajs_obj::{
     MachHeader64, NLIST_64_SIZE, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE, SYMTAB_COMMAND_SIZE,
 };
 
+use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archive_link_member_scan::{MemberScanLayouts, scan_member_text_and_symbols};
 use crate::archive_link_rebase_assembly::{TextRebaseAssembly, assemble_text_rebase_targets};
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
 use crate::chained_fixups_call::{ChainedFixupsInputs, compute_chained_fixups_outputs};
-use crate::class_name_table_layout::class_name_table_extra_defined_syms;
 use crate::data_const_layout::compute_data_const_layout;
 use crate::data_section_layout::compute_data_section_layouts;
 use crate::exec::LinkConfig;
-use crate::fn_addr_syms::fn_addr_extra_defined_syms;
-use crate::fn_name_table_layout::fn_name_table_extra_defined_syms;
 pub use crate::layout_types::{ArchiveLayout, ArchiveLayoutError, MemberLayout};
 use crate::lc::{
     APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
@@ -29,13 +27,8 @@ use crate::non_text_layout::{NonTextLayoutError, compute_non_text_layouts};
 use crate::sign::adhoc_codesign_blob_size;
 use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
 use crate::tlv_descriptor_layout::compute_tlv_descriptor_layouts;
-use crate::user_class_layouts_layout::user_class_layouts_extra_defined_syms;
-use crate::user_data_globals_layout::{
-    build_user_data_globals_region, user_data_globals_extra_defined_syms,
-};
-use crate::user_regex_baked_layout::user_regex_baked_extra_defined_syms;
-use crate::user_strings_layout::{build_user_strings_region, user_strings_extra_defined_syms};
-use crate::user_vtables_layout::user_vtables_extra_defined_syms;
+use crate::user_data_globals_layout::build_user_data_globals_region;
+use crate::user_strings_layout::build_user_strings_region;
 use std::collections::BTreeMap;
 
 fn round_up_to(value: u64, align: u64) -> u64 {
@@ -48,32 +41,7 @@ fn round_up_to(value: u64, align: u64) -> u64 {
 /// an empty `member_layouts`.
 pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, ArchiveLayoutError> {
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
-    let mut extra = user_strings_extra_defined_syms(&cfg.strings);
-    extra.extend(fn_addr_extra_defined_syms(&cfg.funcs));
-    extra.extend(user_data_globals_extra_defined_syms(&cfg.data_globals));
-    extra.extend(user_vtables_extra_defined_syms(&cfg.vtable_globals));
-    // e8-2c — `tr build` sets force_emit so the libtorajs_cycle.a
-    // extern resolves even on class-free programs (probes stay false).
-    extra.extend(user_class_layouts_extra_defined_syms(
-        &cfg.class_layouts,
-        cfg.force_emit_class_layouts_globals,
-    ));
-    extra.extend(fn_name_table_extra_defined_syms(
-        &cfg.fn_name_globals,
-        cfg.force_emit_fn_name_globals,
-    ));
-    extra.extend(class_name_table_extra_defined_syms(
-        &cfg.class_names,
-        cfg.force_emit_class_names_globals,
-    ));
-    // C-5c.2d — outer `___torajs_baked_regex_<i>` syms close the worklist
-    // for `RelocKind::Page21/PageOff12 { target_sym }` against AOT-baked
-    // DFA meta blocks. Inner `states_sym` stays internal (never reloc'd
-    // from user code; reader goes through chain-LC rebased
-    // `BakedDfaMeta::states_ptr`).
-    extra.extend(user_regex_baked_extra_defined_syms(
-        &cfg.baked_regex_entries,
-    ));
+    let extra = collect_extra_defined_syms(cfg);
     let required =
         compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;
 

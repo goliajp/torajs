@@ -50,6 +50,7 @@ pub mod archive;
 pub mod archive_emit;
 pub mod archive_emit_lc_meta;
 pub mod archive_link;
+pub mod archive_link_extra_syms;
 pub mod archive_link_member_scan;
 pub mod archive_link_rebase_assembly;
 pub mod archives_merge;
