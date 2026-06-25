@@ -181,6 +181,7 @@ pub mod ast_throw_info;
 pub mod check;
 pub(crate) mod check_assignable;
 pub(crate) mod check_type_ann;
+pub(crate) mod check_type_ann_substitute;
 pub(crate) mod check_typevar;
 pub(crate) mod cm_demote;
 pub mod formatter;

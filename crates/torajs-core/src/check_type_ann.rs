@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use crate::check::{GenericAliasMap, Type};
+use crate::check_type_ann_substitute::ann_substitute;
 
 pub(crate) fn resolve_type_ann_full(
     name: &str,
@@ -470,40 +471,4 @@ fn resolve_type_ann_inner(
         // structural Type::Struct directly — no nominal layer above.
         other => aliases.get(other).cloned(),
     }
-}
-
-/// Word-boundary substitution on a type-annotation string. Same shape as
-/// the SSA layer's `substitute_in_ann` (kept local to check.rs to avoid
-/// a cross-module dep). Used by `resolve_type_ann_full` to substitute
-/// generic-alias type-params (`A`, `B`, ...) with concrete arg ann strings
-/// (`number`, `string`, `Pair<number|string>`, ...) during instantiation.
-fn ann_substitute(ann: &str, subst: &[(String, String)]) -> String {
-    let mut out = String::with_capacity(ann.len());
-    let bytes = ann.as_bytes();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        let c = bytes[i];
-        let is_word_start = c.is_ascii_alphabetic() || c == b'_';
-        if !is_word_start {
-            out.push(c as char);
-            i += 1;
-            continue;
-        }
-        let start = i;
-        while i < bytes.len() {
-            let cc = bytes[i];
-            if cc.is_ascii_alphanumeric() || cc == b'_' {
-                i += 1;
-            } else {
-                break;
-            }
-        }
-        let word = &ann[start..i];
-        if let Some((_, replacement)) = subst.iter().find(|(from, _)| from == word) {
-            out.push_str(replacement);
-        } else {
-            out.push_str(word);
-        }
-    }
-    out
 }

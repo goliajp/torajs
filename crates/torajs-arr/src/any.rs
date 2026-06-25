@@ -1,47 +1,21 @@
 //! `Array<Any>` substrate — tagged 8-byte slots (NaN-box AnyValue).
+//! Port of `runtime_str.c` L414-582 (P4.1-d). Step 7e-A shrank the
+//! slot stride 16 → 8 bytes by packing (tag, value) into a single
+//! `AnyValue` u64; tag is inferred via `__torajs_anyv_unbox_tag` and
+//! the legacy `(tag, value)` FFI pair is preserved so ssa_lower's IR
+//! is unchanged.
 //!
-//! Port of `runtime_str.c` lines 414-582 (P4.1-d, 2026-05-23).
-//! Step 7e-A (2026-05-27) — slot stride shrunk from 16 → 8 bytes:
-//! the (tag, value) pair pack into a single NaN-box `AnyValue` u64
-//! per slot. Tag is inferred from the AnyValue's bit pattern via
-//! the `__torajs_anyv_unbox_tag` predicate cascade; the legacy FFI
-//! signature (still `tag, value` pair on push / set / get_tag /
-//! get_value) is preserved — the pack / unpack happens inside this
-//! module so ssa_lower's IR is unchanged.
+//! Layout: 24-byte header (rc/type_tag/flags + len + cap) +
+//! `slot0: AnyValue u64 .. slotN`. `flags` carries `FLAG_ARR_ANY` so
+//! `arr_free` skips the cap-matched (8-byte-stride) pool and
+//! `arr_drop_any` is the correct walker; `type_tag` stays `TAG_ARR`
+//! for the universal heap-walker; `head_offset` stays 0 (Any-arrays
+//! never deque-shift).
 //!
-//! Layout: same 24-byte header (refcount/type_tag/flags + len + cap),
-//! slot stride 8 bytes (one `AnyValue` per slot):
-//!
-//! ```text
-//! [hdr 24][slot0: AnyValue u64][slot1: AnyValue u64][...]
-//! ```
-//!
-//! `flags` carries `FLAG_ARR_ANY` so:
-//! - `arr_free` routes the block out of the regular cap-matched pool
-//!   (whose 8-byte-stride assumption doesn't match)
-//! - `arr_drop_any` is the correct walker (cf. `arr_drop`)
-//!
-//! `type_tag` stays `TAG_ARR` so the universal heap-walker (rc_inc /
-//! rc_dec / cycle detector) treats it like any other array; the
-//! Any-vs-T dispatch happens at the codegen call site.
-//!
-//! `head_offset` stays 0 for Any-arrays — they never deque-shift
-//! (T-13.5 head trick is regular-Array-only).
-//!
-//! ## Public surface
-//!
-//! - [`__torajs_arr_alloc_any`] — fresh empty Array<Any> with `cap`
-//! - [`__torajs_arr_alloc_any_filled`] — `new Array(n)`, len=cap=n,
-//!   all slots boxed `ANY_UNDEF` per ES §10.4.2.1 (densely-undefined;
-//!   not sparse-hole — `console.log(arr)` renders `[undefined, …]`
-//!   not `[ N x empty items ]` since elem-kind-tag substrate is L3b)
-//! - [`__torajs_arr_push_any`] — append (tag, value); grow 2× on full
-//! - [`__torajs_arr_extend_any`] — append every slot of src; rc_inc on
-//!   ANY_HEAP slots; grow if needed
-//! - [`__torajs_arr_get_any_tag`] / [`__torajs_arr_get_any_value`] —
-//!   OOB-safe reads (ANY_UNDEF / 0)
-//! - [`__torajs_arr_set_any`] — indexed write; rc_dec old slot if it
-//!   was ANY_HEAP
+//! Public surface: `__torajs_arr_alloc_any` / `_alloc_any_filled` /
+//! `_push_any` / `_extend_any` / `_get_any_tag` / `_get_any_value` /
+//! `_set_any` / `_fill_any` / `_set_any_grow` /
+//! `_extend_typed_into_any` / `_flat_any`.
 
 use core::ffi::c_void;
 
