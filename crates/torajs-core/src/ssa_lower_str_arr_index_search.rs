@@ -40,8 +40,8 @@
 
 #![allow(clippy::too_many_lines)]
 
-use crate::ast::{Expr, ExprId};
-use crate::ssa::{BinOp as SsaBinOp, FPred, IPred, InstKind, Operand, Terminator, Type};
+use crate::ast::ExprId;
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 /// Try to lower `<Arr>.indexOf(needle, from?)` /
@@ -387,157 +387,9 @@ pub(crate) fn try_dispatch(
                 None,
             )
         };
-        let eq = match elem_ty {
-            // ES §23.1.3.16: `includes` uses SameValueZero, which
-            // treats NaN as equal to NaN. IEEE 754 `fcmp oeq` is
-            // unordered-rejects-NaN, so plain `Oeq(NaN, NaN)` would
-            // wrongly miss. `indexOf` / `lastIndexOf` keep
-            // StrictEqualityComparison (NaN never matches) — so
-            // only the `includes` arm widens to SameValueZero.
-            // +0 / -0: IEEE 754 fcmp oeq treats them equal already,
-            // matching SameValueZero's +0 === -0.
-            Type::F64 if want_bool => {
-                let eq_ord = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::FCmp(FPred::Oeq, Operand::Value(elem), needle.clone()),
-                    Type::Bool,
-                    None,
-                );
-                // x != x is true exactly when x is NaN (FPred::Une
-                // = unordered or not equal; on a self-compare the
-                // unordered bit is the only source of truth).
-                let elem_nan = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::FCmp(FPred::Une, Operand::Value(elem), Operand::Value(elem)),
-                    Type::Bool,
-                    None,
-                );
-                let needle_nan = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::FCmp(FPred::Une, needle.clone(), needle),
-                    Type::Bool,
-                    None,
-                );
-                let both_nan = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::BinOp(
-                        SsaBinOp::And,
-                        Operand::Value(elem_nan),
-                        Operand::Value(needle_nan),
-                    ),
-                    Type::Bool,
-                    None,
-                );
-                ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::BinOp(
-                        SsaBinOp::Or,
-                        Operand::Value(eq_ord),
-                        Operand::Value(both_nan),
-                    ),
-                    Type::Bool,
-                    None,
-                )
-            }
-            Type::F64 => ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::FCmp(FPred::Oeq, Operand::Value(elem), needle),
-                Type::Bool,
-                None,
-            ),
-            Type::Str => ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.str_eq, vec![Operand::Value(elem), needle]),
-                Type::Bool,
-                None,
-            ),
-            // T-48 — Array<Any> per-element compare must go
-            // through the boxed-any strict-eq helpers, not
-            // raw ICmp. The elem is always a heap-Box ptr
-            // (Type::Any); the needle may be either Any
-            // (another box ptr) or a concrete primitive.
-            // Pre-fix this arm fell through to ICmp(Ptr, I64)
-            // when needle was a primitive, producing
-            // "LLVM verify: Both operands to ICmp instruction
-            // are not of the same type!" 3 cases under
-            // test/built-ins/Array/prototype/{includes,
-            // indexOf, lastIndexOf}/*.
-            Type::Any => {
-                if matches!(needle_ty, Type::Any) {
-                    ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::Call(
-                            ctx.intrinsics.any_any_strict_eq,
-                            vec![Operand::Value(elem), needle],
-                        ),
-                        Type::Bool,
-                        None,
-                    )
-                } else {
-                    // Pack needle as (tag, value-as-i64) — same
-                    // shape as the BinOp Any === concrete arm.
-                    // S127-1: `undefined` literal lowers to
-                    // ConstPtrNull (Type::Ptr) — identical shape
-                    // to the `null` literal. Recover the original
-                    // AST distinction so strict_eq packs tag=5
-                    // (ANY_UNDEF) instead of tag=0 (ANY_NULL).
-                    // Without this, `xs.indexOf(undefined)` /
-                    // `.lastIndexOf(undefined)` / `.includes(undefined)`
-                    // wrongly match the first null slot — same
-                    // ANY_UNDEF vs ANY_NULL collapse seen in W-D
-                    // narrow trunk (S126-1/-3).
-                    let is_undef_lit = matches!(
-                        ctx.ast.get_expr(args[0]),
-                        Expr::Ident(n) if n == "undefined"
-                    );
-                    let (tag, value): (i64, Operand) = if is_undef_lit {
-                        (5, Operand::ConstI64(0))
-                    } else {
-                        match needle_ty {
-                            Type::I64 | Type::I32 => (2, needle.clone()),
-                            Type::F64 => {
-                                let bits = ctx.f.append_inst(
-                                    ctx.cur_block,
-                                    InstKind::BitCastF64ToI64(needle.clone()),
-                                    Type::I64,
-                                    None,
-                                );
-                                (3, Operand::Value(bits))
-                            }
-                            Type::Bool => {
-                                let zext = ctx.f.append_inst(
-                                    ctx.cur_block,
-                                    InstKind::ZExtBoolToI64(needle.clone()),
-                                    Type::I64,
-                                    None,
-                                );
-                                (1, Operand::Value(zext))
-                            }
-                            Type::Ptr if matches!(needle, Operand::ConstPtrNull) => {
-                                (0, Operand::ConstI64(0))
-                            }
-                            t if t.is_refcounted() => (4, needle.clone()),
-                            _ => (0, Operand::ConstI64(0)),
-                        }
-                    };
-                    ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::Call(
-                            ctx.intrinsics.any_strict_eq,
-                            vec![Operand::Value(elem), Operand::ConstI64(tag), value],
-                        ),
-                        Type::Bool,
-                        None,
-                    )
-                }
-            }
-            _ => ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::ICmp(IPred::Eq, Operand::Value(elem), needle),
-                Type::Bool,
-                None,
-            ),
-        };
+        let eq = crate::ssa_lower_str_arr_index_eq::emit_compare(
+            ctx, elem, elem_ty, needle, needle_ty, want_bool, args[0],
+        );
         let found = ctx.f.add_block();
         let next = ctx.f.add_block();
         let cb = ctx.cur_block;
