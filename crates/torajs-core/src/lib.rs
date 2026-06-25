@@ -240,6 +240,7 @@ pub(crate) mod ssa_lower_str_short_circuits;
 pub(crate) mod ssa_lower_str_str_argv;
 pub(crate) mod ssa_lower_str_str_defaults;
 pub(crate) mod ssa_lower_str_str_dispatch;
+pub(crate) mod ssa_lower_str_str_intrinsic;
 pub(crate) mod ssa_lower_str_str_split;
 pub(crate) mod ssa_lower_str_str_trailing;
 pub(crate) mod ssa_lower_str_substr_dispatch;
