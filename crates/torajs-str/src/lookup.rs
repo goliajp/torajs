@@ -172,7 +172,7 @@ impl<'a> AsRef<[u8]> for PayloadBuf<'a> {
 
 impl<'a> PayloadBuf<'a> {
     #[inline]
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.as_ref().len()
     }
 }
