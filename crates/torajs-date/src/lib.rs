@@ -22,6 +22,7 @@
 //!   setters / toISOString / toGMTString).
 
 pub mod api;
+pub mod api_strings;
 pub mod civil;
 pub mod getters;
 pub mod parse;
