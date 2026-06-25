@@ -50,8 +50,7 @@ use torajs_syscall::sysno::{
     O_APPEND, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
 };
 use torajs_syscall::{
-    Errno, close, fstat_size, getdirentries64, mkdir, open, open_mode, read, stat_size, unlink,
-    write,
+    close, fstat_size, getdirentries64, mkdir, open, open_mode, read, stat_size, unlink,
 };
 
 /// Max path length the runtime accepts, including the NUL we append
@@ -60,118 +59,20 @@ use torajs_syscall::{
 /// `char path[4096]` stack buffer in the pre-port C runtime.
 pub const PATH_MAX_LEN: usize = 4096;
 
-const STR_HDR_SIZE: usize = 16;
-const STR_LEN_OFF: usize = 8;
-/// Mirror of `torajs_str::layout::STR_FLAG_IS_LATIN1` — the flag
-/// bit on `flags u16 @6` that discriminates Latin-1 payload (set)
-/// from UTF-16 little-endian payload (clear).
-const STR_FLAG_IS_LATIN1: u16 = 0x0002;
-/// Universal heap header `flags u16 @6` offset for direct read.
-const HDR_FLAGS_OFF: usize = 6;
-
-/// Read a Str's `(payload_bytes, length, is_latin1)` triple without
-/// allocating. Payload bytes are the raw encoded payload (Latin-1:
-/// length bytes; UTF-16: length × 2 bytes).
-///
-/// # Safety
-/// `s` must point at a valid Str heap block.
-#[inline]
-unsafe fn str_view<'a>(s: *const u8) -> (&'a [u8], u32, bool) {
-    let length = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() };
-    let flags = unsafe { (s.add(HDR_FLAGS_OFF) as *const u16).read() };
-    let is_latin1 = (flags & STR_FLAG_IS_LATIN1) != 0;
-    let byte_cnt = if is_latin1 {
-        length as usize
-    } else {
-        (length as usize) * 2
-    };
-    let payload = unsafe { core::slice::from_raw_parts(s.add(STR_HDR_SIZE), byte_cnt) };
-    (payload, length, is_latin1)
-}
-
-/// Transcode a Str's payload to a UTF-8 byte buffer. ASCII-only
-/// Latin-1 payloads pass through verbatim (same byte stream); Latin-
-/// 1 supplement codepoints (0x80..=0xFF) expand to a 2-byte UTF-8
-/// sequence each; UTF-16 LE payloads decode (with surrogate pair
-/// combination for supplementary planes) and re-encode as UTF-8.
-///
-/// Used by every fs write path so files on disk are valid UTF-8
-/// regardless of the in-memory Str encoding.
-///
-/// # Safety
-/// `s` must point at a valid Str heap block.
-unsafe fn str_to_utf8_bytes(s: *const u8) -> Vec<u8> {
-    let (payload, length, is_latin1) = unsafe { str_view(s) };
-    if is_latin1 {
-        // Fast path — payload is ASCII (every byte ≤ 0x7F). Return
-        // verbatim; matches the pre-S2 `slice::from_raw_parts` write
-        // shape for the dominant case.
-        if payload.iter().all(|&b| b <= 0x7F) {
-            return payload.to_vec();
-        }
-        // Latin-1 supplement — re-encode codepoint-by-codepoint.
-        let mut out = Vec::with_capacity(payload.len() * 2);
-        for &b in payload {
-            if b <= 0x7F {
-                out.push(b);
-            } else {
-                out.push(0xC0 | (b >> 6));
-                out.push(0x80 | (b & 0x3F));
-            }
-        }
-        return out;
-    }
-    // UTF-16 LE decode + UTF-8 encode.
-    let mut out = Vec::with_capacity((length as usize) * 3);
-    let mut i = 0usize;
-    while i + 1 < payload.len() {
-        let cu = u16::from_le_bytes([payload[i], payload[i + 1]]) as u32;
-        let cp = if (0xD800..=0xDBFF).contains(&cu) && i + 3 < payload.len() {
-            let lo = u16::from_le_bytes([payload[i + 2], payload[i + 3]]) as u32;
-            if (0xDC00..=0xDFFF).contains(&lo) {
-                i += 4;
-                0x10000 + ((cu - 0xD800) << 10) + (lo - 0xDC00)
-            } else {
-                i += 2;
-                cu
-            }
-        } else {
-            i += 2;
-            cu
-        };
-        if cp <= 0x7F {
-            out.push(cp as u8);
-        } else if cp <= 0x7FF {
-            out.push((0xC0 | (cp >> 6)) as u8);
-            out.push((0x80 | (cp & 0x3F)) as u8);
-        } else if cp <= 0xFFFF {
-            out.push((0xE0 | (cp >> 12)) as u8);
-            out.push((0x80 | ((cp >> 6) & 0x3F)) as u8);
-            out.push((0x80 | (cp & 0x3F)) as u8);
-        } else {
-            out.push((0xF0 | (cp >> 18)) as u8);
-            out.push((0x80 | ((cp >> 12) & 0x3F)) as u8);
-            out.push((0x80 | ((cp >> 6) & 0x3F)) as u8);
-            out.push((0x80 | (cp & 0x3F)) as u8);
-        }
-    }
-    out
-}
-
 // ============================================================
 // Cross-tier extern stubs
 // ============================================================
 
 #[cfg(not(test))]
 unsafe extern "C" {
-    fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    pub(crate) fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_arr_alloc(initial_cap: u64) -> *mut c_void;
     fn __torajs_arr_push(arr: *mut c_void, val: i64) -> *mut c_void;
-    fn __torajs_panic(msg: *const u8) -> !;
+    pub(crate) fn __torajs_panic(msg: *const u8) -> !;
 }
 
 #[cfg(test)]
-unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
+pub(crate) unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     panic!("torajs-fs test stub: __torajs_str_alloc_pooled should not be called from cargo test");
 }
 
@@ -186,83 +87,14 @@ unsafe extern "C" fn __torajs_arr_push(_arr: *mut c_void, _val: i64) -> *mut c_v
 }
 
 #[cfg(test)]
-unsafe extern "C" fn __torajs_panic(_msg: *const u8) -> ! {
+pub(crate) unsafe extern "C" fn __torajs_panic(_msg: *const u8) -> ! {
     panic!("torajs-fs test stub: __torajs_panic should not be called from cargo test");
 }
 
-// ============================================================
-// Helpers
-// ============================================================
-
-/// Copy a tora Str's payload into a stack-allocated C-string-style
-/// buffer (`buf[0..len] = payload; buf[len] = 0`). Truncates to
-/// `bufsz - 1` if the Str is longer.
-///
-/// # Safety
-/// `path_str` must be a valid `*const Str` (live, rc > 0). `buf`
-/// must point at a writable region of at least `bufsz` bytes.
-#[inline]
-unsafe fn path_copy_to_buf(path_str: *const u8, buf: *mut u8, bufsz: usize) {
-    // Paths are written to disk as UTF-8 byte streams (filesystem
-    // convention on macOS / Linux). Transcode the Str to UTF-8
-    // bytes regardless of in-memory encoding so paths with non-
-    // ASCII codepoints round-trip correctly.
-    let utf8 = unsafe { str_to_utf8_bytes(path_str) };
-    let mut plen = utf8.len();
-    if plen >= bufsz {
-        plen = bufsz - 1;
-    }
-    if plen > 0 {
-        unsafe { core::ptr::copy_nonoverlapping(utf8.as_ptr(), buf, plen) };
-    }
-    unsafe { buf.add(plen).write(0) };
-}
-
-/// Abort with a `"not yet supported: ..."` message routed through
-/// `__torajs_panic`. The message is a NUL-terminated heap-allocated
-/// C-string; we use a single owned `Vec<u8>` per call site to keep
-/// the formatter simple.
-#[inline]
-unsafe fn panic_with(prefix: &str, op_detail: &str) -> ! {
-    let mut msg = Vec::with_capacity(prefix.len() + op_detail.len() + 1);
-    msg.extend_from_slice(prefix.as_bytes());
-    msg.extend_from_slice(op_detail.as_bytes());
-    msg.push(0);
-    unsafe { __torajs_panic(msg.as_ptr()) }
-}
-
-/// Allocate a Str with `data` as payload. The data must outlive the
-/// `Self::alloc` call; the call copies bytes into the fresh block.
-#[inline]
-unsafe fn str_alloc_with(data: &[u8]) -> *mut u8 {
-    let s = unsafe { __torajs_str_alloc_pooled(data.len() as u64) };
-    if !data.is_empty() {
-        unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), s.add(STR_HDR_SIZE), data.len()) };
-    }
-    s
-}
-
-/// Index of the NUL terminator in a path copy buffer (= path byte
-/// length). Lets error-detail strings slice the path bytes back out
-/// without going through `std::path`.
-#[inline]
-fn cbuf_len(buf: &[u8; PATH_MAX_LEN]) -> usize {
-    buf.iter().position(|&b| b == 0).unwrap_or(buf.len())
-}
-
-/// Write the whole buffer, looping over partial `write(2)` returns.
-/// A 0-byte write with bytes still pending is treated as `EIO`.
-fn write_all(fd: i32, mut data: &[u8]) -> Result<(), Errno> {
-    while !data.is_empty() {
-        // SAFETY: `data` is a live slice valid for its full length.
-        let n = unsafe { write(fd, data) }?;
-        if n == 0 {
-            return Err(Errno(5)); // EIO — kernel accepted nothing
-        }
-        data = &data[n..];
-    }
-    Ok(())
-}
+mod helpers;
+use helpers::{
+    cbuf_len, panic_with, path_copy_to_buf, str_alloc_with, str_to_utf8_bytes, write_all,
+};
 
 // ============================================================
 // fs.readFileSync / writeFileSync / appendFileSync
@@ -531,6 +363,7 @@ pub unsafe extern "C" fn __torajs_fs_readdir_sync(path_str: *const c_void) -> *m
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::helpers::{HDR_FLAGS_OFF, STR_FLAG_IS_LATIN1, STR_HDR_SIZE, STR_LEN_OFF};
 
     fn make_str(payload: &[u8]) -> Vec<u8> {
         // Build a tora Str layout in a Vec for path_copy_to_buf
