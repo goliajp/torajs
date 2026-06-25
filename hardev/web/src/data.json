@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-25T06:29:22.775Z",
+  "generatedAt": "2026-06-25T15:13:42.444Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "49e93fe4",
-    "commitSubject": "feat(torajs-arr, ssa_lower, str, promise, meta): Round 4 wire-back chunk 5a+5b — inline arr props_dynobj slot",
+    "commit": "f304c652",
+    "commitSubject": "refactor(torajs-core): extract __fn(...) decoder to ssa_lower_parse_fn_type",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,84 @@
   },
   "commits": [
     {
-      "hash": "49e93fe4",
-      "subject": "feat(torajs-arr, ssa_lower, str, promise, meta): Round 4 wire-back chunk 5a+5b — inline arr props_dynobj slot"
+      "hash": "f304c652",
+      "subject": "refactor(torajs-core): extract __fn(...) decoder to ssa_lower_parse_fn_type"
     },
     {
-      "hash": "d25b811d",
-      "subject": "chore(hardev/web): dashboard refresh — Round 4 chunk 2 ship + chunk 3 attempt+revert + fresh decomp"
+      "hash": "f7d6a1d0",
+      "subject": "refactor(torajs-str): extract SplitIter section to split/iter.rs sibling"
     },
     {
-      "hash": "56f1a575",
-      "subject": "chore(hardev/web, plan-state): Round 4 wire-back Phase B chunk 2 ship — refresh dashboard + plan-state (218a86b7)"
+      "hash": "6c405e8c",
+      "subject": "fix(torajs-date): trim unused api.rs imports after api_strings extract"
     },
     {
-      "hash": "218a86b7",
-      "subject": "feat(torajs-arr): Round 4 wire-back Phase B chunk 2 — pool-aware arr_push grow"
+      "hash": "d9aa3e05",
+      "subject": "refactor(torajs-date): extract Date string-formatter FFI shims to api_strings.rs"
     },
     {
-      "hash": "946c43c2",
-      "subject": "chore(hardev/web): refresh dashboard — Round 4 wire-back Phase A + chunk 1 ship (59835492)"
+      "hash": "113f799e",
+      "subject": "refactor: extract ann_substitute + condense any.rs module doc"
     },
     {
-      "hash": "59835492",
-      "subject": "feat(torajs-regex): Round 4 wire-back Phase B chunk 1 — cached static \"index\" / \"input\" / \"groups\" keys"
+      "hash": "7cfccb11",
+      "subject": "refactor: condense module docs to shrink 3 newly-over-500 prod files"
     },
     {
-      "hash": "14edf894",
-      "subject": "test(bench): Round 4 wire-back baseline archive — regex-wireback-minlit-100k n=3 mini"
+      "hash": "bc5f1180",
+      "subject": "fix(torajs-core): trim unused BinOp/IPred/InstKind/Operand/Terminator imports"
     },
     {
-      "hash": "7bacf29a",
-      "subject": "test(bench): Round 4 wire-back isolation fixture regex-wireback-minlit-100k"
+      "hash": "3007e9be",
+      "subject": "refactor(torajs-core): extract impl StringLiteral + demo_fib40 to module_extras"
     },
     {
-      "hash": "4398ab0a",
-      "subject": "chore(hardev/web): refresh dashboard — Round 3 Phase B sub-batch 7.2/7.3 ship + Phase B CLOSE (bd918337)"
+      "hash": "c54bf2a9",
+      "subject": "refactor(torajs-str): extract substr trim + concat to sibling modules"
     },
     {
-      "hash": "bd918337",
-      "subject": "docs(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 7.3 — reframe vm dfa_built_local as test/internal fallback"
+      "hash": "7d1ea496",
+      "subject": "fix(torajs-str): make PayloadBuf::len pub(crate) for lookup_ffi access"
     },
     {
-      "hash": "85370574",
-      "subject": "feat(torajs-regex): chunk 7.7 v2 step 12 Round 3 Phase B sub-batch 7.2 — eager-build RegExp.dfa_runtime at ctor"
+      "hash": "76828f50",
+      "subject": "refactor(torajs-str): extract lookup FFI shims to lookup_ffi.rs"
     },
     {
-      "hash": "c5342773",
-      "subject": "chore(hardev/web): refresh dashboard — Round 3 Phase B sub-batch 5/6/7.1 + relocate + monotone tests (d81200be)"
+      "hash": "7f5421d0",
+      "subject": "refactor(torajs-str): extract __torajs_str_drop / __torajs_str_free to str_drop.rs"
     }
   ],
-  "headSha": "49e93fe4",
+  "headSha": "f304c652",
   "autorun": {
-    "total": 242,
+    "total": 243,
     "baselineTarget": 10,
-    "bySelf": 237,
+    "bySelf": 238,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782340550-7c88",
-      "at": "2026-06-24T22:35:50Z",
-      "ts": 1782340550,
+      "rotationId": "r-1782369079-1f1d",
+      "at": "2026-06-25T06:31:19Z",
+      "ts": 1782369079,
       "trigger": "self",
-      "prevHead": "946c43c2",
-      "handoffSha": "sha256:8775cbc16933b1485fc3b934faa288ae2e19ea6e13bbc1ebd9c43f6789d85dde",
+      "prevHead": "d770213f",
+      "handoffSha": "sha256:5ba710cd87207a4ffb8ff9e06bea921b7e47ac51334e5ad1110c4c1e28351d84",
       "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782369079-1f1d",
+        "at": "2026-06-25T06:31:19Z",
+        "ts": 1782369079,
+        "trigger": "self",
+        "prevHead": "d770213f",
+        "handoffSha": "sha256:5ba710cd87207a4ffb8ff9e06bea921b7e47ac51334e5ad1110c4c1e28351d84",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782340550-7c88",
         "at": "2026-06-24T22:35:50Z",
@@ -780,17 +791,6 @@
         "prevHead": "1ddaed58",
         "handoffSha": "sha256:cf4c5ac818b09b39383982bb17c8b61535af79e5514052efb227398f4b0579df",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782206640-3230",
-        "at": "2026-06-23T09:24:00Z",
-        "ts": 1782206640,
-        "trigger": "self",
-        "prevHead": "5116207d",
-        "handoffSha": "sha256:7d003a3cbcf41f59e21a98e57665565b6e504b00d178a5efc6f2c190ad911177",
-        "handoffAgeSec": 352,
         "conformanceBefore": null,
         "commitsInSession": null
       }
