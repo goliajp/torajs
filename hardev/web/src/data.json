@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-26T09:11:38.076Z",
+  "generatedAt": "2026-06-26T10:55:50.557Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "a5b3d80e",
-    "commitSubject": "refactor(torajs-core): extract Object.assign dispatch from ssa_lower",
+    "commit": "74c93ff4",
+    "commitSubject": "refactor(torajs-core): extract class-synth register globals",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "74c93ff4",
+      "subject": "refactor(torajs-core): extract class-synth register globals"
+    },
+    {
+      "hash": "9885812c",
+      "subject": "refactor(torajs-core): extract Object.hasOwn / Reflect.has fold"
+    },
+    {
+      "hash": "c5e3170a",
+      "subject": "refactor(torajs-core): extract Symbol.for/keyFor from ssa_lower"
+    },
+    {
+      "hash": "9a5f498a",
+      "subject": "refactor(torajs-core): extract Reflect.get fold from ssa_lower"
+    },
+    {
+      "hash": "4a7ab884",
+      "subject": "refactor(torajs-core): extract Bun runtime cluster from ssa_lower"
+    },
+    {
+      "hash": "55722f9c",
+      "subject": "chore(hardev/web): dashboard snapshot @ a5b3d80e — Expr::Call decomp chunks 16-20 ship"
+    },
+    {
       "hash": "a5b3d80e",
       "subject": "refactor(torajs-core): extract Object.assign dispatch from ssa_lower"
     },
@@ -639,33 +663,9 @@
     {
       "hash": "7b6e37f9",
       "subject": "chore(hardev/web): dashboard snapshot @ efe1b103 — Expr::Call decomp 5-chunk continuation"
-    },
-    {
-      "hash": "efe1b103",
-      "subject": "refactor(torajs-core): extract universal method dispatch from ssa_lower"
-    },
-    {
-      "hash": "9adb1070",
-      "subject": "refactor(torajs-core): extract Number/String/Boolean coercion from ssa_lower"
-    },
-    {
-      "hash": "417aa8cf",
-      "subject": "refactor(torajs-core): extract fn-indirect call dispatch from ssa_lower"
-    },
-    {
-      "hash": "d3928bfb",
-      "subject": "refactor(torajs-core): extract Object.entries dispatch from ssa_lower"
-    },
-    {
-      "hash": "57189678",
-      "subject": "refactor(torajs-core): extract Arr.flatMap dispatch from ssa_lower"
-    },
-    {
-      "hash": "ca4da863",
-      "subject": "chore(hardev/web): dashboard snapshot @ 84c47f83 — Expr::Call decomp 5-chunk continuation"
     }
   ],
-  "headSha": "a5b3d80e",
+  "headSha": "74c93ff4",
   "autorun": {
     "total": 251,
     "baselineTarget": 10,
