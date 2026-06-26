@@ -17666,87 +17666,14 @@ impl<'a> LowerCtx<'a> {
                     return Operand::Value(v);
                 }
 
-                // P4.2 Phase B+C — `Object.getPrototypeOf(<arg>)`.
-                // Typed-tier instances (Type::Obj) read their
-                // runtime class tag from OBJ_CLASS_TAG_OFF and look
-                // up the registered `__proto_<C>` Any-box via the
-                // runtime side table. Type::Any args route through
-                // `__torajs_get_proto_of_any` which reads the
-                // `__proto__` field from the wrapped dynobj. Returns
-                // ANY_NULL when no prototype is available (tag 0 /
-                // missing __proto__). Pre-P4.2 the stub returned
-                // ConstPtrNull unconditionally.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && m_name == "getPrototypeOf"
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Object"
-                    && !args.is_empty()
+                // P4.2 Phase B+C — `Object.getPrototypeOf(<arg>)`. See
+                // `ssa_lower_call_object_get_prototype_of` (chunk-19 of
+                // Expr::Call decomp). Returns `None` when callee isn't
+                // `Object.getPrototypeOf(...)` or args.is_empty().
+                if let Some(op) =
+                    crate::ssa_lower_call_object_get_prototype_of::try_lower(self, *callee, args)
                 {
-                    // S265 — eval-and-drop trailing args (silent-ignore
-                    // per ES §20.1.2.12 step 1 — ToObject(obj) discards
-                    // anything beyond the first arg).
-                    for a in args.iter().skip(1) {
-                        let _ = self.lower_expr(*a);
-                    }
-                    // BORROW semantics: getPrototypeOf reads the
-                    // argument's class tag / __proto__ field but does
-                    // not take ownership. For Ident args, leave the
-                    // binding's `moved` flag alone (end-of-scope drop
-                    // handles the dec). For non-Ident temps the caller
-                    // built up an owned value — dec it here once
-                    // we're done reading. Pre-fix `consume_if_ident +
-                    // emit_drop_value` for the Ident case caused a
-                    // double-decrement: the intercept dec'd the slot's
-                    // value (freeing it) and subsequent reads of the
-                    // ident saw a dangling pointer (UAF).
-                    let v = self.lower_expr(args[0]);
-                    let v_ty = self.operand_ty(&v);
-                    let arg_is_ident = matches!(self.ast.get_expr(args[0]), Expr::Ident(_));
-                    let proto = match v_ty {
-                        Type::Obj(_) => {
-                            let tag = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, v.clone(), OBJ_CLASS_TAG_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.proto_get,
-                                    vec![Operand::Value(tag)],
-                                ),
-                                Type::Any,
-                                None,
-                            )
-                        }
-                        Type::Any => self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.get_proto_of_any, vec![v.clone()]),
-                            Type::Any,
-                            None,
-                        ),
-                        _ => self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.any_box,
-                                vec![Operand::ConstI64(0), Operand::ConstI64(0)],
-                            ),
-                            Type::Any,
-                            None,
-                        ),
-                    };
-                    if !arg_is_ident {
-                        // Temp value — we own the refcount, dec now.
-                        self.emit_drop_value(v, v_ty);
-                    }
-                    // proto_get / get_proto_of_any / any_box(NULL)
-                    // all return an OWNED Any-box (rc 1+). Caller
-                    // takes ownership without further rc_inc.
-                    return Operand::Value(proto);
+                    return op;
                 }
                 if let Expr::Member {
                     obj: ns_id,
