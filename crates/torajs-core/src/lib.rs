@@ -225,6 +225,7 @@ pub(crate) mod ssa_lower_call_has_own;
 pub(crate) mod ssa_lower_call_in_op;
 pub(crate) mod ssa_lower_call_iter_next;
 pub(crate) mod ssa_lower_call_map_dispatch;
+pub(crate) mod ssa_lower_call_math_binary_undef_fold;
 pub(crate) mod ssa_lower_call_math_hypot;
 pub(crate) mod ssa_lower_call_math_unary_undef_fold;
 pub(crate) mod ssa_lower_call_namespace_obj_methods;

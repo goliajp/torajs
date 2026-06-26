@@ -16116,49 +16116,15 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                // S205 — Math binary methods (pow / atan2 / imul) with
-                // fewer than 2 args. Spec §21.3.2.{5,19,26}:
-                //   pow / atan2: ToNumber(undefined) = NaN → NaN
-                //   imul:        ToUint32(undefined) = 0 → imul = 0
-                // Skip the helper Call entirely; emit the static result.
-                //
-                // S228 — extend the same fold to the 2-arg shape when
-                // either operand is statically Undefined. The check.rs
-                // S228 carve-out admits the call; folding here avoids
-                // lowering the ConstPtrNull undef into the f64/i32 ABI.
-                let bin_undef = args.len() == 2
-                    && (matches!(
-                        self.expr_types.get(&args[0]),
-                        Some(check_mod::Type::Undefined)
-                    ) || matches!(
-                        self.expr_types.get(&args[1]),
-                        Some(check_mod::Type::Undefined)
-                    ));
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Math"
-                    && matches!(m_name.as_str(), "pow" | "atan2" | "imul")
-                    && (args.len() < 2 || bin_undef)
+                // S205 + S228 — `Math.{pow|atan2|imul}` <2-arg /
+                // `undefined`-arg fold (NaN for pow/atan2 via
+                // ToNumber; 0 for imul via ToUint32; S274 eval-and-
+                // drop non-undef args). See
+                // [`crate::ssa_lower_call_math_binary_undef_fold::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_call_math_binary_undef_fold::try_lower(self, *callee, args)
                 {
-                    // S274 — eval non-undef args so side-effect exprs
-                    // fire (was silent-drop pre-S274). Undef positions
-                    // skip lower (ConstPtrNull sentinel can't enter the
-                    // helper's f64/i32 ABI).
-                    if bin_undef {
-                        for &a in args {
-                            if !matches!(self.expr_types.get(&a), Some(check_mod::Type::Undefined))
-                            {
-                                let _ = self.lower_expr(a);
-                            }
-                        }
-                    }
-                    if m_name == "imul" {
-                        return Operand::ConstF64(0.0);
-                    }
-                    return Operand::ConstF64(f64::NAN);
+                    return op;
                 }
                 // `Math.min` / `Math.max` — variadic, fold into a pairwise
                 // reduction. ssa-lower emits left-to-right: r = min(a,b);
