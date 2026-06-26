@@ -17400,140 +17400,14 @@ impl<'a> LowerCtx<'a> {
                 if let Some(op) = crate::ssa_lower_member_process::try_lower(self, *obj, name) {
                     return op;
                 }
-                // `Math.PI` and friends — compile-time constants synthesized
-                // as ConstF64 operands. Same for the Number-namespace
-                // limits below.
-                if let Expr::Ident(n) = self.ast.get_expr(*obj)
-                    && n == "Math"
+                // `Math.<C>` / `Number.<C>` / `<Ctor>.{prototype,
+                // name,length}` builtin-namespace constants +
+                // singleton-lookup cluster. See
+                // [`crate::ssa_lower_member_builtin_namespace::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_member_builtin_namespace::try_lower(self, *obj, name)
                 {
-                    return match name.as_str() {
-                        "PI" => Operand::ConstF64(std::f64::consts::PI),
-                        "E" => Operand::ConstF64(std::f64::consts::E),
-                        "LN2" => Operand::ConstF64(std::f64::consts::LN_2),
-                        "LN10" => Operand::ConstF64(std::f64::consts::LN_10),
-                        "LOG2E" => Operand::ConstF64(std::f64::consts::LOG2_E),
-                        "LOG10E" => Operand::ConstF64(std::f64::consts::LOG10_E),
-                        "SQRT2" => Operand::ConstF64(std::f64::consts::SQRT_2),
-                        "SQRT1_2" => Operand::ConstF64(std::f64::consts::FRAC_1_SQRT_2),
-                        other => panic!("ssa-lower: unknown Math constant `{other}`"),
-                    };
-                }
-                if let Expr::Ident(n) = self.ast.get_expr(*obj)
-                    && n == "Number"
-                {
-                    return match name.as_str() {
-                        "NaN" => Operand::ConstF64(f64::NAN),
-                        "POSITIVE_INFINITY" => Operand::ConstF64(f64::INFINITY),
-                        "NEGATIVE_INFINITY" => Operand::ConstF64(f64::NEG_INFINITY),
-                        "EPSILON" => Operand::ConstF64(f64::EPSILON),
-                        // 2^53 - 1
-                        "MAX_SAFE_INTEGER" => Operand::ConstI64(9007199254740991),
-                        "MIN_SAFE_INTEGER" => Operand::ConstI64(-9007199254740991),
-                        "MAX_VALUE" => Operand::ConstF64(f64::MAX),
-                        // V3-18 m1.h.38 — Number.MIN_VALUE per JS spec
-                        // §21.1.2.5 is the smallest positive Number,
-                        // which is the smallest *subnormal* double
-                        // (5e-324), not f64::MIN_POSITIVE (the
-                        // smallest *normal* double, 2.2250738e-308).
-                        "MIN_VALUE" => Operand::ConstF64(5e-324),
-                        // Number.prototype — route through the
-                        // builtin-prototype singleton substrate
-                        // (`torajs-rc::builtin_proto`, tag 0).
-                        // Earlier wedges: (1) NULL sentinel crashed
-                        // `Object.isFrozen(Number.prototype)`
-                        // (cases#obj-is-frozen-any-segv); (2) fresh
-                        // `dynobj_alloc` per access broke
-                        // `Number.prototype === Number.prototype`
-                        // identity. The singleton helper allocates
-                        // once on first access, returns the same
-                        // pointer every subsequent call.
-                        "prototype" => {
-                            let proto = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.get_builtin_prototype,
-                                    vec![Operand::ConstI64(0)],
-                                ),
-                                Type::Ptr,
-                                None,
-                            );
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.any_box,
-                                    vec![Operand::ConstI64(4), Operand::Value(proto)],
-                                ),
-                                Type::Any,
-                                None,
-                            );
-                            Operand::Value(v)
-                        }
-                        "name" => {
-                            let v = self.intern_string_literal("Number");
-                            Operand::Value(v)
-                        }
-                        "length" => Operand::ConstI64(1), // Number ctor arity
-                        other => panic!("ssa-lower: unknown Number constant `{other}`"),
-                    };
-                }
-                // Member access on other constructor namespaces.
-                // `.prototype` routes through the builtin-prototype
-                // singleton substrate (`torajs-rc::builtin_proto`)
-                // so `<Ctor>.prototype === <Ctor>.prototype` is
-                // `true` (spec singleton identity). Tags match the
-                // crate's `NUM_BUILTIN_PROTOS` table — never
-                // reorder. `.name` returns the namespace name;
-                // `.length` returns the constructor's arity.
-                if let Expr::Ident(n) = self.ast.get_expr(*obj)
-                    && let Some(builtin_proto_tag) = match n.as_str() {
-                        // Number is handled above (tag 0); these
-                        // are tags 1..14, order locked to
-                        // torajs-rc::builtin_proto::NUM_BUILTIN_PROTOS.
-                        "Object" => Some(1i64),
-                        "Array" => Some(2),
-                        "String" => Some(3),
-                        "Boolean" => Some(4),
-                        "Symbol" => Some(5),
-                        "BigInt" => Some(6),
-                        "RegExp" => Some(7),
-                        "Date" => Some(8),
-                        "Error" => Some(9),
-                        "Promise" => Some(10),
-                        "Map" => Some(11),
-                        "Set" => Some(12),
-                        "Function" => Some(13),
-                        _ => None,
-                    }
-                {
-                    match name.as_str() {
-                        "prototype" => {
-                            let proto = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.get_builtin_prototype,
-                                    vec![Operand::ConstI64(builtin_proto_tag)],
-                                ),
-                                Type::Ptr,
-                                None,
-                            );
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.any_box,
-                                    vec![Operand::ConstI64(4), Operand::Value(proto)],
-                                ),
-                                Type::Any,
-                                None,
-                            );
-                            return Operand::Value(v);
-                        }
-                        "name" => {
-                            let v = self.intern_string_literal(n);
-                            return Operand::Value(v);
-                        }
-                        "length" => return Operand::ConstI64(1),
-                        _ => {}
-                    }
+                    return op;
                 }
                 let obj_val = self.lower_expr(*obj);
                 let obj_ty = self.operand_ty(&obj_val);
