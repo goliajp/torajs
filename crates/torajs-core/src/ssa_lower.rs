@@ -16129,91 +16129,14 @@ impl<'a> LowerCtx<'a> {
                 // `Math.min` / `Math.max` — variadic, fold into a pairwise
                 // reduction. ssa-lower emits left-to-right: r = min(a,b);
                 // r = min(r, c); r = min(r, d); ...
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Math"
-                    && (m_name == "min" || m_name == "max")
+                // `Math.min(...args)` / `Math.max(...args)` variadic
+                // pairwise reduction (V3-18 m1.h.24 0-arg ±Inf identity
+                // + S228 undef-NaN + S274 side-effect-fire + S342 Any
+                // via anyv_to_number). See
+                // [`crate::ssa_lower_call_math_min_max::try_lower`].
+                if let Some(op) = crate::ssa_lower_call_math_min_max::try_lower(self, *callee, args)
                 {
-                    // V3-18 m1.h.24 — handle the full variadic shape.
-                    // 0 args: spec identity (max → -Inf, min → +Inf).
-                    // 1 arg: just the coerced operand.
-                    // 2 args: the existing 2-arg path (math_min / math_max).
-                    // ≥3 args: pairwise reduction.
-                    //
-                    // S228 — any statically-Undefined arg propagates NaN
-                    // through min/max per spec §21.3.2.{24,25}: each step
-                    // applies ToNumber, ToNumber(undefined)=NaN, and min/
-                    // max with a NaN operand returns NaN. Fold to
-                    // ConstF64(NaN) without lowering the undef args (the
-                    // ConstPtrNull sentinel can't enter coerce_to_f64).
-                    //
-                    // S274 — eval the non-undef args before short-circuit
-                    // so step()-style side-effect exprs fire.
-                    if args
-                        .iter()
-                        .any(|a| matches!(self.expr_types.get(a), Some(check_mod::Type::Undefined)))
-                    {
-                        for &a in args {
-                            if !matches!(self.expr_types.get(&a), Some(check_mod::Type::Undefined))
-                            {
-                                let _ = self.lower_expr(a);
-                            }
-                        }
-                        return Operand::ConstF64(f64::NAN);
-                    }
-                    let target = if m_name == "min" {
-                        self.intrinsics.math_min
-                    } else {
-                        self.intrinsics.math_max
-                    };
-                    if args.is_empty() {
-                        let identity = if m_name == "min" {
-                            f64::INFINITY
-                        } else {
-                            f64::NEG_INFINITY
-                        };
-                        return Operand::ConstF64(identity);
-                    }
-                    // S342 — Any-typed arg per ES §21.3.2.{24,25} ToNumber:
-                    // arbitrary-typed input is accepted. Route Any through
-                    // anyv_to_number → F64 instead of coerce_to_f64 (which
-                    // can't handle Any). Applies to 1-arg fast path AND
-                    // the variadic reduction below.
-                    let math_to_f64 = |this: &mut Self, op: Operand| -> Operand {
-                        if this.operand_ty(&op) == Type::Any {
-                            let f = this.f.append_inst(
-                                this.cur_block,
-                                InstKind::Call(this.intrinsics.any_to_number, vec![op]),
-                                Type::F64,
-                                None,
-                            );
-                            Operand::Value(f)
-                        } else {
-                            this.coerce_to_f64(op)
-                        }
-                    };
-                    if args.len() == 1 {
-                        let op = self.lower_expr(args[0]);
-                        return math_to_f64(self, op);
-                    }
-                    let arg_ids: Vec<ExprId> = args.clone();
-                    let mut acc = self.lower_expr(arg_ids[0]);
-                    acc = math_to_f64(self, acc);
-                    for aid in arg_ids.iter().skip(1) {
-                        let next_op = self.lower_expr(*aid);
-                        let next_v = math_to_f64(self, next_op);
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(target, vec![acc, next_v]),
-                            Type::F64,
-                            None,
-                        );
-                        acc = Operand::Value(v);
-                    }
-                    return acc;
+                    return op;
                 }
                 // `Number.<method>(args)` namespace dispatch — see
                 // `ssa_lower_call_number_namespace` (chunk-8 of Expr::Call
