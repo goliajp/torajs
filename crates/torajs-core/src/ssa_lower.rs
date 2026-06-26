@@ -16173,152 +16173,16 @@ impl<'a> LowerCtx<'a> {
                 if let Some(v) = crate::ssa_lower_object_define::try_lower(self, *callee, args) {
                     return v;
                 }
-                // P3.getOwnPropertyDescriptor — `Object.getOwnPropertyDescriptor(obj, key)`.
-                // Routes to a single runtime helper that constructs the
-                // descriptor Any-box in one shot: reads bucket
-                // value+flag bits, alloc+populate a new dynobj with
-                // the 4 data-descriptor fields, wrap in Any-box.
-                // Missing key returns Any-boxed undefined (per spec
-                // §19.1.2.10). Builtin shapes (Array.length etc.) are
-                // a follow-up.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && m_name == "getOwnPropertyDescriptor"
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Object"
-                    && args.len() >= 2
-                {
-                    let obj_raw = self.lower_expr(args[0]);
-                    let obj_ty = self.operand_ty(&obj_raw);
-                    // S315 — ES §20.1.2.10 silently ignores args past
-                    // (obj, key). Widen gate `== 2` → `>= 2` + lower-
-                    // and-drop trailing for side-effects (S272 idiom).
-                    // Placed after obj-lower but before key/dispatch so
-                    // trailing args evaluate exactly once across all
-                    // return paths below (str-length / str-index /
-                    // arr-length / generic). Order: obj → trailing →
-                    // key — key is typically a literal so no observable
-                    // reorder vs spec left-to-right.
-                    for &a in args.iter().skip(2) {
-                        let _ = self.lower_expr(a);
-                    }
-
-                    // W-M — typed-Str `.length` static fast path. Spec
-                    // §22.1.5.1: String's `length` own prop is `{value,
-                    // writable: false, enumerable: false, configurable:
-                    // false}` (every flag false — unlike Array's writable
-                    // length). The helper takes the Str ptr and Loads the
-                    // u32 len internally.
-                    if matches!(obj_ty, Type::Str)
-                        && let Expr::String(k) = self.ast.get_expr(args[1])
-                        && k == "length"
-                    {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.str_length_descriptor, vec![obj_raw]),
-                            Type::Any,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-
-                    // W-M-rest — typed-Str numeric-indexed access. Spec
-                    // §22.1.5.2: `s[i]` own is `{value: char_at(i),
-                    // writable: false, enumerable: true, configurable:
-                    // false}` for in-range `i`. Only canonical decimal-
-                    // integer string keys ("0".."N" w/o leading zero
-                    // except literal "0") take the fast path; other
-                    // shapes fall through to the general path (which
-                    // spec-correctly returns undefined for missing keys).
-                    fn is_canonical_index_key(k: &str) -> bool {
-                        let bytes = k.as_bytes();
-                        if bytes.is_empty() || bytes.len() > 20 {
-                            return false;
-                        }
-                        if bytes == b"0" {
-                            return true;
-                        }
-                        if bytes[0] == b'0' {
-                            return false;
-                        }
-                        bytes.iter().all(|&b| b.is_ascii_digit())
-                    }
-                    if matches!(obj_ty, Type::Str)
-                        && let Expr::String(k) = self.ast.get_expr(args[1])
-                        && is_canonical_index_key(k)
-                        && let Ok(idx) = k.parse::<i64>()
-                    {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.str_index_descriptor,
-                                vec![obj_raw, Operand::ConstI64(idx)],
-                            ),
-                            Type::Any,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-
-                    // RFC C5a — typed-Array `.length` static fast path.
-                    // Spec §10.4.2.4: Array's `length` own prop is
-                    // `{value, writable: true, enumerable: false,
-                    // configurable: false}`. Routes to a runtime helper
-                    // that builds the desc from arr.len(); bypasses the
-                    // general dynobj-walking path (which would report
-                    // undefined for Array.length).
-                    if matches!(obj_ty, Type::Arr(_))
-                        && let Expr::String(k) = self.ast.get_expr(args[1])
-                        && k == "length"
-                    {
-                        // Load `len: u64` from the array header
-                        // (`torajs-arr::layout::ARR_LEN_OFF = 8`) so
-                        // the helper sig stays `(I64) -> Any`.
-                        let len = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, obj_raw, 8),
-                            Type::I64,
-                            None,
-                        );
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_length_descriptor,
-                                vec![Operand::Value(len)],
-                            ),
-                            Type::Any,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-
-                    // Box a non-Any receiver to its spec-correct AnyValue
-                    // immediate (undefined → ANY_UNDEF, null → ANY_NULL,
-                    // number/string → wrapper) so the runtime can
-                    // tag-discriminate the `ToObject(undefined|null) →
-                    // throw TypeError` case (RFC C4). An already-Any
-                    // receiver passes through unchanged.
-                    let obj_op = if matches!(obj_ty, Type::Any) {
-                        obj_raw
-                    } else {
-                        self.box_to_any_from_expr(args[0], obj_raw)
-                    };
-                    let key_op = self.lower_expr(args[1]);
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.get_property_descriptor,
-                            vec![obj_op, key_op],
-                        ),
-                        Type::Any,
-                        None,
-                    );
-                    // Propagate the runtime TypeError (undefined/null
-                    // receiver) to the enclosing try/catch.
-                    self.emit_throw_check(None);
-                    return Operand::Value(v);
+                // P3.getOwnPropertyDescriptor —
+                // `Object.getOwnPropertyDescriptor(obj, key)` (W-M /
+                // W-M-rest / RFC C5a static fast paths + S315 trailing
+                // arg silent-drop + generic dynobj-walk fall-through).
+                // See
+                // [`crate::ssa_lower_call_object_get_property_descriptor::try_lower`].
+                if let Some(op) = crate::ssa_lower_call_object_get_property_descriptor::try_lower(
+                    self, *callee, args,
+                ) {
+                    return op;
                 }
                 // `Array.from(iter, mapFn?)` namespace dispatch — see
                 // `ssa_lower_call_array_from` (chunk-9 of Expr::Call decomp).
