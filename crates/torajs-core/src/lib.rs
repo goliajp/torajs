@@ -217,6 +217,7 @@ pub(crate) mod ssa_lower_call_number_namespace;
 pub(crate) mod ssa_lower_call_object_entries;
 pub(crate) mod ssa_lower_call_set_dispatch;
 pub(crate) mod ssa_lower_call_str_regex_methods;
+pub(crate) mod ssa_lower_call_universal_methods;
 pub mod ssa_lower_closure_captures;
 pub(crate) mod ssa_lower_console_log_multiarg;
 pub(crate) mod ssa_lower_container_width;
