@@ -8840,7 +8840,7 @@ impl<'a> LowerCtx<'a> {
     /// dispatch on element type; structs unfold field-by-field at
     /// compile time. Always single-pass — no second walk for length
     /// pre-computation; fragments accumulate via str_concat.
-    fn lower_json_stringify(&mut self, val_op: Operand, ty: Type) -> Operand {
+    pub(crate) fn lower_json_stringify(&mut self, val_op: Operand, ty: Type) -> Operand {
         match ty {
             Type::I64 => {
                 let v = self.f.append_inst(
@@ -15996,32 +15996,15 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                // `JSON.stringify(value)` — recursive type-aware serializer.
-                // Each call site is monomorphized inline based on the static
-                // type of the argument: primitives → direct formatter,
-                // strings → quote helper, arrays/structs → loop / static
-                // unfold + str_concat chain. No GC, single linear sweep.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "JSON"
-                    && m_name == "stringify"
+                // `JSON.stringify(value, replacer?, space?)` —
+                // recursive type-aware serializer trampoline
+                // (S311 replacer/space lower-and-drop side-effect-
+                // fire). See
+                // [`crate::ssa_lower_call_json_stringify::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_call_json_stringify::try_lower(self, *callee, args)
                 {
-                    let arg_op = self.lower_expr(args[0]);
-                    let arg_ty = self.operand_ty(&arg_op);
-                    // S311 — lower-and-drop replacer (args[1]) + space
-                    // (args[2]) per ES §25.5.2: spec evaluates them
-                    // left-to-right but tora's stringify currently
-                    // ignores them (replacer/space substrate L3b).
-                    // typecheck-and-drop in check.rs:5772 (S272 idiom)
-                    // already passed; ssa mirror loop here so step()-
-                    // style side-effect exprs fire.
-                    for &a in args.iter().skip(1) {
-                        let _ = self.lower_expr(a);
-                    }
-                    return self.lower_json_stringify(arg_op, arg_ty);
+                    return op;
                 }
                 // `String.fromCharCode(...codes)` / `String.fromCodePoint(...codes)`
                 // — variadic. Each code is converted to a one-char string via
