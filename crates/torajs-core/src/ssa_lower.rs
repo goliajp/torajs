@@ -16076,31 +16076,6 @@ impl<'a> LowerCtx<'a> {
                 {
                     return Operand::ConstF64(f64::NAN);
                 }
-                // M6.3 — `JSON.stringify(value)` for primitive types
-                // (number / boolean / string). Array / Object / Class-
-                // instance dispatch is deferred — the recursive walker
-                // requires per-shape codegen specialization. The
-                // primitive cases reuse the existing
-                // `__torajs_i64_to_str` / `__torajs_f64_to_str` /
-                // `__torajs_json_str_quote` intrinsics; bool branches
-                // on the operand and stores the literal "true" / "false"
-                // global. `null` / `undefined` are out-of-scope for
-                // torajs (see roadmap), so JSON's `null` keyword has no
-                // direct counterpart — programs use the typed union
-                // shape instead.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "JSON"
-                    && m_name == "stringify"
-                    && args.len() == 1
-                {
-                    let arg = self.lower_expr(args[0]);
-                    let arg_ty = self.operand_ty(&arg);
-                    return self.lower_json_stringify(arg, arg_ty);
-                }
                 // `Math.hypot(...args)` variadic — sqrt(sum of args²)
                 // (V3-18 m1.h.56 0-arg +0, S271 undef NaN propagation).
                 // See [`crate::ssa_lower_call_math_hypot::try_lower`].
