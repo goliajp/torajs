@@ -205,6 +205,7 @@ pub mod ssa_lower_body_returns_closure;
 pub(crate) mod ssa_lower_call_arr_flat_map;
 pub(crate) mod ssa_lower_call_arr_ho;
 pub(crate) mod ssa_lower_call_arr_ho_loop;
+pub(crate) mod ssa_lower_call_arr_iter_ctor;
 pub(crate) mod ssa_lower_call_arr_predicate;
 pub(crate) mod ssa_lower_call_arr_push;
 pub(crate) mod ssa_lower_call_array_from;

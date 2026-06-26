@@ -17842,47 +17842,13 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                /* P6.4c-C3 — `xs.keys() / .values() / .entries()` on
-                 * Type::Arr<Any> receivers. Routes through the
-                 * `__torajs_arr_iter_create_*` intrinsics returning
-                 * Type::ArrIter (parallel to Map's MapIter). Restricted
-                 * to Array<Any> by check.rs; typed-T arrays would have
-                 * an 8B-per-slot layout the runtime can't walk
-                 * uniformly (P5.4 follow-up). */
-                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && matches!(name.as_str(), "keys" | "values" | "entries")
+                // P6.4c-C3 — `xs.{keys|values|entries}()` ArrIter
+                // ctor for `Type::Arr<Any>` receivers. See
+                // [`crate::ssa_lower_call_arr_iter_ctor::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_call_arr_iter_ctor::try_lower(self, *callee, args)
                 {
-                    let recv_op = self.lower_expr(*obj);
-                    let recv_ty = self.operand_ty(&recv_op);
-                    if matches!(recv_ty, Type::Arr(_)) {
-                        // S292 — keys / values / entries are 0-arg per
-                        // spec but accept any trailing operands per ES
-                        // trailing-arg ignore; lower-and-drop before
-                        // the 1-arg helper Call (S272 idiom).
-                        for &a in args.iter() {
-                            let _ = self.lower_expr(a);
-                        }
-                        let target = match name.as_str() {
-                            "keys" => self.intrinsics.arr_iter_create_keys,
-                            "values" => self.intrinsics.arr_iter_create_values,
-                            "entries" => self.intrinsics.arr_iter_create_entries,
-                            _ => unreachable!(),
-                        };
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(target, vec![recv_op]),
-                            Type::ArrIter,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    /* fall through — recv_op was lowered; following
-                     * arms re-dispatch on non-Array receivers, but
-                     * for non-empty-args methods (e.g. Date.set*)
-                     * the dispatch picks up on its own. The receiver
-                     * load is idempotent so re-lowering downstream
-                     * doesn't trigger side-effect duplication. */
-                    let _ = recv_op;
+                    return op;
                 }
                 // M6.2 — `xs.{map|filter|reduce|reduceRight|forEach}(fn[, init?])`
                 // carve-out: see [`crate::ssa_lower_call_arr_ho::try_lower`] and
