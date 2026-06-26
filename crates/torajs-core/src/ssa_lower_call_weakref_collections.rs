@@ -1,0 +1,177 @@
+//! T-26 / T-26.B — WeakRef.deref + WeakMap / WeakSet method dispatch
+//! pulled out of [`crate::ssa_lower::lower_expr_inner`] `Expr::Call`
+//! dispatch as chunk-31 of the `Expr::Call` god-arm decomp
+//! (chunks 1-30 = ... + console.<m> dispatch). Two arms share the
+//! `T-26` weakref namespace so they cluster naturally:
+//!
+//! **Arm 1 — `wr.deref()` on a Type::WeakRef receiver.** Lowers to
+//! `__torajs_weakref_deref` returning the target (rc-bumped) or null.
+//! The receiver isn't consumed — the caller's drop walk handles the
+//! WeakRef binding's lifetime. The Ptr-typed result is exposed as
+//! `Type::Ptr` at SSA; downstream `as` casts narrow back to whatever
+//! concrete heap type the user stored.
+//!
+//! S325 — accepts any arity for WeakRef receivers per ES §26.1.3.2
+//! trailing-arg ignore. The receiver type is peeked via
+//! `expr_types` so the gate stays narrow to WeakRef and doesn't
+//! shadow user-class `.deref(...)` shapes. Trailing args
+//! lower-and-drop after the deref call so step() side-effects fire
+//! (check.rs S325 already typecheck-dropped).
+//!
+//! **Arm 2 — `WeakMap.set/get/has/delete` + `WeakSet.add/has/delete`.**
+//! All take key (and optionally value for `WeakMap.set`) as borrows;
+//! the map/set receiver stays owned by the caller's binding. The
+//! runtime auto-evicts when keys die.
+//!
+//! Pre-flight check: only intercept when the method name is one we
+//! explicitly handle for the receiver type — otherwise fall through
+//! to other arms below. The receiver type is peeked without lowering
+//! effects: local `Ident` is the common shape; class-field receiver
+//! (`new W().m.set(k, v)` where `m: WeakMap<K,V>`) is an
+//! `Expr::Member` whose checked type is `check::Type::WeakMap` —
+//! mirroring the P6.1 Map / P6.2 Set fix (commit `eab88d7c`).
+//! Without the Member / Index / Call branch, the receiver falls
+//! through to the module.method dispatch and panics
+//! `"unsupported member call shape: set"`.
+//!
+//! S301 — useful arity is `set:2` / others:1; lower `args[..useful]`
+//! into the intrinsic Call, drop `args[useful..]` so step()-style
+//! side-effect exprs fire per ES eval-then-discard semantics.
+//!
+//! `has` / `delete` return i64 0/1; coerce back to `Bool` so
+//! downstream BinOp / console.log dispatch picks the right print
+//! intrinsic.
+//!
+//! Returns `Some(op)` on hit; `None` on miss so the caller falls
+//! through to the next arm.
+
+use crate::ast::{Expr, ExprId};
+use crate::check as check_mod;
+use crate::ssa::{IPred, InstKind, Operand, Type};
+use crate::ssa_lower::LowerCtx;
+
+pub(crate) fn try_lower(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    if let Some(op) = try_lower_weakref_deref(ctx, callee, args) {
+        return Some(op);
+    }
+    try_lower_weak_collection_method(ctx, callee, args)
+}
+
+/// Arm 1 — `wr.deref()` on a `Type::WeakRef` receiver.
+fn try_lower_weakref_deref(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let Expr::Member { obj, name } = ctx.ast.get_expr(callee) else {
+        return None;
+    };
+    if name != "deref" {
+        return None;
+    }
+    if !matches!(ctx.expr_types.get(obj), Some(check_mod::Type::WeakRef)) {
+        return None;
+    }
+    let recv_id = *obj;
+    let recv_op = ctx.lower_expr(recv_id);
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.weakref_deref, vec![recv_op]),
+        Type::Ptr,
+        None,
+    );
+    for &a in args.iter() {
+        let _ = ctx.lower_expr(a);
+    }
+    Some(Operand::Value(v))
+}
+
+/// Arm 2 — `WeakMap.{set,get,has,delete}` / `WeakSet.{add,has,delete}`.
+fn try_lower_weak_collection_method(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let Expr::Member { obj, name } = ctx.ast.get_expr(callee) else {
+        return None;
+    };
+    let m_name = name.clone();
+    let weakmap_method = matches!(m_name.as_str(), "set" | "get" | "has" | "delete");
+    let weakset_method = matches!(m_name.as_str(), "add" | "has" | "delete");
+    if !weakmap_method && !weakset_method {
+        return None;
+    }
+
+    let recv_id = *obj;
+    let recv_ty_hint = match ctx.ast.get_expr(recv_id) {
+        Expr::Ident(n) => ctx.locals.get(n).map(|info| info.ty),
+        Expr::Member { .. } | Expr::Index { .. } | Expr::Call { .. } => {
+            match ctx.expr_types.get(&recv_id) {
+                Some(check_mod::Type::WeakMap) => Some(Type::WeakMap),
+                Some(check_mod::Type::WeakSet) => Some(Type::WeakSet),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    let do_weakmap = weakmap_method && recv_ty_hint == Some(Type::WeakMap);
+    let do_weakset = weakset_method && recv_ty_hint == Some(Type::WeakSet);
+    if !do_weakmap && !do_weakset {
+        return None;
+    }
+
+    let recv_op = ctx.lower_expr(recv_id);
+    let useful = if do_weakmap && m_name == "set" { 2 } else { 1 };
+    let arg_ops: Vec<Operand> = args
+        .iter()
+        .take(useful)
+        .map(|a| ctx.lower_expr(*a))
+        .collect();
+    for &a in args.iter().skip(useful) {
+        let _ = ctx.lower_expr(a);
+    }
+    let (target, ret_ty) = if do_weakmap {
+        match m_name.as_str() {
+            "set" => (ctx.intrinsics.weakmap_set, Type::Void),
+            "get" => (ctx.intrinsics.weakmap_get, Type::Ptr),
+            "has" => (ctx.intrinsics.weakmap_has, Type::I64),
+            "delete" => (ctx.intrinsics.weakmap_delete, Type::I64),
+            _ => unreachable!(),
+        }
+    } else {
+        match m_name.as_str() {
+            "add" => (ctx.intrinsics.weakset_add, Type::Void),
+            "has" => (ctx.intrinsics.weakset_has, Type::I64),
+            "delete" => (ctx.intrinsics.weakset_delete, Type::I64),
+            _ => unreachable!(),
+        }
+    };
+    let mut full_args = Vec::with_capacity(arg_ops.len() + 1);
+    full_args.push(recv_op);
+    full_args.extend(arg_ops);
+
+    let cur_block = ctx.cur_block;
+    if ret_ty == Type::Void {
+        ctx.f
+            .append_void(cur_block, InstKind::Call(target, full_args));
+        return Some(Operand::ConstI64(0));
+    }
+    let v = ctx
+        .f
+        .append_inst(cur_block, InstKind::Call(target, full_args), ret_ty, None);
+    if matches!(m_name.as_str(), "has" | "delete") {
+        let b = ctx.f.append_inst(
+            cur_block,
+            InstKind::ICmp(IPred::Ne, Operand::Value(v), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        return Some(Operand::Value(b));
+    }
+    Some(Operand::Value(v))
+}

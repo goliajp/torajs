@@ -17781,142 +17781,18 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                 }
-                /* T-26 — `wr.deref()` on a WeakRef. Returns target
-                 * (rc-bumped) or null. Receiver isn't consumed —
-                 * caller's drop walk handles the WeakRef binding's
-                 * lifetime. The Ptr-typed result is exposed as
-                 * Type::Ptr at SSA; downstream `as` casts narrow
-                 * back to whatever concrete heap type the user
-                 * stored.
-                 *
-                 * S325 — widen `args.is_empty()` → any arity for
-                 * WeakRef receivers per ES §26.1.3.2 trailing-arg
-                 * ignore. Receiver type peeked via expr_types so
-                 * the gate stays narrow to WeakRef and doesn't
-                 * shadow user-class `.deref(...)` shapes. Trailing
-                 * args lower-and-drop after the deref call so step()
-                 * side-effects fire (check.rs S325 already typecheck-
-                 * dropped). */
-                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && name == "deref"
-                    && matches!(self.expr_types.get(obj), Some(check_mod::Type::WeakRef))
+                // T-26 / T-26.B — `wr.deref()` on a Type::WeakRef
+                // receiver + `WeakMap.{set,get,has,delete}` /
+                // `WeakSet.{add,has,delete}` typed-receiver dispatch:
+                // see [`crate::ssa_lower_call_weakref_collections::try_lower`].
+                // Returns `None` when callee isn't a weakref/weak-
+                // collection method on a typed receiver, so dispatch
+                // falls through to the P6.2 Set / generic method
+                // dispatch arms below.
+                if let Some(op) =
+                    crate::ssa_lower_call_weakref_collections::try_lower(self, *callee, args)
                 {
-                    let recv_op = self.lower_expr(*obj);
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.weakref_deref, vec![recv_op]),
-                        Type::Ptr,
-                        None,
-                    );
-                    for &a in args.iter() {
-                        let _ = self.lower_expr(a);
-                    }
-                    return Operand::Value(v);
-                }
-                /* T-26.B — WeakMap.set/get/has/delete and
-                 * WeakSet.add/has/delete. All take key (and
-                 * optionally value for WeakMap.set) as borrows;
-                 * map/set receivers stay owned by the caller's
-                 * binding. The runtime auto-evicts when keys die.
-                 * Pre-flight check: only intercept when the
-                 * method name is one we explicitly handle for the
-                 * receiver type — otherwise fall through to other
-                 * arms below. */
-                if let Expr::Member { obj, name } = self.ast.get_expr(*callee) {
-                    let m_name = name.clone();
-                    let weakmap_method =
-                        matches!(m_name.as_str(), "set" | "get" | "has" | "delete");
-                    let weakset_method = matches!(m_name.as_str(), "add" | "has" | "delete");
-                    if weakmap_method || weakset_method {
-                        /* peek at receiver type without lowering
-                         * effects. Local Ident is the common shape;
-                         * class-field receiver (`new W().m.set(k, v)`
-                         * where `m: WeakMap<K,V>`) is an Expr::Member
-                         * whose checked type is `check::Type::WeakMap`
-                         * — mirror the P6.1 Map / P6.2 Set fix
-                         * (commit eab88d7c). Without the Member /
-                         * Index / Call branch the receiver falls
-                         * through to the module.method dispatch and
-                         * panics "unsupported member call shape:
-                         * set". */
-                        let recv_ty_hint = match self.ast.get_expr(*obj) {
-                            Expr::Ident(n) => self.locals.get(n).map(|info| info.ty),
-                            Expr::Member { .. } | Expr::Index { .. } | Expr::Call { .. } => {
-                                match self.expr_types.get(obj) {
-                                    Some(check_mod::Type::WeakMap) => Some(Type::WeakMap),
-                                    Some(check_mod::Type::WeakSet) => Some(Type::WeakSet),
-                                    _ => None,
-                                }
-                            }
-                            _ => None,
-                        };
-                        let do_weakmap = weakmap_method && recv_ty_hint == Some(Type::WeakMap);
-                        let do_weakset = weakset_method && recv_ty_hint == Some(Type::WeakSet);
-                        if do_weakmap || do_weakset {
-                            let recv_op = self.lower_expr(*obj);
-                            // S301 — useful arity is set:2 / others:1; lower
-                            // args[..useful] into the intrinsic Call, drop
-                            // args[useful..] so step()-style side-effect
-                            // exprs fire per ES eval-then-discard semantics.
-                            let useful = if do_weakmap && m_name == "set" { 2 } else { 1 };
-                            let arg_ops: Vec<Operand> = args
-                                .iter()
-                                .take(useful)
-                                .map(|a| self.lower_expr(*a))
-                                .collect();
-                            for &a in args.iter().skip(useful) {
-                                let _ = self.lower_expr(a);
-                            }
-                            let (target, ret_ty) = if do_weakmap {
-                                match m_name.as_str() {
-                                    "set" => (self.intrinsics.weakmap_set, Type::Void),
-                                    "get" => (self.intrinsics.weakmap_get, Type::Ptr),
-                                    "has" => (self.intrinsics.weakmap_has, Type::I64),
-                                    "delete" => (self.intrinsics.weakmap_delete, Type::I64),
-                                    _ => unreachable!(),
-                                }
-                            } else {
-                                match m_name.as_str() {
-                                    "add" => (self.intrinsics.weakset_add, Type::Void),
-                                    "has" => (self.intrinsics.weakset_has, Type::I64),
-                                    "delete" => (self.intrinsics.weakset_delete, Type::I64),
-                                    _ => unreachable!(),
-                                }
-                            };
-                            let mut full_args = Vec::with_capacity(arg_ops.len() + 1);
-                            full_args.push(recv_op);
-                            full_args.extend(arg_ops);
-                            if ret_ty == Type::Void {
-                                self.f
-                                    .append_void(self.cur_block, InstKind::Call(target, full_args));
-                                return Operand::ConstI64(0);
-                            }
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(target, full_args),
-                                ret_ty,
-                                None,
-                            );
-                            /* has / delete return i64 0/1; coerce
-                             * back to Bool so downstream BinOp /
-                             * console.log dispatch picks the right
-                             * print intrinsic. */
-                            if matches!(m_name.as_str(), "has" | "delete") {
-                                let b = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::ICmp(
-                                        IPred::Ne,
-                                        Operand::Value(v),
-                                        Operand::ConstI64(0),
-                                    ),
-                                    Type::Bool,
-                                    None,
-                                );
-                                return Operand::Value(b);
-                            }
-                            return Operand::Value(v);
-                        }
-                    }
+                    return op;
                 }
                 // P6.2 — `<Set>.{add|has|delete|clear|keys|values|entries|forEach
                 // |isSubsetOf|isSupersetOf|isDisjointFrom|union|intersection
