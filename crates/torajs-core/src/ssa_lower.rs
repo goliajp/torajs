@@ -17481,98 +17481,10 @@ impl<'a> LowerCtx<'a> {
                 then_branch,
                 else_branch,
             } => {
-                // Lower as: `let __tmp; if (cond) __tmp = T else __tmp = E; __tmp`
-                // The result type comes from the branches (verified equal
-                // by check.rs).
-                let cond = *cond;
-                let tb = *then_branch;
-                let eb = *else_branch;
-                let cond_op = self.lower_expr(cond);
-                let cond_op = self.coerce_to_bool(cond_op);
-                // Allocate result slot in entry — both branches store to
-                // it, the post-block loads from it. (Same dominance
-                // pattern as pending_break, hence alloca_in_entry.)
-                let then_blk = self.f.add_block();
-                let else_blk = self.f.add_block();
-                let after_blk = self.f.add_block();
-                // Lower both branches before sizing the result slot.
-                // Use the CURRENT block (post-branch lowering), not the
-                // entry of the branch — nested ternaries / calls move
-                // cur_block forward, and emitting into the wrong block
-                // produces dangling SSA refs ("unmapped SSA value N" at
-                // LLVM emit).
-                let saved = self.cur_block;
-                self.cur_block = then_blk;
-                let then_val = self.lower_expr(tb);
-                let then_end = self.cur_block;
-                self.cur_block = else_blk;
-                let else_val = self.lower_expr(eb);
-                let else_end = self.cur_block;
-                // W3 S8 — a mixed i64/f64 Number pair joins at f64:
-                // check.rs verified both arms are `number`, but the
-                // float face (`n < 0 ? -n : n`) can leave one arm f64
-                // while the other stays i64, and a shared slot must
-                // hold one representation.
-                let tt = self.operand_ty(&then_val);
-                let et = self.operand_ty(&else_val);
-                let (then_val, else_val, res_ty) = if tt == Type::F64 && et == Type::I64 {
-                    self.cur_block = else_end;
-                    let e = self.coerce_to_f64(else_val);
-                    (then_val, e, Type::F64)
-                } else if tt == Type::I64 && et == Type::F64 {
-                    self.cur_block = then_end;
-                    let t = self.coerce_to_f64(then_val);
-                    (t, else_val, Type::F64)
-                } else if tt == Type::Any || et == Type::Any {
-                    // S129-1 mixed-Any wedge — check.rs unify_ternary
-                    // widens to Any when either arm is Any; the slot
-                    // must be Any-typed and the non-Any branch
-                    // NaN-boxed via box_to_any so Load decodes a
-                    // proper AnyValue. Same shape as the S128-5
-                    // logical mixed-Any widen and the S128-4 reduce
-                    // init box-coerce.
-                    if tt != Type::Any {
-                        self.cur_block = then_end;
-                        let t = self.box_to_any(then_val);
-                        (t, else_val, Type::Any)
-                    } else if et != Type::Any {
-                        self.cur_block = else_end;
-                        let e = self.box_to_any(else_val);
-                        (then_val, e, Type::Any)
-                    } else {
-                        (then_val, else_val, Type::Any)
-                    }
-                } else {
-                    (then_val, else_val, tt)
-                };
-                let res_slot = self.alloca_in_entry(res_ty, Some("__tern"));
-                self.f.append_void(
-                    then_end,
-                    InstKind::Store(then_val, Operand::Value(res_slot), 0),
-                );
-                self.f.set_term(then_end, Terminator::Br(after_blk));
-                self.f.append_void(
-                    else_end,
-                    InstKind::Store(else_val, Operand::Value(res_slot), 0),
-                );
-                self.f.set_term(else_end, Terminator::Br(after_blk));
-                // Wire the original block's terminator to the cond_br.
-                self.f.set_term(
-                    saved,
-                    Terminator::CondBr {
-                        cond: cond_op,
-                        then_blk,
-                        else_blk,
-                    },
-                );
-                self.cur_block = after_blk;
-                let r = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(res_ty, Operand::Value(res_slot), 0),
-                    res_ty,
-                    None,
-                );
-                Operand::Value(r)
+                // Lower as `let __tmp; if (cond) __tmp = T else __tmp = E; __tmp`
+                // with W3 S8 i64/f64 widen + S129-1 mixed-Any widen wedges. See
+                // [`crate::ssa_lower_ternary::lower`].
+                crate::ssa_lower_ternary::lower(self, *cond, *then_branch, *else_branch)
             }
             Expr::TypeOf { expr } => {
                 // P1.5 — typeof on a frontend Type::Undefined source

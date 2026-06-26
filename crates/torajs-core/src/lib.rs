@@ -312,6 +312,7 @@ pub(crate) mod ssa_lower_str_str_split;
 pub(crate) mod ssa_lower_str_str_trailing;
 pub(crate) mod ssa_lower_str_substr_dispatch;
 pub mod ssa_lower_substr_trim_into;
+pub(crate) mod ssa_lower_ternary;
 pub mod ssa_lower_toplevel_globals;
 pub(crate) mod ssa_lower_tospliced;
 pub(crate) mod ssa_lower_unary;
