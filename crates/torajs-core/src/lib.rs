@@ -213,6 +213,7 @@ pub(crate) mod ssa_lower_call_bun_runtime;
 pub(crate) mod ssa_lower_call_closure_local;
 pub(crate) mod ssa_lower_call_coercion;
 pub(crate) mod ssa_lower_call_fn_indirect;
+pub(crate) mod ssa_lower_call_has_own;
 pub(crate) mod ssa_lower_call_map_dispatch;
 pub(crate) mod ssa_lower_call_number_methods;
 pub(crate) mod ssa_lower_call_number_namespace;

@@ -1,0 +1,83 @@
+//! `Object.hasOwn(obj, key)` / `Reflect.has(obj, key)` compile-time
+//! fold pulled out of [`crate::ssa_lower::lower_expr_inner`]
+//! `Expr::Call` dispatch as chunk-24 of the `Expr::Call` god-arm
+//! decomp (chunks 1-23 = Arr higher-order + Map dispatch + Set
+//! dispatch + Arr.push + Number instance methods + bare-name globals
+//! + Str regex methods + Number namespace + Array.from + Arr
+//! predicate iter + Arr.flatMap + Object.entries + fn-indirect +
+//! Number/String/Boolean coercion + universal methods + closure-local
+//! + Object.values + Object.keys + Object.getPrototypeOf +
+//! Object.assign + Bun runtime cluster + Reflect.get +
+//! Symbol.for/keyFor).
+//!
+//! v0.2 #3 — both `Object.hasOwn(obj, key)` (ES §20.1.2.4) and
+//! `Reflect.has(obj, key)` (ES §28.1.9) fold to a constant Bool when
+//! the target lowers to `Type::Obj(sid)` and the key arg is a string
+//! literal: the field is either declared on the struct or it's not.
+//!
+//! tr has no prototype chain, so `Reflect.has` (`key in target` per
+//! spec, walking the proto chain) collapses to the same own-property
+//! check as `Object.hasOwn` — the spec gap is empty for tr's typed
+//! struct subset.
+//!
+//! Variable-key paths + non-struct targets are deferred (caller falls
+//! through to the generic Call lowering): returning `None` here lets
+//! the surrounding match handle them.
+//!
+//! Trailing args past `args[1]` are spec-lowered for side-effect
+//! parity per the S272 idiom (check.rs S257 already typecheck-drops
+//! them). `args[1]` is a String literal (no side effect) and is not
+//! re-lowered.
+
+use crate::ast::{Expr, ExprId};
+use crate::ssa::{Operand, Type};
+use crate::ssa_lower::LowerCtx;
+
+pub(crate) fn try_lower(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let (ns_id, m_name) = match ctx.ast.get_expr(callee) {
+        Expr::Member { obj, name } => (*obj, name.clone()),
+        _ => return None,
+    };
+    let Expr::Ident(ns) = ctx.ast.get_expr(ns_id) else {
+        return None;
+    };
+    let matches = (m_name == "hasOwn" && ns == "Object")
+        // `Reflect.has(obj, key)` aliases to the same emit — tr has
+        // no prototype chain so own == all and the spec gap with `in`
+        // is empty.
+        || (m_name == "has" && ns == "Reflect");
+    if !matches {
+        return None;
+    }
+    if args.len() < 2 {
+        return None;
+    }
+    let Expr::String(key_lit) = ctx.ast.get_expr(args[1]) else {
+        return None;
+    };
+    let key = key_lit.clone();
+    // Borrow-only read of the obj — lower_expr loads the local slot
+    // but ownership stays with the caller's scope (which will drop on
+    // exit). No emit_drop_value here.
+    let obj_op = ctx.lower_expr(args[0]);
+    // S302 — lower-and-drop trailing args[2..] per S272 idiom so
+    // step()-style side-effect exprs fire per ES eval-then-discard
+    // (check.rs S257 already typecheck-dropped). args[1] is a String
+    // literal (no side effect) gated by the let-pattern above.
+    for &a in args.iter().skip(2) {
+        let _ = ctx.lower_expr(a);
+    }
+    let obj_ty = ctx.operand_ty(&obj_op);
+    let Type::Obj(sid) = obj_ty else {
+        // Non-struct target: deferred substrate — caller falls through.
+        return None;
+    };
+    let has = ctx.struct_layouts[sid.0 as usize]
+        .iter()
+        .any(|(n, _)| n == &key);
+    Some(Operand::ConstBool(has))
+}

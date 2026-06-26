@@ -17708,50 +17708,15 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                /* v0.2 #3 — Object.hasOwn(obj, key) compile-time path:
-                 * if key is a Str literal and obj is statically a
-                 * struct, the answer is a constant Bool (the field is
-                 * either declared on the struct or not). Variable-key
-                 * paths are deferred to a runtime helper that does
-                 * field-name string comparison against the struct layout. */
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ((m_name == "hasOwn" && ns == "Object")
-                        // `Reflect.has(obj, key)` aliases to the same
-                        // emit — tr has no prototype chain so own == all
-                        // and the spec gap with `in` is empty.
-                        || (m_name == "has" && ns == "Reflect"))
-                    // S257 — widen `== 2` → `>= 2` per ES §20.1.2.4
-                    // / §28.1.9 trailing-arg ignore. Lower only
-                    // args[0..2]; trailing dropped at lower-time
-                    // (check.rs S257 type_of'd them).
-                    && args.len() >= 2
-                    && let Expr::String(key_lit) = self.ast.get_expr(args[1])
-                {
-                    let key = key_lit.clone();
-                    /* Borrow-only read of the obj — lower_expr loads
-                     * the local slot but ownership stays with the
-                     * caller's scope (which will drop on exit).
-                     * No emit_drop_value here. */
-                    let obj_op = self.lower_expr(args[0]);
-                    // S302 — lower-and-drop trailing args[2..] per S272
-                    // idiom so step()-style side-effect exprs fire per ES
-                    // eval-then-discard (check.rs S257 already typecheck-
-                    // dropped). args[1] is a String literal (no side
-                    // effect) gated by the let-pattern above.
-                    for &a in args.iter().skip(2) {
-                        let _ = self.lower_expr(a);
-                    }
-                    let obj_ty = self.operand_ty(&obj_op);
-                    if let Type::Obj(sid) = obj_ty {
-                        let has = self.struct_layouts[sid.0 as usize]
-                            .iter()
-                            .any(|(n, _)| n == &key);
-                        return Operand::ConstBool(has);
-                    }
+                // v0.2 #3 — `Object.hasOwn(obj, key)` /
+                // `Reflect.has(obj, key)` compile-time fold extracted
+                // to `ssa_lower_call_has_own` (chunk-24 of Expr::Call
+                // decomp). Returns `Some` on typed struct + literal
+                // key; falls through (`None`) on shape mismatch or
+                // non-struct target (variable-key / non-struct paths
+                // deferred to surrounding dispatch).
+                if let Some(op) = crate::ssa_lower_call_has_own::try_lower(self, *callee, args) {
+                    return op;
                 }
                 // V3-18 m1.h.4 — `Object.keys(obj)` /
                 // `Object.getOwnPropertyNames(obj)` / `Reflect.ownKeys(obj)`
