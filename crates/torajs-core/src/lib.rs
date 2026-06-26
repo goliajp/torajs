@@ -222,6 +222,7 @@ pub(crate) mod ssa_lower_call_number_namespace;
 pub(crate) mod ssa_lower_call_object_assign;
 pub(crate) mod ssa_lower_call_object_entries;
 pub(crate) mod ssa_lower_call_object_get_prototype_of;
+pub(crate) mod ssa_lower_call_object_integrity;
 pub(crate) mod ssa_lower_call_object_keys;
 pub(crate) mod ssa_lower_call_object_values;
 pub(crate) mod ssa_lower_call_promise_static;
