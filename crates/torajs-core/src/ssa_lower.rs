@@ -16193,61 +16193,12 @@ impl<'a> LowerCtx<'a> {
                 if let Some(op) = crate::ssa_lower_call_coercion::try_lower(self, *callee, args) {
                     return op;
                 }
-                if let Expr::Ident(n) = self.ast.get_expr(*callee)
-                    && n == "BigInt"
-                    && !args.is_empty()
+                // V3-03 — `BigInt(value)` callable ctor. Single arg
+                // required; dispatch on the arg's static SSA type.
+                // See [`crate::ssa_lower_call_bigint_ctor::try_lower`].
+                if let Some(op) = crate::ssa_lower_call_bigint_ctor::try_lower(self, *callee, args)
                 {
-                    let arg_op = self.lower_expr(args[0]);
-                    let arg_ty = self.operand_ty(&arg_op);
-                    self.consume_if_ident(args[0]);
-                    // S308 — lower-and-drop trailing args[1..] per S272
-                    // idiom so step()-style side-effect exprs fire per ES
-                    // §21.2.1 trailing-arg ignore (check.rs S308 already
-                    // typecheck-dropped).
-                    for &a in args.iter().skip(1) {
-                        let _ = self.lower_expr(a);
-                    }
-                    let v = match arg_ty {
-                        Type::BigInt => self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.bigint_clone, vec![arg_op]),
-                            Type::BigInt,
-                            None,
-                        ),
-                        Type::Str => self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.bigint_from_str, vec![arg_op]),
-                            Type::BigInt,
-                            None,
-                        ),
-                        Type::F64 => self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.bigint_from_number, vec![arg_op]),
-                            Type::BigInt,
-                            None,
-                        ),
-                        Type::I64 => {
-                            let f = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::SiToFp(arg_op),
-                                Type::F64,
-                                None,
-                            );
-                            self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.bigint_from_number,
-                                    vec![Operand::Value(f)],
-                                ),
-                                Type::BigInt,
-                                None,
-                            )
-                        }
-                        _ => panic!(
-                            "ssa-lower: BigInt() expects bigint / string / number arg, got {arg_ty:?}"
-                        ),
-                    };
-                    return Operand::Value(v);
+                    return op;
                 }
                 // T-13.a (v0.4.0) — `Symbol(desc?)` direct constructor
                 // call. Returns Type::Symbol. desc is optional; missing
