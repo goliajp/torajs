@@ -17624,82 +17624,16 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                /* T-18.a (v0.5.0) — fs.<method>Async wrappers. Each
-                 * calls the matching sync helper then wraps the result
-                 * in a fulfilled Promise. MVP "synchronous-then-resolve"
-                 * — real I/O suspension needs T-16 state-machine
-                 * async/await. The user-visible Promise<T> contract is
-                 * preserved so `await fs.readFile(p)` yields the
-                 * file contents. */
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "fs_promises"
-                    && matches!(
-                        m_name.as_str(),
-                        "readFile"
-                            | "writeFile"
-                            | "appendFile"
-                            | "unlink"
-                            | "mkdir"
-                            | "exists"
-                            | "readdir"
-                    )
+                // T-18.a (v0.5.0) — `fs_promises.<method>Async`
+                // wrappers (`readFile` / `writeFile` / `appendFile` /
+                // `unlink` / `mkdir` / `exists` / `readdir`) extracted
+                // to `ssa_lower_call_fs_promises` (chunk-26 of
+                // Expr::Call decomp). Returns `Some` when the callee
+                // matches `fs_promises.<allowlisted>`; falls through
+                // otherwise.
+                if let Some(op) = crate::ssa_lower_call_fs_promises::try_lower(self, *callee, args)
                 {
-                    let arg_ops: Vec<Operand> = args
-                        .iter()
-                        .map(|a| {
-                            let op = self.lower_expr(*a);
-                            self.consume_if_ident(*a);
-                            op
-                        })
-                        .collect();
-                    let (sync_fid, sync_ret_ty) = match m_name.as_str() {
-                        "readFile" => (self.intrinsics.fs_read_file_sync, Type::Str),
-                        "writeFile" => (self.intrinsics.fs_write_file_sync, Type::Void),
-                        "appendFile" => (self.intrinsics.fs_append_file_sync, Type::Void),
-                        "unlink" => (self.intrinsics.fs_unlink_sync, Type::Void),
-                        "mkdir" => (self.intrinsics.fs_mkdir_sync, Type::Void),
-                        "exists" => (self.intrinsics.fs_exists_sync, Type::Bool),
-                        "readdir" => {
-                            let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
-                            (self.intrinsics.fs_readdir_sync, Type::Arr(arr_id))
-                        }
-                        _ => unreachable!(),
-                    };
-                    let sync_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(sync_fid, arg_ops),
-                        sync_ret_ty,
-                        None,
-                    );
-                    // Wrap the sync result in a Promise. Heap variants
-                    // (Str / Arr) take ownership; primitive (Bool /
-                    // Void) just packs into i64.
-                    let (promise_alloc_fid, value_op) = match sync_ret_ty {
-                        Type::Str | Type::Arr(_) => (
-                            self.intrinsics.promise_alloc_fulfilled_heap,
-                            Operand::Value(sync_v),
-                        ),
-                        Type::Bool => (
-                            self.intrinsics.promise_alloc_fulfilled,
-                            self.coerce_bool_to_i64(Operand::Value(sync_v)),
-                        ),
-                        Type::Void => (
-                            self.intrinsics.promise_alloc_fulfilled,
-                            Operand::ConstI64(0),
-                        ),
-                        _ => unreachable!(),
-                    };
-                    let p_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(promise_alloc_fid, vec![value_op]),
-                        Type::Promise,
-                        None,
-                    );
-                    return Operand::Value(p_v);
+                    return op;
                 }
                 /* T-17.a / .b / .c / .d (v0.5.0) — Promise.all /
                  * .race / .any / .allSettled sync fast paths. */
