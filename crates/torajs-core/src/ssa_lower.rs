@@ -17698,77 +17698,15 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                // ES6 §28.1.6 — `Reflect.get(target, key)` compile-time
-                // path: typed struct target + literal-string key folds
-                // to a struct field load + box-to-Any. Key not in layout
-                // → ANY_UNDEF=5 box. Dynamic key or non-struct target
-                // falls through (deferred substrate).
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && m_name == "get"
-                    && ns == "Reflect"
-                    // S257 — widen `== 2` → `>= 2` per ES §28.1.6
-                    // trailing-arg ignore. Lower only args[0..2];
-                    // trailing receiver arg dropped at lower-time
-                    // (check.rs S257 type_of'd them).
-                    && args.len() >= 2
-                    && let Expr::String(key_lit) = self.ast.get_expr(args[1])
+                // ES §28.1.6 — `Reflect.get(target, key)` compile-time
+                // fold extracted to `ssa_lower_call_reflect_get`
+                // (chunk-22 of Expr::Call decomp). Returns `Some` on
+                // typed struct + literal key (folds to field load +
+                // box-to-Any); panics on non-struct target; falls
+                // through (`None`) on shape mismatch.
+                if let Some(op) = crate::ssa_lower_call_reflect_get::try_lower(self, *callee, args)
                 {
-                    let key = key_lit.clone();
-                    let obj_op = self.lower_expr(args[0]);
-                    // S320 — ES §28.1.6 receiver arg (args[2]) +
-                    // further trailing silently ignored in the typed-
-                    // struct subset. check.rs S257 typecheck-drops
-                    // them; mirror lower-and-drop here so step()-
-                    // style side-effect exprs fire (S272 idiom).
-                    // Placed after obj-lower / before dispatch so
-                    // trailing eval is exactly-once across the typed-
-                    // struct + missing-key + panic fall-through paths.
-                    for &a in args.iter().skip(2) {
-                        let _ = self.lower_expr(a);
-                    }
-                    let obj_ty = self.operand_ty(&obj_op);
-                    if let Type::Obj(sid) = obj_ty {
-                        let layout = self.struct_layouts[sid.0 as usize].clone();
-                        if let Some((idx, (_, fty))) = layout
-                            .iter()
-                            .enumerate()
-                            .find(|(_, (n, _))| n == &key)
-                            .map(|(i, (n, t))| (i, (n.clone(), *t)))
-                        {
-                            let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
-                            let field_val = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(fty, obj_op, offset),
-                                fty,
-                                None,
-                            );
-                            // borrow semantics — caller will drop the
-                            // boxed Any, so rc_inc refcounted fields
-                            // before transferring ownership into the box.
-                            if fty.is_refcounted() {
-                                self.emit_rc_inc(Operand::Value(field_val));
-                            }
-                            return self.box_to_any(Operand::Value(field_val));
-                        }
-                        // Key absent from layout → undefined per spec.
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.any_box,
-                                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                            ),
-                            Type::Any,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    panic!(
-                        "ssa-lower: Reflect.get requires a typed-struct target with a literal string key; got target type {obj_ty:?}"
-                    );
+                    return op;
                 }
                 /* v0.2 #3 — Object.hasOwn(obj, key) compile-time path:
                  * if key is a Str literal and obj is statically a
