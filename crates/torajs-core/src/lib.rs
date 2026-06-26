@@ -214,6 +214,7 @@ pub(crate) mod ssa_lower_call_class_synth;
 pub(crate) mod ssa_lower_call_closure_local;
 pub(crate) mod ssa_lower_call_coercion;
 pub(crate) mod ssa_lower_call_console;
+pub(crate) mod ssa_lower_call_date_methods;
 pub(crate) mod ssa_lower_call_fn_indirect;
 pub(crate) mod ssa_lower_call_fs_promises;
 pub(crate) mod ssa_lower_call_has_own;
