@@ -8724,7 +8724,7 @@ impl<'a> LowerCtx<'a> {
         )
     }
 
-    fn coerce_to_str(&mut self, val: Operand, ty: Type) -> Operand {
+    pub(crate) fn coerce_to_str(&mut self, val: Operand, ty: Type) -> Operand {
         match ty {
             Type::Str => val,
             Type::Substr => {
@@ -16184,191 +16184,14 @@ impl<'a> LowerCtx<'a> {
                  * The typechecker accepts these three (and Type::Any
                  * deferred — Any-tagged dispatch is a follow-up). */
                 // V3-18 m1.h.8 — `Number(x)` / `String(x)` / `Boolean(x)`
-                // callable coercion. Spec primitive ToNumber / ToString
-                // / ToBoolean. Routed by arg's static SSA type.
-                if let Expr::Ident(n) = self.ast.get_expr(*callee)
-                    && (n == "Number" || n == "String" || n == "Boolean")
-                {
-                    let n_kind = n.clone();
-                    // S307 — lower-and-drop trailing args[1..] per S272
-                    // idiom so step()-style side-effect exprs fire per ES
-                    // §21.1.1 / §22.1.1 / §20.3.1 trailing-arg ignore
-                    // (check.rs S251 already typecheck-dropped; the three
-                    // SSA-emit return paths below — empty / undef bare-
-                    // ident / lowered arg[0] — all reads only args[0]).
-                    for &a in args.iter().skip(1) {
-                        let _ = self.lower_expr(a);
-                    }
-                    if args.is_empty() {
-                        return match n_kind.as_str() {
-                            "Number" => Operand::ConstI64(0),
-                            "String" => Operand::Value(self.intern_string_literal("")),
-                            "Boolean" => Operand::ConstBool(false),
-                            _ => unreachable!(),
-                        };
-                    }
-                    // V3-18 m1.h.52 — Number(undefined) → NaN per
-                    // §7.1.4 ToNumber(undefined). String(undefined) →
-                    // "undefined" per §7.1.17 ToString. Boolean(undefined)
-                    // → false per §7.1.2 ToBoolean. Bare-Ident detection
-                    // before lowering since `undefined` and `null` both
-                    // collapse to ConstPtrNull at the runtime layer.
-                    if let Expr::Ident(arg_name) = self.ast.get_expr(args[0])
-                        && arg_name == "undefined"
-                    {
-                        return match n_kind.as_str() {
-                            "Number" => Operand::ConstF64(f64::NAN),
-                            "String" => {
-                                let v = self.intern_string_literal("undefined");
-                                Operand::Value(v)
-                            }
-                            "Boolean" => Operand::ConstBool(false),
-                            _ => unreachable!(),
-                        };
-                    }
-                    let arg_op = self.lower_expr(args[0]);
-                    let arg_ty = self.operand_ty(&arg_op);
-                    self.consume_if_ident(args[0]);
-                    let v = match n_kind.as_str() {
-                        "Number" => match arg_ty {
-                            Type::I64 | Type::F64 => arg_op,
-                            Type::Bool => self.coerce_bool_to_i64(arg_op),
-                            Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => {
-                                Operand::ConstI64(0)
-                            }
-                            Type::Str | Type::Substr => {
-                                // V3-18 m1.h.9 — String → ToNumber via
-                                // runtime helper (strtod-based, NaN on
-                                // parse failure). Returns f64 since
-                                // NaN can't fit i64.
-                                let v = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.str_to_number, vec![arg_op]),
-                                    Type::F64,
-                                    None,
-                                );
-                                Operand::Value(v)
-                            }
-                            // S133-2 — `Number(Any)`: tag-dispatched
-                            // ToNumber via runtime helper. Returns f64
-                            // (NaN passes through).
-                            Type::Any => self.coerce_any_to_number(arg_op, Type::F64),
-                            // S172 — `Number(Array<T>)` per ES §7.1.4
-                            // ToNumber(Array) = ToNumber(ToString(Array))
-                            // = ToNumber(arr.join(",")). Mirrors the
-                            // String(Arr) join path below; the resulting
-                            // Str feeds str_to_number (NaN on non-numeric
-                            // join result — Number([1,2]) === NaN).
-                            Type::Arr(elem_arr_id) => {
-                                let elem_ty = self.arr_layouts[elem_arr_id.0 as usize];
-                                let join_fid = match elem_ty {
-                                    Type::Substr => self.intrinsics.arr_join_substr,
-                                    Type::I64 => self.intrinsics.arr_join_i64,
-                                    Type::F64 => self.intrinsics.arr_join_f64,
-                                    Type::Bool => self.intrinsics.arr_join_bool,
-                                    Type::Any => self.intrinsics.arr_join_any,
-                                    _ => self.intrinsics.arr_join,
-                                };
-                                let sep = self.intern_string_literal(",");
-                                let s = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(join_fid, vec![arg_op, Operand::Value(sep)]),
-                                    Type::Str,
-                                    None,
-                                );
-                                let n = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.str_to_number,
-                                        vec![Operand::Value(s)],
-                                    ),
-                                    Type::F64,
-                                    None,
-                                );
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.str_drop,
-                                        vec![Operand::Value(s)],
-                                    ),
-                                );
-                                Operand::Value(n)
-                            }
-                            _ => panic!(
-                                "ssa-lower: Number() with arg type {arg_ty:?} not yet supported"
-                            ),
-                        },
-                        "Boolean" => self.coerce_to_bool(arg_op),
-                        "String" => match arg_ty {
-                            Type::Str | Type::Substr => arg_op,
-                            Type::I64 => Operand::Value(self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.i64_to_str, vec![arg_op]),
-                                Type::Str,
-                                None,
-                            )),
-                            Type::F64 => Operand::Value(self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.f64_to_str, vec![arg_op]),
-                                Type::Str,
-                                None,
-                            )),
-                            Type::Bool => Operand::Value(self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.bool_to_str, vec![arg_op]),
-                                Type::Str,
-                                None,
-                            )),
-                            Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => {
-                                Operand::Value(self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.null_to_str, vec![]),
-                                    Type::Str,
-                                    None,
-                                ))
-                            }
-                            // S133-2 — `String(Any)`: tag-dispatched
-                            // ToString via runtime helper (reuses the
-                            // existing `coerce_to_str(_, Type::Any)`
-                            // path used by console.log multi-arg).
-                            Type::Any => self.coerce_to_str(arg_op, Type::Any),
-                            // S137 — `String(arr)` per ES §22.1.3.30
-                            // ToString of Array = `arr.join(",")`. Element
-                            // type picks the matching arr_join intrinsic
-                            // (same dispatch table as `arr.toString()` in
-                            // ssa_lower_str).
-                            Type::Arr(elem_arr_id) => {
-                                let elem_ty = self.arr_layouts[elem_arr_id.0 as usize];
-                                let join_fid = match elem_ty {
-                                    Type::Substr => self.intrinsics.arr_join_substr,
-                                    Type::I64 => self.intrinsics.arr_join_i64,
-                                    Type::F64 => self.intrinsics.arr_join_f64,
-                                    Type::Bool => self.intrinsics.arr_join_bool,
-                                    Type::Any => self.intrinsics.arr_join_any,
-                                    _ => self.intrinsics.arr_join,
-                                };
-                                let sep = self.intern_string_literal(",");
-                                Operand::Value(self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(join_fid, vec![arg_op, Operand::Value(sep)]),
-                                    Type::Str,
-                                    None,
-                                ))
-                            }
-                            // S137 — `String(struct)` per ES §20.1.4.4
-                            // generic Object toString = `"[object Object]"`.
-                            // Typed Obj has no per-instance toString slot;
-                            // the literal is the spec-correct emit.
-                            Type::Obj(_) => {
-                                Operand::Value(self.intern_string_literal("[object Object]"))
-                            }
-                            _ => panic!(
-                                "ssa-lower: String() with arg type {arg_ty:?} not yet supported"
-                            ),
-                        },
-                        _ => unreachable!(),
-                    };
-                    return v;
+                // callable coercion (ES §7.1.4 / §7.1.17 / §7.1.2 — spec
+                // primitive ToNumber / ToString / ToBoolean, routed by
+                // arg's static SSA type). See `ssa_lower_call_coercion`
+                // (chunk-14 of Expr::Call decomp). S307 trailing-arg
+                // widening + S133-2 Any tag-dispatch + S172/S137
+                // Array.join path preserved.
+                if let Some(op) = crate::ssa_lower_call_coercion::try_lower(self, *callee, args) {
+                    return op;
                 }
                 if let Expr::Ident(n) = self.ast.get_expr(*callee)
                     && n == "BigInt"

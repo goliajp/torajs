@@ -1,0 +1,206 @@
+//! `Number(x)` / `String(x)` / `Boolean(x)` callable coercion dispatch
+//! pulled out of [`crate::ssa_lower::lower_expr_inner`] `Expr::Call` as
+//! chunk-14 of the `Expr::Call` god-arm decomp (chunks 1-13 = Arr
+//! higher-order + Map dispatch + Set dispatch + Arr.push + Number
+//! instance methods + bare-name globals + Str regex methods + Number
+//! namespace + Array.from + Arr predicate iter + Arr.flatMap +
+//! Object.entries + fn-indirect).
+//!
+//! Routes by `Expr::Ident(n)` with `n in {"Number", "String", "Boolean"}`
+//! and emits the spec ToNumber / ToString / ToBoolean primitive coercion
+//! per ES §7.1.4 / §7.1.17 / §7.1.2, routed by arg's static SSA type.
+//!
+//! S307 — args[1..] lowered-and-dropped per §21.1.1 / §22.1.1 /
+//! §20.3.1 trailing-arg ignore (S272 idiom; check.rs S251 already
+//! typecheck-dropped). args.is_empty() returns the ES-canonical zero
+//! per kind (0 / "" / false). The `undefined` bare-Ident shortcut emits
+//! the spec constants (NaN / "undefined" / false) before lowering
+//! since `undefined`/`null` both collapse to `ConstPtrNull` at the
+//! runtime layer.
+//!
+//! Returns `Some(result)` when `n` matches one of the three; `None`
+//! lets the caller fall through to the next arm (e.g. BigInt(x)
+//! immediately after).
+
+use crate::ast::{Expr, ExprId};
+use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa_lower::LowerCtx;
+
+/// Try to lower a `Number(x)` / `String(x)` / `Boolean(x)` callable
+/// coercion. Returns `Some` when dispatched.
+pub(crate) fn try_lower(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let Expr::Ident(n) = ctx.ast.get_expr(callee) else {
+        return None;
+    };
+    if !matches!(n.as_str(), "Number" | "String" | "Boolean") {
+        return None;
+    }
+    let n_kind = n.clone();
+    // S307 — lower-and-drop trailing args[1..] per S272 idiom so step()-
+    // style side-effect exprs fire per ES trailing-arg ignore.
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    if args.is_empty() {
+        return Some(match n_kind.as_str() {
+            "Number" => Operand::ConstI64(0),
+            "String" => Operand::Value(ctx.intern_string_literal("")),
+            "Boolean" => Operand::ConstBool(false),
+            _ => unreachable!(),
+        });
+    }
+    // V3-18 m1.h.52 — Number(undefined) → NaN; String(undefined) →
+    // "undefined"; Boolean(undefined) → false. Detect bare-Ident
+    // before lowering since undefined/null both collapse to
+    // ConstPtrNull at runtime.
+    if let Expr::Ident(arg_name) = ctx.ast.get_expr(args[0])
+        && arg_name == "undefined"
+    {
+        return Some(match n_kind.as_str() {
+            "Number" => Operand::ConstF64(f64::NAN),
+            "String" => Operand::Value(ctx.intern_string_literal("undefined")),
+            "Boolean" => Operand::ConstBool(false),
+            _ => unreachable!(),
+        });
+    }
+    let arg_op = ctx.lower_expr(args[0]);
+    let arg_ty = ctx.operand_ty(&arg_op);
+    ctx.consume_if_ident(args[0]);
+    Some(match n_kind.as_str() {
+        "Number" => emit_to_number(ctx, arg_op, arg_ty),
+        "Boolean" => ctx.coerce_to_bool(arg_op),
+        "String" => emit_to_string(ctx, arg_op, arg_ty),
+        _ => unreachable!(),
+    })
+}
+
+/// Spec §7.1.4 ToNumber dispatch by arg SSA type. Numeric types pass
+/// through; Bool → I64; null → 0; Str/Substr → str_to_number (strtod);
+/// Any → coerce_any_to_number; Arr → join(",") then str_to_number
+/// (Number([1,2]) === NaN).
+fn emit_to_number(ctx: &mut LowerCtx<'_>, arg_op: Operand, arg_ty: Type) -> Operand {
+    match arg_ty {
+        Type::I64 | Type::F64 => arg_op,
+        Type::Bool => ctx.coerce_bool_to_i64(arg_op),
+        Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => Operand::ConstI64(0),
+        Type::Str | Type::Substr => {
+            // V3-18 m1.h.9 — String → ToNumber via runtime helper
+            // (strtod-based, NaN on parse failure). Returns f64 since
+            // NaN can't fit i64.
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.str_to_number, vec![arg_op]),
+                Type::F64,
+                None,
+            );
+            Operand::Value(v)
+        }
+        // S133-2 — `Number(Any)`: tag-dispatched ToNumber via runtime
+        // helper. Returns f64 (NaN passes through).
+        Type::Any => ctx.coerce_any_to_number(arg_op, Type::F64),
+        // S172 — `Number(Array<T>)` per ES §7.1.4 ToNumber(Array) =
+        // ToNumber(ToString(Array)) = ToNumber(arr.join(",")). Mirrors
+        // String(Arr) join path below; the resulting Str feeds
+        // str_to_number (NaN on non-numeric join result).
+        Type::Arr(elem_arr_id) => {
+            let elem_ty = ctx.arr_layouts[elem_arr_id.0 as usize];
+            let join_fid = match elem_ty {
+                Type::Substr => ctx.intrinsics.arr_join_substr,
+                Type::I64 => ctx.intrinsics.arr_join_i64,
+                Type::F64 => ctx.intrinsics.arr_join_f64,
+                Type::Bool => ctx.intrinsics.arr_join_bool,
+                Type::Any => ctx.intrinsics.arr_join_any,
+                _ => ctx.intrinsics.arr_join,
+            };
+            let sep = ctx.intern_string_literal(",");
+            let s = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(join_fid, vec![arg_op, Operand::Value(sep)]),
+                Type::Str,
+                None,
+            );
+            let n = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.str_to_number, vec![Operand::Value(s)]),
+                Type::F64,
+                None,
+            );
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.str_drop, vec![Operand::Value(s)]),
+            );
+            Operand::Value(n)
+        }
+        _ => panic!("ssa-lower: Number() with arg type {arg_ty:?} not yet supported"),
+    }
+}
+
+/// Spec §7.1.17 ToString dispatch by arg SSA type. Str/Substr pass
+/// through; I64/F64/Bool → matching `*_to_str` intrinsic; null →
+/// null_to_str; Any → coerce_to_str (tag-dispatched); Arr → join(",")
+/// (same dispatch as `arr.toString()`); Obj → "[object Object]" per
+/// §20.1.4.4 generic Object toString.
+fn emit_to_string(ctx: &mut LowerCtx<'_>, arg_op: Operand, arg_ty: Type) -> Operand {
+    match arg_ty {
+        Type::Str | Type::Substr => arg_op,
+        Type::I64 => Operand::Value(ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.i64_to_str, vec![arg_op]),
+            Type::Str,
+            None,
+        )),
+        Type::F64 => Operand::Value(ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.f64_to_str, vec![arg_op]),
+            Type::Str,
+            None,
+        )),
+        Type::Bool => Operand::Value(ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.bool_to_str, vec![arg_op]),
+            Type::Str,
+            None,
+        )),
+        Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => Operand::Value(ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.null_to_str, vec![]),
+            Type::Str,
+            None,
+        )),
+        // S133-2 — `String(Any)`: tag-dispatched ToString via runtime
+        // helper (reuses the existing `coerce_to_str(_, Type::Any)`
+        // path used by console.log multi-arg).
+        Type::Any => ctx.coerce_to_str(arg_op, Type::Any),
+        // S137 — `String(arr)` per ES §22.1.3.30 ToString of Array =
+        // `arr.join(",")`. Element type picks the matching arr_join
+        // intrinsic (same dispatch table as `arr.toString()` in
+        // ssa_lower_str).
+        Type::Arr(elem_arr_id) => {
+            let elem_ty = ctx.arr_layouts[elem_arr_id.0 as usize];
+            let join_fid = match elem_ty {
+                Type::Substr => ctx.intrinsics.arr_join_substr,
+                Type::I64 => ctx.intrinsics.arr_join_i64,
+                Type::F64 => ctx.intrinsics.arr_join_f64,
+                Type::Bool => ctx.intrinsics.arr_join_bool,
+                Type::Any => ctx.intrinsics.arr_join_any,
+                _ => ctx.intrinsics.arr_join,
+            };
+            let sep = ctx.intern_string_literal(",");
+            Operand::Value(ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(join_fid, vec![arg_op, Operand::Value(sep)]),
+                Type::Str,
+                None,
+            ))
+        }
+        // S137 — `String(struct)` per ES §20.1.4.4 generic Object
+        // toString = `"[object Object]"`. Typed Obj has no per-instance
+        // toString slot; the literal is the spec-correct emit.
+        Type::Obj(_) => Operand::Value(ctx.intern_string_literal("[object Object]")),
+        _ => panic!("ssa-lower: String() with arg type {arg_ty:?} not yet supported"),
+    }
+}
