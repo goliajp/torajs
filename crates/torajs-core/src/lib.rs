@@ -209,6 +209,7 @@ pub(crate) mod ssa_lower_call_arr_predicate;
 pub(crate) mod ssa_lower_call_arr_push;
 pub(crate) mod ssa_lower_call_array_from;
 pub(crate) mod ssa_lower_call_bare_globals;
+pub(crate) mod ssa_lower_call_closure_local;
 pub(crate) mod ssa_lower_call_coercion;
 pub(crate) mod ssa_lower_call_fn_indirect;
 pub(crate) mod ssa_lower_call_map_dispatch;

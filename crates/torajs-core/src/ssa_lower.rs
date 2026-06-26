@@ -19928,85 +19928,15 @@ impl<'a> LowerCtx<'a> {
                 }
                 // M2 — call a Closure-typed local. Load env_ptr from
                 // slot, load fn_ptr from env+0, indirect-call with env
-                // prepended to the user args. The underlying signature
-                // has Ptr as its first param (the env); we synthesize it
-                // here from the user-facing signature stored on
-                // `Type::Closure(sig)`.
-                if let Expr::Ident(callee_name) = self.ast.get_expr(*callee)
-                    && let Some(info) = self.locals.get(callee_name).copied()
-                    && let Type::Closure(user_sig_id) = info.ty
+                // prepended to the user args. See
+                // `ssa_lower_call_closure_local` (chunk-16 of Expr::Call
+                // decomp). Returns `None` when callee isn't a bare ident
+                // whose local has `Type::Closure`; dispatch then falls
+                // through to fn_indirect / M3 retarget below.
+                if let Some(op) =
+                    crate::ssa_lower_call_closure_local::try_lower(self, *callee, args)
                 {
-                    let env_ptr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                        info.ty,
-                        None,
-                    );
-                    let fn_ptr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::Ptr, Operand::Value(env_ptr), CLOSURE_FN_ADDR_OFF),
-                        Type::Ptr,
-                        None,
-                    );
-                    // Prepend Type::Ptr to the user-facing param list to
-                    // get the underlying signature with the env first.
-                    let (user_params, ret_ty) = self.fn_sigs[user_sig_id.0 as usize].clone();
-                    let mut env_first_params = Vec::with_capacity(user_params.len() + 1);
-                    env_first_params.push(Type::Ptr);
-                    env_first_params.extend(user_params.iter().copied());
-                    let env_first_sig = intern_fn_sig(self.fn_sigs, env_first_params, ret_ty);
-
-                    // P0.5 mirror — Type::Any param boxes the concrete
-                    // arg. S126-3 see direct fn-call P0.9 below.
-                    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
-                    argv.push(Operand::Value(env_ptr));
-                    for (i, a) in args.iter().enumerate() {
-                        let raw = self.lower_expr(*a);
-                        let boxed = if i < user_params.len()
-                            && matches!(user_params[i], Type::Any)
-                            && !matches!(self.operand_ty(&raw), Type::Any)
-                        {
-                            self.box_to_any_from_expr(*a, raw)
-                        } else {
-                            raw
-                        };
-                        argv.push(boxed);
-                    }
-                    // Refcounted heap args: caller stays the owner, the
-                    // callee gets its own ref via rc_inc. Without this
-                    // every closure / fnsig call would mark the source
-                    // moved + skip caller's scope drop, producing latent
-                    // UAFs whenever the callee returns the same heap or
-                    // when the same arg is passed twice (identity-style
-                    // map / filter callbacks etc.).
-                    for (i, a) in args.iter().enumerate() {
-                        let argv_op = argv[i + 1]; // env_ptr is at 0
-                        let a_ty = self.operand_ty(&argv_op);
-                        if a_ty.is_refcounted() {
-                            self.emit_rc_inc(argv_op);
-                        } else {
-                            self.consume_if_ident(*a);
-                        }
-                    }
-                    if ret_ty == Type::Void {
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
-                        );
-                        // bug-327 C2.5 — indirect targets are unknown
-                        // statically; propagate a pending throw the
-                        // same way direct user-fn calls do.
-                        self.emit_throw_check(None);
-                        return Operand::ConstI64(0);
-                    }
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
-                        ret_ty,
-                        None,
-                    );
-                    self.emit_throw_check(None);
-                    return Operand::Value(v);
+                    return op;
                 }
                 // M2 Phase B Stage 4 — fn-typed local indirect call
                 // (`let f = global_fn; f(args);` or fn-typed param) +
