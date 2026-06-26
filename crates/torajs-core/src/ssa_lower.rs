@@ -17394,70 +17394,11 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
-                /* v0.3 #3 — `process.platform` — runtime call to the
-                 * platform-string helper. Other process.* are calls (handled
-                 * via resolve_callee). */
-                if let Expr::Ident(n) = self.ast.get_expr(*obj)
-                    && n == "process"
-                    && name == "platform"
-                {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.process_platform, Vec::new()),
-                        Type::Str,
-                        None,
-                    );
-                    return Operand::Value(v);
-                }
-                /* v0.3 #3.c — `process.argv` / `Bun.argv` — runtime
-                 * call to the argv-array builder. */
-                if let Expr::Ident(n) = self.ast.get_expr(*obj)
-                    && (n == "process" || n == "Bun")
-                    && name == "argv"
-                {
-                    let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.process_argv, Vec::new()),
-                        Type::Arr(arr_id),
-                        None,
-                    );
-                    return Operand::Value(v);
-                }
-                /* v0.3 #3 — `process.env` — namespace marker; produces
-                 * a zero-cost ConstPtrNull operand. The actual env lookup
-                 * fires when this is the receiver of a Member access
-                 * (the `Member(Member(process, env), NAME)` shape below). */
-                if let Expr::Ident(n) = self.ast.get_expr(*obj)
-                    && n == "process"
-                    && name == "env"
-                {
-                    return Operand::ConstPtrNull;
-                }
-                /* v0.3 #3 — `process.env.NAME` — runtime getenv lookup.
-                 * `obj` here is the inner `process.env` Member, which
-                 * lowers to ConstPtrNull (the env namespace marker
-                 * above). We discard that value and emit getenv with
-                 * the property name as a Str literal. */
-                if let Expr::Member {
-                    obj: inner_obj,
-                    name: inner_name,
-                } = self.ast.get_expr(*obj)
-                    && inner_name == "env"
-                    && let Expr::Ident(n) = self.ast.get_expr(*inner_obj)
-                    && n == "process"
-                {
-                    let key_str = self.intern_string_literal(name);
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.process_getenv,
-                            vec![Operand::Value(key_str)],
-                        ),
-                        Type::Str,
-                        None,
-                    );
-                    return Operand::Value(v);
+                // v0.3 #3 — `process.{platform|argv|env}` + `Bun.argv`
+                // + `process.env.NAME` namespace cluster. See
+                // [`crate::ssa_lower_member_process::try_lower`].
+                if let Some(op) = crate::ssa_lower_member_process::try_lower(self, *obj, name) {
+                    return op;
                 }
                 // `Math.PI` and friends — compile-time constants synthesized
                 // as ConstF64 operands. Same for the Number-namespace
