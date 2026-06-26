@@ -205,6 +205,7 @@ pub mod ssa_lower_body_returns_closure;
 pub(crate) mod ssa_lower_call_arr_ho;
 pub(crate) mod ssa_lower_call_arr_ho_loop;
 pub(crate) mod ssa_lower_call_arr_push;
+pub(crate) mod ssa_lower_call_bare_globals;
 pub(crate) mod ssa_lower_call_map_dispatch;
 pub(crate) mod ssa_lower_call_number_methods;
 pub(crate) mod ssa_lower_call_set_dispatch;
