@@ -17675,106 +17675,14 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && m_name == "assign"
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Object"
-                    && !args.is_empty()
+                // S127-3 — `Object.assign(target, ...sources)` per ES
+                // §20.1.2.1. See `ssa_lower_call_object_assign` (chunk-20
+                // of Expr::Call decomp). Returns `None` when callee
+                // isn't `Object.assign(...)` or args.is_empty().
+                if let Some(op) =
+                    crate::ssa_lower_call_object_assign::try_lower(self, *callee, args)
                 {
-                    let target_op = self.lower_expr(args[0]);
-                    let target_ty = self.operand_ty(&target_op);
-                    let Type::Obj(sid) = target_ty else {
-                        panic!(
-                            "ssa-lower: Object.assign target must be a struct, got {target_ty:?}"
-                        );
-                    };
-                    let layout = self.struct_layouts[sid.0 as usize].clone();
-                    // S127-3 — N sources per §20.1.2.1: copy each source's
-                    // fields into target left-to-right. last-source-wins
-                    // emerges naturally from the per-store drop-old dance
-                    // (each Store goes through the same Load+drop+Store
-                    // shape, so an intermediate source's value is
-                    // dropped before the next source overwrites).
-                    for src_eid in &args[1..] {
-                        let source_op = self.lower_expr(*src_eid);
-                        for (idx, (_fname, fty)) in layout.iter().enumerate() {
-                            let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
-                            // Drop target's old value first (if non-Copy)
-                            // so any refcounted field properly releases
-                            // before being overwritten.
-                            if !fty.is_copy() {
-                                let old = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Load(*fty, target_op, offset),
-                                    *fty,
-                                    None,
-                                );
-                                self.emit_drop_value(Operand::Value(old), *fty);
-                            }
-                            // Load source.field (borrow).
-                            let src_v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(*fty, source_op, offset),
-                                *fty,
-                                None,
-                            );
-                            let to_store = if let Type::Arr(arr_id) = *fty {
-                                // Deep-clone via arr_slice + per-element
-                                // rc_inc so target gets its own array.
-                                let len = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Load(Type::I64, Operand::Value(src_v), ARR_LEN_OFF),
-                                    Type::I64,
-                                    None,
-                                );
-                                let cloned = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.arr_slice,
-                                        vec![
-                                            Operand::Value(src_v),
-                                            Operand::ConstI64(0),
-                                            Operand::Value(len),
-                                        ],
-                                    ),
-                                    *fty,
-                                    None,
-                                );
-                                let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                                if elem_ty.is_refcounted() {
-                                    let cloned_len = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Load(
-                                            Type::I64,
-                                            Operand::Value(cloned),
-                                            ARR_LEN_OFF,
-                                        ),
-                                        Type::I64,
-                                        None,
-                                    );
-                                    self.emit_arr_rc_inc_range(
-                                        Operand::Value(cloned),
-                                        Operand::ConstI64(0),
-                                        Operand::Value(cloned_len),
-                                    );
-                                }
-                                Operand::Value(cloned)
-                            } else {
-                                if fty.is_refcounted() {
-                                    self.emit_rc_inc(Operand::Value(src_v));
-                                }
-                                Operand::Value(src_v)
-                            };
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Store(to_store, target_op, offset),
-                            );
-                        }
-                    }
-                    return target_op;
+                    return op;
                 }
                 // `Object.values(obj)` — homogeneous struct only,
                 // checked at typecheck. Emits an array of the field
