@@ -270,6 +270,7 @@ pub(crate) mod ssa_lower_member_builtin_namespace;
 pub(crate) mod ssa_lower_member_fn_intro;
 pub(crate) mod ssa_lower_member_process;
 pub(crate) mod ssa_lower_member_promise_value;
+pub(crate) mod ssa_lower_member_props_read;
 pub(crate) mod ssa_lower_member_regexp_props;
 pub(crate) mod ssa_lower_member_symbol_wellknown;
 pub(crate) mod ssa_lower_member_typed_props;

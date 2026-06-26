@@ -17014,70 +17014,14 @@ impl<'a> LowerCtx<'a> {
                 if matches!(obj_ty, Type::Closure(_)) {
                     return self.fn_props_get(obj_val, name);
                 }
-                // T-27.b — FnSig read via side table keyed by fn ptr.
-                if matches!(obj_ty, Type::FnSig(_)) {
-                    let key_str = self.intern_string_literal(name);
-                    let tag = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.fnprops_get_tag,
-                            vec![obj_val.clone(), Operand::Value(key_str)],
-                        ),
-                        Type::I64,
-                        None,
-                    );
-                    let value = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.fnprops_get_value,
-                            vec![obj_val, Operand::Value(key_str)],
-                        ),
-                        Type::I64,
-                        None,
-                    );
-                    let box_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.any_box,
-                            vec![Operand::Value(tag), Operand::Value(value)],
-                        ),
-                        Type::Any,
-                        None,
-                    );
-                    return Operand::Value(box_v);
-                }
-                // T-29 — Array-as-Object read via arrprops side table
-                // keyed by array ptr. NULL or missing key → ANY_UNDEF.
-                if matches!(obj_ty, Type::Arr(_)) {
-                    let key_str = self.intern_string_literal(name);
-                    let tag = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arrprops_get_tag,
-                            vec![obj_val.clone(), Operand::Value(key_str)],
-                        ),
-                        Type::I64,
-                        None,
-                    );
-                    let value = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arrprops_get_value,
-                            vec![obj_val, Operand::Value(key_str)],
-                        ),
-                        Type::I64,
-                        None,
-                    );
-                    let box_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.any_box,
-                            vec![Operand::Value(tag), Operand::Value(value)],
-                        ),
-                        Type::Any,
-                        None,
-                    );
-                    return Operand::Value(box_v);
+                // T-27.b + T-29 — FnSig-as-Object + Array-as-Object
+                // Member read via side-table-keyed-by-ptr storage
+                // (NULL/missing key → ANY_UNDEF). See
+                // [`crate::ssa_lower_member_props_read::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_member_props_read::try_lower(self, obj_val, obj_ty, name)
+                {
+                    return op;
                 }
                 let sid = match obj_ty {
                     Type::Obj(sid) => sid,
