@@ -15988,76 +15988,13 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                // `Array.isArray(value)` — compile-time static check.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Array"
-                    && m_name == "isArray"
+                // `Array.isArray(value)` — compile-time static check
+                // (ES §23.1.2.2). See
+                // [`crate::ssa_lower_call_array_is_array::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_call_array_is_array::try_lower(self, *callee, args)
                 {
-                    // S204 — spec §23.1.2.2 step 1: missing `arg`
-                    // defaults to undefined; undefined is not an
-                    // Array, so the predicate is statically false.
-                    // Short-circuit before `args[0]` to dodge the
-                    // index-out-of-bounds panic the inline path
-                    // would otherwise hit.
-                    if args.is_empty() {
-                        return Operand::ConstBool(false);
-                    }
-                    // S267 — eval-and-drop trailing args (silent-ignore
-                    // per ES §23.1.2.2 step 1).
-                    for a in args.iter().skip(1) {
-                        let _ = self.lower_expr(*a);
-                    }
-                    // T-38 — namespace idents (`Math` / `JSON` / `Array` / ...)
-                    // referenced as runtime values have no Operand
-                    // representation in tora's subset (they're typecheck-only
-                    // `Type::Object(<name>)` markers, not heap values). When
-                    // they appear as the argument to `Array.isArray(...)`,
-                    // short-circuit to `false` per JS spec (they're objects
-                    // but not Array-typed). Without this, `lower_expr(args[0])`
-                    // hits the catch-all `unknown ident` panic.
-                    if let Expr::Ident(arg_name) = self.ast.get_expr(args[0])
-                        && matches!(
-                            arg_name.as_str(),
-                            "Math"
-                                | "JSON"
-                                | "Array"
-                                | "Object"
-                                | "Number"
-                                | "String"
-                                | "Boolean"
-                                | "Date"
-                                | "RegExp"
-                                | "Symbol"
-                                | "console"
-                                | "globalThis"
-                        )
-                    {
-                        return Operand::ConstBool(false);
-                    }
-                    let arg_op = self.lower_expr(args[0]);
-                    let arg_ty = self.operand_ty(&arg_op);
-                    // Static fast paths: known `Type::Arr(_)` → true;
-                    // any other concrete typed value → false. Only
-                    // `Type::Any` requires the runtime tag dispatch
-                    // below (per ES §22.1.2.2 — answer follows the
-                    // boxed value's heap tag, not the static type).
-                    if matches!(arg_ty, Type::Arr(_)) {
-                        return Operand::ConstBool(true);
-                    }
-                    if matches!(arg_ty, Type::Any) {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.any_is_arr, vec![arg_op]),
-                            Type::Bool,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    return Operand::ConstBool(false);
+                    return op;
                 }
                 // `JSON.stringify(value)` — recursive type-aware serializer.
                 // Each call site is monomorphized inline based on the static
