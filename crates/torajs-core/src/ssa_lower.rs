@@ -16101,73 +16101,11 @@ impl<'a> LowerCtx<'a> {
                     let arg_ty = self.operand_ty(&arg);
                     return self.lower_json_stringify(arg, arg_ty);
                 }
-                // `Math.hypot` — variadic. Lower as
-                // sqrt(sum of args²) via Mul + Add fold + math_sqrt call.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Math"
-                    && m_name == "hypot"
-                {
-                    // V3-18 m1.h.56 — 0-arg returns +0 per JS spec
-                    // §21.3.2.18 (identity element of the reduction).
-                    if args.is_empty() {
-                        return Operand::ConstF64(0.0);
-                    }
-                    // S271 — any statically-Undefined arg propagates
-                    // NaN per spec §21.3.2.18 (ToNumber on each arg,
-                    // undef → NaN, sum² + sqrt containing NaN → NaN).
-                    // Eval-and-drop the non-undef args so trailing
-                    // side-effect expressions still fire, then return
-                    // ConstF64(NaN) so the undef sentinel never reaches
-                    // coerce_to_f64.
-                    if args
-                        .iter()
-                        .any(|a| matches!(self.expr_types.get(a), Some(check_mod::Type::Undefined)))
-                    {
-                        for &a in args {
-                            if !matches!(self.expr_types.get(&a), Some(check_mod::Type::Undefined))
-                            {
-                                let _ = self.lower_expr(a);
-                            }
-                        }
-                        return Operand::ConstF64(f64::NAN);
-                    }
-                    let arg_ids: Vec<ExprId> = args.clone();
-                    let mut acc: Option<Operand> = None;
-                    for aid in arg_ids.iter() {
-                        let raw = self.lower_expr(*aid);
-                        let v = self.coerce_to_f64(raw);
-                        let sq = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BinOp(SsaBinOp::FMul, v, v),
-                            Type::F64,
-                            None,
-                        );
-                        let sq_op = Operand::Value(sq);
-                        acc = Some(match acc {
-                            None => sq_op,
-                            Some(prev) => {
-                                let s = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::BinOp(SsaBinOp::FAdd, prev, sq_op),
-                                    Type::F64,
-                                    None,
-                                );
-                                Operand::Value(s)
-                            }
-                        });
-                    }
-                    let sum = acc.unwrap();
-                    let r = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.math_sqrt, vec![sum]),
-                        Type::F64,
-                        None,
-                    );
-                    return Operand::Value(r);
+                // `Math.hypot(...args)` variadic — sqrt(sum of args²)
+                // (V3-18 m1.h.56 0-arg +0, S271 undef NaN propagation).
+                // See [`crate::ssa_lower_call_math_hypot::try_lower`].
+                if let Some(op) = crate::ssa_lower_call_math_hypot::try_lower(self, *callee, args) {
+                    return op;
                 }
                 // S203 — Math unary methods 0-arg per ES §21.3.2.*
                 // step 1: ToNumber(undefined) = NaN, then each
