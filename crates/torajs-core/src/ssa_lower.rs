@@ -16038,26 +16038,13 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                // S230 — `Date.parse(undefined)` per ES §21.4.3.2:
-                // step 1 reads the arg through ToString. ToString(undef)
-                // = "undefined" which is not a valid date string, so
-                // the result is NaN. Fold the call before lower_expr
-                // would emit a ConstPtrNull undef into the helper's
-                // (Str) → F64 ABI.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Date"
-                    && m_name == "parse"
-                    && args.len() == 1
-                    && matches!(
-                        self.expr_types.get(&args[0]),
-                        Some(check_mod::Type::Undefined)
-                    )
+                // S230 — `Date.parse(undefined)` static-fold (ES
+                // §21.4.3.2). See
+                // [`crate::ssa_lower_call_date_parse_undef_fold::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_call_date_parse_undef_fold::try_lower(self, *callee, args)
                 {
-                    return Operand::ConstF64(f64::NAN);
+                    return op;
                 }
                 // `Math.hypot(...args)` variadic — sqrt(sum of args²)
                 // (V3-18 m1.h.56 0-arg +0, S271 undef NaN propagation).

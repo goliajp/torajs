@@ -220,6 +220,7 @@ pub(crate) mod ssa_lower_call_closure_local;
 pub(crate) mod ssa_lower_call_coercion;
 pub(crate) mod ssa_lower_call_console;
 pub(crate) mod ssa_lower_call_date_methods;
+pub(crate) mod ssa_lower_call_date_parse_undef_fold;
 pub(crate) mod ssa_lower_call_date_utc_pad;
 pub(crate) mod ssa_lower_call_fn_indirect;
 pub(crate) mod ssa_lower_call_fs_promises;
