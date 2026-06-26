@@ -17312,27 +17312,13 @@ impl<'a> LowerCtx<'a> {
                     }
                     return Operand::Value(v);
                 }
-                /* T-13.c (v0.4.0) — well-known Symbol singletons.
-                 * Each access lowers to a runtime helper call that
-                 * lazy-inits the process-level singleton + rc_inc's
-                 * for the caller. */
-                if let Expr::Ident(n) = self.ast.get_expr(*obj)
-                    && n == "Symbol"
-                    && matches!(name.as_str(), "iterator" | "asyncIterator" | "toPrimitive")
+                // T-13.c (v0.4.0) — well-known Symbol singletons
+                // (Symbol.{iterator|asyncIterator|toPrimitive}). See
+                // [`crate::ssa_lower_member_symbol_wellknown::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_member_symbol_wellknown::try_lower(self, *obj, name)
                 {
-                    let fid = match name.as_str() {
-                        "iterator" => self.intrinsics.symbol_iterator,
-                        "asyncIterator" => self.intrinsics.symbol_async_iterator,
-                        "toPrimitive" => self.intrinsics.symbol_to_primitive,
-                        _ => unreachable!(),
-                    };
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(fid, Vec::new()),
-                        Type::Symbol,
-                        None,
-                    );
-                    return Operand::Value(v);
+                    return op;
                 }
                 /* T-18.c (v0.5.0) — `Bun.file(p).size` synchronous
                  * property. The receiver shape is

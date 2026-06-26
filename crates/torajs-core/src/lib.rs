@@ -268,6 +268,7 @@ pub(crate) mod ssa_lower_logical;
 pub mod ssa_lower_main_exit;
 pub(crate) mod ssa_lower_member_builtin_namespace;
 pub(crate) mod ssa_lower_member_process;
+pub(crate) mod ssa_lower_member_symbol_wellknown;
 pub mod ssa_lower_obj_escape;
 pub(crate) mod ssa_lower_object_define;
 pub(crate) mod ssa_lower_objlit_layout;
