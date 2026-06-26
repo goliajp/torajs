@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-26T17:27:29.094Z",
+  "generatedAt": "2026-06-26T21:35:12.608Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "097878e3",
-    "commitSubject": "refactor(torajs-core): remove dead Number(x)/String(x) inline coercion arm",
+    "commit": "503d78d5",
+    "commitSubject": "refactor(torajs-core): extract RegExp accessor cluster (source/flags/bool/lastIndex)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,84 @@
   },
   "commits": [
     {
-      "hash": "097878e3",
-      "subject": "refactor(torajs-core): remove dead Number(x)/String(x) inline coercion arm"
+      "hash": "503d78d5",
+      "subject": "refactor(torajs-core): extract RegExp accessor cluster (source/flags/bool/lastIndex)"
     },
     {
-      "hash": "08bcb5ec",
-      "subject": "refactor(torajs-core): extract String.fromCharCode/fromCodePoint variadic arm"
+      "hash": "f01e8d76",
+      "subject": "refactor(torajs-core): extract await/p.value Promise + P10.4 fastpath arm"
     },
     {
-      "hash": "fbedb2e4",
-      "subject": "refactor(torajs-core): extract Array.isArray static-check arm"
+      "hash": "47b2b807",
+      "subject": "refactor(torajs-core): extract f.length/f.name dual-path Member arm (T-27.c)"
     },
     {
-      "hash": "5c042682",
-      "subject": "refactor(torajs-core): extract T-24 __dispatch_<M> vtable interception"
+      "hash": "979a3b41",
+      "subject": "refactor(torajs-core): extract Bun.file.size + Response.status web/runtime"
     },
     {
-      "hash": "63e56bc6",
-      "subject": "refactor(torajs-core): extract P3.struct-method-dispatch FnSig/Closure arm"
+      "hash": "497d5106",
+      "subject": "refactor(torajs-core): extract Symbol.<wellknown> singleton Member-access arm"
     },
     {
-      "hash": "eee03f35",
-      "subject": "refactor(torajs-core): extract __torajs_in_op multi-arm dispatch"
+      "hash": "e7019c7b",
+      "subject": "refactor(torajs-core): extract Math/Number/ctor builtin-namespace Members"
     },
     {
-      "hash": "cabff6fb",
-      "subject": "chore(hardev/web): dashboard snapshot @ fd41dcae — Expr::Call decomp chunks 36-40 ship"
+      "hash": "27816c42",
+      "subject": "refactor(torajs-core): extract process.* namespace Member-access cluster"
     },
     {
-      "hash": "fd41dcae",
-      "subject": "refactor(torajs-core): extract Date.UTC arity 1-6 trailing-default pad"
+      "hash": "3086713a",
+      "subject": "refactor(torajs-core): extract Date.parse(undefined) NaN fold (S230)"
     },
     {
-      "hash": "203b4dbc",
-      "subject": "refactor(torajs-core): extract Symbol() callable ctor dispatch"
+      "hash": "5a67d366",
+      "subject": "refactor(torajs-core): extract JSON.stringify trampoline arm"
     },
     {
-      "hash": "ee41ac2e",
-      "subject": "refactor(torajs-core): extract namespace-obj method dispatch + relocate ns_has_own_property"
+      "hash": "69e508d1",
+      "subject": "refactor(torajs-core): remove dead duplicate JSON.stringify 1-arg arm"
     },
     {
-      "hash": "a167d878",
-      "subject": "refactor(torajs-core): extract BigInt() callable ctor dispatch"
+      "hash": "6ccc7ad1",
+      "subject": "refactor(torajs-core): extract Object.getOwnPropertyDescriptor arm (P3)"
     },
     {
-      "hash": "03094e92",
-      "subject": "refactor(torajs-core): extract Arr.{keys|values|entries}() ArrIter ctor dispatch"
+      "hash": "245cf127",
+      "subject": "refactor(torajs-core): extract Array.of(...vals) literal-shape arm"
     }
   ],
-  "headSha": "097878e3",
+  "headSha": "503d78d5",
   "autorun": {
-    "total": 255,
+    "total": 256,
     "baselineTarget": 10,
-    "bySelf": 250,
+    "bySelf": 251,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782488904-0363",
-      "at": "2026-06-26T15:48:24Z",
-      "ts": 1782488904,
+      "rotationId": "r-1782494866-6e67",
+      "at": "2026-06-26T17:27:46Z",
+      "ts": 1782494866,
       "trigger": "self",
-      "prevHead": "cabff6fb",
-      "handoffSha": "sha256:62e07a819049ce51157a569d1ebdf164b2b27494132a253323fecced99c5d598",
-      "handoffAgeSec": 20,
+      "prevHead": "22a03b82",
+      "handoffSha": "sha256:ed27ba96e1fbe67cd671388770d7d4fad39fd08a616bea674254c3208b87e0be",
+      "handoffAgeSec": 26,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782494866-6e67",
+        "at": "2026-06-26T17:27:46Z",
+        "ts": 1782494866,
+        "trigger": "self",
+        "prevHead": "22a03b82",
+        "handoffSha": "sha256:ed27ba96e1fbe67cd671388770d7d4fad39fd08a616bea674254c3208b87e0be",
+        "handoffAgeSec": 26,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782488904-0363",
         "at": "2026-06-26T15:48:24Z",
@@ -780,17 +791,6 @@
         "prevHead": "b09a0d3a",
         "handoffSha": "sha256:62dcd1f0b6cfa0ba42487ca952b4f6fa7c2add17059fe80f4a76f9b7963dd1c9",
         "handoffAgeSec": 179,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782418173-2fe4",
-        "at": "2026-06-25T20:09:33Z",
-        "ts": 1782418173,
-        "trigger": "self",
-        "prevHead": "df0d040d",
-        "handoffSha": "sha256:9a56c5e67b2287158560a1f364b5a933016b91eeb7d31f4e7a10dd0046d89de5",
-        "handoffAgeSec": 23,
         "conformanceBefore": null,
         "commitsInSession": null
       }
