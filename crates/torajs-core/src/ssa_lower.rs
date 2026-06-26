@@ -17980,139 +17980,14 @@ impl<'a> LowerCtx<'a> {
                         return Operand::ConstBool(has);
                     }
                 }
-                // `Object.keys(obj)` / `Object.getOwnPropertyNames(obj)` —
-                // emit a compile-time constant string array of obj's
-                // struct field names. Zero-cost reflection: the struct
-                // layout is known at lower time, so the result is just
-                // an `arr_alloc(N)` + N direct stores, identical to
-                // writing `["x", "y", ...]` by hand. tr has no
-                // prototype chain, so own == all and the two surfaces
-                // share this lowering.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ((ns == "Object" && (m_name == "keys" || m_name == "getOwnPropertyNames"))
-                        // `Reflect.ownKeys(obj)` aliases to the same emit
-                        // — tr has no symbol keys + no prototype chain so
-                        // own-string-keys == all-own-keys.
-                        || (ns == "Reflect" && m_name == "ownKeys"))
-                    // S255 — widen `== 1` → `>= 1` per ES §20.1.2.{17,22}
-                    // / §28.1.11 trailing-arg ignore. Lower only args[0]
-                    // (the target obj); trailing args dropped at
-                    // lower-time (check.rs already type_of'd them).
-                    && !args.is_empty()
+                // V3-18 m1.h.4 — `Object.keys(obj)` /
+                // `Object.getOwnPropertyNames(obj)` / `Reflect.ownKeys(obj)`
+                // namespace statics. See `ssa_lower_call_object_keys`
+                // (chunk-18 of Expr::Call decomp). Returns `None` when
+                // callee isn't one of the three surfaces or args.is_empty().
+                if let Some(op) = crate::ssa_lower_call_object_keys::try_lower(self, *callee, args)
                 {
-                    let arg_op = self.lower_expr(args[0]);
-                    // S297 — lower-and-drop trailing args past the 1
-                    // useful obj slot per S255 (S272 idiom). check.rs
-                    // already type_of'd them.
-                    for &a in args.iter().skip(1) {
-                        let _ = self.lower_expr(a);
-                    }
-                    let arg_ty = self.operand_ty(&arg_op);
-                    // `Object.keys` filters to enumerable-own per spec
-                    // §22.1.3.16; Array/String `length` is non-enumerable
-                    // (§10.4.2.4 step 4 / §22.1.5.1) so it's omitted.
-                    // `getOwnPropertyNames` / `Reflect.ownKeys` include
-                    // all own keys (length included). Pick helper by
-                    // surface name so the three share the SSA arm.
-                    let is_keys_only = m_name == "keys";
-                    // W-N-b — Arr<T> receiver: keys → `["0", ..., "<len-1>"]`,
-                    // getOwnPropertyNames / ownKeys → `[..., "length"]`.
-                    // Length is runtime-dynamic, so we Load `arr.len` at
-                    // `ARR_LEN_OFF=8` and route through the per-surface
-                    // helper instead of building a compile-time literal
-                    // name list.
-                    if matches!(arg_ty, Type::Arr(_)) {
-                        let len = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, arg_op, 8),
-                            Type::I64,
-                            None,
-                        );
-                        let helper = if is_keys_only {
-                            self.intrinsics.arr_keys_only
-                        } else {
-                            self.intrinsics.arr_index_strs
-                        };
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(helper, vec![Operand::Value(len)]),
-                            Type::Arr(intern_arr_layout(self.arr_layouts, Type::Str)),
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    // W-N-d — Str receiver: keys → `["0", ..., "<len-1>"]`,
-                    // getOwnPropertyNames → `[..., "length"]` (§22.1.5.2.4).
-                    // The helper reads the u32 length at `STR_LEN_OFF=8`
-                    // internally and delegates to its Arr counterpart,
-                    // so the SSA arm just passes the Str ptr through.
-                    if matches!(arg_ty, Type::Str) {
-                        let helper = if is_keys_only {
-                            self.intrinsics.str_keys_only
-                        } else {
-                            self.intrinsics.str_index_strs
-                        };
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(helper, vec![arg_op]),
-                            Type::Arr(intern_arr_layout(self.arr_layouts, Type::Str)),
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    // W-J Phase C1 — `any` receiver: the struct identity
-                    // is only known at runtime. Route through the
-                    // struct_enum helper, which reads `class_tag@+8`,
-                    // looks the layout up, and walks the field names.
-                    // `keys` and `getOwnPropertyNames` coincide for a
-                    // struct (no prototype chain, no array `length`), so
-                    // both surfaces share this arm. A non-struct cell
-                    // throws loudly inside the helper — propagate it.
-                    if matches!(arg_ty, Type::Any) {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.anyv_struct_keys, vec![arg_op]),
-                            Type::Arr(intern_arr_layout(self.arr_layouts, Type::Str)),
-                            None,
-                        );
-                        self.emit_throw_check(None);
-                        return Operand::Value(v);
-                    }
-                    let field_names: Vec<String> = match arg_ty {
-                        Type::Obj(sid) => self.struct_layouts[sid.0 as usize]
-                            .iter()
-                            .map(|(n, _)| n.clone())
-                            .collect(),
-                        other => panic!(
-                            "ssa-lower: Object.{m_name} requires a struct arg, got {other:?}"
-                        ),
-                    };
-                    let n = field_names.len() as i64;
-                    let str_ty = Type::Str;
-                    let arr_id = intern_arr_layout(self.arr_layouts, str_ty);
-                    let arr_ptr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(n)]),
-                        Type::Arr(arr_id),
-                        None,
-                    );
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
-                    );
-                    for (i, fname) in field_names.iter().enumerate() {
-                        let str_v = self.intern_string_literal(fname);
-                        let off = ARR_DATA_OFF + (i as u64) * 8;
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(str_v), Operand::Value(arr_ptr), off),
-                        );
-                    }
-                    return Operand::Value(arr_ptr);
+                    return op;
                 }
                 /* T-13.b (v0.4.0) — Symbol.for(key) / Symbol.keyFor(s).
                  * Direct delegation to the runtime registry helpers

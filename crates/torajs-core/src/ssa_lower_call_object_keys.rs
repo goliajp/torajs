@@ -1,0 +1,183 @@
+//! `Object.keys(obj)` / `Object.getOwnPropertyNames(obj)` /
+//! `Reflect.ownKeys(obj)` namespace static methods pulled out of
+//! [`crate::ssa_lower::lower_expr_inner`] `Expr::Call` dispatch as chunk-18
+//! of the `Expr::Call` god-arm decomp (chunks 1-17 = Arr higher-order +
+//! Map dispatch + Set dispatch + Arr.push + Number instance methods +
+//! bare-name globals + Str regex methods + Number namespace + Array.from +
+//! Arr predicate iter + Arr.flatMap + Object.entries + fn-indirect +
+//! Number/String/Boolean coercion + universal methods + closure-local +
+//! Object.values).
+//!
+//! Three surfaces share this arm. tr has no prototype chain + no symbol
+//! keys, so own-string-keys == all-own-keys for structs; the only
+//! difference is whether Array/String `length` is included:
+//! - `Object.keys`: spec §22.1.3.16 — enumerable-own only, so Array/String
+//!   `length` is non-enumerable (§10.4.2.4 step 4 / §22.1.5.1) → omit.
+//! - `Object.getOwnPropertyNames`: all own keys → include `length`.
+//! - `Reflect.ownKeys`: aliases `getOwnPropertyNames` here (no symbol
+//!   keys → identical result for these receivers).
+//!
+//! Surface picked by callee `m_name` (`"keys"` vs others).
+//!
+//! Four receiver routes:
+//! - `Type::Arr(_)`: Load `arr.len` at `ARR_LEN_OFF=8` + route through
+//!   per-surface helper (`__torajs_arr_keys_only` / `__torajs_arr_index_strs`).
+//!   Length is runtime-dynamic so the helper builds the str array
+//!   (`"0".."<len-1>"` + optional trailing `"length"`).
+//! - `Type::Str`: per-surface helper (`__torajs_str_keys_only` /
+//!   `__torajs_str_index_strs`) reads u32 length at `STR_LEN_OFF=8`
+//!   internally and delegates to its Arr counterpart.
+//! - `Type::Any` (W-J Phase C1): struct identity is only known at
+//!   runtime. `__torajs_anyv_struct_keys` reads `class_tag@+8`, looks
+//!   the layout up, and walks the field names. `keys` and
+//!   `getOwnPropertyNames` coincide for a struct (no prototype chain,
+//!   no array `length`), so both surfaces share this arm. Non-struct
+//!   cells throw loudly — propagated via `emit_throw_check`.
+//! - `Type::Obj(struct)`: compile-time literal name array. Zero-cost
+//!   reflection — emit `arr_alloc(N)` + N direct stores of interned str
+//!   ptrs, identical to writing `["x", "y", ...]` by hand.
+//!
+//! S255 + S297 — ES §20.1.2.{17,22} / §28.1.11 trailing-arg ignore:
+//! widens the `args.len() == 1` gate to `>= 1` and lower-and-drops
+//! `args[1..]` for spec L-to-R side-effect order (check.rs already
+//! typecheck-drops them).
+//!
+//! Returns `Some(result)` when callee matches one of the three surfaces
+//! with a non-empty args list; non-Arr/Str/Any/Obj receivers panic at
+//! SSA lower-time (preserving the original block's behavior). `None`
+//! lets the caller fall through to the next arm.
+
+use crate::ast::{Expr, ExprId};
+use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa_lower::{ARR_DATA_OFF, ARR_LEN_OFF, LowerCtx, intern_arr_layout};
+
+pub(crate) fn try_lower(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let (ns_id, m_name) = match ctx.ast.get_expr(callee) {
+        Expr::Member { obj, name } => (*obj, name.clone()),
+        _ => return None,
+    };
+    let Expr::Ident(ns) = ctx.ast.get_expr(ns_id) else {
+        return None;
+    };
+    let matched = (ns == "Object" && (m_name == "keys" || m_name == "getOwnPropertyNames"))
+        // Reflect.ownKeys aliases the same emit — tr has no symbol keys
+        // + no prototype chain so own-string-keys == all-own-keys.
+        || (ns == "Reflect" && m_name == "ownKeys");
+    if !matched {
+        return None;
+    }
+    // S255 — widen `== 1` → `>= 1` per ES §20.1.2.{17,22} / §28.1.11
+    // trailing-arg ignore. Lower only args[0] (the target obj);
+    // trailing args dropped at lower-time (check.rs already type_of'd
+    // them).
+    if args.is_empty() {
+        return None;
+    }
+    let arg_op = ctx.lower_expr(args[0]);
+    // S297 — lower-and-drop trailing args past the 1 useful obj slot
+    // per S255 (S272 idiom). check.rs already type_of'd them.
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    let arg_ty = ctx.operand_ty(&arg_op);
+    // `Object.keys` filters to enumerable-own per spec §22.1.3.16;
+    // Array/String `length` is non-enumerable (§10.4.2.4 step 4 /
+    // §22.1.5.1) so it's omitted. `getOwnPropertyNames` / `Reflect.ownKeys`
+    // include all own keys (length included). Pick helper by surface
+    // name so the three share the SSA arm.
+    let is_keys_only = m_name == "keys";
+
+    // W-N-b — Arr<T> receiver: keys → `["0", ..., "<len-1>"]`,
+    // getOwnPropertyNames / ownKeys → `[..., "length"]`. Length is
+    // runtime-dynamic, so we Load `arr.len` at `ARR_LEN_OFF=8` and
+    // route through the per-surface helper instead of building a
+    // compile-time literal name list.
+    if matches!(arg_ty, Type::Arr(_)) {
+        let len = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, arg_op, 8),
+            Type::I64,
+            None,
+        );
+        let helper = if is_keys_only {
+            ctx.intrinsics.arr_keys_only
+        } else {
+            ctx.intrinsics.arr_index_strs
+        };
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(helper, vec![Operand::Value(len)]),
+            Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
+            None,
+        );
+        return Some(Operand::Value(v));
+    }
+    // W-N-d — Str receiver: keys → `["0", ..., "<len-1>"]`,
+    // getOwnPropertyNames → `[..., "length"]` (§22.1.5.2.4). The
+    // helper reads the u32 length at `STR_LEN_OFF=8` internally and
+    // delegates to its Arr counterpart, so the SSA arm just passes
+    // the Str ptr through.
+    if matches!(arg_ty, Type::Str) {
+        let helper = if is_keys_only {
+            ctx.intrinsics.str_keys_only
+        } else {
+            ctx.intrinsics.str_index_strs
+        };
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(helper, vec![arg_op]),
+            Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
+            None,
+        );
+        return Some(Operand::Value(v));
+    }
+    // W-J Phase C1 — Any receiver: struct identity is only known at
+    // runtime. `__torajs_anyv_struct_keys` reads `class_tag@+8`,
+    // looks the layout up, and walks the field names. `keys` and
+    // `getOwnPropertyNames` coincide for a struct (no prototype
+    // chain, no array `length`), so both surfaces share this arm. A
+    // non-struct cell throws loudly inside the helper — propagate it.
+    if matches!(arg_ty, Type::Any) {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.anyv_struct_keys, vec![arg_op]),
+            Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return Some(Operand::Value(v));
+    }
+    let field_names: Vec<String> = match arg_ty {
+        Type::Obj(sid) => ctx.struct_layouts[sid.0 as usize]
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect(),
+        other => panic!("ssa-lower: Object.{m_name} requires a struct arg, got {other:?}"),
+    };
+    let n = field_names.len() as i64;
+    let str_ty = Type::Str;
+    let arr_id = intern_arr_layout(ctx.arr_layouts, str_ty);
+    let arr_ptr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(n)]),
+        Type::Arr(arr_id),
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
+    );
+    for (i, fname) in field_names.iter().enumerate() {
+        let str_v = ctx.intern_string_literal(fname);
+        let off = ARR_DATA_OFF + (i as u64) * 8;
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::Value(str_v), Operand::Value(arr_ptr), off),
+        );
+    }
+    Some(Operand::Value(arr_ptr))
+}
