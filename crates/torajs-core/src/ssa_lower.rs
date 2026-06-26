@@ -16924,93 +16924,16 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(obj_ptr)
             }
             Expr::Member { obj, name } => {
-                // T-27.c — built-in `f.length` / `f.name` for top-level
-                // FnDecl Ident. Detected early because the regular
-                // lower_expr(obj) panics on `unknown ident` for a top-
-                // level fn (which doesn't appear in `locals`; for
-                // generic fns it's not in `fn_table` either — only
-                // mono-named entries are). Resolve by walking
-                // `ast.stmts` to find the matching FnDecl. Compile-
-                // time fold the param count / name from the AST.
-                if let Expr::Ident(fn_name_ref) = self.ast.get_expr(*obj)
-                    && (name == "length" || name == "name")
-                {
-                    let fn_decl = self.ast.stmts.iter().find_map(|s| match s {
-                        Stmt::FnDecl {
-                            name: n, params, ..
-                        } if n == fn_name_ref => Some((n.clone(), params.clone())),
-                        _ => None,
-                    });
-                    if let Some((fn_name_owned, params)) = fn_decl {
-                        if name == "length" {
-                            // Skip hidden __env first param (lifted closure),
-                            // __this (class method), and __torajs_real_argc
-                            // (T-31's hidden arg-count prefix). All three are
-                            // synthetic — not part of the user-declared param
-                            // list reported by `f.length`.
-                            let visible = params
-                                .iter()
-                                .filter(|p| {
-                                    p.name != "__env"
-                                        && p.name != "__this"
-                                        && p.name != "__torajs_real_argc"
-                                        && !p.is_rest
-                                })
-                                .count();
-                            return Operand::ConstI64(visible as i64);
-                        } else {
-                            // .name — top-level FnDecl uses its declared
-                            // name; lifted-closure synthetic names
-                            // ("__closure_N") return "" per JS spec for
-                            // anonymous fns assigned to a binder we
-                            // don't track here.
-                            let visible_name = if fn_name_owned.starts_with("__closure_") {
-                                String::new()
-                            } else {
-                                fn_name_owned
-                            };
-                            let s = self.intern_string_literal(&visible_name);
-                            return Operand::Value(s);
-                        }
-                    }
-                }
-                // Path 2: closure local-binding (let f = function() {} where
-                // f is in `locals` as Type::Closure). Same fold using its
-                // SigId from fn_sig_ids.
-                if let Expr::Ident(fn_name_ref) = self.ast.get_expr(*obj)
-                    && (name == "length" || name == "name")
-                    && let Some(&fid) = self.fn_table.get(fn_name_ref)
-                    && let Some(&sig_id) = self.fn_sig_ids.get(&fid)
-                {
-                    if name == "length" {
-                        let (params, _) = &self.fn_sigs[sig_id.0 as usize];
-                        // Lifted closures prepend hidden __env Ptr; the
-                        // JS-visible param count excludes it.
-                        let visible = if !params.is_empty()
-                            && params[0] == Type::Ptr
-                            && fn_name_ref.starts_with("__closure_")
-                        {
-                            params.len() - 1
-                        } else {
-                            params.len()
-                        };
-                        return Operand::ConstI64(visible as i64);
-                    } else {
-                        // .name returns the user-visible binder. For
-                        // top-level FnDecl, that's the ident text.
-                        // For closures lifted via lift_arrow_fns the
-                        // synthetic name is "__closure_N" — JS spec
-                        // returns "" for anonymous fn expressions
-                        // unless assigned to a binder, so emit "" for
-                        // those rather than the synthetic name.
-                        let visible_name = if fn_name_ref.starts_with("__closure_") {
-                            String::new()
-                        } else {
-                            fn_name_ref.clone()
-                        };
-                        let s = self.intern_string_literal(&visible_name);
-                        return Operand::Value(s);
-                    }
+                // T-27.c — built-in `f.length` / `f.name` for
+                // top-level FnDecl or closure local-binding (Path
+                // 1 walks ast.stmts, Path 2 walks fn_table /
+                // fn_sig_ids). Synthetic `__env` / `__this` /
+                // `__torajs_real_argc` / rest params filtered;
+                // `__closure_N` names emitted as "" per JS spec.
+                // See
+                // [`crate::ssa_lower_member_fn_intro::try_lower`].
+                if let Some(op) = crate::ssa_lower_member_fn_intro::try_lower(self, *obj, name) {
+                    return op;
                 }
                 /* T-15.g.2 (v0.5.0) — `await p` (= `p.value`) on a
                  * built-in Type::Promise(T). Lowers to a runtime
