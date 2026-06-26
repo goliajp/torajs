@@ -17019,70 +17019,14 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
-                // T-37 followup — `re.source`. Compile-time wires
-                // through __torajs_regex_get_source which materializes
-                // re->src_bytes as a fresh Str.
-                if obj_ty == Type::RegExp && name == "source" {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.regex_get_source, vec![obj_val]),
-                        Type::Str,
-                        None,
-                    );
-                    return Operand::Value(v);
-                }
-                // ES §22.2.6.4 — `re.flags` returns the spec-ordered
-                // flag string built by __torajs_regex_get_flags.
-                if obj_ty == Type::RegExp && name == "flags" {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.regex_get_flags, vec![obj_val]),
-                        Type::Str,
-                        None,
-                    );
-                    return Operand::Value(v);
-                }
-                // ES §22.2.6.5-10 — boolean flag accessors. Each
-                // routes through the shared `__torajs_regex_has_flag`
-                // helper with the matching RE_FLAG_* byte constant.
-                // The bit values mirror torajs-regex::parser:
-                //   RE_FLAG_I=0x01, _G=0x02, _M=0x04, _S=0x08,
-                //   _U=0x10, _Y=0x20.
-                if obj_ty == Type::RegExp {
-                    let bit: Option<i64> = match name.as_str() {
-                        "global" => Some(0x02),
-                        "ignoreCase" => Some(0x01),
-                        "multiline" => Some(0x04),
-                        "dotAll" => Some(0x08),
-                        "unicode" => Some(0x10),
-                        "sticky" => Some(0x20),
-                        _ => None,
-                    };
-                    if let Some(bit) = bit {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.regex_has_flag,
-                                vec![obj_val, Operand::ConstI64(bit)],
-                            ),
-                            Type::Bool,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                }
-                // P9.4 — `re.lastIndex` reads the int64 field on the
-                // RegExp heap object via the runtime accessor. The
-                // value tracks across exec / match calls when the
-                // regex carries `g` or `y`.
-                if obj_ty == Type::RegExp && name == "lastIndex" {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.regex_get_last_index, vec![obj_val]),
-                        Type::I64,
-                        None,
-                    );
-                    return Operand::Value(v);
+                // Type::RegExp accessor cluster — source / flags / 6
+                // bool flag accessors / lastIndex (T-37 followup + ES
+                // §22.2.6.4-10 + P9.4). See
+                // [`crate::ssa_lower_member_regexp_props::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_member_regexp_props::try_lower(self, obj_val, obj_ty, name)
+                {
+                    return op;
                 }
                 if (obj_ty == Type::Str || obj_ty == Type::Substr) && name == "length" {
                     return crate::ssa_lower_str::load_str_or_substr_length(self, obj_val, obj_ty);
