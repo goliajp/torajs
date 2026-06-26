@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-26T10:55:50.557Z",
+  "generatedAt": "2026-06-26T12:28:04.718Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "74c93ff4",
-    "commitSubject": "refactor(torajs-core): extract class-synth register globals",
+    "commit": "83dcab83",
+    "commitSubject": "refactor(torajs-core): extract console.<m> dispatch from ssa_lower",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "83dcab83",
+      "subject": "refactor(torajs-core): extract console.<m> dispatch from ssa_lower"
+    },
+    {
+      "hash": "17c19364",
+      "subject": "refactor(torajs-core): extract Object.is SameValue dispatch from ssa_lower"
+    },
+    {
+      "hash": "132b38ec",
+      "subject": "refactor(torajs-core): extract Object.* integrity/meta cluster"
+    },
+    {
+      "hash": "1b48bf20",
+      "subject": "refactor(torajs-core): extract Promise.<static> cluster from ssa_lower"
+    },
+    {
+      "hash": "88997667",
+      "subject": "refactor(torajs-core): extract fs_promises async wrappers from ssa_lower"
+    },
+    {
+      "hash": "ff4141c5",
+      "subject": "chore(hardev/web): dashboard snapshot @ 74c93ff4 — Expr::Call decomp chunks 21-25 ship"
+    },
+    {
       "hash": "74c93ff4",
       "subject": "refactor(torajs-core): extract class-synth register globals"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "55722f9c",
       "subject": "chore(hardev/web): dashboard snapshot @ a5b3d80e — Expr::Call decomp chunks 16-20 ship"
-    },
-    {
-      "hash": "a5b3d80e",
-      "subject": "refactor(torajs-core): extract Object.assign dispatch from ssa_lower"
-    },
-    {
-      "hash": "8b7cb7bb",
-      "subject": "refactor(torajs-core): extract Object.getPrototypeOf from ssa_lower"
-    },
-    {
-      "hash": "02d28ec8",
-      "subject": "refactor(torajs-core): extract Object.keys dispatch from ssa_lower"
-    },
-    {
-      "hash": "ba9252b9",
-      "subject": "refactor(torajs-core): extract Object.values dispatch from ssa_lower"
-    },
-    {
-      "hash": "866ef994",
-      "subject": "refactor(torajs-core): extract closure-local indirect call from ssa_lower"
-    },
-    {
-      "hash": "7b6e37f9",
-      "subject": "chore(hardev/web): dashboard snapshot @ efe1b103 — Expr::Call decomp 5-chunk continuation"
     }
   ],
-  "headSha": "74c93ff4",
+  "headSha": "83dcab83",
   "autorun": {
-    "total": 251,
+    "total": 252,
     "baselineTarget": 10,
-    "bySelf": 246,
+    "bySelf": 247,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782465072-2cc5",
-      "at": "2026-06-26T09:11:12Z",
-      "ts": 1782465072,
+      "rotationId": "r-1782471457-0a76",
+      "at": "2026-06-26T10:57:37Z",
+      "ts": 1782471457,
       "trigger": "self",
-      "prevHead": "a5b3d80e",
-      "handoffSha": "sha256:f9e78e6e66cb205a272d390e01c81953147e57765ad5ce85aaffc92dbeff93d1",
-      "handoffAgeSec": 6233,
+      "prevHead": "ff4141c5",
+      "handoffSha": "sha256:30b27b788fd9a2ab601fe16e7584963dfbfc78689c08c634472ad6edd8744618",
+      "handoffAgeSec": 19,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782471457-0a76",
+        "at": "2026-06-26T10:57:37Z",
+        "ts": 1782471457,
+        "trigger": "self",
+        "prevHead": "ff4141c5",
+        "handoffSha": "sha256:30b27b788fd9a2ab601fe16e7584963dfbfc78689c08c634472ad6edd8744618",
+        "handoffAgeSec": 19,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782465072-2cc5",
         "at": "2026-06-26T09:11:12Z",
@@ -779,17 +790,6 @@
         "trigger": "self",
         "prevHead": "d770213f",
         "handoffSha": "sha256:5ba710cd87207a4ffb8ff9e06bea921b7e47ac51334e5ad1110c4c1e28351d84",
-        "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782340550-7c88",
-        "at": "2026-06-24T22:35:50Z",
-        "ts": 1782340550,
-        "trigger": "self",
-        "prevHead": "946c43c2",
-        "handoffSha": "sha256:8775cbc16933b1485fc3b934faa288ae2e19ea6e13bbc1ebd9c43f6789d85dde",
         "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
