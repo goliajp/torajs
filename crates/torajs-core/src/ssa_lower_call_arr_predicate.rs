@@ -21,7 +21,7 @@
 //! `None` lets the caller fall through to the next M2/M3/M4 arm below.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 /// Try to lower a `xs.<predicate-method>(p, ...)` call. Returns `Some` when
@@ -46,10 +46,7 @@ pub(crate) fn try_lower(
     if !matches!(recv_ty, Type::Arr(_)) {
         panic!("ssa-lower: `.{name}(...)` on non-array receiver type {recv_ty:?}");
     }
-    let method = name;
-    let is_reverse = method == "findLastIndex" || method == "findLast";
-    let arr_ty = recv_ty;
-    let elem_ty = ctx.arr_layouts[match arr_ty {
+    let elem_ty = ctx.arr_layouts[match recv_ty {
         Type::Arr(id) => id.0 as usize,
         _ => unreachable!(),
     }];
@@ -65,25 +62,43 @@ pub(crate) fn try_lower(
     for &t in args.iter().skip(1) {
         let _ = ctx.lower_expr(t);
     }
-    // Result slot:
-    //   findIndex / findLastIndex → Type::I64 (-1 default)
-    //   some / every             → Type::Bool (false / true)
-    //   find / findLast          → elem_ty (zero-init default)
-    // For find / findLast the not-found return is the zero / null of the
-    // element type — no `T | undefined` since tr lacks union types. For
-    // refcounted elements the null-pointer sentinel makes a meaningful
-    // check (`r === null`); for primitives the user must verify existence
-    // via findIndex first.
-    let is_find = matches!(method.as_str(), "find" | "findLast");
+    let (result_ty, result_slot) = setup_result_slot(ctx, &name, elem_ty);
+    Some(emit_predicate_iter(
+        ctx,
+        &name,
+        src_arr,
+        elem_ty,
+        fn_val,
+        fn_ty,
+        result_ty,
+        result_slot,
+    ))
+}
+
+/// Allocate the result slot in the entry block + store the per-method default
+/// (so a no-match walk returns the JS spec default without conditional stores
+/// in the loop post-section).
+///
+/// Result slot:
+///   findIndex / findLastIndex → Type::I64 (-1 default)
+///   some / every             → Type::Bool (false / true)
+///   find / findLast          → elem_ty (zero-init default)
+/// For find / findLast the not-found return is the zero / null of the
+/// element type — no `T | undefined` since tr lacks union types. For
+/// refcounted elements the null-pointer sentinel makes a meaningful
+/// check (`r === null`); for primitives the user must verify existence
+/// via findIndex first.
+fn setup_result_slot(ctx: &mut LowerCtx<'_>, method: &str, elem_ty: Type) -> (Type, ValueId) {
+    let is_find = matches!(method, "find" | "findLast");
     let result_ty = if is_find {
         elem_ty
-    } else if matches!(method.as_str(), "findIndex" | "findLastIndex") {
+    } else if matches!(method, "findIndex" | "findLastIndex") {
         Type::I64
     } else {
         Type::Bool
     };
     let result_slot = ctx.alloca_in_entry(result_ty, Some("__pred_res"));
-    let default_op: Operand = match method.as_str() {
+    let default_op: Operand = match method {
         "findIndex" | "findLastIndex" => Operand::ConstI64(-1),
         "some" => Operand::ConstBool(false),
         "every" => Operand::ConstBool(true),
@@ -99,6 +114,24 @@ pub(crate) fn try_lower(
         ctx.cur_block,
         InstKind::Store(default_op, Operand::Value(result_slot), 0),
     );
+    (result_ty, result_slot)
+}
+
+/// Emit the full predicate-iter loop: i_slot init + forward/reverse cmp +
+/// body (load elem → call predicate → branch hit/next) + i++ step + after-
+/// block result load. Returns the final loaded result operand.
+#[allow(clippy::too_many_arguments)]
+fn emit_predicate_iter(
+    ctx: &mut LowerCtx<'_>,
+    method: &str,
+    src_arr: ValueId,
+    elem_ty: Type,
+    fn_val: Operand,
+    fn_ty: Type,
+    result_ty: Type,
+    result_slot: ValueId,
+) -> Operand {
+    let is_reverse = method == "findLastIndex" || method == "findLast";
     let i_slot = ctx.alloca(Type::I64, Some("__pred_i"));
     let len = ctx.f.append_inst(
         ctx.cur_block,
@@ -157,6 +190,51 @@ pub(crate) fn try_lower(
             else_blk: after_blk,
         },
     );
+    emit_body_and_step(
+        ctx,
+        method,
+        is_reverse,
+        body_blk,
+        header_blk,
+        after_blk,
+        i_slot,
+        src_arr,
+        elem_ty,
+        fn_val,
+        fn_ty,
+        result_slot,
+    );
+    ctx.cur_block = after_blk;
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(result_ty, Operand::Value(result_slot), 0),
+        result_ty,
+        None,
+    );
+    Operand::Value(r)
+}
+
+/// Emit the loop body (load elem + call predicate) + hit-vs-next branch +
+/// i++ step. Caller has already placed the `cmp` cond-br into body_blk;
+/// after this fn returns body's slots are wired and cur_block points at
+/// after_blk's predecessor (no, actually we leave cur_block on whatever the
+/// final ctx.f.set_term left it — the caller resets to after_blk before
+/// loading the result).
+#[allow(clippy::too_many_arguments)]
+fn emit_body_and_step(
+    ctx: &mut LowerCtx<'_>,
+    method: &str,
+    is_reverse: bool,
+    body_blk: crate::ssa::BlockId,
+    header_blk: crate::ssa::BlockId,
+    after_blk: crate::ssa::BlockId,
+    i_slot: ValueId,
+    src_arr: ValueId,
+    elem_ty: Type,
+    fn_val: Operand,
+    fn_ty: Type,
+    result_slot: ValueId,
+) {
     // body — load elem, run predicate
     ctx.cur_block = body_blk;
     let i_now2 = ctx.f.append_inst(
@@ -175,8 +253,8 @@ pub(crate) fn try_lower(
         None,
     );
     let pred_v = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)]);
-    // Decide branch based on method semantics. some + findIndex break on
-    // `pred == true`; every breaks on `pred == false`.
+    // some + findIndex break on `pred == true`; every breaks on
+    // `pred == false`.
     let break_cond = if method == "every" {
         let inv = ctx.f.append_inst(
             ctx.cur_block,
@@ -198,11 +276,11 @@ pub(crate) fn try_lower(
             else_blk: next_blk,
         },
     );
-    ctx.cur_block = hit_blk;
     // hit: write the appropriate result and exit. For find / findLast the
     // elem is the result; refcounted elements get rc_inc'd so the caller's
     // binding owns a ref independent of the source array's slot.
-    let hit_val: Operand = match method.as_str() {
+    ctx.cur_block = hit_blk;
+    let hit_val: Operand = match method {
         "findIndex" | "findLastIndex" => Operand::Value(i_now2),
         "some" => Operand::ConstBool(true),
         "every" => Operand::ConstBool(false),
@@ -246,12 +324,4 @@ pub(crate) fn try_lower(
         InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
-    ctx.cur_block = after_blk;
-    let r = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(result_ty, Operand::Value(result_slot), 0),
-        result_ty,
-        None,
-    );
-    Some(Operand::Value(r))
 }
