@@ -17788,71 +17788,15 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && matches!(name.as_str(), "test" | "exec" | "toString")
+                // v0.2 #1 — RegExp instance methods (.test / .exec /
+                // .toString) on `Type::RegExp` receivers. Routed to
+                // matching `__torajs_regex_*` runtime intrinsics with
+                // S266 trailing-arg silent-drop. See
+                // [`crate::ssa_lower_call_regex_methods::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_call_regex_methods::try_lower(self, *callee, args)
                 {
-                    let recv_op = self.lower_expr(*obj);
-                    let recv_ty = self.operand_ty(&recv_op);
-                    if recv_ty == Type::RegExp {
-                        let method = name.clone();
-                        match method.as_str() {
-                            // ES §22.2.6.13 — `re.toString()` returns
-                            // `/` + source + `/` + flags. Single runtime
-                            // helper builds the string in one alloc; no
-                            // SSA-level concat needed (each `.source` /
-                            // `.flags` access would allocate a fresh
-                            // intermediate Str + need explicit drops).
-                            "toString" => {
-                                // S266 — trailing args silent-drop per
-                                // spec §22.2.6.16; widen `== 0` to eval-
-                                // and-drop everything.
-                                for a in args.iter() {
-                                    let _ = self.lower_expr(*a);
-                                }
-                                let v = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.regex_to_string, vec![recv_op]),
-                                    Type::Str,
-                                    None,
-                                );
-                                return Operand::Value(v);
-                            }
-                            "test" => {
-                                // S266 — trailing args silent-drop per
-                                // spec §22.2.6.16.
-                                debug_assert!(!args.is_empty());
-                                let s = self.lower_expr(args[0]);
-                                for a in args.iter().skip(1) {
-                                    let _ = self.lower_expr(*a);
-                                }
-                                let v = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.regex_test, vec![recv_op, s]),
-                                    Type::Bool,
-                                    None,
-                                );
-                                return Operand::Value(v);
-                            }
-                            "exec" => {
-                                // S266 — trailing args silent-drop per
-                                // spec §22.2.6.2.
-                                debug_assert!(!args.is_empty());
-                                let s = self.lower_expr(args[0]);
-                                for a in args.iter().skip(1) {
-                                    let _ = self.lower_expr(*a);
-                                }
-                                let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
-                                let v = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.regex_exec, vec![recv_op, s]),
-                                    Type::Arr(arr_id),
-                                    None,
-                                );
-                                return Operand::Value(v);
-                            }
-                            _ => unreachable!("regex method `{method}` not yet wired"),
-                        }
-                    }
+                    return op;
                 }
                 // v0.2 #1 Phase 1b — `<Str>.{replace|replaceAll|split|match
                 // |matchAll}(re, ...)` regex-receiver intercept lives in

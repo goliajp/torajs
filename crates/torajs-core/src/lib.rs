@@ -231,6 +231,7 @@ pub(crate) mod ssa_lower_call_object_keys;
 pub(crate) mod ssa_lower_call_object_values;
 pub(crate) mod ssa_lower_call_promise_static;
 pub(crate) mod ssa_lower_call_reflect_get;
+pub(crate) mod ssa_lower_call_regex_methods;
 pub(crate) mod ssa_lower_call_set_dispatch;
 pub(crate) mod ssa_lower_call_sibling_class_dispatch;
 pub(crate) mod ssa_lower_call_str_regex_methods;
