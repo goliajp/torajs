@@ -15896,102 +15896,11 @@ impl<'a> LowerCtx<'a> {
                     return op;
                 }
                 // T-45 — synthetic `__torajs_in_op(key, obj)` from the
-                // parser's binary `in` rewrite. Dispatch on obj's
-                // static SSA type:
-                //   Type::Arr(_) → bounds check (key as i64 ∈ [0, len))
-                //   Type::Any   → __torajs_dynobj_has via box value@16
-                if let Expr::Ident(n) = self.ast.get_expr(*callee)
-                    && n == "__torajs_in_op"
-                    && args.len() == 2
-                {
-                    let key_op = self.lower_expr(args[0]);
-                    let obj_op = self.lower_expr(args[1]);
-                    let obj_ty = self.operand_ty(&obj_op);
-                    if matches!(obj_ty, Type::Arr(_)) {
-                        // Numeric bounds check. Key may be Number (I64
-                        // or F64); coerce to I64 for the comparison.
-                        let key_i64 = self.coerce_to_i64(key_op);
-                        let len = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, obj_op, ARR_LEN_OFF),
-                            Type::I64,
-                            None,
-                        );
-                        // Bool = (key >= 0) AND (key < len)
-                        let ge0 = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ICmp(IPred::Sge, key_i64.clone(), Operand::ConstI64(0)),
-                            Type::Bool,
-                            None,
-                        );
-                        let lt = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ICmp(IPred::Slt, key_i64, Operand::Value(len)),
-                            Type::Bool,
-                            None,
-                        );
-                        let r = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BinOp(SsaBinOp::And, Operand::Value(ge0), Operand::Value(lt)),
-                            Type::Bool,
-                            None,
-                        );
-                        return Operand::Value(r);
-                    }
-                    if let Type::Obj(sid) = obj_ty {
-                        // Typed struct rhs — fields are statically known
-                        // from the layout. A literal string key folds to a
-                        // compile-time ConstBool; non-literal keys are
-                        // rejected (typed struct has no dynamic member set
-                        // and the right answer would always be the literal-
-                        // key compile-time result anyway). ES §13.10.1.
-                        let layout = self.struct_layouts[sid.0 as usize].clone();
-                        if let Expr::String(s) = self.ast.get_expr(args[0]) {
-                            let present = layout.iter().any(|(n, _)| n == s);
-                            return Operand::ConstBool(present);
-                        }
-                        panic!(
-                            "ssa-lower: `<key> in <obj:Struct>` requires a literal-string key (fields are statically known); got non-literal key expr"
-                        );
-                    }
-                    if matches!(obj_ty, Type::Any) {
-                        // Dispatch on the **key**'s static SSA type:
-                        //   Number → __torajs_in_op_any_num — helper
-                        //     reads HeapHeader::type_tag@+4; Tag::Arr
-                        //     → bounds check, else → false.
-                        //   String → __torajs_in_op_any_str — helper
-                        //     reads the same type_tag; Tag::DynObj
-                        //     → `__torajs_dynobj_has`, else → false.
-                        // The old single-path arm called dynobj_has
-                        // unconditionally and SIGSEGV'd when the Any
-                        // cell was actually an Array. See
-                        // torajs-rc::in_op_any.
-                        let key_ty = self.operand_ty(&key_op);
-                        if matches!(key_ty, Type::I64 | Type::F64) {
-                            let key_i64 = self.coerce_to_i64(key_op);
-                            let r = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.in_op_any_num,
-                                    vec![obj_op, key_i64],
-                                ),
-                                Type::Bool,
-                                None,
-                            );
-                            return Operand::Value(r);
-                        }
-                        if matches!(key_ty, Type::Str) {
-                            let r = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.in_op_any_str, vec![obj_op, key_op]),
-                                Type::Bool,
-                                None,
-                            );
-                            return Operand::Value(r);
-                        }
-                        panic!("ssa-lower: `<key> in <obj:any>` unsupported key type {key_ty:?}");
-                    }
-                    panic!("ssa-lower: `in` rhs unsupported type {obj_ty:?}");
+                // parser's binary `in` rewrite. 3-arm cascade on the
+                // obj's static SSA type (Arr / Obj(sid) / Any). See
+                // [`crate::ssa_lower_call_in_op::try_lower`].
+                if let Some(op) = crate::ssa_lower_call_in_op::try_lower(self, *callee, args) {
+                    return op;
                 }
                 /* V3-03 — `BigInt(value)` callable ctor. Single arg
                  * required; dispatch on the arg's static SSA type:
