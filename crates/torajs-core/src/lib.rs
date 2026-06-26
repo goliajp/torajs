@@ -238,6 +238,7 @@ pub(crate) mod ssa_lower_call_regex_methods;
 pub(crate) mod ssa_lower_call_set_dispatch;
 pub(crate) mod ssa_lower_call_sibling_class_dispatch;
 pub(crate) mod ssa_lower_call_str_regex_methods;
+pub(crate) mod ssa_lower_call_symbol_ctor;
 pub(crate) mod ssa_lower_call_symbol_registry;
 pub(crate) mod ssa_lower_call_universal_methods;
 pub(crate) mod ssa_lower_call_weakref_collections;

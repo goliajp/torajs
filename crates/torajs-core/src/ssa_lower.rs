@@ -16050,32 +16050,10 @@ impl<'a> LowerCtx<'a> {
                     return op;
                 }
                 // T-13.a (v0.4.0) — `Symbol(desc?)` direct constructor
-                // call. Returns Type::Symbol. desc is optional; missing
-                // = NULL pointer (rc_inc no-ops + print formats `Symbol()`).
-                if let Expr::Ident(n) = self.ast.get_expr(*callee)
-                    && n == "Symbol"
+                // call. See [`crate::ssa_lower_call_symbol_ctor::try_lower`].
+                if let Some(op) = crate::ssa_lower_call_symbol_ctor::try_lower(self, *callee, args)
                 {
-                    let desc_op: Operand = if args.is_empty() {
-                        Operand::ConstPtrNull
-                    } else {
-                        let v = self.lower_expr(args[0]);
-                        self.consume_if_ident(args[0]);
-                        v
-                    };
-                    // S308 — lower-and-drop trailing args[1..] per S272
-                    // idiom so step()-style side-effect exprs fire per ES
-                    // §20.4.1 trailing-arg ignore (check.rs S308 already
-                    // typecheck-dropped).
-                    for &a in args.iter().skip(1) {
-                        let _ = self.lower_expr(a);
-                    }
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.symbol_alloc, vec![desc_op]),
-                        Type::Symbol,
-                        None,
-                    );
-                    return Operand::Value(v);
+                    return op;
                 }
                 // V3-18 m2.b — Object.prototype subset on constructor-
                 // namespace objects (Number / String / Math / etc):
