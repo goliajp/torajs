@@ -17027,65 +17027,10 @@ impl<'a> LowerCtx<'a> {
                     Type::Obj(sid) => sid,
                     _ => panic!("ssa-lower: member access on non-object {obj_ty:?} (.{name})"),
                 };
-                // P8.2 — accessor read: `c.value` where C declares
-                // `get value(): T`. desugar_classes renamed the
-                // getter's FnDecl to `__cm_<C>__<name>_get` and
-                // recorded `(C, name) → fn_name` in
-                // `ast.accessor_getters`. Emit a Call to the getter
-                // and return its value, bypassing the struct-layout
-                // field lookup below (the accessor name is not a
-                // real field). Reverse-lookup obj's class from the
-                // struct's sid via the aliases table — same idiom as
-                // the Phase I.1 method-dispatch path at line ~10800.
-                let mut accessor_cname: Option<String> = None;
-                for (n, ty) in self.aliases.iter() {
-                    if matches!(ty, Type::Obj(s) if s.0 == sid.0)
-                        && self.ast.class_parents.contains_key(n)
-                    {
-                        accessor_cname = Some(n.clone());
-                        break;
-                    }
-                }
-                if let Some(cname) = accessor_cname
-                    && let Some(getter_fn) = self
-                        .ast
-                        .accessor_getters
-                        .get(&(cname.clone(), name.clone()))
-                        .cloned()
-                    && let Some(fid) = self.fn_table.get(&getter_fn).copied()
-                {
-                    let ret_ty = self.f_ret_type_hint(fid);
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(fid, vec![obj_val]),
-                        ret_ty,
-                        None,
-                    );
-                    self.emit_throw_check(Some(fid));
-                    return Operand::Value(v);
-                }
-                let layout = &self.struct_layouts[sid.0 as usize];
-                let (idx, field_ty) = layout
-                    .iter()
-                    .enumerate()
-                    .find_map(
-                        |(i, (fname, fty))| {
-                            if fname == name { Some((i, *fty)) } else { None }
-                        },
-                    )
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "ssa-lower: struct {sid:?} has no field `{name}` (layout: {layout:?})"
-                        )
-                    });
-                let offset = OBJ_HEADER_SIZE + idx as u64 * 8;
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(field_ty, obj_val, offset),
-                    field_ty,
-                    None,
-                );
-                Operand::Value(v)
+                // P8.2 accessor read + struct-field-layout fallback
+                // (`Type::Obj(sid)` receiver terminal path). See
+                // [`crate::ssa_lower_member_obj_field::try_lower`].
+                crate::ssa_lower_member_obj_field::try_lower(self, obj_val, sid, name)
             }
             Expr::Array(elements) => {
                 // M1.2 — array literal. Two paths:

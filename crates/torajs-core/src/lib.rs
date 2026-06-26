@@ -268,6 +268,7 @@ pub(crate) mod ssa_lower_logical;
 pub mod ssa_lower_main_exit;
 pub(crate) mod ssa_lower_member_builtin_namespace;
 pub(crate) mod ssa_lower_member_fn_intro;
+pub(crate) mod ssa_lower_member_obj_field;
 pub(crate) mod ssa_lower_member_process;
 pub(crate) mod ssa_lower_member_promise_value;
 pub(crate) mod ssa_lower_member_props_read;
