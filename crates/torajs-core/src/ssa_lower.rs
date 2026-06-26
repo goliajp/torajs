@@ -8887,7 +8887,7 @@ impl<'a> LowerCtx<'a> {
 
     /// Pick the right print intrinsic for `console.<method>(<arg>)`.
     /// log / info / debug write to stdout; error / warn write to stderr.
-    fn console_print_target(&self, method: &str, arg_ty: Type) -> FuncId {
+    pub(crate) fn console_print_target(&self, method: &str, arg_ty: Type) -> FuncId {
         let to_stderr = matches!(method, "error" | "warn");
         match (arg_ty, to_stderr) {
             (Type::Str, false) => self.intrinsics.str_print,
@@ -17686,87 +17686,15 @@ impl<'a> LowerCtx<'a> {
                 if let Some(op) = crate::ssa_lower_call_object_is::try_lower(self, *callee, args) {
                     return op;
                 }
-                if let Some(method) = self.console_method_member(*callee)
-                    && args.len() == 1
-                {
-                    let is_borrow = matches!(
-                        self.ast.get_expr(args[0]),
-                        Expr::Ident(_) | Expr::Member { .. }
-                    );
-                    let arg = self.lower_expr(args[0]);
-                    let arg_ty = self.operand_ty(&arg);
-                    if arg_ty == Type::Substr {
-                        let owned = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.substr_to_owned, vec![arg]),
-                            Type::Str,
-                            None,
-                        );
-                        let target = self.console_print_target(method, Type::Str);
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(target, vec![Operand::Value(owned)]),
-                        );
-                        self.emit_drop_value(Operand::Value(owned), Type::Str);
-                        if !is_borrow {
-                            self.emit_drop_value(arg, Type::Substr);
-                        }
-                        return Operand::ConstI64(0);
-                    }
-                    let is_str = arg_ty == Type::Str;
-                    let target = self.console_print_target(method, arg_ty);
-                    self.f
-                        .append_void(self.cur_block, InstKind::Call(target, vec![arg]));
-                    if is_str && !is_borrow {
-                        self.emit_drop_value(arg, Type::Str);
-                    }
-                    return Operand::ConstI64(0);
-                }
-                // Multi-arg console.X — coerce each to Str, join with " ",
-                // print once. (Same machinery as lower_top_stmt's multi-arg
-                // path; duplicated here for in-expr / inside-fn-body
-                // contexts.)
-                if let Some(method) = self.console_method_member(*callee)
-                    && args.len() > 1
-                {
-                    let arg_ids: Vec<ExprId> = args.clone();
-                    let space_str = self.intern_string_literal(" ");
-                    let mut acc: Option<Operand> = None;
-                    for (i, &aid) in arg_ids.iter().enumerate() {
-                        let arg = self.lower_expr(aid);
-                        let arg_ty = self.operand_ty(&arg);
-                        let s_op = self.coerce_to_str(arg, arg_ty);
-                        if i > 0 {
-                            let prev = acc.unwrap();
-                            let with_sep = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.str_concat,
-                                    vec![prev, Operand::Value(space_str)],
-                                ),
-                                Type::Str,
-                                None,
-                            );
-                            let combined = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.str_concat,
-                                    vec![Operand::Value(with_sep), s_op],
-                                ),
-                                Type::Str,
-                                None,
-                            );
-                            acc = Some(Operand::Value(combined));
-                        } else {
-                            acc = Some(s_op);
-                        }
-                    }
-                    let target = self.console_print_target(method, Type::Str);
-                    let final_str = acc.unwrap();
-                    self.f
-                        .append_void(self.cur_block, InstKind::Call(target, vec![final_str]));
-                    self.emit_drop_value(final_str, Type::Str);
-                    return Operand::ConstI64(0);
+                // `console.<m>(...)` single-arg + multi-arg dispatch
+                // extracted to `ssa_lower_call_console` (chunk-30 of
+                // Expr::Call decomp). Substr substr_to_owned bump +
+                // borrow detection (chunk-29 idiom) on the single-
+                // arg path; multi-arg coerce-then-join-with-space
+                // mirrors `lower_top_stmt`'s statement-level joiner
+                // for in-expr / inside-fn-body contexts.
+                if let Some(op) = crate::ssa_lower_call_console::try_lower(self, *callee, args) {
+                    return op;
                 }
                 if let Some(r) = self.try_lower_arr_pop_shift_unshift(*callee, args) {
                     return r;
