@@ -18215,104 +18215,11 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(r)
             }
             Expr::OptChain { obj, name } => {
-                // P3.5 — `obj?.field` returns Type::Any. Miss path
-                // emits ANY_UNDEF=5 box (per ES spec §13.3.9 — the
-                // short-circuit value is undefined, not null). Hit
-                // path loads the field and boxes as Any. Result is
-                // a single Any-box ptr that downstream Any-aware
-                // ops (typeof / strict-eq / nullish / print) handle.
-                //
-                // Pre-P3.5 the result was field-typed with
-                // ConstPtrNull/0 sentinel on miss — silently wrong
-                // (typeof returned the field's typed-tier label,
-                // not "undefined"; print emitted "null" instead of
-                // "undefined").
-                let obj_op = self.lower_expr(*obj);
-                let obj_ty = self.operand_ty(&obj_op);
-                // Type::Any receiver — NaN-box tag-discriminated
-                // nullish check + Any.Member dispatch. Carved to
-                // `ssa_lower_optchain.rs` to keep the ssa_lower.rs
-                // file-size debt only shrinking.
-                if matches!(obj_ty, Type::Any) {
-                    return self.lower_optchain_any(obj_op, name);
-                }
-                let res_slot = self.alloca_in_entry(Type::Any, Some("__optchain"));
-                // Compute the cond — null obj for the typed-tier
-                // pointer-shaped path. For non-pointer obj_ty (e.g.
-                // statically-known non-null Obj) the cond is
-                // constant-false; LLVM folds.
-                let cond = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::ICmp(IPred::Eq, obj_op.clone(), Operand::ConstPtrNull),
-                    Type::Bool,
-                    None,
-                );
-                let null_blk = self.f.add_block();
-                let mem_blk = self.f.add_block();
-                let after = self.f.add_block();
-                let cb = self.cur_block;
-                self.f.set_term(
-                    cb,
-                    Terminator::CondBr {
-                        cond: Operand::Value(cond),
-                        then_blk: null_blk,
-                        else_blk: mem_blk,
-                    },
-                );
-                // Miss path → box ANY_UNDEF=5 / value=0.
-                self.cur_block = null_blk;
-                let undef_box = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.any_box,
-                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                    ),
-                    Type::Any,
-                    None,
-                );
-                self.f.append_void(
-                    null_blk,
-                    InstKind::Store(Operand::Value(undef_box), Operand::Value(res_slot), 0),
-                );
-                self.f.set_term(null_blk, Terminator::Br(after));
-                // Hit path → load field, box as Any.
-                self.cur_block = mem_blk;
-                let sid = match obj_ty {
-                    Type::Obj(sid) => sid,
-                    _ => panic!(
-                        "ssa-lower: optional chain on non-struct obj type {obj_ty:?} \
-                         not yet supported"
-                    ),
-                };
-                let layout = &self.struct_layouts[sid.0 as usize];
-                let (field_idx, field_ty) = layout
-                    .iter()
-                    .enumerate()
-                    .find(|(_, (n, _))| n == name)
-                    .map(|(i, (_, t))| (i, *t))
-                    .unwrap_or_else(|| panic!("ssa-lower: no field `{name}` on struct {sid:?}"));
-                let offset = OBJ_HEADER_SIZE + (field_idx as u64) * 8;
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(field_ty, obj_op, offset),
-                    field_ty,
-                    None,
-                );
-                let boxed = self.box_to_any(Operand::Value(v));
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(boxed, Operand::Value(res_slot), 0),
-                );
-                let mb = self.cur_block;
-                self.f.set_term(mb, Terminator::Br(after));
-                self.cur_block = after;
-                let r = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::Any, Operand::Value(res_slot), 0),
-                    Type::Any,
-                    None,
-                );
-                Operand::Value(r)
+                // P3.5 — `obj?.field` returns Type::Any (Any receiver
+                // delegates to lower_optchain_any; Obj(sid) typed-tier
+                // null-check CondBr into ANY_UNDEF box vs box_to_any).
+                // See [`crate::ssa_lower_optchain_arm::lower`].
+                crate::ssa_lower_optchain_arm::lower(self, *obj, name)
             }
             Expr::PostIncr { target, is_inc } => {
                 // JS spec: yield the OLD value, then mutate. Three target

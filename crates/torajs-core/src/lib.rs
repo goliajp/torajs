@@ -282,6 +282,7 @@ pub mod ssa_lower_obj_escape;
 pub(crate) mod ssa_lower_object_define;
 pub(crate) mod ssa_lower_objlit_layout;
 pub(crate) mod ssa_lower_optchain;
+pub(crate) mod ssa_lower_optchain_arm;
 pub(crate) mod ssa_lower_parse_fn_type;
 pub(crate) mod ssa_lower_parse_type;
 pub mod ssa_lower_process_on;
