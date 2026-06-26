@@ -272,6 +272,7 @@ pub(crate) mod ssa_lower_member_process;
 pub(crate) mod ssa_lower_member_promise_value;
 pub(crate) mod ssa_lower_member_regexp_props;
 pub(crate) mod ssa_lower_member_symbol_wellknown;
+pub(crate) mod ssa_lower_member_typed_props;
 pub(crate) mod ssa_lower_member_web_runtime;
 pub mod ssa_lower_obj_escape;
 pub(crate) mod ssa_lower_object_define;

@@ -16981,43 +16981,14 @@ impl<'a> LowerCtx<'a> {
                 // refcount header). See torajs-str layout STR_LEN_OFF.
                 // Substr's len lives at the same offset (8) as Str's —
                 // single load for both layouts.
-                // V3-18 m2.c — `<prim>.constructor` returns the
-                // primitive's constructor function. tora doesn't have
-                // first-class function refs for namespaces, so we
-                // just emit ConstPtrNull (typeof on the result still
-                // routes through the typeof-Member path which
-                // returns "function" for namespace ctors).
-                if matches!(
-                    obj_ty,
-                    Type::I64
-                        | Type::F64
-                        | Type::I32
-                        | Type::Bool
-                        | Type::Str
-                        | Type::Substr
-                        | Type::BigInt
-                        | Type::Symbol
-                ) && name == "constructor"
-                {
-                    let _ = obj_val; // operand may have side effects but
-                    // for primitive borrows there's none
-                    // to flush; intentionally drop the
-                    // value
-                    return Operand::ConstPtrNull;
-                }
-                // V3-18 m1.h.47 — Symbol.prototype.description.
-                // Returns the desc str the Symbol was created with (or
-                // null for Symbol() with no arg). The runtime helper
-                // bumps the desc's refcount so the caller can drop
-                // independently of the Symbol's lifetime.
-                if obj_ty == Type::Symbol && name == "description" {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.symbol_description, vec![obj_val]),
-                        Type::Str,
-                        None,
-                    );
-                    return Operand::Value(v);
+                // Typed-receiver Member-access cluster — prim.constructor /
+                // Symbol.description / Arr.length / Map/Set.size /
+                // Closure/FnSig.{length,name}. See
+                // [`crate::ssa_lower_member_typed_props::try_lower`].
+                if let Some(op) = crate::ssa_lower_member_typed_props::try_lower(
+                    self, *obj, obj_val, obj_ty, name,
+                ) {
+                    return op;
                 }
                 // Type::RegExp accessor cluster — source / flags / 6
                 // bool flag accessors / lastIndex (T-37 followup + ES
@@ -17031,91 +17002,11 @@ impl<'a> LowerCtx<'a> {
                 if (obj_ty == Type::Str || obj_ty == Type::Substr) && name == "length" {
                     return crate::ssa_lower_str::load_str_or_substr_length(self, obj_val, obj_ty);
                 }
-                // Phase 2A: `xs.length` on Type::Arr — read u64 len at
-                // offset ARR_LEN_OFF of the array header.
-                if matches!(obj_ty, Type::Arr(_)) && name == "length" {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::I64, obj_val, ARR_LEN_OFF),
-                        Type::I64,
-                        None,
-                    );
-                    return Operand::Value(v);
-                }
-                // P6.1 / P6.2 — `m.size` / `s.size` accessor
-                // property per spec §23.1.3.10 / §24.2.3.9. Both
-                // route through __torajs_map_size since Set storage
-                // is the same Map runtime.
-                if matches!(obj_ty, Type::Map | Type::Set) && name == "size" {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.map_size, vec![obj_val]),
-                        Type::I64,
-                        None,
-                    );
-                    return Operand::Value(v);
-                }
                 // RFC 20260613 any-class-member-read — dispatch lives
                 // in `ssa_lower_any_member` so this god-file doesn't
                 // grow further. See that module's doc for the design.
                 if matches!(obj_ty, Type::Any) {
                     return crate::ssa_lower_any_member::lower_any_member_read(self, obj_val, name);
-                }
-                // T-27.c — built-in `length` and `name` are compile-
-                // time constants known from the fn's static signature
-                // (param count for length, lifted FnDecl name for
-                // name). Fold here without runtime dispatch — both
-                // Closure and FnSig route through the same path
-                // because the signature info comes from fn_sigs not
-                // from the Operand value.
-                if (matches!(obj_ty, Type::Closure(_)) || matches!(obj_ty, Type::FnSig(_)))
-                    && (name == "length" || name == "name")
-                {
-                    let sig_id = match obj_ty {
-                        Type::Closure(s) | Type::FnSig(s) => s,
-                        _ => unreachable!(),
-                    };
-                    if name == "length" {
-                        let (params, _ret) = &self.fn_sigs[sig_id.0 as usize];
-                        // Closures lifted via lift_arrow_fns prepend a
-                        // hidden __env Ptr; the JS-visible param count
-                        // excludes it. FnSig signatures don't.
-                        let visible = if matches!(obj_ty, Type::Closure(_))
-                            && !params.is_empty()
-                            && params[0] == Type::Ptr
-                        {
-                            params.len() - 1
-                        } else {
-                            params.len()
-                        };
-                        return Operand::ConstI64(visible as i64);
-                    } else {
-                        // T-27.c .name: need the lifted fn's name. For
-                        // FnSig values from a bare top-level FnDecl,
-                        // the original ident is recoverable from the
-                        // call-site obj. For closures lifted via
-                        // lift_arrow_fns the name is "__closure_<n>" —
-                        // not user-facing. Spec says anonymous fn
-                        // expressions get the LHS binder's name when
-                        // assigned (e.g. `let g = () => 1; g.name ===
-                        // "g"`); without binder tracking through
-                        // lift_arrow_fns we can't reproduce that. For
-                        // now: bare FnSig from `function f() {}`
-                        // returns "f"; everything else returns "" per
-                        // ES spec for anonymous fns.
-                        let fn_name = if let Expr::Ident(n) = self.ast.get_expr(*obj) {
-                            // If the ident references a top-level
-                            // FnDecl, the name is the ident text. If
-                            // it's a let-binding holding a closure,
-                            // the let name (also via Ident) doubles
-                            // as the binder per spec.
-                            n.clone()
-                        } else {
-                            String::new()
-                        };
-                        let s = self.intern_string_literal(&fn_name);
-                        return Operand::Value(s);
-                    }
                 }
                 // T-27 — Function-as-Object read. Loads the closure's
                 // lazy props_dynobj at CLOSURE_PROPS_OFF. NULL → undef
