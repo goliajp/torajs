@@ -16147,57 +16147,14 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                // P12.4-B/C — `BigInt.asIntN(bits, value)` and
-                // `BigInt.asUintN(bits, value)` per ES §21.2.2.1/§21.2.2.2.
-                // The runtime path supports `bits in [0, 64]`; larger bits
-                // route through `__torajs_throw_range_error` inside the
-                // intrinsic and the `emit_throw_check` post-call propagates
-                // the pending throw to user-visible try/catch.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "BigInt"
-                    && (m_name == "asIntN" || m_name == "asUintN")
-                    && args.len() >= 2
+                // P12.4-B/C — `BigInt.{asIntN|asUintN}(bits, value)`
+                // per ES §21.2.2.{1,2} (S314 trailing-arg silent-drop +
+                // RangeError via emit_throw_check). See
+                // [`crate::ssa_lower_call_bigint_as_int_n::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_call_bigint_as_int_n::try_lower(self, *callee, args)
                 {
-                    let bits_op = self.lower_expr(args[0]);
-                    self.consume_if_ident(args[0]);
-                    let bits_ty = self.operand_ty(&bits_op);
-                    let bits_i64 = match bits_ty {
-                        Type::I64 => bits_op,
-                        Type::F64 => Operand::Value(self.f.append_inst(
-                            self.cur_block,
-                            InstKind::FpToSi(bits_op),
-                            Type::I64,
-                            None,
-                        )),
-                        _ => bits_op,
-                    };
-                    let val_op = self.lower_expr(args[1]);
-                    self.consume_if_ident(args[1]);
-                    // S314 — ES §21.2.2.{1,2} silently ignore trailing
-                    // args past (bits, value). Widen gate `== 2` → `>= 2`
-                    // and mirror lower-and-drop for side-effects so
-                    // step()-style trailing args fire left-to-right
-                    // (S272 idiom).
-                    for &a in args.iter().skip(2) {
-                        let _ = self.lower_expr(a);
-                    }
-                    let target = if m_name == "asIntN" {
-                        self.intrinsics.bigint_as_int_n
-                    } else {
-                        self.intrinsics.bigint_as_uint_n
-                    };
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(target, vec![bits_i64, val_op]),
-                        Type::BigInt,
-                        None,
-                    );
-                    self.emit_throw_check(None);
-                    return Operand::Value(v);
+                    return op;
                 }
                 // `Array.of(...vals)` — emits the same SSA shape as a
                 // no-spread array literal: arr_alloc(n) + len-store +
