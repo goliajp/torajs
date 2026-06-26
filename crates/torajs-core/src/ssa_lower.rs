@@ -17675,111 +17675,16 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                /* v0.2 #3 — Object.is(a, b). Dispatches by arg SSA
-                 * type:
-                 *   - Type::F64       → __torajs_object_is_f64
-                 *     (NaN/NaN → true, +0/-0 → false; bit-level compare)
-                 *   - Type::Str       → __torajs_str_eq (value compare)
-                 *   - Type::I64/Bool  → ICmp Eq directly
-                 *   - heap pointers   → ICmp Eq on i64 representation
-                 *
-                 * Mismatched-type args (e.g. Object.is("1", 1)) return
-                 * a constant `false` since `===` says so.
-                 */
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && m_name == "is"
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Object"
-                    // S257 — widen `== 2` → `>= 2` per ES §20.1.2.9
-                    // trailing-arg ignore. Lower only args[0..2];
-                    // trailing dropped at lower-time (check.rs S257
-                    // type_of'd them).
-                    && args.len() >= 2
-                {
-                    // Borrow detection (v0.4.0 fix): if an arg is an
-                    // Ident / Member / Index expression, the operand
-                    // returned by lower_expr is a borrow (the array /
-                    // object slot still owns the ref). Calling
-                    // emit_drop_value on it would rc_dec the *owner's*
-                    // ref → eventually frees a still-live element →
-                    // SIGSEGV on the next access. Drop only fresh
-                    // values (call results, literals, etc.). Mirrors
-                    // the borrow guard already used by the
-                    // console.log path below. test262 staging/sm/
-                    // Symbol/equality.js covers this — Object.is on
-                    // two indexed Symbol-array reads inside a loop
-                    // crashed after the first iter because the
-                    // array's element rc was being dec'd by Object.is.
-                    let a_borrow = matches!(
-                        self.ast.get_expr(args[0]),
-                        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-                    );
-                    let b_borrow = matches!(
-                        self.ast.get_expr(args[1]),
-                        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-                    );
-                    let a_op = self.lower_expr(args[0]);
-                    let b_op = self.lower_expr(args[1]);
-                    // S306 — lower-and-drop trailing args[2..] per S272
-                    // idiom so step()-style side-effect exprs fire per ES
-                    // §20.1.2.9 trailing-arg ignore (check.rs S257 already
-                    // typecheck-dropped).
-                    for &a in args.iter().skip(2) {
-                        let _ = self.lower_expr(a);
-                    }
-                    let a_ty = self.operand_ty(&a_op);
-                    let b_ty = self.operand_ty(&b_op);
-                    if a_ty != b_ty {
-                        // === yields false on differing types; same
-                        // for Object.is. Drop only fresh args; borrows
-                        // stay owned by their source slot.
-                        if !a_borrow {
-                            self.emit_drop_value(a_op.clone(), a_ty);
-                        }
-                        if !b_borrow {
-                            self.emit_drop_value(b_op, b_ty);
-                        }
-                        return Operand::ConstBool(false);
-                    }
-                    let result_v = match a_ty {
-                        Type::F64 => self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.object_is_f64,
-                                vec![a_op.clone(), b_op.clone()],
-                            ),
-                            Type::Bool,
-                            None,
-                        ),
-                        Type::Str => self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.str_eq,
-                                vec![a_op.clone(), b_op.clone()],
-                            ),
-                            Type::Bool,
-                            None,
-                        ),
-                        // Type::I64 / Bool / heap-pointer types all
-                        // collapse to a direct ICmp Eq — same memory
-                        // representation, so equality is identity.
-                        _ => self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ICmp(IPred::Eq, a_op.clone(), b_op.clone()),
-                            Type::Bool,
-                            None,
-                        ),
-                    };
-                    if !a_borrow {
-                        self.emit_drop_value(a_op, a_ty);
-                    }
-                    if !b_borrow {
-                        self.emit_drop_value(b_op, b_ty);
-                    }
-                    return Operand::Value(result_v);
+                // v0.2 #3 — `Object.is(a, b)` SameValue dispatch
+                // (Type::F64 → object_is_f64; Type::Str → str_eq;
+                // primitive / heap pointer → ICmp Eq; mismatched
+                // types → ConstBool(false)) extracted to
+                // `ssa_lower_call_object_is` (chunk-29 of Expr::Call
+                // decomp). Borrow detection on `Ident` / `Member` /
+                // `Index` args avoids rc_dec'ing the owner's ref
+                // (test262 staging/sm/Symbol/equality.js).
+                if let Some(op) = crate::ssa_lower_call_object_is::try_lower(self, *callee, args) {
+                    return op;
                 }
                 if let Some(method) = self.console_method_member(*callee)
                     && args.len() == 1
