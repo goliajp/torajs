@@ -17762,42 +17762,15 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                /* T-13.b (v0.4.0) — Symbol.for(key) / Symbol.keyFor(s).
-                 * Direct delegation to the runtime registry helpers
-                 * declared in the intrinsics block. */
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Symbol"
-                    && (m_name == "for" || m_name == "keyFor")
-                    // S259 — widen `== 1` → `>= 1` per ES §19.4.{2,3}
-                    // trailing-arg ignore. Lower only args[0]; trailing
-                    // dropped at lower-time (check.rs S259 type_of'd them).
-                    && !args.is_empty()
+                // T-13.b (v0.4.0) — `Symbol.for(key)` / `Symbol.keyFor(s)`
+                // registry helpers extracted to
+                // `ssa_lower_call_symbol_registry` (chunk-23 of
+                // Expr::Call decomp). Returns `None` on shape miss
+                // (non-Symbol namespace, wrong method, args.is_empty).
+                if let Some(op) =
+                    crate::ssa_lower_call_symbol_registry::try_lower(self, *callee, args)
                 {
-                    let arg_op = self.lower_expr(args[0]);
-                    self.consume_if_ident(args[0]);
-                    // S302 — lower-and-drop trailing args[1..] per S272
-                    // idiom so step()-style side-effect exprs fire per ES
-                    // eval-then-discard (check.rs S259 already typecheck-
-                    // dropped). Mirrors S255/S277/S278/S297 sibling arms.
-                    for &a in args.iter().skip(1) {
-                        let _ = self.lower_expr(a);
-                    }
-                    let (fid, ret_ty) = if m_name == "for" {
-                        (self.intrinsics.symbol_for, Type::Symbol)
-                    } else {
-                        (self.intrinsics.symbol_key_for, Type::Str)
-                    };
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(fid, vec![arg_op]),
-                        ret_ty,
-                        None,
-                    );
-                    return Operand::Value(v);
+                    return op;
                 }
                 // T-15.g.3 / T-19.k / T-19.l / T-19.n / ②.6b — built-in
                 // Promise `.then` / `.catch` / `.finally` chain lowering
