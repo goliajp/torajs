@@ -16107,73 +16107,14 @@ impl<'a> LowerCtx<'a> {
                 if let Some(op) = crate::ssa_lower_call_math_hypot::try_lower(self, *callee, args) {
                     return op;
                 }
-                // S203 — Math unary methods 0-arg per ES §21.3.2.*
-                // step 1: ToNumber(undefined) = NaN, then each
-                // method returns NaN unchanged. Short-circuit
-                // here so no helper Call is emitted (the C
-                // intrinsic signature requires the f64 operand).
-                //
-                // `clz32` is the lone exception — it applies
-                // ToUint32 (not ToNumber), and ToUint32(undefined)
-                // = +0, so `Math.clz32()` returns 32 (the count
-                // of leading zero bits in the 32-bit value 0).
-                //
-                // S227 — extend the same fold to an explicit
-                // `undefined` 1-arg shape (`Math.floor(undefined)`).
-                // The check.rs S227 carve-out lets the call through
-                // the type gate; here we skip lower_expr so the
-                // ConstPtrNull undef sentinel never reaches the
-                // helper's f64 ABI.
-                let arg0_is_undef = args.len() == 1
-                    && matches!(
-                        self.expr_types.get(&args[0]),
-                        Some(check_mod::Type::Undefined)
-                    );
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Math"
-                    && (args.is_empty() || arg0_is_undef)
+                // S203 + S227 — `Math.<unary>(...)` 0-arg / single-
+                // `undefined`-arg fold (NaN for ToNumber-spec methods;
+                // 32 for `clz32` via ToUint32(undefined) = 0). See
+                // [`crate::ssa_lower_call_math_unary_undef_fold::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_call_math_unary_undef_fold::try_lower(self, *callee, args)
                 {
-                    let nan_unary = matches!(
-                        m_name.as_str(),
-                        "sqrt"
-                            | "abs"
-                            | "floor"
-                            | "ceil"
-                            | "log"
-                            | "exp"
-                            | "sign"
-                            | "round"
-                            | "trunc"
-                            | "sin"
-                            | "cos"
-                            | "tan"
-                            | "asin"
-                            | "acos"
-                            | "atan"
-                            | "log2"
-                            | "log10"
-                            | "cbrt"
-                            | "sinh"
-                            | "cosh"
-                            | "tanh"
-                            | "asinh"
-                            | "acosh"
-                            | "atanh"
-                            | "expm1"
-                            | "log1p"
-                            | "fround"
-                            | "f16round"
-                    );
-                    if nan_unary {
-                        return Operand::ConstF64(f64::NAN);
-                    }
-                    if m_name == "clz32" {
-                        return Operand::ConstF64(32.0);
-                    }
+                    return op;
                 }
                 // S205 — Math binary methods (pow / atan2 / imul) with
                 // fewer than 2 args. Spec §21.3.2.{5,19,26}:
