@@ -208,6 +208,7 @@ pub(crate) mod ssa_lower_call_arr_push;
 pub(crate) mod ssa_lower_call_bare_globals;
 pub(crate) mod ssa_lower_call_map_dispatch;
 pub(crate) mod ssa_lower_call_number_methods;
+pub(crate) mod ssa_lower_call_number_namespace;
 pub(crate) mod ssa_lower_call_set_dispatch;
 pub(crate) mod ssa_lower_call_str_regex_methods;
 pub mod ssa_lower_closure_captures;
