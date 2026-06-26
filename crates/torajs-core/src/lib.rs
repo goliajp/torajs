@@ -265,6 +265,7 @@ pub mod ssa_lower_deque_escape;
 pub(crate) mod ssa_lower_drops;
 pub(crate) mod ssa_lower_index;
 pub(crate) mod ssa_lower_index_assign;
+pub(crate) mod ssa_lower_instanceof;
 pub(crate) mod ssa_lower_json_parse;
 pub(crate) mod ssa_lower_logical;
 pub mod ssa_lower_main_exit;
