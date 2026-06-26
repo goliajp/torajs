@@ -217,6 +217,7 @@ pub(crate) mod ssa_lower_call_console;
 pub(crate) mod ssa_lower_call_fn_indirect;
 pub(crate) mod ssa_lower_call_fs_promises;
 pub(crate) mod ssa_lower_call_has_own;
+pub(crate) mod ssa_lower_call_iter_next;
 pub(crate) mod ssa_lower_call_map_dispatch;
 pub(crate) mod ssa_lower_call_number_methods;
 pub(crate) mod ssa_lower_call_number_namespace;

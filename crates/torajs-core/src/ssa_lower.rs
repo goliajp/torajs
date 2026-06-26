@@ -51,7 +51,7 @@ use crate::ssa_lower_while_push_fast::lower_while_inner;
 /// its own fn-ptr header at offset 0 and lives in a separate alloc path.
 pub(crate) const OBJ_HEADER_SIZE: u64 = 24;
 pub(crate) const OBJ_CLASS_TAG_OFF: u64 = 8;
-const OBJ_VTABLE_OFF: u64 = 16;
+pub(crate) const OBJ_VTABLE_OFF: u64 = 16;
 
 /// Phase 2A refcount + T-13.5 deque layout (mirrors the `ARR_HDR_*`
 /// constants in torajs-arr):
@@ -17760,140 +17760,13 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                /* P6.4b — `iter.next()` on a Type::MapIter receiver.
-                 * Calls map_iter_step + builds the spec-shaped
-                 * `IteratorResult<any>` struct = `{ value: any,
-                 * done: boolean }` per call. The struct layout is
-                 * interned into self.struct_layouts (matching the
-                 * layout check.rs's (Type::MapIter, "next") returns
-                 * so the StructId aligns with the caller's typing).
-                 * P6.4c-C3 — same struct shape for Type::ArrIter,
-                 * routed through `arr_iter_step` instead. */
-                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && name == "next"
-                    && args.is_empty()
-                {
-                    let recv_ty_hint = match self.ast.get_expr(*obj) {
-                        Expr::Ident(n) => self.locals.get(n).map(|info| info.ty),
-                        _ => None,
-                    };
-                    let step_fid = match recv_ty_hint {
-                        Some(Type::MapIter) => Some(self.intrinsics.map_iter_step),
-                        Some(Type::ArrIter) => Some(self.intrinsics.arr_iter_step),
-                        _ => None,
-                    };
-                    if let Some(step_fid) = step_fid {
-                        let recv_op = self.lower_expr(*obj);
-                        /* Out-slots for (tag, payload). */
-                        let tag_slot = self.alloca(Type::I64, Some("__iter_tag"));
-                        let val_slot = self.alloca(Type::I64, Some("__iter_val"));
-                        let live = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                step_fid,
-                                vec![recv_op, Operand::Value(tag_slot), Operand::Value(val_slot)],
-                            ),
-                            Type::I64,
-                            None,
-                        );
-                        let tag_v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        let val_v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(val_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        /* Box the (tag, payload) into a Type::Any
-                         * (the runtime handles ANY_HEAP rc_inc).
-                         * For non-live (end of iter), tag is
-                         * ANY_UNDEF and box wraps undefined. */
-                        let value_box = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.any_box,
-                                vec![Operand::Value(tag_v), Operand::Value(val_v)],
-                            ),
-                            Type::Any,
-                            None,
-                        );
-                        /* `done` = (live == 0). */
-                        let done_bool = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ICmp(IPred::Eq, Operand::Value(live), Operand::ConstI64(0)),
-                            Type::Bool,
-                            None,
-                        );
-                        /* Intern IteratorResult<any> struct layout
-                         * (matches check.rs's (Type::MapIter, "next")
-                         * return shape: `{ value: any, done: boolean }`). */
-                        let iter_result_fields: Vec<(String, Type)> =
-                            vec![("value".into(), Type::Any), ("done".into(), Type::Bool)];
-                        let sid = match self
-                            .struct_layouts
-                            .iter()
-                            .position(|f| f == &iter_result_fields)
-                        {
-                            Some(i) => ssa::StructId(i as u32),
-                            None => {
-                                let new_id = ssa::StructId(self.struct_layouts.len() as u32);
-                                self.struct_layouts.push(iter_result_fields);
-                                new_id
-                            }
-                        };
-                        let size = (OBJ_HEADER_SIZE as i64) + 2 * 8;
-                        let obj_ptr = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.obj_alloc,
-                                vec![Operand::ConstI64(size)],
-                            ),
-                            Type::Obj(sid),
-                            None,
-                        );
-                        self.emit_obj_header_init(Operand::Value(obj_ptr));
-                        /* Class tag = 0 (anonymous struct, no class), */
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(
-                                Operand::ConstI64(0),
-                                Operand::Value(obj_ptr),
-                                OBJ_CLASS_TAG_OFF,
-                            ),
-                        );
-                        /* vtable = null. */
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(
-                                Operand::ConstPtrNull,
-                                Operand::Value(obj_ptr),
-                                OBJ_VTABLE_OFF,
-                            ),
-                        );
-                        /* Field 0 — "value" at OBJ_HEADER_SIZE. */
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(value_box),
-                                Operand::Value(obj_ptr),
-                                OBJ_HEADER_SIZE,
-                            ),
-                        );
-                        /* Field 1 — "done" at OBJ_HEADER_SIZE + 8. */
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(done_bool),
-                                Operand::Value(obj_ptr),
-                                OBJ_HEADER_SIZE + 8,
-                            ),
-                        );
-                        return Operand::Value(obj_ptr);
-                    }
+                // P6.4b / P6.4c-C3 — `iter.next()` on a Type::MapIter
+                // / Type::ArrIter receiver. Routes through the matching
+                // step intrinsic + synthesizes the spec-shaped
+                // IteratorResult<any> struct (`{ value: any, done: boolean }`).
+                // See [`crate::ssa_lower_call_iter_next::try_lower`].
+                if let Some(op) = crate::ssa_lower_call_iter_next::try_lower(self, *callee, args) {
+                    return op;
                 }
                 // P6.1 — `<Map>.{set|get|has|delete|clear|keys|values|entries|forEach}`
                 // carve-out: see [`crate::ssa_lower_call_map_dispatch::try_lower`].
