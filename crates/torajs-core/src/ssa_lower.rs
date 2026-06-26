@@ -8151,7 +8151,7 @@ pub(crate) struct LowerCtx<'a> {
     /// `emit_throw_check` skips the check after a call to a callee
     /// whose name isn't in this set; intrinsics + verified-pure
     /// user fns are exempt. Recovers the per-call cost M4.1 paid.
-    may_throw_fns: &'a std::collections::HashSet<String>,
+    pub(crate) may_throw_fns: &'a std::collections::HashSet<String>,
     /// review #0001 fix — innermost-active finally block whose body
     /// should run before the enclosing fn's `return` actually fires.
     /// `Stmt::Return` inside a try-with-finally pushes its value into
@@ -17726,60 +17726,15 @@ impl<'a> LowerCtx<'a> {
                 }
                 // Phase I.1 — sibling-class static dispatch. For methods
                 // declared on unrelated classes (no inheritance relation,
-                // so no shared `__dispatch_<M>`), desugar leaves the
-                // Member-call shape intact. Resolve obj's static class
-                // from its struct id via aliases and emit the matching
-                // `__cm_<C>__<M>` static call.
-                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && self.ast.method_owners.contains_key(name)
+                // so no shared `__dispatch_<M>`), resolve obj's static
+                // class from its struct id via aliases and emit the
+                // matching `__cm_<C>__<M>` static call with P10.6-A3
+                // throw-propagation gate. See
+                // [`crate::ssa_lower_call_sibling_class_dispatch::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_call_sibling_class_dispatch::try_lower(self, *callee, args)
                 {
-                    let recv_op = self.lower_expr(*obj);
-                    let recv_ty = self.operand_ty(&recv_op);
-                    if let Type::Obj(sid) = recv_ty {
-                        let mut class_name: Option<String> = None;
-                        for (n, ty) in self.aliases.iter() {
-                            if matches!(ty, Type::Obj(s) if s.0 == sid.0)
-                                && self.ast.class_parents.contains_key(n)
-                            {
-                                class_name = Some(n.clone());
-                                break;
-                            }
-                        }
-                        if let Some(cname) = class_name {
-                            let fn_name = format!("__cm_{cname}__{name}");
-                            if let Some(&fid) = self.fn_table.get(&fn_name) {
-                                let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
-                                argv.push(recv_op);
-                                for a in args {
-                                    argv.push(self.lower_expr(*a));
-                                }
-                                let ret_ty = self.f_ret_type_hint(fid);
-                                let v = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(fid, argv),
-                                    ret_ty,
-                                    None,
-                                );
-                                // P10.6-A3 — sibling-class static
-                                // dispatch must run the same throw-
-                                // propagation gate as the regular Call
-                                // path: a may-throw method (e.g.
-                                // `Generator.prototype.throw`'s
-                                // `Stmt::Throw(__err)` body) sets
-                                // throw_active inside the callee, and
-                                // without the post-call check the
-                                // throw silently fails to reach the
-                                // caller's try/catch (no jump emitted
-                                // to the handler; the rest of the
-                                // calling stmt continues as if no
-                                // throw happened).
-                                if self.may_throw_fns.contains(&fn_name) {
-                                    self.emit_throw_check(None);
-                                }
-                                return Operand::Value(v);
-                            }
-                        }
-                    }
+                    return op;
                 }
                 // T-26 / T-26.B — `wr.deref()` on a Type::WeakRef
                 // receiver + `WeakMap.{set,get,has,delete}` /
@@ -23900,7 +23855,7 @@ impl<'a> LowerCtx<'a> {
         out
     }
 
-    fn f_ret_type_hint(&self, fid: FuncId) -> Type {
+    pub(crate) fn f_ret_type_hint(&self, fid: FuncId) -> Type {
         self.signatures.get(&fid).copied().unwrap_or(Type::I64)
     }
 

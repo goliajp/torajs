@@ -1,0 +1,79 @@
+//! Phase I.1 sibling-class static dispatch pulled out of
+//! [`crate::ssa_lower::lower_expr_inner`] `Expr::Call` dispatch as
+//! chunk-32 of the `Expr::Call` god-arm decomp (chunks 1-31 = ... +
+//! WeakRef / WeakMap / WeakSet typed-receiver method dispatch).
+//!
+//! For methods declared on **unrelated classes** (no inheritance
+//! relation, so no shared `__dispatch_<M>`), desugar leaves the
+//! `Member`-call shape intact. We resolve the receiver's static
+//! class from its struct id via `aliases` (`type Foo = { ... }` →
+//! `Type::Obj(sid)`) and emit the matching `__cm_<C>__<M>` static
+//! call. Pure name overlap across siblings is what makes this arm
+//! distinct from the parent/child dispatch path: there's no
+//! shared base, so we need static-call resolution rather than
+//! virtual `__dispatch_<M>`.
+//!
+//! **P10.6-A3 throw-propagation** — sibling-class static dispatch
+//! must run the same throw-propagation gate as the regular `Call`
+//! path: a may-throw method (e.g. `Generator.prototype.throw`'s
+//! `Stmt::Throw(__err)` body) sets `throw_active` inside the
+//! callee, and without the post-call check the throw silently
+//! fails to reach the caller's try/catch (no jump emitted to the
+//! handler; the rest of the calling stmt continues as if no
+//! throw happened).
+//!
+//! Returns `Some(op)` on hit; `None` on miss (callee not a
+//! `Member`-call, method name not in any class's owner table,
+//! receiver isn't `Type::Obj`, no alias resolves to the matching
+//! sid + class_parents entry, or `__cm_<C>__<M>` doesn't exist
+//! in `fn_table`) so the caller falls through to the next arm.
+
+use crate::ast::{Expr, ExprId};
+use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa_lower::LowerCtx;
+
+pub(crate) fn try_lower(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let Expr::Member { obj, name } = ctx.ast.get_expr(callee) else {
+        return None;
+    };
+    if !ctx.ast.method_owners.contains_key(name) {
+        return None;
+    }
+    let recv_id = *obj;
+    let method_name = name.clone();
+    let recv_op = ctx.lower_expr(recv_id);
+    let recv_ty = ctx.operand_ty(&recv_op);
+    let Type::Obj(sid) = recv_ty else {
+        return None;
+    };
+
+    let mut class_name: Option<String> = None;
+    for (n, ty) in ctx.aliases.iter() {
+        if matches!(ty, Type::Obj(s) if s.0 == sid.0) && ctx.ast.class_parents.contains_key(n) {
+            class_name = Some(n.clone());
+            break;
+        }
+    }
+    let cname = class_name?;
+    let fn_name = format!("__cm_{cname}__{method_name}");
+    let fid = *ctx.fn_table.get(&fn_name)?;
+
+    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
+    argv.push(recv_op);
+    for a in args {
+        argv.push(ctx.lower_expr(*a));
+    }
+    let ret_ty = ctx.f_ret_type_hint(fid);
+    let cur_block = ctx.cur_block;
+    let v = ctx
+        .f
+        .append_inst(cur_block, InstKind::Call(fid, argv), ret_ty, None);
+    if ctx.may_throw_fns.contains(&fn_name) {
+        ctx.emit_throw_check(None);
+    }
+    Some(Operand::Value(v))
+}
