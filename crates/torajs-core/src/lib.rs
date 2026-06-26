@@ -257,6 +257,7 @@ pub(crate) mod ssa_lower_call_symbol_registry;
 pub(crate) mod ssa_lower_call_universal_methods;
 pub(crate) mod ssa_lower_call_vtable_dispatch;
 pub(crate) mod ssa_lower_call_weakref_collections;
+pub(crate) mod ssa_lower_closure;
 pub mod ssa_lower_closure_captures;
 pub(crate) mod ssa_lower_console_log_multiarg;
 pub(crate) mod ssa_lower_container_width;
