@@ -15888,41 +15888,12 @@ impl<'a> LowerCtx<'a> {
                 if let Some(v) = crate::ssa_lower_process_on::try_lower(self, *callee, args) {
                     return v;
                 }
-                // S153 — `Date.UTC(y, m?, d?, h?, min?, s?, ms?)` arity 1-6
-                // per ES §21.4.2.21. Static sig pins 7 args; pad trailing
-                // defaults here (month=0, day=1, hour=0, min=0, sec=0,
-                // ms=0). 7-arg form falls through to the generic
-                // resolve_callee path unchanged.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && m_name == "UTC"
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "Date"
-                    && args.len() < 7
-                    && !args.is_empty()
+                // S153 — `Date.UTC(y, m?, d?, h?, min?, s?, ms?)` arity
+                // 1-6 trailing-default padding. See
+                // [`crate::ssa_lower_call_date_utc_pad::try_lower`].
+                if let Some(op) = crate::ssa_lower_call_date_utc_pad::try_lower(self, *callee, args)
                 {
-                    let mut arg_ops: Vec<Operand> = args
-                        .iter()
-                        .map(|a| {
-                            let v = self.lower_expr(*a);
-                            self.coerce_to_i64(v)
-                        })
-                        .collect();
-                    // defaults indexed by position (year=required so
-                    // skipped; month=0 day=1 hour=0 min=0 sec=0 ms=0)
-                    let defaults = [0i64, 0, 1, 0, 0, 0, 0];
-                    while arg_ops.len() < 7 {
-                        arg_ops.push(Operand::ConstI64(defaults[arg_ops.len()]));
-                    }
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.date_utc_components, arg_ops),
-                        Type::I64,
-                        None,
-                    );
-                    return Operand::Value(v);
+                    return op;
                 }
                 // T-45 — synthetic `__torajs_in_op(key, obj)` from the
                 // parser's binary `in` rewrite. Dispatch on obj's
