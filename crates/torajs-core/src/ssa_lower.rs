@@ -15968,61 +15968,14 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                /* T-24 — virtual-dispatch interception via vtable.
-                 *
-                 * Desugar rewrites `obj.M()` (for chain methods) into
-                 * a call to the synthetic `__dispatch_<M>(obj, args)`.
-                 * We bypass that stub here: load the receiver's
-                 * vtable_ptr at `OBJ_VTABLE_OFF`, load the slot at
-                 * `method_index[M] * 8`, and `CallIndirect` through
-                 * it. O(1) regardless of inheritance depth — replaces
-                 * the prior O(chain depth) tag-switch cascade. */
-                if let Expr::Ident(callee_name) = self.ast.get_expr(*callee)
-                    && let Some(method_name) = callee_name.strip_prefix("__dispatch_")
-                    && let Some(owners) = self.ast.method_owners.get(method_name).cloned()
-                    && let Some(method_idx) = self.ast.method_index.get(method_name).copied()
-                    && !args.is_empty()
+                // T-24 virtual-dispatch interception via vtable —
+                // synthetic `__dispatch_<M>(obj, args)` lookup +
+                // `CallIndirect` through `vtable[method_index[M]]`.
+                // See [`crate::ssa_lower_call_vtable_dispatch::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_call_vtable_dispatch::try_lower(self, *callee, args)
                 {
-                    let arg_ops: Vec<Operand> = args
-                        .iter()
-                        .map(|a| {
-                            let op = self.lower_expr(*a);
-                            self.consume_if_ident(*a);
-                            op
-                        })
-                        .collect();
-                    let recv = arg_ops[0];
-                    /* Resolve return type + signature from the base
-                     * owner's __cm fn — every override shares the
-                     * signature (Liskov: subclass __cm has same param
-                     * + return shape as the base). */
-                    let base_fn_name = format!("__cm_{}__{method_name}", owners[0]);
-                    let base_fid = *self.fn_table.get(&base_fn_name).unwrap_or_else(|| {
-                        panic!("ssa-lower: __dispatch interception lost base fn `{base_fn_name}`")
-                    });
-                    let ret_ty = self.f_ret_type_hint(base_fid);
-                    let sig_id = *self.fn_sig_ids.get(&base_fid).unwrap_or_else(|| {
-                        panic!("ssa-lower: __dispatch base fn `{base_fn_name}` has no SigId")
-                    });
-                    let vt = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::Ptr, recv, OBJ_VTABLE_OFF),
-                        Type::Ptr,
-                        None,
-                    );
-                    let fn_ptr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::Ptr, Operand::Value(vt), (method_idx as u64) * 8),
-                        Type::Ptr,
-                        None,
-                    );
-                    let r = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), arg_ops),
-                        ret_ty,
-                        None,
-                    );
-                    return Operand::Value(r);
+                    return op;
                 }
                 // `n.{toFixed|toString|toLocaleString|toExponential|toPrecision}`
                 // — primitive Number / BigInt / Symbol / Bool / String wedge methods.

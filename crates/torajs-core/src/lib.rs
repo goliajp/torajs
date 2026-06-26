@@ -244,6 +244,7 @@ pub(crate) mod ssa_lower_call_struct_method_dispatch;
 pub(crate) mod ssa_lower_call_symbol_ctor;
 pub(crate) mod ssa_lower_call_symbol_registry;
 pub(crate) mod ssa_lower_call_universal_methods;
+pub(crate) mod ssa_lower_call_vtable_dispatch;
 pub(crate) mod ssa_lower_call_weakref_collections;
 pub mod ssa_lower_closure_captures;
 pub(crate) mod ssa_lower_console_log_multiarg;
