@@ -17320,65 +17320,12 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                /* T-18.c (v0.5.0) — `Bun.file(p).size` synchronous
-                 * property. The receiver shape is
-                 * Call{callee=Bun.file, args=[path]}; lower the
-                 * path, dispatch to fs_size_sync. Returns i64 (-1 on
-                 * missing / non-regular). */
-                if name == "size"
-                    && matches!(
-                        self.ast.get_expr(*obj),
-                        Expr::Call { callee: bf_callee, .. }
-                            if matches!(
-                                self.ast.get_expr(*bf_callee),
-                                Expr::Member { obj: ns_id, name: m }
-                                    if m == "file"
-                                        && matches!(
-                                            self.ast.get_expr(*ns_id),
-                                            Expr::Ident(ns) if ns == "Bun"
-                                        )
-                            )
-                    )
-                {
-                    // The Bun.file(path) lowering passthroughs the
-                    // path Str unchanged. Re-extract path arg.
-                    let path_eid = if let Expr::Call { args, .. } = self.ast.get_expr(*obj).clone()
-                    {
-                        args[0]
-                    } else {
-                        unreachable!()
-                    };
-                    let path_op = self.lower_expr(path_eid);
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.fs_size_sync, vec![path_op]),
-                        Type::I64,
-                        None,
-                    );
-                    return Operand::Value(v);
-                }
-                /* T-21 (v0.6.0) — `<response>.status` — Response struct
-                 * field at offset 8 (i32). The receiver is whatever
-                 * the user code chose to bind the awaited fetch to;
-                 * we identify it by check.rs's per-Expr type side-
-                 * channel showing `Type::Object("Response")`. */
-                if name == "status"
-                    && matches!(
-                        self.expr_types.get(obj),
-                        Some(crate::check::Type::Object("Response"))
-                    )
-                {
-                    let resp_op = self.lower_expr(*obj);
-                    /* Status is i64 at offset 8 — runtime stores the
-                     * full HTTP code as 8 bytes so the load lines up
-                     * with tora's Number ABI directly (no zext). */
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::I64, resp_op, 8),
-                        Type::I64,
-                        None,
-                    );
-                    return Operand::Value(v);
+                // T-18.c + T-21 — `Bun.file(p).size` synchronous fs
+                // lookup + `<response>.status` Response struct field
+                // (web/runtime cluster). See
+                // [`crate::ssa_lower_member_web_runtime::try_lower`].
+                if let Some(op) = crate::ssa_lower_member_web_runtime::try_lower(self, *obj, name) {
+                    return op;
                 }
                 // v0.3 #3 — `process.{platform|argv|env}` + `Bun.argv`
                 // + `process.env.NAME` namespace cluster. See
