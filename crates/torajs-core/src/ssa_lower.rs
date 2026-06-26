@@ -8058,7 +8058,7 @@ pub(crate) struct LowerCtx<'a> {
     /// FuncId → SigId for every user FnDecl, populated in pass 1. Used by
     /// `let f = global_fn` to allocate the right FnSig slot type and by
     /// `FnAddr(fid)` to type its result. M2 Phase B Stage 4.
-    fn_sig_ids: &'a HashMap<FuncId, ssa::SigId>,
+    pub(crate) fn_sig_ids: &'a HashMap<FuncId, ssa::SigId>,
     /// Resolved FuncIds for the runtime intrinsics. Read at every site that
     /// emits a runtime call — string-literal lowering needs `str_alloc`,
     /// `console.log` needs `print_i64` / `str_print`, etc.
@@ -17523,147 +17523,17 @@ impl<'a> LowerCtx<'a> {
                 //     so two owners of the SAME array would double-walk
                 //     (each elem dec'd twice). Cloning gives target its
                 //     own array with proper element refcount accounting.
-                // P4.2 Phase B+C — synthesize_class_globals injected
-                // `__torajs_proto_register(__proto_<C>, "<C>")` at
-                // module init. Resolve the class name to its compile-
-                // time runtime tag and emit the real runtime call
-                // `__torajs_proto_register(<tag_const>, <proto_op>)`.
-                // Unknown class names (shouldn't happen given the
-                // AST pass only emits for declared classes) are
-                // silently no-op'd so misordered toolchain runs don't
-                // crash; the side table just won't have that entry.
-                if let Expr::Ident(name) = self.ast.get_expr(*callee)
-                    && name == "__torajs_proto_register"
-                    && args.len() == 2
-                    && let Expr::String(cname) = self.ast.get_expr(args[1])
+                // Class-synthesis register globals
+                // (`__torajs_proto_register` / `__torajs_class_register`
+                // / `__torajs_register_native_error` /
+                // `__torajs_my_class_ref`) extracted to
+                // `ssa_lower_call_class_synth` (chunk-25 of Expr::Call
+                // decomp). Returns `Some` when the callee is one of
+                // the four sentinel idents; falls through (`None`) on
+                // any other call shape.
+                if let Some(op) = crate::ssa_lower_call_class_synth::try_lower(self, *callee, args)
                 {
-                    let proto_op = self.lower_expr(args[0]);
-                    let cname = cname.clone();
-                    if let Some(tag) = self.class_name_to_tag.get(&cname).copied() {
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.proto_register,
-                                vec![Operand::ConstI64(tag as i64), proto_op],
-                            ),
-                        );
-                    } else {
-                        // Drop the lowered proto operand if no tag —
-                        // keeps the path well-typed if it ever fires.
-                        let proto_ty = self.operand_ty(&proto_op);
-                        self.emit_drop_value(proto_op, proto_ty);
-                    }
-                    return Operand::ConstI64(0);
-                }
-
-                // P4.5 — `__torajs_class_register(__class_<C>, "<C>")`
-                // synthesized by ast::synthesize_class_globals. Same
-                // structure as proto_register but populates the
-                // classes-by-tag side table (read by class_get inside
-                // __new_<C> factory bodies for new.target).
-                if let Expr::Ident(name) = self.ast.get_expr(*callee)
-                    && name == "__torajs_class_register"
-                    && args.len() == 2
-                    && let Expr::String(cname) = self.ast.get_expr(args[1])
-                {
-                    let class_op = self.lower_expr(args[0]);
-                    let cname = cname.clone();
-                    if let Some(tag) = self.class_name_to_tag.get(&cname).copied() {
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.class_register,
-                                vec![Operand::ConstI64(tag as i64), class_op],
-                            ),
-                        );
-                    } else {
-                        let ty = self.operand_ty(&class_op);
-                        self.emit_drop_value(class_op, ty);
-                    }
-                    return Operand::ConstI64(0);
-                }
-
-                // P7.4-a-2 — synthesize_class_globals injected
-                // `__torajs_register_native_error("<C>")` at module
-                // init for each Error-family class present. Map the
-                // name to its FIXED runtime-error slot (0=Error
-                // 1=TypeError 2=RangeError — NOT a per-program class
-                // tag) and to the codegen'd `__new_<C>` factory
-                // address, then emit the real registration. The
-                // runtime stores the fn-ptr and calls it on a
-                // native-error throw to build a real catchable
-                // instance. Unknown name / missing factory / missing
-                // sig → silent no-op (program lacks that class;
-                // runtime keeps its bare-string fallback).
-                if let Expr::Ident(name) = self.ast.get_expr(*callee)
-                    && name == "__torajs_register_native_error"
-                    && args.len() == 1
-                    && let Expr::String(cname) = self.ast.get_expr(args[0])
-                {
-                    let cname = cname.clone();
-                    let slot: i64 = match cname.as_str() {
-                        "Error" => 0,
-                        "TypeError" => 1,
-                        "RangeError" => 2,
-                        _ => return Operand::ConstI64(0),
-                    };
-                    let factory = format!("__new_{cname}");
-                    if let Some(fid) = self.fn_table.get(&factory).copied()
-                        && let Some(sig) = self.fn_sig_ids.get(&fid).copied()
-                    {
-                        let fnaddr = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::FnAddr(fid),
-                            Type::FnSig(sig),
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.register_native_error,
-                                vec![Operand::ConstI64(slot), Operand::Value(fnaddr)],
-                            ),
-                        );
-                    }
-                    return Operand::ConstI64(0);
-                }
-
-                // P4.5 — `__torajs_my_class_ref("<C>")` emitted by
-                // ast::desugar_classes inside `__new_<C>` factory
-                // bodies. Resolves at lowering time to a runtime
-                // class_get(<tag>) call returning the class's
-                // Any-box (rc-bumped). Compile-time class name
-                // resolution avoids per-instance side-table lookups
-                // when the factory is class-specific anyway.
-                if let Expr::Ident(name) = self.ast.get_expr(*callee)
-                    && name == "__torajs_my_class_ref"
-                    && args.len() == 1
-                    && let Expr::String(cname) = self.ast.get_expr(args[0])
-                {
-                    let cname = cname.clone();
-                    if let Some(tag) = self.class_name_to_tag.get(&cname).copied() {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.class_get,
-                                vec![Operand::ConstI64(tag as i64)],
-                            ),
-                            Type::Any,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    // No tag → return ANY_UNDEF Any-box as fallback.
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.any_box,
-                            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                        ),
-                        Type::Any,
-                        None,
-                    );
-                    return Operand::Value(v);
+                    return op;
                 }
 
                 // P4.2 Phase B+C — `Object.getPrototypeOf(<arg>)`. See
