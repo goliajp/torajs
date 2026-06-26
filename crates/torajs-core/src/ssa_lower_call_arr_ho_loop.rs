@@ -161,12 +161,8 @@ pub(crate) fn emit_per_method_body(
         None,
     );
     // T-13.5: head-aware offset for map/filter/reduce src walk.
-    let off = ctx.emit_arr_slot_byte_offset(
-        Operand::Value(src_arr),
-        Operand::Value(i_now2),
-        3,
-        false,
-    );
+    let off =
+        ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now2), 3, false);
     let elem = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::LoadDyn(elem_ty, Operand::Value(src_arr), off),
@@ -373,7 +369,8 @@ pub(crate) fn end_loop_and_produce(
         ctx.cur_block,
         InstKind::Store(Operand::Value(i_next), Operand::Value(frame.i_slot), 0),
     );
-    ctx.f.set_term(ctx.cur_block, Terminator::Br(frame.header_blk));
+    ctx.f
+        .set_term(ctx.cur_block, Terminator::Br(frame.header_blk));
     ctx.cur_block = frame.after_blk;
     match method {
         "map" | "filter" => {

@@ -21,9 +21,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::check as check_mod;
-use crate::ssa::{
-    FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId,
-};
+use crate::ssa::{FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// Try to lower a Map-method call. Returns `Some` when dispatched.
@@ -39,8 +37,7 @@ pub(crate) fn try_lower(
     let m_name = name;
     if !matches!(
         m_name.as_str(),
-        "set" | "get" | "has" | "delete" | "clear"
-            | "forEach" | "keys" | "values" | "entries"
+        "set" | "get" | "has" | "delete" | "clear" | "forEach" | "keys" | "values" | "entries"
     ) {
         return None;
     }
@@ -109,9 +106,7 @@ fn dispatch_map_method(
             Operand::ConstI64(0)
         }
         "keys" => emit_iter_create(ctx, recv_op, args, ctx.intrinsics.map_iter_create_keys),
-        "values" => {
-            emit_iter_create(ctx, recv_op, args, ctx.intrinsics.map_iter_create_values)
-        }
+        "values" => emit_iter_create(ctx, recv_op, args, ctx.intrinsics.map_iter_create_values),
         "entries" => {
             // P6.4c — `m.entries()` yields a MapIter that emits `[k, v]`
             // Array<Any> pairs per step. The runtime helper allocs the
@@ -282,11 +277,7 @@ fn emit_iter_create(
 /// entries, loads (key_tag, key_val, val_tag, val_val) into stack slots,
 /// re-boxes into Any pairs, then calls `cb(value, key, map)`. Devirts to
 /// direct call when args[0] is a known Closure/FnDecl.
-fn emit_map_for_each(
-    ctx: &mut LowerCtx<'_>,
-    recv_op: Operand,
-    args: &[ExprId],
-) -> Operand {
+fn emit_map_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Operand {
     // S316 — ES §23.1.3.5 silently ignores trailing args past cb. check.rs
     // S270 typecheck-drops them; mirror lower-and-drop here (S272 idiom).
     debug_assert!(!args.is_empty());

@@ -60,9 +60,7 @@ pub(crate) fn try_lower(
     if recv_ty == Type::BigInt && m_name == "toString" {
         return Some(emit_bigint_to_string(ctx, recv_op, args));
     }
-    if recv_ty == Type::Symbol
-        && (m_name == "toString" || m_name == "toLocaleString")
-    {
+    if recv_ty == Type::Symbol && (m_name == "toString" || m_name == "toLocaleString") {
         return Some(emit_str_intrinsic(
             ctx,
             recv_op,
@@ -70,8 +68,7 @@ pub(crate) fn try_lower(
             ctx.intrinsics.symbol_to_str,
         ));
     }
-    if recv_ty == Type::Bool && (m_name == "toString" || m_name == "toLocaleString")
-    {
+    if recv_ty == Type::Bool && (m_name == "toString" || m_name == "toLocaleString") {
         return Some(emit_str_intrinsic(
             ctx,
             recv_op,
@@ -109,11 +106,7 @@ pub(crate) fn try_lower(
 /// radix → `bigint_to_string_radix` after FpToSi-coercing f64 radix to
 /// i64 (caller is responsible for clamping; out-of-range RangeError throw
 /// is a follow-up tracked in L3b).
-fn emit_bigint_to_string(
-    ctx: &mut LowerCtx<'_>,
-    recv_op: Operand,
-    args: &[ExprId],
-) -> Operand {
+fn emit_bigint_to_string(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Operand {
     if args.is_empty() {
         let v = ctx.f.append_inst(
             ctx.cur_block,
@@ -314,12 +307,9 @@ fn emit_numeric_digits(
     if m_name == "toExponential" && (args.is_empty() || arg0_is_undef) {
         argv.push(Operand::ConstI64(i64::MIN));
     }
-    let v = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(target, argv),
-        Type::Str,
-        None,
-    );
+    let v = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::Call(target, argv), Type::Str, None);
     // ES §22.1.3.{5,32} step 3 — toFixed(digits) / toExponential(digits)
     // / toPrecision(digits) throw RangeError when digits is outside the
     // spec range. The runtime helpers record the throw via TLS; propagate
@@ -335,11 +325,7 @@ fn emit_numeric_digits(
 /// (S139); locale-arg variants are a separate Intl item. Bare toString
 /// routes to the same formatters powering Number-to-String coercion in
 /// `+` (i64_to_str / f64_to_str).
-fn pick_digits_intrinsic(
-    ctx: &LowerCtx<'_>,
-    m_name: &str,
-    is_f64: bool,
-) -> FuncId {
+fn pick_digits_intrinsic(ctx: &LowerCtx<'_>, m_name: &str, is_f64: bool) -> FuncId {
     match m_name {
         "toFixed" if is_f64 => ctx.intrinsics.num_to_fixed_f,
         "toFixed" => ctx.intrinsics.num_to_fixed_i,

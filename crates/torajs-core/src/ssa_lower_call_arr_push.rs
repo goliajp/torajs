@@ -85,12 +85,7 @@ fn try_lower_ident_local(
     // 16-byte tagged-slot layout. Same boxing scheme as the Index-assign
     // Any path shipped earlier.
     if matches!(elem_ty, Type::Any) {
-        return Some(ctx.emit_arr_any_push_at_slot(
-            Operand::Value(info.slot),
-            0,
-            args[0],
-            arr_ty,
-        ));
+        return Some(ctx.emit_arr_any_push_at_slot(Operand::Value(info.slot), 0, args[0], arr_ty));
     }
     let cur_arr = ctx.f.append_inst(
         ctx.cur_block,
@@ -114,11 +109,7 @@ fn try_lower_ident_local(
         );
         let len_x8 = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Mul,
-                Operand::Value(len_now),
-                Operand::ConstI64(8),
-            ),
+            InstKind::BinOp(SsaBinOp::Mul, Operand::Value(len_now), Operand::ConstI64(8)),
             Type::I64,
             None,
         );
@@ -142,21 +133,13 @@ fn try_lower_ident_local(
         );
         let len_next = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Add,
-                Operand::Value(len_now),
-                Operand::ConstI64(1),
-            ),
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(len_now), Operand::ConstI64(1)),
             Type::I64,
             None,
         );
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Store(
-                Operand::Value(len_next),
-                Operand::Value(state.len_slot),
-                0,
-            ),
+            InstKind::Store(Operand::Value(len_next), Operand::Value(state.len_slot), 0),
         );
         if elem_ty.is_refcounted() && !val_owned_from_substr {
             ctx.emit_rc_inc(val);
@@ -198,11 +181,7 @@ fn try_lower_ident_local(
         );
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Store(
-                Operand::Value(new_arr),
-                Operand::Value(env_ptr),
-                env_offset,
-            ),
+            InstKind::Store(Operand::Value(new_arr), Operand::Value(env_ptr), env_offset),
         );
     }
     // chunk 9c — push spec parity: ret new length per JS spec §22.1.3.20.
@@ -247,12 +226,7 @@ fn try_lower_ident_global(
         None,
     );
     if matches!(elem_ty, Type::Any) {
-        return Some(ctx.emit_arr_any_push_at_slot(
-            Operand::Value(slot_ptr),
-            0,
-            args[0],
-            arr_ty,
-        ));
+        return Some(ctx.emit_arr_any_push_at_slot(Operand::Value(slot_ptr), 0, args[0], arr_ty));
     }
     let cur_arr = ctx.f.append_inst(
         ctx.cur_block,
@@ -291,11 +265,7 @@ fn try_lower_ident_global(
 /// once (borrow), find the field's offset, then load → push → store-back
 /// at that offset. P0.10 mirror: `class W { items: any[] = [] }` allocates
 /// via arr_alloc_any (16B tagged slots) so push must use arr_push_any too.
-fn try_lower_field(
-    ctx: &mut LowerCtx<'_>,
-    recv_id: ExprId,
-    args: &[ExprId],
-) -> Option<Operand> {
+fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> Option<Operand> {
     let (struct_id, field_name) = match ctx.ast.get_expr(recv_id) {
         Expr::Member { obj, name } => (*obj, name.clone()),
         _ => return None,
@@ -307,16 +277,13 @@ fn try_lower_field(
         _ => return None,
     };
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
-    let (idx, field_ty) = layout
-        .iter()
-        .enumerate()
-        .find_map(|(i, (fname, fty))| {
-            if *fname == field_name {
-                Some((i, *fty))
-            } else {
-                None
-            }
-        })?;
+    let (idx, field_ty) = layout.iter().enumerate().find_map(|(i, (fname, fty))| {
+        if *fname == field_name {
+            Some((i, *fty))
+        } else {
+            None
+        }
+    })?;
     let arr_id = match field_ty {
         Type::Arr(id) => id,
         _ => return None,
@@ -381,11 +348,7 @@ fn try_lower_field(
 /// Returns `(val_operand, val_owned_from_substr)` — the second flag tells
 /// the caller to skip `emit_rc_inc` on the value (the substr_to_owned
 /// already allocated a fresh ref).
-fn coerce_push_value(
-    ctx: &mut LowerCtx<'_>,
-    arg_eid: ExprId,
-    elem_ty: Type,
-) -> (Operand, bool) {
+fn coerce_push_value(ctx: &mut LowerCtx<'_>, arg_eid: ExprId, elem_ty: Type) -> (Operand, bool) {
     let mut val = ctx.lower_expr(arg_eid);
     // Refcounted elements: caller stays the owner via post-push inc;
     // non-refcounted: consume the source ident so the consume-walk doesn't

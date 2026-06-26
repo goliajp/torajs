@@ -20660,9 +20660,7 @@ impl<'a> LowerCtx<'a> {
                 // (e.g. `getArr().push(v)`) return `None` and fall through to
                 // the Phase I.1 sibling-class static dispatch / generic method
                 // arms below.
-                if let Some(op) =
-                    crate::ssa_lower_call_arr_push::try_lower(self, *callee, args)
-                {
+                if let Some(op) = crate::ssa_lower_call_arr_push::try_lower(self, *callee, args) {
                     return op;
                 }
                 // Phase I.1 — sibling-class static dispatch. For methods
@@ -20866,8 +20864,7 @@ impl<'a> LowerCtx<'a> {
                 // when callee isn't a Set-method on a Set-typed receiver, so
                 // dispatch falls through to the RegExp / Date / generic method
                 // dispatch arms below.
-                if let Some(op) =
-                    crate::ssa_lower_call_set_dispatch::try_lower(self, *callee, args)
+                if let Some(op) = crate::ssa_lower_call_set_dispatch::try_lower(self, *callee, args)
                 {
                     return op;
                 }
@@ -21011,8 +21008,7 @@ impl<'a> LowerCtx<'a> {
                 // Returns `None` when callee isn't a Member-of-Map-method on a
                 // Map-typed receiver, so dispatch falls through to the next arm
                 // (Set / RegExp / Date / generic method dispatch) below.
-                if let Some(op) =
-                    crate::ssa_lower_call_map_dispatch::try_lower(self, *callee, args)
+                if let Some(op) = crate::ssa_lower_call_map_dispatch::try_lower(self, *callee, args)
                 {
                     return op;
                 }
@@ -22123,9 +22119,7 @@ impl<'a> LowerCtx<'a> {
                 // its companion [`crate::ssa_lower_call_arr_ho_loop`]. Returns
                 // `None` when callee shape doesn't match, so dispatch falls
                 // through to the next M2/M3/M4 arm below.
-                if let Some(op) =
-                    crate::ssa_lower_call_arr_ho::try_lower(self, *callee, args)
-                {
+                if let Some(op) = crate::ssa_lower_call_arr_ho::try_lower(self, *callee, args) {
                     return op;
                 }
                 // M2 — call a Closure-typed local. Load env_ptr from

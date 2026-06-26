@@ -32,9 +32,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::check as check_mod;
-use crate::ssa::{
-    FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId,
-};
+use crate::ssa::{FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// Try to lower a Set-method call. Returns `Some` when dispatched.
@@ -124,28 +122,17 @@ fn dispatch_set_method(
             );
             Operand::ConstI64(0)
         }
-        "isSubsetOf" => emit_relation_predicate(
-            ctx,
-            recv_op,
-            args,
-            ctx.intrinsics.set_is_subset_of,
-        ),
-        "isSupersetOf" => emit_relation_predicate(
-            ctx,
-            recv_op,
-            args,
-            ctx.intrinsics.set_is_superset_of,
-        ),
-        "isDisjointFrom" => emit_relation_predicate(
-            ctx,
-            recv_op,
-            args,
-            ctx.intrinsics.set_is_disjoint_from,
-        ),
-        "union" => emit_setop(ctx, recv_op, args, ctx.intrinsics.set_union),
-        "intersection" => {
-            emit_setop(ctx, recv_op, args, ctx.intrinsics.set_intersection)
+        "isSubsetOf" => {
+            emit_relation_predicate(ctx, recv_op, args, ctx.intrinsics.set_is_subset_of)
         }
+        "isSupersetOf" => {
+            emit_relation_predicate(ctx, recv_op, args, ctx.intrinsics.set_is_superset_of)
+        }
+        "isDisjointFrom" => {
+            emit_relation_predicate(ctx, recv_op, args, ctx.intrinsics.set_is_disjoint_from)
+        }
+        "union" => emit_setop(ctx, recv_op, args, ctx.intrinsics.set_union),
+        "intersection" => emit_setop(ctx, recv_op, args, ctx.intrinsics.set_intersection),
         "difference" => emit_setop(ctx, recv_op, args, ctx.intrinsics.set_difference),
         "symmetricDifference" => {
             emit_setop(ctx, recv_op, args, ctx.intrinsics.set_symmetric_difference)
@@ -322,11 +309,7 @@ fn emit_iter_create(
 /// a sentinel cursor through live entries, loads (k_tag, k_val) into
 /// stack slots, double-re-boxes into independent Any pairs (avoids
 /// double-drop on a shared box), then calls cb with devirt routing.
-fn emit_set_for_each(
-    ctx: &mut LowerCtx<'_>,
-    recv_op: Operand,
-    args: &[ExprId],
-) -> Operand {
+fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Operand {
     // S316 — ES §24.2.3.6 silently ignores trailing args past cb.
     debug_assert!(!args.is_empty());
     let known_fid: Option<FuncId> = match ctx.ast.get_expr(args[0]) {
