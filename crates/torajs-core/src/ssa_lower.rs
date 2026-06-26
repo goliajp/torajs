@@ -16039,83 +16039,14 @@ impl<'a> LowerCtx<'a> {
                 // `emit_throw_check(None)` after each call propagates the
                 // throw before the concat consumes the (possibly invalid)
                 // result.
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = self.ast.get_expr(*callee)
-                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
-                    && ns == "String"
-                    && (m_name == "fromCharCode" || m_name == "fromCodePoint")
+                // `String.fromCharCode(...codes)` /
+                // `String.fromCodePoint(...codes)` — variadic
+                // (P11.1-S6 split, S231/S329/S340 carve-outs). See
+                // [`crate::ssa_lower_call_string_from_char_code::try_lower`].
+                if let Some(op) =
+                    crate::ssa_lower_call_string_from_char_code::try_lower(self, *callee, args)
                 {
-                    if args.is_empty() {
-                        return Operand::Value(self.intern_string_literal(""));
-                    }
-                    let is_from_code_point = m_name == "fromCodePoint";
-                    let intrinsic = if is_from_code_point {
-                        self.intrinsics.str_from_code_point
-                    } else {
-                        self.intrinsics.str_from_char_code
-                    };
-                    let mut acc: Option<Operand> = None;
-                    for &aid in args.iter() {
-                        // S231 — `String.fromCharCode(undefined)` per ES
-                        // §22.1.2.1: ToUint16(undefined) = 0. The check.rs
-                        // S231 carve-out lets the typed-Undefined arg
-                        // through the type gate; substitute ConstI64(0)
-                        // here so the ConstPtrNull undef sentinel never
-                        // reaches the helper's i64 ABI.
-                        let arg_is_undef =
-                            matches!(self.expr_types.get(&aid), Some(check_mod::Type::Undefined));
-                        let arg_is_any =
-                            matches!(self.expr_types.get(&aid), Some(check_mod::Type::Any));
-                        let n = if arg_is_undef && !is_from_code_point {
-                            Operand::ConstI64(0)
-                        } else if arg_is_any {
-                            // S329 — `String.fromCharCode(Any)` per ES
-                            // §22.1.2.1 ToUint16: decode Any via
-                            // anyv_to_number → coerce_to_i64. Helper sig
-                            // is (i64) -> Str so the f64 intermediate
-                            // gets FpToSi'd at the i64 boundary.
-                            // S340 — same path covers fromCodePoint Any;
-                            // runtime helper str_from_code_point still
-                            // throws RangeError on non-finite / OOR,
-                            // propagated by the per-arg emit_throw_check
-                            // below for is_from_code_point.
-                            let raw = self.lower_expr(aid);
-                            let f = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.any_to_number, vec![raw]),
-                                Type::F64,
-                                None,
-                            );
-                            self.coerce_to_i64(Operand::Value(f))
-                        } else {
-                            self.lower_expr(aid)
-                        };
-                        let one = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(intrinsic, vec![n]),
-                            Type::Str,
-                            None,
-                        );
-                        if is_from_code_point {
-                            self.emit_throw_check(None);
-                        }
-                        let one_op = Operand::Value(one);
-                        acc = Some(match acc {
-                            None => one_op,
-                            Some(prev) => {
-                                let cat = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.str_concat, vec![prev, one_op]),
-                                    Type::Str,
-                                    None,
-                                );
-                                Operand::Value(cat)
-                            }
-                        });
-                    }
-                    return acc.expect("variadic fromCharCode acc must have been set");
+                    return op;
                 }
                 // `Number(x)` / `String(x)` — coercion function calls.
                 // Number(x): identity for i64/f64; bool→i64; string→
