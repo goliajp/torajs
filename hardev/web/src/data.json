@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-26T21:35:12.608Z",
+  "generatedAt": "2026-06-26T22:51:54.009Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "503d78d5",
-    "commitSubject": "refactor(torajs-core): extract RegExp accessor cluster (source/flags/bool/lastIndex)",
+    "commit": "000b0282",
+    "commitSubject": "refactor(torajs-core): extract Expr::Closure env construction (M2)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "000b0282",
+      "subject": "refactor(torajs-core): extract Expr::Closure env construction (M2)"
+    },
+    {
+      "hash": "33e13c4e",
+      "subject": "refactor(torajs-core): extract Expr::Index str/arr/Array<Any> lowering"
+    },
+    {
+      "hash": "e7b35420",
+      "subject": "refactor(torajs-core): extract P8.2 accessor + struct-field terminal arm"
+    },
+    {
+      "hash": "b1827a01",
+      "subject": "refactor(torajs-core): extract FnSig/Arr-as-Object props-read cluster"
+    },
+    {
+      "hash": "a14e9d60",
+      "subject": "refactor(torajs-core): extract typed-receiver Member props cluster"
+    },
+    {
+      "hash": "3cc39c8e",
+      "subject": "chore(hardev/web): dashboard snapshot @ 503d78d5 — lower_expr_inner decomp chunks 41-63 ship"
+    },
+    {
       "hash": "503d78d5",
       "subject": "refactor(torajs-core): extract RegExp accessor cluster (source/flags/bool/lastIndex)"
     },
@@ -639,33 +663,9 @@
     {
       "hash": "e7019c7b",
       "subject": "refactor(torajs-core): extract Math/Number/ctor builtin-namespace Members"
-    },
-    {
-      "hash": "27816c42",
-      "subject": "refactor(torajs-core): extract process.* namespace Member-access cluster"
-    },
-    {
-      "hash": "3086713a",
-      "subject": "refactor(torajs-core): extract Date.parse(undefined) NaN fold (S230)"
-    },
-    {
-      "hash": "5a67d366",
-      "subject": "refactor(torajs-core): extract JSON.stringify trampoline arm"
-    },
-    {
-      "hash": "69e508d1",
-      "subject": "refactor(torajs-core): remove dead duplicate JSON.stringify 1-arg arm"
-    },
-    {
-      "hash": "6ccc7ad1",
-      "subject": "refactor(torajs-core): extract Object.getOwnPropertyDescriptor arm (P3)"
-    },
-    {
-      "hash": "245cf127",
-      "subject": "refactor(torajs-core): extract Array.of(...vals) literal-shape arm"
     }
   ],
-  "headSha": "503d78d5",
+  "headSha": "000b0282",
   "autorun": {
     "total": 256,
     "baselineTarget": 10,
