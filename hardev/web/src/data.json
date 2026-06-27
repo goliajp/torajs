@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T15:17:08.263Z",
+  "generatedAt": "2026-06-27T15:43:52.343Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "73636d1e",
-    "commitSubject": "refactor(torajs-core): extract lower_inner Pass 0 promise intrinsics (chunk 128)",
+    "commit": "295c2b2e",
+    "commitSubject": "refactor(torajs-core): extract lower_inner Pass 0 substr core intrinsics (chunk 129)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "295c2b2e",
+      "subject": "refactor(torajs-core): extract lower_inner Pass 0 substr core intrinsics (chunk 129)"
+    },
+    {
+      "hash": "e18079f3",
+      "subject": "chore(handoff/dashboard): chunks 110-128 ship summary @ 73636d1e (-2523 LOC Pass 0 split round 1-3)"
+    },
+    {
       "hash": "73636d1e",
       "subject": "refactor(torajs-core): extract lower_inner Pass 0 promise intrinsics (chunk 128)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "89400b7a",
       "subject": "refactor(torajs-core): extract lower_inner Pass 0 arr_any intrinsics (chunk 120)"
-    },
-    {
-      "hash": "f245bb55",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0 process intrinsics (chunk 119)"
-    },
-    {
-      "hash": "b53c4c39",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0 fs intrinsics (chunk 118)"
     }
   ],
-  "headSha": "73636d1e",
+  "headSha": "295c2b2e",
   "autorun": {
     "total": 261,
     "baselineTarget": 10,
