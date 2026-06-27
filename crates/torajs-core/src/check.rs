@@ -672,7 +672,7 @@ fn js_arith_coerces_to_number(l: &Type, r: &Type) -> bool {
 /// resolves via the special Ident → Type::Object("X") arms.
 /// Used by the `typeof undeclared` path to avoid mis-classifying
 /// a tora built-in as "undefined".
-fn is_known_builtin_global(name: &str) -> bool {
+pub(crate) fn is_known_builtin_global(name: &str) -> bool {
     matches!(
         name,
         "console"
@@ -9552,157 +9552,43 @@ impl Checker {
                 }
             }
             Expr::TypeOf { expr } => {
-                // V3-18 m1.h.3 — JS spec §13.5.3 typeof on an
-                // unresolved Reference returns "undefined" without
-                // throwing. Used pervasively in test262 for feature
-                // detection (`typeof BigInt === "function"`).
-                //
-                // V3-18 m1.h.20 — also short-circuit known-builtin
-                // Idents and Member expressions on a known
-                // namespace. ssa_lower resolves these to the spec
-                // literal at lower time without needing a SSA local
-                // for the global, so check.rs must not bail on
-                // type_of(Ident("globalThis"))-type lookups.
-                if let Expr::Ident(name) = ast.get_expr(*expr)
-                    && (self.lookup(name).is_none() || is_known_builtin_global(name))
-                {
-                    return Ok(Type::String);
-                }
-                if let Expr::Member { obj, .. } = ast.get_expr(*expr)
-                    && let Expr::Ident(ns) = ast.get_expr(*obj)
-                    && is_known_builtin_global(ns)
-                {
-                    return Ok(Type::String);
-                }
-                let _ = self.type_of(ast, *expr)?;
-                Ok(Type::String)
+                // V3-18 m1.h.3 / m1.h.20 — `typeof expr` → String
+                // with known-builtin Ident / namespace-member short-
+                // circuit. See
+                // [`crate::check_type_of_misc::check_typeof`].
+                crate::check_type_of_misc::check_typeof(self, ast, *expr)
             }
             Expr::InstanceOf { expr, .. } => {
-                // `x instanceof C` — verify operand is typeable; the
-                // class name itself is resolved at lower-time against
-                // the class registry (and superclass chain). Returns
-                // Boolean unconditionally. The static answer (true /
-                // false) is computed in ssa_lower.
-                let _ = self.type_of(ast, *expr)?;
-                Ok(Type::Boolean)
+                // `x instanceof C` → Boolean. See
+                // [`crate::check_type_of_misc::check_instanceof`].
+                crate::check_type_of_misc::check_instanceof(self, ast, *expr)
             }
             Expr::Nullish { lhs, rhs } => {
-                // `lhs ?? rhs` — lhs must be Nullable(T) (or Null).
-                // Result type unifies the lhs's inner T with the rhs.
-                // If both are nullable T, result stays Nullable(T) so
-                // chains like `a ?? b ?? c` propagate nullability until
-                // a non-nullable rhs settles it.
-                let lhs_ty = self.type_of(ast, *lhs)?;
-                let rhs_ty = self.type_of(ast, *rhs)?;
-                // P3.5 — `??` on Type::Any lhs (typically from
-                // OptChain): result is rhs's type. Runtime checks
-                // tag at miss and uses rhs; otherwise unboxes lhs.
-                // The unbox path needs runtime-side support for the
-                // "tag matches rhs T" case (added in ssa_lower).
-                if matches!(lhs_ty, Type::Any) {
-                    return Ok(rhs_ty);
-                }
-                let lhs_inner = match &lhs_ty {
-                    Type::Nullable(inner) => Some((**inner).clone()),
-                    Type::Null => None,
-                    Type::Undefined => None,
-                    other => {
-                        // ES §13.4.2 — `lhs ?? rhs` on a non-nullable
-                        // typed lhs is a static no-op: lhs is never
-                        // null/undefined, so the result is always lhs
-                        // and rhs is never evaluated. Type-check rhs
-                        // for side-effect well-formedness (consistent
-                        // with the dead-branch of `if (false) { ... }`)
-                        // but otherwise return lhs's type. Pre-fix tr
-                        // rejected the construct entirely unless rhs
-                        // was Any (S128-5 / S129-1 / S129-2 mixed-Any
-                        // exception). bun and spec both accept it —
-                        // `0 ?? 'x'` is 0, `'' ?? 'x'` is ''.
-                        let _ = rhs_ty;
-                        return Ok(other.clone());
-                    }
-                };
-                // If lhs was Null literal, the answer is just rhs's type.
-                let Some(inner) = lhs_inner else {
-                    return Ok(rhs_ty);
-                };
-                // Accept rhs as the inner T (definitely non-null result)
-                // OR as Nullable(T) (still nullable result — rhs may be
-                // null too).
-                if rhs_ty == inner {
-                    return Ok(inner);
-                }
-                if let Type::Nullable(rhs_inner) = &rhs_ty
-                    && **rhs_inner == inner
-                {
-                    return Ok(rhs_ty);
-                }
-                Err(format!(
-                    "`??` rhs type {rhs_ty:?} does not match lhs inner {inner:?}"
-                ))
+                // `lhs ?? rhs` — Nullable/Null/Undef/Any lhs +
+                // rhs T or Nullable<T>; non-nullable lhs → lhs
+                // type. See
+                // [`crate::check_type_of_misc::check_nullish`].
+                crate::check_type_of_misc::check_nullish(self, ast, *lhs, *rhs)
             }
             Expr::OptChain { obj, name } => {
-                // P3.5 — `obj?.field` returns Type::Any per ES spec
-                // §13.3.9. Hit path: field value (boxed); miss path:
-                // ANY_UNDEF. Pre-P3.5 tora returned Nullable<F> with
-                // miss → ConstPtrNull, which silently wronged the
-                // null/undefined distinction (`obj?.x === undefined`
-                // returned true by accident but `console.log(obj?.x)`
-                // printed "null"). Now boxed-Any preserves the spec
-                // distinction end-to-end (typeof / strict-eq / print
-                // all route through the P1 Any-substrate).
-                //
-                // Downstream callers compose:
-                //   `obj?.x ?? rhs` — `??` on Any lhs (extended below)
-                //     returns rhs's type when miss, otherwise the
-                //     unboxed lhs. Common case: `let v = obj?.x ?? 0`
-                //     → Type::Number.
-                //   `obj?.x as T` — the existing typed-tier cast
-                //     unboxes the Any to T.
-                //   `let s: any = obj?.x` — directly assignable since
-                //     OptChain returns Any.
-                let obj_ty = self.type_of(ast, *obj)?;
-                let _ = match &obj_ty {
-                    Type::Nullable(inner) => (**inner).clone(),
-                    Type::Null | Type::Undefined => return Ok(Type::Any),
-                    Type::Any => return Ok(Type::Any),
-                    _ => {
-                        // Plain (non-nullable) obj: `?.` is allowed but
-                        // semantically equivalent to `.`. Resolve as
-                        // member access — keep its concrete type since
-                        // the optional path is dead.
-                        let field_ty = self.member_type(&obj_ty, name)?;
-                        return Ok(field_ty);
-                    }
-                };
-                // Validate the field exists on the inner struct shape
-                // (sanity check; result is Any regardless).
-                let _ = self.member_type(
-                    &match &obj_ty {
-                        Type::Nullable(inner) => (**inner).clone(),
-                        _ => obj_ty.clone(),
-                    },
-                    name,
-                )?;
-                Ok(Type::Any)
+                // P3.5 — `obj?.field` returns Type::Any per ES
+                // §13.3.9 (Nullable/Null/Undefined/Any obj); plain
+                // obj → concrete member type. See
+                // [`crate::check_type_of_misc::check_opt_chain`].
+                crate::check_type_of_misc::check_opt_chain(self, ast, *obj, name)
             }
             Expr::PostIncr { target, .. } => {
-                // `x++` / `x--` yield the OLD value, then mutate. Result
-                // type is the target's type, which must be Number.
-                let ty = self.type_of(ast, *target)?;
-                if ty != Type::Number {
-                    return Err(format!(
-                        "post-increment requires a number target, got {ty:?}"
-                    ));
-                }
-                Ok(Type::Number)
+                // `x++` / `x--` — Number target → Number result.
+                // See [`crate::check_type_of_misc::check_post_incr`].
+                crate::check_type_of_misc::check_post_incr(self, ast, *target)
             }
             // V3-18 m1.h.6 — comma operator `(a, b)` evaluates left
             // (side effects, value discarded) then right; result type
             // = right's type. Both sub-expressions still type-checked.
             Expr::Sequence { left, right } => {
-                let _ = self.type_of(ast, *left)?;
-                self.type_of(ast, *right)
+                // V3-18 m1.h.6 — comma operator. See
+                // [`crate::check_type_of_misc::check_sequence`].
+                crate::check_type_of_misc::check_sequence(self, ast, *left, *right)
             }
             // V3-07 — `expr as T` TS type assertion. Typecheck the
             // inner expression for side effects (so it still
@@ -9715,21 +9601,10 @@ impl Checker {
             // assignability check lands when test262 surfaces a case
             // that requires it.
             Expr::As { expr, ty_ann } => {
-                let inner_ty = self.type_of(ast, *expr)?;
-                let ann = ty_ann.clone();
-                // V3-18 wedge — TS non-null assertion `<expr>!`
-                // encodes as `As { ty_ann: '__nonnull__' }`. Narrow
-                // Nullable<T> → T; pass-through for already-non-null.
-                if ann == "__nonnull__" {
-                    return Ok(match inner_ty {
-                        Type::Nullable(inner) => (*inner).clone(),
-                        other => other,
-                    });
-                }
-                let target =
-                    resolve_type_ann_full(&ann, &self.aliases, &[], &self.generic_alias_decls)
-                        .ok_or_else(|| format!("unknown cast target type `{ann}`"))?;
-                Ok(target)
+                // V3-07 / V3-18 — TS type assertion + non-null
+                // assertion (`x!` encoded ty_ann = "__nonnull__").
+                // See [`crate::check_type_of_misc::check_as`].
+                crate::check_type_of_misc::check_as(self, ast, *expr, ty_ann)
             }
         }
     }
@@ -9738,7 +9613,7 @@ impl Checker {
     /// Pulled out so OptChain can reuse Member's resolution logic
     /// without re-implementing the alias / array / class / Math /
     /// console branches.
-    fn member_type(&mut self, obj_ty: &Type, name: &str) -> Result<Type, String> {
+    pub(crate) fn member_type(&mut self, obj_ty: &Type, name: &str) -> Result<Type, String> {
         match (obj_ty, name) {
             (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
             /* v0.3 #3 — process.platform constant string read. */
