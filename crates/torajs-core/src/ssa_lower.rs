@@ -8216,7 +8216,7 @@ pub(crate) struct LowerCtx<'a> {
     /// and the runtime layout contains no refcounted field, the
     /// alloc swaps `Call(obj_alloc)` for `AllocaBytes(size)` and
     /// the name is inserted into `stack_alloced_locals`.
-    let_stack_alloc_hint: Option<String>,
+    pub(crate) let_stack_alloc_hint: Option<String>,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -9564,7 +9564,7 @@ impl<'a> LowerCtx<'a> {
     /// FLAG_ERROR on the instance header so the uncaught reporter can
     /// render `name: message`. The hierarchy is acyclic (forward refs
     /// are rejected at the type-decl pass), so the walk terminates.
-    fn class_is_error_derived(&self, cname: &str) -> bool {
+    pub(crate) fn class_is_error_derived(&self, cname: &str) -> bool {
         if cname == "Error" {
             return true;
         }
@@ -16678,250 +16678,12 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(v)
             }
             Expr::ObjectLit { fields } => {
-                // Lower each field; spread members (sentinel name
-                // `__spread__`) are unfolded at lower time by reading
-                // each source-struct field offset and copying it into
-                // the destination. Spread sources are lowered once;
-                // their values are read field-by-field. Inline members
-                // win on key collision (later occurrences replace
-                // earlier slots).
-                let entries: Vec<(String, ExprId)> = fields.clone();
-                let mut field_tys: Vec<(String, Type)> = Vec::new();
-                let mut field_vals: Vec<Operand> = Vec::new();
-                for (n, eid) in &entries {
-                    if n == "__spread__" {
-                        // Lower the source obj once; for each of its
-                        // statically-known fields, emit a Load and
-                        // append (or replace). Refcount story: each
-                        // refcounted field gets rc_inc'd so the new
-                        // struct's slot owns its own ref independently
-                        // of the source. The source's container drops
-                        // normally at scope end via the standard non-
-                        // Copy local sweep (no longer moved-out by
-                        // spread).
-                        let src_op = self.lower_expr(*eid);
-                        let src_ty = self.operand_ty(&src_op);
-                        let Type::Obj(sid) = src_ty else {
-                            panic!(
-                                "ssa-lower: object spread source must be a struct, got {src_ty:?}"
-                            );
-                        };
-                        let layout = self.struct_layouts[sid.0 as usize].clone();
-                        for (idx, (sn, st)) in layout.iter().enumerate() {
-                            let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(*st, src_op, off),
-                                *st,
-                                None,
-                            );
-                            if st.is_refcounted() {
-                                self.emit_rc_inc(Operand::Value(v));
-                            }
-                            let v_op = Operand::Value(v);
-                            if let Some(pos) = field_tys.iter().position(|(k, _)| k == sn) {
-                                field_tys[pos] = (sn.clone(), *st);
-                                field_vals[pos] = v_op;
-                            } else {
-                                field_tys.push((sn.clone(), *st));
-                                field_vals.push(v_op);
-                            }
-                        }
-                        continue;
-                    }
-                    let v = self.lower_expr(*eid);
-                    let ty = self.operand_ty(&v);
-                    // Refcounted-borrow source: rc_inc + don't consume,
-                    // so the source binding stays usable AND the new
-                    // struct's slot owns its own ref. Same shape as the
-                    // array-literal fix; without it, two struct lits
-                    // sharing a refcounted Obj field (`{x: a}; {x: a}`)
-                    // would double-walk-drop the shared element.
-                    let needs_inc = ty.is_refcounted()
-                        && match self.ast.get_expr(*eid) {
-                            Expr::Ident(name) => self
-                                .locals
-                                .get(name)
-                                .map(|info| !info.moved)
-                                .unwrap_or(false),
-                            Expr::Member { .. } | Expr::Index { .. } => true,
-                            _ => false,
-                        };
-                    if needs_inc {
-                        self.emit_rc_inc(v);
-                    } else {
-                        self.consume_if_ident(*eid);
-                    }
-                    if let Some(pos) = field_tys.iter().position(|(k, _)| k == n) {
-                        field_tys[pos] = (n.clone(), ty);
-                        field_vals[pos] = v;
-                    } else {
-                        field_tys.push((n.clone(), ty));
-                        field_vals.push(v);
-                    }
-                }
-                // W4 — the literal's field widths come from its alias
-                // class (the Anon origin key unions with the receiving
-                // slot during analysis): `{x: 1}` with a later
-                // `o.x = 0.5` carries an F64 `x` slot up front.
-                for (i, (fname, fty)) in field_tys.iter_mut().enumerate() {
-                    if *fty == Type::I64
-                        && self
-                            .num_f64_slots
-                            .field_is_f64(&crate::num_width::SlotKey::Anon(eid.0), fname)
-                    {
-                        *fty = Type::F64;
-                        let coerced = self.coerce_to_f64(field_vals[i].clone());
-                        field_vals[i] = coerced;
-                    }
-                }
-                // Layout resolution + canonical width alignment —
-                // exact match / numeric-width coercion / anonymous
-                // auto-register, see ssa_lower_objlit_layout.rs.
-                let sid = crate::ssa_lower_objlit_layout::resolve_objlit_layout(
-                    &mut self.struct_layouts,
-                    &mut self.f,
-                    self.cur_block,
-                    &mut field_tys,
-                    &mut field_vals,
-                );
-                // Phase H.1.a — alloc reserves OBJ_HEADER_SIZE for the
-                // class tag at offset 0, fields then start at offset
-                // OBJ_HEADER_SIZE. H.1.b — write the per-class tag if
-                // this struct id was registered as a declared class;
-                // plain `type` aliases stay tagged 0.
-                let size = field_tys.len() as i64 * 8 + OBJ_HEADER_SIZE as i64;
-                // 11-A2-a — if `LetDecl` set a stack-alloc hint AND no
-                // field is refcounted, swap heap `obj_alloc` for stack
-                // `AllocaBytes`. Refcounted fields force back to heap
-                // because end-of-scope drop emission skips stack locals;
-                // a stack-alloc obj with refcounted children would leak
-                // the children's rc.
-                let stack_alloc_name = self
-                    .let_stack_alloc_hint
-                    .take()
-                    .filter(|_| !field_tys.iter().any(|(_, ty)| ty.is_refcounted()));
-                let obj_ptr = if let Some(let_name) = stack_alloc_name {
-                    let p = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::AllocaBytes(size as u64),
-                        Type::Obj(sid),
-                        None,
-                    );
-                    self.stack_alloced_locals.insert(let_name);
-                    p
-                } else {
-                    let alloc_fid = self.intrinsics.obj_alloc;
-                    self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(alloc_fid, vec![Operand::ConstI64(size)]),
-                        Type::Obj(sid),
-                        None,
-                    )
-                };
-                // Phase 2B refcount: init universal heap header (refcount=1,
-                // type_tag=OBJ, flags=0). obj_alloc stays a plain malloc so
-                // it can be reused by box / closure-env paths that don't
-                // want a refcount header. For stack-alloced objs (11-A2-a)
-                // these header stores remain in source IR; LLVM `-O3` DSE
-                // sweeps them when the alloca's address doesn't escape and
-                // the offsets are never read.
-                self.emit_obj_header_init(Operand::Value(obj_ptr));
-                /* Error-derived class instances carry FLAG_ERROR in the
-                 * header flags (u16 @+6) so the uncaught-throw reporter
-                 * (torajs-throw) renders `name: message` from the Error
-                 * layout prefix (message=field0, name=field1). Re-store
-                 * the +4 header word packing type_tag(OBJ=1) low half +
-                 * FLAG_ERROR high half (LE: +4=0x01 tag, +6=0x80 flags).
-                 * MUST precede the class_tag store: emit_store always
-                 * emits a 64-bit STR (compile/mem.rs), so a write at +4
-                 * spills its high 4 bytes into +8 (class_tag low word);
-                 * the class_tag store at +8 then overwrites that spill.
-                 * The header_init +4 store relies on the same ordering. */
-                let factory_class = self.f.name.strip_prefix("__new_").map(str::to_owned);
-                if let Some(cname) = factory_class
-                    && self.class_is_error_derived(&cname)
-                {
-                    let packed = 1_i32 | ((torajs_rc::FLAG_ERROR as i32) << 16);
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::ConstI32(packed), Operand::Value(obj_ptr), 4),
-                    );
-                }
-                /* Recover the class name from the enclosing factory
-                 * `__new_<C>` (every class instance is constructed
-                 * via that factory; non-class typed literals fall
-                 * outside any `__new_*` and stay tagged 0). Looking
-                 * up by name avoids the sid-collision aliasing that
-                 * silently broke `__dispatch_<M>` for sibling classes
-                 * with identical fields.
-                 *
-                 * W-J Phase A1 follow-up: ObjectLit allocations outside
-                 * any `__new_<C>` factory are anonymous structs — route
-                 * the sid through `AnonStampPool` so Pass 2 fresh sids
-                 * (inline `{x:1,y:2}` literals + generic mono shapes)
-                 * also receive a deterministic tag. `lower_module` walks
-                 * `pool.fresh_sids()` after Pass 2 to append matching
-                 * `ClassLayoutMeta` rows so the reflection consumers
-                 * (Phase B `gOPD` / Phase C `Object.keys`/`values`/
-                 * `entries` / Phase D `inspect.rs` Tag::Obj walker) see
-                 * a dense class_layouts indexed by `class_tag - 1`. The
-                 * MVP `unwrap_or(0)` fall-through is retired. */
-                let factory_tag = self
-                    .f
-                    .name
-                    .strip_prefix("__new_")
-                    .and_then(|cname| self.class_name_to_tag.get(cname).copied());
-                let tag = factory_tag
-                    .unwrap_or_else(|| self.anon_stamp_pool.borrow_mut().assign_or_get(sid));
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(
-                        Operand::ConstI64(tag as i64),
-                        Operand::Value(obj_ptr),
-                        OBJ_CLASS_TAG_OFF,
-                    ),
-                );
-                /* T-24 — vtable pointer slot.
-                 *
-                 * If the program has any chain methods (i.e. dispatch
-                 * tables exist) and we're inside a `__new_<C>` factory
-                 * for a known class, store the address of `__vtable_<C>`.
-                 * Other contexts (factory of a non-class type alias,
-                 * literal outside any factory) get null — they never
-                 * trigger `__dispatch_<M>` lookup. */
-                let vtable_class: Option<&str> = if self.ast.method_index.is_empty() {
-                    None
-                } else {
-                    self.f
-                        .name
-                        .strip_prefix("__new_")
-                        .filter(|c| self.class_name_to_tag.contains_key(*c))
-                };
-                let vtable_ptr_op = match vtable_class {
-                    Some(cname) => {
-                        let g = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::GlobalRef(format!("__vtable_{cname}")),
-                            Type::Ptr,
-                            None,
-                        );
-                        Operand::Value(g)
-                    }
-                    None => Operand::ConstPtrNull,
-                };
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(vtable_ptr_op, Operand::Value(obj_ptr), OBJ_VTABLE_OFF),
-                );
-                for (i, val) in field_vals.iter().enumerate() {
-                    let offset = OBJ_HEADER_SIZE + i as u64 * 8;
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(*val, Operand::Value(obj_ptr), offset),
-                    );
-                }
-                Operand::Value(obj_ptr)
+                // ObjectLit lowering — spread unfold + field rc_inc
+                // discipline + W4 width widen + layout resolve +
+                // stack/heap alloc dispatch + header init + class
+                // tag + vtable ptr + field stores. See
+                // [`crate::ssa_lower_object_lit::lower`].
+                crate::ssa_lower_object_lit::lower(self, fields.clone(), eid)
             }
             Expr::Member { obj, name } => {
                 // T-27.c — built-in `f.length` / `f.name` for

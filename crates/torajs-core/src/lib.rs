@@ -282,6 +282,7 @@ pub(crate) mod ssa_lower_member_web_runtime;
 pub(crate) mod ssa_lower_nullish;
 pub mod ssa_lower_obj_escape;
 pub(crate) mod ssa_lower_object_define;
+pub(crate) mod ssa_lower_object_lit;
 pub(crate) mod ssa_lower_objlit_layout;
 pub(crate) mod ssa_lower_optchain;
 pub(crate) mod ssa_lower_optchain_arm;
