@@ -1612,7 +1612,7 @@ impl Checker {
     /// during rhs evaluation. Lets `s = s + "x"` work: the BinOp internally
     /// consumes s (because str+str consumes both), then Assign rebinds s
     /// with the concat result, so subsequent reads of s are fine.
-    fn mark_unmoved(&mut self, name: &str) {
+    pub(crate) fn mark_unmoved(&mut self, name: &str) {
         for s in self.scopes.iter_mut().rev() {
             if let Some(info) = s.get_mut(name) {
                 info.moved = false;
@@ -1729,7 +1729,7 @@ impl Checker {
     /// Member / Index reads of obj's field are NOT transfers — the field's
     /// heap is owned by obj, and the new binding is an alias (handled at
     /// the LetDecl site via `classify_init_alias`, not here).
-    fn consume(&mut self, ast: &Ast, eid: ExprId) {
+    pub(crate) fn consume(&mut self, ast: &Ast, eid: ExprId) {
         if let Expr::Ident(name) = ast.get_expr(eid) {
             let name = name.clone();
             if let Some(info) = self.lookup(&name) {
@@ -9332,58 +9332,10 @@ impl Checker {
             Expr::Assign { target, value } => {
                 match ast.get_expr(*target).clone() {
                     Expr::Ident(name) => {
-                        // Phase K.3 — assignment to a top-level data global
-                        // resolves through `self.globals` rather than the
-                        // scope stack. We don't yet track `const`-ness for
-                        // globals separately from the LetDecl's `mutable`
-                        // flag (the global is registered by the pre-pass
-                        // before we visit the LetDecl); for now any top-
-                        // level binding is writable from named-fn bodies.
-                        // Tighten if a real workload depends on it.
-                        if self.lookup(&name).is_none()
-                            && let Some(global_ty) = self.globals.get(&name).cloned()
-                        {
-                            let value_ty = self.type_of(ast, *value)?;
-                            if !is_assignable_to_resolved(
-                                &global_ty,
-                                &value_ty,
-                                &self.aliases,
-                                &self.generic_alias_decls,
-                            ) {
-                                return Err(format!(
-                                    "type mismatch assigning to global `{name}`: declared {global_ty:?}, value is {value_ty:?}"
-                                ));
-                            }
-                            self.consume(ast, *value);
-                            return Ok(global_ty);
-                        }
-                        let info = match self.lookup(&name) {
-                            Some(i) => i,
-                            None => {
-                                return Err(format!("assignment to undeclared `{name}`"));
-                            }
-                        };
-                        if !info.mutable {
-                            return Err(format!("cannot assign to const `{name}`"));
-                        }
-                        let target_ty = info.ty.clone();
-                        let value_ty = self.type_of(ast, *value)?;
-                        if !is_assignable_to_resolved(
-                            &target_ty,
-                            &value_ty,
-                            &self.aliases,
-                            &self.generic_alias_decls,
-                        ) {
-                            return Err(format!(
-                                "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
-                            ));
-                        }
-                        // Reassign moves rhs in. consume marks Ident sources
-                        // moved; mark_unmoved clears the target's transient
-                        // moved if rhs was `target + ...` (e.g. string concat).
-                        self.consume(ast, *value);
-                        self.mark_unmoved(&name);
-                        Ok(target_ty)
+                        // K.3 top-level data global vs local binding
+                        // (lookup → globals → LocalInfo). See
+                        // [`crate::check_assign_ident::check`].
+                        return crate::check_assign_ident::check(self, ast, name, *value);
                     }
                     Expr::Member { obj, name: field } => {
                         // M1.4 — `obj.field = value`. Type-check the field

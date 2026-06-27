@@ -179,6 +179,7 @@ pub mod ast_closure_param_tag;
 pub mod ast_refs;
 pub mod ast_throw_info;
 pub mod check;
+pub(crate) mod check_assign_ident;
 pub(crate) mod check_assignable;
 pub(crate) mod check_type_ann;
 pub(crate) mod check_type_ann_substitute;
