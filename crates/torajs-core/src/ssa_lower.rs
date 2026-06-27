@@ -1395,189 +1395,29 @@ fn lower_inner(
         str_split: str_split_id,
         str_split_no_sep: str_split_no_sep_id,
     } = crate::ssa_lower_intrinsics_str_b::declare(&mut module, &mut fn_table);
-    // Phase Substr.A — view-substring runtime helpers. `__torajs_str_split`
-    // (above) will be re-routed to return `Array<Substr>` in Phase Substr.B;
-    // these helpers provide the per-Substr ops the lowerer dispatches to
-    // when the receiver type is `Type::Substr`.
-    // v0.2 #1 — regex matching engine. `__torajs_regex_compile` takes
-    // the literal's pattern + flags as Str values (carried through
-    // from `Expr::Regex { pattern, flags }`) and returns a freshly
-    // allocated `RegExp` heap object holding the compiled NFA + flag
-    // bitset. `__torajs_regex_test` runs the backtracking matcher
-    // against a string. Both are defined in `runtime_regex.c`; rc_dec
-    // routes RegExp drops through the universal heap header type-tag
-    // dispatch, identical to every other heap object.
-    let regex_compile_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_regex_compile",
-        &[Type::Str, Type::Str],
-        Type::RegExp,
-    );
-    // V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-4 — AOT-baked DFA
-    // companion to `__torajs_regex_compile`. Takes the `BakedDfaMeta`
-    // pointer (`.rodata`-resident, chain-LC rebased) as a 3rd arg
-    // and stamps it onto `RegExp::baked_dfa` so the surface match
-    // path's `re.baked_dfa_view()` (Phase C-2 + C-3) short-circuits
-    // the runtime `build_dfa`. Used by the Phase C-6 AOT gate in
-    // the `Expr::Regex` lowering arm when the literal is
-    // DFA-eligible; literal lowering keeps falling back to plain
-    // `regex_compile` for ineligible patterns + `new RegExp(...)`.
-    let regex_compile_from_static_dfa_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_regex_compile_from_static_dfa",
-        &[Type::Ptr, Type::Str, Type::Str],
-        Type::RegExp,
-    );
-    let regex_test_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_regex_test",
-        &[Type::RegExp, Type::Str],
-        Type::Bool,
-    );
-    let regex_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_regex_drop",
-        &[Type::RegExp],
-        Type::Void,
-    );
-    // Phase 1b — surface methods. Each takes the receiver Str and the
-    // RegExp (and a repl Str for replace*); returns either a fresh Str
-    // (replace / replaceAll) or an Array<Str> (match / split). Drop
-    // semantics flow through the standard Type::Str / Type::Arr paths.
-    let regex_match_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_match_regex",
-        &[Type::Str, Type::RegExp],
-        Type::Ptr,
-    );
-    let regex_replace_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_replace_regex",
-        &[Type::Str, Type::RegExp, Type::Str],
-        Type::Str,
-    );
-    let regex_replace_all_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_replace_all_regex",
-        &[Type::Str, Type::RegExp, Type::Str],
-        Type::Str,
-    );
-    // P9.5-A1 / A1.1 / A1.2 — `s.replace(re, fn)` / `s.replaceAll(re, fn)`
-    // callback form. 3rd arg is the closure env block (env+8 holds
-    // the lifted body's fn_addr — same env-pointer ABI as
-    // promise_then_closure). 4th arg is `n_caps` (number of capture
-    // groups in the regex literal, counted statically at ssa-lower
-    // time). 5th arg is `has_off_input` (0 = A1.1 cb shape
-    // `(m, g1..gN) -> ret`; 1 = A1.2 cb shape `(m, g1..gN, off, input)
-    // -> ret`). Runtime builds N capture Strs from saves[] + selects
-    // the correct N-specific cast via invoke_replace_cb's switch.
-    let regex_replace_fn_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_replace_regex_fn",
-        &[Type::Str, Type::RegExp, Type::Ptr, Type::I64, Type::I64],
-        Type::Str,
-    );
-    let regex_replace_all_fn_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_replace_all_regex_fn",
-        &[Type::Str, Type::RegExp, Type::Ptr, Type::I64, Type::I64],
-        Type::Str,
-    );
-    let regex_split_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_split_regex",
-        &[Type::Str, Type::RegExp],
-        Type::Ptr,
-    );
-    // Phase 1c.1 — re.exec(s) returns Array<Str> [match, g1, g2, ...]
-    // (or empty array on miss). Wires the surface method through to
-    // the C runtime; the matcher's per-thread saves[] array carries
-    // capture group offsets and __torajs_regex_exec materializes
-    // them into the result.
-    let regex_exec_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_regex_exec",
-        &[Type::RegExp, Type::Str],
-        Type::Ptr,
-    );
-    // T-37 followup — `re.source` returns the original pattern string
-    // (excluding flags). The compiled RegExp object stores the source
-    // bytes in re->src_bytes for toString reuse; the new helper
-    // wraps them in a Str.
-    let regex_get_source_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_regex_get_source",
-        &[Type::RegExp],
-        Type::Str,
-    );
-    // ES §22.2.6.4 — `re.flags` returns spec-ordered flag string. See
-    // torajs-regex::regex::lifecycle::__torajs_regex_get_flags.
-    let regex_get_flags_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_regex_get_flags",
-        &[Type::RegExp],
-        Type::Str,
-    );
-    // ES §22.2.6.13 — `re.toString()` returns `/` + source + `/` +
-    // flags. See torajs-regex::regex::lifecycle::__torajs_regex_to_string.
-    let regex_to_string_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_regex_to_string",
-        &[Type::RegExp],
-        Type::Str,
-    );
-    // ES §22.2.6.5-10 — boolean flag accessors. Shared helper takes a
-    // `RE_FLAG_*` byte constant; per-arm emit picks the right bit.
-    // See torajs-regex::regex::lifecycle::__torajs_regex_has_flag.
-    let regex_has_flag_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_regex_has_flag",
-        &[Type::RegExp, Type::I64],
-        Type::Bool,
-    );
-    // Phase 1c.3 — s.matchAll(re) returns Array<Array<Str>> (one
-    // exec-shape array per match). Iterator protocol stand-in.
-    let regex_match_all_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_match_all_regex",
-        &[Type::Str, Type::RegExp],
-        Type::Ptr,
-    );
-    // P9.4 — `RegExp.prototype.lastIndex` get/set. The kernel field
-    // lives on the RegExp heap object; the surface routes `re.lastIndex`
-    // reads + writes through these two helpers. `regex_exec` and
-    // `s.match(re)` non-global both consult and update the same field
-    // when the regex carries `g` or `y`.
-    let regex_get_last_index_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_regex_get_last_index",
-        &[Type::RegExp],
-        Type::I64,
-    );
-    let regex_set_last_index_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_regex_set_last_index",
-        &[Type::RegExp, Type::I64],
-        Type::Void,
-    );
+    // v0.2 #1 + Phase 1b/1c/2 — regex runtime (18 ids). See sibling
+    // for the compile / static-DFA bake / surface / accessor /
+    // lastIndex ABI detail.
+    let crate::ssa_lower_intrinsics_regex::RegexIds {
+        regex_compile: regex_compile_id,
+        regex_compile_from_static_dfa: regex_compile_from_static_dfa_id,
+        regex_test: regex_test_id,
+        regex_drop: regex_drop_id,
+        regex_match: regex_match_id,
+        regex_replace: regex_replace_id,
+        regex_replace_all: regex_replace_all_id,
+        regex_replace_fn: regex_replace_fn_id,
+        regex_replace_all_fn: regex_replace_all_fn_id,
+        regex_split: regex_split_id,
+        regex_exec: regex_exec_id,
+        regex_get_source: regex_get_source_id,
+        regex_get_flags: regex_get_flags_id,
+        regex_to_string: regex_to_string_id,
+        regex_has_flag: regex_has_flag_id,
+        regex_match_all: regex_match_all_id,
+        regex_get_last_index: regex_get_last_index_id,
+        regex_set_last_index: regex_set_last_index_id,
+    } = crate::ssa_lower_intrinsics_regex::declare(&mut module, &mut fn_table);
     // v0.2 #2 — Date class. Phase 2.0a substrate:
     //   __torajs_date_now()             → Date  (`new Date()`)
     //   __torajs_date_from_ms(i64)      → Date  (`new Date(ms)`)

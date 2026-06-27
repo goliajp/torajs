@@ -301,6 +301,7 @@ pub(crate) mod ssa_lower_intrinsics_arr;
 pub(crate) mod ssa_lower_intrinsics_num;
 pub(crate) mod ssa_lower_intrinsics_obj_capture;
 pub(crate) mod ssa_lower_intrinsics_print_str;
+pub(crate) mod ssa_lower_intrinsics_regex;
 pub(crate) mod ssa_lower_intrinsics_str_a;
 pub(crate) mod ssa_lower_intrinsics_str_b;
 pub(crate) mod ssa_lower_json_parse;
