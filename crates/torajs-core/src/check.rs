@@ -2076,77 +2076,10 @@ impl Checker {
             Stmt::FnDecl {
                 name, params, body, ..
             } => {
-                // Signature already hoisted in the first pass.
-                let Some(Type::Function(param_tys, ret_ty)) = self.globals.get(name).cloned()
-                else {
-                    // First pass had an error; skip body to avoid cascading.
-                    return;
-                };
-                // Top-level FnDecl bodies see no outer locals (none exist) but do
-                // see globals via lookup-fallback. We use a fresh scope stack to
-                // mirror the arrow-fn rule (no captures).
-                let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
-                let saved_return = self.expected_return.replace(*ret_ty);
-                // M-OO.5 — fn name pattern → enclosing class context.
-                // `__cm_<C>__<m>` (instance method) and
-                // `__sm_<C>__<m>` (static method) both put the body
-                // inside class C; visibility checks compare against
-                // this. Free fns / `__new_<C>` / `__dispatch_<m>` /
-                // `__env_drop_<closure>` etc. don't establish a class
-                // scope (`__new_C` IS the class's factory but isn't
-                // user-written code, so it shouldn't be granted
-                // private-access; the methods it calls are __cm_*
-                // which DO have the context).
-                let saved_class = self.current_class.take();
-                let new_class: Option<String> = name
-                    .strip_prefix("__cm_")
-                    .and_then(|rest| rest.split_once("__").map(|(c, _)| c.to_string()))
-                    .or_else(|| {
-                        name.strip_prefix("__sm_")
-                            .and_then(|rest| rest.split_once("__").map(|(c, _)| c.to_string()))
-                    });
-                if new_class.is_some() {
-                    self.current_class = new_class;
-                }
-                for (p, ty) in params.iter().zip(param_tys.iter()) {
-                    // M-OO.5 — propagate nominal class info onto every
-                    // param whose source-level type annotation names a
-                    // known class. The synthesized `__this` param uses
-                    // the enclosing class context (its annotation may
-                    // be a generic-instantiated form like `Wrapper<T>`
-                    // that doesn't lookup as a plain class name);
-                    // user-written params with a plain class name
-                    // pull from `ast.class_parents`.
-                    let declared_class = if p.name == "__this" {
-                        self.current_class.clone()
-                    } else {
-                        p.type_ann.as_ref().and_then(|s| {
-                            if ast.class_parents.contains_key(s.as_str()) {
-                                Some(s.clone())
-                            } else {
-                                None
-                            }
-                        })
-                    };
-                    if let Err(e) = self.declare(
-                        p.name.clone(),
-                        LocalInfo {
-                            ty: ty.clone(),
-                            mutable: true,
-                            moved: false,
-                            borrowed: false,
-                            declared_class,
-                        },
-                    ) {
-                        self.errors.push_err(e);
-                    }
-                }
-                for s in body {
-                    self.check_stmt(ast, s);
-                }
-                self.expected_return = saved_return;
-                self.scopes = saved_scopes;
-                self.current_class = saved_class;
+                // M-OO.5 class context + fresh-scope body walker +
+                // param declare with declared_class propagation. See
+                // [`crate::check_stmt_fn_decl::check`].
+                crate::check_stmt_fn_decl::check(self, ast, name, params, body);
             }
             Stmt::TypeDecl { .. } => {
                 // Already handled in pass 0; re-encountering it during the
