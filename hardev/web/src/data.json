@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T21:55:43.349Z",
+  "generatedAt": "2026-06-27T22:55:43.055Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "e2d64f99",
-    "commitSubject": "refactor(torajs-core): extract lower_stmt Stmt::ForOfSplitIter arm (chunk 150)",
+    "commit": "88787184",
+    "commitSubject": "refactor(torajs-core): extract lower_stmt Stmt::Try arm (chunk 155)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "88787184",
+      "subject": "refactor(torajs-core): extract lower_stmt Stmt::Try arm (chunk 155)"
+    },
+    {
+      "hash": "6f2c1f55",
+      "subject": "refactor(torajs-core): extract lower_stmt Stmt::Break+Continue arms (chunk 154)"
+    },
+    {
+      "hash": "67b9a6cf",
+      "subject": "refactor(torajs-core): extract lower_stmt Stmt::DoWhile arm (chunk 153)"
+    },
+    {
+      "hash": "581bdcd8",
+      "subject": "refactor(torajs-core): extract lower_stmt Stmt::If arm (chunk 152)"
+    },
+    {
+      "hash": "a60024ba",
+      "subject": "refactor(torajs-core): extract lower_stmt Stmt::Block arm (chunk 151)"
+    },
+    {
+      "hash": "3114d194",
+      "subject": "chore(handoff/dashboard): chunks 145-150 ship summary @ e2d64f99 (-1165 LOC)"
+    },
+    {
       "hash": "e2d64f99",
       "subject": "refactor(torajs-core): extract lower_stmt Stmt::ForOfSplitIter arm (chunk 150)"
     },
@@ -639,33 +663,9 @@
     {
       "hash": "3cb8c016",
       "subject": "refactor(torajs-core): extract Stmt::For arm of lower_stmt (chunk 145)"
-    },
-    {
-      "hash": "ce7fe67e",
-      "subject": "chore(handoff/dashboard): chunks 141-144 ship summary @ 7d648bce (-1241 LOC god-fn extracts)"
-    },
-    {
-      "hash": "7d648bce",
-      "subject": "refactor(torajs-core): extract lower_fn (chunk 144)"
-    },
-    {
-      "hash": "f32ecf94",
-      "subject": "chore(handoff/dashboard): chunks 141-143 ship summary @ d73ce9f2 (-850 LOC god-fn extracts)"
-    },
-    {
-      "hash": "d73ce9f2",
-      "subject": "refactor(torajs-core): extract LowerCtx::lower_for_of_iter_protocol (chunk 143)"
-    },
-    {
-      "hash": "6bcf7f98",
-      "subject": "refactor(torajs-core): extract collect_fn_to_closure_store_sites (chunk 142)"
-    },
-    {
-      "hash": "572d435e",
-      "subject": "refactor(torajs-core): extract Ast::print_stmt + print_expr (chunk 141)"
     }
   ],
-  "headSha": "e2d64f99",
+  "headSha": "88787184",
   "autorun": {
     "total": 266,
     "baselineTarget": 10,
