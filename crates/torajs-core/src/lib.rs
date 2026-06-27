@@ -300,6 +300,7 @@ pub(crate) mod ssa_lower_instanceof;
 pub(crate) mod ssa_lower_intrinsics_any_substrate;
 pub(crate) mod ssa_lower_intrinsics_arr;
 pub(crate) mod ssa_lower_intrinsics_arr_any;
+pub(crate) mod ssa_lower_intrinsics_arr_str_etc;
 pub(crate) mod ssa_lower_intrinsics_bigint;
 pub(crate) mod ssa_lower_intrinsics_date;
 pub(crate) mod ssa_lower_intrinsics_fs;

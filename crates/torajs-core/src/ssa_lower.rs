@@ -1752,233 +1752,42 @@ fn lower_inner(
     } = crate::ssa_lower_intrinsics_substr::declare(&mut module, &mut fn_table);
     let (substr_trim_id, substr_trim_start_id, substr_trim_end_id, substr_trim_into_id) =
         crate::ssa_lower_substr_trim_into::declare_all(&mut module, &mut fn_table);
-    // View-aware concat — one alloc + two memcpys, no intermediate
-    // materialize. Variants for each Substr-on-side combination.
-    let substr_concat_substr_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_concat_substr_str",
-        &[Type::Ptr, Type::Str],
-        Type::Str,
-    );
-    let substr_concat_str_substr_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_concat_str_substr",
-        &[Type::Str, Type::Ptr],
-        Type::Str,
-    );
-    let substr_concat_substr_substr_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_concat_substr_substr",
-        &[Type::Ptr, Type::Ptr],
-        Type::Str,
-    );
-    let substr_to_owned_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_to_owned",
-        &[Type::Substr],
-        Type::Str,
-    );
-    let arr_from_string_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_from_string",
-        &[Type::Str],
-        Type::Ptr,
-    );
-    let str_substring_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_substring",
-        &[Type::Str, Type::I64, Type::I64],
-        Type::Str,
-    );
-    let str_substr_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_substr",
-        &[Type::Str, Type::I64, Type::I64],
-        Type::Str,
-    );
-    let arr_set_length_validate_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_set_length_validate",
-        &[Type::I64, Type::I64],
-        Type::Void,
-    );
-    // ES §10.4.2.5 step 4 — `arr.length = N` truncate path for typed
-    // `Array<I64|F64|Bool>` (non-refcounted scalar slots). Combines
-    // RangeError validation with the actual `len` write so the
-    // assignment isn't a silent no-op. Refcounted element types
-    // (Str / Substr / Arr / Obj / ...) stay on the validate-only
-    // helper above; truncate-with-rc_dec is a follow-up.
-    let arr_set_length_truncate_scalar_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_set_length_truncate_scalar",
-        &[Type::Ptr, Type::I64, Type::I64],
-        Type::Void,
-    );
-    let arr_to_reversed_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_to_reversed",
-        &[Type::Ptr],
-        Type::Ptr,
-    );
-    let arr_with_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_with",
-        &[Type::Ptr, Type::I64, Type::I64],
-        Type::Ptr,
-    );
-    let arr_join_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_join",
-        &[Type::Ptr, Type::Str],
-        Type::Str,
-    );
-    // View-aware variant — element-type Substr. Resolves bytes through
-    // each element's parent_ptr + offset rather than reading bytes inline.
-    let arr_join_substr_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_join_substr",
-        &[Type::Ptr, Type::Str],
-        Type::Str,
-    );
-    // Number → String coercion for `+` mixed-type concat. Two
-    // signatures because the SSA-level distinction between i64 and
-    // f64 must be preserved at the call boundary.
-    let i64_to_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_i64_to_str",
-        &[Type::I64],
-        Type::Str,
-    );
-    let f64_to_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_f64_to_str",
-        &[Type::F64],
-        Type::Str,
-    );
-    // V3-18 m1.h.9 — Number(string) ToNumber per spec §7.1.4.
-    // Returns f64 (NaN on parse failure); caller may narrow to
-    // i64 if appropriate.
-    let str_to_number_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_to_number",
-        &[Type::Str],
-        Type::F64,
-    );
-    // V3-18 m1.h.12 — `console.log(arr)` pretty-print, one
-    // helper per element type. Format: `[]` for empty,
-    // `[ a, b, c ]` for non-empty (note spaces; matches bun).
-    let arr_print_i64_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_print_i64",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let arr_print_f64_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_print_f64",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let arr_print_bool_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_print_bool",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let arr_print_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_print_str",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let arr_print_substr_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_print_substr",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let substr_print_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_print",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let str_char_at_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_char_at",
-        &[Type::Ptr, Type::I64],
-        Type::Substr,
-    );
-    let arr_join_i64_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_join_i64",
-        &[Type::Ptr, Type::Ptr],
-        Type::Str,
-    );
-    let arr_join_f64_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_join_f64",
-        &[Type::Ptr, Type::Ptr],
-        Type::Str,
-    );
-    // `Array<I64|F64>.toLocaleString()` per ES §22.1.3.32 step 5.b —
-    // each element formatted via `Number.prototype.toLocaleString`
-    // (en-US default: group integer part with `,`). Routes here only
-    // when `method == "toLocaleString"`; plain `join` / `toString`
-    // stay on the ToString-based helpers above.
-    let arr_join_i64_locale_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_join_i64_locale",
-        &[Type::Ptr, Type::Ptr],
-        Type::Str,
-    );
-    let arr_join_f64_locale_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_join_f64_locale",
-        &[Type::Ptr, Type::Ptr],
-        Type::Str,
-    );
-    let arr_join_bool_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_join_bool",
-        &[Type::Ptr, Type::Ptr],
-        Type::Str,
-    );
-    let arr_join_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_join_any",
-        &[Type::Ptr, Type::Ptr],
-        Type::Str,
-    );
+    // Substr concat + view-of-string + Array length mutate +
+    // Array immutable mutators + Array.join + number↔string coerce
+    // + typed Array.console.log + substr_print + str_char_at +
+    // typed Array.join variants (29 ids). See sibling for per-decl
+    // ABI detail.
+    let crate::ssa_lower_intrinsics_arr_str_etc::ArrStrEtcIds {
+        substr_concat_substr_str: substr_concat_substr_str_id,
+        substr_concat_str_substr: substr_concat_str_substr_id,
+        substr_concat_substr_substr: substr_concat_substr_substr_id,
+        substr_to_owned: substr_to_owned_id,
+        arr_from_string: arr_from_string_id,
+        str_substring: str_substring_id,
+        str_substr: str_substr_id,
+        arr_set_length_validate: arr_set_length_validate_id,
+        arr_set_length_truncate_scalar: arr_set_length_truncate_scalar_id,
+        arr_to_reversed: arr_to_reversed_id,
+        arr_with: arr_with_id,
+        arr_join: arr_join_id,
+        arr_join_substr: arr_join_substr_id,
+        i64_to_str: i64_to_str_id,
+        f64_to_str: f64_to_str_id,
+        str_to_number: str_to_number_id,
+        arr_print_i64: arr_print_i64_id,
+        arr_print_f64: arr_print_f64_id,
+        arr_print_bool: arr_print_bool_id,
+        arr_print_str: arr_print_str_id,
+        arr_print_substr: arr_print_substr_id,
+        substr_print: substr_print_id,
+        str_char_at: str_char_at_id,
+        arr_join_i64: arr_join_i64_id,
+        arr_join_f64: arr_join_f64_id,
+        arr_join_i64_locale: arr_join_i64_locale_id,
+        arr_join_f64_locale: arr_join_f64_locale_id,
+        arr_join_bool: arr_join_bool_id,
+        arr_join_any: arr_join_any_id,
+    } = crate::ssa_lower_intrinsics_arr_str_etc::declare(&mut module, &mut fn_table);
     let symbol_to_str_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
