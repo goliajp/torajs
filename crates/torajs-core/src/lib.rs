@@ -374,6 +374,7 @@ pub(crate) mod ssa_lower_stmt_if;
 pub(crate) mod ssa_lower_stmt_return;
 pub(crate) mod ssa_lower_stmt_switch;
 pub(crate) mod ssa_lower_stmt_throw;
+pub(crate) mod ssa_lower_stmt_try;
 pub mod ssa_lower_str;
 pub(crate) mod ssa_lower_str_arr_at;
 pub(crate) mod ssa_lower_str_arr_copy_within;
