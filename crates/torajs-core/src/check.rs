@@ -636,7 +636,7 @@ pub(crate) struct LocalInfo {
     /// nominal info lives on the binding rather than on `Type::Struct`
     /// to avoid a substrate refactor — it's enough for the
     /// `obj.member` pattern that visibility enforcement needs.
-    declared_class: Option<String>,
+    pub(crate) declared_class: Option<String>,
 }
 
 /// M3 — substitution recorded at each generic call site. Keyed by the
@@ -1325,7 +1325,7 @@ pub(crate) struct Checker {
     /// or descendant). `None` outside of class fn bodies (top-level
     /// stmts, free fns, etc.) — those treat every member as if it
     /// were public.
-    current_class: Option<String>,
+    pub(crate) current_class: Option<String>,
     /// M2 — captures for each lifted closure FnDecl. Populated by the
     /// `Expr::Closure` arm of `type_of` (which resolves capture types in
     /// the OUTER scope at the construction site) and consumed by the
@@ -9338,224 +9338,20 @@ impl Checker {
                         return crate::check_assign_ident::check(self, ast, name, *value);
                     }
                     Expr::Member { obj, name: field } => {
-                        // M1.4 — `obj.field = value`. Type-check the field
-                        // write: obj must be a Struct with `field`, value
-                        // type matches the field's declared type. For
-                        // non-Copy fields the old value's heap is dropped
-                        // by the lowerer; we only typecheck here.
-                        let obj_ty = self.type_of(ast, obj)?;
-                        // M-OO.5 — readonly enforcement on field write.
-                        // The constructor body (`__cm_<C>__ctor`) is
-                        // allowed to write readonly fields once;
-                        // anything else (instance methods, free fns,
-                        // top-level) is rejected. Visibility (Private /
-                        // Protected) was already enforced by the read-
-                        // path traversal above when type_of(*obj) ran;
-                        // readonly is orthogonal and lives on
-                        // `ast.readonly_fields`.
-                        let obj_class: Option<String> = match ast.get_expr(obj) {
-                            Expr::This => self.current_class.clone(),
-                            Expr::Ident(n) => self.lookup(n).and_then(|info| info.declared_class),
-                            _ => None,
-                        };
-                        if let Some(cls) = obj_class.as_deref()
-                            && ast
-                                .readonly_fields
-                                .contains(&(cls.to_string(), field.clone()))
-                        {
-                            // Allow the write only inside `__cm_<C>__ctor`
-                            // for the same class. The top-level FnDecl
-                            // arm doesn't expose the fn name here, but
-                            // we can detect the constructor context by
-                            // pairing `current_class == cls` with a
-                            // companion flag set on ctor entry. For
-                            // simplicity, treat any access from inside
-                            // the same class as ctor-equivalent for
-                            // now and tighten later — TS itself
-                            // restricts to constructor only, but our
-                            // tests assert the modifier semantics, not
-                            // the exact constructor-only nuance.
-                            if self.current_class.as_deref() != Some(cls) {
-                                return Err(format!(
-                                    "M-OO.5: cannot write readonly member `{cls}.{field}` from {}",
-                                    self.current_class
-                                        .as_deref()
-                                        .map(|c| format!("class `{c}`"))
-                                        .unwrap_or_else(|| "outside any class".to_string())
-                                ));
-                            }
-                        }
-                        // P3.2 — `obj.x = v` where obj is Type::Any
-                        // accepts any value; ssa_lower routes through
-                        // dynobj_set with the (tag, value) pair.
-                        if matches!(obj_ty, Type::Any) {
-                            let _ = self.type_of(ast, *value)?;
-                            self.consume(ast, *value);
-                            return Ok(Type::Any);
-                        }
-                        // T-27 — Function-as-Object. `f.x = v` writes
-                        // to the closure's lazy props_dynobj at offset
-                        // CLOSURE_PROPS_OFF. Per ECMAScript §10.2 the
-                        // function value IS an object. ssa_lower routes
-                        // through dynobj_set against the closure's
-                        // props field (allocated on first write).
-                        if matches!(obj_ty, Type::Function(..)) {
-                            let _ = self.type_of(ast, *value)?;
-                            self.consume(ast, *value);
-                            return Ok(Type::Any);
-                        }
-                        // T-29 — Array-as-Object. `arr.x = v` writes
-                        // to the array's side-table props_dynobj
-                        // (keyed by ptr). Spec: Array values are
-                        // Objects with own + indexed properties.
-                        // ssa_lower routes through arrprops_set; the
-                        // side table's drop_entry hook is called from
-                        // arr_drop / arr_drop_any when the array's
-                        // refcount hits 0.
-                        if matches!(obj_ty, Type::Array(_)) {
-                            let _ = self.type_of(ast, *value)?;
-                            self.consume(ast, *value);
-                            return Ok(Type::Any);
-                        }
-                        // P9.4 — `re.lastIndex = N`. Accept any
-                        // numeric RHS (lowering coerces F64 to I64 via
-                        // ToInteger; integer types pass through). The
-                        // store goes through __torajs_regex_set_last_index
-                        // at ssa-lower time.
-                        if matches!(obj_ty, Type::RegExp) && field == "lastIndex" {
-                            let value_ty = self.type_of(ast, *value)?;
-                            if !matches!(value_ty, Type::Number) {
-                                return Err(format!(
-                                    "type mismatch assigning to `RegExp.lastIndex`: expected number, got {value_ty:?}"
-                                ));
-                            }
-                            self.consume(ast, *value);
-                            return Ok(Type::Number);
-                        }
-                        let Type::Struct(fields) = &obj_ty else {
-                            return Err(format!(
-                                "field assignment target must be a struct, got {obj_ty:?}"
-                            ));
-                        };
-                        // P8.2 — accessor write: `c.value = v` where C
-                        // declares `set value(n: T)`. Before falling into
-                        // the regular field-find, look up the setter in
-                        // `accessor_setters`; if present, validate the
-                        // RHS against the setter's value-param type
-                        // (`__this` first, then the user-declared param).
-                        // Reverse-lookup obj's class from the struct
-                        // shape via the aliases table — same idiom as
-                        // the read-side accessor probe above. ssa_lower
-                        // emits a Call to the setter at the matching
-                        // Assign-Member arm.
-                        let mut setter_class: Option<String> = None;
-                        for (n, ty) in self.aliases.iter() {
-                            if *ty == obj_ty && ast.class_parents.contains_key(n) {
-                                setter_class = Some(n.clone());
-                                break;
-                            }
-                        }
-                        if let Some(cls) = setter_class
-                            && let Some(setter_fn) = ast
-                                .accessor_setters
-                                .get(&(cls.clone(), field.clone()))
-                                .cloned()
-                            && let Some(Type::Function(params, _ret)) =
-                                self.globals.get(&setter_fn).cloned()
-                            && params.len() >= 2
-                        {
-                            // `params[0]` is the implicit `__this`;
-                            // `params[1]` is the user-declared value
-                            // param's type.
-                            let setter_param_ty = params[1].clone();
-                            let value_ty = self.type_of(ast, *value)?;
-                            if !is_assignable_to_resolved(
-                                &setter_param_ty,
-                                &value_ty,
-                                &self.aliases,
-                                &self.generic_alias_decls,
-                            ) {
-                                return Err(format!(
-                                    "type mismatch assigning to accessor `{cls}.{field}`: setter expects {setter_param_ty:?}, value is {value_ty:?}"
-                                ));
-                            }
-                            self.consume(ast, *value);
-                            return Ok(setter_param_ty);
-                        }
-                        let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == &field) else {
-                            return Err(format!("no field `{field}` on type {obj_ty:?}"));
-                        };
-                        let field_ty = field_ty.clone();
-                        // V3-06 — `this.kids = []` in a class
-                        // constructor: bare empty array literal
-                        // gets its element type from the field's
-                        // declared array type.
-                        if matches!(ast.get_expr(*value), Expr::Array(els) if els.is_empty())
-                            && matches!(
-                                resolve_class_ref(
-                                    &field_ty,
-                                    &self.aliases,
-                                    &self.generic_alias_decls
-                                ),
-                                Type::Array(_)
-                            )
-                        {
-                            self.consume(ast, *value);
-                            return Ok(field_ty);
-                        }
-                        let value_ty = self.type_of(ast, *value)?;
-                        // V3-05 — assign-to-field uses the same
-                        // assignability rule as plain assigns: Null
-                        // widens into Nullable(T), and ClassRef
-                        // placeholders resolve to their concrete struct
-                        // before the equality check.
-                        if !is_assignable_to_resolved(
-                            &field_ty,
-                            &value_ty,
-                            &self.aliases,
-                            &self.generic_alias_decls,
-                        ) {
-                            return Err(format!(
-                                "type mismatch assigning to `{field}`: field is {field_ty:?}, value is {value_ty:?}"
-                            ));
-                        }
-                        // Value transfers into the struct field — Ident
-                        // sources get marked moved.
-                        self.consume(ast, *value);
-                        Ok(field_ty)
+                        // M1.4 / P3.2 / T-27 / T-29 / P9.4 / P8.2 /
+                        // V3-05 / V3-06 / M-OO.5 readonly. See
+                        // [`crate::check_assign_target::check_member`].
+                        return crate::check_assign_target::check_member(
+                            self, ast, obj, field, *value,
+                        );
                     }
                     Expr::Index { obj, index } => {
-                        // M1.4 — `arr[i] = value`. obj must be Array<T>;
-                        // index must be number; value type must match elem.
-                        let obj_ty = self.type_of(ast, obj)?;
-                        let idx_ty = self.type_of(ast, index)?;
-                        if idx_ty != Type::Number {
-                            return Err(format!("index must be number, got {idx_ty:?}"));
-                        }
-                        let Type::Array(elem) = &obj_ty else {
-                            return Err(format!(
-                                "index assignment target must be an array, got {obj_ty:?}"
-                            ));
-                        };
-                        let elem_ty = (**elem).clone();
-                        let value_ty = self.type_of(ast, *value)?;
-                        // P0.10 — Array<Any>[i] = <concrete> is allowed
-                        // per TS spec; box happens at ssa-lower time
-                        // via `__torajs_arr_set_any` (matches the
-                        // existing Any-typed let init / call-arg
-                        // boxing path).
-                        if !is_assignable_to_resolved(
-                            &elem_ty,
-                            &value_ty,
-                            &self.aliases,
-                            &self.generic_alias_decls,
-                        ) {
-                            return Err(format!(
-                                "type mismatch on element assignment: array of {elem_ty:?}, value is {value_ty:?}"
-                            ));
-                        }
-                        self.consume(ast, *value);
-                        Ok(elem_ty)
+                        // M1.4 — arr[i] = value (Array<T> + Number
+                        // index + elem type match). See
+                        // [`crate::check_assign_target::check_index`].
+                        return crate::check_assign_target::check_index(
+                            self, ast, obj, index, *value,
+                        );
                     }
                     _ => Err("invalid assignment target".into()),
                 }
