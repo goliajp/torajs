@@ -726,7 +726,7 @@ fn is_known_builtin_global(name: &str) -> bool {
 /// (0/NaN→false), String (""→false), Null (→false), Object/etc
 /// (always-true). ssa_lower routes the cond through
 /// `coerce_to_bool` to emit the actual coercion at lower time.
-fn js_truthy_acceptable(t: &Type) -> bool {
+pub(crate) fn js_truthy_acceptable(t: &Type) -> bool {
     !matches!(t, Type::Void)
 }
 
@@ -9507,105 +9507,12 @@ impl Checker {
                 }
             }
             Expr::Unary { op, expr } => {
-                let t = self.type_of(ast, *expr)?;
-                match op {
-                    crate::ast::UnaryOp::Not => {
-                        // V3-18 m1.h.2 — JS spec §13.5.7 logical NOT
-                        // calls ToBoolean on its operand. Accept any
-                        // truthy-coercible type; result is Boolean.
-                        if js_truthy_acceptable(&t) {
-                            Ok(Type::Boolean)
-                        } else {
-                            Err(format!(
-                                "`!` requires boolean (or coercible) operand, got {t:?}"
-                            ))
-                        }
-                    }
-                    crate::ast::UnaryOp::Neg => {
-                        if t == Type::Number {
-                            Ok(Type::Number)
-                        } else if t == Type::BigInt {
-                            // T-25 — `-bigint` flips the sign via
-                            // bigint_neg at the SSA layer.
-                            Ok(Type::BigInt)
-                        } else if matches!(
-                            t,
-                            Type::Boolean | Type::Null | Type::String | Type::Undefined
-                        ) {
-                            // V3-18 m1.f / unary-on-string wedge —
-                            // JS spec §13.5.5 unary `-` calls
-                            // ToNumber on its operand. Bool/Null map
-                            // via the m1.b coerce path; String routes
-                            // through __torajs_str_to_number (strtod-
-                            // based, NaN on parse failure). Undefined
-                            // → NaN per §7.1.4 (S136). Result type is
-                            // Number in every case.
-                            Ok(Type::Number)
-                        } else if matches!(t, Type::Any) {
-                            // P0.9 — Any operand: ToNumber via
-                            // any_to_number_inner runtime, then
-                            // negate. ssa_lower routes through the
-                            // same any_arith helper used by Sub
-                            // (op=0 with LHS=0).
-                            Ok(Type::Any)
-                        } else {
-                            Err(format!("`-` requires number or bigint operand, got {t:?}"))
-                        }
-                    }
-                    crate::ast::UnaryOp::Plus if matches!(t, Type::Any) => {
-                        // P0.9 — Any operand: same any_arith path as
-                        // unary Neg, just identity-Mul to ToNumber.
-                        Ok(Type::Any)
-                    }
-                    crate::ast::UnaryOp::Plus => {
-                        // V3-18 m1.h.4 / unary-on-string wedge —
-                        // unary `+x` per spec §13.5.4 calls
-                        // ToNumber(x). Coercibles: Number / Boolean /
-                        // Null / String / Undefined (ToNumber(undefined)
-                        // = NaN per spec §7.1.4). No IEEE -0 concern.
-                        if matches!(
-                            t,
-                            Type::Number
-                                | Type::Boolean
-                                | Type::Null
-                                | Type::String
-                                | Type::Undefined
-                        ) {
-                            Ok(Type::Number)
-                        } else if t == Type::BigInt {
-                            // Per spec, unary `+` on BigInt is a
-                            // TypeError. Caught here at typecheck
-                            // since runtime support is unnecessary.
-                            Err("`+` on bigint is a TypeError per spec; use Number(x) for explicit coercion".into())
-                        } else {
-                            Err(format!(
-                                "`+` requires number or coercible operand, got {t:?}"
-                            ))
-                        }
-                    }
-                    crate::ast::UnaryOp::BitNot => {
-                        if t == Type::Number {
-                            Ok(Type::Number)
-                        } else if t == Type::BigInt {
-                            // V3-02 — BigInt `~x` ≡ `-x - 1n`.
-                            Ok(Type::BigInt)
-                        } else if matches!(
-                            t,
-                            Type::Boolean | Type::Null | Type::Undefined | Type::String
-                        ) {
-                            // V3-18 m1.f — JS spec §13.5.6 unary `~`
-                            // calls ToInt32 (via ToNumber). Bool/Null
-                            // both clean to i32. Undefined → NaN →
-                            // ToInt32(NaN) = 0 per §7.1.6 → `~0` = -1
-                            // (S136). String routes through
-                            // __torajs_str_to_number at the SSA layer
-                            // (S137), mirroring the Neg arm.
-                            Ok(Type::Number)
-                        } else {
-                            Err(format!("`~` requires number or bigint operand, got {t:?}"))
-                        }
-                    }
-                }
+                // V3-18 m1.h.2 / m1.f / m1.h.4 / V3-02 — `!` / `-`
+                // / `+` / `~` per-op type rules (ToBoolean for `!`;
+                // ToNumber/Int32 for the rest; BigInt special-cases;
+                // Any → Any). See
+                // [`crate::check_type_of_unary::check`].
+                crate::check_type_of_unary::check(self, ast, *op, *expr)
             }
             Expr::Assign { target, value } => {
                 match ast.get_expr(*target).clone() {
