@@ -572,7 +572,7 @@ fn build_fn_type_with_vars(
     )
 }
 
-fn build_fn_type_full(
+pub(crate) fn build_fn_type_full(
     fn_name: &str,
     params: &[Param],
     return_type: &Option<String>,
@@ -1069,238 +1069,13 @@ impl Checker {
     }
 
     fn run_full_pipeline(&mut self, ast: &Ast) {
-        let c = self;
-
-        // Pass 0: register type aliases first so fn signatures + let
-        // annotations can reference them. `type Point = { x: number, y: number }`
-        // adds `Point → Type::Struct(...)` to `c.aliases`. M3.4 — generic
-        // type aliases `type Pair<A, B> = { ... }` are recorded in a
-        // separate map (`generic_alias_decls`) and instantiated lazily by
-        // `resolve_type_ann_with_vars` when it sees `Pair<X|Y>` syntax.
-        /* V3-05 — pre-register every non-generic class TypeDecl name
-         * with an empty `Type::Struct(vec![])` placeholder before
-         * resolving any field types. This lets `resolve_type_ann_full`
-         * find self-references (`class Node { next: Node | null }`)
-         * and forward-references (`class A { b: B } class B { a: A }`)
-         * — both previously rejected because the class wasn't yet in
-         * `c.aliases` when its own (or its sibling's) field types were
-         * being resolved. After Pass 0, the placeholder is replaced
-         * with the resolved fields. The downstream consumers that
-         * matter — Member-access type-of, Assign LHS/RHS unify, etc.
-         * — index `c.aliases` by name on every read, so they see the
-         * post-replacement struct, not the placeholder. */
-        let mut placeholder_classes: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
-        for stmt in &ast.stmts {
-            if let Stmt::TypeDecl {
-                name, type_params, ..
-            } = stmt
-            {
-                if !type_params.is_empty() {
-                    continue;
-                }
-                if c.aliases.contains_key(name) || c.generic_alias_decls.contains_key(name) {
-                    continue; /* duplicate handled by Pass 0 below */
-                }
-                c.aliases.insert(name.clone(), Type::ClassRef(name.clone()));
-                placeholder_classes.insert(name.clone());
-            }
-        }
-
-        for stmt in &ast.stmts {
-            if let Stmt::TypeDecl {
-                name,
-                type_params,
-                fields,
-            } = stmt
-            {
-                /* Skip duplicate declarations — but ignore the
-                 * placeholder we just inserted; only flag when the
-                 * existing entry came from somewhere else. */
-                if (c.aliases.contains_key(name) && !placeholder_classes.contains(name))
-                    || c.generic_alias_decls.contains_key(name)
-                {
-                    c.errors.push_err(format!("redeclaration of type `{name}`"));
-                    continue;
-                }
-                if !type_params.is_empty() {
-                    c.generic_alias_decls
-                        .insert(name.clone(), (type_params.clone(), fields.clone()));
-                    continue;
-                }
-                // V3-18 wedge — bare type alias sentinel from parser.
-                // Single field named "__alias__" carries the actual
-                // type-ann string; resolve to the underlying Type and
-                // register without wrapping in Struct.
-                if fields.len() == 1 && fields[0].0 == "__alias__" {
-                    let alias_ann = &fields[0].1;
-                    match resolve_type_ann_full(alias_ann, &c.aliases, &[], &c.generic_alias_decls)
-                    {
-                        Some(ty) => {
-                            c.aliases.insert(name.clone(), ty);
-                        }
-                        None => {
-                            c.errors.push_err(format!(
-                                "unknown type `{alias_ann}` for type alias `{name}`"
-                            ));
-                        }
-                    }
-                    continue;
-                }
-                let mut field_tys: Vec<(String, Type)> = Vec::new();
-                let mut had_err = false;
-                for (fname, fty_ann) in fields {
-                    match resolve_type_ann_full(fty_ann, &c.aliases, &[], &c.generic_alias_decls) {
-                        Some(ty) => field_tys.push((fname.clone(), ty)),
-                        None => {
-                            c.errors.push_err(format!(
-                                "unknown type `{fty_ann}` for field `{fname}` of `{name}`"
-                            ));
-                            had_err = true;
-                            break;
-                        }
-                    }
-                }
-                if !had_err {
-                    c.aliases.insert(name.clone(), Type::Struct(field_tys));
-                }
-            }
-        }
-
-        // Pass 1: hoist top-level function signatures (uses aliases).
-        // For lifted-closure FnDecls (first param `__env`), the user-visible
-        // signature drops the env: callers see `(real_params...) -> ret`.
-        // The full signature including __env stays implicit at the SSA layer.
-        // Generic FnDecls (non-empty type_params) get their signatures stored
-        // with TypeVar placeholders; call-site inference instantiates them.
-        for stmt in &ast.stmts {
-            if let Stmt::FnDecl {
-                name,
-                type_params,
-                params,
-                return_type,
-                ..
-            } = stmt
-            {
-                let is_closure = params.first().is_some_and(|p| p.name == "__env");
-                let user_params: &[Param] = if is_closure { &params[1..] } else { params };
-                match build_fn_type_full(
-                    name,
-                    user_params,
-                    return_type,
-                    &c.aliases,
-                    type_params,
-                    &c.generic_alias_decls,
-                ) {
-                    Ok(ty) => {
-                        if c.globals.contains_key(name) {
-                            c.errors
-                                .push_err(format!("redeclaration of function `{name}`"));
-                        } else {
-                            c.globals.insert(name.clone(), ty);
-                            if is_closure {
-                                c.closure_fn_names.insert(name.clone());
-                            }
-                            if !type_params.is_empty() {
-                                c.generic_type_params
-                                    .insert(name.clone(), type_params.clone());
-                            }
-                            // Record per-param default ExprIds for caller-
-                            // side default substitution. None positions are
-                            // required args; first non-None marks the start
-                            // of the optional tail (JS spec — defaults must
-                            // be trailing).
-                            let defaults: Vec<Option<ExprId>> =
-                                user_params.iter().map(|p| p.default).collect();
-                            if defaults.iter().any(|d| d.is_some()) {
-                                c.fn_defaults.insert(name.clone(), defaults);
-                            }
-                        }
-                    }
-                    Err(e) => c.errors.push_err(e),
-                }
-            }
-        }
-
-        // Pass 2: check each statement. Closure-lifted FnDecls are skipped
-        // here — their bodies are checked lazily by the `Expr::Closure` arm
-        // of `type_of`, with captures injected as locals. Generic FnDecls
-        // are also skipped: their bodies use TypeVar placeholders that the
-        // SSA monomorphization pass instantiates per call site, and the
-        // body's own TS-shape ops (return, BinOp on TypeVar) would fail
-        // a concrete check here. Call-site inference still validates that
-        // arguments are consistent with each TypeVar instance.
-        // Pre-pass: register top-level `const X = LITERAL` (Number / String
-        // / Boolean) as globals so named functions can read them. tr's lower
-        // path emits the literal inline at every reference; non-literal
-        // initializers stay scoped to the implicit main fn (they alloca
-        // there and aren't visible from named-fn bodies).
-        let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
-        for stmt in &ast.stmts {
-            if let Stmt::LetDecl {
-                name,
-                init,
-                type_ann,
-                ..
-            } = stmt
-            {
-                let lit_ty = match ast.get_expr(*init) {
-                    Expr::Number(_) => Some(Type::Number),
-                    Expr::BigInt { .. } => Some(Type::BigInt),
-                    Expr::String(_) => Some(Type::String),
-                    Expr::Bool(_) => Some(Type::Boolean),
-                    _ => None,
-                };
-                // Phase K.3 — non-literal init with explicit type annotation
-                // becomes a real LLVM data global. Record the annotated type
-                // so named-fn bodies type-check reads + writes against it.
-                // ssa_lower restricts the runtime registration to primitive
-                // Copy types (I64 / F64 / Bool); for the typecheck we just
-                // accept whatever resolves cleanly.
-                let ann_ty = match (lit_ty.clone(), type_ann) {
-                    (None, Some(ann)) => resolve_type_ann(ann, &c.aliases),
-                    // K.3b — un-annotated non-literal init (`let y =
-                    // g()`): register exactly what ssa_lower's Pass
-                    // 1.5 will promote, via the shared ast_refs gate +
-                    // slot-shape inference. Anything looser here lets
-                    // programs typecheck whose lowering still aborts
-                    // with `unknown ident`; anything tighter brings
-                    // back the bogus `unknown identifier` on legal
-                    // named-fn reads of call-init globals.
-                    (None, None) => {
-                        if binding_refs.named_fn_refs.contains(name)
-                            && !binding_refs.closure_captured.contains(name)
-                        {
-                            crate::ast_refs::infer_toplevel_slot_shape(ast, *init).map(
-                                |s| match s {
-                                    crate::ast_refs::GlobalSlotShape::I64
-                                    | crate::ast_refs::GlobalSlotShape::F64 => Type::Number,
-                                    crate::ast_refs::GlobalSlotShape::Str => Type::String,
-                                    crate::ast_refs::GlobalSlotShape::Bool => Type::Boolean,
-                                },
-                            )
-                        } else {
-                            None
-                        }
-                    }
-                    _ => lit_ty,
-                };
-                if let Some(ty) = ann_ty
-                    && !c.globals.contains_key(name)
-                {
-                    c.globals.insert(name.clone(), ty);
-                }
-            }
-        }
-
-        for stmt in &ast.stmts {
-            if let Stmt::FnDecl { name, .. } = stmt
-                && (c.closure_fn_names.contains(name) || c.generic_type_params.contains_key(name))
-            {
-                continue;
-            }
-            c.check_stmt(ast, stmt);
-        }
+        // Three native passes split out into `check_pipeline` sibling
+        // (chunk 136). Order matters: Pass 1 reads aliases populated
+        // by Pass 0; Pass 2 reads globals populated by Pass 1 and
+        // the pre-pass.
+        crate::check_pipeline::pass_0_register_type_aliases(self, ast);
+        crate::check_pipeline::pass_1_hoist_fn_signatures(self, ast);
+        crate::check_pipeline::pass_2_register_globals_and_check_stmts(self, ast);
     }
 }
 
@@ -1335,14 +1110,14 @@ pub(crate) struct Checker {
     /// `__env`). Pass-2 skips these — their bodies are checked lazily
     /// when an `Expr::Closure` references them, so the captures are in
     /// scope.
-    closure_fn_names: std::collections::HashSet<String>,
+    pub(crate) closure_fn_names: std::collections::HashSet<String>,
     /// M3 — type params for each generic FnDecl (`function id<T, U>(...)`).
     /// Empty for non-generic fns. Pass-2 skips these decls (their
     /// TypeVar-bearing bodies can't be type-checked without substitution);
     /// the SSA monomorphization pass produces concrete bodies on demand.
     /// Call-site inference uses this map to walk each TypeVar in the
     /// signature and unify it against the actual argument type.
-    generic_type_params: HashMap<String, Vec<String>>,
+    pub(crate) generic_type_params: HashMap<String, Vec<String>>,
     /// M3 — per-call-site inferred type arguments. Keyed by the Call
     /// expression's `ExprId`; value is `(callee_name, ordered type args
     /// matching the callee's `type_params`)`. Read by the SSA monomorphizer
