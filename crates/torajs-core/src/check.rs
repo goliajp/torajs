@@ -1310,7 +1310,7 @@ pub(crate) struct Checker {
     scopes: Vec<HashMap<String, LocalInfo>>,
     /// User-declared type aliases — populated in pass 0 from
     /// `Stmt::TypeDecl`. `Point → Type::Struct(...)`.
-    aliases: HashMap<String, Type>,
+    pub(crate) aliases: HashMap<String, Type>,
     /// T-04 — was `Vec<String>`; now carries severity + span. The
     /// public APIs (`check`, `collect_errors`) stringify back to the
     /// caller's expected shape; LSP consumes via `collect_diagnostics`.
@@ -1363,7 +1363,7 @@ pub(crate) struct Checker {
     /// `type Pair<A, B> = { fst: A, snd: B }`. Used by
     /// `resolve_type_ann_with_vars` to instantiate `Pair<number|string>`
     /// on-demand into a concrete `Type::Struct`.
-    generic_alias_decls: GenericAliasMap,
+    pub(crate) generic_alias_decls: GenericAliasMap,
     /// Per-FnDecl default-value ExprIds in param order (None for
     /// required params, Some for `f(x = expr)`). Only present for fns
     /// with at least one defaulted param. Used at call-typecheck time
@@ -4696,91 +4696,12 @@ impl Checker {
                 }
             }
             Expr::Array(elements) => {
-                if elements.is_empty() {
-                    // P0.10 — bare `[]` in non-let-init expression
-                    // position defaults to `Array<Any>` per TS spec.
-                    // Mirrors the LetDecl empty-`[]` default. Pre-fix
-                    // tora rejected `new Array().length` / `[].length`
-                    // / fn-arg empty arrays with the explicit-annotation
-                    // demand. Test262 uses these pervasively (~50+
-                    // cases unblocked across the broader sample).
-                    return Ok(Type::Array(Box::new(Type::Any)));
-                }
-                let ids: Vec<ExprId> = elements.clone();
-                // Helper: the "value type contributed by this element"
-                // is T for a non-spread element of type T, or T for a
-                // spread element whose source has type Array<T>. Empty
-                // inner array literals (`[]`) get `None` so the outer
-                // typecheck can defer their typing to a non-empty
-                // sibling.
-                let elem_value_ty =
-                    |this: &mut Self, eid: ExprId| -> Result<Option<Type>, String> {
-                        if let Expr::Spread { expr } = ast.get_expr(eid) {
-                            let src_ty = this.type_of(ast, *expr)?;
-                            match src_ty {
-                                Type::Array(inner) => Ok(Some(*inner)),
-                                // S134 — string spread `[...str]` unfolds per
-                                // code unit into Array<string> (ES iterator
-                                // protocol; matches Array.from(str) shape).
-                                // ssa_lower wires str_split + materialize.
-                                Type::String => Ok(Some(Type::String)),
-                                // S141 — `[...set]` spread (ES iterator
-                                // protocol) yields Array<Any> per the
-                                // Array.from(set) shape; ssa_lower routes
-                                // through the shared map-iter walker.
-                                Type::Set => Ok(Some(Type::Any)),
-                                other => Err(format!(
-                                    "array spread source must be an array, got {other:?}"
-                                )),
-                            }
-                        } else if matches!(ast.get_expr(eid), Expr::Array(els) if els.is_empty()) {
-                            Ok(None)
-                        } else {
-                            Ok(Some(this.type_of(ast, eid)?))
-                        }
-                    };
-                // Find first non-empty element to anchor the type. Empty
-                // siblings are allowed and inherit this anchor type.
-                let mut first_ty: Option<Type> = None;
-                for &eid in &ids {
-                    if let Some(t) = elem_value_ty(self, eid)? {
-                        first_ty = Some(t);
-                        break;
-                    }
-                }
-                let first_ty = match first_ty {
-                    Some(t) => t,
-                    None => {
-                        return Err(
-                            "array of all-empty inner literals — cannot infer element type".into(),
-                        );
-                    }
-                };
-                // T-10.c (v0.4.0) — heterogeneous array literal widens
-                // to `Array<Any>` instead of erroring. Matches bun's
-                // semantics: `[1, 'a', true]` is a valid expression
-                // and binds to `let xs: any[] = ...`. Strict per-slot
-                // typing is preserved when ALL elements share a type.
-                let mut heterogeneous = false;
-                for &eid in ids.iter() {
-                    let ty = elem_value_ty(self, eid)?;
-                    if let Some(ty) = ty
-                        && !is_assignable_to_resolved(
-                            &first_ty,
-                            &ty,
-                            &self.aliases,
-                            &self.generic_alias_decls,
-                        )
-                    {
-                        heterogeneous = true;
-                        break;
-                    }
-                }
-                if heterogeneous {
-                    Ok(Type::Array(Box::new(Type::Any)))
-                } else {
-                    Ok(Type::Array(Box::new(first_ty)))
-                }
+                // T-10.c / P0.10 / S134 / S141 — array literal
+                // typecheck (empty default Array<Any>; per-element
+                // value type incl. spread sources Array<T>/String/Set;
+                // anchor + heterogeneous → Array<Any> widen). See
+                // [`crate::check_type_of_array::check`].
+                crate::check_type_of_array::check(self, ast, elements)
             }
             Expr::Spread { .. } => Err("spread `...` is only valid inside an array literal".into()),
             Expr::ObjectLit { fields } => {
