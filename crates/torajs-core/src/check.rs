@@ -527,7 +527,7 @@ fn struct_is_prefix_subtype(arg: &Type, param: &Type) -> bool {
 }
 
 #[allow(dead_code)]
-fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type> {
+pub(crate) fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type> {
     resolve_type_ann_full(name, aliases, &[], &HashMap::new())
 }
 
@@ -1920,72 +1920,18 @@ impl Checker {
                 elem_expr,
                 body,
             } => {
-                self.scopes.push(HashMap::new());
-                let _ = self.declare(
-                    i_ident.clone(),
-                    LocalInfo {
-                        ty: Type::Number,
-                        mutable: true,
-                        moved: false,
-                        borrowed: false,
-                        declared_class: None,
-                    },
+                // P5.3 generic for-of + P5.3 Phase B Struct skip +
+                // P6.4c Map/Set/MapIter/ArrIter skip. See
+                // [`crate::check_stmt_for_of::check`].
+                crate::check_stmt_for_of::check(
+                    self,
+                    ast,
+                    var_name,
+                    var_type_ann,
+                    i_ident,
+                    *elem_expr,
+                    body,
                 );
-                // P5.3 Phase B — peek src type. If it's a Struct we
-                // skip the index typecheck and route through the
-                // protocol path; ssa_lower derives elem_ty from the
-                // iter chain's step.value field.
-                // P6.4c — same skip for Type::Map / Type::Set /
-                // Type::MapIter (handled by lower_for_of_map_like in
-                // ssa_lower). For Type::Map specifically the yielded
-                // value is `[k, v]` Array<Any> so var_ty is
-                // Array(Any) (enables destructuring `for (let [k, v]
-                // of m)`); for Set / MapIter the yield is type-erased
-                // Any.
-                let src_kind = if let Expr::Index { obj, .. } = ast.get_expr(*elem_expr) {
-                    self.type_of(ast, *obj).ok()
-                } else {
-                    None
-                };
-                let src_is_iter_subset = matches!(
-                    src_kind,
-                    Some(Type::Struct(_))
-                        | Some(Type::Map)
-                        | Some(Type::Set)
-                        | Some(Type::MapIter)
-                        | Some(Type::ArrIter)
-                );
-                let elem_ty = if src_is_iter_subset {
-                    match src_kind {
-                        Some(Type::Map) => Type::Array(Box::new(Type::Any)),
-                        _ => Type::Any,
-                    }
-                } else {
-                    match self.type_of(ast, *elem_expr) {
-                        Ok(t) => t,
-                        Err(e) => {
-                            self.errors.push_err(e);
-                            Type::Any
-                        }
-                    }
-                };
-                let var_ty = if let Some(ann) = var_type_ann {
-                    resolve_type_ann(ann, &self.aliases).unwrap_or(elem_ty)
-                } else {
-                    elem_ty
-                };
-                let _ = self.declare(
-                    var_name.clone(),
-                    LocalInfo {
-                        ty: var_ty,
-                        mutable: false,
-                        moved: false,
-                        borrowed: false,
-                        declared_class: None,
-                    },
-                );
-                self.check_stmt(ast, body);
-                self.scopes.pop();
             }
             Stmt::Block(stmts) => {
                 self.scopes.push(HashMap::new());
