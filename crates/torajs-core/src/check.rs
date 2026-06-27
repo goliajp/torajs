@@ -247,7 +247,6 @@ impl Type {
     }
 }
 
-use crate::check_assignable::is_assignable_to_resolved;
 use crate::check_type_ann::resolve_type_ann_full;
 pub(crate) type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(String, String)>)>;
 
@@ -1786,7 +1785,7 @@ impl Checker {
     /// own independent stakes; neither is an alias nor consumed.
     /// Fresh-value init (literal, Call return, BinOp, ObjectLit, Array)
     /// produces a new owner; not an alias.
-    fn classify_init_alias(&self, ast: &Ast, eid: ExprId) -> bool {
+    pub(crate) fn classify_init_alias(&self, ast: &Ast, eid: ExprId) -> bool {
         match ast.get_expr(eid) {
             Expr::Member { .. } | Expr::Index { .. } => true,
             Expr::Ident(name) => {
@@ -1958,120 +1957,11 @@ impl Checker {
                 init,
                 is_var: _,
             } => {
-                // M1.2 — empty array literal `[]` carries no element-type
-                // info; the annotation must provide it. Special-case to
-                // skip type_of (which would error) and use the annotation
-                // directly. Matches TS / bun: `let xs: number[] = [];`.
-                let is_empty_array =
-                    matches!(ast.get_expr(*init), Expr::Array(els) if els.is_empty());
-                let init_ty = if is_empty_array {
-                    // P0.10 — empty array literal `[]` defaults to
-                    // `Array<Any>` when no annotation is present, per
-                    // TS spec (untyped `[]` is `any[]`). Matches the
-                    // closure-default-Any policy. Pre-fix tora demanded
-                    // `let xs: T[] = []`; test262 uses bare `let arr =
-                    // []` pervasively (160+ cases blocked on this
-                    // single shape across the broader sample).
-                    let ann_ty = match type_ann {
-                        Some(ann) => {
-                            let Some(t) = resolve_type_ann_full(
-                                ann,
-                                &self.aliases,
-                                &[],
-                                &self.generic_alias_decls,
-                            ) else {
-                                self.errors.push_err(format!("unknown type `{ann}`"));
-                                return;
-                            };
-                            if !matches!(t, Type::Array(_)) {
-                                self.errors.push_err(format!(
-                                    "empty array literal `{name}` needs an array type annotation, got `{ann}`"
-                                ));
-                                return;
-                            }
-                            t
-                        }
-                        None => Type::Array(Box::new(Type::Any)),
-                    };
-                    ann_ty
-                } else {
-                    match self.type_of(ast, *init) {
-                        Ok(t) => t,
-                        Err(e) => {
-                            self.errors.push_err(e);
-                            return;
-                        }
-                    }
-                };
-                let final_ty = match type_ann {
-                    None => init_ty,
-                    Some(ann) => {
-                        let Some(ann_ty) = resolve_type_ann_full(
-                            ann,
-                            &self.aliases,
-                            &[],
-                            &self.generic_alias_decls,
-                        ) else {
-                            self.errors.push_err(format!("unknown type `{ann}`"));
-                            return;
-                        };
-                        if !is_assignable_to_resolved(
-                            &ann_ty,
-                            &init_ty,
-                            &self.aliases,
-                            &self.generic_alias_decls,
-                        ) {
-                            self.errors.push_err(format!(
-                                "type mismatch on `{name}`: declared {ann_ty:?}, init has {init_ty:?}"
-                            ));
-                            return;
-                        }
-                        ann_ty
-                    }
-                };
-                // Member / Index / cross-scope Ident init aliases a heap
-                // owned elsewhere — mark `borrowed` so transfer sites
-                // reject mid-scope moves while return/throw escapes stay
-                // legal (retain-at-boundary). Same-scope Ident init
-                // shares (ssa_lower retains); all other init shapes
-                // (Call, BinOp, literal, ObjectLit) are fresh-owned.
-                let is_alias_init = self.classify_init_alias(ast, *init);
-                // M-OO.5 — when the declared annotation names a known
-                // class, propagate that nominal info to the binding so
-                // `name.private_member` accesses can look up the
-                // visibility entry. type_ann is the source string
-                // (e.g. "Counter"); we treat it as a class iff it
-                // appears in `c.aliases` AND has a corresponding entry
-                // in `ast.class_parents` (declared via `class`, not
-                // `type`).
-                let declared_class: Option<String> = type_ann.as_ref().and_then(|s| {
-                    if ast.class_parents.contains_key(s.as_str()) {
-                        Some(s.clone())
-                    } else {
-                        None
-                    }
-                });
-                if let Err(e) = self.declare(
-                    name.clone(),
-                    LocalInfo {
-                        ty: final_ty,
-                        mutable: *mutable,
-                        moved: false,
-                        borrowed: is_alias_init,
-                        declared_class,
-                    },
-                ) {
-                    self.errors.push_err(e);
-                }
-                // let-rhs is NOT a transfer site: a same-scope
-                // `let t = s` SHARES ownership (ssa_lower retains at the
-                // binding site — CPython incref / Swift strong-assignment
-                // semantics), so `s` stays fully usable afterwards:
-                // `return s`, `let u = s`, `s = "new"` are all legal.
-                // Alias-init (Member / Index / cross-scope Ident) keeps
-                // the source as owner with the binding marked borrowed.
-                // Non-Ident inits produce fresh-owned values — nothing
-                // to consume either way.
+                // M1.2 + P0.10 empty-array narrow + annotation
+                // assignability + alias classify + M-OO.5 nominal
+                // info + LocalInfo declare. See
+                // [`crate::check_stmt_let_decl::check`].
+                crate::check_stmt_let_decl::check(self, ast, *mutable, name, type_ann, *init);
             }
             Stmt::FnDecl {
                 name, params, body, ..

@@ -187,6 +187,7 @@ pub(crate) mod check_stmt_for;
 pub(crate) mod check_stmt_for_of;
 pub(crate) mod check_stmt_for_of_split;
 pub(crate) mod check_stmt_if;
+pub(crate) mod check_stmt_let_decl;
 pub(crate) mod check_stmt_misc;
 pub(crate) mod check_stmt_return;
 pub(crate) mod check_stmt_throw;
