@@ -366,6 +366,7 @@ pub(crate) mod ssa_lower_regex_bake;
 pub(crate) mod ssa_lower_splice;
 pub(crate) mod ssa_lower_stmt_for;
 pub(crate) mod ssa_lower_stmt_for_of;
+pub(crate) mod ssa_lower_stmt_return;
 pub(crate) mod ssa_lower_stmt_switch;
 pub(crate) mod ssa_lower_stmt_throw;
 pub mod ssa_lower_str;
