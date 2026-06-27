@@ -484,7 +484,7 @@ fn stmt_diverges(s: &crate::ast::Stmt) -> bool {
 ///   - `Null` and `T` unify to `Nullable<T>`
 ///   - `Nullable<T>` and `T` unify to `Nullable<T>`
 ///   - `Nullable<T>` and `Null` unify to `Nullable<T>`
-fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
+pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
     if t == e {
         return Some(t.clone());
     }
@@ -1484,7 +1484,11 @@ impl Checker {
     /// the inverse polarity). Returns (binding-name, inner-type,
     /// then-narrows). Polarity = true means the then-branch
     /// narrows, false means the else-branch.
-    fn collect_null_narrow(&self, ast: &Ast, cond: ExprId) -> Option<(String, Type, bool)> {
+    pub(crate) fn collect_null_narrow(
+        &self,
+        ast: &Ast,
+        cond: ExprId,
+    ) -> Option<(String, Type, bool)> {
         // Cond shape 1 — `<ident> !== null` / `null !== <ident>`
         // (and `===` for the inverse polarity). The historical
         // narrow shape, kept verbatim.
@@ -1544,7 +1548,7 @@ impl Checker {
     /// V3-18 wedge — narrow the binding `name` to `inner_ty`
     /// in the innermost scope that owns it; return the previous
     /// type so it can be restored after the narrowed branch.
-    fn apply_narrow(&mut self, name: &str, inner_ty: Type) -> Option<Type> {
+    pub(crate) fn apply_narrow(&mut self, name: &str, inner_ty: Type) -> Option<Type> {
         for s in self.scopes.iter_mut().rev() {
             if let Some(info) = s.get_mut(name) {
                 let prev = info.ty.clone();
@@ -1555,7 +1559,7 @@ impl Checker {
         None
     }
 
-    fn restore_narrow(&mut self, name: &str, prev_ty: Type) {
+    pub(crate) fn restore_narrow(&mut self, name: &str, prev_ty: Type) {
         for s in self.scopes.iter_mut().rev() {
             if let Some(info) = s.get_mut(name) {
                 info.ty = prev_ty;
@@ -9182,56 +9186,10 @@ impl Checker {
                 then_branch,
                 else_branch,
             } => {
-                let c = self.type_of(ast, *cond)?;
-                if !js_truthy_acceptable(&c) {
-                    return Err(format!(
-                        "ternary condition must be boolean (or coercible), got {c:?}"
-                    ));
-                }
-                // V3-18 ternary-narrow wedge — mirror the if-stmt
-                // null-narrow logic for `cond ? then : else`. Without
-                // it, the canonical TS pattern `s ? s.length : 0`
-                // bails on the then-branch with 'no member .length on
-                // type Nullable(String)', forcing rewrites to the
-                // longer if-statement form.
-                let narrow = self.collect_null_narrow(ast, *cond);
-                let then_saved = if let Some((name, inner, polarity)) = &narrow {
-                    if *polarity {
-                        self.apply_narrow(name, inner.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                let t = self.type_of(ast, *then_branch)?;
-                if let (Some((name, _, _)), Some(saved)) = (&narrow, then_saved) {
-                    self.restore_narrow(name, saved);
-                }
-                let else_saved = if let Some((name, inner, polarity)) = &narrow {
-                    if !*polarity {
-                        self.apply_narrow(name, inner.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                let e = self.type_of(ast, *else_branch)?;
-                if let (Some((name, _, _)), Some(saved)) = (&narrow, else_saved) {
-                    self.restore_narrow(name, saved);
-                }
-                // V3-18 wedge — widen one side to Nullable<T> when the
-                // other side is T or Null. Common pattern with
-                // optional params: `x === null ? default : x` where
-                // then=T and else=Nullable<T>.
-                let unified = unify_ternary(&t, &e);
-                match unified {
-                    Some(ty) => Ok(ty),
-                    None => Err(format!(
-                        "ternary branches differ — `then` is {t:?}, `else` is {e:?}"
-                    )),
-                }
+                // V3-18 ternary-narrow wedge + Nullable<T>
+                // branch widen. See
+                // [`crate::check_type_of_ternary::check`].
+                crate::check_type_of_ternary::check(self, ast, *cond, *then_branch, *else_branch)
             }
             Expr::TypeOf { expr } => {
                 // V3-18 m1.h.3 / m1.h.20 — `typeof expr` → String
