@@ -1731,127 +1731,25 @@ fn lower_inner(
         promise_any_sync: promise_any_sync_id,
         promise_allsettled_sync: promise_allsettled_sync_id,
     } = crate::ssa_lower_intrinsics_promise::declare(&mut module, &mut fn_table);
-    /* v0.2 #3 — Object.is(a, b) for Type::Number arguments. Diverges
-     * from `===` on two corner cases:
-     *   - Object.is(NaN, NaN) === true
-     *   - Object.is(+0, -0) === false
-     * The ±0 case requires a bit-level compare (IEEE 754 0.0 == -0.0),
-     * which can't be expressed via FCmp alone. */
-    let object_is_f64_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_object_is_f64",
-        &[Type::F64, Type::F64],
-        Type::Bool,
-    );
-    /* P-iter — SplitIter ABI. State + yielded substr both live in
-     * caller-stack alloca slots; init/drop manage one parent rc.
-     * `iter_slot` is an opaque 48-byte buffer (treated as Type::Ptr
-     * so the caller can pass its alloca'd address); `out_substr` is
-     * a 32-byte caller-allocated Substr slot. See runtime_str.c
-     * docstring for full semantics. */
-    let split_iter_init_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_split_iter_init",
-        &[Type::Ptr, Type::Str, Type::Str],
-        Type::Void,
-    );
-    let split_iter_next_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_split_iter_next",
-        &[Type::Ptr, Type::Ptr],
-        Type::Bool,
-    );
-    let split_iter_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_split_iter_drop",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let substr_create_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_create",
-        &[Type::Str, Type::I64, Type::I64],
-        Type::Substr,
-    );
-    let substr_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_drop",
-        &[Type::Substr],
-        Type::Void,
-    );
-    let substr_char_code_at_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_char_code_at",
-        &[Type::Substr, Type::I64],
-        Type::I64,
-    );
-    let substr_code_point_at_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_code_point_at",
-        &[Type::Substr, Type::I64],
-        Type::I64,
-    );
-    let substr_eq_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_eq_str",
-        &[Type::Substr, Type::Str],
-        Type::Bool,
-    );
-    // View-aware variants — read bytes from parent + offset, no
-    // materialize. Needle is Str (literal-side common case).
-    let substr_starts_with_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_starts_with",
-        &[Type::Ptr, Type::Str],
-        Type::Bool,
-    );
-    let substr_ends_with_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_ends_with",
-        &[Type::Ptr, Type::Str],
-        Type::Bool,
-    );
-    let substr_includes_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_includes",
-        &[Type::Ptr, Type::Str],
-        Type::Bool,
-    );
-    let substr_index_of_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_index_of",
-        &[Type::Ptr, Type::Str],
-        Type::I64,
-    );
-    // View-of-view — returns a fresh standalone Substr referencing the
-    // same root parent. 32-byte malloc, no byte copy.
-    let substr_slice_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_slice",
-        &[Type::Ptr, Type::I64, Type::I64],
-        Type::Substr,
-    );
-    let substr_substring_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_substring",
-        &[Type::Ptr, Type::I64, Type::I64],
-        Type::Substr,
-    );
+    // Object.is f64 arm + SplitIter ABI + Substr view core (15 ids).
+    // See sibling for the per-decl ABI detail.
+    let crate::ssa_lower_intrinsics_substr::SubstrIds {
+        object_is_f64: object_is_f64_id,
+        split_iter_init: split_iter_init_id,
+        split_iter_next: split_iter_next_id,
+        split_iter_drop: split_iter_drop_id,
+        substr_create: substr_create_id,
+        substr_drop: substr_drop_id,
+        substr_char_code_at: substr_char_code_at_id,
+        substr_code_point_at: substr_code_point_at_id,
+        substr_eq_str: substr_eq_str_id,
+        substr_starts_with: substr_starts_with_id,
+        substr_ends_with: substr_ends_with_id,
+        substr_includes: substr_includes_id,
+        substr_index_of: substr_index_of_id,
+        substr_slice: substr_slice_id,
+        substr_substring: substr_substring_id,
+    } = crate::ssa_lower_intrinsics_substr::declare(&mut module, &mut fn_table);
     let (substr_trim_id, substr_trim_start_id, substr_trim_end_id, substr_trim_into_id) =
         crate::ssa_lower_substr_trim_into::declare_all(&mut module, &mut fn_table);
     // View-aware concat — one alloc + two memcpys, no intermediate
