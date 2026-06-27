@@ -297,6 +297,7 @@ pub(crate) mod ssa_lower_ident;
 pub(crate) mod ssa_lower_index;
 pub(crate) mod ssa_lower_index_assign;
 pub(crate) mod ssa_lower_instanceof;
+pub(crate) mod ssa_lower_intrinsics_obj_capture;
 pub(crate) mod ssa_lower_intrinsics_print_str;
 pub(crate) mod ssa_lower_json_parse;
 pub(crate) mod ssa_lower_lit;

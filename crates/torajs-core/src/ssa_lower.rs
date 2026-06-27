@@ -1300,78 +1300,17 @@ fn lower_inner(
         str_concat: str_concat_id,
         rc_inc: rc_inc_id,
     } = crate::ssa_lower_intrinsics_print_str::declare(&mut module, &mut fn_table);
-    // P2.4.c: object heap alloc + drop. Layout is the lowerer's call —
-    // pass the byte size as i64. The runtime is just malloc/free.
-    let obj_alloc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_obj_alloc",
-        &[Type::I64],
-        Type::Ptr,
-    );
-    // Phase 2e item 14 (Step 2 of perf/mem/size extremes plan):
-    // sized drop ABI. Callsite always knows the alloc size (env block
-    // `CLOSURE_CAP_BASE_OFF + N_caps*8`, typed Obj `OBJ_HEADER_SIZE +
-    // N_fields*8`), so passing it inline lets the IR-emit body bucket
-    // the TLAB.push without a SpanRegistry lookup or SHIM_HEADER read.
-    let obj_drop_sized_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_obj_drop_sized",
-        &[Type::Ptr, Type::I64],
-        Type::Void,
-    );
-    /* V3-05 — runtime tag-dispatched drop. Used by emit_drop_value's
-     * recursion guard: when a self-referential class field would
-     * inline the same Obj drop a second time, we route the inner
-     * drop through value_drop_heap instead. Today value_drop_heap's
-     * default branch leaks Obj inner refs; V3-09 wires the
-     * class_layouts metadata through it for proper child drops. */
-    let value_drop_heap_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_value_drop_heap",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    /* V3-10.b — scrub the cycle buffer of `p` before its memory
-     * is freed. Inline drop emits a guarded call only when the
-     * sid is a declared class (anonymous structs never enter the
-     * buffer, so the call would always be a no-op for them). */
-    let cycle_unbuffer_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_cycle_unbuffer",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    /* T-15.g.5 — refcounted capture box for escape-captured Copy
-     * lets (number / boolean). Replaces the previous `obj_alloc(8) +
-     * Store init_val` pair so the box can be safely shared across
-     * multiple capturing closures. Layout: 8-byte rc header + 8-byte
-     * value; the returned pointer points at the VALUE slot so all
-     * existing Load/Store sites in the body still use offset 0. */
-    let capture_box_alloc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_capture_box_alloc",
-        &[Type::I64],
-        Type::Ptr,
-    );
-    let capture_box_inc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_capture_box_inc",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let capture_box_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_capture_box_drop",
-        &[Type::Ptr],
-        Type::Void,
-    );
+    // Obj alloc/drop + cycle unbuffer + capture-box rc (7 ids) — see
+    // sibling for the per-intrinsic ABI/lineage detail.
+    let crate::ssa_lower_intrinsics_obj_capture::ObjCaptureIds {
+        obj_alloc: obj_alloc_id,
+        obj_drop_sized: obj_drop_sized_id,
+        value_drop_heap: value_drop_heap_id,
+        cycle_unbuffer: cycle_unbuffer_id,
+        capture_box_alloc: capture_box_alloc_id,
+        capture_box_inc: capture_box_inc_id,
+        capture_box_drop: capture_box_drop_id,
+    } = crate::ssa_lower_intrinsics_obj_capture::declare(&mut module, &mut fn_table);
     // M1.2 — Array<T> runtime. Layout `{u64 len, u64 cap, T data[cap]}`
     // with uniform 8-byte slots regardless of element type. MVP only
     // supports i64 elements; non-primitive elements (string, obj, nested
