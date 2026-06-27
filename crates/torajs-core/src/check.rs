@@ -612,9 +612,9 @@ fn build_fn_type_full(
 }
 
 #[derive(Debug, Clone)]
-struct LocalInfo {
-    ty: Type,
-    mutable: bool,
+pub(crate) struct LocalInfo {
+    pub(crate) ty: Type,
+    pub(crate) mutable: bool,
     /// Affine ownership flag. False until the binding's value is consumed
     /// (assign-rhs, non-Copy call-arg, struct-field write, return, throw).
     /// Reads of a moved binding still succeed (TS-shape); only a SECOND
@@ -1306,7 +1306,7 @@ impl Checker {
 }
 
 pub(crate) struct Checker {
-    globals: HashMap<String, Type>,
+    pub(crate) globals: HashMap<String, Type>,
     scopes: Vec<HashMap<String, LocalInfo>>,
     /// User-declared type aliases — populated in pass 0 from
     /// `Stmt::TypeDecl`. `Point → Type::Struct(...)`.
@@ -1470,7 +1470,7 @@ impl Checker {
         Ok(())
     }
 
-    fn lookup(&self, name: &str) -> Option<LocalInfo> {
+    pub(crate) fn lookup(&self, name: &str) -> Option<LocalInfo> {
         for s in self.scopes.iter().rev() {
             if let Some(i) = s.get(name) {
                 return Some(i.clone());
@@ -2588,161 +2588,13 @@ impl Checker {
                 flags: _,
             } => Ok(Type::RegExp),
             Expr::Ident(name) => {
-                if let Some(info) = self.lookup(name) {
-                    // TS-shape: reads of an aliased / moved binding succeed
-                    // (both `s` and `n` after `let n = s` reference the same
-                    // heap and read the same value). Errors only fire at
-                    // transfer sites — see `consume` above for the rule.
-                    return Ok(info.ty);
-                }
-                if let Some(ty) = self.globals.get(name) {
-                    return Ok(ty.clone());
-                }
-                match name.as_str() {
-                    "console" => Ok(Type::Object("console")),
-                    "Math" => Ok(Type::Object("Math")),
-                    "Object" => Ok(Type::Object("Object")),
-                    "Number" => Ok(Type::Object("Number")),
-                    "String" => Ok(Type::Object("String")),
-                    // V3-18 m1.h.8 — `Boolean` global registered for
-                    // both type-ann shape and the Call arm's coercion
-                    // path (`Boolean(x)` → ToBoolean).
-                    "Boolean" => Ok(Type::Object("Boolean")),
-                    "JSON" => Ok(Type::Object("JSON")),
-                    "Array" => Ok(Type::Object("Array")),
-                    // ES6 §28.1 — `Reflect` namespace. Subset wires
-                    // `Reflect.has(obj, key)` to `Object.hasOwn` and
-                    // `Reflect.ownKeys(obj)` to `Object.keys` at lower
-                    // time (tr has no prototype chain / symbol keys, so
-                    // the spec gap collapses).
-                    "Reflect" => Ok(Type::Object("Reflect")),
-                    "Date" => Ok(Type::Object("Date")),
-                    /* T-26 (v0.7) — WeakRef global. As a constructor
-                     * (`new WeakRef(target)`) it's handled in the
-                     * Expr::New arm below; here it's just a known
-                     * identifier so users can write `WeakRef` as a
-                     * type ann via `: WeakRef<T>` — parse_type
-                     * handles the type-side mapping. */
-                    "WeakRef" => Ok(Type::Object("WeakRef")),
-                    "WeakMap" => Ok(Type::Object("WeakMap")),
-                    "WeakSet" => Ok(Type::Object("WeakSet")),
-                    /* P6.1 — Map / Set globals as constructors. As-
-                     * values they resolve to `Type::Object` so user
-                     * code can pass them around (e.g. as factory
-                     * functions); `new Map() / new Set()` go through
-                     * the Expr::New arms below to `Type::Map` /
-                     * `Type::Set`. */
-                    "Map" => Ok(Type::Object("Map")),
-                    "Set" => Ok(Type::Object("Set")),
-                    /* T-13.a (v0.4.0) — Symbol global. As-callable
-                     * (`Symbol(desc?)` constructor) routed via the
-                     * Call arm below to Type::Symbol. Static methods
-                     * (`Symbol.for`, `Symbol.iterator`, ...) land in
-                     * T-13.b/c via the Member arm. */
-                    "Symbol" => Ok(Type::Object("Symbol")),
-                    /* V3-03 — `BigInt` ident referenced as a value
-                     * (the callable form `BigInt(...)` is intercepted
-                     * in the Call arm above). Treating it as a known
-                     * Object lets `typeof BigInt` and similar shapes
-                     * compile cleanly. */
-                    "BigInt" => Ok(Type::Object("BigInt")),
-                    /* T-15 (v0.5.0) — Promise global. Static methods
-                     * Promise.resolve / .reject / .all / etc. routed
-                     * via the (Type::Object("Promise"), ...) member
-                     * arm. New Promise(executor) constructor lands
-                     * in T-15.h alongside the user-class deprecation. */
-                    "Promise" => Ok(Type::Object("Promise")),
-                    /* v0.3 #1 — fs module global. Methods routed via
-                     * the (Type::Object("fs"), ...) member arm below. */
-                    "fs" => Ok(Type::Object("fs")),
-                    /* T-18.a (v0.5.0) — `fs/promises` module. The
-                     * desugar pass sanitizes the module name (slash
-                     * isn't a valid Ident) so the Member rewrite
-                     * produces `__fs_promises.X` calls. The async
-                     * methods register under Type::Object("fs_promises")
-                     * in the Member arm below. */
-                    "fs_promises" => Ok(Type::Object("fs_promises")),
-                    "process" => Ok(Type::Object("process")),
-                    "Bun" => Ok(Type::Object("Bun")),
-                    // Intrinsic fns synthesized by the desugar pass
-                    // for `new Date(...)`. They take their args
-                    // through the regular Call check arm and return
-                    // Type::Date — the synthesis already happened, so
-                    // typecheck just needs to know the signature.
-                    "__torajs_date_now" => Ok(Type::Function(Vec::new(), Box::new(Type::Date))),
-                    "__torajs_date_from_ms" => {
-                        Ok(Type::Function(vec![Type::Number], Box::new(Type::Date)))
-                    }
-                    "__torajs_date_from_iso" => {
-                        Ok(Type::Function(vec![Type::String], Box::new(Type::Date)))
-                    }
-                    "__torajs_date_from_components" => {
-                        Ok(Type::Function(vec![Type::Number; 7], Box::new(Type::Date)))
-                    }
-                    // P4.2 Phase B+C — synthesized by ast::
-                    // synthesize_class_globals at module init to register
-                    // `__proto_<C>` into the runtime side table keyed
-                    // by class name. ssa_lower intercepts the Call,
-                    // resolves the name → class_tag via
-                    // class_name_to_tag, and emits the real runtime
-                    // call `__torajs_proto_register(<tag_const>,
-                    // <proto_any_box>)`. Typecheck-side accepts the
-                    // (any, string) signature.
-                    "__torajs_proto_register" => Ok(Type::Function(
-                        vec![Type::Any, Type::String],
-                        Box::new(Type::Void),
-                    )),
-                    // P4.5 — parallel to proto_register. Same shape;
-                    // populates the classes-by-tag side table for
-                    // new.target lookups inside `__new_<C>` factories.
-                    "__torajs_class_register" => Ok(Type::Function(
-                        vec![Type::Any, Type::String],
-                        Box::new(Type::Void),
-                    )),
-                    // P7.4-a-2 — synthesized by synthesize_class_globals
-                    // for each present Error-family class. ssa_lower
-                    // intercepts, maps the name → fixed runtime-error
-                    // slot + FnAddr(__new_<C>), emits the real
-                    // `__torajs_register_native_error(<slot>, <fnptr>)`.
-                    // Typecheck accepts (string) -> void so the
-                    // AST-emitted `__torajs_register_native_error("<C>")`
-                    // is well-typed.
-                    "__torajs_register_native_error" => {
-                        Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
-                    }
-                    // P4.5 — synthesized factory-side magic call.
-                    // Lower-time intercept emits a runtime
-                    // `__torajs_class_get(<tag_const>)` looking up the
-                    // current factory's class box. Typecheck accepts
-                    // (string) -> any so the AST-emitted
-                    // `__torajs_my_class_ref("<C>")` is well-typed.
-                    "__torajs_my_class_ref" => {
-                        Ok(Type::Function(vec![Type::String], Box::new(Type::Any)))
-                    }
-                    /* T-26.C — `gc()` manual trigger for the
-                     * Bacon-Rajan cycle collector. Walks the
-                     * PURPLE buffer of potential cycle roots,
-                     * runs mark/scan/collect, frees confirmed
-                     * cycle garbage. Returns void. */
-                    "gc" => Ok(Type::Function(Vec::new(), Box::new(Type::Void))),
-                    // P1.1 + P1.5 — `undefined` global ident returns
-                    // Type::Undefined (was Type::Null pre-P1). Per ES
-                    // spec §6.1.1 / §6.1.2 they're distinct primitive
-                    // values: `typeof undefined === "undefined"` while
-                    // `typeof null === "object"`; `undefined !== null`
-                    // strictly. The is_assignable_to_resolved path
-                    // accepts Type::Undefined into Nullable<T> slots
-                    // identically to Type::Null (P1.7's Nullable
-                    // includes both per spec); the per-op ssa_lower
-                    // arms now route Undefined through the ANY_UNDEF=5
-                    // tag instead of the ANY_NULL=0 tag.
-                    "undefined" => Ok(Type::Undefined),
-                    // V3-18 m1.h.11 — JS spec §19.1.1 NaN /
-                    // §19.1.2 Infinity globals. Both Number-typed
-                    // (NaN is f64 NaN; Infinity is f64 +∞).
-                    "NaN" | "Infinity" => Ok(Type::Number),
-                    other => Err(format!("unknown identifier `{other}`")),
-                }
+                // Resolution order: local binding → module global →
+                // built-in namespace (console/Math/Object/Array/...) →
+                // synthesized intrinsic fn (__torajs_*) → manual GC /
+                // distinguished literal (undefined / NaN / Infinity) →
+                // unknown identifier error. See
+                // [`crate::check_type_of_ident::check`].
+                crate::check_type_of_ident::check(self, name)
             }
             Expr::Member { obj, name } => {
                 let obj_ty = self.type_of(ast, *obj)?;

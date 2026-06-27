@@ -1,0 +1,82 @@
+//! `Expr::Ident(name)` typecheck pulled out of
+//! [`crate::check::Checker::type_of_inner`]'s `Expr::Ident` arm as
+//! chunk-90 of the type_of_inner decomp.
+//!
+//! Resolution order:
+//!
+//! 1. **Local binding** (`Checker::lookup`) — TS-shape: reads of an
+//!    aliased / moved binding succeed (both `s` and `n` after
+//!    `let n = s` reference the same heap). Errors fire at transfer
+//!    sites only (see `consume`).
+//! 2. **Module global** (`Checker::globals`) — typed at declaration
+//!    site.
+//! 3. **Built-in namespace** — `console` / `Math` / `Object` /
+//!    `Number` / `String` / `Boolean` / `JSON` / `Array` / `Reflect`
+//!    / `Date` / `WeakRef` / `WeakMap` / `WeakSet` / `Map` / `Set` /
+//!    `Symbol` / `BigInt` / `Promise` / `fs` / `fs_promises` /
+//!    `process` / `Bun` → `Type::Object(name)`.
+//! 4. **Synthesized intrinsic fns** (`__torajs_*` family) —
+//!    `_date_now` / `_date_from_ms` / `_date_from_iso` /
+//!    `_date_from_components` / `_proto_register` / `_class_register`
+//!    / `_register_native_error` / `_my_class_ref` — known signatures.
+//! 5. **Manual GC trigger** — `gc` → `() -> void`.
+//! 6. **Distinguished literals** — `undefined` → `Type::Undefined`,
+//!    `NaN` / `Infinity` → `Type::Number`.
+//! 7. **Unknown** — `Err("unknown identifier ...")`.
+
+use crate::check::{Checker, Type};
+
+pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
+    if let Some(info) = checker.lookup(name) {
+        return Ok(info.ty);
+    }
+    if let Some(ty) = checker.globals.get(name) {
+        return Ok(ty.clone());
+    }
+    match name {
+        "console" => Ok(Type::Object("console")),
+        "Math" => Ok(Type::Object("Math")),
+        "Object" => Ok(Type::Object("Object")),
+        "Number" => Ok(Type::Object("Number")),
+        "String" => Ok(Type::Object("String")),
+        "Boolean" => Ok(Type::Object("Boolean")),
+        "JSON" => Ok(Type::Object("JSON")),
+        "Array" => Ok(Type::Object("Array")),
+        "Reflect" => Ok(Type::Object("Reflect")),
+        "Date" => Ok(Type::Object("Date")),
+        "WeakRef" => Ok(Type::Object("WeakRef")),
+        "WeakMap" => Ok(Type::Object("WeakMap")),
+        "WeakSet" => Ok(Type::Object("WeakSet")),
+        "Map" => Ok(Type::Object("Map")),
+        "Set" => Ok(Type::Object("Set")),
+        "Symbol" => Ok(Type::Object("Symbol")),
+        "BigInt" => Ok(Type::Object("BigInt")),
+        "Promise" => Ok(Type::Object("Promise")),
+        "fs" => Ok(Type::Object("fs")),
+        "fs_promises" => Ok(Type::Object("fs_promises")),
+        "process" => Ok(Type::Object("process")),
+        "Bun" => Ok(Type::Object("Bun")),
+        "__torajs_date_now" => Ok(Type::Function(Vec::new(), Box::new(Type::Date))),
+        "__torajs_date_from_ms" => Ok(Type::Function(vec![Type::Number], Box::new(Type::Date))),
+        "__torajs_date_from_iso" => Ok(Type::Function(vec![Type::String], Box::new(Type::Date))),
+        "__torajs_date_from_components" => {
+            Ok(Type::Function(vec![Type::Number; 7], Box::new(Type::Date)))
+        }
+        "__torajs_proto_register" => Ok(Type::Function(
+            vec![Type::Any, Type::String],
+            Box::new(Type::Void),
+        )),
+        "__torajs_class_register" => Ok(Type::Function(
+            vec![Type::Any, Type::String],
+            Box::new(Type::Void),
+        )),
+        "__torajs_register_native_error" => {
+            Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
+        }
+        "__torajs_my_class_ref" => Ok(Type::Function(vec![Type::String], Box::new(Type::Any))),
+        "gc" => Ok(Type::Function(Vec::new(), Box::new(Type::Void))),
+        "undefined" => Ok(Type::Undefined),
+        "NaN" | "Infinity" => Ok(Type::Number),
+        other => Err(format!("unknown identifier `{other}`")),
+    }
+}
