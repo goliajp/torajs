@@ -1501,417 +1501,49 @@ fn lower_inner(
         arr_get_any_tag: arr_get_any_tag_id,
         arr_get_any_value: arr_get_any_value_id,
     } = crate::ssa_lower_intrinsics_arr_any::declare(&mut module, &mut fn_table);
-    // P3.2 — dynobj substrate intrinsics. Wire the runtime hash-map
-    // helpers (P3.1 / commit c35aec4) into the SSA layer so untyped
-    // object Member access (`x.foo` where x: any) routes through
-    // dynobj_get_tag/value, and Member assign routes through
-    // dynobj_set.
-    let dynobj_alloc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_dynobj_alloc",
-        &[],
-        Type::Ptr,
-    );
-    // Builtin-prototype singleton (`torajs-rc::builtin_proto`). Lazy
-    // init dynobj per tag; reuses across the program so
-    // `<Ctor>.prototype === <Ctor>.prototype` is `true` (spec).
-    // Replaces the fresh-`dynobj_alloc` emit pattern formerly used
-    // at every `<Ctor>.prototype` site (cases#obj-is-frozen-any-segv
-    // identity wedge close).
-    let get_builtin_prototype_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_get_builtin_prototype",
-        &[Type::I64],
-        Type::Ptr,
-    );
-    // `<v: any> instanceof <Class>` runtime dispatch — unboxes a
-    // NaN-boxed value, checks ANY_HEAP tag + reads class_tag at
-    // OBJ_CLASS_TAG_OFF, compares to `expected_tag`. ssa_lower's
-    // typed `Type::Obj(_)` path can't see through `Type::Any` (the
-    // common `catch (e: any)` binding shape), so we emit one call
-    // per descendant tag and OR-chain — see torajs-rc::instanceof_any.
-    let instanceof_class_any_tag_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_instanceof_class_any_tag",
-        &[Type::Any, Type::I64],
-        Type::Bool,
-    );
-    // Built-in `instanceof` for `Type::Any` operands — reads the
-    // universal HeapHeader `type_tag` (u16@+4) instead of the
-    // per-class `class_tag@+8` slot. Targets the heap-cell tags
-    // for Array / Date / RegExp / Promise / Map / Set / WeakMap /
-    // WeakSet (none of which carry a class_tag slot, so the
-    // per-class helper above always returns false for them). See
-    // torajs-rc::instanceof_any.
-    let instanceof_builtin_any_tag_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_instanceof_builtin_any_tag",
-        &[Type::Any, Type::I64],
-        Type::Bool,
-    );
-    // `<v:any> instanceof Object` — accepts every NaN-boxed heap
-    // cell except the primitive-wrapper tags Tag::Str / Symbol /
-    // BigInt (tr's subset doesn't ship boxed primitives so the
-    // heap-stored cells of those tags are spec primitives, hence
-    // false). See torajs-rc::instanceof_any.
-    let instanceof_object_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_instanceof_object_any",
-        &[Type::Any],
-        Type::Bool,
-    );
-    // `<key:number> in <v:any>` — Number-keyed dispatch on the rhs
-    // Any-cell tag. Tag::Arr → bounds check; else → false. See
-    // torajs-rc::in_op_any.
-    let in_op_any_num_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_in_op_any_num",
-        &[Type::Any, Type::I64],
-        Type::Bool,
-    );
-    // `<key:string> in <v:any>` — String-keyed dispatch on the rhs
-    // Any-cell tag. Tag::DynObj → __torajs_dynobj_has; else → false.
-    // See torajs-rc::in_op_any.
-    let in_op_any_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_in_op_any_str",
-        &[Type::Any, Type::Ptr],
-        Type::Bool,
-    );
-    // `Array.isArray(v: any)` — runtime tag dispatch when the arg's SSA
-    // type is `Type::Any`. Compile-time static fast paths (Type::Arr →
-    // true / non-Arr typed → false) still fire above; this helper closes
-    // the Any-wrapped Array gap so `(x: any) => Array.isArray(x)` and
-    // typed-Any params holding arrays answer per ES §22.1.2.2.
-    // See torajs-rc::in_op_any::__torajs_any_is_arr.
-    let any_is_arr_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_any_is_arr",
-        &[Type::Any],
-        Type::Bool,
-    );
-    let dynobj_get_tag_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_dynobj_get_tag",
-        &[Type::Ptr, Type::Ptr],
-        Type::I64,
-    );
-    let dynobj_get_value_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_dynobj_get_value",
-        &[Type::Ptr, Type::Ptr],
-        Type::I64,
-    );
-    let dynobj_set_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_dynobj_set",
-        &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
-        Type::Void,
-    );
-    // P3.attribute-flag-tracking — separate entry for
-    // `Object.defineProperty` so the runtime can implement spec
-    // §10.1.6.3 ValidateAndApplyPropertyDescriptor (configurable /
-    // writable / enumerable transitions, value-mismatch under
-    // writable=false) without burdening the implicit-set fast path.
-    // `flags_byte` packs the descriptor's present-mask + flag values
-    // — see runtime_str.c for the encoding.
-    let dynobj_define_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_dynobj_define",
-        &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64],
-        Type::Void,
-    );
-    // RFC 20260613 C1 — runtime-descriptor `Object.defineProperty`
-    // path. Reads value/writable/enumerable/configurable from the
-    // `desc` dynobj at runtime (vs the literal path's compile-time
-    // extraction). `(obj_slot, key, desc)`.
-    let dynobj_define_from_desc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_dynobj_define_from_desc",
-        &[Type::Ptr, Type::Ptr, Type::Ptr],
-        Type::Void,
-    );
-    // RFC 20260613 C3 — accessor substrate (impl in ssa_lower_accessor):
-    // build the AccessorPair (define) + invoke its getter (GET dispatch).
-    let accessor_pair_new_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_accessor_pair_new",
-        &[Type::Ptr, Type::Ptr, Type::I64],
-        Type::Ptr,
-    );
-    let accessor_invoke_getter_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_accessor_invoke_getter",
-        &[Type::Ptr],
-        Type::Any,
-    );
-    // P3.getOwnPropertyDescriptor — `Object.getOwnPropertyDescriptor`
-    // entry. Returns a fresh Any-box wrapping either a dynobj with
-    // {value, writable, enumerable, configurable} fields (when the
-    // key exists) or ANY_UNDEF (key absent / not-a-dynobj).
-    let get_property_descriptor_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_get_property_descriptor",
-        &[Type::Any, Type::Ptr],
-        Type::Any,
-    );
-    // RFC C4b — `Object.defineProperty(O, ...)` step 1 strict
-    // `Type(O) is Object` check. Throws TypeError on undefined /
-    // null / number / boolean / string / bigint / symbol; returns
-    // silently on real objects (dynobj / array / closure / etc).
-    let throw_typeerror_if_not_object_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_throw_typeerror_if_not_object",
-        &[Type::Any],
-        Type::Void,
-    );
-    // `[].reduce(fn)` / `[].reduceRight(fn)` with no `initialValue`
-    // must throw TypeError per ES §22.1.3.21/22 step 3. Each
-    // 0-arg helper sets the spec-correct message via
-    // `__torajs_throw_type_error` and returns — the SSA arm follows
-    // the call with `emit_throw_check(None)` to propagate.
-    let arr_throw_reduce_empty_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_throw_reduce_empty",
-        &[],
-        Type::Void,
-    );
-    let arr_throw_reduce_right_empty_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_throw_reduce_right_empty",
-        &[],
-        Type::Void,
-    );
-    // RFC C5a — `Object.getOwnPropertyDescriptor(arr, "length")` —
-    // spec §10.4.2.4 builds `{value, writable: true, enumerable:
-    // false, configurable: false}` from a pre-extracted `len` (the
-    // SSA arm Loads it from the array's `len` slot @ offset 8 so the
-    // sig stays `(I64) -> Any` and a typed `Type::Arr(_)` operand
-    // does not get implicitly cast to `Type::Ptr`).
-    let arr_length_descriptor_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_arr_length_descriptor",
-        &[Type::I64],
-        Type::Any,
-    );
-    // W-M — `Object.getOwnPropertyDescriptor(str, "length")` — spec
-    // §22.1.5.1 builds `{value, writable: false, enumerable: false,
-    // configurable: false}` (every flag false, unlike Array). Sig
-    // takes the Str ptr directly so the helper can Load the u32 len
-    // at `STR_LEN_OFF = 8` without the SSA arm needing to know about
-    // the str header's u32-len + u32-pad packing.
-    let str_length_descriptor_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_str_length_descriptor",
-        &[Type::Ptr],
-        Type::Any,
-    );
-    // W-N-b — `Object.getOwnPropertyNames(arr)` runtime name-list
-    // builder. Spec §22.1.3.5 returns `["0", ..., "<len-1>",
-    // "length"]`. SSA-lower pre-Loads `arr.len` from
-    // `ARR_LEN_OFF=8` and routes through this helper so the loop
-    // (alloc `Arr<Str>` cap = len+1, push N i64-to-str + final
-    // "length") lives in torajs-meta::own_names.
-    let arr_index_strs_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_index_strs",
-        &[Type::I64],
-        Type::Ptr,
-    );
-    // W-N-d — `Object.getOwnPropertyNames(str)` runtime name-list
-    // builder. Same shape as the Arr arm (`["0", ..., "<len-1>",
-    // "length"]`) per spec §22.1.5.2.4. Thin wrapper in
-    // torajs-meta::own_names that reads u32 len at STR_LEN_OFF=8
-    // then delegates to `arr_index_strs`.
-    let str_index_strs_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_index_strs",
-        &[Type::Ptr],
-        Type::Ptr,
-    );
-    // W-N-b' / W-N-d' — `Object.keys(arr)` / `Object.keys(str)`
-    // enumerable-own variants. Spec §22.1.3.16 + §10.4.2.4 step 4:
-    // Array's `length` is non-enumerable, so `Object.keys` omits the
-    // trailing "length" that `getOwnPropertyNames` / `Reflect.ownKeys`
-    // include. Same alloc-and-push loop as `arr_index_strs` capped at
-    // `len` instead of `len + 1`. Str arm reads u32 len at
-    // STR_LEN_OFF=8 then delegates to the Arr arm.
-    let arr_keys_only_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_keys_only",
-        &[Type::I64],
-        Type::Ptr,
-    );
-    let str_keys_only_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_keys_only",
-        &[Type::Ptr],
-        Type::Ptr,
-    );
-    // W-O-2 — `Object.values(str)` per-character Str array. Wrapper
-    // in torajs-meta::own_names that reads u32 len at STR_LEN_OFF=8
-    // then loops `__torajs_str_at` to mint fresh Strs per code unit.
-    let str_to_char_arr_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_to_char_arr",
-        &[Type::Ptr],
-        Type::Ptr,
-    );
-    // W-O-3 — `Object.entries(arr)` runtime entry-pair builder.
-    // Outer Arr<Arr<Any>>; each inner = arr_alloc_any(2) with
-    // [idx_str, value]. Helper is element-type agnostic; the SSA arm
-    // picks the per-element NaN-box tag (1/2/3/4) from the typed
-    // Arr's element type and passes it through `val_tag`.
-    let arr_entries_by_tag_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_entries_by_tag",
-        &[Type::Ptr, Type::I64],
-        Type::Ptr,
-    );
-    // W-O-3-str — `Object.entries(str)` per-char entry pairs. Wrapper
-    // in torajs-meta::own_names that reads u32 len at STR_LEN_OFF=8,
-    // then loops `__torajs_str_at` to mint fresh Strs per code unit.
-    let str_entries_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_entries",
-        &[Type::Ptr],
-        Type::Ptr,
-    );
-    // W-J Phase C1 — `Object.keys(v)` where `v: any` carries a struct
-    // cell. The struct identity is only known at runtime, so this
-    // routes through torajs-meta::struct_enum, which reads the
-    // `class_tag@+8`, looks the layout up in `__torajs_class_layouts`
-    // (Phase A4 helpers), and builds an `Arr<Str>` of field names in
-    // declaration order. Non-struct `any` cells throw loudly (see the
-    // helper) — the caller runs a `throw_check`. Sig takes the Any
-    // value directly (cell-imm encoding == raw cell ptr for structs).
-    let anyv_struct_keys_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_struct_keys",
-        &[Type::Any],
-        Type::Ptr,
-    );
-    // W-J Phase C2 — `Object.values(v)` where `v: any` carries a struct
-    // cell. Walks the field metadata reading each slot, boxing per the
-    // field's type_tag into an `Arr<Any>`. Same runtime-dispatch shape
-    // as `anyv_struct_keys`; non-struct cells throw loudly.
-    let anyv_struct_values_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_struct_values",
-        &[Type::Any],
-        Type::Ptr,
-    );
-    // W-J Phase C3 — `Object.entries(v)` where `v: any` carries a
-    // struct cell. Builds an `Arr<Arr<Any>>` of `[name, value]` pairs;
-    // same runtime-dispatch shape as the keys/values arms, non-struct
-    // cells throw loudly.
-    let anyv_struct_entries_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_struct_entries",
-        &[Type::Any],
-        Type::Ptr,
-    );
-    // W-M-rest — `Object.getOwnPropertyDescriptor(str, "<idx>")` —
-    // spec §22.1.5.2 builds `{value: char_at(idx), writable: false,
-    // enumerable: true, configurable: false}` (note enumerable=true,
-    // unlike `length`). Bounds check happens in the helper; OOB /
-    // negative returns VALUE_UNDEFINED_IMM. SSA-lower constrains the
-    // fast path to canonical integer-string keys at compile time;
-    // non-canonical shapes fall through (spec-correctly returning
-    // undefined too).
-    let str_index_descriptor_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_str_index_descriptor",
-        &[Type::Ptr, Type::I64],
-        Type::Any,
-    );
-    // RFC C5b — `Object.preventExtensions(O)` / `Object.isExtensible(O)`.
-    // Anyvalue-shaped guards: primitive imm / null / undef short-circuit
-    // per spec §20.1.2.16 step 1 / §20.1.2.13 step 1 ("not Object → no-op
-    // / false"); real cells route through the raw-pointer setter / reader
-    // that toggles / reads FLAG_NON_EXTENSIBLE on the heap header.
-    let anyv_prevent_extensions_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_prevent_extensions",
-        &[Type::Any],
-        Type::Any,
-    );
-    let anyv_is_extensible_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_is_extensible",
-        &[Type::Any],
-        Type::Bool,
-    );
-    // RFC C5b-3 — `Object.seal(O)` / `Object.isSealed(O)`. Header
-    // flag pair (FLAG_NON_EXTENSIBLE + FLAG_SEALED) plus a DynObj
-    // entry-table walk that clears every entry's BUCKET_FLAG_CONFIGURABLE.
-    // Non-DynObj typed cells carry only the header markers — the
-    // SEALED bit alone disambiguates "user explicitly sealed" from
-    // pure preventExtensions, restoring bun parity for typed class
-    // instances (`Object.isSealed(c)` after `preventExtensions(c)` is
-    // `false` because spec field configurable=true is unchanged).
-    let anyv_seal_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_seal",
-        &[Type::Any],
-        Type::Any,
-    );
-    let anyv_is_sealed_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_is_sealed",
-        &[Type::Any],
-        Type::Bool,
-    );
-    let dynobj_has_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_dynobj_has",
-        &[Type::Ptr, Type::Ptr],
-        Type::I32,
-    );
-    let dynobj_delete_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_dynobj_delete",
-        &[Type::Ptr, Type::Ptr],
-        Type::I32,
-    );
+    // Object reflection + dynobj substrate + Any-shape dispatch +
+    // own-names/keys/values/entries + preventExtensions/seal (38
+    // ids). See sibling for the full per-decl ABI detail.
+    let crate::ssa_lower_intrinsics_object::ObjectIds {
+        dynobj_alloc: dynobj_alloc_id,
+        get_builtin_prototype: get_builtin_prototype_id,
+        instanceof_class_any_tag: instanceof_class_any_tag_id,
+        instanceof_builtin_any_tag: instanceof_builtin_any_tag_id,
+        instanceof_object_any: instanceof_object_any_id,
+        in_op_any_num: in_op_any_num_id,
+        in_op_any_str: in_op_any_str_id,
+        any_is_arr: any_is_arr_id,
+        dynobj_get_tag: dynobj_get_tag_id,
+        dynobj_get_value: dynobj_get_value_id,
+        dynobj_set: dynobj_set_id,
+        dynobj_define: dynobj_define_id,
+        dynobj_define_from_desc: dynobj_define_from_desc_id,
+        accessor_pair_new: accessor_pair_new_id,
+        accessor_invoke_getter: accessor_invoke_getter_id,
+        get_property_descriptor: get_property_descriptor_id,
+        throw_typeerror_if_not_object: throw_typeerror_if_not_object_id,
+        arr_throw_reduce_empty: arr_throw_reduce_empty_id,
+        arr_throw_reduce_right_empty: arr_throw_reduce_right_empty_id,
+        arr_length_descriptor: arr_length_descriptor_id,
+        str_length_descriptor: str_length_descriptor_id,
+        arr_index_strs: arr_index_strs_id,
+        str_index_strs: str_index_strs_id,
+        arr_keys_only: arr_keys_only_id,
+        str_keys_only: str_keys_only_id,
+        str_to_char_arr: str_to_char_arr_id,
+        arr_entries_by_tag: arr_entries_by_tag_id,
+        str_entries: str_entries_id,
+        anyv_struct_keys: anyv_struct_keys_id,
+        anyv_struct_values: anyv_struct_values_id,
+        anyv_struct_entries: anyv_struct_entries_id,
+        str_index_descriptor: str_index_descriptor_id,
+        anyv_prevent_extensions: anyv_prevent_extensions_id,
+        anyv_is_extensible: anyv_is_extensible_id,
+        anyv_seal: anyv_seal_id,
+        anyv_is_sealed: anyv_is_sealed_id,
+        dynobj_has: dynobj_has_id,
+        dynobj_delete: dynobj_delete_id,
+    } = crate::ssa_lower_intrinsics_object::declare(&mut module, &mut fn_table);
     // T-27.b — Function-as-Object side table for top-level FnDecls
     // (Type::FnSig at SSA layer). Hashmap keyed by fn pointer; lazy
     // dynobj alloc on first prop write.
