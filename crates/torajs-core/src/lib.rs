@@ -203,6 +203,7 @@ pub(crate) mod ssa_lower_arr_from_set;
 pub(crate) mod ssa_lower_arr_mutators;
 pub(crate) mod ssa_lower_array;
 pub(crate) mod ssa_lower_assign_ident;
+pub(crate) mod ssa_lower_assign_member;
 pub mod ssa_lower_body_returns_closure;
 pub(crate) mod ssa_lower_call_arr_flat_map;
 pub(crate) mod ssa_lower_call_arr_ho;
