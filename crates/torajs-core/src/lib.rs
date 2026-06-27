@@ -303,6 +303,7 @@ pub(crate) mod ssa_lower_intrinsics_fs;
 pub(crate) mod ssa_lower_intrinsics_num;
 pub(crate) mod ssa_lower_intrinsics_obj_capture;
 pub(crate) mod ssa_lower_intrinsics_print_str;
+pub(crate) mod ssa_lower_intrinsics_process;
 pub(crate) mod ssa_lower_intrinsics_regex;
 pub(crate) mod ssa_lower_intrinsics_str_a;
 pub(crate) mod ssa_lower_intrinsics_str_b;

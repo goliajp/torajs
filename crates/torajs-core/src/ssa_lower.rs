@@ -1477,58 +1477,16 @@ fn lower_inner(
         fs_readdir_sync: fs_readdir_sync_id,
         fs_size_sync: fs_size_sync_id,
     } = crate::ssa_lower_intrinsics_fs::declare(&mut module, &mut fn_table);
-    /* v0.3 #3 — process surface (minimum). */
-    let process_exit_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_process_exit",
-        &[Type::I64],
-        Type::Void,
-    );
-    let process_cwd_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_process_cwd",
-        &[],
-        Type::Str,
-    );
-    let process_platform_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_process_platform",
-        &[],
-        Type::Str,
-    );
-    let process_getenv_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_process_getenv",
-        &[Type::Str],
-        Type::Str,
-    );
-    /* v0.3 #3.c — argv/envp plumbing.
-     * - __torajs_argv_init(i32 argc, ptr argv, ptr envp): called once
-     *   at the start of main with the LLVM-widened
-     *   argc/argv/envp params; stores them into runtime globals.
-     *   envp is null on WASI (`__main_argc_argv` is 2-param); the
-     *   entry-block wrapper forwards a const-null ptr in that case
-     *   so the call site stays uniform.
-     * - __torajs_process_argv(): returns Array<Str> built from the
-     *   captured globals. Called by `process.argv` / `Bun.argv`. */
-    let argv_init_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_argv_init",
-        &[Type::I32, Type::Ptr, Type::Ptr],
-        Type::Void,
-    );
-    let process_argv_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_process_argv",
-        &[],
-        Type::Ptr,
-    );
+    // v0.3 #3 + #3.c — process surface + argv/envp plumbing (6 ids).
+    // See sibling for per-decl ABI detail.
+    let crate::ssa_lower_intrinsics_process::ProcessIds {
+        process_exit: process_exit_id,
+        process_cwd: process_cwd_id,
+        process_platform: process_platform_id,
+        process_getenv: process_getenv_id,
+        argv_init: argv_init_id,
+        process_argv: process_argv_id,
+    } = crate::ssa_lower_intrinsics_process::declare(&mut module, &mut fn_table);
     /* T-10.b (v0.4.0) — Array<Any> tagged-slot helpers. arr_alloc_any
      * allocates a 16-byte-stride array (vs 8 for regular Array<T>);
      * arr_push_any appends a tagged slot {tag, value}. T-10.c wires
