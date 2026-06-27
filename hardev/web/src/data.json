@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T19:33:38.586Z",
+  "generatedAt": "2026-06-27T19:49:43.595Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "d73ce9f2",
-    "commitSubject": "refactor(torajs-core): extract LowerCtx::lower_for_of_iter_protocol (chunk 143)",
+    "commit": "7d648bce",
+    "commitSubject": "refactor(torajs-core): extract lower_fn (chunk 144)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "7d648bce",
+      "subject": "refactor(torajs-core): extract lower_fn (chunk 144)"
+    },
+    {
+      "hash": "f32ecf94",
+      "subject": "chore(handoff/dashboard): chunks 141-143 ship summary @ d73ce9f2 (-850 LOC god-fn extracts)"
+    },
+    {
       "hash": "d73ce9f2",
       "subject": "refactor(torajs-core): extract LowerCtx::lower_for_of_iter_protocol (chunk 143)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "ad317875",
       "subject": "chore(handoff/dashboard): chunks 110-135 ship summary @ 1692f97f (-3298 LOC Pass 0 split CLOSE)"
-    },
-    {
-      "hash": "1692f97f",
-      "subject": "refactor(torajs-core): delete dead declare_intrinsic_with_sig (chunk 135)"
-    },
-    {
-      "hash": "7d51f6f4",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0 throw intrinsics (chunk 134)"
     }
   ],
-  "headSha": "d73ce9f2",
+  "headSha": "7d648bce",
   "autorun": {
     "total": 264,
     "baselineTarget": 10,
