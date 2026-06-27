@@ -1287,79 +1287,19 @@ fn lower_inner(
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();
 
     // Pass 0: declare runtime intrinsics that the backend will implement.
-    //   print_i64                — integer console.log fast-path
-    //   __torajs_str_alloc       — copy `len` bytes from `src` into a fresh
-    //                              heap StrRepr `{u64 len; u8 data[]}`.
-    //                              Used for every string literal ever lowered.
-    //   __torajs_str_print       — write StrRepr's bytes + trailing newline
-    //                              to stdout. Replaces the old NUL-terminated
-    //                              `print_str` (deleted in P2.2.b).
-    let print_i64_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "print_i64",
-        &[Type::I64],
-        Type::Void,
-    );
-    let print_f64_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "print_f64",
-        &[Type::F64],
-        Type::Void,
-    );
-    let print_bool_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "print_bool",
-        &[Type::Bool],
-        Type::Void,
-    );
-    let str_alloc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_alloc",
-        &[Type::Ptr, Type::I64],
-        Type::Str,
-    );
-    let str_print_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_print",
-        &[Type::Str],
-        Type::Void,
-    );
-    let str_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_drop",
-        &[Type::Str],
-        Type::Void,
-    );
-    // `__torajs_str_concat(a, b) -> StrRepr*` — read-only on operands;
-    // returns a freshly allocated StrRepr holding `a.bytes ++ b.bytes`.
-    // a and b stay owned by the caller (their refcount-aware drops fire
-    // at scope close). ssa_lower routes `Expr::BinOp(Add, str, str)` here.
-    let str_concat_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_concat",
-        &[Type::Str, Type::Str],
-        Type::Str,
-    );
-    // Phase B refcount: universal heap-header inc/dec. ssa_lower emits
-    // `rc_inc` at every site where ownership becomes shared (slot copy
-    // in array helpers, etc.). `rc_dec` is the type-erased counterpart
-    // to `str_drop` — currently used internally by str_drop; will become
-    // the single drop dispatch once obj/closure migrate to the same
-    // header in Phase 2.
-    let rc_inc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_rc_inc",
-        &[Type::Ptr],
-        Type::Void,
-    );
+    // Print + StrRepr basics (8 ids) live in
+    // `ssa_lower_intrinsics_print_str`; arr/obj/num/regex/etc. remain
+    // inline below until ported by follow-up chunks.
+    let crate::ssa_lower_intrinsics_print_str::PrintStrIds {
+        print_i64: print_i64_id,
+        print_f64: print_f64_id,
+        print_bool: print_bool_id,
+        str_alloc: str_alloc_id,
+        str_print: str_print_id,
+        str_drop: str_drop_id,
+        str_concat: str_concat_id,
+        rc_inc: rc_inc_id,
+    } = crate::ssa_lower_intrinsics_print_str::declare(&mut module, &mut fn_table);
     // P2.4.c: object heap alloc + drop. Layout is the lowerer's call —
     // pass the byte size as i64. The runtime is just malloc/free.
     let obj_alloc_id = declare_intrinsic(
