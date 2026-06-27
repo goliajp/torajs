@@ -176,6 +176,7 @@ pub const TORAJS_COMPILER_REV: &str = env!("TORAJS_COMPILER_REV");
 
 pub mod ast;
 pub mod ast_closure_param_tag;
+pub(crate) mod ast_desugar_builtin_new;
 pub(crate) mod ast_desugar_function_prototype_methods;
 pub mod ast_refs;
 pub mod ast_throw_info;
