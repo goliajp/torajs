@@ -3890,27 +3890,6 @@ pub(crate) fn declare_intrinsic(
     id
 }
 
-/// Register an intrinsic's signature in the shared `fn_sigs` table
-/// and the FuncId → SigId map so the call-site coercion path can
-/// look up its expected param types. Without this, the per-call
-/// coercion arm sees `None` for intrinsics and skips the F64↔I64
-/// fix-up — exactly the case Math.imul / Math.clz32 / parseInt's
-/// integer-typed parameters need.
-fn declare_intrinsic_with_sig(
-    module: &mut Module,
-    fn_table: &mut HashMap<String, FuncId>,
-    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
-    name: &str,
-    param_tys: &[Type],
-    ret_ty: Type,
-) -> FuncId {
-    let id = declare_intrinsic(module, fn_table, name, param_tys, ret_ty);
-    let sig = intern_fn_sig(fn_sigs, param_tys.to_vec(), ret_ty);
-    fn_sig_ids.insert(id, sig);
-    id
-}
-
 #[allow(clippy::too_many_arguments)]
 fn synthesize_main(
     stmts: &[&Stmt],
