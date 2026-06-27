@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T07:20:14.737Z",
+  "generatedAt": "2026-06-27T08:20:16.989Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "e23e3532",
-    "commitSubject": "refactor(torajs-core): extract type_of_inner Expr 7 small arms (chunk 95)",
+    "commit": "4b2c8316",
+    "commitSubject": "refactor(torajs-core): extract check_stmt Stmt::Switch + Yield (chunk 100)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "4b2c8316",
+      "subject": "refactor(torajs-core): extract check_stmt Stmt::Switch + Yield (chunk 100)"
+    },
+    {
+      "hash": "820d3a5d",
+      "subject": "refactor(torajs-core): extract check_stmt Stmt::Return arm (chunk 99)"
+    },
+    {
+      "hash": "ab6c2eb0",
+      "subject": "refactor(torajs-core): extract check_stmt Stmt::Throw arm (chunk 98)"
+    },
+    {
+      "hash": "24f7c38a",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::Ternary (chunk 97)"
+    },
+    {
+      "hash": "151dd952",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::BinOp 8-op-family (chunk 96)"
+    },
+    {
+      "hash": "988d0b2a",
+      "subject": "chore(handoff/dashboard): chunks 79-95 ship summary @ e23e3532 (-7690 LOC)"
+    },
+    {
       "hash": "e23e3532",
       "subject": "refactor(torajs-core): extract type_of_inner Expr 7 small arms (chunk 95)"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "2ca74f7e",
       "subject": "refactor(torajs-core): extract type_of_inner Expr::ObjectLit (chunk 91)"
-    },
-    {
-      "hash": "82cd73ce",
-      "subject": "refactor(torajs-core): extract type_of_inner Expr::Ident (chunk 90)"
-    },
-    {
-      "hash": "02f3cd22",
-      "subject": "refactor(torajs-core): extract type_of_inner Expr::Unary (chunk 89)"
-    },
-    {
-      "hash": "668ebf3d",
-      "subject": "refactor(torajs-core): extract type_of_inner Expr::Array (chunk 88)"
-    },
-    {
-      "hash": "7952b96c",
-      "subject": "refactor(torajs-core): extract §7.2.15 null/undef static fold (chunk 87)"
-    },
-    {
-      "hash": "3ed4fbbf",
-      "subject": "Revert \"refactor(torajs-core): extract Any-aware BinOp dispatch (chunk 86)\""
-    },
-    {
-      "hash": "9322fe7a",
-      "subject": "refactor(torajs-core): extract Any-aware BinOp dispatch (chunk 86)"
     }
   ],
-  "headSha": "e23e3532",
+  "headSha": "4b2c8316",
   "autorun": {
-    "total": 257,
+    "total": 258,
     "baselineTarget": 10,
-    "bySelf": 252,
+    "bySelf": 253,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782542717-73f9",
-      "at": "2026-06-27T06:45:17Z",
-      "ts": 1782542717,
+      "rotationId": "r-1782548332-1094",
+      "at": "2026-06-27T08:18:52Z",
+      "ts": 1782548332,
       "trigger": "self",
-      "prevHead": "4f79899c",
-      "handoffSha": "sha256:6122fb3fb227c7c5a1e13fa20c3b02dcf91a199d544e69f03abb1365bda1fa84",
-      "handoffAgeSec": 12,
+      "prevHead": "4b2c8316",
+      "handoffSha": "sha256:b9673d40bf4db0e9f93798beb1cf036cf0595f29cda7bfce3c1592f23517ab17",
+      "handoffAgeSec": 3434,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782548332-1094",
+        "at": "2026-06-27T08:18:52Z",
+        "ts": 1782548332,
+        "trigger": "self",
+        "prevHead": "4b2c8316",
+        "handoffSha": "sha256:b9673d40bf4db0e9f93798beb1cf036cf0595f29cda7bfce3c1592f23517ab17",
+        "handoffAgeSec": 3434,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782542717-73f9",
         "at": "2026-06-27T06:45:17Z",
@@ -779,17 +790,6 @@
         "trigger": "self",
         "prevHead": "ca4da863",
         "handoffSha": "sha256:9d7b068c4c0e085be96396fae2a7e1de3e413cb7abea3af93f0820d85fbf09a4",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782446122-7cb6",
-        "at": "2026-06-26T03:55:22Z",
-        "ts": 1782446122,
-        "trigger": "self",
-        "prevHead": "28436f83",
-        "handoffSha": "sha256:695a1a2af79404d125369ec5a169b36367a728acff7bd2e4ef1b8a65af7804fa",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
