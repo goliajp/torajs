@@ -1345,179 +1345,35 @@ fn lower_inner(
         str_replace: str_replace_id,
         str_replace_all: str_replace_all_id,
     } = crate::ssa_lower_intrinsics_str_a::declare(&mut module, &mut fn_table);
-    let num_to_fixed_f_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_to_fixed_f",
-        &[Type::F64, Type::I64],
-        Type::Str,
-    );
-    let num_to_fixed_i_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_to_fixed_i",
-        &[Type::I64, Type::I64],
-        Type::Str,
-    );
-    let num_to_string_radix_i_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_to_string_radix_i",
-        &[Type::I64, Type::I64],
-        Type::Str,
-    );
-    let num_to_string_radix_f_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_to_string_radix_f",
-        &[Type::F64, Type::I64],
-        Type::Str,
-    );
-    let num_to_exp_f_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_to_exp_f",
-        &[Type::F64, Type::I64],
-        Type::Str,
-    );
-    let num_to_exp_i_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_to_exp_i",
-        &[Type::I64, Type::I64],
-        Type::Str,
-    );
-    let num_to_precision_f_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_to_precision_f",
-        &[Type::F64, Type::I64],
-        Type::Str,
-    );
-    let num_to_precision_i_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_to_precision_i",
-        &[Type::I64, Type::I64],
-        Type::Str,
-    );
-    let num_to_locale_f_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_to_locale_f",
-        &[Type::F64],
-        Type::Str,
-    );
-    let num_to_locale_i_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_to_locale_i",
-        &[Type::I64],
-        Type::Str,
-    );
-    let num_parse_int_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_parse_int",
-        &[Type::Str, Type::I64],
-        Type::F64,
-    );
-    let num_parse_float_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_parse_float",
-        &[Type::Str],
-        Type::F64,
-    );
-    let num_is_integer_f_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_integer_f",
-        &[Type::F64],
-        Type::Bool,
-    );
-    let num_is_integer_i_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_integer_i",
-        &[Type::I64],
-        Type::Bool,
-    );
-    let num_is_nan_f_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_nan_f",
-        &[Type::F64],
-        Type::Bool,
-    );
-    let num_is_nan_i_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_nan_i",
-        &[Type::I64],
-        Type::Bool,
-    );
-    let num_is_finite_f_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_finite_f",
-        &[Type::F64],
-        Type::Bool,
-    );
-    let num_is_finite_i_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_finite_i",
-        &[Type::I64],
-        Type::Bool,
-    );
-    let num_is_safe_integer_f_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_safe_integer_f",
-        &[Type::F64],
-        Type::Bool,
-    );
-    let num_is_safe_integer_i_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_safe_integer_i",
-        &[Type::I64],
-        Type::Bool,
-    );
-    // S341 — Number.is{NaN,Finite,Integer,SafeInteger}(Any) tag-
-    // dispatch helpers. Take (tag: i64, val: i64) so ssa_lower
-    // can feed the unboxed (any_unbox_tag, any_unbox_value) pair
-    // without an intermediate bitcast. Returns Bool (0/1) per
-    // the existing _f/_i family ABI.
-    let num_is_integer_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_integer_any",
-        &[Type::I64, Type::I64],
-        Type::Bool,
-    );
-    let num_is_nan_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_nan_any",
-        &[Type::I64, Type::I64],
-        Type::Bool,
-    );
-    let num_is_finite_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_finite_any",
-        &[Type::I64, Type::I64],
-        Type::Bool,
-    );
-    let num_is_safe_integer_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_num_is_safe_integer_any",
-        &[Type::I64, Type::I64],
-        Type::Bool,
-    );
+    // Number method runtime (24 ids) — see sibling for stringify /
+    // parse / classification ABI detail and the S341 `_any`
+    // (tag,val)-dispatched flavour of the four `Number.is*` helpers.
+    let crate::ssa_lower_intrinsics_num::NumIds {
+        num_to_fixed_f: num_to_fixed_f_id,
+        num_to_fixed_i: num_to_fixed_i_id,
+        num_to_string_radix_i: num_to_string_radix_i_id,
+        num_to_string_radix_f: num_to_string_radix_f_id,
+        num_to_exp_f: num_to_exp_f_id,
+        num_to_exp_i: num_to_exp_i_id,
+        num_to_precision_f: num_to_precision_f_id,
+        num_to_precision_i: num_to_precision_i_id,
+        num_to_locale_f: num_to_locale_f_id,
+        num_to_locale_i: num_to_locale_i_id,
+        num_parse_int: num_parse_int_id,
+        num_parse_float: num_parse_float_id,
+        num_is_integer_f: num_is_integer_f_id,
+        num_is_integer_i: num_is_integer_i_id,
+        num_is_nan_f: num_is_nan_f_id,
+        num_is_nan_i: num_is_nan_i_id,
+        num_is_finite_f: num_is_finite_f_id,
+        num_is_finite_i: num_is_finite_i_id,
+        num_is_safe_integer_f: num_is_safe_integer_f_id,
+        num_is_safe_integer_i: num_is_safe_integer_i_id,
+        num_is_integer_any: num_is_integer_any_id,
+        num_is_nan_any: num_is_nan_any_id,
+        num_is_finite_any: num_is_finite_any_id,
+        num_is_safe_integer_any: num_is_safe_integer_any_id,
+    } = crate::ssa_lower_intrinsics_num::declare(&mut module, &mut fn_table);
     // M6.1 — String methods. All operate on the StrRepr layout
     // `[u64 len, u8 data[len]]`. slice yields a fresh heap StrRepr;
     // char_code_at returns the byte zext'd to i64; the `*_with`
