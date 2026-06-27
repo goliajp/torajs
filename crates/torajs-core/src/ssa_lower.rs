@@ -1379,107 +1379,22 @@ fn lower_inner(
     // char_code_at returns the byte zext'd to i64; the `*_with`
     // family + includes return bool; index_of returns i64 (-1 for
     // not found). Both backends ship matching impls.
-    let str_slice_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_slice",
-        &[Type::Str, Type::I64, Type::I64],
-        Type::Str,
-    );
-    let str_char_code_at_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_char_code_at",
-        &[Type::Str, Type::I64],
-        Type::I64,
-    );
-    let str_code_point_at_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_code_point_at",
-        &[Type::Str, Type::I64],
-        Type::I64,
-    );
-    let str_starts_with_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_starts_with",
-        &[Type::Str, Type::Str],
-        Type::Bool,
-    );
-    let str_ends_with_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_ends_with",
-        &[Type::Str, Type::Str],
-        Type::Bool,
-    );
-    let str_index_of_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_index_of",
-        &[Type::Str, Type::Str],
-        Type::I64,
-    );
-    let str_last_index_of_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_last_index_of",
-        &[Type::Str, Type::Str],
-        Type::I64,
-    );
-    let str_locale_compare_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_locale_compare",
-        &[Type::Str, Type::Str],
-        Type::I64,
-    );
-    let str_includes_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_includes",
-        &[Type::Str, Type::Str],
-        Type::Bool,
-    );
-    // Spec-correct `===` / `!==` on strings — content-equal, not
-    // pointer-equal. ECMA-262 §7.2.16. Without this, `"a" === "a"`
-    // could be false depending on whether the literals shared a
-    // pool. AOT defines this in runtime_str.c; JIT registers
-    // a Rust extern "C" fn.
-    let str_eq_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_eq",
-        &[Type::Str, Type::Str],
-        Type::Bool,
-    );
-    // M6.1+ — split + join. AOT side imports these from a tiny C
-    // runtime (`runtime_str.c`); JIT side registers Rust extern "C"
-    // fns. Element type for split's output array is interned
-    // lazily — we don't intern Type::Arr(Str) here because the
-    // arr_layouts interner is keyed by element Type and we want
-    // ordering to stay deterministic across compilation runs.
-    let str_split_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_split",
-        &[Type::Str, Type::Str],
-        Type::Ptr,
-    );
-    // ES §22.1.3.21 step 4 — `s.split()` (no separator) returns
-    // `[S]`. ssa_lower routes here when the call site has no
-    // argument; the 2-arg `__torajs_str_split` path silently
-    // missed the `sep` slot and read register garbage, surviving
-    // single-call programs but SIGSEGV'ing after any prior
-    // `.split(arg)` shifted residual register state.
-    let str_split_no_sep_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_split_no_sep",
-        &[Type::Str],
-        Type::Ptr,
-    );
+    // StrRepr method runtime group B (12 ids) — see sibling for the
+    // M6.1 slice / code-unit / lookup / split ABI detail.
+    let crate::ssa_lower_intrinsics_str_b::StrBIds {
+        str_slice: str_slice_id,
+        str_char_code_at: str_char_code_at_id,
+        str_code_point_at: str_code_point_at_id,
+        str_starts_with: str_starts_with_id,
+        str_ends_with: str_ends_with_id,
+        str_index_of: str_index_of_id,
+        str_last_index_of: str_last_index_of_id,
+        str_locale_compare: str_locale_compare_id,
+        str_includes: str_includes_id,
+        str_eq: str_eq_id,
+        str_split: str_split_id,
+        str_split_no_sep: str_split_no_sep_id,
+    } = crate::ssa_lower_intrinsics_str_b::declare(&mut module, &mut fn_table);
     // Phase Substr.A — view-substring runtime helpers. `__torajs_str_split`
     // (above) will be re-routed to return `Array<Substr>` in Phase Substr.B;
     // these helpers provide the per-Substr ops the lowerer dispatches to
