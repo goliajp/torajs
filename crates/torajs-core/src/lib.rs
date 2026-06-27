@@ -302,6 +302,7 @@ pub(crate) mod ssa_lower_drops;
 pub(crate) mod ssa_lower_fn;
 pub(crate) mod ssa_lower_for_of_iter_protocol;
 pub(crate) mod ssa_lower_stmt_for;
+pub(crate) mod ssa_lower_stmt_for_of;
 pub(crate) mod ssa_lower_stmt_switch;
 pub(crate) mod ssa_lower_for_of_map_like;
 pub(crate) mod ssa_lower_ident;

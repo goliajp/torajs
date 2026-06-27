@@ -7874,323 +7874,12 @@ impl<'a> LowerCtx<'a> {
             }
             Stmt::ForOf {
                 var_name,
-                var_type_ann: _,
-                src_ident: _,
                 i_ident,
                 elem_expr,
                 body,
+                ..
             } => {
-                // P5.3 — generic `for (let v of <expr>) body`. Parser
-                // hoisted <expr> into `src_ident` (or it was already an
-                // Ident) and pre-built `elem_expr = src_ident[i_ident]`
-                // so we route the per-iter element load back through
-                // the existing Expr::Index lowering — that path knows
-                // how to box Type::Any elements correctly, which a
-                // hand-rolled LoadDyn here would get wrong.
-                //
-                // Subset: array source only for now. Iterator-protocol
-                // dispatch (user-class with `[Symbol.iterator]`) lands
-                // as a P5.3 follow-up — until then any other src type
-                // is a hard panic at lower time.
-                // Resolve src via lower_expr on the existing Ident
-                // ExprId inside elem_expr (= `src_ident[i_ident]`).
-                // This keeps the global / closure-env / local-alloca
-                // paths unified — the same machinery that lowers the
-                // body's Ident reads to xs handles this.
-                //
-                // P10.3-A1 — `for await (decl of iter)` desugar wraps
-                // elem_expr in a `.value` Member access (await desugar)
-                // so the body's per-iter load goes through
-                // promise_get_value. Strip the wrapper to find the
-                // underlying Index for src resolution; per-iter element
-                // lowering at line ~11132 still uses the wrapped
-                // elem_expr so the await semantics flow naturally.
-                let index_eid = match self.ast.get_expr(*elem_expr) {
-                    Expr::Index { .. } => *elem_expr,
-                    Expr::Member { obj, name } if name == "value" => {
-                        if matches!(self.ast.get_expr(*obj), Expr::Index { .. }) {
-                            *obj
-                        } else {
-                            panic!(
-                                "for-of: for-await wrapper expects Member.value over Index, got {:?}",
-                                self.ast.get_expr(*obj)
-                            );
-                        }
-                    }
-                    other => panic!(
-                        "for-of: elem_expr must be Expr::Index or for-await Member.value-over-Index wrapper, got {:?}",
-                        other
-                    ),
-                };
-                let src_ref_eid = if let Expr::Index { obj, .. } = self.ast.get_expr(index_eid) {
-                    *obj
-                } else {
-                    unreachable!("index_eid resolution above guarantees Expr::Index");
-                };
-                let src_ptr_op = self.lower_expr(src_ref_eid);
-                let src_ty = self.operand_ty(&src_ptr_op);
-                // P6.4c — for-of on Map / Set / MapIter receivers
-                // dispatches through the MapIter substrate (P6.4b).
-                // Map default iter yields `[k, v]` Array<Any> entries
-                // (spec §23.1.4 — Map's @@iterator = entries());
-                // Set default iter yields elements (spec §24.2.5.1 —
-                // Set's @@iterator = values()); a user-bound MapIter
-                // just steps directly. P6.4c-C3 — Type::ArrIter
-                // (from `arr.keys() / .values() / .entries()`) uses
-                // the parallel arr_iter_step intrinsic.
-                if matches!(
-                    src_ty,
-                    Type::Map | Type::Set | Type::MapIter | Type::ArrIter
-                ) {
-                    self.lower_for_of_map_like(src_ptr_op, src_ty, var_name, body);
-                    return;
-                }
-                // P5.3 Phase B — when src is Type::Obj(sid) and its
-                // class declares `[Symbol.iterator]()` (lowered as
-                // `__cm_<C>____sym_Symbol_iterator__`), dispatch to
-                // the iterator protocol. Else fall through to the
-                // Array fast path. Anything else is a subset reject.
-                if let Type::Obj(sid) = src_ty {
-                    let mut cname: Option<String> = None;
-                    for (n, ty) in self.aliases.iter() {
-                        if matches!(ty, Type::Obj(s) if s.0 == sid.0)
-                            && self.ast.class_parents.contains_key(n)
-                        {
-                            cname = Some(n.clone());
-                            break;
-                        }
-                    }
-                    if let Some(cname) = cname {
-                        let iter_fn = format!("__cm_{cname}____sym_Symbol_iterator__");
-                        if let Some(&iter_fid) = self.fn_table.get(&iter_fn) {
-                            self.lower_for_of_iter_protocol(
-                                src_ptr_op, iter_fid, var_name, body, &cname,
-                            );
-                            return;
-                        }
-                        panic!(
-                            "ssa-lower: for-of on class `{cname}` requires a `[Symbol.iterator](): SomeIter` method (P5.2 syntax, P5.3 Phase B dispatch) — fn `{iter_fn}` not registered"
-                        );
-                    }
-                    panic!(
-                        "ssa-lower: for-of source type Type::Obj(sid={}) is not a registered class (subset — iterator protocol only fires for user-class iterables; inline-struct iteration not yet supported)",
-                        sid.0
-                    );
-                }
-                // P11.4 — `for (const c of <str>)` yields code-point
-                // strings per ES §22.1.5: BMP code units are 1-cu Substr
-                // views, supplementary-plane code points combine the
-                // high+low surrogate pair into a single 2-cu Substr
-                // view. The runtime loop reads `__torajs_str_code_point_at`
-                // to decide the per-iter advance (1 or 2 code units).
-                if src_ty == Type::Str {
-                    self.lower_for_of_str(src_ptr_op, i_ident, var_name, body);
-                    return;
-                }
-                if !matches!(src_ty, Type::Arr(_)) {
-                    panic!(
-                        "ssa-lower: for-of source type {src_ty:?} not yet supported (P5.3 subset — Array<T> + user-class iterable only)"
-                    );
-                }
-
-                // Open a fresh scope frame for `i_ident`. The body's
-                // `var_name` opens its own nested frame so per-iter
-                // drops fire at the correct point.
-                self.scope_stack.push(Vec::new());
-                self.shadow_stack.push(Vec::new());
-
-                let i_slot = self.alloca(Type::I64, Some(i_ident));
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
-                );
-                {
-                    let cur_depth = self.scope_stack.len() - 1;
-                    if let Some(prev) = self.locals.get(i_ident).copied()
-                        && prev.scope_depth < cur_depth
-                    {
-                        self.shadow_stack
-                            .last_mut()
-                            .expect("shadow frame")
-                            .push((i_ident.clone(), prev));
-                    }
-                    self.locals.insert(
-                        i_ident.clone(),
-                        LocalInfo {
-                            slot: i_slot,
-                            ty: Type::I64,
-                            moved: false,
-                            borrowed: false,
-                            scope_depth: cur_depth,
-                        },
-                    );
-                    self.scope_stack
-                        .last_mut()
-                        .expect("scope frame")
-                        .push(i_ident.clone());
-                }
-
-                // Hoist length read out of the loop. src_ptr_op is
-                // the loaded array pointer (rc still owned by its
-                // upstream binding — we don't bump here since the
-                // for-of body just borrows).
-                let src_ptr = match src_ptr_op {
-                    Operand::Value(v) => v,
-                    _ => panic!("for-of: src ident must lower to a value operand"),
-                };
-                let end_val = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::I64, Operand::Value(src_ptr), ARR_LEN_OFF),
-                    Type::I64,
-                    None,
-                );
-
-                let header = self.f.add_block();
-                let body_blk = self.f.add_block();
-                let step_blk = self.f.add_block();
-                let after = self.f.add_block();
-                self.f.set_term(self.cur_block, Terminator::Br(header));
-
-                // header: i < end?
-                self.cur_block = header;
-                let i_now = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
-                    Type::I64,
-                    None,
-                );
-                let cond_val = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(end_val)),
-                    Type::Bool,
-                    None,
-                );
-                self.f.set_term(
-                    self.cur_block,
-                    Terminator::CondBr {
-                        cond: Operand::Value(cond_val),
-                        then_blk: body_blk,
-                        else_blk: after,
-                    },
-                );
-
-                // body: open var scope, evaluate elem via Expr::Index
-                // (handles boxing for Type::Any), bind var_name, lower
-                // user body, fall through to step.
-                self.cur_block = body_blk;
-                self.scope_stack.push(Vec::new());
-                self.shadow_stack.push(Vec::new());
-                let v_val = self.lower_expr(*elem_expr);
-                let v_ty = self.operand_ty(&v_val);
-                let v_slot = self.alloca(v_ty, Some(var_name));
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(v_val, Operand::Value(v_slot), 0),
-                );
-                {
-                    let cur_depth = self.scope_stack.len() - 1;
-                    if let Some(prev) = self.locals.get(var_name).copied()
-                        && prev.scope_depth < cur_depth
-                    {
-                        self.shadow_stack
-                            .last_mut()
-                            .expect("shadow frame")
-                            .push((var_name.clone(), prev));
-                    }
-                    self.locals.insert(
-                        var_name.clone(),
-                        LocalInfo {
-                            slot: v_slot,
-                            ty: v_ty,
-                            // Alias-init: `v` borrows from `src[i]`
-                            // without bumping the array slot's rc.
-                            // emit_drops_for_owned_locals must skip
-                            // it — otherwise per-iter drop on a Str /
-                            // Any-box would decrement the array slot's
-                            // child rc to 0 and free it, corrupting
-                            // subsequent reads. Mirrors the LetDecl
-                            // is_alias_init rule for Expr::Index init.
-                            moved: true,
-                            borrowed: true,
-                            scope_depth: cur_depth,
-                        },
-                    );
-                    self.scope_stack
-                        .last_mut()
-                        .expect("scope frame")
-                        .push(var_name.clone());
-                }
-                self.loop_stack.push((step_blk, after));
-                self.lower_stmt(body);
-                let body_open_at_end = self.cur_open();
-                self.loop_stack.pop();
-
-                // Close body scope. If body fell through (no break /
-                // return), emit per-iter drops over THIS scope's
-                // frame only — using emit_drops_for_owned_locals
-                // would walk every local (including the outer `xs`)
-                // and corrupt the array across iterations.
-                let body_frame = self.scope_stack.pop().expect("for-of body scope");
-                let body_shadows = self.shadow_stack.pop().expect("shadow frame");
-                if body_open_at_end {
-                    for name in &body_frame {
-                        let info = match self.locals.get(name) {
-                            Some(i) => *i,
-                            None => continue,
-                        };
-                        if info.moved
-                            || info.ty.is_copy()
-                            || self.stack_alloced_locals.contains(name)
-                        {
-                            continue;
-                        }
-                        let val = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                            info.ty,
-                            None,
-                        );
-                        self.emit_drop_value(Operand::Value(val), info.ty);
-                    }
-                    self.f.set_term(self.cur_block, Terminator::Br(step_blk));
-                }
-                for n in &body_frame {
-                    self.locals.remove(n);
-                }
-                for (n, prev) in body_shadows {
-                    self.locals.insert(n, prev);
-                }
-
-                // step: i = i + 1, br header
-                self.cur_block = step_blk;
-                let i_cur = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
-                    Type::I64,
-                    None,
-                );
-                let i_next = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_cur), Operand::ConstI64(1)),
-                    Type::I64,
-                    None,
-                );
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
-                );
-                self.f.set_term(self.cur_block, Terminator::Br(header));
-
-                // after: close i scope, fall through.
-                self.cur_block = after;
-                let i_frame = self.scope_stack.pop().expect("for-of i scope");
-                let i_shadows = self.shadow_stack.pop().expect("shadow frame");
-                for n in &i_frame {
-                    self.locals.remove(n);
-                }
-                for (n, prev) in i_shadows {
-                    self.locals.insert(n, prev);
-                }
+                crate::ssa_lower_stmt_for_of::lower(self, var_name, i_ident, *elem_expr, body);
             }
             Stmt::DoWhile { body, cond } => {
                 // Body executes at least once, then `cond` decides
@@ -12693,7 +12382,13 @@ impl<'a> LowerCtx<'a> {
     /// for-of scope discipline. `var_name` binds the per-iter Substr;
     /// it's marked owned (rc=1 from substr_create) so the per-iter
     /// drop fires on `c` only, not on the parent string.
-    fn lower_for_of_str(&mut self, src_op: Operand, i_ident: &str, var_name: &str, body: &Stmt) {
+    pub(crate) fn lower_for_of_str(
+        &mut self,
+        src_op: Operand,
+        i_ident: &str,
+        var_name: &str,
+        body: &Stmt,
+    ) {
         // Outer scope for the index var, mirrors Stmt::ForOf Arr arm.
         self.scope_stack.push(Vec::new());
         self.shadow_stack.push(Vec::new());
@@ -12957,7 +12652,7 @@ impl<'a> LowerCtx<'a> {
     /// class via aliases to find `__cm_<iter_class>__next`, then the
     /// returned step struct provides .done / .value via direct field
     /// loads.
-    fn lower_for_of_iter_protocol(
+    pub(crate) fn lower_for_of_iter_protocol(
         &mut self,
         src_op: Operand,
         iter_fid: FuncId,
@@ -12980,7 +12675,7 @@ impl<'a> LowerCtx<'a> {
     /// path). Set's default iter yields elements (Type::Any).
     /// MapIter is borrowed — kind unknown at compile time, so var is
     /// type-erased to Any.
-    fn lower_for_of_map_like(
+    pub(crate) fn lower_for_of_map_like(
         &mut self,
         src_op: Operand,
         src_ty: Type,
