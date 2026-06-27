@@ -187,6 +187,7 @@ pub(crate) mod check_stmt_if;
 pub(crate) mod check_stmt_misc;
 pub(crate) mod check_stmt_return;
 pub(crate) mod check_stmt_throw;
+pub(crate) mod check_stmt_try;
 pub(crate) mod check_stmt_while;
 pub(crate) mod check_type_ann;
 pub(crate) mod check_type_ann_substitute;

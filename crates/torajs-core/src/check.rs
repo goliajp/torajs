@@ -619,7 +619,7 @@ pub(crate) struct LocalInfo {
     /// (assign-rhs, non-Copy call-arg, struct-field write, return, throw).
     /// Reads of a moved binding still succeed (TS-shape); only a SECOND
     /// transfer errors. Copy-typed bindings never get marked.
-    moved: bool,
+    pub(crate) moved: bool,
     /// Alias flag — this binding borrows a heap owned elsewhere
     /// (Member / Index / cross-scope Ident init). Borrowed bindings
     /// can't be transferred at mid-scope sites (assign-rhs, call-arg,
@@ -627,7 +627,7 @@ pub(crate) struct LocalInfo {
     /// CAN escape via return / throw: the binding dies with the scope
     /// and ssa_lower retains at the boundary (retain-at-return /
     /// retain-at-throw) so the escaping reference carries its own +1.
-    borrowed: bool,
+    pub(crate) borrowed: bool,
     /// M-OO.5 — when this binding's declared type annotation matches a
     /// class name (`let c: Counter = ...`), record the class name so
     /// `c.member` accesses can look up the visibility entry in
@@ -1458,7 +1458,7 @@ fn substitute_typevars(ty: &Type, subst: &HashMap<String, Type>) -> Type {
 }
 
 impl Checker {
-    fn declare(&mut self, name: String, info: LocalInfo) -> Result<(), String> {
+    pub(crate) fn declare(&mut self, name: String, info: LocalInfo) -> Result<(), String> {
         let top = self
             .scopes
             .last_mut()
@@ -1869,60 +1869,18 @@ impl Checker {
                 catch_body,
                 finally_body,
             } => {
-                // body in a fresh scope
-                self.scopes.push(HashMap::new());
-                for s in body {
-                    self.check_stmt(ast, s);
-                }
-                self.scopes.pop();
-                // catch in a fresh scope with `e` injected. Type comes
-                // from `(e: T)` annotation. P7.2b-2 — an unannotated
-                // `catch (e)` is implicitly `any` per TS spec (an
-                // explicit non-any/unknown annotation is TS1196); the
-                // old Number default was a pre-spec tora-ism. Mirrors
-                // the ssa_lower `None => Type::Any` default so the
-                // check-tier sees `e` as Any too (member access /
-                // arithmetic / return all go through the Any paths).
-                let e_ty = match catch_type {
-                    Some(ann) => match resolve_type_ann_full(
-                        ann,
-                        &self.aliases,
-                        &[],
-                        &self.generic_alias_decls,
-                    ) {
-                        Some(t) => t,
-                        None => {
-                            self.errors
-                                .push_err(format!("unknown type `{ann}` in catch param"));
-                            Type::Any
-                        }
-                    },
-                    None => Type::Any,
-                };
-                self.scopes.push(HashMap::new());
-                if let Some(p) = catch_param {
-                    let _ = self.declare(
-                        p.clone(),
-                        LocalInfo {
-                            ty: e_ty,
-                            mutable: true,
-                            moved: false,
-                            borrowed: false,
-                            declared_class: None,
-                        },
-                    );
-                }
-                for s in catch_body {
-                    self.check_stmt(ast, s);
-                }
-                self.scopes.pop();
-                if let Some(fb) = finally_body {
-                    self.scopes.push(HashMap::new());
-                    for s in fb {
-                        self.check_stmt(ast, s);
-                    }
-                    self.scopes.pop();
-                }
+                // 3-phase walker (body / catch with P7.2b-2 Any
+                // default / optional finally). See
+                // [`crate::check_stmt_try::check`].
+                crate::check_stmt_try::check(
+                    self,
+                    ast,
+                    body,
+                    catch_param,
+                    catch_type,
+                    catch_body,
+                    finally_body,
+                );
             }
             Stmt::Break | Stmt::Continue => {
                 // No type-side state to track; the lowerer enforces that
