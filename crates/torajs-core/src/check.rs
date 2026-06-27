@@ -1892,35 +1892,10 @@ impl Checker {
                 sep,
                 body,
             } => {
-                // P-iter — parent and sep must both be strings; var
-                // binds a Substr borrow per iteration.
-                match self.type_of(ast, *parent) {
-                    Ok(Type::String) => {}
-                    Ok(other) => self
-                        .errors
-                        .push_err(format!("for-of split parent must be string, got {other:?}")),
-                    Err(e) => self.errors.push_err(e),
-                }
-                match self.type_of(ast, *sep) {
-                    Ok(Type::String) => {}
-                    Ok(other) => self.errors.push_err(format!(
-                        "for-of split separator must be string, got {other:?}"
-                    )),
-                    Err(e) => self.errors.push_err(e),
-                }
-                self.scopes.push(HashMap::new());
-                let _ = self.declare(
-                    var_name.clone(),
-                    LocalInfo {
-                        ty: Type::String,
-                        mutable: false,
-                        moved: false,
-                        borrowed: false,
-                        declared_class: None,
-                    },
-                );
-                self.check_stmt(ast, body);
-                self.scopes.pop();
+                // P-iter — parent/sep typecheck + var_name Substr-
+                // shaped String borrow per iteration. See
+                // [`crate::check_stmt_for_of_split::check`].
+                crate::check_stmt_for_of_split::check(self, ast, var_name, *parent, *sep, body);
             }
             // P5.3 — generic for-of. The parser hoists src to a fresh
             // Ident and pre-builds `elem_expr = src[i]`. Typing the
