@@ -1544,211 +1544,37 @@ fn lower_inner(
         dynobj_has: dynobj_has_id,
         dynobj_delete: dynobj_delete_id,
     } = crate::ssa_lower_intrinsics_object::declare(&mut module, &mut fn_table);
-    // T-27.b — Function-as-Object side table for top-level FnDecls
-    // (Type::FnSig at SSA layer). Hashmap keyed by fn pointer; lazy
-    // dynobj alloc on first prop write.
-    let fnprops_set_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fnprops_set",
-        &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
-        Type::Void,
-    );
-    let fnprops_get_tag_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fnprops_get_tag",
-        &[Type::Ptr, Type::Ptr],
-        Type::I64,
-    );
-    let fnprops_get_value_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fnprops_get_value",
-        &[Type::Ptr, Type::Ptr],
-        Type::I64,
-    );
-    // T-29 — Array-as-Object side table.
-    let arrprops_set_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arrprops_set",
-        &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
-        Type::Void,
-    );
-    let arrprops_get_tag_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arrprops_get_tag",
-        &[Type::Ptr, Type::Ptr],
-        Type::I64,
-    );
-    let arrprops_get_value_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arrprops_get_value",
-        &[Type::Ptr, Type::Ptr],
-        Type::I64,
-    );
-    let arr_drop_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_drop_any",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    /* T-10.d.i — Type::Any boxed-value runtime. `any_box` allocates
-     * a 24-byte heap (header + tag + value); `unbox_tag` / `unbox_value`
-     * are field reads; `any_box_drop` is the rc-aware free that also
-     * decs heap-typed children; `print_any` is console.log Any
-     * dispatch. */
-    // Step 7f-B — declarations point at the canonical
-    // `__torajs_anyv_*` NaN-box AnyValue family (sister of the
-    // legacy `__torajs_any_*` shims). The `Type::Any` parameters
-    // are the immediate `AnyValue` (u64) bit-pattern at the LLVM
-    // ABI level; legacy `Type::Ptr` declarations carried the same
-    // bits but typed as a pointer. ABI-equivalent — same 64-bit
-    // slot — so callers passing `Type::Any` SSA values land in
-    // the right register.
-    let any_typeof_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_typeof",
-        &[Type::Any],
-        Type::Str,
-    );
-    let any_to_bool_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_to_bool",
-        &[Type::Any],
-        Type::Bool,
-    );
-    let any_to_number_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_to_number",
-        &[Type::Any],
-        Type::F64,
-    );
-    let any_add_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_add_pair",
-        &[Type::I64, Type::I64, Type::I64, Type::I64],
-        Type::Any,
-    );
-    let any_arith_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_arith_pair",
-        &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
-        Type::Any,
-    );
-    let any_compare_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_compare_pair",
-        &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
-        Type::Bool,
-    );
-    let any_strict_eq_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_strict_eq_imm_pair",
-        &[Type::Any, Type::I64, Type::I64],
-        Type::Bool,
-    );
-    let any_any_strict_eq_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_strict_eq",
-        &[Type::Any, Type::Any],
-        Type::Bool,
-    );
-    let any_box_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_box_from_pair",
-        &[Type::I64, Type::I64],
-        Type::Any,
-    );
-    let any_payload_rc_inc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_payload_rc_inc_pair",
-        &[Type::I64, Type::I64],
-        Type::Void,
-    );
-    let proto_register_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_proto_register",
-        &[Type::I64, Type::Any],
-        Type::Void,
-    );
-    // P7.4-a-2 — (slot, factory_fn_ptr). slot is a fixed enum
-    // (0=Error 1=TypeError 2=RangeError), NOT a per-program class
-    // tag. factory is the codegen'd `__new_<C>` address (FnAddr,
-    // passed pointer-shaped — same representation as the closure
-    // drop-fn-ptr stored as Type::Ptr). Runtime stores it and calls
-    // it to build a real catchable instance on a native-error throw.
-    let register_native_error_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_register_native_error",
-        &[Type::I64, Type::Ptr],
-        Type::Void,
-    );
-    let proto_get_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_proto_get",
-        &[Type::I64],
-        Type::Any,
-    );
-    let class_register_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_class_register",
-        &[Type::I64, Type::Any],
-        Type::Void,
-    );
-    let class_get_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_class_get",
-        &[Type::I64],
-        Type::Any,
-    );
-    let get_proto_of_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_get_proto_of_any",
-        &[Type::Any],
-        Type::Any,
-    );
-    let any_unbox_tag_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_unbox_tag",
-        &[Type::Any],
-        Type::I64,
-    );
-    let any_unbox_value_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_unbox_value",
-        &[Type::Any],
-        Type::I64,
-    );
-    let any_box_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_rc_dec",
-        &[Type::Any],
-        Type::Void,
-    );
+    // fnprops + arrprops + arr_drop_any + AnyValue ops + proto/class
+    // registry + any unbox/rc_dec (26 ids). See sibling for the per-
+    // decl ABI detail (Step 7f-B `__torajs_anyv_*` canonical names).
+    let crate::ssa_lower_intrinsics_any_substrate::AnySubstrateIds {
+        fnprops_set: fnprops_set_id,
+        fnprops_get_tag: fnprops_get_tag_id,
+        fnprops_get_value: fnprops_get_value_id,
+        arrprops_set: arrprops_set_id,
+        arrprops_get_tag: arrprops_get_tag_id,
+        arrprops_get_value: arrprops_get_value_id,
+        arr_drop_any: arr_drop_any_id,
+        any_typeof: any_typeof_id,
+        any_to_bool: any_to_bool_id,
+        any_to_number: any_to_number_id,
+        any_add: any_add_id,
+        any_arith: any_arith_id,
+        any_compare: any_compare_id,
+        any_strict_eq: any_strict_eq_id,
+        any_any_strict_eq: any_any_strict_eq_id,
+        any_box: any_box_id,
+        any_payload_rc_inc: any_payload_rc_inc_id,
+        proto_register: proto_register_id,
+        register_native_error: register_native_error_id,
+        proto_get: proto_get_id,
+        class_register: class_register_id,
+        class_get: class_get_id,
+        get_proto_of_any: get_proto_of_any_id,
+        any_unbox_tag: any_unbox_tag_id,
+        any_unbox_value: any_unbox_value_id,
+        any_box_drop: any_box_drop_id,
+    } = crate::ssa_lower_intrinsics_any_substrate::declare(&mut module, &mut fn_table);
     let print_any_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
