@@ -5702,7 +5702,7 @@ impl<'a> LowerCtx<'a> {
     /// of `for { try { if i===N break } finally { … } }`); the finally
     /// tail's `Load` then sees garbage and may spuriously route through
     /// the break dispatch on the very first pass.
-    fn alloca_bool_flag_in_entry(&mut self, name: Option<&str>) -> ValueId {
+    pub(crate) fn alloca_bool_flag_in_entry(&mut self, name: Option<&str>) -> ValueId {
         let slot = self.alloca_in_entry(Type::Bool, name);
         self.f.append_void(
             BlockId(0),
@@ -7718,60 +7718,10 @@ impl<'a> LowerCtx<'a> {
                 crate::ssa_lower_stmt_for::lower(self, init.as_deref(), *cond, *step, body);
             }
             Stmt::Break => {
-                // M1.7 — branch to the enclosing loop's break target,
-                // unless a finally is between us and the loop (then
-                // route through finally with pending_break set; finally
-                // tail dispatches back to the break target).
-                let (_, after) = *self
-                    .loop_stack
-                    .last()
-                    .expect("ssa-lower: `break` outside of any loop");
-                if let Some(&fb) = self.try_finally_stack.last()
-                    && self.try_finally_loop_depth.last().copied() == Some(self.loop_stack.len())
-                {
-                    let flag = match self.pending_break_flag {
-                        Some(f) => f,
-                        None => {
-                            let f = self.alloca_bool_flag_in_entry(Some("__pending_break"));
-                            self.pending_break_flag = Some(f);
-                            f
-                        }
-                    };
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
-                    );
-                    let cb = self.cur_block;
-                    self.f.set_term(cb, Terminator::Br(fb));
-                } else {
-                    self.f.set_term(self.cur_block, Terminator::Br(after));
-                }
+                crate::ssa_lower_stmt_break_continue::lower_break(self);
             }
             Stmt::Continue => {
-                let (cont_target, _) = *self
-                    .loop_stack
-                    .last()
-                    .expect("ssa-lower: `continue` outside of any loop");
-                if let Some(&fb) = self.try_finally_stack.last()
-                    && self.try_finally_loop_depth.last().copied() == Some(self.loop_stack.len())
-                {
-                    let flag = match self.pending_continue_flag {
-                        Some(f) => f,
-                        None => {
-                            let f = self.alloca_bool_flag_in_entry(Some("__pending_continue"));
-                            self.pending_continue_flag = Some(f);
-                            f
-                        }
-                    };
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
-                    );
-                    let cb = self.cur_block;
-                    self.f.set_term(cb, Terminator::Br(fb));
-                    return;
-                }
-                self.f.set_term(self.cur_block, Terminator::Br(cont_target));
+                crate::ssa_lower_stmt_break_continue::lower_continue(self);
             }
             Stmt::Throw(eid) => {
                 crate::ssa_lower_stmt_throw::lower(self, *eid);
