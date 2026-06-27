@@ -1,0 +1,46 @@
+//! `Expr::ObjectLit { fields }` typecheck pulled out of
+//! [`crate::check::Checker::type_of_inner`]'s `Expr::ObjectLit` arm
+//! as chunk-91 of the type_of_inner decomp.
+//!
+//! Spread members (encoded with sentinel name `__spread__`) unfold
+//! into the source struct's fields. Inline members win on key
+//! collision per JS spec. Final type is a freshly-merged
+//! `Type::Struct` preserving order: spread sources first (in
+//! textual order), then inline members; later re-occurrences of a
+//! key REPLACE the earlier slot's type and position.
+
+use crate::ast::{Ast, ExprId};
+use crate::check::{Checker, Type};
+
+pub(crate) fn check(
+    checker: &mut Checker,
+    ast: &Ast,
+    fields: &[(String, ExprId)],
+) -> Result<Type, String> {
+    let mut field_tys: Vec<(String, Type)> = Vec::new();
+    for (n, eid) in fields {
+        if n == "__spread__" {
+            let src_ty = checker.type_of(ast, *eid)?;
+            let Type::Struct(src_fields) = &src_ty else {
+                return Err(format!(
+                    "object spread source must be a struct, got {src_ty:?}"
+                ));
+            };
+            for (sn, st) in src_fields.iter() {
+                if let Some(pos) = field_tys.iter().position(|(k, _)| k == sn) {
+                    field_tys[pos] = (sn.clone(), st.clone());
+                } else {
+                    field_tys.push((sn.clone(), st.clone()));
+                }
+            }
+        } else {
+            let ty = checker.type_of(ast, *eid)?;
+            if let Some(pos) = field_tys.iter().position(|(k, _)| k == n) {
+                field_tys[pos] = (n.clone(), ty);
+            } else {
+                field_tys.push((n.clone(), ty));
+            }
+        }
+    }
+    Ok(Type::Struct(field_tys))
+}

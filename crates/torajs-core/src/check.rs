@@ -4557,49 +4557,12 @@ impl Checker {
             }
             Expr::Spread { .. } => Err("spread `...` is only valid inside an array literal".into()),
             Expr::ObjectLit { fields } => {
-                // Spread members (encoded with sentinel name `__spread__`)
-                // unfold into the source struct's fields. Inline members
-                // win on key collision. Final type is a freshly-merged
-                // Type::Struct preserving order: spread sources first
-                // (in textual order), then inline members; later
-                // re-occurrences of a key REPLACE the earlier slot's
-                // type and position (this matches JS spec).
-                let entries: Vec<(String, ExprId)> = fields.clone();
-                let mut field_tys: Vec<(String, Type)> = Vec::new();
-                for (n, eid) in &entries {
-                    if n == "__spread__" {
-                        let src_ty = self.type_of(ast, *eid)?;
-                        let Type::Struct(src_fields) = &src_ty else {
-                            return Err(format!(
-                                "object spread source must be a struct, got {src_ty:?}"
-                            ));
-                        };
-                        for (sn, st) in src_fields.iter() {
-                            // Replace existing or append.
-                            if let Some(pos) = field_tys.iter().position(|(k, _)| k == sn) {
-                                field_tys[pos] = (sn.clone(), st.clone());
-                            } else {
-                                field_tys.push((sn.clone(), st.clone()));
-                            }
-                        }
-                    } else {
-                        let ty = self.type_of(ast, *eid)?;
-                        // All non-Copy heap types are refcounted at the
-                        // SSA layer (Str / Substr / Arr / Obj / Closure
-                        // share the universal heap header). Object lit
-                        // field init from a borrow source rc_inc's at
-                        // lower time, so `let w1 = { it: x }; let w2 =
-                        // { it: x }` is safe (both fields share the rc).
-                        // Skip the strict-consume reject for non-Copy
-                        // — the lower layer handles ownership.
-                        if let Some(pos) = field_tys.iter().position(|(k, _)| k == n) {
-                            field_tys[pos] = (n.clone(), ty);
-                        } else {
-                            field_tys.push((n.clone(), ty));
-                        }
-                    }
-                }
-                Ok(Type::Struct(field_tys))
+                // ObjectLit type-build: spread member sentinel
+                // `__spread__` unfolds source struct fields;
+                // inline members win on key collision; final
+                // type is freshly-merged Type::Struct. See
+                // [`crate::check_type_of_object_lit::check`].
+                crate::check_type_of_object_lit::check(self, ast, fields)
             }
             Expr::Call { callee, args } => {
                 // Name-based class-method rewrite vs builtin-container
