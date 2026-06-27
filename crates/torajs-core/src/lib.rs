@@ -272,6 +272,7 @@ pub(crate) mod ssa_lower_index;
 pub(crate) mod ssa_lower_index_assign;
 pub(crate) mod ssa_lower_instanceof;
 pub(crate) mod ssa_lower_json_parse;
+pub(crate) mod ssa_lower_lit;
 pub(crate) mod ssa_lower_logical;
 pub mod ssa_lower_main_exit;
 pub(crate) mod ssa_lower_member_builtin_namespace;

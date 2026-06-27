@@ -14364,16 +14364,12 @@ impl<'a> LowerCtx<'a> {
             // Number literals coerce to i64 — type inference lifts them to
             // f64 once we wire numeric-mode detection into the lowerer.
             Expr::Number(n) => {
-                // Integer-valued literals stay as i64; literals with a
-                // genuine fractional part OR with magnitude beyond i64
-                // range (e.g. `1e21` ≈ 1.0e21 > 9.22e18) become f64.
-                // Without the magnitude check `1e21 as i64` saturates to
-                // i64::MAX, printing 9223372036854775807 instead of 1e+21.
-                if n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 || !n.is_finite() {
-                    Operand::ConstF64(*n)
-                } else {
-                    Operand::ConstI64(*n as i64)
-                }
+                // Integer-valued literals stay i64; literals
+                // with fractional part / |n| ≥ 2^63 / non-finite
+                // become f64 (without magnitude check `1e21 as
+                // i64` saturates to i64::MAX). See
+                // [`crate::ssa_lower_lit::lower_number`].
+                crate::ssa_lower_lit::lower_number(*n)
             }
             Expr::Bool(b) => Operand::ConstBool(*b),
             Expr::Null => Operand::ConstPtrNull,
@@ -14389,30 +14385,18 @@ impl<'a> LowerCtx<'a> {
             // Outside any ctor (function-scope, top-level), emit
             // ANY_UNDEF box per spec §13.3.10.
             Expr::NewTarget => {
-                if let Some(info) = self.locals.get("__new_target").cloned() {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                        info.ty,
-                        None,
-                    );
-                    self.emit_rc_inc(Operand::Value(v));
-                    return Operand::Value(v);
-                }
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.any_box,
-                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                    ),
-                    Type::Any,
-                    None,
-                );
-                Operand::Value(v)
+                // P4.5 — Load + rc_inc from __new_target slot
+                // inside ctors (each read = owned ref balanced
+                // by end-of-scope drop); ANY_UNDEF box outside
+                // ctors per spec §13.3.10. See
+                // [`crate::ssa_lower_lit::lower_new_target`].
+                return crate::ssa_lower_lit::lower_new_target(self);
             }
             Expr::String(s) => {
-                let s = s.clone();
-                Operand::Value(self.intern_string_literal(&s))
+                // Intern the literal body and yield the
+                // interned ptr as Type::Str. See
+                // [`crate::ssa_lower_lit::lower_string`].
+                crate::ssa_lower_lit::lower_string(self, s)
             }
             /* T-25 (v0.7) — BigInt literal lowers to a runtime call:
              *   __torajs_bigint_from_decimal(<str>, <len>)
@@ -14423,24 +14407,11 @@ impl<'a> LowerCtx<'a> {
              * pointer directly keeps the SSA arithmetic clean — no
              * pointer-to-int casts. */
             Expr::BigInt { digits, radix } => {
-                let body = digits.clone();
-                let len = body.as_bytes().len() as i64;
-                let s_ptr = self.intern_string_literal(&body);
-                let intrinsic = if *radix == 16 {
-                    self.intrinsics.bigint_from_hex
-                } else {
-                    self.intrinsics.bigint_from_decimal
-                };
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(
-                        intrinsic,
-                        vec![Operand::Value(s_ptr), Operand::ConstI64(len)],
-                    ),
-                    Type::BigInt,
-                    None,
-                );
-                Operand::Value(v)
+                // T-25 v0.7 — BigInt literal lowers to a
+                // runtime call (`__torajs_bigint_from_hex` for
+                // radix 16 else `_from_decimal`). See
+                // [`crate::ssa_lower_lit::lower_bigint`].
+                crate::ssa_lower_lit::lower_bigint(self, digits, *radix)
             }
             // ES §22.2.3.1 — `new RegExp(pat, flags?)` dynamic-arg form.
             // Static-string-literal shapes are pre-rewritten to
@@ -14484,67 +14455,12 @@ impl<'a> LowerCtx<'a> {
             // its per-call fresh-alloc semantics — dynamic args
             // can't be deduped by literal key.
             Expr::Regex { pattern, flags } => {
-                let key = (pattern.clone(), flags.clone());
-                if let Some(&cached) = self.regex_lit_cache.get(&key) {
-                    return Operand::Value(cached);
-                }
-                let saved_block = self.cur_block;
-                self.cur_block = ssa::BlockId(0);
-                let pat_v = self.intern_string_literal(pattern);
-                let flag_v = self.intern_string_literal(flags);
-                // V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-6 — AOT
-                // gate: capture-free + DFA-eligible literal regex
-                // gets a baked-DFA payload pushed into
-                // `module.baked_regex_entries`. The lowered call
-                // switches to `__torajs_regex_compile_from_static_dfa`
-                // (3-arg form: meta_ptr, pat, flag) so the runtime
-                // surface match path reads
-                // `RegExp::baked_dfa_view` directly and skips
-                // `build_dfa`. Ineligible patterns + capture-using
-                // literals + `new RegExp(...)` keep using the
-                // 2-arg `regex_compile`. The hoist-into-entry-block
-                // + per-fn dedup cache (V0.2 perf — fn-scope const
-                // RegExp LICM) applies to both arms.
-                let baked_idx = crate::ssa_lower_regex_bake::try_bake_regex_dfa(
-                    self.baked_regex_buf,
-                    pattern,
-                    flags,
-                );
-                let v = if let Some(idx) = baked_idx {
-                    let meta_sym = format!("___torajs_baked_regex_{idx}");
-                    let meta_ptr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::GlobalRef(meta_sym),
-                        Type::Ptr,
-                        None,
-                    );
-                    self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.regex_compile_from_static_dfa,
-                            vec![
-                                Operand::Value(meta_ptr),
-                                Operand::Value(pat_v),
-                                Operand::Value(flag_v),
-                            ],
-                        ),
-                        Type::RegExp,
-                        None,
-                    )
-                } else {
-                    self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.regex_compile,
-                            vec![Operand::Value(pat_v), Operand::Value(flag_v)],
-                        ),
-                        Type::RegExp,
-                        None,
-                    )
-                };
-                self.cur_block = saved_block;
-                self.regex_lit_cache.insert(key, v);
-                Operand::Value(v)
+                // V0.2 #1 — regex literal `/pat/flags`. Per-fn
+                // dedup cache + entry-block hoist + V0.2 P14 AOT
+                // bake gate (capture-free + DFA-eligible → 3-arg
+                // compile_from_static_dfa). See
+                // [`crate::ssa_lower_lit::lower_regex`].
+                crate::ssa_lower_lit::lower_regex(self, pattern, flags)
             }
             Expr::Ident(name) => {
                 // 6-layer Ident fallback (NaN/Infinity / global fn
