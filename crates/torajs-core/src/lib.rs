@@ -184,6 +184,7 @@ pub(crate) mod check_type_ann;
 pub(crate) mod check_type_ann_substitute;
 pub(crate) mod check_type_of_array;
 pub(crate) mod check_type_of_ident;
+pub(crate) mod check_type_of_new;
 pub(crate) mod check_type_of_object_lit;
 pub(crate) mod check_type_of_unary;
 pub(crate) mod check_typevar;
