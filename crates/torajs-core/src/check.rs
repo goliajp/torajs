@@ -71,7 +71,7 @@ impl Diagnostic {
 /// stay one mechanical rename (`push` → `push_err`) rather than each
 /// growing a `Diagnostic::error(...)` wrapper. Future per-site span
 /// attachment swaps `push_err(msg)` for `push_err_at(eid, msg)`.
-trait DiagPush {
+pub(crate) trait DiagPush {
     fn push_err(&mut self, msg: String);
     #[allow(dead_code)] // T-06 lint will populate
     fn push_warn(&mut self, msg: String);
@@ -1314,7 +1314,7 @@ pub(crate) struct Checker {
     /// T-04 — was `Vec<String>`; now carries severity + span. The
     /// public APIs (`check`, `collect_errors`) stringify back to the
     /// caller's expected shape; LSP consumes via `collect_diagnostics`.
-    errors: Vec<Diagnostic>,
+    pub(crate) errors: Vec<Diagnostic>,
     expected_return: Option<Type>,
     /// M-OO.5 — when typechecking a fn body whose name follows the
     /// `__cm_<Class>__<method>` / `__sm_<Class>__<method>` shape that
@@ -1763,7 +1763,7 @@ impl Checker {
     /// (retain-at-return / retain-at-throw), so the escaping reference
     /// carries its own +1 while the canonical owner keeps its stake.
     /// Owned bindings still consume — their stake transfers out.
-    fn consume_escape(&mut self, ast: &Ast, eid: ExprId) {
+    pub(crate) fn consume_escape(&mut self, ast: &Ast, eid: ExprId) {
         if let Expr::Ident(name) = ast.get_expr(eid)
             && let Some(info) = self.lookup(name)
             && info.borrowed
@@ -2008,53 +2008,11 @@ impl Checker {
                 self.scopes.pop();
             }
             Stmt::Throw(eid) => {
-                // M4.3 — accept any 8-byte-shaped throw value. The
-                // global throw_value slot is i64; ptr-shaped values
-                // (Str, Obj, Arr, FnSig, Closure) are reinterpreted at
-                // catch time per the catch param's type annotation.
-                // type_of has side effects (it runs consume on
-                // consuming-arg positions inside any Call sub-expr),
-                // so we evaluate it once and reuse the result for both
-                // the type check AND the throw consume.
-                let t_result = self.type_of(ast, *eid);
-                match &t_result {
-                    Ok(Type::Number) | Ok(Type::String) | Ok(Type::Boolean) => {}
-                    Ok(Type::Array(_)) | Ok(Type::Struct(_)) => {}
-                    // `throw null` and `throw <Nullable<T>>` are valid
-                    // JS — null lowers to the same 0-sentinel pointer
-                    // shape as Obj / Arr / Str, so the throw_value slot
-                    // can hold it. The catch param's annotation
-                    // determines how the value is interpreted (a typed
-                    // `catch (e: number)` against an actual null throw
-                    // is the user's bug, not the runtime's).
-                    Ok(Type::Null) | Ok(Type::Nullable(_)) => {}
-                    // P7.2a — `throw undefined` is valid JS. undefined
-                    // lowers to ANY_UNDEF=5 / payload 0 in the throw
-                    // match (ssa_lower); catch `: any` reconstructs it
-                    // via any_box(5, 0). Pre-P7.2a it fell through to
-                    // the M4-era "8-byte-shaped" reject.
-                    Ok(Type::Undefined) => {}
-                    // P4.7 — accept Type::Any throws. The tagged
-                    // throw_set / take_tag substrate (ssa_lower) records
-                    // the dynamic tag so catch `: any` reconstructs an
-                    // Any-box correctly. Pre-P4.7 reject was a
-                    // M4-era artifact of the i64-only throw slot.
-                    Ok(Type::Any) => {}
-                    Ok(other) => self
-                        .errors
-                        .push_err(format!("throw value must be 8-byte-shaped, got {other:?}")),
-                    Err(e) => self.errors.push_err(e.clone()),
-                }
-                // Throw consumes a non-Copy value (its heap is now
-                // owned by the catch site, which is responsible for
-                // dropping after the bind / re-throwing). Borrowed
-                // aliases may escape here — retain-at-throw gives the
-                // catch its own +1.
-                if let Ok(t) = t_result
-                    && !t.is_copy()
-                {
-                    self.consume_escape(ast, *eid);
-                }
+                // M4.3 + P7.2a + P4.7 — accept 8-byte-shaped
+                // throw value; consume non-Copy via
+                // consume_escape. See
+                // [`crate::check_stmt_throw::check`].
+                crate::check_stmt_throw::check(self, ast, *eid);
             }
             Stmt::Try {
                 body,
