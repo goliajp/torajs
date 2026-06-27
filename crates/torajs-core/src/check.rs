@@ -295,7 +295,7 @@ pub(crate) type MovedSnapshot = Vec<Vec<(String, bool)>>;
 /// the while-narrow guard to skip narrowing when the body
 /// reassigns the binding (which would conflict with the
 /// re-narrowing on the next iteration).
-fn stmt_assigns_to(ast: &Ast, s: &Stmt, name: &str) -> bool {
+pub(crate) fn stmt_assigns_to(ast: &Ast, s: &Stmt, name: &str) -> bool {
     match s {
         Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => expr_assigns_to(ast, *eid, name),
         Stmt::YieldInto { value, .. } => expr_assigns_to(ast, *value, name),
@@ -1825,44 +1825,14 @@ impl Checker {
                 crate::check_stmt_if::check(self, ast, *cond, then_branch, else_branch);
             }
             Stmt::While { cond, body } => {
-                match self.type_of(ast, *cond) {
-                    Ok(t) if js_truthy_acceptable(&t) => {}
-                    Ok(other) => self.errors.push_err(format!(
-                        "while condition must be boolean (or coercible), got {other:?}"
-                    )),
-                    Err(e) => self.errors.push_err(e),
-                }
-                // V3-18 wedge — flow narrowing on while condition.
-                // `while (x !== null) { ... x.foo ... }` narrows x to
-                // its inner type for the body, but ONLY if the body
-                // doesn't reassign x — re-narrowing on each iteration
-                // would otherwise conflict with the (still-Nullable)
-                // RHS of `x = x.next`. Polarity-false (cond `== null`)
-                // wouldn't enter the loop at all, so don't narrow.
-                let narrow = self.collect_null_narrow(ast, *cond);
-                let saved = if let Some((name, inner, polarity)) = &narrow {
-                    if *polarity && !stmt_assigns_to(ast, body, name) {
-                        self.apply_narrow(name, inner.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                self.check_stmt(ast, body);
-                if let (Some((name, _, _)), Some(prev)) = (&narrow, saved) {
-                    self.restore_narrow(name, prev);
-                }
+                // V3-18 narrow wedge (gated on no-reassign body).
+                // See [`crate::check_stmt_while::check_while`].
+                crate::check_stmt_while::check_while(self, ast, *cond, body);
             }
             Stmt::DoWhile { body, cond } => {
-                self.check_stmt(ast, body);
-                match self.type_of(ast, *cond) {
-                    Ok(t) if js_truthy_acceptable(&t) => {}
-                    Ok(other) => self.errors.push_err(format!(
-                        "do-while condition must be boolean (or coercible), got {other:?}"
-                    )),
-                    Err(e) => self.errors.push_err(e),
-                }
+                // Body runs first; cond typechecks after.
+                // See [`crate::check_stmt_while::check_do_while`].
+                crate::check_stmt_while::check_do_while(self, ast, body, *cond);
             }
             Stmt::Switch {
                 scrutinee,
