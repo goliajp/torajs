@@ -311,6 +311,7 @@ pub(crate) mod ssa_lower_intrinsics_print_freeze;
 pub(crate) mod ssa_lower_intrinsics_print_str;
 pub(crate) mod ssa_lower_intrinsics_process;
 pub(crate) mod ssa_lower_intrinsics_regex;
+pub(crate) mod ssa_lower_intrinsics_runtime_misc;
 pub(crate) mod ssa_lower_intrinsics_str_a;
 pub(crate) mod ssa_lower_intrinsics_str_b;
 pub(crate) mod ssa_lower_intrinsics_weak;

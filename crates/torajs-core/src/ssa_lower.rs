@@ -1680,138 +1680,29 @@ fn lower_inner(
         map_iter_step: map_iter_step_id,
         map_iter_drop: map_iter_drop_id,
     } = crate::ssa_lower_intrinsics_map_set::declare(&mut module, &mut fn_table);
-    /* T-26.C — Bacon-Rajan cycle collector. cycle_buffer is hot-
-     * path: called from the inline Obj drop's else-branch when
-     * rc stays positive. cycle_collect is the manual `gc()`
-     * trigger; runs mark/scan/collect over the buffered roots. */
-    let cycle_buffer_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_cycle_buffer",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let cycle_collect_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_cycle_collect",
-        &[],
-        Type::Void,
-    );
-    /* V3-10 — main-exit drain. Called from synthesize_main as the
-     * last step before Ret so any cycle roots accumulated during
-     * the program's lifetime are freed before process exit. Same
-     * shape as cycle_collect (in fact identical body), kept as a
-     * separate symbol so we can change the policy independently
-     * (e.g. add forced full-buffer flush here vs the threshold-
-     * based partial flush in cycle_buffer). */
-    let cycle_at_exit_drain_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_cycle_at_exit_drain",
-        &[],
-        Type::Void,
-    );
+    // cycle collector + Symbol + sync stdio + microtask drain (14
+    // ids). See sibling for per-decl ABI detail. `gc` alias stays in
+    // caller — depends on the FuncId returned here.
+    let crate::ssa_lower_intrinsics_runtime_misc::RuntimeMiscIds {
+        cycle_buffer: cycle_buffer_id,
+        cycle_collect: cycle_collect_id,
+        cycle_at_exit_drain: cycle_at_exit_drain_id,
+        symbol_alloc: symbol_alloc_id,
+        symbol_drop: symbol_drop_id,
+        symbol_print: symbol_print_id,
+        symbol_for: symbol_for_id,
+        symbol_key_for: symbol_key_for_id,
+        symbol_iterator: symbol_iterator_id,
+        symbol_async_iterator: symbol_async_iterator_id,
+        symbol_to_primitive: symbol_to_primitive_id,
+        process_stdout_write: process_stdout_write_id,
+        process_stderr_write: process_stderr_write_id,
+        microtask_drain: microtask_drain_id,
+    } = crate::ssa_lower_intrinsics_runtime_misc::declare(&mut module, &mut fn_table);
     /* User-visible `gc()` lowers as a direct call to cycle_collect.
      * We register the alias so the existing global-fn path picks it
      * up without a new desugar. */
     fn_table.insert("gc".to_string(), cycle_collect_id);
-
-    /* T-13.a (v0.4.0) — Symbol value runtime. alloc takes optional
-     * desc Str (NULL when omitted); drop is rc-aware + dec's desc;
-     * print formats `Symbol(<desc>)` for console.log. */
-    let symbol_alloc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_symbol_alloc",
-        &[Type::Str],
-        Type::Symbol,
-    );
-    let symbol_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_symbol_drop",
-        &[Type::Symbol],
-        Type::Void,
-    );
-    let symbol_print_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_symbol_print",
-        &[Type::Symbol],
-        Type::Void,
-    );
-    /* T-13.b (v0.4.0) — Symbol.for(key) global registry + keyFor. */
-    let symbol_for_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_symbol_for",
-        &[Type::Str],
-        Type::Symbol,
-    );
-    let symbol_key_for_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_symbol_key_for",
-        &[Type::Symbol],
-        Type::Str,
-    );
-    /* T-13.c (v0.4.0) — well-known Symbol singletons. Each getter
-     * lazy-inits on first call and rc_inc's for the caller. */
-    let symbol_iterator_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_symbol_iterator",
-        &[],
-        Type::Symbol,
-    );
-    let symbol_async_iterator_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_symbol_async_iterator",
-        &[],
-        Type::Symbol,
-    );
-    let symbol_to_primitive_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_symbol_to_primitive",
-        &[],
-        Type::Symbol,
-    );
-    /* T-03 (v0.3.0) — sync stdio. process.stdout.write(s) and
-     * process.stderr.write(s) return bytes written (i64); stdin.read()
-     * drains stdin to EOF and returns one Str. Aborting on short
-     * write / read error per the runtime helper docstring. */
-    let process_stdout_write_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_process_stdout_write",
-        &[Type::Str],
-        Type::Bool,
-    );
-    let process_stderr_write_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_process_stderr_write",
-        &[Type::Str],
-        Type::Bool,
-    );
-    /* process.stdin.read() deferred to v0.5 (async) — see runtime
-     * commentary in runtime_str.c. */
-    /* v0.5 T-15.e — microtask queue drain. Auto-called at the end
-     * of main so any Promise callbacks chained via .then before
-     * exit get a chance to run. The runtime body
-     * (`__torajs_microtask_run_until_idle`) is a no-op when the
-     * queue is empty, so non-async programs pay one fn-call worth
-     * of overhead at exit. */
-    let microtask_drain_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_microtask_run_until_idle",
-        &[],
-        Type::Void,
-    );
     crate::ssa_lower_main_exit::declare(&mut module, &mut fn_table);
     crate::ssa_lower_process_on::declare(&mut module, &mut fn_table);
     /* P10.1-A1 — queueMicrotask(cb) closure-path enqueue. cb is a
