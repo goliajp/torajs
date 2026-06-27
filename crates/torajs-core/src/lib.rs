@@ -305,6 +305,7 @@ pub(crate) mod ssa_lower_intrinsics_bigint;
 pub(crate) mod ssa_lower_intrinsics_date;
 pub(crate) mod ssa_lower_intrinsics_fs;
 pub(crate) mod ssa_lower_intrinsics_map_set;
+pub(crate) mod ssa_lower_intrinsics_math;
 pub(crate) mod ssa_lower_intrinsics_num;
 pub(crate) mod ssa_lower_intrinsics_obj_capture;
 pub(crate) mod ssa_lower_intrinsics_object;

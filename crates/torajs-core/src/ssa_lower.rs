@@ -1803,269 +1803,48 @@ fn lower_inner(
         null_to_str: null_to_str_id,
         undefined_to_str: undefined_to_str_id,
     } = crate::ssa_lower_intrinsics_str_extra::declare(&mut module, &mut fn_table);
-    // stdlib `Math` namespace — first slice. All take an f64 and return
-    // an f64; the lowerer auto-promotes integer args via SiToFp at the
-    // call site. Backed by libc sqrt / fabs / floor / ceil via thin
-    // wrappers in each backend.
-    let math_sqrt_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_sqrt",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_abs_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_abs",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_floor_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_floor",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_ceil_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_ceil",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_log_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_log",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_exp_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_exp",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_sign_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_sign",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_round_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_round",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_trunc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_trunc",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_pow_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_pow",
-        &[Type::F64, Type::F64],
-        Type::F64,
-    );
-    let math_min_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_min",
-        &[Type::F64, Type::F64],
-        Type::F64,
-    );
-    let math_max_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_max",
-        &[Type::F64, Type::F64],
-        Type::F64,
-    );
-    let math_sin_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_sin",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_cos_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_cos",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_tan_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_tan",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_asin_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_asin",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_acos_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_acos",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_atan_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_atan",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_atan2_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_atan2",
-        &[Type::F64, Type::F64],
-        Type::F64,
-    );
-    let math_log2_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_log2",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_log10_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_log10",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_cbrt_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_cbrt",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_sinh_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_sinh",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_cosh_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_cosh",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_tanh_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_tanh",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_asinh_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_asinh",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_acosh_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_acosh",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_atanh_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_atanh",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_expm1_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_expm1",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_log1p_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_log1p",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_imul_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_imul",
-        &[Type::I64, Type::I64],
-        Type::I64,
-    );
-    let math_clz32_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_clz32",
-        &[Type::I64],
-        Type::I64,
-    );
-    let math_fround_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_fround",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_sum_precise_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_sum_precise",
-        &[Type::Ptr],
-        Type::F64,
-    );
-    let math_sum_precise_i64_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_sum_precise_i64",
-        &[Type::Ptr],
-        Type::F64,
-    );
-    let math_f16round_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_f16round",
-        &[Type::F64],
-        Type::F64,
-    );
-    let math_random_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_math_random",
-        &[],
-        Type::F64,
-    );
+    // stdlib `Math` namespace (37 ids). All take F64 → F64 except
+    // imul/clz32 (i64) and sum_precise/sum_precise_i64 (Array<T> →
+    // f64) and random (no-arg). See sibling for per-decl ABI.
+    let crate::ssa_lower_intrinsics_math::MathIds {
+        math_sqrt: math_sqrt_id,
+        math_abs: math_abs_id,
+        math_floor: math_floor_id,
+        math_ceil: math_ceil_id,
+        math_log: math_log_id,
+        math_exp: math_exp_id,
+        math_sign: math_sign_id,
+        math_round: math_round_id,
+        math_trunc: math_trunc_id,
+        math_pow: math_pow_id,
+        math_min: math_min_id,
+        math_max: math_max_id,
+        math_sin: math_sin_id,
+        math_cos: math_cos_id,
+        math_tan: math_tan_id,
+        math_asin: math_asin_id,
+        math_acos: math_acos_id,
+        math_atan: math_atan_id,
+        math_atan2: math_atan2_id,
+        math_log2: math_log2_id,
+        math_log10: math_log10_id,
+        math_cbrt: math_cbrt_id,
+        math_sinh: math_sinh_id,
+        math_cosh: math_cosh_id,
+        math_tanh: math_tanh_id,
+        math_asinh: math_asinh_id,
+        math_acosh: math_acosh_id,
+        math_atanh: math_atanh_id,
+        math_expm1: math_expm1_id,
+        math_log1p: math_log1p_id,
+        math_imul: math_imul_id,
+        math_clz32: math_clz32_id,
+        math_fround: math_fround_id,
+        math_sum_precise: math_sum_precise_id,
+        math_sum_precise_i64: math_sum_precise_i64_id,
+        math_f16round: math_f16round_id,
+        math_random: math_random_id,
+    } = crate::ssa_lower_intrinsics_math::declare(&mut module, &mut fn_table);
     let json_quote_str_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
