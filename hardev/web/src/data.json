@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T18:37:31.024Z",
+  "generatedAt": "2026-06-27T19:33:38.586Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "ed1de2d0",
-    "commitSubject": "refactor(torajs-core): extract ast::desugar_implicit_generics (chunk 140)",
+    "commit": "d73ce9f2",
+    "commitSubject": "refactor(torajs-core): extract LowerCtx::lower_for_of_iter_protocol (chunk 143)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,22 @@
   },
   "commits": [
     {
+      "hash": "d73ce9f2",
+      "subject": "refactor(torajs-core): extract LowerCtx::lower_for_of_iter_protocol (chunk 143)"
+    },
+    {
+      "hash": "6bcf7f98",
+      "subject": "refactor(torajs-core): extract collect_fn_to_closure_store_sites (chunk 142)"
+    },
+    {
+      "hash": "572d435e",
+      "subject": "refactor(torajs-core): extract Ast::print_stmt + print_expr (chunk 141)"
+    },
+    {
+      "hash": "d97bd9b6",
+      "subject": "chore(handoff/dashboard): chunks 136-140 ship summary @ ed1de2d0 (-1208 LOC god-fn extracts)"
+    },
+    {
       "hash": "ed1de2d0",
       "subject": "refactor(torajs-core): extract ast::desugar_implicit_generics (chunk 140)"
     },
@@ -647,43 +663,38 @@
     {
       "hash": "7d51f6f4",
       "subject": "refactor(torajs-core): extract lower_inner Pass 0 throw intrinsics (chunk 134)"
-    },
-    {
-      "hash": "c0d2ba04",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0 json/arr-misc intrinsics (chunk 133)"
-    },
-    {
-      "hash": "d3cf00fa",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0 math intrinsics (chunk 132)"
-    },
-    {
-      "hash": "72213ef6",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0 str-extra intrinsics (chunk 131)"
-    },
-    {
-      "hash": "8a386fdc",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0 arr/str/concat/print intrinsics (chunk 130)"
     }
   ],
-  "headSha": "ed1de2d0",
+  "headSha": "d73ce9f2",
   "autorun": {
-    "total": 263,
+    "total": 264,
     "baselineTarget": 10,
-    "bySelf": 258,
+    "bySelf": 259,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782580460-1018",
-      "at": "2026-06-27T17:14:20Z",
-      "ts": 1782580460,
+      "rotationId": "r-1782586077-03b4",
+      "at": "2026-06-27T18:47:57Z",
+      "ts": 1782586077,
       "trigger": "self",
-      "prevHead": "ad317875",
-      "handoffSha": "sha256:a6358da5451c48790e1812131b72aecb220df67e8c68ec03a16cf15c67ff3ef0",
-      "handoffAgeSec": 440,
+      "prevHead": "d97bd9b6",
+      "handoffSha": "sha256:9bc4b5dd0524db821b8cd26acaf6a2f4d960ed6ef2eaa162452cd064ca4d40c5",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782586077-03b4",
+        "at": "2026-06-27T18:47:57Z",
+        "ts": 1782586077,
+        "trigger": "self",
+        "prevHead": "d97bd9b6",
+        "handoffSha": "sha256:9bc4b5dd0524db821b8cd26acaf6a2f4d960ed6ef2eaa162452cd064ca4d40c5",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782580460-1018",
         "at": "2026-06-27T17:14:20Z",
@@ -780,17 +791,6 @@
         "prevHead": "cabff6fb",
         "handoffSha": "sha256:62e07a819049ce51157a569d1ebdf164b2b27494132a253323fecced99c5d598",
         "handoffAgeSec": 20,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782483371-5dac",
-        "at": "2026-06-26T14:16:11Z",
-        "ts": 1782483371,
-        "trigger": "self",
-        "prevHead": "91ab44e5",
-        "handoffSha": "sha256:bbf57556905211632f30f56c44fcce2dfdd4440bef9155f4c471d6a2c801b602",
-        "handoffAgeSec": 23,
         "conformanceBefore": null,
         "commitsInSession": null
       }
