@@ -7930,7 +7930,7 @@ pub(crate) struct LowerCtx<'a> {
     /// than callee's param count, trailing missing params all
     /// Type::Any). Empty when constructed via the legacy lower(...)
     /// entry — those programs keep strict arity.
-    arity_pad_count: &'a HashMap<ExprId, usize>,
+    pub(crate) arity_pad_count: &'a HashMap<ExprId, usize>,
     /// W1 (ann-width RFC) — module-wide F64-poisoned number-slot set
     /// from `num_width::f64_slots`. Consulted at the let-decl site so
     /// a `: number` (or un-annotated) binding whose reaching values
@@ -15138,168 +15138,12 @@ impl<'a> LowerCtx<'a> {
                 {
                     return op;
                 }
-                // M3 — generic call retarget. If the typechecker recorded
-                // a (mono fn name) for this call's ExprId, look up the
-                // specialized FuncId by name and use it instead of the
-                // generic ident's resolve.
-                let mut target = if let Some(mono_name) = self.call_retargets.get(&eid).cloned() {
-                    *self.fn_table.get(&mono_name).unwrap_or_else(|| {
-                        panic!("ssa-lower: monomorphized fn `{mono_name}` missing from fn_table")
-                    })
-                } else {
-                    self.resolve_callee(*callee)
-                };
-                let mut argv: Vec<Operand> = args.iter().map(|a| self.lower_expr(*a)).collect();
-                // Math.sumPrecise dispatch — the default resolve picks
-                // the F64-array helper; swap to the I64-array sibling
-                // when the operand is a tightly-typed integer Array
-                // (literal-integer-only sources lower as Array<I64>).
-                if target == self.intrinsics.math_sum_precise && argv.len() == 1 {
-                    if let Type::Arr(arr_id) = self.operand_ty(&argv[0]) {
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        if matches!(elem_ty, Type::I64) {
-                            target = self.intrinsics.math_sum_precise_i64;
-                        }
-                    }
-                }
-                // T-28 — pad trailing missing Type::Any params with
-                // ANY_UNDEF Any-box operands. check.rs's arity_pad_count
-                // recorded the missing count for this Call ExprId iff
-                // all the trailing missing params were Type::Any (the
-                // typed-tier strict-arity check rejected mixed-typed
-                // missing). One ANY_UNDEF box per padded slot keeps the
-                // argv aligned with the callee's static signature.
-                if let Some(&pad_n) = self.arity_pad_count.get(&eid)
-                    && pad_n > 0
-                {
-                    for _ in 0..pad_n {
-                        let undef_box = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.any_box,
-                                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                            ),
-                            Type::Any,
-                            None,
-                        );
-                        argv.push(Operand::Value(undef_box));
-                    }
-                }
-                // Per-call-site consume bitmap from
-                // `ast.consuming_params`. Mirrors the check.rs pass.
-                // A consuming arg position transfers ownership from the
-                // caller's binding to the callee — `arr_yield(arr)`
-                // where `arr_yield` plumbs `values` into __new_*
-                // consumes `arr` here so the caller's drop walk skips
-                // it. Without this, both the caller's local and the
-                // instance's field own the same heap and both drop.
-                let consume_bitmap: Vec<bool> = match self.ast.get_expr(*callee) {
-                    Expr::Ident(callee_name) => {
-                        if let Some(bm) = self.ast.consuming_params.get(callee_name) {
-                            bm.clone()
-                        } else if callee_name.starts_with("__new_") {
-                            vec![true; args.len()]
-                        } else {
-                            vec![false; args.len()]
-                        }
-                    }
-                    _ => vec![false; args.len()],
-                };
-                for (i, a) in args.iter().enumerate() {
-                    if consume_bitmap.get(i).copied().unwrap_or(false) {
-                        self.consume_if_ident(*a);
-                    }
-                }
-                // Coerce arguments to the callee's expected param types.
-                // Currently only f64-promotion is needed (Math.* takes
-                // f64; users may pass integer expressions like `Math.sqrt(2)`).
-                // Look up callee's param types from `module.funcs[target]`'s
-                // signature — but we don't have a Module borrow here.
-                // Instead, snapshot the callee's params at signature-build
-                // time. For now, the only intrinsic with non-Any non-self-
-                // type params that needs coercion is Math.*; treat them
-                // specially by FuncId.
-                if self.is_math_unary(target) {
-                    debug_assert_eq!(argv.len(), 1, "Math.* unary takes 1 arg");
-                    // S342 — Any-typed arg goes through anyv_to_number
-                    // (ToNumber per spec §21.3.2.*) so the F64 ABI sees
-                    // a clean f64. coerce_to_f64 wouldn't handle Any.
-                    argv[0] = if self.operand_ty(&argv[0]) == Type::Any {
-                        let f = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.any_to_number, vec![argv[0].clone()]),
-                            Type::F64,
-                            None,
-                        );
-                        Operand::Value(f)
-                    } else {
-                        self.coerce_to_f64(argv[0].clone())
-                    };
-                } else if self.is_math_binary(target) {
-                    debug_assert_eq!(argv.len(), 2, "Math.* binary takes 2 args");
-                    // S342 — same Any path for binary (Math.pow / atan2).
-                    for i in 0..2 {
-                        argv[i] = if self.operand_ty(&argv[i]) == Type::Any {
-                            let f = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.any_to_number,
-                                    vec![argv[i].clone()],
-                                ),
-                                Type::F64,
-                                None,
-                            );
-                            Operand::Value(f)
-                        } else {
-                            self.coerce_to_f64(argv[i].clone())
-                        };
-                    }
-                } else if let Some(sig_id) = self.fn_sig_ids.get(&target).copied() {
-                    // Width-aware coercion for monomorphized generic
-                    // calls AND direct intrinsics. The mono name picked
-                    // the F64 specialization when any arg statically
-                    // lowered to f64 (see `compute_typevar_widths`);
-                    // the param types in the sig are F64 for those
-                    // positions. Coerce both directions:
-                    //   expected F64 + actual I64 → SiToFp (widen)
-                    //   expected I64 + actual F64 → FpToSi (truncate;
-                    //     matches JS ToInt32 / ToUint32 prefix behavior
-                    //     for indexes / codepoints / bit positions)
-                    let param_tys = self.fn_sigs[sig_id.0 as usize].0.clone();
-                    for (i, expected) in param_tys.iter().enumerate() {
-                        if i >= argv.len() {
-                            break;
-                        }
-                        let got = self.operand_ty(&argv[i]);
-                        match (expected, got) {
-                            (Type::F64, Type::I64) | (Type::F64, Type::Bool) => {
-                                argv[i] = self.coerce_to_f64(argv[i]);
-                            }
-                            (Type::I64, Type::F64) | (Type::I64, Type::Bool) => {
-                                argv[i] = self.coerce_to_i64(argv[i]);
-                            }
-                            // P0.9 — global FnDecl with Any param +
-                            // concrete arg: box the concrete value
-                            // into Any at the call boundary. Mirror
-                            // of the closure-call path (P0.5).
-                            // S126-3 `box_to_any_from_expr` reads
-                            // `args[i]` expr_types so undefined/null
-                            // literals keep their ANY_UNDEF/ANY_NULL
-                            // tags (bare `box_to_any` collapsed
-                            // undef → null via ConstPtrNull arm).
-                            (Type::Any, got_ty) if got_ty != Type::Any => {
-                                argv[i] = self.box_to_any_from_expr(args[i], argv[i].clone());
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                let ret_ty = self.f_ret_type_hint(target);
-                let v =
-                    self.f
-                        .append_inst(self.cur_block, InstKind::Call(target, argv), ret_ty, None);
-                self.emit_throw_check(Some(target));
-                Operand::Value(v)
+                // 6-stage terminal direct-call emit (M3 generic
+                // retarget + Math.sumPrecise swap + T-28 trailing
+                // Any-undef pad + consume_bitmap + arg coercion +
+                // emit Call). See
+                // [`crate::ssa_lower_call_terminal::emit`].
+                crate::ssa_lower_call_terminal::emit(self, eid, *callee, args)
             }
             Expr::ObjectLit { fields } => {
                 // ObjectLit lowering — spread unfold + field rc_inc
@@ -17134,7 +16978,7 @@ impl<'a> LowerCtx<'a> {
         Operand::Value(v)
     }
 
-    fn resolve_callee(&self, eid: ExprId) -> FuncId {
+    pub(crate) fn resolve_callee(&self, eid: ExprId) -> FuncId {
         match self.ast.get_expr(eid) {
             Expr::Ident(name) => {
                 // Resolve direct fn calls: callee Ident matches a global
@@ -17260,7 +17104,7 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
-    fn is_math_unary(&self, fid: FuncId) -> bool {
+    pub(crate) fn is_math_unary(&self, fid: FuncId) -> bool {
         fid == self.intrinsics.math_sqrt
             || fid == self.intrinsics.math_abs
             || fid == self.intrinsics.math_floor
@@ -17291,7 +17135,7 @@ impl<'a> LowerCtx<'a> {
             || fid == self.intrinsics.math_f16round
     }
 
-    fn is_math_binary(&self, fid: FuncId) -> bool {
+    pub(crate) fn is_math_binary(&self, fid: FuncId) -> bool {
         fid == self.intrinsics.math_pow
             || fid == self.intrinsics.math_min
             || fid == self.intrinsics.math_max

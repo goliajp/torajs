@@ -258,6 +258,7 @@ pub(crate) mod ssa_lower_call_string_from_char_code;
 pub(crate) mod ssa_lower_call_struct_method_dispatch;
 pub(crate) mod ssa_lower_call_symbol_ctor;
 pub(crate) mod ssa_lower_call_symbol_registry;
+pub(crate) mod ssa_lower_call_terminal;
 pub(crate) mod ssa_lower_call_universal_methods;
 pub(crate) mod ssa_lower_call_vtable_dispatch;
 pub(crate) mod ssa_lower_call_weakref_collections;
