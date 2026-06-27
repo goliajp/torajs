@@ -179,6 +179,7 @@ pub mod ast_closure_param_tag;
 pub(crate) mod ast_desugar_builtin_new;
 pub(crate) mod ast_desugar_function_prototype_methods;
 pub(crate) mod ast_desugar_implicit_generics;
+pub(crate) mod ast_printer;
 pub mod ast_refs;
 pub mod ast_throw_info;
 pub mod check;
