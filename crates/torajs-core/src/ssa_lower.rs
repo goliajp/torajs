@@ -1465,70 +1465,18 @@ fn lower_inner(
         date_from_iso: date_from_iso_id,
         date_parse_iso: date_parse_iso_id,
     } = crate::ssa_lower_intrinsics_date::declare(&mut module, &mut fn_table);
-    /* v0.3 #1 — fs module substrate. */
-    let fs_read_file_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fs_read_file_sync",
-        &[Type::Str],
-        Type::Str,
-    );
-    let fs_write_file_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fs_write_file_sync",
-        &[Type::Str, Type::Str],
-        Type::Void,
-    );
-    let fs_exists_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fs_exists_sync",
-        &[Type::Str],
-        Type::Bool,
-    );
-    let fs_append_file_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fs_append_file_sync",
-        &[Type::Str, Type::Str],
-        Type::Void,
-    );
-    let fs_unlink_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fs_unlink_sync",
-        &[Type::Str],
-        Type::Void,
-    );
-    let fs_mkdir_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fs_mkdir_sync",
-        &[Type::Str],
-        Type::Void,
-    );
-    /* T-18.b — fs.readdirSync returns Array<string>. ABI-typed as
-     * Type::Ptr at the intrinsic boundary (mirrors arr_alloc's Ptr-
-     * return convention); the call site re-types the result via the
-     * Member-call dispatch which knows the static return type. */
-    let fs_readdir_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fs_readdir_sync",
-        &[Type::Str],
-        Type::Ptr,
-    );
-    /* T-18.c — fs file-size probe. Returns size in bytes or -1 on
-     * stat failure / non-regular file. Synchronous; consumed by
-     * `Bun.file(p).size` getter + future `fs.statSync(p).size`. */
-    let fs_size_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fs_size_sync",
-        &[Type::Str],
-        Type::I64,
-    );
+    // v0.3 #1 — fs module substrate (8 ids). See sibling for the
+    // per-decl ABI detail.
+    let crate::ssa_lower_intrinsics_fs::FsIds {
+        fs_read_file_sync: fs_read_file_sync_id,
+        fs_write_file_sync: fs_write_file_sync_id,
+        fs_exists_sync: fs_exists_sync_id,
+        fs_append_file_sync: fs_append_file_sync_id,
+        fs_unlink_sync: fs_unlink_sync_id,
+        fs_mkdir_sync: fs_mkdir_sync_id,
+        fs_readdir_sync: fs_readdir_sync_id,
+        fs_size_sync: fs_size_sync_id,
+    } = crate::ssa_lower_intrinsics_fs::declare(&mut module, &mut fn_table);
     /* v0.3 #3 — process surface (minimum). */
     let process_exit_id = declare_intrinsic(
         &mut module,
