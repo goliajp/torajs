@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T08:20:16.989Z",
+  "generatedAt": "2026-06-27T10:46:15.472Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "4b2c8316",
-    "commitSubject": "refactor(torajs-core): extract check_stmt Stmt::Switch + Yield (chunk 100)",
+    "commit": "4e449d82",
+    "commitSubject": "refactor(torajs-core): extract type_of_inner Expr::ArrowFn + Closure (chunk 109)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,84 @@
   },
   "commits": [
     {
+      "hash": "4e449d82",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::ArrowFn + Closure (chunk 109)"
+    },
+    {
+      "hash": "df357b5e",
+      "subject": "refactor(torajs-core): extract check_stmt Stmt::LetDecl arm (chunk 108)"
+    },
+    {
+      "hash": "307711c0",
+      "subject": "refactor(torajs-core): extract check_stmt Stmt::FnDecl arm (chunk 107)"
+    },
+    {
+      "hash": "093fab70",
+      "subject": "refactor(torajs-core): extract check_stmt Stmt::ForOf arm (chunk 106)"
+    },
+    {
+      "hash": "620bc332",
+      "subject": "refactor(torajs-core): extract check_stmt Stmt::ForOfSplitIter arm (chunk 105)"
+    },
+    {
+      "hash": "c6382d74",
+      "subject": "refactor(torajs-core): extract check_stmt Stmt::Try arm (chunk 104)"
+    },
+    {
+      "hash": "a71d72ac",
+      "subject": "refactor(torajs-core): extract check_stmt Stmt::For arm (chunk 103)"
+    },
+    {
+      "hash": "664c5745",
+      "subject": "refactor(torajs-core): extract check_stmt Stmt::While + DoWhile (chunk 102)"
+    },
+    {
+      "hash": "ffb688d6",
+      "subject": "refactor(torajs-core): extract check_stmt Stmt::If arm (chunk 101)"
+    },
+    {
+      "hash": "ebaa05fa",
+      "subject": "chore(handoff/dashboard): chunks 79-100 ship summary @ 4b2c8316 (-8212 LOC)"
+    },
+    {
       "hash": "4b2c8316",
       "subject": "refactor(torajs-core): extract check_stmt Stmt::Switch + Yield (chunk 100)"
     },
     {
       "hash": "820d3a5d",
       "subject": "refactor(torajs-core): extract check_stmt Stmt::Return arm (chunk 99)"
-    },
-    {
-      "hash": "ab6c2eb0",
-      "subject": "refactor(torajs-core): extract check_stmt Stmt::Throw arm (chunk 98)"
-    },
-    {
-      "hash": "24f7c38a",
-      "subject": "refactor(torajs-core): extract type_of_inner Expr::Ternary (chunk 97)"
-    },
-    {
-      "hash": "151dd952",
-      "subject": "refactor(torajs-core): extract type_of_inner Expr::BinOp 8-op-family (chunk 96)"
-    },
-    {
-      "hash": "988d0b2a",
-      "subject": "chore(handoff/dashboard): chunks 79-95 ship summary @ e23e3532 (-7690 LOC)"
-    },
-    {
-      "hash": "e23e3532",
-      "subject": "refactor(torajs-core): extract type_of_inner Expr 7 small arms (chunk 95)"
-    },
-    {
-      "hash": "1daa76e6",
-      "subject": "refactor(torajs-core): extract type_of_inner Expr::Assign Member+Index sub-arms (chunk 94)"
-    },
-    {
-      "hash": "f493820e",
-      "subject": "refactor(torajs-core): extract type_of_inner Expr::Assign Ident sub-arm (chunk 93)"
-    },
-    {
-      "hash": "4f79899c",
-      "subject": "chore(hardev/web): dashboard snapshot @ be362627 — chunks 79-92 ship (-6915 LOC)"
-    },
-    {
-      "hash": "be362627",
-      "subject": "refactor(torajs-core): extract type_of_inner Expr::New 7-class cluster (chunk 92)"
-    },
-    {
-      "hash": "2ca74f7e",
-      "subject": "refactor(torajs-core): extract type_of_inner Expr::ObjectLit (chunk 91)"
     }
   ],
-  "headSha": "4b2c8316",
+  "headSha": "4e449d82",
   "autorun": {
-    "total": 258,
+    "total": 259,
     "baselineTarget": 10,
-    "bySelf": 253,
+    "bySelf": 254,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782548332-1094",
-      "at": "2026-06-27T08:18:52Z",
-      "ts": 1782548332,
+      "rotationId": "r-1782557096-6f0a",
+      "at": "2026-06-27T10:44:56Z",
+      "ts": 1782557096,
       "trigger": "self",
-      "prevHead": "4b2c8316",
-      "handoffSha": "sha256:b9673d40bf4db0e9f93798beb1cf036cf0595f29cda7bfce3c1592f23517ab17",
-      "handoffAgeSec": 3434,
+      "prevHead": "4e449d82",
+      "handoffSha": "sha256:fa4b014a4d24883d6d24825be0526b3d8ce03a184677f7d1b6cb4b8013e5dd63",
+      "handoffAgeSec": 8686,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782557096-6f0a",
+        "at": "2026-06-27T10:44:56Z",
+        "ts": 1782557096,
+        "trigger": "self",
+        "prevHead": "4e449d82",
+        "handoffSha": "sha256:fa4b014a4d24883d6d24825be0526b3d8ce03a184677f7d1b6cb4b8013e5dd63",
+        "handoffAgeSec": 8686,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782548332-1094",
         "at": "2026-06-27T08:18:52Z",
@@ -780,17 +791,6 @@
         "prevHead": "efe1b103",
         "handoffSha": "sha256:9d7b068c4c0e085be96396fae2a7e1de3e413cb7abea3af93f0820d85fbf09a4",
         "handoffAgeSec": 5766,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782452909-7aee",
-        "at": "2026-06-26T05:48:29Z",
-        "ts": 1782452909,
-        "trigger": "self",
-        "prevHead": "ca4da863",
-        "handoffSha": "sha256:9d7b068c4c0e085be96396fae2a7e1de3e413cb7abea3af93f0820d85fbf09a4",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
