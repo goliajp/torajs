@@ -1597,180 +1597,35 @@ fn lower_inner(
         obj_is_frozen_any: obj_is_frozen_any_id,
         obj_check_not_frozen: obj_check_not_frozen_id,
     } = crate::ssa_lower_intrinsics_print_freeze::declare(&mut module, &mut fn_table);
-    /* T-25 (v0.7) — BigInt runtime. The literal-from-string path
-     * is the only allocator we wire from ssa_lower today; arithmetic
-     * intrinsics dispatch from BinOp lowering for Type::BigInt
-     * operands. Sign/cmp helpers expose i64 booleans for ICmp. */
-    let bigint_from_decimal_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_from_decimal",
-        &[Type::Str, Type::I64],
-        Type::BigInt,
-    );
-    let bigint_from_hex_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_from_hex",
-        &[Type::Str, Type::I64],
-        Type::BigInt,
-    );
-    let bigint_add_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_add",
-        &[Type::BigInt, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_sub_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_sub",
-        &[Type::BigInt, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_mul_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_mul",
-        &[Type::BigInt, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_div_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_div",
-        &[Type::BigInt, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_mod_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_mod",
-        &[Type::BigInt, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_pow_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_pow",
-        &[Type::BigInt, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_and_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_and",
-        &[Type::BigInt, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_or_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_or",
-        &[Type::BigInt, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_xor_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_xor",
-        &[Type::BigInt, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_not_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_not",
-        &[Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_shl_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_shl",
-        &[Type::BigInt, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_shr_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_shr",
-        &[Type::BigInt, Type::BigInt],
-        Type::BigInt,
-    );
-    /* V3-03 — `BigInt(value)` callable ctor. Three runtime paths
-     * dispatched by the arg's static SSA type at the call site. */
-    let bigint_from_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_from_str",
-        &[Type::Str],
-        Type::BigInt,
-    );
-    let bigint_from_number_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_from_number",
-        &[Type::F64],
-        Type::BigInt,
-    );
-    let bigint_clone_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_clone",
-        &[Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_neg_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_neg",
-        &[Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_cmp_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_cmp",
-        &[Type::BigInt, Type::BigInt],
-        Type::I64,
-    );
-    let bigint_to_string_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_to_string",
-        &[Type::BigInt],
-        Type::Str,
-    );
-    let bigint_to_string_radix_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_to_string_radix",
-        &[Type::BigInt, Type::I64],
-        Type::Str,
-    );
-    let bigint_as_int_n_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_as_int_n",
-        &[Type::I64, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_as_uint_n_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_as_uint_n",
-        &[Type::I64, Type::BigInt],
-        Type::BigInt,
-    );
-    let bigint_drop_rc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bigint_drop_rc",
-        &[Type::BigInt],
-        Type::Void,
-    );
+    // T-25 BigInt runtime + V3-03 ctor (23 ids). See sibling for
+    // the per-decl ABI detail (literal parsers / ctor / arithmetic /
+    // bitwise / shift / cmp / stringify / convert / lifecycle).
+    let crate::ssa_lower_intrinsics_bigint::BigIntIds {
+        bigint_from_decimal: bigint_from_decimal_id,
+        bigint_from_hex: bigint_from_hex_id,
+        bigint_add: bigint_add_id,
+        bigint_sub: bigint_sub_id,
+        bigint_mul: bigint_mul_id,
+        bigint_div: bigint_div_id,
+        bigint_mod: bigint_mod_id,
+        bigint_pow: bigint_pow_id,
+        bigint_and: bigint_and_id,
+        bigint_or: bigint_or_id,
+        bigint_xor: bigint_xor_id,
+        bigint_not: bigint_not_id,
+        bigint_shl: bigint_shl_id,
+        bigint_shr: bigint_shr_id,
+        bigint_from_str: bigint_from_str_id,
+        bigint_from_number: bigint_from_number_id,
+        bigint_clone: bigint_clone_id,
+        bigint_neg: bigint_neg_id,
+        bigint_cmp: bigint_cmp_id,
+        bigint_to_string: bigint_to_string_id,
+        bigint_to_string_radix: bigint_to_string_radix_id,
+        bigint_as_int_n: bigint_as_int_n_id,
+        bigint_as_uint_n: bigint_as_uint_n_id,
+        bigint_drop_rc: bigint_drop_rc_id,
+    } = crate::ssa_lower_intrinsics_bigint::declare(&mut module, &mut fn_table);
     /* T-26 (v0.7) — WeakRef substrate. create takes a target ptr
      * (any heap type, type-erased to Ptr at the SSA layer); deref
      * returns the target +1 rc'd on success or NULL when the
