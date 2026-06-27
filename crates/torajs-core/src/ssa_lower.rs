@@ -13943,7 +13943,7 @@ impl<'a> LowerCtx<'a> {
     /// T-27 — `f.x` read against a closure. Loads props_dynobj at
     /// CLOSURE_PROPS_OFF; NULL → ANY_UNDEF box. Otherwise calls
     /// dynobj_get_tag/value with the key and boxes the result.
-    fn fn_props_get(&mut self, closure_op: Operand, key: &str) -> Operand {
+    pub(crate) fn fn_props_get(&mut self, closure_op: Operand, key: &str) -> Operand {
         let key_str = self.intern_string_literal(key);
         let res_slot = self.alloca_in_entry(Type::Any, Some("__fnprops_get"));
         let props = self.f.append_inst(
@@ -15310,113 +15310,13 @@ impl<'a> LowerCtx<'a> {
                 crate::ssa_lower_object_lit::lower(self, fields.clone(), eid)
             }
             Expr::Member { obj, name } => {
-                // T-27.c — built-in `f.length` / `f.name` for
-                // top-level FnDecl or closure local-binding (Path
-                // 1 walks ast.stmts, Path 2 walks fn_table /
-                // fn_sig_ids). Synthetic `__env` / `__this` /
-                // `__torajs_real_argc` / rest params filtered;
-                // `__closure_N` names emitted as "" per JS spec.
-                // See
-                // [`crate::ssa_lower_member_fn_intro::try_lower`].
-                if let Some(op) = crate::ssa_lower_member_fn_intro::try_lower(self, *obj, name) {
-                    return op;
-                }
-                // T-15.g.2 + P10.4 — `await p` (= `p.value`) on
-                // built-in `Type::Promise(T)` + primitive identity
-                // fast-path (Number/String/Boolean/Array/BigInt
-                // collapse to obj itself per ES spec). See
-                // [`crate::ssa_lower_member_promise_value::try_lower`].
-                if let Some(op) = crate::ssa_lower_member_promise_value::try_lower(self, *obj, name)
-                {
-                    return op;
-                }
-                // T-13.c (v0.4.0) — well-known Symbol singletons
-                // (Symbol.{iterator|asyncIterator|toPrimitive}). See
-                // [`crate::ssa_lower_member_symbol_wellknown::try_lower`].
-                if let Some(op) =
-                    crate::ssa_lower_member_symbol_wellknown::try_lower(self, *obj, name)
-                {
-                    return op;
-                }
-                // T-18.c + T-21 — `Bun.file(p).size` synchronous fs
-                // lookup + `<response>.status` Response struct field
-                // (web/runtime cluster). See
-                // [`crate::ssa_lower_member_web_runtime::try_lower`].
-                if let Some(op) = crate::ssa_lower_member_web_runtime::try_lower(self, *obj, name) {
-                    return op;
-                }
-                // v0.3 #3 — `process.{platform|argv|env}` + `Bun.argv`
-                // + `process.env.NAME` namespace cluster. See
-                // [`crate::ssa_lower_member_process::try_lower`].
-                if let Some(op) = crate::ssa_lower_member_process::try_lower(self, *obj, name) {
-                    return op;
-                }
-                // `Math.<C>` / `Number.<C>` / `<Ctor>.{prototype,
-                // name,length}` builtin-namespace constants +
-                // singleton-lookup cluster. See
-                // [`crate::ssa_lower_member_builtin_namespace::try_lower`].
-                if let Some(op) =
-                    crate::ssa_lower_member_builtin_namespace::try_lower(self, *obj, name)
-                {
-                    return op;
-                }
-                let obj_val = self.lower_expr(*obj);
-                let obj_ty = self.operand_ty(&obj_val);
-                // `s.length` for Type::Str — read the u64 length stored
-                // at offset 8 of the StrRepr (after the 8-byte universal
-                // refcount header). See torajs-str layout STR_LEN_OFF.
-                // Substr's len lives at the same offset (8) as Str's —
-                // single load for both layouts.
-                // Typed-receiver Member-access cluster — prim.constructor /
-                // Symbol.description / Arr.length / Map/Set.size /
-                // Closure/FnSig.{length,name}. See
-                // [`crate::ssa_lower_member_typed_props::try_lower`].
-                if let Some(op) = crate::ssa_lower_member_typed_props::try_lower(
-                    self, *obj, obj_val, obj_ty, name,
-                ) {
-                    return op;
-                }
-                // Type::RegExp accessor cluster — source / flags / 6
-                // bool flag accessors / lastIndex (T-37 followup + ES
-                // §22.2.6.4-10 + P9.4). See
-                // [`crate::ssa_lower_member_regexp_props::try_lower`].
-                if let Some(op) =
-                    crate::ssa_lower_member_regexp_props::try_lower(self, obj_val, obj_ty, name)
-                {
-                    return op;
-                }
-                if (obj_ty == Type::Str || obj_ty == Type::Substr) && name == "length" {
-                    return crate::ssa_lower_str::load_str_or_substr_length(self, obj_val, obj_ty);
-                }
-                // RFC 20260613 any-class-member-read — dispatch lives
-                // in `ssa_lower_any_member` so this god-file doesn't
-                // grow further. See that module's doc for the design.
-                if matches!(obj_ty, Type::Any) {
-                    return crate::ssa_lower_any_member::lower_any_member_read(self, obj_val, name);
-                }
-                // T-27 — Function-as-Object read. Loads the closure's
-                // lazy props_dynobj at CLOSURE_PROPS_OFF. NULL → undef
-                // box (per ECMAScript missing-prop semantics).
-                if matches!(obj_ty, Type::Closure(_)) {
-                    return self.fn_props_get(obj_val, name);
-                }
-                // T-27.b + T-29 — FnSig-as-Object + Array-as-Object
-                // Member read via side-table-keyed-by-ptr storage
-                // (NULL/missing key → ANY_UNDEF). See
-                // [`crate::ssa_lower_member_props_read::try_lower`].
-                if let Some(op) =
-                    crate::ssa_lower_member_props_read::try_lower(self, obj_val, obj_ty, name)
-                {
-                    return op;
-                }
-                let sid = match obj_ty {
-                    Type::Obj(sid) => sid,
-                    _ => panic!("ssa-lower: member access on non-object {obj_ty:?} (.{name})"),
-                };
-                // P8.2 accessor read + struct-field-layout fallback
-                // (`Type::Obj(sid)` receiver terminal path). See
-                // [`crate::ssa_lower_member_obj_field::try_lower`].
-                crate::ssa_lower_member_obj_field::try_lower(self, obj_val, sid, name)
+                // 13-layer Member READ dispatcher (fn_intro / promise
+                // value / symbol wellknown / web runtime / process /
+                // builtin namespace / typed-receiver props / regex
+                // accessor / Str.length / Type::Any class member /
+                // Closure props / FnSig+Arr props / Obj struct field
+                // terminal). See [`crate::ssa_lower_member::lower`].
+                crate::ssa_lower_member::lower(self, *obj, name)
             }
             Expr::Array(elements) => {
                 // M1.2 — array literal (empty / heterogeneous /

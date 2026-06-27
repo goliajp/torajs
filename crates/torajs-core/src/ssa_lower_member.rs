@@ -1,0 +1,94 @@
+//! `Expr::Member { obj, name }` (Member READ) dispatch pulled out
+//! of [`crate::ssa_lower::lower_expr_inner`]'s `Expr::Member` match
+//! arm as chunk-83 of the decomp.
+//!
+//! Pure dispatcher — every layer is a `try_lower`-shaped sibling
+//! call. Order matters: each layer claims a specific Member-shape
+//! and short-circuits; later layers see only the leftovers.
+//!
+//! 1. **T-27.c** built-in `f.length` / `f.name` for top-level FnDecl
+//!    or closure local-binding (synthetic `__env` / `__this` /
+//!    `__torajs_real_argc` / rest params filtered; `__closure_N`
+//!    emitted as `""` per JS spec).
+//! 2. **T-15.g.2 + P10.4** `await p` (= `p.value`) on built-in
+//!    `Type::Promise(T)` + primitive identity fast-path
+//!    (Number/String/Boolean/Array/BigInt collapse to obj itself
+//!    per ES spec).
+//! 3. **T-13.c** well-known Symbol singletons
+//!    (Symbol.{iterator|asyncIterator|toPrimitive}).
+//! 4. **T-18.c + T-21** `Bun.file(p).size` synchronous fs lookup +
+//!    `<response>.status` Response struct field (web/runtime).
+//! 5. **v0.3 #3** `process.{platform|argv|env}` + `Bun.argv` +
+//!    `process.env.NAME` namespace cluster.
+//! 6. `Math.<C>` / `Number.<C>` / `<Ctor>.{prototype,name,length}`
+//!    builtin-namespace constants + singleton-lookup.
+//! 7. **typed-receiver props** — prim.constructor /
+//!    Symbol.description / Arr.length / Map/Set.size /
+//!    Closure/FnSig.{length,name}.
+//! 8. **Type::RegExp accessor** — source / flags / 6 bool flag
+//!    accessors / lastIndex (T-37 followup + ES §22.2.6.4-10 +
+//!    P9.4).
+//! 9. **Str/Substr.length** — read u64 length at STR_LEN_OFF
+//!    (offset 8) via `ssa_lower_str::load_str_or_substr_length`.
+//! 10. **Type::Any** — RFC 20260613 any-class-member-read
+//!    dispatch.
+//! 11. **Type::Closure** (T-27) — Function-as-Object read. Loads
+//!    the closure's lazy props_dynobj at CLOSURE_PROPS_OFF.
+//!    NULL → undef box per ECMAScript missing-prop semantics.
+//! 12. **T-27.b + T-29** — FnSig-as-Object + Array-as-Object
+//!    Member read via side-table-keyed-by-ptr storage
+//!    (NULL/missing key → ANY_UNDEF).
+//! 13. **Type::Obj(sid) terminal** (P8.2) — accessor read +
+//!    struct-field-layout fallback.
+
+use crate::ast::ExprId;
+use crate::ssa::{Operand, Type};
+use crate::ssa_lower::LowerCtx;
+
+pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Operand {
+    if let Some(op) = crate::ssa_lower_member_fn_intro::try_lower(ctx, obj, name) {
+        return op;
+    }
+    if let Some(op) = crate::ssa_lower_member_promise_value::try_lower(ctx, obj, name) {
+        return op;
+    }
+    if let Some(op) = crate::ssa_lower_member_symbol_wellknown::try_lower(ctx, obj, name) {
+        return op;
+    }
+    if let Some(op) = crate::ssa_lower_member_web_runtime::try_lower(ctx, obj, name) {
+        return op;
+    }
+    if let Some(op) = crate::ssa_lower_member_process::try_lower(ctx, obj, name) {
+        return op;
+    }
+    if let Some(op) = crate::ssa_lower_member_builtin_namespace::try_lower(ctx, obj, name) {
+        return op;
+    }
+    let obj_val = ctx.lower_expr(obj);
+    let obj_ty = ctx.operand_ty(&obj_val);
+    if let Some(op) =
+        crate::ssa_lower_member_typed_props::try_lower(ctx, obj, obj_val, obj_ty, name)
+    {
+        return op;
+    }
+    if let Some(op) = crate::ssa_lower_member_regexp_props::try_lower(ctx, obj_val, obj_ty, name) {
+        return op;
+    }
+    if (obj_ty == Type::Str || obj_ty == Type::Substr) && name == "length" {
+        return crate::ssa_lower_str::load_str_or_substr_length(ctx, obj_val, obj_ty);
+    }
+    if matches!(obj_ty, Type::Any) {
+        return crate::ssa_lower_any_member::lower_any_member_read(ctx, obj_val, name);
+    }
+    if matches!(obj_ty, Type::Closure(_)) {
+        return ctx.fn_props_get(obj_val, name);
+    }
+    if let Some(op) = crate::ssa_lower_member_props_read::try_lower(ctx, obj_val, obj_ty, name) {
+        return op;
+    }
+    let sid = match obj_ty {
+        Type::Obj(sid) => sid,
+        _ => panic!("ssa-lower: member access on non-object {obj_ty:?} (.{name})"),
+    };
+    crate::ssa_lower_member_obj_field::try_lower(ctx, obj_val, sid, name)
+}
