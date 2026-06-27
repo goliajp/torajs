@@ -8479,43 +8479,7 @@ impl<'a> LowerCtx<'a> {
                 then_branch,
                 else_branch,
             } => {
-                let c = self.lower_expr(*cond);
-                let c = self.coerce_to_bool(c);
-                let then_blk = self.f.add_block();
-                let after_blk = self.f.add_block();
-
-                // No-else case: cond_br false → after directly. Saves an empty
-                // pass-through block and matches the demo_fib40() layout exactly.
-                let else_blk = if else_branch.is_some() {
-                    self.f.add_block()
-                } else {
-                    after_blk
-                };
-
-                self.f.set_term(
-                    self.cur_block,
-                    Terminator::CondBr {
-                        cond: c,
-                        then_blk,
-                        else_blk,
-                    },
-                );
-
-                self.cur_block = then_blk;
-                self.lower_stmt(then_branch);
-                if self.cur_open() {
-                    self.f.set_term(self.cur_block, Terminator::Br(after_blk));
-                }
-
-                if let Some(eb) = else_branch {
-                    self.cur_block = else_blk;
-                    self.lower_stmt(eb);
-                    if self.cur_open() {
-                        self.f.set_term(self.cur_block, Terminator::Br(after_blk));
-                    }
-                }
-
-                self.cur_block = after_blk;
+                crate::ssa_lower_stmt_if::lower(self, *cond, then_branch, else_branch.as_deref());
             }
             Stmt::Return(maybe) => {
                 crate::ssa_lower_stmt_return::lower(self, *maybe);
