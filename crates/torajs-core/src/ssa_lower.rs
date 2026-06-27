@@ -1877,47 +1877,14 @@ fn lower_inner(
         arr_fill: arr_fill_id,
         arr_copy_within: arr_copy_within_id,
     } = crate::ssa_lower_intrinsics_json_misc::declare(&mut module, &mut fn_table);
-    // M4 — exception state runtime. Three intrinsics around two
-    // module-level i64 globals (`throw_active`, `throw_value`) that
-    // the backend implements. Lowering uses set/check/take to thread
-    // the throw state through the call path; user code never touches
-    // these symbols directly.
-    // P4.7 — throw_set signature widened to (tag, value). Lowered
-    // throw sites compute the tag from the throw expr's static type
-    // via box_to_tag_value-style classification (HEAP for Str/Arr/
-    // Obj/Closure/Dynobj-Any, I64 for numbers, F64 for floats,
-    // BOOL for booleans, etc.). Catch sites with `: any` slots read
-    // back both via throw_take_tag + throw_take, then `any_box(tag,
-    // value)`. Typed catches still call throw_take alone — the tag
-    // is silently ignored (existing path unchanged).
-    let throw_set_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_throw_set",
-        &[Type::I64, Type::I64],
-        Type::Void,
-    );
-    let throw_check_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_throw_check",
-        &[],
-        Type::I64,
-    );
-    let throw_take_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_throw_take",
-        &[],
-        Type::I64,
-    );
-    let throw_take_tag_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_throw_take_tag",
-        &[],
-        Type::I64,
-    );
+    // M4 + P4.7 — exception state runtime (4 ids). See sibling for
+    // ABI detail.
+    let crate::ssa_lower_intrinsics_throw::ThrowIds {
+        throw_set: throw_set_id,
+        throw_check: throw_check_id,
+        throw_take: throw_take_id,
+        throw_take_tag: throw_take_tag_id,
+    } = crate::ssa_lower_intrinsics_throw::declare(&mut module, &mut fn_table);
 
     // Pass 0.5: register user-declared type aliases. `type Point = { x:
     // number, y: number }` interns the layout in `module.struct_layouts`
