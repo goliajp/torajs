@@ -284,7 +284,7 @@ pub fn is_class_method_name(name: &str) -> bool {
 /// Each inner Vec captures the bindings inside one scope frame as
 /// `(name, moved)` pairs in the order they happen to live in the
 /// HashMap; the outer Vec is parallel to `Checker::scopes`.
-type MovedSnapshot = Vec<Vec<(String, bool)>>;
+pub(crate) type MovedSnapshot = Vec<Vec<(String, bool)>>;
 
 /// True if `s` always exits its enclosing fn / loop / scope without
 /// falling through. Used by CFG-aware moved tracking: a diverging
@@ -447,7 +447,7 @@ fn expr_assigns_to(ast: &Ast, eid: ExprId, name: &str) -> bool {
     }
 }
 
-fn stmt_diverges(s: &crate::ast::Stmt) -> bool {
+pub(crate) fn stmt_diverges(s: &crate::ast::Stmt) -> bool {
     use crate::ast::Stmt;
     match s {
         Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue => true,
@@ -1630,7 +1630,7 @@ impl Checker {
     /// a branch, run the branch (which may mark bindings moved), then
     /// either restore the snapshot (diverging branch) or merge the
     /// captured post-state with sibling branches' post-states.
-    fn snapshot_moved(&self) -> Vec<Vec<(String, bool)>> {
+    pub(crate) fn snapshot_moved(&self) -> Vec<Vec<(String, bool)>> {
         self.scopes
             .iter()
             .map(|s| s.iter().map(|(n, i)| (n.clone(), i.moved)).collect())
@@ -1641,7 +1641,7 @@ impl Checker {
     /// Bindings introduced after the snapshot (i.e. inside the branch)
     /// are unaffected — they're either still in the scope or already
     /// popped by branch teardown.
-    fn restore_moved(&mut self, snap: &[Vec<(String, bool)>]) {
+    pub(crate) fn restore_moved(&mut self, snap: &[Vec<(String, bool)>]) {
         for (scope, snap_scope) in self.scopes.iter_mut().zip(snap.iter()) {
             for (n, m) in snap_scope {
                 if let Some(info) = scope.get_mut(n) {
@@ -1658,7 +1658,7 @@ impl Checker {
     /// `pre` is the snapshot taken before either branch ran; `then_post`
     /// / `else_post` are the snapshots taken after each branch ran (or
     /// None for an absent else, which is treated as "live, no moves").
-    fn join_branch_moves(
+    pub(crate) fn join_branch_moves(
         &mut self,
         pre: &[Vec<(String, bool)>],
         then_post: &[Vec<(String, bool)>],
@@ -1819,85 +1819,10 @@ impl Checker {
                 then_branch,
                 else_branch,
             } => {
-                match self.type_of(ast, *cond) {
-                    Ok(t) if js_truthy_acceptable(&t) => {}
-                    Ok(other) => self.errors.push_err(format!(
-                        "if condition must be boolean (or coercible), got {other:?}"
-                    )),
-                    Err(e) => self.errors.push_err(e),
-                }
-                // V3-18 wedge — flow narrowing on `<ident> !== null`
-                // / `<ident> === null` cond shapes. For `!== null`,
-                // narrow `<ident>` to its inner type within the
-                // then-branch only. For `=== null`, narrow within
-                // else-branch only. Narrow-and-restore around each
-                // branch; the saved types come from the binding's
-                // pre-if state so nested ifs compose correctly.
-                let narrow = self.collect_null_narrow(ast, *cond);
-                // CFG-aware moved tracking: snapshot the moved-state
-                // before each branch, run the branch, capture its
-                // post-state, restore. Then join: a binding is moved
-                // post-if iff every non-diverging branch consumed it.
-                // This is what makes `if (cond) return f; return f;`
-                // work — the then-branch diverges so its consume of
-                // `f` doesn't propagate, leaving `f` available for
-                // the trailing return.
-                let pre = self.snapshot_moved();
-                let then_narrow = if let Some((name, inner, polarity)) = &narrow {
-                    if *polarity {
-                        self.apply_narrow(name, inner.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                self.check_stmt(ast, then_branch);
-                if let (Some((name, _, _)), Some(saved)) = (&narrow, then_narrow) {
-                    self.restore_narrow(name, saved);
-                }
-                let then_div = stmt_diverges(then_branch);
-                let then_post = self.snapshot_moved();
-                self.restore_moved(&pre);
-                let (else_div, else_post): (bool, Option<MovedSnapshot>) =
-                    if let Some(eb) = else_branch {
-                        let else_narrow = if let Some((name, inner, polarity)) = &narrow {
-                            if !*polarity {
-                                self.apply_narrow(name, inner.clone())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
-                        self.check_stmt(ast, eb);
-                        if let (Some((name, _, _)), Some(saved)) = (&narrow, else_narrow) {
-                            self.restore_narrow(name, saved);
-                        }
-                        let div = stmt_diverges(eb);
-                        let snap2 = self.snapshot_moved();
-                        self.restore_moved(&pre);
-                        (div, Some(snap2))
-                    } else {
-                        (false, None)
-                    };
-                self.join_branch_moves(&pre, &then_post, then_div, else_post.as_deref(), else_div);
-                // V3-18 wedge — post-if narrowing when one branch
-                // diverges (early return / throw / break / continue).
-                // Common pattern:
-                //   if (o === null) return; ... o.x  // narrowed
-                //   if (o !== null) return; ... // o stays Nullable
-                // For polarity true (then = !==), if then-branch
-                // diverges, post-if narrows in the *opposite* sense
-                // (else state propagates out). For polarity false
-                // (then = ===), if then-branch diverges, post-if
-                // narrows to the inner type.
-                if let Some((name, inner, polarity)) = &narrow {
-                    let post_narrow_to_inner = (*polarity && else_div) || (!*polarity && then_div);
-                    if post_narrow_to_inner {
-                        self.apply_narrow(name, inner.clone());
-                    }
-                }
+                // V3-18 narrow wedge + CFG-aware moved snapshot +
+                // post-if narrow on diverge. See
+                // [`crate::check_stmt_if::check`].
+                crate::check_stmt_if::check(self, ast, *cond, then_branch, else_branch);
             }
             Stmt::While { cond, body } => {
                 match self.type_of(ast, *cond) {
