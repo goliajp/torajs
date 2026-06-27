@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T10:46:15.472Z",
+  "generatedAt": "2026-06-27T12:22:03.621Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "4e449d82",
-    "commitSubject": "refactor(torajs-core): extract type_of_inner Expr::ArrowFn + Closure (chunk 109)",
+    "commit": "7e26b345",
+    "commitSubject": "refactor(torajs-core): extract lower_inner Pass 0 str group-B intrinsics (chunk 115)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,34 @@
   },
   "commits": [
     {
+      "hash": "7e26b345",
+      "subject": "refactor(torajs-core): extract lower_inner Pass 0 str group-B intrinsics (chunk 115)"
+    },
+    {
+      "hash": "953d9c03",
+      "subject": "refactor(torajs-core): extract lower_inner Pass 0 num intrinsics (chunk 114)"
+    },
+    {
+      "hash": "b8ab6d18",
+      "subject": "refactor(torajs-core): extract lower_inner Pass 0 str group-A intrinsics (chunk 113)"
+    },
+    {
+      "hash": "8588654a",
+      "subject": "refactor(torajs-core): extract lower_inner Pass 0 arr intrinsics (chunk 112)"
+    },
+    {
+      "hash": "f297f508",
+      "subject": "refactor(torajs-core): extract lower_inner Pass 0 obj/capture/cycle intrinsics (chunk 111)"
+    },
+    {
+      "hash": "12dbbdee",
+      "subject": "refactor(torajs-core): extract lower_inner Pass 0 print/str basics intrinsics (chunk 110)"
+    },
+    {
+      "hash": "06114a89",
+      "subject": "chore(handoff/dashboard): chunks 79-109 ship summary @ 4e449d82 (-8847 LOC)"
+    },
+    {
       "hash": "4e449d82",
       "subject": "refactor(torajs-core): extract type_of_inner Expr::ArrowFn + Closure (chunk 109)"
     },
@@ -635,37 +663,9 @@
     {
       "hash": "620bc332",
       "subject": "refactor(torajs-core): extract check_stmt Stmt::ForOfSplitIter arm (chunk 105)"
-    },
-    {
-      "hash": "c6382d74",
-      "subject": "refactor(torajs-core): extract check_stmt Stmt::Try arm (chunk 104)"
-    },
-    {
-      "hash": "a71d72ac",
-      "subject": "refactor(torajs-core): extract check_stmt Stmt::For arm (chunk 103)"
-    },
-    {
-      "hash": "664c5745",
-      "subject": "refactor(torajs-core): extract check_stmt Stmt::While + DoWhile (chunk 102)"
-    },
-    {
-      "hash": "ffb688d6",
-      "subject": "refactor(torajs-core): extract check_stmt Stmt::If arm (chunk 101)"
-    },
-    {
-      "hash": "ebaa05fa",
-      "subject": "chore(handoff/dashboard): chunks 79-100 ship summary @ 4b2c8316 (-8212 LOC)"
-    },
-    {
-      "hash": "4b2c8316",
-      "subject": "refactor(torajs-core): extract check_stmt Stmt::Switch + Yield (chunk 100)"
-    },
-    {
-      "hash": "820d3a5d",
-      "subject": "refactor(torajs-core): extract check_stmt Stmt::Return arm (chunk 99)"
     }
   ],
-  "headSha": "4e449d82",
+  "headSha": "7e26b345",
   "autorun": {
     "total": 259,
     "baselineTarget": 10,
