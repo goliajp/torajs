@@ -298,6 +298,7 @@ pub(crate) mod ssa_lower_index;
 pub(crate) mod ssa_lower_index_assign;
 pub(crate) mod ssa_lower_instanceof;
 pub(crate) mod ssa_lower_intrinsics_arr;
+pub(crate) mod ssa_lower_intrinsics_date;
 pub(crate) mod ssa_lower_intrinsics_num;
 pub(crate) mod ssa_lower_intrinsics_obj_capture;
 pub(crate) mod ssa_lower_intrinsics_print_str;

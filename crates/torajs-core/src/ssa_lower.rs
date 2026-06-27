@@ -1418,326 +1418,53 @@ fn lower_inner(
         regex_get_last_index: regex_get_last_index_id,
         regex_set_last_index: regex_set_last_index_id,
     } = crate::ssa_lower_intrinsics_regex::declare(&mut module, &mut fn_table);
-    // v0.2 #2 — Date class. Phase 2.0a substrate:
-    //   __torajs_date_now()             → Date  (`new Date()`)
-    //   __torajs_date_from_ms(i64)      → Date  (`new Date(ms)`)
-    //   __torajs_date_drop(Date)        → void  (universal-header drop)
-    //   __torajs_date_now_static()      → i64   (`Date.now()`)
-    //   __torajs_date_get_time(Date)    → i64   (`d.getTime()` / `.valueOf()`)
-    //   __torajs_date_to_iso_string(Date) → Str (`d.toISOString()`)
-    let date_now_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_now",
-        &[],
-        Type::Date,
-    );
-    let date_from_ms_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_from_ms",
-        &[Type::I64],
-        Type::Date,
-    );
-    let date_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_drop",
-        &[Type::Date],
-        Type::Void,
-    );
-    let date_now_static_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_now_static",
-        &[],
-        Type::I64,
-    );
-    let date_get_time_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_time",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_to_iso_string_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_to_iso_string",
-        &[Type::Date],
-        Type::Str,
-    );
-    // T-30 — Date setters + annexB methods.
-    let date_set_time_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_set_time",
-        &[Type::Date, Type::I64],
-        Type::I64,
-    );
-    let date_get_year_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_year",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_set_year_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_set_year",
-        &[Type::Date, Type::I64],
-        Type::I64,
-    );
-    let date_to_gmt_string_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_to_gmt_string",
-        &[Type::Date],
-        Type::Str,
-    );
-    let date_to_date_string_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_to_date_string",
-        &[Type::Date],
-        Type::Str,
-    );
-    let date_to_locale_string_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_to_locale_string",
-        &[Type::Date],
-        Type::Str,
-    );
-    let date_to_locale_date_string_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_to_locale_date_string",
-        &[Type::Date],
-        Type::Str,
-    );
-    let date_to_locale_time_string_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_to_locale_time_string",
-        &[Type::Date],
-        Type::Str,
-    );
-    let date_set_full_year_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_set_full_year",
-        &[Type::Date, Type::I64, Type::I64, Type::I64],
-        Type::I64,
-    );
-    let date_set_month_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_set_month",
-        &[Type::Date, Type::I64, Type::I64],
-        Type::I64,
-    );
-    let date_set_date_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_set_date",
-        &[Type::Date, Type::I64],
-        Type::I64,
-    );
-    let date_set_hours_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_set_hours",
-        &[Type::Date, Type::I64, Type::I64, Type::I64, Type::I64],
-        Type::I64,
-    );
-    let date_set_minutes_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_set_minutes",
-        &[Type::Date, Type::I64, Type::I64, Type::I64],
-        Type::I64,
-    );
-    let date_set_seconds_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_set_seconds",
-        &[Type::Date, Type::I64, Type::I64],
-        Type::I64,
-    );
-    let date_set_milliseconds_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_set_milliseconds",
-        &[Type::Date, Type::I64],
-        Type::I64,
-    );
-    /* Phase 2.0b — UTC getter intrinsics. */
-    let date_get_full_year_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_full_year",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_month_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_month",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_date_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_date",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_hours_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_hours",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_minutes_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_minutes",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_seconds_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_seconds",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_milliseconds_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_milliseconds",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_day_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_day",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_timezone_offset_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_timezone_offset",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_utc_full_year_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_utc_full_year",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_utc_month_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_utc_month",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_utc_date_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_utc_date",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_utc_hours_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_utc_hours",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_utc_minutes_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_utc_minutes",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_utc_seconds_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_utc_seconds",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_utc_milliseconds_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_utc_milliseconds",
-        &[Type::Date],
-        Type::I64,
-    );
-    let date_get_utc_day_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_get_utc_day",
-        &[Type::Date],
-        Type::I64,
-    );
-    /* Phase 2.0b.2 — component ctor + ISO parse + Date.UTC + Date.parse. */
-    let date_from_components_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_from_components",
-        &[
-            Type::I64,
-            Type::I64,
-            Type::I64,
-            Type::I64,
-            Type::I64,
-            Type::I64,
-            Type::I64,
-        ],
-        Type::Date,
-    );
-    let date_utc_components_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_utc_components",
-        &[
-            Type::I64,
-            Type::I64,
-            Type::I64,
-            Type::I64,
-            Type::I64,
-            Type::I64,
-            Type::I64,
-        ],
-        Type::I64,
-    );
-    let date_from_iso_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_from_iso",
-        &[Type::Str],
-        Type::Date,
-    );
-    let date_parse_iso_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_date_parse_iso",
-        &[Type::Str],
-        Type::F64,
-    );
+    // v0.2 #2 — Date class runtime (42 ids: Phase 2.0a + T-30 setters
+    // + Phase 2.0b UTC getters + Phase 2.0b.2 component ctor/parse).
+    // See sibling for the full per-decl ABI detail.
+    let crate::ssa_lower_intrinsics_date::DateIds {
+        date_now: date_now_id,
+        date_from_ms: date_from_ms_id,
+        date_drop: date_drop_id,
+        date_now_static: date_now_static_id,
+        date_get_time: date_get_time_id,
+        date_to_iso_string: date_to_iso_string_id,
+        date_set_time: date_set_time_id,
+        date_get_year: date_get_year_id,
+        date_set_year: date_set_year_id,
+        date_to_gmt_string: date_to_gmt_string_id,
+        date_to_date_string: date_to_date_string_id,
+        date_to_locale_string: date_to_locale_string_id,
+        date_to_locale_date_string: date_to_locale_date_string_id,
+        date_to_locale_time_string: date_to_locale_time_string_id,
+        date_set_full_year: date_set_full_year_id,
+        date_set_month: date_set_month_id,
+        date_set_date: date_set_date_id,
+        date_set_hours: date_set_hours_id,
+        date_set_minutes: date_set_minutes_id,
+        date_set_seconds: date_set_seconds_id,
+        date_set_milliseconds: date_set_milliseconds_id,
+        date_get_full_year: date_get_full_year_id,
+        date_get_month: date_get_month_id,
+        date_get_date: date_get_date_id,
+        date_get_hours: date_get_hours_id,
+        date_get_minutes: date_get_minutes_id,
+        date_get_seconds: date_get_seconds_id,
+        date_get_milliseconds: date_get_milliseconds_id,
+        date_get_day: date_get_day_id,
+        date_get_timezone_offset: date_get_timezone_offset_id,
+        date_get_utc_full_year: date_get_utc_full_year_id,
+        date_get_utc_month: date_get_utc_month_id,
+        date_get_utc_date: date_get_utc_date_id,
+        date_get_utc_hours: date_get_utc_hours_id,
+        date_get_utc_minutes: date_get_utc_minutes_id,
+        date_get_utc_seconds: date_get_utc_seconds_id,
+        date_get_utc_milliseconds: date_get_utc_milliseconds_id,
+        date_get_utc_day: date_get_utc_day_id,
+        date_from_components: date_from_components_id,
+        date_utc_components: date_utc_components_id,
+        date_from_iso: date_from_iso_id,
+        date_parse_iso: date_parse_iso_id,
+    } = crate::ssa_lower_intrinsics_date::declare(&mut module, &mut fn_table);
     /* v0.3 #1 — fs module substrate. */
     let fs_read_file_sync_id = declare_intrinsic(
         &mut module,
