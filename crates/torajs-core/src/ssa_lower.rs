@@ -1487,108 +1487,20 @@ fn lower_inner(
         argv_init: argv_init_id,
         process_argv: process_argv_id,
     } = crate::ssa_lower_intrinsics_process::declare(&mut module, &mut fn_table);
-    /* T-10.b (v0.4.0) — Array<Any> tagged-slot helpers. arr_alloc_any
-     * allocates a 16-byte-stride array (vs 8 for regular Array<T>);
-     * arr_push_any appends a tagged slot {tag, value}. T-10.c wires
-     * these from the Expr::Array codegen path when the element type
-     * is Type::Any. Drop walks via __torajs_arr_drop_any (called by
-     * the regular Array drop path when ARR_FLAG_ANY is set; not yet
-     * wired — T-10.d). */
-    let arr_alloc_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_alloc_any",
-        &[Type::I64],
-        Type::Ptr,
-    );
-    // P0.10 — `new Array(n)` numeric form. Allocates an Array<Any>
-    // of length n with all slots set to ANY_NULL (tag=0, value=0).
-    // The intrinsic is registered in fn_table so the AST-level
-    // desugar's `Expr::Call { callee = Ident("__torajs_arr_alloc_any_filled") }`
-    // resolves at ssa_lower time. check.rs reports the signature
-    // as `(Number) → Array<Any>`.
-    let _ = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_alloc_any_filled",
-        &[Type::I64],
-        Type::Ptr,
-    );
-    let arr_push_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_push_any",
-        &[Type::Ptr, Type::I64, Type::I64],
-        Type::Ptr,
-    );
-    // L3b Array<Any>.fill — write a NaN-boxed (tag, value) into each
-    // slot in [start, end). Mirrors __torajs_arr_fill's contract but
-    // for the 8-byte AnyValue slot stride; drops each pre-existing
-    // slot and rc_inc's the fill value per replaced slot so heap
-    // ownership stays balanced. (arr, tag, value, start, end) → arr.
-    let arr_fill_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_fill_any",
-        &[Type::Ptr, Type::I64, Type::I64, Type::I64, Type::I64],
-        Type::Ptr,
-    );
-    // P5.6 — extend dst's tagged-slot tail with src's slots. (dst,
-    // src) → new_dst_ptr. Mirrors arr_extend_unchecked for the
-    // Array<Any> 16-byte slot layout; bumps src's heap children's
-    // refcount as they get shared into dst. Self-sizing — caller
-    // captures the returned ptr to thread through any cap-realloc.
-    let arr_extend_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_extend_any",
-        &[Type::Ptr, Type::Ptr],
-        Type::Ptr,
-    );
-    // P0.10 — indexed Any-slot write. (arr, idx, tag, value) → void.
-    // Drops old slot's heap value (if ANY_HEAP) then overwrites.
-    // Caller must rc-bump heap values before passing.
-    let arr_set_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_set_any",
-        &[Type::Ptr, Type::I64, Type::I64, Type::I64],
-        Type::Void,
-    );
-    // bug-327 C3 — growable indexed write (returns the possibly-
-    // realloc'd array ptr; caller writes it back) + the typed-tier
-    // OOB rejector. See ssa_lower_index_assign.rs.
-    let arr_set_any_grow_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_set_any_grow",
-        &[Type::Ptr, Type::I64, Type::I64, Type::I64],
-        Type::Ptr,
-    );
-    let arr_oob_write_reject_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_oob_write_reject",
-        &[Type::I64],
-        Type::Void,
-    );
-    // P1.4 — bounds-checking Any-slot read. Returns ANY_UNDEF=5
-    // / value=0 for OOB so xs[99] on a length-3 array gives
-    // undefined per ES spec §10.4.2.1.
-    let arr_get_any_tag_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_get_any_tag",
-        &[Type::Ptr, Type::I64],
-        Type::I64,
-    );
-    let arr_get_any_value_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_get_any_value",
-        &[Type::Ptr, Type::I64],
-        Type::I64,
-    );
+    // Array<Any> tagged-slot runtime (10 ids; one anonymous fn_table-
+    // only registration). See sibling for the alloc / mutators /
+    // indexed read-write ABI detail.
+    let crate::ssa_lower_intrinsics_arr_any::ArrAnyIds {
+        arr_alloc_any: arr_alloc_any_id,
+        arr_push_any: arr_push_any_id,
+        arr_fill_any: arr_fill_any_id,
+        arr_extend_any: arr_extend_any_id,
+        arr_set_any: arr_set_any_id,
+        arr_set_any_grow: arr_set_any_grow_id,
+        arr_oob_write_reject: arr_oob_write_reject_id,
+        arr_get_any_tag: arr_get_any_tag_id,
+        arr_get_any_value: arr_get_any_value_id,
+    } = crate::ssa_lower_intrinsics_arr_any::declare(&mut module, &mut fn_table);
     // P3.2 — dynobj substrate intrinsics. Wire the runtime hash-map
     // helpers (P3.1 / commit c35aec4) into the SSA layer so untyped
     // object Member access (`x.foo` where x: any) routes through
