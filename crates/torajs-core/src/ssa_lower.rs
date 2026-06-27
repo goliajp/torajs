@@ -1705,213 +1705,32 @@ fn lower_inner(
     fn_table.insert("gc".to_string(), cycle_collect_id);
     crate::ssa_lower_main_exit::declare(&mut module, &mut fn_table);
     crate::ssa_lower_process_on::declare(&mut module, &mut fn_table);
-    /* P10.1-A1 — queueMicrotask(cb) closure-path enqueue. cb is a
-     * Type::Closure whose env+8 holds the lifted body's fn_addr
-     * (same layout as promise_finally_closure: 0-user-arg, void
-     * return). The runtime helper rc-inc's env at attach and
-     * drops via __torajs_value_drop_heap after invoke. */
-    let microtask_enqueue_closure_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_queue_microtask_closure",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    /* P10.1-A1.1 — queueMicrotask(cb) simple-fn path. cb is a
-     * Type::FnSig (named fn declaration), ABI `void ()` — raw fn
-     * pointer with no env load. ssa_lower picks this vs
-     * `_closure` based on cb's static type at the queueMicrotask
-     * call site (mirrors promise_then_{simple,closure} dispatch). */
-    let microtask_enqueue_simple_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_queue_microtask_simple",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    /* T-15.g.1 — Promise.resolve / Promise.reject statics. Both
-     * take an i64-shaped value (caller is responsible for packing
-     * heap pointers / bools / f64-bitcasts before the call) and
-     * return a fresh fulfilled / rejected Promise. T-15.g.2 wires
-     * the call sites in check.rs's static-method table + ssa_lower's
-     * Member-call dispatch. */
-    let promise_alloc_fulfilled_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_alloc_fulfilled",
-        &[Type::I64],
-        Type::Promise,
-    );
-    let promise_alloc_rejected_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_alloc_rejected",
-        &[Type::I64],
-        Type::Promise,
-    );
-    /* T-15.g.4 — heap-value variants. The Promise takes ownership
-     * of one refcount on the inner heap value; drop dec's via
-     * __torajs_value_drop_heap. Caller is responsible for any
-     * needed rc_inc before the call (typically zero — the resolved
-     * value flows directly from a fresh expression that already
-     * carries an owned ref). */
-    /* T-19.f — thenable absorption. `Promise.resolve(p)` when p is
-     * itself a Promise must return a Promise with p's state + value;
-     * the helper inc's the inner's resolved-value rc and forwards
-     * the (state, value, value_is_heap) tuple. */
-    let promise_resolve_thenable_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_resolve_thenable",
-        &[Type::Promise],
-        Type::Promise,
-    );
-    let promise_alloc_fulfilled_heap_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_alloc_fulfilled_heap",
-        &[Type::I64],
-        Type::Promise,
-    );
-    let promise_alloc_rejected_heap_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_alloc_rejected_heap",
-        &[Type::I64],
-        Type::Promise,
-    );
-    let promise_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_drop",
-        &[Type::Promise],
-        Type::Void,
-    );
-    /* T-15.g.2 — `await p` desugars to `p.value` Member access at
-     * parse time. For built-in Type::Promise(T), Member access on
-     * `.value` lowers to this runtime helper which returns the
-     * resolved i64 value (caller bitcasts back to T at the call
-     * site if T isn't already i64). */
-    let promise_get_value_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_get_value",
-        &[Type::Promise],
-        Type::I64,
-    );
-    /* T-15.g.3 — `.then(cb)` for the i64→i64 MVP. The cb is passed
-     * as a generic Ptr (FnSig fn ptr at SSA, opaque pointer at C
-     * call boundary). Returns a fresh Promise. */
-    let promise_then_simple_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_then_simple",
-        &[Type::Promise, Type::Ptr],
-        Type::Promise,
-    );
-    /* T-15.g.5 — `.then(cb)` when cb is a capturing closure. cb is
-     * the env block pointer; runtime loads fn_addr from env+8 and
-     * calls `(env, value) -> i64`. Distinct intrinsic from the
-     * simple variant because the dispatcher signature differs
-     * (`(void*, int64_t) -> int64_t` vs `(int64_t) -> int64_t`).
-     * Selection happens at the call site based on cb's static type
-     * (Type::Closure vs Type::FnSig). */
-    let promise_then_closure_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_then_closure",
-        &[Type::Promise, Type::Ptr],
-        Type::Promise,
-    );
-    /* T-19.k — `.catch(cb)` invokes cb only on REJECTED state;
-     * FULFILLED passes through. Same i64-roundtripping cb shape as
-     * .then. */
-    let promise_catch_simple_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_catch_simple",
-        &[Type::Promise, Type::Ptr],
-        Type::Promise,
-    );
-    /* T-19.k — `.finally(cb)` invokes cb on either settled state;
-     * cb is `() -> void` — no value in, return ignored. Source
-     * state + value propagate unchanged after cb runs. */
-    let promise_finally_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_finally",
-        &[Type::Promise, Type::Ptr],
-        Type::Promise,
-    );
-    /* T-21 (v0.6.0) — `fetch(url)` runs a sync libcurl GET and
-     * returns a Response* heap struct (status @ 8, body Str* @ 16).
-     * The user-side `fetch(url)` lowers as
-     * `Promise.resolve_heap(__torajs_fetch_sync(url))`. */
-    let fetch_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fetch_sync",
-        &[Type::Str],
-        Type::Ptr,
-    );
-    /* T-19.n — closure-cb variants of .catch / .finally. Same
-     * env-pointer ABI as promise_then_closure: env+8 holds the
-     * lifted body's fn_addr; runtime calls (env, value) -> i64
-     * for .catch and (env) -> void for .finally. Selection
-     * happens at the call site based on cb's static type. */
-    let promise_catch_closure_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_catch_closure",
-        &[Type::Promise, Type::Ptr],
-        Type::Promise,
-    );
-    let promise_finally_closure_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_finally_closure",
-        &[Type::Promise, Type::Ptr],
-        Type::Promise,
-    );
-    /* T-17.a — Promise.all sync fast path. Input is Array<Promise>;
-     * output is Promise<Array<T>>. Caller is responsible for input
-     * being all-fulfilled at call time; pending elements yield a
-     * rejected Promise (full fan-in support post-T-15.g.6). */
-    let promise_all_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_all_sync",
-        &[Type::Ptr],
-        Type::Promise,
-    );
-    /* T-17.b — Promise.race sync fast path. Returns the first
-     * settled Promise's mirror; all-pending → rejected. */
-    let promise_race_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_race_sync",
-        &[Type::Ptr],
-        Type::Promise,
-    );
-    /* T-17.d — Promise.any sync fast path. First fulfilled wins;
-     * all-rejected → rejected (MVP uses last seen reason, real
-     * spec uses AggregateError). */
-    let promise_any_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_any_sync",
-        &[Type::Ptr],
-        Type::Promise,
-    );
-    /* T-17.c — Promise.allSettled<number> sync MVP. Returns
-     * Promise<Array<{status: string, value: number}>>. */
-    let promise_allsettled_sync_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_promise_allsettled_sync",
-        &[Type::Ptr],
-        Type::Promise,
-    );
+    // queueMicrotask + Promise core + fetch_sync (20 ids). See
+    // sibling for the per-decl ABI detail (statics / lifecycle /
+    // .then/.catch/.finally simple+closure / Promise.all/race/any/
+    // allSettled fast paths).
+    let crate::ssa_lower_intrinsics_promise::PromiseIds {
+        microtask_enqueue_closure: microtask_enqueue_closure_id,
+        microtask_enqueue_simple: microtask_enqueue_simple_id,
+        promise_alloc_fulfilled: promise_alloc_fulfilled_id,
+        promise_alloc_rejected: promise_alloc_rejected_id,
+        promise_resolve_thenable: promise_resolve_thenable_id,
+        promise_alloc_fulfilled_heap: promise_alloc_fulfilled_heap_id,
+        promise_alloc_rejected_heap: promise_alloc_rejected_heap_id,
+        promise_drop: promise_drop_id,
+        promise_get_value: promise_get_value_id,
+        promise_then_simple: promise_then_simple_id,
+        promise_then_closure: promise_then_closure_id,
+        promise_catch_simple: promise_catch_simple_id,
+        promise_finally: promise_finally_id,
+        fetch_sync: fetch_sync_id,
+        promise_catch_closure: promise_catch_closure_id,
+        promise_finally_closure: promise_finally_closure_id,
+        promise_all_sync: promise_all_sync_id,
+        promise_race_sync: promise_race_sync_id,
+        promise_any_sync: promise_any_sync_id,
+        promise_allsettled_sync: promise_allsettled_sync_id,
+    } = crate::ssa_lower_intrinsics_promise::declare(&mut module, &mut fn_table);
     /* v0.2 #3 — Object.is(a, b) for Type::Number arguments. Diverges
      * from `===` on two corner cases:
      *   - Object.is(NaN, NaN) === true

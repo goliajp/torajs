@@ -310,6 +310,7 @@ pub(crate) mod ssa_lower_intrinsics_object;
 pub(crate) mod ssa_lower_intrinsics_print_freeze;
 pub(crate) mod ssa_lower_intrinsics_print_str;
 pub(crate) mod ssa_lower_intrinsics_process;
+pub(crate) mod ssa_lower_intrinsics_promise;
 pub(crate) mod ssa_lower_intrinsics_regex;
 pub(crate) mod ssa_lower_intrinsics_runtime_misc;
 pub(crate) mod ssa_lower_intrinsics_str_a;
