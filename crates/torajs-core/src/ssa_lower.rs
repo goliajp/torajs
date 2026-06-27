@@ -1845,204 +1845,38 @@ fn lower_inner(
         math_f16round: math_f16round_id,
         math_random: math_random_id,
     } = crate::ssa_lower_intrinsics_math::declare(&mut module, &mut fn_table);
-    let json_quote_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_json_quote_str",
-        &[Type::Str],
-        Type::Str,
-    );
-    // V0.2 P14-S5 — JSON builder fast path (struct stringify).
-    // `lower_json_stringify` Type::Obj arm emits these instead of a
-    // 16-call `str_concat` chain for flat-primitive structs (~O(N²)
-    // bytes copied → O(N)). See `crates/torajs-str/src/json_builder.rs`.
-    let jsb_new_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_jsb_new",
-        &[Type::I64], // initial_cap as i64 (truncates to u32 at FFI)
-        Type::Ptr,
-    );
-    let jsb_push_byte_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_jsb_push_byte",
-        &[Type::Ptr, Type::I64], // byte as i64 (truncates to u8)
-        Type::Void,
-    );
-    let jsb_push_str_raw_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_jsb_push_str_raw",
-        &[Type::Ptr, Type::Str],
-        Type::Void,
-    );
-    let jsb_push_str_quoted_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_jsb_push_str_quoted",
-        &[Type::Ptr, Type::Str],
-        Type::Void,
-    );
-    let jsb_push_i64_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_jsb_push_i64",
-        &[Type::Ptr, Type::I64],
-        Type::Void,
-    );
-    let jsb_push_bool_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_jsb_push_bool",
-        &[Type::Ptr, Type::Bool],
-        Type::Void,
-    );
-    let jsb_finalize_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_jsb_finalize",
-        &[Type::Ptr],
-        Type::Str,
-    );
-    // M6.3 — JSON.parse runtime helpers. Cursor (`*int64`, alloca'd
-    // by the caller fn) threaded through every helper; each advances
-    // it past the consumed token. On syntactic mismatch the helper
-    // emits a `__torajs_throw_set` so ssa_lower's `throw_check` after
-    // the call propagates correctly.
-    let json_eat_char_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_json_eat_char",
-        &[Type::Str, Type::Ptr, Type::I64],
-        Type::Void,
-    );
-    let json_parse_int_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_json_parse_int",
-        &[Type::Str, Type::Ptr],
-        Type::I64,
-    );
-    let json_parse_float_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_json_parse_float",
-        &[Type::Str, Type::Ptr],
-        Type::F64,
-    );
-    let json_parse_bool_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_json_parse_bool",
-        &[Type::Str, Type::Ptr],
-        Type::I64,
-    );
-    let json_parse_string_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_json_parse_string",
-        &[Type::Str, Type::Ptr],
-        Type::Str,
-    );
-    let json_arr_step_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_json_arr_step",
-        &[Type::Str, Type::Ptr, Type::I64],
-        Type::I64,
-    );
-    let json_arr_first_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_json_arr_first",
-        &[Type::Str, Type::Ptr, Type::I64],
-        Type::I64,
-    );
-    let str_eq_cstr_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_eq_cstr",
-        &[Type::Str, Type::Ptr, Type::I64],
-        Type::I64,
-    );
-    let print_i64_err_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_print_i64_err",
-        &[Type::I64],
-        Type::Void,
-    );
-    let print_f64_err_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_print_f64_err",
-        &[Type::F64],
-        Type::Void,
-    );
-    let print_bool_err_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_print_bool_err",
-        &[Type::Bool],
-        Type::Void,
-    );
-    let str_print_err_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_print_err",
-        &[Type::Str],
-        Type::Void,
-    );
-    let arr_flat_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_flat",
-        &[Type::Ptr],
-        Type::Ptr,
-    );
-    let arr_flat_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_flat_any",
-        &[Type::Ptr],
-        Type::Ptr,
-    );
-    let arr_extend_typed_into_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_extend_typed_into_any",
-        &[Type::Ptr, Type::Ptr, Type::I64],
-        Type::Ptr,
-    );
-    let arr_concat_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_concat",
-        &[Type::Ptr, Type::Ptr],
-        Type::Ptr,
-    );
-    let arr_reverse_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_reverse",
-        &[Type::Ptr],
-        Type::Ptr,
-    );
-    let arr_fill_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_fill",
-        &[Type::Ptr, Type::I64, Type::I64, Type::I64],
-        Type::Ptr,
-    );
-    let arr_copy_within_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_copy_within",
-        &[Type::Ptr, Type::I64, Type::I64, Type::I64],
-        Type::Ptr,
-    );
+    // JSON.stringify builder + JSON.parse helpers + str_eq_cstr +
+    // stderr print + Array immutable/bulk ops (28 ids). See sibling
+    // for per-decl ABI detail.
+    let crate::ssa_lower_intrinsics_json_misc::JsonMiscIds {
+        json_quote_str: json_quote_str_id,
+        jsb_new: jsb_new_id,
+        jsb_push_byte: jsb_push_byte_id,
+        jsb_push_str_raw: jsb_push_str_raw_id,
+        jsb_push_str_quoted: jsb_push_str_quoted_id,
+        jsb_push_i64: jsb_push_i64_id,
+        jsb_push_bool: jsb_push_bool_id,
+        jsb_finalize: jsb_finalize_id,
+        json_eat_char: json_eat_char_id,
+        json_parse_int: json_parse_int_id,
+        json_parse_float: json_parse_float_id,
+        json_parse_bool: json_parse_bool_id,
+        json_parse_string: json_parse_string_id,
+        json_arr_step: json_arr_step_id,
+        json_arr_first: json_arr_first_id,
+        str_eq_cstr: str_eq_cstr_id,
+        print_i64_err: print_i64_err_id,
+        print_f64_err: print_f64_err_id,
+        print_bool_err: print_bool_err_id,
+        str_print_err: str_print_err_id,
+        arr_flat: arr_flat_id,
+        arr_flat_any: arr_flat_any_id,
+        arr_extend_typed_into_any: arr_extend_typed_into_any_id,
+        arr_concat: arr_concat_id,
+        arr_reverse: arr_reverse_id,
+        arr_fill: arr_fill_id,
+        arr_copy_within: arr_copy_within_id,
+    } = crate::ssa_lower_intrinsics_json_misc::declare(&mut module, &mut fn_table);
     // M4 — exception state runtime. Three intrinsics around two
     // module-level i64 globals (`throw_active`, `throw_value`) that
     // the backend implements. Lowering uses set/check/take to thread
