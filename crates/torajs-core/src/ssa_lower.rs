@@ -1788,83 +1788,21 @@ fn lower_inner(
         arr_join_bool: arr_join_bool_id,
         arr_join_any: arr_join_any_id,
     } = crate::ssa_lower_intrinsics_arr_str_etc::declare(&mut module, &mut fn_table);
-    let symbol_to_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_symbol_to_str",
-        &[Type::Symbol],
-        Type::Str,
-    );
-    let str_index_of_from_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_index_of_from",
-        &[Type::Ptr, Type::Ptr, Type::I64],
-        Type::I64,
-    );
-    let str_last_index_of_from_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_last_index_of_from",
-        &[Type::Ptr, Type::Ptr, Type::I64],
-        Type::I64,
-    );
-    let str_starts_with_from_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_starts_with_from",
-        &[Type::Ptr, Type::Ptr, Type::I64],
-        Type::Bool,
-    );
-    let str_ends_with_from_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_ends_with_from",
-        &[Type::Ptr, Type::Ptr, Type::I64],
-        Type::Bool,
-    );
-    let str_includes_from_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_includes_from",
-        &[Type::Ptr, Type::Ptr, Type::I64],
-        Type::Bool,
-    );
-    let symbol_description_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_symbol_description",
-        &[Type::Symbol],
-        Type::Str,
-    );
-    // V3-18 m1.d — Bool/Null → String coercion for `+` with String.
-    // ToString(true) = "true", ToString(false) = "false",
-    // ToString(null) = "null".
-    let bool_to_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_bool_to_str",
-        &[Type::Bool],
-        Type::Str,
-    );
-    let null_to_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_null_to_str",
-        &[],
-        Type::Str,
-    );
-    // S142 — `undefined` → "undefined" for `String + Undefined`
-    // concat per ES §13.15.3 (ToPrimitive(Default) → ToString).
-    // Mirrors `__torajs_null_to_str`'s contract; runtime is in
-    // `crates/torajs-str/src/literals.rs`.
-    let undefined_to_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_undefined_to_str",
-        &[],
-        Type::Str,
-    );
+    // symbol_to_str + str_*_from family + symbol_description +
+    // Bool/Null/Undefined → String coerce (10 ids). See sibling
+    // for per-decl ABI detail.
+    let crate::ssa_lower_intrinsics_str_extra::StrExtraIds {
+        symbol_to_str: symbol_to_str_id,
+        str_index_of_from: str_index_of_from_id,
+        str_last_index_of_from: str_last_index_of_from_id,
+        str_starts_with_from: str_starts_with_from_id,
+        str_ends_with_from: str_ends_with_from_id,
+        str_includes_from: str_includes_from_id,
+        symbol_description: symbol_description_id,
+        bool_to_str: bool_to_str_id,
+        null_to_str: null_to_str_id,
+        undefined_to_str: undefined_to_str_id,
+    } = crate::ssa_lower_intrinsics_str_extra::declare(&mut module, &mut fn_table);
     // stdlib `Math` namespace — first slice. All take an f64 and return
     // an f64; the lowerer auto-promotes integer args via SiToFp at the
     // call site. Backed by libc sqrt / fabs / floor / ceil via thin

@@ -316,6 +316,7 @@ pub(crate) mod ssa_lower_intrinsics_regex;
 pub(crate) mod ssa_lower_intrinsics_runtime_misc;
 pub(crate) mod ssa_lower_intrinsics_str_a;
 pub(crate) mod ssa_lower_intrinsics_str_b;
+pub(crate) mod ssa_lower_intrinsics_str_extra;
 pub(crate) mod ssa_lower_intrinsics_substr;
 pub(crate) mod ssa_lower_intrinsics_weak;
 pub(crate) mod ssa_lower_json_parse;
