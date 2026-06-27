@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T00:19:48.656Z",
+  "generatedAt": "2026-06-27T00:53:25.757Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "331b1a77",
-    "commitSubject": "refactor(torajs-core): extract Expr::PostIncr 3-target-shape lowering",
+    "commit": "bb06edd6",
+    "commitSubject": "refactor(torajs-core): extract Expr::Array MAIN PRIZE 5-layer lowering",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,18 @@
   },
   "commits": [
     {
+      "hash": "bb06edd6",
+      "subject": "refactor(torajs-core): extract Expr::Array MAIN PRIZE 5-layer lowering"
+    },
+    {
+      "hash": "d91c588e",
+      "subject": "refactor(torajs-core): extract Expr::ObjectLit 5-phase struct literal"
+    },
+    {
+      "hash": "cca7cd6d",
+      "subject": "chore(hardev/web): dashboard snapshot @ 331b1a77 — chunks 69-74 ship (-3.3k LOC)"
+    },
+    {
       "hash": "331b1a77",
       "subject": "refactor(torajs-core): extract Expr::PostIncr 3-target-shape lowering"
     },
@@ -651,21 +663,9 @@
     {
       "hash": "33e13c4e",
       "subject": "refactor(torajs-core): extract Expr::Index str/arr/Array<Any> lowering"
-    },
-    {
-      "hash": "e7b35420",
-      "subject": "refactor(torajs-core): extract P8.2 accessor + struct-field terminal arm"
-    },
-    {
-      "hash": "b1827a01",
-      "subject": "refactor(torajs-core): extract FnSig/Arr-as-Object props-read cluster"
-    },
-    {
-      "hash": "a14e9d60",
-      "subject": "refactor(torajs-core): extract typed-receiver Member props cluster"
     }
   ],
-  "headSha": "331b1a77",
+  "headSha": "bb06edd6",
   "autorun": {
     "total": 256,
     "baselineTarget": 10,
