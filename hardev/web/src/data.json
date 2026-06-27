@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T00:53:25.757Z",
+  "generatedAt": "2026-06-27T06:08:29.046Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "bb06edd6",
-    "commitSubject": "refactor(torajs-core): extract Expr::Array MAIN PRIZE 5-layer lowering",
+    "commit": "be362627",
+    "commitSubject": "refactor(torajs-core): extract type_of_inner Expr::New 7-class cluster (chunk 92)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,55 +617,55 @@
   },
   "commits": [
     {
-      "hash": "bb06edd6",
-      "subject": "refactor(torajs-core): extract Expr::Array MAIN PRIZE 5-layer lowering"
+      "hash": "be362627",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::New 7-class cluster (chunk 92)"
     },
     {
-      "hash": "d91c588e",
-      "subject": "refactor(torajs-core): extract Expr::ObjectLit 5-phase struct literal"
+      "hash": "2ca74f7e",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::ObjectLit (chunk 91)"
     },
     {
-      "hash": "cca7cd6d",
-      "subject": "chore(hardev/web): dashboard snapshot @ 331b1a77 — chunks 69-74 ship (-3.3k LOC)"
+      "hash": "82cd73ce",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::Ident (chunk 90)"
     },
     {
-      "hash": "331b1a77",
-      "subject": "refactor(torajs-core): extract Expr::PostIncr 3-target-shape lowering"
+      "hash": "02f3cd22",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::Unary (chunk 89)"
     },
     {
-      "hash": "19db75f0",
-      "subject": "refactor(torajs-core): extract Expr::Nullish 4-layer dispatch"
+      "hash": "668ebf3d",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::Array (chunk 88)"
     },
     {
-      "hash": "5d1fa641",
-      "subject": "refactor(torajs-core): extract Expr::InstanceOf 4-layer dispatch"
+      "hash": "7952b96c",
+      "subject": "refactor(torajs-core): extract §7.2.15 null/undef static fold (chunk 87)"
     },
     {
-      "hash": "952af137",
-      "subject": "refactor(torajs-core): extract Expr::TypeOf 6-layer compile-time fold"
+      "hash": "3ed4fbbf",
+      "subject": "Revert \"refactor(torajs-core): extract Any-aware BinOp dispatch (chunk 86)\""
     },
     {
-      "hash": "31bade88",
-      "subject": "refactor(torajs-core): extract Expr::OptChain typed-tier null-check arm"
+      "hash": "9322fe7a",
+      "subject": "refactor(torajs-core): extract Any-aware BinOp dispatch (chunk 86)"
     },
     {
-      "hash": "4738a090",
-      "subject": "refactor(torajs-core): extract Expr::Ternary cond/then/else lowering"
+      "hash": "835930d4",
+      "subject": "refactor(torajs-core): extract LooseEq/LooseNeq cross-type folds (chunk 85)"
     },
     {
-      "hash": "d97562f9",
-      "subject": "chore(hardev/web): dashboard snapshot @ 000b0282 — chunks 64-68 ship (-2.2k LOC)"
+      "hash": "38d1a178",
+      "subject": "refactor(torajs-core): extract Expr::Call 61-layer dispatcher cascade (chunk 84b)"
     },
     {
-      "hash": "000b0282",
-      "subject": "refactor(torajs-core): extract Expr::Closure env construction (M2)"
+      "hash": "2ad78847",
+      "subject": "refactor(torajs-core): extract Expr::Call terminal direct-call body (chunk 84a)"
     },
     {
-      "hash": "33e13c4e",
-      "subject": "refactor(torajs-core): extract Expr::Index str/arr/Array<Any> lowering"
+      "hash": "93685d73",
+      "subject": "refactor(torajs-core): extract Expr::Member 13-layer READ dispatcher (chunk 83)"
     }
   ],
-  "headSha": "bb06edd6",
+  "headSha": "be362627",
   "autorun": {
     "total": 256,
     "baselineTarget": 10,
