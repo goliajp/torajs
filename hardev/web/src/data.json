@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-26T22:51:54.009Z",
+  "generatedAt": "2026-06-27T00:19:48.656Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "000b0282",
-    "commitSubject": "refactor(torajs-core): extract Expr::Closure env construction (M2)",
+    "commit": "331b1a77",
+    "commitSubject": "refactor(torajs-core): extract Expr::PostIncr 3-target-shape lowering",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,34 @@
   },
   "commits": [
     {
+      "hash": "331b1a77",
+      "subject": "refactor(torajs-core): extract Expr::PostIncr 3-target-shape lowering"
+    },
+    {
+      "hash": "19db75f0",
+      "subject": "refactor(torajs-core): extract Expr::Nullish 4-layer dispatch"
+    },
+    {
+      "hash": "5d1fa641",
+      "subject": "refactor(torajs-core): extract Expr::InstanceOf 4-layer dispatch"
+    },
+    {
+      "hash": "952af137",
+      "subject": "refactor(torajs-core): extract Expr::TypeOf 6-layer compile-time fold"
+    },
+    {
+      "hash": "31bade88",
+      "subject": "refactor(torajs-core): extract Expr::OptChain typed-tier null-check arm"
+    },
+    {
+      "hash": "4738a090",
+      "subject": "refactor(torajs-core): extract Expr::Ternary cond/then/else lowering"
+    },
+    {
+      "hash": "d97562f9",
+      "subject": "chore(hardev/web): dashboard snapshot @ 000b0282 — chunks 64-68 ship (-2.2k LOC)"
+    },
+    {
       "hash": "000b0282",
       "subject": "refactor(torajs-core): extract Expr::Closure env construction (M2)"
     },
@@ -635,37 +663,9 @@
     {
       "hash": "a14e9d60",
       "subject": "refactor(torajs-core): extract typed-receiver Member props cluster"
-    },
-    {
-      "hash": "3cc39c8e",
-      "subject": "chore(hardev/web): dashboard snapshot @ 503d78d5 — lower_expr_inner decomp chunks 41-63 ship"
-    },
-    {
-      "hash": "503d78d5",
-      "subject": "refactor(torajs-core): extract RegExp accessor cluster (source/flags/bool/lastIndex)"
-    },
-    {
-      "hash": "f01e8d76",
-      "subject": "refactor(torajs-core): extract await/p.value Promise + P10.4 fastpath arm"
-    },
-    {
-      "hash": "47b2b807",
-      "subject": "refactor(torajs-core): extract f.length/f.name dual-path Member arm (T-27.c)"
-    },
-    {
-      "hash": "979a3b41",
-      "subject": "refactor(torajs-core): extract Bun.file.size + Response.status web/runtime"
-    },
-    {
-      "hash": "497d5106",
-      "subject": "refactor(torajs-core): extract Symbol.<wellknown> singleton Member-access arm"
-    },
-    {
-      "hash": "e7019c7b",
-      "subject": "refactor(torajs-core): extract Math/Number/ctor builtin-namespace Members"
     }
   ],
-  "headSha": "000b0282",
+  "headSha": "331b1a77",
   "autorun": {
     "total": 256,
     "baselineTarget": 10,
