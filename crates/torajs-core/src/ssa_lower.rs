@@ -8162,7 +8162,7 @@ pub(crate) struct LowerCtx<'a> {
     /// strand them across the split. #13's binding-slot entry-hoist
     /// keeps the `let c = …` slot in the entry block so the post-split
     /// scope-end drop's load still resolves.
-    bigint_op_may_throw: bool,
+    pub(crate) bigint_op_may_throw: bool,
     /// Phase K.3 — module-level data globals (top-level `let X: T = init`
     /// where T is a primitive Copy type). Read by the ident-read fallback
     /// to emit `GlobalRef + Load` for cross-fn reads, and by the LetDecl
@@ -14583,103 +14583,13 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::BinOp { op, left, right } => {
-                // M1.5 — short-circuit `&&` / `||` need control flow,
-                // not eager evaluation. Route through their own lowering
-                // before calling lower_binop (which assumes both
-                // operands are already lowered).
-                if matches!(*op, AstBinOp::LAnd) {
-                    return self.lower_logical_and(*left, *right);
-                }
-                if matches!(*op, AstBinOp::LOr) {
-                    return self.lower_logical_or(*left, *right);
-                }
-                // V3-18 Phase D — `undefined === null` and friends.
-                // Both lower to ConstPtrNull at the runtime layer
-                // (no Type::Undefined sentinel yet), but JS spec
-                // distinguishes them. Pattern-match the Ident form
-                // and fold at AST level: undefined === null → false,
-                // undefined === undefined → true, etc.
-                if matches!(*op, AstBinOp::Eq | AstBinOp::Neq) {
-                    let l_is_undef = matches!(self.ast.get_expr(*left),
-                        Expr::Ident(n) if n == "undefined");
-                    let l_is_null = matches!(self.ast.get_expr(*left), Expr::Null);
-                    let r_is_undef = matches!(self.ast.get_expr(*right),
-                        Expr::Ident(n) if n == "undefined");
-                    let r_is_null = matches!(self.ast.get_expr(*right), Expr::Null);
-                    if (l_is_undef || l_is_null) && (r_is_undef || r_is_null) {
-                        let same = (l_is_undef && r_is_undef) || (l_is_null && r_is_null);
-                        let result = if matches!(*op, AstBinOp::Eq) {
-                            same
-                        } else {
-                            !same
-                        };
-                        return Operand::ConstBool(result);
-                    }
-                }
-                // V3-18 m2.e — `<prim>.constructor === <Ctor>` /
-                // `<Ctor> === <prim>.constructor` compile-time fold.
-                // Tora has no first-class function ref for namespace
-                // ctors, so bare `Number` / `String` / etc can't be
-                // lowered as a value. This common test262 idiom
-                // (`n.constructor === Number`) is folded at AST level
-                // by comparing the prim type tag to the ctor name.
-                if matches!(*op, AstBinOp::Eq | AstBinOp::Neq) {
-                    if let Some(r) = self.try_fold_constructor_eq(*op, *left, *right) {
-                        return r;
-                    }
-                }
-                // Perf fast-path — `s === "literal"` / `s !== "literal"`
-                // where `"literal"` is short (≤16 bytes) and known at
-                // compile time. Emits inline `len-eq + byte-eq chain`,
-                // skipping the `__torajs_str_eq` C-runtime fn-call (which
-                // LLVM can't inline since it's in a separately-compiled
-                // C module). Critical for switch-on-string hot loops:
-                //   `switch (op) { case "+": ...; case "-": ... }`
-                if matches!(op, AstBinOp::Eq | AstBinOp::Neq) {
-                    if let Some(r) = self.try_inline_str_eq_with_literal(*op, *left, *right) {
-                        return r;
-                    }
-                }
-                let a = self.lower_expr(*left);
-                let b = self.lower_expr(*right);
-                // TS-shape: `a + b` (string concat) does NOT consume the
-                // operands — both `a` and `b` keep their heaps and remain
-                // readable + droppable afterwards. The concat runtime
-                // produces a fresh allocation without freeing inputs;
-                // see torajs-str's concat (port of the pre-rewrite
-                // define_str_concat) for the matching change.
-                // P1.5/P1.8 — pass the operand ExprIds so the Eq/Neq
-                // Any-side packing can pick ANY_UNDEF=5 vs ANY_NULL=0.
-                let result = self.lower_binop_with_ids(*op, a, b, Some(*left), Some(*right));
-                // Drop fresh-owned refcounted operands left over from
-                // BinOp on Str / Substr (Eq / Neq / Add). lower_binop
-                // doesn't consume — every concat / str_eq path keeps
-                // the inputs live. If the source-level expr was an
-                // `Ident` / `Member` / `Index` we don't own the heap
-                // (the binding does), so leave it alone. Anything
-                // else (`String` literal, `Call` returning Str, sub-
-                // BinOp concat result, etc.) was a fresh alloc whose
-                // ownership ends here.
-                let a_ty = self.operand_ty(&a);
-                if a_ty.is_refcounted() && self.expr_is_fresh_owned(*left) {
-                    self.emit_drop_value(a, a_ty);
-                }
-                let b_ty = self.operand_ty(&b);
-                if b_ty.is_refcounted() && self.expr_is_fresh_owned(*right) {
-                    self.emit_drop_value(b, b_ty);
-                }
-                // P7.4-a-b — a bigint Div/Mod/Pow/Shl/Shr helper may
-                // have called __torajs_throw_range_error. Emit the
-                // throw-check AFTER the operands are dropped (a block
-                // split before the drops would strand the refcounted
-                // a/b). Last action on the normal path; #13's binding-
-                // slot entry-hoist keeps a `let c = …` slot in the
-                // entry block so the post-split scope-end drop's load
-                // still resolves.
-                if std::mem::take(&mut self.bigint_op_may_throw) {
-                    self.emit_throw_check(None);
-                }
-                result
+                // M1.5 — `&&` / `||` short-circuit + AST-level fold
+                // (undef/null Eq + constructor Eq + str-eq literal
+                // inline fast-path) + eager `lower_binop_with_ids` +
+                // fresh-owned refcount drop dance + P7.4-a-b bigint
+                // throw-check. See
+                // [`crate::ssa_lower_binop::lower`].
+                return crate::ssa_lower_binop::lower(self, *op, *left, *right);
             }
             Expr::Unary { op, expr } => self.lower_unary(*op, *expr),
             Expr::Call { callee, args } => {
@@ -16162,7 +16072,7 @@ impl<'a> LowerCtx<'a> {
     /// pre-lower pattern match since tora has no first-class
     /// function ref for namespace ctors (bare `Number` / `String`
     /// etc can't be lowered as a value).
-    fn try_fold_constructor_eq(
+    pub(crate) fn try_fold_constructor_eq(
         &mut self,
         op: AstBinOp,
         left: ExprId,
@@ -16211,7 +16121,7 @@ impl<'a> LowerCtx<'a> {
         Some(Operand::ConstBool(result))
     }
 
-    fn try_inline_str_eq_with_literal(
+    pub(crate) fn try_inline_str_eq_with_literal(
         &mut self,
         op: AstBinOp,
         left: ExprId,
@@ -16279,7 +16189,7 @@ impl<'a> LowerCtx<'a> {
         self.lower_binop_with_ids(op, a, b, None, None)
     }
 
-    fn lower_binop_with_ids(
+    pub(crate) fn lower_binop_with_ids(
         &mut self,
         op: AstBinOp,
         a: Operand,
