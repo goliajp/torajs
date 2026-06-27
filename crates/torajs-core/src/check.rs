@@ -546,7 +546,7 @@ fn resolve_type_ann_with_vars(
 /// Full resolver: also accepts a generic-alias-decls map so `Pair<X|Y>`
 /// instantiates against the original `type Pair<A, B> = { ... }` decl.
 /// M3.4.
-fn build_fn_type(
+pub(crate) fn build_fn_type(
     fn_name: &str,
     params: &[Param],
     return_type: &Option<String>,
@@ -1330,7 +1330,7 @@ pub(crate) struct Checker {
     /// the OUTER scope at the construction site) and consumed by the
     /// closure-FnDecl body walker below. Maps lifted-fn-name → ordered
     /// list of (capture_name, captured_type).
-    closure_captures: HashMap<String, Vec<(String, Type)>>,
+    pub(crate) closure_captures: HashMap<String, Vec<(String, Type)>>,
     /// Names of FnDecls that are lifted closures (first param is
     /// `__env`). Pass-2 skips these — their bodies are checked lazily
     /// when an `Expr::Closure` references them, so the captures are in
@@ -8509,122 +8509,15 @@ impl Checker {
                 return_type,
                 body,
             } => {
-                // Clone the body so we don't keep borrowing ast.exprs[eid] while
-                // re-entering check_stmt below.
-                let params = params.clone();
-                let return_type = return_type.clone();
-                let body = body.clone();
-                let fn_ty = build_fn_type("<arrow>", &params, &return_type, &self.aliases)?;
-                let Type::Function(param_tys, ret_ty) = fn_ty.clone() else {
-                    unreachable!("build_fn_type returned non-Function");
-                };
-                // Bare ArrowFn that survived `lift_arrow_fns` — should only
-                // happen for non-capturing arrows that didn't get lifted
-                // (legacy path). Body sees its own params only.
-                let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
-                let saved_return = self.expected_return.replace(*ret_ty);
-                for (p, ty) in params.iter().zip(param_tys.iter()) {
-                    if let Err(e) = self.declare(
-                        p.name.clone(),
-                        LocalInfo {
-                            ty: ty.clone(),
-                            mutable: true,
-                            moved: false,
-                            borrowed: false,
-                            declared_class: None,
-                        },
-                    ) {
-                        self.errors.push_err(e);
-                    }
-                }
-                for s in &body {
-                    self.check_stmt(ast, s);
-                }
-                self.expected_return = saved_return;
-                self.scopes = saved_scopes;
-                Ok(fn_ty)
+                // Non-capturing arrow (lift_arrow_fns survivor). See
+                // [`crate::check_type_of_fn::check_arrow_fn`].
+                crate::check_type_of_fn::check_arrow_fn(self, ast, params, return_type, body)
             }
             Expr::Closure { fn_name, captures } => {
-                // Resolve capture types in the OUTER scope (current
-                // self.scopes), record them in the captures table for the
-                // lowerer, then lazily walk the lifted FnDecl body with
-                // those captures injected as locals.
-                let fn_name = fn_name.clone();
-                let captures = captures.clone();
-                let mut cap_tys: Vec<(String, Type)> = Vec::with_capacity(captures.len());
-                for cap in &captures {
-                    let Some(info) = self.lookup(cap) else {
-                        return Err(format!(
-                            "closure `{fn_name}` references unknown identifier `{cap}`"
-                        ));
-                    };
-                    cap_tys.push((cap.clone(), info.ty));
-                }
-                self.closure_captures
-                    .insert(fn_name.clone(), cap_tys.clone());
-
-                // Walk the lifted FnDecl's body once, lazily, with captures
-                // and real params bound in a fresh scope. Find the FnDecl
-                // by name in ast.stmts.
-                let fn_decl = ast.stmts.iter().find_map(|s| match s {
-                    Stmt::FnDecl {
-                        name,
-                        params,
-                        return_type,
-                        body,
-                        ..
-                    } if name == &fn_name => {
-                        Some((params.clone(), return_type.clone(), body.clone()))
-                    }
-                    _ => None,
-                });
-                if let Some((params, return_type, body)) = fn_decl {
-                    // Skip the leading `__env` param — captures replace it.
-                    let real_params: Vec<Param> = params.iter().skip(1).cloned().collect();
-                    let user_fn_ty =
-                        build_fn_type(&fn_name, &real_params, &return_type, &self.aliases)?;
-                    let Type::Function(param_tys, ret_ty) = user_fn_ty.clone() else {
-                        unreachable!();
-                    };
-
-                    // Lazily walk the body in a fresh scope with captures
-                    // + params bound. Errors get pushed onto self.errors
-                    // like normal.
-                    let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
-                    let saved_return = self.expected_return.replace(*ret_ty);
-                    for (cap_name, cap_ty) in &cap_tys {
-                        let _ = self.declare(
-                            cap_name.clone(),
-                            LocalInfo {
-                                ty: cap_ty.clone(),
-                                mutable: true,
-                                moved: false,
-                                borrowed: false,
-                                declared_class: None,
-                            },
-                        );
-                    }
-                    for (p, ty) in real_params.iter().zip(param_tys.iter()) {
-                        let _ = self.declare(
-                            p.name.clone(),
-                            LocalInfo {
-                                ty: ty.clone(),
-                                mutable: true,
-                                moved: false,
-                                borrowed: false,
-                                declared_class: None,
-                            },
-                        );
-                    }
-                    for s in &body {
-                        self.check_stmt(ast, &s.clone());
-                    }
-                    self.expected_return = saved_return;
-                    self.scopes = saved_scopes;
-                    Ok(user_fn_ty)
-                } else {
-                    Err(format!("closure target `{fn_name}` has no FnDecl"))
-                }
+                // Lifted FnDecl with capture types resolved in outer
+                // scope + lazy body walk. See
+                // [`crate::check_type_of_fn::check_closure`].
+                crate::check_type_of_fn::check_closure(self, ast, fn_name, captures)
             }
             // M5.1 — desugar_classes flattens these out before check runs.
             // Reaching here is an internal compiler error, not a user error.
