@@ -1850,29 +1850,9 @@ impl Checker {
                 step,
                 body,
             } => {
-                // Init runs in a fresh scope so `let i = 0; ...; for () i;`
-                // doesn't bleed `i` into the surrounding fn scope. Push
-                // a scope before init, pop after body.
-                self.scopes.push(HashMap::new());
-                if let Some(i) = init {
-                    self.check_stmt(ast, i);
-                }
-                if let Some(c) = cond {
-                    match self.type_of(ast, *c) {
-                        Ok(t) if js_truthy_acceptable(&t) => {}
-                        Ok(other) => self.errors.push_err(format!(
-                            "for condition must be boolean (or coercible), got {other:?}"
-                        )),
-                        Err(e) => self.errors.push_err(e),
-                    }
-                }
-                if let Some(st) = step {
-                    if let Err(e) = self.type_of(ast, *st) {
-                        self.errors.push_err(e);
-                    }
-                }
-                self.check_stmt(ast, body);
-                self.scopes.pop();
+                // Fresh-scope init / cond / step / body walker. See
+                // [`crate::check_stmt_for::check`].
+                crate::check_stmt_for::check(self, ast, init, cond, step, body);
             }
             Stmt::Throw(eid) => {
                 // M4.3 + P7.2a + P4.7 — accept 8-byte-shaped
