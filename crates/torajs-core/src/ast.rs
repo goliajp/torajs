@@ -9079,300 +9079,11 @@ pub fn desugar_function_prototype_methods(ast: &mut Ast) {
     crate::ast_desugar_function_prototype_methods::run(ast);
 }
 
+/// Thin wrapper preserving the `ast::desugar_implicit_generics`
+/// public surface for `torajs-cli` callers; body moved into
+/// `ast_desugar_implicit_generics` sibling (chunk 140).
 pub fn desugar_implicit_generics(ast: &mut Ast) {
-    use std::collections::HashSet;
-
-    // Split borrow: the body-walk inference helper reads `exprs` while
-    // we mutate `stmts` in the same iteration. Destructure the fields
-    // so the borrow checker sees two disjoint references rather than a
-    // single &mut Ast.
-    let Ast { stmts, exprs, .. } = ast;
-    let ast_exprs_view: AstExprsView = &*exprs;
-
-    // P8.4 — build a (fn_name → return_ann) lookup table from top-level
-    // user FnDecls so the static return-type sniff can resolve Call-
-    // shaped returns. Two filters keep the propagation sound:
-    //   1. Skip `__closure_*` — these are lifted arrows whose own
-    //      return_type is being inferred in this very pass; their
-    //      signature is not yet stable.
-    //   2. Skip generic fns (`type_params` non-empty) — their return
-    //      ann is a TypeVar resolved per call-site by monomorphization,
-    //      not a concrete type propagable into a closure body.
-    // FnDecls with `return_type: None` self-filter via the `Some(rt)`
-    // pattern. desugar_classes' synthesized `__cm_<C>__<m>` FnDecls
-    // carry the user-declared method return annotation, so super-
-    // rewritten arrow bodies (`() => __cm_A__greet(__this)`) infer
-    // correctly through this same table.
-    let mut fn_sigs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for s in stmts.iter() {
-        if let Stmt::FnDecl {
-            name,
-            return_type: Some(rt),
-            type_params,
-            ..
-        } = s
-            && !name.starts_with("__closure_")
-            && type_params.is_empty()
-        {
-            fn_sigs.insert(name.clone(), rt.clone());
-        }
-    }
-
-    /* T-19.p — pre-collect outer bindings the capturing-closure
-     * return-type sniff can use to resolve captured idents. Without
-     * this seed, `(v: number) => v + cap` bails out of the static
-     * sniff and the FnDecl's return_type stays None → Void.
-     *
-     * Sources walked, in order (later overrides earlier):
-     *  1. Top-level let-decls — the common shape `let cap = N; let
-     *     cb = (v) => v + cap`.
-     *  2. Every FnDecl's params (including parent fn's params for
-     *     a closure created inside) — covers `function f(x) {
-     *     return (y) => x + y }`. Lift moves the closure to a
-     *     top-level FnDecl, so by the time we see its body,
-     *     enclosing-fn params live in some other top-level FnDecl
-     *     somewhere; pre-scanning all FnDecls catches them.
-     *
-     * Same-named clashes pick the LAST one observed; tora's
-     * de-shadow at SSA means the bind table just needs ANY
-     * matching annotation, not the lexically-correct one. */
-    let mut outer_binds: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-    for s in stmts.iter() {
-        if let Stmt::LetDecl {
-            name,
-            type_ann,
-            init,
-            ..
-        } = s
-        {
-            if let Some(ann) = type_ann {
-                outer_binds.insert(name.clone(), ann.clone());
-            } else {
-                let bs: Vec<Param> = binds_to_params(&outer_binds);
-                if let Some(ann) =
-                    infer_expr_ann_with(ast_exprs_view, *init, &bs, &outer_binds, &fn_sigs)
-                {
-                    outer_binds.insert(name.clone(), ann);
-                }
-            }
-        }
-        if let Stmt::FnDecl { params, .. } = s {
-            for p in params {
-                if let Some(ann) = &p.type_ann
-                    && p.name != "__env"
-                    && p.name != "__this"
-                {
-                    outer_binds.insert(p.name.clone(), ann.clone());
-                }
-            }
-        }
-    }
-
-    for stmt in stmts.iter_mut() {
-        let Stmt::FnDecl {
-            name,
-            params,
-            return_type,
-            type_params,
-            body,
-            ..
-        } = stmt
-        else {
-            continue;
-        };
-
-        // Skip lifted closures and class-method synthesized shapes —
-        // both keep their concrete first-param annotation as-is.
-        // Capturing arrows arrive here with `__env` as the first
-        // param; un-annotated expr-body still needs return-type
-        // inference for the `(v: number) => v + capture` shape, so
-        // run that branch before continuing. `__this` (class methods)
-        // already has explicit declared return types in practice.
-        let first_kind = params.first().map(|p| p.name.clone());
-        if matches!(first_kind.as_deref(), Some("__env") | Some("__this")) {
-            // P0.10 — capturing-closure user params (everything after
-            // the synthetic `__env` slot) also default to Type::Any
-            // when un-annotated. Pre-fix this `continue` skipped the
-            // closure-default-Any treatment that the non-capturing
-            // `__closure_<N>` branch below applies, leaving capturing
-            // arrows like `xs.forEach(function(v){ otherCb(); })` with
-            // an unannotated `v` slot — typecheck then bailed at
-            // 'parameter `v` of function `__closure_N` requires a type
-            // annotation' even though the surrounding inference path
-            // had defaulted bare-arg cases. Apply the same "any"
-            // default here for `__env`-prefixed closures so the two
-            // paths converge.
-            if first_kind.as_deref() == Some("__env") && name.starts_with("__closure_") {
-                for p in params.iter_mut().skip(1) {
-                    if p.type_ann.is_none() {
-                        p.type_ann = Some("any".to_string());
-                    }
-                }
-            }
-            if first_kind.as_deref() == Some("__env")
-                && return_type.is_none()
-                && body_has_value_return(body)
-            {
-                if let Some(inferred) =
-                    infer_return_ann_seeded(ast_exprs_view, body, params, &outer_binds, &fn_sigs)
-                {
-                    *return_type = Some(inferred);
-                }
-            }
-            // S143 — class method synthesized FnDecls (`__cm_<C>__<m>`
-            // with `__this` as first param) need the same return-ann
-            // sniff as top-level FnDecls when the user wrote no
-            // explicit annotation. Prior comment ("already has explicit
-            // declared return types in practice") was overoptimistic —
-            // `class B { foo() { return 1; } }` typechecked as
-            // `foo(): Void` and the implicit `return 1` blew up with
-            // "return type mismatch: function expects Void, got
-            // Number". Mirrors the `__env` arm above; `__this` is
-            // already declared and provides its own outer binding.
-            if first_kind.as_deref() == Some("__this")
-                && return_type.is_none()
-                && body_has_value_return(body)
-            {
-                if let Some(inferred) =
-                    infer_return_ann_seeded(ast_exprs_view, body, params, &outer_binds, &fn_sigs)
-                {
-                    *return_type = Some(inferred);
-                }
-            }
-            continue;
-        }
-        // P0.5 — lifted arrow / function-expression bodies
-        // (`__closure_<N>`) get unannotated params defaulted to
-        // Type::Any (concrete tagged-box, NOT generic TypeVar). The
-        // closure signature is then concrete `(Any, Any, ...) → ...`
-        // so ssa_lower lowers it as a regular fn, no monomorphization
-        // path needed. Call sites box their concrete args via
-        // box_to_any before dispatching. Body operations on Any
-        // operands route through the P0.3 / P0.4 / future P0.x
-        // Any-aware op helpers.
-        //
-        // The historical skip dropped TypeVars on closures because
-        // the indirect-call retargeter only fired on bare-Ident
-        // global-FnDecl callees, leaving closure TypeVar signatures
-        // unresolvable. Defaulting to Any sidesteps that — the
-        // signature is concrete from the start.
-        //
-        // Return-type sniff still runs first so the simple shapes
-        // (`return literal` / `return param`) get a concrete return
-        // type; only fully ambiguous returns fall through to Any.
-        if name.starts_with("__closure_") {
-            // Default unannotated params to Type::Any FIRST, then run
-            // return-ann sniff — order matters because the sniff uses
-            // params' type_ann to resolve Ident references in the body.
-            // With `x: any` set, `return x` infers "any"; without, it
-            // bails to None and the lower defaults the return to Void
-            // (which conflicts with the actual returned-Any value).
-            for p in params.iter_mut() {
-                if p.type_ann.is_none() && p.name != "__env" && p.name != "__this" {
-                    p.type_ann = Some("any".to_string());
-                }
-            }
-            if return_type.is_none() && body_has_value_return(body) {
-                if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params, &fn_sigs) {
-                    *return_type = Some(inferred);
-                }
-            }
-            continue;
-        }
-
-        // Avoid name collisions with any explicit type-params already
-        // declared. Tracking the in-use set lets us pick `__T1`, `__T2`,
-        // ... without trampling.
-        let mut taken: HashSet<String> = type_params.iter().cloned().collect();
-
-        let mut next_idx: usize = type_params.len();
-        let alloc = |taken: &mut HashSet<String>, next_idx: &mut usize| -> String {
-            loop {
-                *next_idx += 1;
-                let candidate = format!("__T{next_idx}");
-                if !taken.contains(&candidate) {
-                    taken.insert(candidate.clone());
-                    return candidate;
-                }
-            }
-        };
-
-        let mut new_type_params: Vec<String> = Vec::new();
-        for p in params.iter_mut() {
-            // P0.9 — explicit `: any` param stays literal "any"
-            // (Type::Any). Pre-fix tora rewrote `: any` to a fresh
-            // TypeVar (matching the unannotated case) which then
-            // required per-call-site mono inference; that path
-            // breaks for genuinely-Any args (the inferred TypeVar=
-            // Any combination wasn't fully wired through the SSA
-            // layer). Now that P0.6 / P0.7 / P0.8 ship Any-aware
-            // BinOp/Compare and the call-site arg-boxing handles
-            // concrete→Any conversion at the boundary, leaving
-            // `: any` as-is produces a concrete Any sig that
-            // every call site can dispatch into directly.
-            //
-            // Unannotated params still get TypeVar (the per-call-
-            // site mono path remains the default for genuine
-            // generics).
-            let needs_var = match &p.type_ann {
-                None => true,
-                Some(_) => false,
-            };
-            if !needs_var {
-                continue;
-            }
-            // Don't genericize rest params — `...args: any[]` would need
-            // a list-of-T encoding the substrate doesn't model. Leave
-            // them un-genericized; the typechecker still rejects them
-            // with the existing "requires annotation" message, but only
-            // for rest-shaped sites which are a narrow slice.
-            if p.is_rest {
-                continue;
-            }
-            let var_name = alloc(&mut taken, &mut next_idx);
-            p.type_ann = Some(var_name.clone());
-            new_type_params.push(var_name);
-        }
-
-        // Return type:
-        //   - explicit `: any` → first try the static return-ann sniff
-        //     against body returns + the (now-genericised) param types;
-        //     if it produces a single coherent annotation (which for
-        //     `function f(x: any): any { return x }` is `__T1` — the
-        //     param's TypeVar), use that so monomorphization can bind
-        //     `__T2` to the same call-site type. Falls back to a fresh
-        //     `__T2` TypeVar when the sniff is silent (multi-return /
-        //     mixed shape) — preserves the original behaviour for
-        //     genuinely Any returns.
-        //   - omitted (`function f(...) { ... }`) → same sniff, used
-        //     when the user gave no return ann at all.
-        //   - explicit non-any annotation → leave alone.
-        if return_type.as_deref() == Some("any") {
-            // P0.9 — explicit `: any` return stays literal "any"
-            // (Type::Any). Pre-fix this branch tried to find a
-            // single concrete return type via sniff and fell back
-            // to a fresh TypeVar; both paths broke real-world
-            // multi-return Any-typed functions ('could not infer
-            // type parameter __T1 for f'). Now that P0.6 / P0.7 /
-            // P0.8 ship Any-aware BinOp/Compare and the return-
-            // type assignability check honors Any-on-LHS, leaving
-            // the ann as literal "any" produces a concrete Any
-            // sig that downstream call sites accept directly.
-            //
-            // Old behavior is reachable via explicit `<T>` —
-            // user who genuinely wants per-call-site mono writes
-            // `function id<T>(x: T): T { ... }`.
-        } else if return_type.is_none() && body_has_value_return(body) {
-            if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params, &fn_sigs) {
-                *return_type = Some(inferred);
-            }
-        }
-
-        if !new_type_params.is_empty() {
-            type_params.extend(new_type_params);
-        }
-    }
+    crate::ast_desugar_implicit_generics::run(ast);
 }
 
 /// Borrow-shaped view of `Ast.exprs` for the inference helper. Defined
@@ -9380,7 +9091,7 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
 /// indexed by `ExprId.0 as usize`. The pre-pass walks expression
 /// shapes statically without consulting the typechecker, so this
 /// flat slice is enough.
-type AstExprsView<'a> = &'a [Expr];
+pub(crate) type AstExprsView<'a> = &'a [Expr];
 
 /// Static return-type sniff. Walks every value-return inside `body`
 /// (recursing through control-flow shapes that propagate value-
@@ -9395,7 +9106,7 @@ type AstExprsView<'a> = &'a [Expr];
 /// `number` out as the return). Lookups that fall off the simple-
 /// shape grammar (Member / Call / Index / object literal / etc.) bail
 /// to None — the typechecker still owns the deeper analysis.
-fn infer_return_ann(
+pub(crate) fn infer_return_ann(
     exprs: AstExprsView,
     body: &[Stmt],
     params: &[Param],
@@ -9417,7 +9128,7 @@ fn infer_return_ann(
 /// let-decls — captured idents had no entry in binds and the sniff
 /// bailed to None. Idempotent: explicit body-local lets shadow the
 /// outer seed via collect_let_binding_anns running afterwards.
-fn infer_return_ann_seeded(
+pub(crate) fn infer_return_ann_seeded(
     exprs: AstExprsView,
     body: &[Stmt],
     params: &[Param],
@@ -9518,7 +9229,7 @@ fn collect_let_binding_anns_stmt(
     }
 }
 
-fn binds_to_params(binds: &std::collections::HashMap<String, String>) -> Vec<Param> {
+pub(crate) fn binds_to_params(binds: &std::collections::HashMap<String, String>) -> Vec<Param> {
     binds
         .iter()
         .map(|(k, v)| Param {
@@ -9629,7 +9340,7 @@ fn is_typevar_ann(s: &str) -> bool {
 }
 
 /// Statically infer the type-annotation string for an expression (best-effort).
-fn infer_expr_ann_with(
+pub(crate) fn infer_expr_ann_with(
     exprs: AstExprsView,
     eid: ExprId,
     params: &[Param],
@@ -9750,7 +9461,7 @@ fn infer_expr_ann_with(
     }
 }
 
-fn body_has_value_return(body: &[Stmt]) -> bool {
+pub(crate) fn body_has_value_return(body: &[Stmt]) -> bool {
     for s in body {
         if stmt_has_value_return(s) {
             return true;
