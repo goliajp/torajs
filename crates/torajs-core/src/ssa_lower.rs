@@ -1575,159 +1575,28 @@ fn lower_inner(
         any_unbox_value: any_unbox_value_id,
         any_box_drop: any_box_drop_id,
     } = crate::ssa_lower_intrinsics_any_substrate::declare(&mut module, &mut fn_table);
-    let print_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_print_anyv",
-        &[Type::Any],
-        Type::Void,
-    );
-    // Multi-arg `console.log` joiner — same NaN-box dispatch as
-    // `__torajs_print_anyv` but no trailing newline. The lowerer
-    // emits `' '` between args and `'\n'` after the last arg.
-    let print_any_inline_top_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_print_anyv_inline_top",
-        &[Type::Any],
-        Type::Void,
-    );
-    // `torajs-io`'s single-byte stdout writer — separator + final \n
-    // emitter for the multi-arg `console.log` joiner. Signature
-    // matches the C-side: `int putc(int)`.
-    let io_putc_stdout_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_io_putc_stdout",
-        &[Type::I64],
-        Type::I64,
-    );
-    // No-\n typed Arr walker family (torajs-arr::print_inline) —
-    // used by the multi-arg console.log joiner so typed Arr<T> args
-    // print bun-form `[ a, b, c ]` without a trailing newline. The
-    // standalone `__torajs_arr_print_<T>` (with \n) stays the
-    // single-arg console.log target.
-    let arr_print_i64_inline_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_print_i64_inline",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let arr_print_f64_inline_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_print_f64_inline",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let arr_print_bool_inline_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_print_bool_inline",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let arr_print_str_inline_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_print_str_inline",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    let arr_print_substr_inline_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_print_substr_inline",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    // Nested-print substrate trunk Commit 7 — Type::Map / Type::Set
-    // console.log dispatch goes through dedicated wrappers (not the
-    // tag-aware __torajs_print_anyv, which would print Sets as
-    // `Map(...)` since both share runtime Tag::Map=15). The
-    // `*_outer` helpers emit the Map(...) / Set(...) form plus the
-    // trailing '\n'.
-    let map_print_outer_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_print_outer",
-        &[Type::Map],
-        Type::Void,
-    );
-    let set_print_outer_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_set_print_outer",
-        &[Type::Set],
-        Type::Void,
-    );
-    // Fn-name registry Phase 1 narrow — Type::FnSig
-    // console.log dispatch goes through `__torajs_fn_print_outer`
-    // which currently emits `[Function]\n` (no name). Phase 2 ships
-    // the rodata `__torajs_fn_name_table[]` (Step 3b) and rewrites
-    // the helper body to do a binary search for the bun-byte-equal
-    // `[Function: name]` form.
-    let fn_print_outer_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_fn_print_outer",
-        &[Type::I64],
-        Type::Void,
-    );
-    /* P-CONSOLE follow-up — `__torajs_any_to_str(tag, value)` —
-     * route an Any-boxed value (split into tag + value via
-     * `any_unbox_tag` + `any_unbox_value`) into the runtime's
-     * tag-dispatched ToString implementation. Used by
-     * `coerce_to_str` to support `console.log(literal, e)` where
-     * `e` is Type::Any (the default catch-param shape). Returns
-     * a fresh owned Str (rc=1; caller drops). For ANY_HEAP /
-     * Type::Str inputs the helper rc-inc's the existing pointer
-     * and returns it — caller still owns a single ref. */
-    let any_to_str_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_anyv_to_str_pair",
-        &[Type::I64, Type::I64],
-        Type::Str,
-    );
-    /* T-09.d (v0.4.0) — Object.freeze sets FROZEN bit; isFrozen
-     * reads it. Field-write codegen consults the bit inline (no
-     * runtime call) for the silent-ignore mutation guard. */
-    let obj_freeze_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_obj_freeze",
-        &[Type::Ptr],
-        Type::Ptr,
-    );
-    let obj_is_frozen_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_obj_is_frozen",
-        &[Type::Ptr],
-        Type::Bool,
-    );
-    // NaN-box-aware isFrozen — takes the raw `Any` (NaN-box i64),
-    // unboxes the tag and dispatches: HEAP → real ptr → obj_is_frozen,
-    // non-HEAP → true (per ES2015 §19.1.2.16). Used when ssa_lower's
-    // Object.isFrozen arm sees Type::Any (raw helper would deref the
-    // sentinel as a heap header → SIGSEGV; see
-    // cases#obj-is-frozen-any-segv).
-    let obj_is_frozen_any_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_obj_is_frozen_any",
-        &[Type::Any],
-        Type::Bool,
-    );
-    let obj_check_not_frozen_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_obj_check_not_frozen",
-        &[Type::Ptr],
-        Type::Void,
-    );
+    // console.log path (print_anyv core + multi-arg inline joiner +
+    // per-T arr_print_inline walkers + Map/Set/Fn outer wrappers +
+    // any_to_str_pair) + Object.freeze (16 ids). See sibling for
+    // the per-decl ABI detail.
+    let crate::ssa_lower_intrinsics_print_freeze::PrintFreezeIds {
+        print_any: print_any_id,
+        print_any_inline_top: print_any_inline_top_id,
+        io_putc_stdout: io_putc_stdout_id,
+        arr_print_i64_inline: arr_print_i64_inline_id,
+        arr_print_f64_inline: arr_print_f64_inline_id,
+        arr_print_bool_inline: arr_print_bool_inline_id,
+        arr_print_str_inline: arr_print_str_inline_id,
+        arr_print_substr_inline: arr_print_substr_inline_id,
+        map_print_outer: map_print_outer_id,
+        set_print_outer: set_print_outer_id,
+        fn_print_outer: fn_print_outer_id,
+        any_to_str: any_to_str_id,
+        obj_freeze: obj_freeze_id,
+        obj_is_frozen: obj_is_frozen_id,
+        obj_is_frozen_any: obj_is_frozen_any_id,
+        obj_check_not_frozen: obj_check_not_frozen_id,
+    } = crate::ssa_lower_intrinsics_print_freeze::declare(&mut module, &mut fn_table);
     /* T-25 (v0.7) — BigInt runtime. The literal-from-string path
      * is the only allocator we wire from ssa_lower today; arithmetic
      * intrinsics dispatch from BinOp lowering for Type::BigInt
