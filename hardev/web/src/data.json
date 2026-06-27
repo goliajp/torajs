@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T17:07:08.791Z",
+  "generatedAt": "2026-06-27T18:37:31.024Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "1692f97f",
-    "commitSubject": "refactor(torajs-core): delete dead declare_intrinsic_with_sig (chunk 135)",
+    "commit": "ed1de2d0",
+    "commitSubject": "refactor(torajs-core): extract ast::desugar_implicit_generics (chunk 140)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "ed1de2d0",
+      "subject": "refactor(torajs-core): extract ast::desugar_implicit_generics (chunk 140)"
+    },
+    {
+      "hash": "db50f854",
+      "subject": "refactor(torajs-core): extract ast::desugar_builtin_new (chunk 139)"
+    },
+    {
+      "hash": "cd3359ee",
+      "subject": "refactor(torajs-core): extract ast::desugar_function_prototype_methods (chunk 138)"
+    },
+    {
+      "hash": "5ecf5d2f",
+      "subject": "refactor(torajs-core): extract LowerCtx::lower_for_of_map_like (chunk 137)"
+    },
+    {
+      "hash": "08af766f",
+      "subject": "refactor(torajs-core): extract Checker run_full_pipeline 3 passes into check_pipeline sibling (chunk 136)"
+    },
+    {
+      "hash": "ad317875",
+      "subject": "chore(handoff/dashboard): chunks 110-135 ship summary @ 1692f97f (-3298 LOC Pass 0 split CLOSE)"
+    },
+    {
       "hash": "1692f97f",
       "subject": "refactor(torajs-core): delete dead declare_intrinsic_with_sig (chunk 135)"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "8a386fdc",
       "subject": "refactor(torajs-core): extract lower_inner Pass 0 arr/str/concat/print intrinsics (chunk 130)"
-    },
-    {
-      "hash": "6bd7c667",
-      "subject": "chore(handoff/dashboard): chunks 110-129 ship summary @ 295c2b2e (-2625 LOC Pass 0 split round 1-4)"
-    },
-    {
-      "hash": "295c2b2e",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0 substr core intrinsics (chunk 129)"
-    },
-    {
-      "hash": "e18079f3",
-      "subject": "chore(handoff/dashboard): chunks 110-128 ship summary @ 73636d1e (-2523 LOC Pass 0 split round 1-3)"
-    },
-    {
-      "hash": "73636d1e",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0 promise intrinsics (chunk 128)"
-    },
-    {
-      "hash": "f836d44e",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0 runtime-misc intrinsics (chunk 127)"
-    },
-    {
-      "hash": "6a9d1b22",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0 map/set + iter intrinsics (chunk 126)"
     }
   ],
-  "headSha": "1692f97f",
+  "headSha": "ed1de2d0",
   "autorun": {
-    "total": 262,
+    "total": 263,
     "baselineTarget": 10,
-    "bySelf": 257,
+    "bySelf": 258,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782575039-5806",
-      "at": "2026-06-27T15:43:59Z",
-      "ts": 1782575039,
+      "rotationId": "r-1782580460-1018",
+      "at": "2026-06-27T17:14:20Z",
+      "ts": 1782580460,
       "trigger": "self",
-      "prevHead": "6bd7c667",
-      "handoffSha": "sha256:dc73bd5e02d3fd4d53287e8fbf2ca173b132232f8ef73ad40d142a9de21d864a",
-      "handoffAgeSec": 15,
+      "prevHead": "ad317875",
+      "handoffSha": "sha256:a6358da5451c48790e1812131b72aecb220df67e8c68ec03a16cf15c67ff3ef0",
+      "handoffAgeSec": 440,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782580460-1018",
+        "at": "2026-06-27T17:14:20Z",
+        "ts": 1782580460,
+        "trigger": "self",
+        "prevHead": "ad317875",
+        "handoffSha": "sha256:a6358da5451c48790e1812131b72aecb220df67e8c68ec03a16cf15c67ff3ef0",
+        "handoffAgeSec": 440,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782575039-5806",
         "at": "2026-06-27T15:43:59Z",
@@ -780,17 +791,6 @@
         "prevHead": "91ab44e5",
         "handoffSha": "sha256:bbf57556905211632f30f56c44fcce2dfdd4440bef9155f4c471d6a2c801b602",
         "handoffAgeSec": 23,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782477025-2f4c",
-        "at": "2026-06-26T12:30:25Z",
-        "ts": 1782477025,
-        "trigger": "self",
-        "prevHead": "64ad8a4b",
-        "handoffSha": "sha256:41c4419ac6bdff0fa210dd3f63c42cfd2660156afa08667b69090c0cb34c6d6e",
-        "handoffAgeSec": 145,
         "conformanceBefore": null,
         "commitsInSession": null
       }
