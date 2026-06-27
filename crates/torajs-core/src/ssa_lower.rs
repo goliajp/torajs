@@ -25,7 +25,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{self, Ast, BinOp as AstBinOp, Expr, ExprId, Param, Stmt};
+use crate::ast::{Ast, BinOp as AstBinOp, Expr, ExprId, Param, Stmt};
 use crate::check::{self as check_mod, GenericCallSites, type_to_ann};
 use crate::short_str_encode::encode_short_str_literal;
 use crate::ssa::{
@@ -2855,7 +2855,7 @@ fn lower_inner(
         } = &ast.stmts[stmt_idx]
         {
             let string_id_base = module.strings.len();
-            let (f, new_strings) = lower_fn(
+            let (f, new_strings) = crate::ssa_lower_fn::lower_fn(
                 name,
                 params,
                 return_type.as_deref(),
@@ -2982,7 +2982,7 @@ fn lower_inner(
         } = &ast.stmts[stmt_idx]
         {
             let string_id_base = module.strings.len();
-            let (f, new_strings) = lower_fn(
+            let (f, new_strings) = crate::ssa_lower_fn::lower_fn(
                 name,
                 params,
                 return_type.as_deref(),
@@ -4039,7 +4039,7 @@ fn synthesize_main(
 /// and the Stmt::Return arm in `lower_stmt` wraps each FnSig return
 /// in a synthesized forwarder closure (see `synthesize_forwarder` /
 /// `wrap_fnsig_into_closure_via_forwarder`).
-fn effective_ret_ty(parsed: Type, ast: &Ast, body: &[Stmt]) -> Type {
+pub(crate) fn effective_ret_ty(parsed: Type, ast: &Ast, body: &[Stmt]) -> Type {
     if let Type::FnSig(sig_id) = parsed
         && body_returns_closure(ast, body)
     {
@@ -4127,7 +4127,7 @@ fn stmt_has_ident_return(ast: &Ast, s: &Stmt, globals: &std::collections::HashSe
 /// Decode the `__env(name1|name2|...)` annotation lift_arrow_fns put on
 /// a capturing closure's hidden first param. Returns the ordered capture
 /// names. Returns `None` for anything that doesn't match the form.
-fn decode_env_ann(ann: &str) -> Option<Vec<String>> {
+pub(crate) fn decode_env_ann(ann: &str) -> Option<Vec<String>> {
     let inner = ann.strip_prefix("__env(")?.strip_suffix(')')?;
     if inner.is_empty() {
         return Some(Vec::new());
@@ -4165,397 +4165,6 @@ pub(crate) fn intern_fn_sig(
     let id = ssa::SigId(fn_sigs.len() as u32);
     fn_sigs.push((params, ret));
     id
-}
-
-#[allow(clippy::too_many_arguments)]
-fn lower_fn(
-    name: &str,
-    params: &[ast::Param],
-    return_type: Option<&str>,
-    body: &[Stmt],
-    ast: &Ast,
-    fn_table: &HashMap<String, FuncId>,
-    signatures: &HashMap<FuncId, Type>,
-    fn_sig_ids: &HashMap<FuncId, ssa::SigId>,
-    intrinsics: &Intrinsics,
-    aliases: &HashMap<String, Type>,
-    arr_layouts: &mut Vec<Type>,
-    baked_regex_buf: &mut Vec<BakedRegexEntry>,
-    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
-    inst_memo: &mut HashMap<String, ssa::StructId>,
-    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    string_id_base: usize,
-    closure_captures: &mut HashMap<String, Vec<(Type, bool)>>,
-    call_retargets: &CallRetargets,
-    may_throw_fns: &std::collections::HashSet<String>,
-    class_name_to_tag: &HashMap<String, u32>,
-    anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
-    globals: &HashMap<String, Type>,
-    expr_types: &HashMap<ExprId, crate::check::Type>,
-    arity_pad_count: &HashMap<ExprId, usize>,
-    num_f64_slots: &crate::num_width::WidthTable,
-    promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
-) -> (ssa::Function, Vec<ssa::StringLiteral>) {
-    let mut ret_ty = effective_ret_ty(
-        parse_type(
-            return_type,
-            aliases,
-            arr_layouts,
-            fn_sigs,
-            generic_struct_decls,
-            struct_layouts,
-            inst_memo,
-        ),
-        ast,
-        body,
-    );
-    // W1 — mirror of the signature-collection ret widen; the two
-    // sites must not drift (K.3 lesson).
-    if ret_ty == Type::I64
-        && return_type == Some("number")
-        && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Ret(name.to_string()))
-    {
-        ret_ty = Type::F64;
-    }
-    ret_ty = crate::ssa_lower_container_width::widen_container_ty(
-        ret_ty,
-        return_type,
-        &crate::num_width::SlotKey::Ret(name.to_string()),
-        num_f64_slots,
-        arr_layouts,
-        struct_layouts,
-        fn_sigs,
-    );
-    let mut f = ssa::Function::new(name, ret_ty);
-
-    // Capture param SSA values + types BEFORE creating the entry block; we'll
-    // alloca-and-store each one inside entry below so the lowerer can treat
-    // params and let-locals uniformly (both read via Load, both writable via
-    // Store; params just happen to be initialized from the function's
-    // SSA-arg values).
-    let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
-    for p in params {
-        let mut pty = parse_type(
-            p.type_ann.as_deref(),
-            aliases,
-            arr_layouts,
-            fn_sigs,
-            generic_struct_decls,
-            struct_layouts,
-            inst_memo,
-        );
-        // W1 — mirror of the signature-collection param widen: the
-        // module-wide inference decides whether any f64-possible
-        // value reaches this param (body assignment, call-site arg,
-        // slot propagation). Same num_width ground truth as the sig
-        // site — the two must not drift (K.3 lesson).
-        if pty == Type::I64
-            && p.type_ann.as_deref() == Some("number")
-            && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Param(
-                name.to_string(),
-                p.name.clone(),
-            ))
-        {
-            pty = Type::F64;
-        }
-        pty = crate::ssa_lower_container_width::widen_container_ty(
-            pty,
-            p.type_ann.as_deref(),
-            &crate::num_width::SlotKey::Param(name.to_string(), p.name.clone()),
-            num_f64_slots,
-            arr_layouts,
-            struct_layouts,
-            fn_sigs,
-        );
-        let pid = f.add_param(pty, &p.name);
-        param_setup.push((p.name.clone(), pid, pty));
-    }
-
-    let entry = f.add_block();
-    // User function bodies can intern string literals (any `Expr::String`
-    // routes through intern_string_literal). The base offset has the
-    // current global string count — caller appends new_strings to
-    // module.strings after this returns, so StringIds stay unique.
-    let mut new_strings: Vec<ssa::StringLiteral> = Vec::new();
-    let mut ctx = LowerCtx {
-        f: &mut f,
-        ast,
-        fn_table,
-        signatures,
-        fn_sig_ids,
-        intrinsics: *intrinsics,
-        aliases,
-        expr_types,
-        arity_pad_count,
-        num_f64_slots,
-        promise_thunks,
-        arr_layouts,
-        baked_regex_buf,
-        fn_sigs,
-        struct_layouts,
-        inst_memo,
-        generic_struct_decls,
-        class_name_to_tag,
-        anon_stamp_pool,
-        try_stack: Vec::new(),
-        try_finally_stack: Vec::new(),
-        try_finally_loop_depth: Vec::new(),
-        pending_return_slot: None,
-        pending_return_flag: None,
-        pending_break_flag: None,
-        pending_continue_flag: None,
-        locals: HashMap::new(),
-        scope_stack: vec![Vec::new()],
-        shadow_stack: vec![Vec::new()],
-        loop_stack: Vec::new(),
-        cur_block: entry,
-        new_strings: &mut new_strings,
-        string_id_base,
-        closure_captures,
-        call_retargets,
-        may_throw_fns,
-        captured_arr_writeback: HashMap::new(),
-        escape_captured_lets: std::collections::HashSet::new(),
-        push_unchecked_for: std::collections::HashMap::new(),
-        regex_lit_cache: std::collections::HashMap::new(),
-        binop_left_undef_id: None,
-        binop_right_undef_id: None,
-        binop_mul_square: false,
-        bigint_op_may_throw: false,
-        globals,
-        is_main_fn: false,
-        drop_inline_stack: std::collections::HashSet::new(),
-        deque_arrs: std::collections::HashSet::new(),
-        escape_obj_lets: std::collections::HashSet::new(),
-        stack_alloced_locals: std::collections::HashSet::new(),
-        let_stack_alloc_hint: None,
-    };
-
-    // Closure-capture analysis: any `let` (or param) whose name is
-    // captured by some `Expr::Closure` in `body` needs a heap-
-    // allocated slot so the env can hold a stable pointer regardless
-    // of whether the closure escapes. This uniform treatment lets
-    // the env-drop fn (synthesized per lifted closure) free all
-    // heap slots through the same code path; non-escape closures
-    // pay one extra 8-byte alloc per Copy capture, which is
-    // negligible compared to the env block they already allocate.
-    for s in body {
-        collect_closure_captures_in_stmt(ctx.ast, s, &mut ctx.escape_captured_lets);
-    }
-    // 11-A1 — prime deque-unsafe Array binding set.
-    for s in body {
-        collect_deque_arr_names_in_stmt(ctx.ast, s, &mut ctx.deque_arrs);
-    }
-    // 11-A2-a — prime escape-bound Obj-typed binding set.
-    for s in body {
-        collect_escape_obj_let_names_in_stmt(ctx.ast, s, &mut ctx.escape_obj_lets);
-    }
-
-    // Materialize each param as an alloca-backed local. mem2reg at -O1+
-    // collapses these straight back to the SSA arg values, so there is no
-    // perf cost; we still get fib40 at 150 ms.
-    for (pname, pid, ty) in param_setup {
-        // Escape-captured Copy params need a heap-allocated slot
-        // (same reasoning as the let-decl path: escape closure holds
-        // a stable pointer that outlives the construction frame).
-        // Non-Copy params: env stores the heap-pointer value directly,
-        // no slot promotion needed.
-        let escape_captured = ty.is_copy() && ctx.escape_captured_lets.contains(&pname);
-        let slot = if escape_captured {
-            // T-15.g.5 — refcounted capture box (mirrors the let-decl
-            // path). Same i64 helper signature, so widen Bool / bitcast
-            // F64 first.
-            let init_i64 = if matches!(ty, Type::F64) {
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::BitCastF64ToI64(Operand::Value(pid)),
-                    Type::I64,
-                    None,
-                );
-                Operand::Value(v)
-            } else if matches!(ty, Type::Bool) {
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::ZExtBoolToI64(Operand::Value(pid)),
-                    Type::I64,
-                    None,
-                );
-                Operand::Value(v)
-            } else {
-                Operand::Value(pid)
-            };
-            ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.capture_box_alloc, vec![init_i64]),
-                Type::Ptr,
-                None,
-            )
-        } else {
-            let s = ctx.alloca(ty, Some(&pname));
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(pid), Operand::Value(s), 0),
-            );
-            s
-        };
-        // The hidden `__env` first-param of a lifted closure is not
-        // owned by the callee — the closure value (and its env) are
-        // owned by the construction site / its enclosing scope. Mark
-        // moved so end-of-fn drop walk skips it.
-        //
-        // M5.1 — same treatment for `__this` on a class method
-        // (function name starts with `__cm_`): the receiver is borrowed,
-        // owned by the caller, and must NOT be dropped at fn exit.
-        let is_env_param = pname == "__env";
-        let is_class_self = name.starts_with("__cm_") && pname == "__this";
-        // TS-shape: non-Copy params borrow from the caller — the caller
-        // owns the heap and will drop it at its scope close. Marking
-        // non-Copy params as `moved` keeps fn-end drop emission from
-        // freeing what we don't own. Escape-captured params transfer
-        // ownership to env (env-drop frees the heap slot).
-        let borrows_caller = is_env_param || is_class_self || !ty.is_copy() || escape_captured;
-        ctx.locals.insert(
-            pname.clone(),
-            LocalInfo {
-                slot,
-                ty,
-                moved: borrows_caller,
-                borrowed: borrows_caller,
-                scope_depth: 0,
-            },
-        );
-        // Track param in fn-root scope frame so it doesn't get
-        // accidentally drop-walked at any inner-block close.
-        ctx.scope_stack[0].push(pname);
-    }
-
-    // M2 — closure body env preamble. If first param is `__env`, decode
-    // capture names from its `__env(c1|c2|...)` annotation and emit a
-    // load-from-env at offset 8, 16, ... for each capture, then bind it
-    // as a regular local under the capture's name. The body's
-    // `Expr::Ident(c1)` then resolves to this loaded slot rather than
-    // erroring as "unknown ident". Capture types come from the
-    // `closure_captures` side channel, populated by the construction
-    // site.
-    if let Some(first) = params.first()
-        && first.name == "__env"
-        && let Some(ann) = &first.type_ann
-        && let Some(cap_names) = decode_env_ann(ann)
-        && !cap_names.is_empty()
-    {
-        // P3.closure-in-struct-field — 0-capture closure bodies (e.g.
-        // forwarders synthesized by `synthesize_fn_to_closure_forwarders`
-        // and zero-capture arrows lifted by `lift_arrow_fns`) carry an
-        // `__env` first param purely for ABI uniformity; they emit no
-        // env-load preamble and don't depend on the
-        // construction-site-populated `closure_captures` side channel.
-        let cap_meta: Vec<(Type, bool)> =
-            ctx.closure_captures.get(name).cloned().unwrap_or_else(|| {
-                panic!(
-                    "ssa-lower: lifted closure `{name}` has no capture types — \
-                     construction site must run before body lowering"
-                )
-            });
-        if cap_meta.len() != cap_names.len() {
-            panic!(
-                "ssa-lower: closure `{name}` capture-name count {} != type count {}",
-                cap_names.len(),
-                cap_meta.len()
-            );
-        }
-        let env_slot = ctx
-            .locals
-            .get("__env")
-            .copied()
-            .expect("__env param materialized as local")
-            .slot;
-        for (i, (cap_name, (cap_ty, is_byref))) in cap_names.iter().zip(cap_meta.iter()).enumerate()
-        {
-            let cap_ty = *cap_ty;
-            let is_byref = *is_byref;
-            let env_ptr = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
-                Type::Ptr,
-                None,
-            );
-            let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
-            // Three modes mirroring the construction-site code:
-            //  - by-ref Copy: env stored ptr-to-outer-slot. Use the
-            //    loaded ptr as the capture's local slot directly so
-            //    body reads/writes flow through to the original slot.
-            //  - by-value Copy (escaping closure): env stored the
-            //    value. Load it into a fresh alloca; mutations stay
-            //    in the local copy (matches the legacy semantics).
-            //  - Non-Copy: env stored the heap pointer VALUE. Load
-            //    the value, store into a fresh local alloca. Body
-            //    sees the heap data via the value.
-            let cap_slot = if cap_ty.is_copy() && is_byref {
-                ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Load(Type::Ptr, Operand::Value(env_ptr), offset),
-                    Type::Ptr,
-                    None,
-                )
-            } else {
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Load(cap_ty, Operand::Value(env_ptr), offset),
-                    cap_ty,
-                    None,
-                );
-                let local = ctx.alloca(cap_ty, Some(cap_name));
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
-                );
-                // Captured Arr writeback (legacy mechanism) — keep so
-                // pushes inside the closure mirror back to env+offset
-                // for subsequent invocations of the same closure.
-                if matches!(cap_ty, Type::Arr(_)) {
-                    ctx.captured_arr_writeback.insert(local, (env_slot, offset));
-                }
-                local
-            };
-            ctx.locals.insert(
-                cap_name.clone(),
-                LocalInfo {
-                    slot: cap_slot,
-                    ty: cap_ty,
-                    // Captures are aliases of outer-scope bindings — we
-                    // borrow the heap, never own it. Mark `moved` so the
-                    // closure body's end-of-fn drop walk skips them
-                    // (the env block holds the canonical pointer; freeing
-                    // the env later cleans up).
-                    moved: true,
-                    borrowed: true,
-                    scope_depth: 0,
-                },
-            );
-            ctx.scope_stack[0].push(cap_name.clone());
-        }
-    }
-
-    let mut prev: Option<&Stmt> = None;
-    for s in body {
-        if !ctx.try_lower_while_fast(prev, s) {
-            ctx.lower_stmt(s);
-        }
-        prev = Some(s);
-    }
-    // Function fall-through (no explicit return). Emit drops + an implicit
-    // void/zero return — applies to any block still open at body end.
-    if ctx.cur_open() {
-        ctx.emit_drops_for_owned_locals();
-        let cb = ctx.cur_block;
-        match ctx.f.ret {
-            Type::Void => ctx.f.set_term(cb, Terminator::Ret(None)),
-            _ => ctx.f.set_term(cb, Terminator::Unreachable),
-        }
-    }
-
-    (f, new_strings)
 }
 
 /// v0.6+1 perf checkpoint — per-array hoisted state for the push-loop
@@ -4676,7 +4285,7 @@ pub(crate) struct LowerCtx<'a> {
     /// body and pops after; user-fn calls in scope insert a cond_br on
     /// `__torajs_throw_check()` that targets `*top` (or the fn's
     /// propagate-out path if empty).
-    try_stack: Vec<BlockId>,
+    pub(crate) try_stack: Vec<BlockId>,
     /// M4.3.b — fn names that may throw (directly or transitively).
     /// `emit_throw_check` skips the check after a call to a callee
     /// whose name isn't in this set; intrinsics + verified-pure
@@ -4689,16 +4298,16 @@ pub(crate) struct LowerCtx<'a> {
     /// branches to the top of this stack. The finally tail dispatches:
     /// pending_return AND we're outermost → `load + ret`; otherwise →
     /// `br` to the next outer finally to keep unwinding.
-    try_finally_stack: Vec<BlockId>,
+    pub(crate) try_finally_stack: Vec<BlockId>,
     /// Lazily-allocated alloca slot for a pending return value across
     /// finally blocks. Type matches the enclosing fn's ret type. None
     /// until the first try-with-finally lowering observes a return
     /// would need to flow through it.
-    pending_return_slot: Option<ValueId>,
+    pub(crate) pending_return_slot: Option<ValueId>,
     /// Companion bool flag for `pending_return_slot` — set by Return
     /// inside a try-with-finally, checked at finally tail to decide
     /// whether to ret vs continue normally.
-    pending_return_flag: Option<ValueId>,
+    pub(crate) pending_return_flag: Option<ValueId>,
     /// name → (alloca-ptr value, contents type, moved flag). Every local —
     /// including the function's own parameters — sits behind an alloca.
     /// mem2reg lifts them to SSA values at -O1+.
@@ -4735,13 +4344,13 @@ pub(crate) struct LowerCtx<'a> {
     /// pending flag back to the loop's break/continue target). Without
     /// this, `for { try { break } finally { … } }` would skip the
     /// finally body — spec violation.
-    try_finally_loop_depth: Vec<usize>,
+    pub(crate) try_finally_loop_depth: Vec<usize>,
     /// Bool slot allocated lazily on first break-inside-finally; set by
     /// the break site, checked at finally tail. Same lifecycle as
     /// `pending_return_flag`.
-    pending_break_flag: Option<ValueId>,
+    pub(crate) pending_break_flag: Option<ValueId>,
     /// Same shape for continue.
-    pending_continue_flag: Option<ValueId>,
+    pub(crate) pending_continue_flag: Option<ValueId>,
     /// Loop control-flow stack — innermost loop on top. M1.7. Each entry
     /// is `(continue_target, break_target)`: a `break` inside the loop
     /// body branches to break_target; a `continue` branches to
@@ -4786,7 +4395,7 @@ pub(crate) struct LowerCtx<'a> {
     /// when the closure value is dropped.
     /// Empty for non-escape-context fns; populated at fn-entry by
     /// scanning `body` for `Expr::Closure` captures.
-    escape_captured_lets: std::collections::HashSet<String>,
+    pub(crate) escape_captured_lets: std::collections::HashSet<String>,
     /// v0.6+1 perf checkpoint — push-loop pre-reserve fast-push state.
     ///
     /// When the for-loop lowerer detects a canonical fill loop
@@ -4833,7 +4442,7 @@ pub(crate) struct LowerCtx<'a> {
     /// operands are the same identifier (`x * x`): a value times
     /// itself can never be negative×zero, so -0 is unmintable and
     /// the int path keeps (mirrors the width_of square carve).
-    binop_mul_square: bool,
+    pub(crate) binop_mul_square: bool,
     /// P7.4-a-b — set by `lower_binop_inner` when a bigint
     /// Div/Mod/Pow/Shl/Shr is dispatched (those runtime helpers can
     /// call `__torajs_throw_range_error`). The enclosing `Expr::BinOp`
@@ -4867,12 +4476,12 @@ pub(crate) struct LowerCtx<'a> {
     /// dispatch) instead of inlining another copy of the field walk.
     /// Note: today value_drop_heap's default branch leaks Obj inner
     /// refs — proper class-layout-driven child drop lands in V3-09.
-    drop_inline_stack: std::collections::HashSet<u32>,
+    pub(crate) drop_inline_stack: std::collections::HashSet<u32>,
     /// 11-A1 — fn-local deque-unsafe Array binding names. Populated
     /// by `ssa_lower_deque_escape::collect_deque_arr_names_in_stmt`
     /// at fn entry; queried by `arr_expr_is_non_deque` at every
     /// Index emit site to pick the fast-path offset.
-    deque_arrs: std::collections::HashSet<String>,
+    pub(crate) deque_arrs: std::collections::HashSet<String>,
     /// 11-A2-a — fn-local escape-bound Obj-typed binding names.
     /// Populated by `ssa_lower_obj_escape::collect_escape_obj_let_
     /// names_in_stmt` at fn entry. Queried at the typed-Obj
@@ -4881,7 +4490,7 @@ pub(crate) struct LowerCtx<'a> {
     /// `Call(__torajs_obj_alloc)` for `AllocaBytes(size)` and is
     /// recorded in `stack_alloced_locals` so end-of-scope drop
     /// emission skips its rc-dec branch + drop_sized call.
-    escape_obj_lets: std::collections::HashSet<String>,
+    pub(crate) escape_obj_lets: std::collections::HashSet<String>,
     /// 11-A2-a — set of binding names whose backing storage was
     /// allocated on the stack (`AllocaBytes`) instead of the heap.
     /// `emit_drops_for_owned_locals` and sibling drop emitters skip
