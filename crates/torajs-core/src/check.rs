@@ -654,7 +654,7 @@ pub type GenericCallSites = HashMap<ExprId, (String, Vec<Type>)>;
 /// existing String+String / String+Number arms (they short-circuit
 /// before this helper). Excludes BigInt — mixed BigInt+Number is a
 /// TypeError per spec, caught by the trailing catch-all.
-fn js_add_coerces_to_number(l: &Type, r: &Type) -> bool {
+pub(crate) fn js_add_coerces_to_number(l: &Type, r: &Type) -> bool {
     fn coerces(t: &Type) -> bool {
         matches!(t, Type::Number | Type::Boolean | Type::Null)
     }
@@ -664,7 +664,7 @@ fn js_add_coerces_to_number(l: &Type, r: &Type) -> bool {
 /// V3-18 m1.b — `-` / `*` / `/` / `%` use the same ToNumber rule
 /// as `+` but never have a String-concat path (spec §13.7-§13.10
 /// unconditionally call ToNumeric). Same coercibles as m1.a.
-fn js_arith_coerces_to_number(l: &Type, r: &Type) -> bool {
+pub(crate) fn js_arith_coerces_to_number(l: &Type, r: &Type) -> bool {
     js_add_coerces_to_number(l, r)
 }
 
@@ -741,7 +741,7 @@ pub(crate) fn js_truthy_acceptable(t: &Type) -> bool {
 /// happens at lower time. String / BigInt / Object cross-type
 /// pairs go through ToPrimitive → numeric and ship in a later
 /// wedge.
-fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
+pub(crate) fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
     if matches!(l, Type::Number | Type::Boolean | Type::Null)
         && matches!(r, Type::Number | Type::Boolean | Type::Null)
     {
@@ -8996,330 +8996,12 @@ impl Checker {
                 Ok(*ret)
             }
             Expr::BinOp { op, left, right } => {
-                let l = self.type_of(ast, *left)?;
-                let r = self.type_of(ast, *right)?;
-                match op {
-                    BinOp::Add => {
-                        if l == Type::Number && r == Type::Number {
-                            Ok(Type::Number)
-                        } else if l == Type::BigInt && r == Type::BigInt {
-                            // T-25 — BigInt + BigInt → BigInt. Mixed
-                            // BigInt/Number is a TypeError per spec
-                            // (caught by the catch-all below).
-                            Ok(Type::BigInt)
-                        } else if l == Type::String && r == Type::String {
-                            // TS-shape: `a + b` reads both operands, returns
-                            // a fresh string. Operands keep their heaps —
-                            // `a` and `b` are still readable + droppable
-                            // afterwards (matches bun / standard TS).
-                            Ok(Type::String)
-                        } else if (l == Type::String && r == Type::Number)
-                            || (l == Type::Number && r == Type::String)
-                        {
-                            // JS ToString coercion — ssa_lower routes
-                            // the number side through __torajs_i64_to_str
-                            // / __torajs_f64_to_str before concat.
-                            Ok(Type::String)
-                        } else if (l == Type::String && r == Type::BigInt)
-                            || (l == Type::BigInt && r == Type::String)
-                        {
-                            // V3-18 m3.c — BigInt + String concat. Spec
-                            // §13.15.3: when one side is String, the
-                            // other ToString's. ssa_lower routes the
-                            // BigInt side through __torajs_bigint_to_string.
-                            Ok(Type::String)
-                        } else if (l == Type::String
-                            && matches!(r, Type::Boolean | Type::Null | Type::Undefined))
-                            || (matches!(l, Type::Boolean | Type::Null | Type::Undefined)
-                                && r == Type::String)
-                        {
-                            // V3-18 m1.d / S142 — String + Bool / Null /
-                            // Undefined (and reverse). ssa_lower routes
-                            // the non-string side through
-                            // __torajs_bool_to_str / __torajs_null_to_str
-                            // / __torajs_undefined_to_str before concat.
-                            Ok(Type::String)
-                        } else if (l == Type::String
-                            && matches!(r, Type::Array(_) | Type::Struct(_)))
-                            || (matches!(l, Type::Array(_) | Type::Struct(_)) && r == Type::String)
-                        {
-                            // S138 — `String + Array` / `String + Struct`
-                            // per ES §13.15.3 (StringOrNumeric concat:
-                            // ToPrimitive(Default) → ToString on the
-                            // non-String side). ssa_lower routes Arr
-                            // through arr_join(",") and Struct through
-                            // the `"[object Object]"` literal — same path
-                            // as the explicit `String(arr)` / `String(o)`
-                            // S137 call site.
-                            Ok(Type::String)
-                        } else if (l == Type::String && matches!(r, Type::Any))
-                            || (matches!(l, Type::Any) && r == Type::String)
-                        {
-                            // Spec §13.15.3: when either operand is a
-                            // String, ApplyStringOrNumericBinaryOperator
-                            // routes through the StringConcat branch
-                            // (ToPrimitive(Default) + ToString on the
-                            // non-String side), and the result is always
-                            // a String. Pre-fix this fell into the Any
-                            // catch-all below, which forced callers like
-                            // `new Error('msg: ' + e.message)` (where
-                            // `e: any` makes `e.message: Any`) to add a
-                            // redundant `as string` cast.
-                            Ok(Type::String)
-                        } else if matches!(l, Type::Any) || matches!(r, Type::Any) {
-                            // P0.6 — Any operand on either side per
-                            // JS spec §13.15.3 ApplyStringOrNumeric
-                            // BinaryOperator. ssa_lower routes through
-                            // __torajs_any_add which does ToPrimitive
-                            // (hint=Default) then either string concat
-                            // or numeric add. Result is Any so
-                            // downstream consumers see a boxed value.
-                            Ok(Type::Any)
-                        } else if js_add_coerces_to_number(&l, &r) {
-                            // V3-18 m1.a — JS spec §13.15.3 ToNumber
-                            // coercion for non-string + arithmetic.
-                            // Boolean → ToNumber → 0/1; Null → 0;
-                            // Number stays. Result is Number after both
-                            // sides are coerced. ssa_lower mirrors the
-                            // coercion at lower time (zext / select /
-                            // const-zero) before the actual add. Matches
-                            // bun for `1 + true`, `0 + null`, `true +
-                            // true`, `null + null`, etc — all from the
-                            // test262 addition / coercion buckets.
-                            Ok(Type::Number)
-                        } else {
-                            Err(format!(
-                                "`+` requires matching number/string/bigint operands or string+number, got {l:?} and {r:?}"
-                            ))
-                        }
-                    }
-                    BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
-                        if l == Type::Number && r == Type::Number {
-                            Ok(Type::Number)
-                        } else if l == Type::BigInt && r == Type::BigInt {
-                            // T-25 — BigInt arithmetic. Mixed with
-                            // Number is a TypeError per spec.
-                            Ok(Type::BigInt)
-                        } else if matches!(l, Type::Any) || matches!(r, Type::Any) {
-                            // P0.7 — Any operand on either side per
-                            // JS spec §13.6 / §13.7 / §13.8 / §13.9
-                            // ToNumber both sides, perform the op in
-                            // IEEE 754, return Any-boxed Number.
-                            Ok(Type::Any)
-                        } else if js_arith_coerces_to_number(&l, &r) {
-                            // V3-18 m1.b — ToNumber coercion for the
-                            // -/*/division operators. Same Bool/Null →
-                            // Number rule as `+` (m1.a) but no String
-                            // concat path: spec §13.7-§13.10 unconditionally
-                            // calls ToNumeric on both sides.
-                            Ok(Type::Number)
-                        } else {
-                            Err(format!(
-                                "arithmetic requires number or bigint operands, got {l:?} and {r:?}"
-                            ))
-                        }
-                    }
-                    BinOp::Pow => {
-                        // V3-01 — `**` exponent. Number/Number → Number;
-                        // BigInt/BigInt → BigInt. Mixed-type per spec
-                        // is a TypeError, caught by the catch-all.
-                        if l == Type::Number && r == Type::Number {
-                            Ok(Type::Number)
-                        } else if l == Type::BigInt && r == Type::BigInt {
-                            Ok(Type::BigInt)
-                        } else {
-                            Err(format!(
-                                "`**` requires matching number or bigint operands, got {l:?} and {r:?}"
-                            ))
-                        }
-                    }
-                    BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
-                        if l == Type::Number && r == Type::Number {
-                            Ok(Type::Number)
-                        } else if l == Type::BigInt && r == Type::BigInt {
-                            // V3-02 — BigInt bitwise w/ two's-complement
-                            // simulation. Mixed Number/BigInt rejected.
-                            Ok(Type::BigInt)
-                        } else if js_arith_coerces_to_number(&l, &r) {
-                            // V3-18 m1.e — JS spec §13.12 bitwise ops
-                            // call ToInt32 on both operands then do an
-                            // i32 op. Bool/Null map cleanly via the same
-                            // ToNumber-then-truncate path m1.b uses.
-                            Ok(Type::Number)
-                        } else {
-                            Err(format!(
-                                "bitwise op requires matching number or bigint operands, got {l:?} and {r:?}"
-                            ))
-                        }
-                    }
-                    BinOp::UShr => {
-                        if l == Type::Number && r == Type::Number {
-                            Ok(Type::Number)
-                        } else if l == Type::BigInt || r == Type::BigInt {
-                            // V3-02 — `>>>` on BigInt is a TypeError per
-                            // spec (an "infinite-bit unsigned shift"
-                            // makes no sense). Caught here at typecheck.
-                            Err("`>>>` is not defined on BigInt operands per spec".into())
-                        } else if js_arith_coerces_to_number(&l, &r) {
-                            // V3-18 m1.e — `>>>` ToUint32 path; same
-                            // Bool/Null coercion as the signed shifts.
-                            Ok(Type::Number)
-                        } else {
-                            Err(format!(
-                                "bitwise op requires number operands, got {l:?} and {r:?}"
-                            ))
-                        }
-                    }
-                    BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
-                        if l == Type::Number && r == Type::Number {
-                            Ok(Type::Boolean)
-                        } else if l == Type::BigInt && r == Type::BigInt {
-                            Ok(Type::Boolean)
-                        } else if matches!(l, Type::Any) || matches!(r, Type::Any) {
-                            // P0.8 — Any operand on either side per
-                            // JS spec §7.2.13 IsLessThan. ssa_lower
-                            // routes through __torajs_any_compare:
-                            // both String → lex compare; otherwise
-                            // ToNumber both, IEEE compare.
-                            Ok(Type::Boolean)
-                        } else if l == Type::String && r == Type::String {
-                            // V3-18 m1.h.17 — JS spec §7.2.14: when both
-                            // operands ToPrimitive to String, compare as
-                            // sequences of code units (lex order). The
-                            // existing locale_compare helper already
-                            // returns -1/0/1 over the byte view, which
-                            // matches code-unit order for ASCII; full
-                            // UTF-16 code-unit semantics is a follow-up
-                            // (matches String.prototype.localeCompare's
-                            // current shape, used by the bench cases).
-                            Ok(Type::Boolean)
-                        } else if js_arith_coerces_to_number(&l, &r) {
-                            // V3-18 m1.c — Bool/Null operands: ToNumber
-                            // both sides per §7.2.14, then numeric compare.
-                            // ssa_lower mirrors with the same coerce-to-i64
-                            // path the arith ops use.
-                            Ok(Type::Boolean)
-                        } else {
-                            Err(format!(
-                                "ordering comparison requires number or bigint operands, got {l:?} and {r:?}"
-                            ))
-                        }
-                    }
-                    BinOp::Eq | BinOp::Neq | BinOp::LooseEq | BinOp::LooseNeq => {
-                        // Same primitive type → bool.
-                        if l == r
-                            && matches!(
-                                l,
-                                Type::Number | Type::String | Type::Boolean | Type::BigInt
-                            )
-                        {
-                            return Ok(Type::Boolean);
-                        }
-                        // T-13.a (v0.4.0) — Symbol === Symbol is
-                        // pointer identity (each Symbol() call yields
-                        // a fresh heap-allocated handle). Same-object
-                        // comparison returns true; distinct-allocation
-                        // comparison returns false. Lowers to ICmp Eq
-                        // on Ptr operands.
-                        if l == r && matches!(l, Type::Symbol) {
-                            return Ok(Type::Boolean);
-                        }
-                        // `Nullable(T) === null` and `null === Nullable(T)`
-                        // are valid checks; result is bool. So is
-                        // `null === null`. Identity on the same struct
-                        // type also OK (pointer compare). Type::Undefined
-                        // counts as nullish here so `null == undefined`
-                        // and `null === undefined` typecheck (ssa_lower
-                        // folds `===` to false per ES §7.2.15, `==` to
-                        // true per ES §7.2.13 step 2).
-                        let l_is_null = matches!(l, Type::Null | Type::Undefined);
-                        let r_is_null = matches!(r, Type::Null | Type::Undefined);
-                        let l_is_nullable = matches!(l, Type::Nullable(_));
-                        let r_is_nullable = matches!(r, Type::Nullable(_));
-                        if (l_is_null || l_is_nullable) && (r_is_null || r_is_nullable) {
-                            return Ok(Type::Boolean);
-                        }
-                        // V3-18 m3 — `==` / `!=` IsLooselyEqual. For
-                        // Number/Boolean/Null cross-type pairs, JS
-                        // spec §7.2.13 coerces and compares; result
-                        // is Boolean.
-                        if matches!(op, BinOp::LooseEq | BinOp::LooseNeq)
-                            && js_loose_eq_supported(&l, &r)
-                        {
-                            return Ok(Type::Boolean);
-                        }
-                        // V3-18 m3.b — `===` / `!==` cross-type per
-                        // spec §7.2.15: different types → false (no
-                        // throw). Accept any pair, ssa_lower emits a
-                        // ConstBool(false) for `===` and true for
-                        // `!==` when the static types differ. Used
-                        // pervasively in test262 for deliberate
-                        // false-checks across types.
-                        if matches!(op, BinOp::Eq | BinOp::Neq) {
-                            return Ok(Type::Boolean);
-                        }
-                        Err(format!(
-                            "strict equality requires same primitive type, got {l:?} and {r:?}"
-                        ))
-                    }
-                    BinOp::LAnd | BinOp::LOr => {
-                        // V3-18 m1.g — JS spec §13.13 LogicalANDExpression
-                        // / LogicalORExpression: returns the left operand
-                        // if its truthiness selects the short-circuit
-                        // path, else the right. Result type is whichever
-                        // side could be returned. Typed tora supports the
-                        // same-type case (T && T → T) statically; the
-                        // mixed-Any pair (`(x: any) || "default"`) widens
-                        // to Any — ssa-lower NaN-boxes the non-Any side
-                        // so the shared slot type stays uniform.
-                        if l == r {
-                            Ok(l)
-                        } else if matches!(l, Type::Any) || matches!(r, Type::Any) {
-                            Ok(Type::Any)
-                        } else if matches!(l, Type::Null | Type::Undefined) {
-                            // S138 — lhs is statically falsy. Per §13.13:
-                            // `null || rhs` returns rhs (ToBoolean(null)
-                            // = false, eval rhs); `null && rhs` returns
-                            // lhs without evaluating rhs. ssa_lower
-                            // skips the branching entirely. Mirrors the
-                            // typed-lhs `??` fix (19b04c15).
-                            match op {
-                                BinOp::LOr => Ok(r),
-                                BinOp::LAnd => Ok(l),
-                                _ => unreachable!(),
-                            }
-                        } else if matches!(&l, Type::Nullable(linner) if **linner == r) {
-                            // `Nullable<T> || T` per §13.13: l=null →
-                            // r (T); l=T(truthy) → l (T); l=T(falsy
-                            // like 0 / "") → r (T). All paths return
-                            // a T. `&&` short-circuits to l on falsy
-                            // null and to r on truthy T — result can
-                            // still hold null, so Nullable<T> stays.
-                            // Mirror site for `||=` / `&&=` desugar.
-                            match op {
-                                BinOp::LOr => Ok(r),
-                                BinOp::LAnd => Ok(l),
-                                _ => unreachable!(),
-                            }
-                        } else if matches!(&r, Type::Nullable(rinner) if **rinner == l) {
-                            // `T || Nullable<T>` per §13.13: l truthy →
-                            // l (T); l falsy (only 0 / "" for non-null
-                            // T) → r (Nullable<T>). Widest result is
-                            // Nullable<T>. `&&` short-circuits to l on
-                            // falsy T and to r on truthy T (= Nullable
-                            // value). Either way result widens to
-                            // Nullable<T>.
-                            match op {
-                                BinOp::LOr | BinOp::LAnd => Ok(r),
-                                _ => unreachable!(),
-                            }
-                        } else {
-                            Err(format!(
-                                "`&&` / `||` require matching operand types, got {l:?} and {r:?}"
-                            ))
-                        }
-                    }
-                }
+                // 8 op-family per-shape rules (Add /
+                // Sub-Mul-Div-Mod / Pow / Bitwise / UShr /
+                // Lt-Gt-Le-Ge / Eq-Neq-LooseEq-LooseNeq /
+                // LAnd-LOr). See
+                // [`crate::check_type_of_binop::check`].
+                crate::check_type_of_binop::check(self, ast, *op, *left, *right)
             }
             Expr::Unary { op, expr } => {
                 // V3-18 m1.h.2 / m1.f / m1.h.4 / V3-02 — `!` / `-`
