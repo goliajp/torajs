@@ -287,6 +287,7 @@ pub(crate) mod ssa_lower_optchain;
 pub(crate) mod ssa_lower_optchain_arm;
 pub(crate) mod ssa_lower_parse_fn_type;
 pub(crate) mod ssa_lower_parse_type;
+pub(crate) mod ssa_lower_post_incr;
 pub mod ssa_lower_process_on;
 pub(crate) mod ssa_lower_promise_chain;
 pub(crate) mod ssa_lower_promise_thunk;
