@@ -1311,109 +1311,22 @@ fn lower_inner(
         capture_box_inc: capture_box_inc_id,
         capture_box_drop: capture_box_drop_id,
     } = crate::ssa_lower_intrinsics_obj_capture::declare(&mut module, &mut fn_table);
-    // M1.2 — Array<T> runtime. Layout `{u64 len, u64 cap, T data[cap]}`
-    // with uniform 8-byte slots regardless of element type. MVP only
-    // supports i64 elements; non-primitive elements (string, obj, nested
-    // arr) come in a follow-up that adds a Ptr-flavored push intrinsic.
-    //
-    // arr_alloc(initial_cap)        -> ptr (header malloc'd, len=0)
-    // arr_push(arr, val_i64)        -> ptr (may realloc; returns new ptr)
-    // arr_drop(arr)                 -> void (caller drops elements first
-    //                                        for non-Copy element types)
-    let arr_alloc_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_alloc",
-        &[Type::I64],
-        Type::Ptr,
-    );
-    let arr_push_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_push",
-        &[Type::Ptr, Type::I64],
-        Type::Ptr,
-    );
-    // 12-b non-deque Array push fast-path. Body in torajs-arr.
-    let arr_push_non_deque_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_push_non_deque",
-        &[Type::Ptr, Type::I64],
-        Type::Ptr,
-    );
-    // `arr.shift()` — pull and return slot[0], memmove rest left.
-    // Returns i64; SSA caller bitcasts to the receiver's element type.
-    let arr_shift_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_shift",
-        &[Type::Ptr],
-        Type::I64,
-    );
-    // `arr.unshift(v)` — insert at slot[0], memmove rest right; may
-    // realloc. Returns the new ptr (caller stores back into the slot).
-    let arr_unshift_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_unshift",
-        &[Type::Ptr, Type::I64],
-        Type::Ptr,
-    );
-    // `arr.splice(start, delete_count)` — in-place remove + return
-    // the removed slice as a fresh Array<T>. Per ES §23.1.3.31.
-    // Receiver pointer is stable (splice only shrinks the live range
-    // — no realloc), so the SSA dispatch skips slot-writeback.
-    let arr_splice_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_splice",
-        &[Type::Ptr, Type::I64, Type::I64],
-        Type::Ptr,
-    );
-    let arr_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_drop",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    // M6.2 fast-path. arr_reserve(arr, new_cap) reallocs once if
-    // cap < new_cap (no-op otherwise) — used by map/filter to size
-    // the dst array up front. arr_push_unchecked(arr, val) appends
-    // without a per-call capacity check (UB if cap < len + 1; safe
-    // when paired with a preceding reserve).
-    let arr_reserve_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_reserve",
-        &[Type::Ptr, Type::I64],
-        Type::Ptr,
-    );
-    let arr_push_unchecked_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_push_unchecked",
-        &[Type::Ptr, Type::I64],
-        Type::Void,
-    );
-    // Single-memcpy extend, used by array spread `[...xs, ...]`. Caller
-    // pre-sizes dst's cap; this just bumps len + memcpy's source data
-    // into dst's tail. Element-type-agnostic (every slot is 8 bytes).
-    let arr_extend_unchecked_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_extend_unchecked",
-        &[Type::Ptr, Type::Ptr],
-        Type::Void,
-    );
-    let arr_slice_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_slice",
-        &[Type::Ptr, Type::I64, Type::I64],
-        Type::Ptr,
-    );
+    // M1.2 — Array<T> runtime (11 ids). See sibling for layout +
+    // per-intrinsic ABI detail (push tier / shift-unshift-splice /
+    // reserve-extend-slice).
+    let crate::ssa_lower_intrinsics_arr::ArrIds {
+        arr_alloc: arr_alloc_id,
+        arr_push: arr_push_id,
+        arr_push_non_deque: arr_push_non_deque_id,
+        arr_shift: arr_shift_id,
+        arr_unshift: arr_unshift_id,
+        arr_splice: arr_splice_id,
+        arr_drop: arr_drop_id,
+        arr_reserve: arr_reserve_id,
+        arr_push_unchecked: arr_push_unchecked_id,
+        arr_extend_unchecked: arr_extend_unchecked_id,
+        arr_slice: arr_slice_id,
+    } = crate::ssa_lower_intrinsics_arr::declare(&mut module, &mut fn_table);
     let str_repeat_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
