@@ -8146,8 +8146,8 @@ pub(crate) struct LowerCtx<'a> {
     /// is a frontend Type::Undefined source. Set by lower_binop_with_ids
     /// before dispatching to the inner impl, restored after. The Eq/Neq
     /// Any-side packing reads these to pick ANY_UNDEF=5 vs ANY_NULL=0.
-    binop_left_undef_id: Option<ExprId>,
-    binop_right_undef_id: Option<ExprId>,
+    pub(crate) binop_left_undef_id: Option<ExprId>,
+    pub(crate) binop_right_undef_id: Option<ExprId>,
     /// S9 square carve — set by lower_binop_with_ids when both Mul
     /// operands are the same identifier (`x * x`): a value times
     /// itself can never be negative×zero, so -0 is unmintable and
@@ -15279,26 +15279,11 @@ impl<'a> LowerCtx<'a> {
         if let Some(v) = crate::ssa_lower_binop_loose_eq::try_lower(self, op, a, b) {
             return v;
         }
-        // ES §7.2.15 — `null === undefined` / `undefined === null` is
-        // false (distinct primitive types per §6.1.1 / §6.1.2). Both
-        // literals lower to `ConstPtrNull`, so the downstream same-
-        // family ptr-cmp would return true. Distinguish via the
-        // `binop_*_undef_id` flag (set in `lower_binop_with_ids` when
-        // the expr type was `Type::Undefined`): if exactly one side is
-        // Undefined-typed and the other is the `null` literal,
-        // static-fold to false (`===`) / true (`!==`).
-        if matches!(op, AstBinOp::Eq | AstBinOp::Neq) {
-            let a_is_null_lit = matches!(a, Operand::ConstPtrNull);
-            let b_is_null_lit = matches!(b, Operand::ConstPtrNull);
-            let a_is_undef = self.binop_left_undef_id.is_some();
-            let b_is_undef = self.binop_right_undef_id.is_some();
-            // One side undefined, the other a bare `null` literal.
-            if (a_is_undef && b_is_null_lit && !a_is_null_lit)
-                || (b_is_undef && a_is_null_lit && !b_is_null_lit)
-            {
-                let answer = matches!(op, AstBinOp::Neq);
-                return Operand::ConstBool(answer);
-            }
+        // ES §7.2.15 — `null === undefined` static fold via
+        // binop_*_undef_id flags. See
+        // [`crate::ssa_lower_binop_null_undef::try_lower`].
+        if let Some(v) = crate::ssa_lower_binop_null_undef::try_lower(self, op, a, b) {
+            return v;
         }
         // V3-18 m3.b — `===` / `!==` cross-type: when the runtime
         // types differ, spec §7.2.15 returns false unconditionally

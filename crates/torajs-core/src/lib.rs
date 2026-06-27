@@ -206,6 +206,7 @@ pub(crate) mod ssa_lower_assign_ident;
 pub(crate) mod ssa_lower_assign_member;
 pub(crate) mod ssa_lower_binop;
 pub(crate) mod ssa_lower_binop_loose_eq;
+pub(crate) mod ssa_lower_binop_null_undef;
 pub mod ssa_lower_body_returns_closure;
 pub(crate) mod ssa_lower_call;
 pub(crate) mod ssa_lower_call_arr_flat_map;
