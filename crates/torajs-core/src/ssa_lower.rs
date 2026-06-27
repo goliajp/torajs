@@ -1645,230 +1645,41 @@ fn lower_inner(
         weakset_delete: weakset_delete_id,
         weakset_drop: weakset_drop_id,
     } = crate::ssa_lower_intrinsics_weak::declare(&mut module, &mut fn_table);
-    /* P6.1 — Strong-ref `Map<K, V>` runtime. Tagged-Any keys + values
-     * with SameValueZero key equality. set / has / delete take the
-     * key as an unboxed (tag, payload) pair so the caller can avoid
-     * a temp Any-box alloc when the receiver is typed-tier (e.g.
-     * `Map<string, T>`); the box_to_tag_value helper produces that
-     * pair from a Type::Any source. get returns into a (tag,
-     * payload) out pair through stack-slot pointers — same shape. */
-    let map_create_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_create",
-        &[],
-        Type::Map,
-    );
-    let set_create_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_set_create",
-        &[],
-        Type::Set,
-    );
-    let set_is_subset_of_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_set_is_subset_of",
-        &[Type::Set, Type::Set],
-        Type::I64,
-    );
-    let set_is_superset_of_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_set_is_superset_of",
-        &[Type::Set, Type::Set],
-        Type::I64,
-    );
-    let set_is_disjoint_from_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_set_is_disjoint_from",
-        &[Type::Set, Type::Set],
-        Type::I64,
-    );
-    let set_union_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_set_union",
-        &[Type::Set, Type::Set],
-        Type::Set,
-    );
-    let set_intersection_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_set_intersection",
-        &[Type::Set, Type::Set],
-        Type::Set,
-    );
-    let set_difference_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_set_difference",
-        &[Type::Set, Type::Set],
-        Type::Set,
-    );
-    let set_symmetric_difference_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_set_symmetric_difference",
-        &[Type::Set, Type::Set],
-        Type::Set,
-    );
-    let map_clone_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_clone",
-        &[Type::Map],
-        Type::Map,
-    );
-    let map_set_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_set",
-        &[Type::Map, Type::I64, Type::I64, Type::I64, Type::I64],
-        Type::Void,
-    );
-    let map_get_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_get",
-        &[Type::Map, Type::I64, Type::I64, Type::Ptr, Type::Ptr],
-        Type::Void,
-    );
-    let map_has_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_has",
-        &[Type::Map, Type::I64, Type::I64],
-        Type::I64,
-    );
-    let map_delete_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_delete",
-        &[Type::Map, Type::I64, Type::I64],
-        Type::I64,
-    );
-    let map_clear_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_clear",
-        &[Type::Map],
-        Type::Void,
-    );
-    let map_size_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_size",
-        &[Type::Map],
-        Type::I64,
-    );
-    let map_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_drop",
-        &[Type::Map],
-        Type::Void,
-    );
-    let map_iter_next_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_iter_next",
-        &[
-            Type::Map,
-            Type::Ptr,
-            Type::Ptr,
-            Type::Ptr,
-            Type::Ptr,
-            Type::Ptr,
-        ],
-        Type::I64,
-    );
-    /* P6.4b — Map / Set keys / values iterator factories + step +
-     * drop. The iter holds a strong ref to the source Map; map_iter_
-     * step advances + fills the (value_tag, value_payload) pair so
-     * the SSA side can rebuild the `IteratorResult<any>` struct
-     * each call. */
-    let map_iter_create_keys_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_iter_create_keys",
-        &[Type::Map],
-        Type::MapIter,
-    );
-    let map_iter_create_values_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_iter_create_values",
-        &[Type::Map],
-        Type::MapIter,
-    );
-    let map_iter_create_entries_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_iter_create_entries",
-        &[Type::Map],
-        Type::MapIter,
-    );
-    let map_iter_create_set_entries_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_iter_create_set_entries",
-        &[Type::Set],
-        Type::MapIter,
-    );
-    /* P6.4c-C3 — ArrIter factories + step + drop. Same shape as
-     * MapIter, distinct intrinsics for Array<Any> source layout. */
-    let arr_iter_create_keys_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_iter_create_keys",
-        &[Type::Ptr],
-        Type::ArrIter,
-    );
-    let arr_iter_create_values_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_iter_create_values",
-        &[Type::Ptr],
-        Type::ArrIter,
-    );
-    let arr_iter_create_entries_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_iter_create_entries",
-        &[Type::Ptr],
-        Type::ArrIter,
-    );
-    let arr_iter_step_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_iter_step",
-        &[Type::ArrIter, Type::Ptr, Type::Ptr],
-        Type::I64,
-    );
-    let arr_iter_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_arr_iter_drop",
-        &[Type::ArrIter],
-        Type::Void,
-    );
-    let map_iter_step_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_iter_step",
-        &[Type::MapIter, Type::Ptr, Type::Ptr],
-        Type::I64,
-    );
-    let map_iter_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_map_iter_drop",
-        &[Type::MapIter],
-        Type::Void,
-    );
+    // P6.1 Map<K,V> + Set<T> + P6.4b MapIter + P6.4c-C3 ArrIter
+    // strong-ref runtime (29 ids). See sibling for the per-decl
+    // ABI detail (tagged-Any (tag, payload) i64-pair key/value
+    // unbox + IteratorResult step+drop shapes).
+    let crate::ssa_lower_intrinsics_map_set::MapSetIds {
+        map_create: map_create_id,
+        set_create: set_create_id,
+        set_is_subset_of: set_is_subset_of_id,
+        set_is_superset_of: set_is_superset_of_id,
+        set_is_disjoint_from: set_is_disjoint_from_id,
+        set_union: set_union_id,
+        set_intersection: set_intersection_id,
+        set_difference: set_difference_id,
+        set_symmetric_difference: set_symmetric_difference_id,
+        map_clone: map_clone_id,
+        map_set: map_set_id,
+        map_get: map_get_id,
+        map_has: map_has_id,
+        map_delete: map_delete_id,
+        map_clear: map_clear_id,
+        map_size: map_size_id,
+        map_drop: map_drop_id,
+        map_iter_next: map_iter_next_id,
+        map_iter_create_keys: map_iter_create_keys_id,
+        map_iter_create_values: map_iter_create_values_id,
+        map_iter_create_entries: map_iter_create_entries_id,
+        map_iter_create_set_entries: map_iter_create_set_entries_id,
+        arr_iter_create_keys: arr_iter_create_keys_id,
+        arr_iter_create_values: arr_iter_create_values_id,
+        arr_iter_create_entries: arr_iter_create_entries_id,
+        arr_iter_step: arr_iter_step_id,
+        arr_iter_drop: arr_iter_drop_id,
+        map_iter_step: map_iter_step_id,
+        map_iter_drop: map_iter_drop_id,
+    } = crate::ssa_lower_intrinsics_map_set::declare(&mut module, &mut fn_table);
     /* T-26.C — Bacon-Rajan cycle collector. cycle_buffer is hot-
      * path: called from the inline Obj drop's else-branch when
      * rc stays positive. cycle_collect is the manual `gc()`
