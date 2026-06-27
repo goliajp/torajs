@@ -6888,66 +6888,7 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Stmt::Block(stmts) => {
-                // M1.3 — push a fresh scope frame, lower stmts, drop
-                // anything declared in this block that's still owned at
-                // close. Bindings inserted into `self.locals` are also
-                // appended to the current scope_stack frame so the close
-                // step can find them. Closes that fall through emit
-                // drops; closes via early return / if-both-return skip
-                // the inner drops (the return path's emit_drops_for_owned_locals
-                // walks the full locals map).
-                self.scope_stack.push(Vec::new());
-                self.shadow_stack.push(Vec::new());
-                let mut early_exit = false;
-                let mut prev: Option<&Stmt> = None;
-                for s in stmts {
-                    if !self.try_lower_while_fast(prev, s) {
-                        self.lower_stmt(s);
-                    }
-                    if !self.cur_open() {
-                        early_exit = true;
-                        break;
-                    }
-                    prev = Some(s);
-                }
-                let frame = self.scope_stack.pop().expect("scope frame");
-                let shadows = self.shadow_stack.pop().expect("shadow frame");
-                if !early_exit {
-                    // Drop owners declared at this depth in declaration
-                    // order. Skip moved (transferred) and Copy types.
-                    for name in &frame {
-                        let info = match self.locals.get(name) {
-                            Some(i) => *i,
-                            None => continue,
-                        };
-                        if info.moved
-                            || info.ty.is_copy()
-                            || self.stack_alloced_locals.contains(name)
-                        {
-                            continue;
-                        }
-                        let val = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                            info.ty,
-                            None,
-                        );
-                        self.emit_drop_value(Operand::Value(val), info.ty);
-                    }
-                }
-                // Remove this block's bindings from `locals` so outer
-                // code can't reference them and so end-of-fn drop emission
-                // doesn't double-drop.
-                for name in frame {
-                    self.locals.remove(&name);
-                }
-                // Restore any outer-scope bindings that were shadowed
-                // inside this block. Without this, `let x = 10; { let x
-                // = 99 } x` would crash because the inner block's close
-                // removed `x` from locals along with the outer entry.
-                for (name, prev) in shadows {
-                    self.locals.insert(name, prev);
-                }
+                crate::ssa_lower_stmt_block::lower(self, stmts);
             }
             Stmt::LetDecl {
                 mutable: _,
