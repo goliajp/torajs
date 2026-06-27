@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T06:08:29.046Z",
+  "generatedAt": "2026-06-27T07:20:14.737Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "be362627",
-    "commitSubject": "refactor(torajs-core): extract type_of_inner Expr::New 7-class cluster (chunk 92)",
+    "commit": "e23e3532",
+    "commitSubject": "refactor(torajs-core): extract type_of_inner Expr 7 small arms (chunk 95)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,22 @@
   },
   "commits": [
     {
+      "hash": "e23e3532",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr 7 small arms (chunk 95)"
+    },
+    {
+      "hash": "1daa76e6",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::Assign Member+Index sub-arms (chunk 94)"
+    },
+    {
+      "hash": "f493820e",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::Assign Ident sub-arm (chunk 93)"
+    },
+    {
+      "hash": "4f79899c",
+      "subject": "chore(hardev/web): dashboard snapshot @ be362627 — chunks 79-92 ship (-6915 LOC)"
+    },
+    {
       "hash": "be362627",
       "subject": "refactor(torajs-core): extract type_of_inner Expr::New 7-class cluster (chunk 92)"
     },
@@ -647,43 +663,38 @@
     {
       "hash": "9322fe7a",
       "subject": "refactor(torajs-core): extract Any-aware BinOp dispatch (chunk 86)"
-    },
-    {
-      "hash": "835930d4",
-      "subject": "refactor(torajs-core): extract LooseEq/LooseNeq cross-type folds (chunk 85)"
-    },
-    {
-      "hash": "38d1a178",
-      "subject": "refactor(torajs-core): extract Expr::Call 61-layer dispatcher cascade (chunk 84b)"
-    },
-    {
-      "hash": "2ad78847",
-      "subject": "refactor(torajs-core): extract Expr::Call terminal direct-call body (chunk 84a)"
-    },
-    {
-      "hash": "93685d73",
-      "subject": "refactor(torajs-core): extract Expr::Member 13-layer READ dispatcher (chunk 83)"
     }
   ],
-  "headSha": "be362627",
+  "headSha": "e23e3532",
   "autorun": {
-    "total": 256,
+    "total": 257,
     "baselineTarget": 10,
-    "bySelf": 251,
+    "bySelf": 252,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782494866-6e67",
-      "at": "2026-06-26T17:27:46Z",
-      "ts": 1782494866,
+      "rotationId": "r-1782542717-73f9",
+      "at": "2026-06-27T06:45:17Z",
+      "ts": 1782542717,
       "trigger": "self",
-      "prevHead": "22a03b82",
-      "handoffSha": "sha256:ed27ba96e1fbe67cd671388770d7d4fad39fd08a616bea674254c3208b87e0be",
-      "handoffAgeSec": 26,
+      "prevHead": "4f79899c",
+      "handoffSha": "sha256:6122fb3fb227c7c5a1e13fa20c3b02dcf91a199d544e69f03abb1365bda1fa84",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782542717-73f9",
+        "at": "2026-06-27T06:45:17Z",
+        "ts": 1782542717,
+        "trigger": "self",
+        "prevHead": "4f79899c",
+        "handoffSha": "sha256:6122fb3fb227c7c5a1e13fa20c3b02dcf91a199d544e69f03abb1365bda1fa84",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782494866-6e67",
         "at": "2026-06-26T17:27:46Z",
@@ -780,17 +791,6 @@
         "prevHead": "28436f83",
         "handoffSha": "sha256:695a1a2af79404d125369ec5a169b36367a728acff7bd2e4ef1b8a65af7804fa",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782423585-618e",
-        "at": "2026-06-25T21:39:45Z",
-        "ts": 1782423585,
-        "trigger": "self",
-        "prevHead": "b09a0d3a",
-        "handoffSha": "sha256:62dcd1f0b6cfa0ba42487ca952b4f6fa7c2add17059fe80f4a76f9b7963dd1c9",
-        "handoffAgeSec": 179,
         "conformanceBefore": null,
         "commitsInSession": null
       }
