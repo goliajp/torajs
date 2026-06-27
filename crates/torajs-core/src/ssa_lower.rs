@@ -36,7 +36,7 @@ use crate::ssa_lower_body_returns_closure::body_returns_closure;
 use crate::ssa_lower_closure_captures::collect_closure_captures_in_stmt;
 use crate::ssa_lower_deque_escape::collect_deque_arr_names_in_stmt;
 use crate::ssa_lower_obj_escape::collect_escape_obj_let_names_in_stmt;
-use crate::ssa_lower_push_loop_detect::{detect_push_loop_arrays, let_counter_zero_name};
+use crate::ssa_lower_push_loop_detect::let_counter_zero_name;
 use crate::ssa_lower_while_push_fast::lower_while_inner;
 
 /// Phase 2B refcount: every heap-allocated Obj reserves a 24-byte
@@ -8231,189 +8231,7 @@ impl<'a> LowerCtx<'a> {
                 cases,
                 default,
             } => {
-                // Lower switch as a chain of strict-eq compares with
-                // shared fall-through bodies. Layout:
-                //   eval scrutinee → cmp_0 → (body_0 | cmp_1) → cmp_1 →
-                //   (body_1 | … | default | after) → after.
-                // Each body falls through to the NEXT body's entry
-                // unless interrupted by `break` (loop_stack supplies the
-                // break target = `after`).
-                let scrut_val = self.lower_expr(*scrutinee);
-                let scrut_ty = self.operand_ty(&scrut_val);
-                let after = self.f.add_block();
-                self.loop_stack.push((after, after));
-
-                // Snapshot the entry block before any case-cmp / default
-                // lowering changes `cur_block`. The `cases.is_empty()`
-                // path needs this to terminate the switch's predecessor
-                // with an unconditional branch into the default body —
-                // setting that terminator on `cur_block` after the
-                // default body has already been lowered would clobber
-                // whatever terminator the default left in place.
-                let switch_entry = self.cur_block;
-
-                // Pre-allocate body blocks so fall-through across cases
-                // resolves to the next body, not its compare site.
-                let body_blks: Vec<BlockId> = cases.iter().map(|_| self.f.add_block()).collect();
-                let default_blk = if default.is_some() {
-                    Some(self.f.add_block())
-                } else {
-                    None
-                };
-
-                for (i, c) in cases.iter().enumerate() {
-                    // For i>0 the previous iteration already positioned
-                    // `cur_block` at the next_cmp_or_default block it
-                    // allocated; reuse it directly. (Allocating a fresh
-                    // block here would orphan the previous CondBr's
-                    // else-target and trip LLVM's unreachable detector,
-                    // surfacing as SIGTRAP at runtime.)
-                    let cmp_blk = self.cur_block;
-                    let _ = i;
-                    let v = self.lower_expr(c.value);
-                    let eq = match scrut_ty {
-                        Type::F64 => self.f.append_inst(
-                            cmp_blk,
-                            InstKind::FCmp(FPred::Oeq, scrut_val, v),
-                            Type::Bool,
-                            None,
-                        ),
-                        Type::Str | Type::Substr => {
-                            // Strings: try inline byte-cmp fast-path
-                            // when the case value is a short literal
-                            // (skips __torajs_str_eq / substr_eq_str
-                            // C-runtime call). Inline emit handles
-                            // both Str and Substr scrutinee shapes.
-                            // Falls back to str_eq / substr_eq_str
-                            // for non-literal case values or long.
-                            if let Expr::String(s) = self.ast.get_expr(c.value).clone() {
-                                let bytes = s.into_bytes();
-                                // P11.1-S2.3 — only ASCII-only
-                                // case literals are eligible for
-                                // the inline byte-cmp path; any
-                                // byte > 0x7F means the runtime
-                                // Str's encoding diverges from
-                                // the literal's UTF-8 byte tape,
-                                // and the inline length / payload
-                                // check no longer lines up. Fall
-                                // back to the encoding-aware
-                                // runtime helper in that case.
-                                let inline_eligible =
-                                    bytes.len() <= 16 && bytes.iter().all(|&b| b <= 0x7F);
-                                if inline_eligible {
-                                    let r = self.emit_inline_str_eq_bytes(scrut_val, &bytes);
-                                    if let Operand::Value(vid) = r {
-                                        vid
-                                    } else {
-                                        unreachable!("emit_inline_str_eq_bytes returns Value")
-                                    }
-                                } else {
-                                    let intrinsic = if scrut_ty == Type::Substr {
-                                        self.intrinsics.substr_eq_str
-                                    } else {
-                                        self.intrinsics.str_eq
-                                    };
-                                    self.f.append_inst(
-                                        cmp_blk,
-                                        InstKind::Call(intrinsic, vec![scrut_val, v]),
-                                        Type::Bool,
-                                        None,
-                                    )
-                                }
-                            } else {
-                                let intrinsic = if scrut_ty == Type::Substr {
-                                    self.intrinsics.substr_eq_str
-                                } else {
-                                    self.intrinsics.str_eq
-                                };
-                                self.f.append_inst(
-                                    cmp_blk,
-                                    InstKind::Call(intrinsic, vec![scrut_val, v]),
-                                    Type::Bool,
-                                    None,
-                                )
-                            }
-                        }
-                        _ => self.f.append_inst(
-                            cmp_blk,
-                            InstKind::ICmp(IPred::Eq, scrut_val, v),
-                            Type::Bool,
-                            None,
-                        ),
-                    };
-                    let next_cmp_or_default = if i + 1 < cases.len() {
-                        // Lazy: the next iteration creates the next cmp
-                        // block. We need its id NOW for the cond_br
-                        // false-branch. Allocate it here and assign in
-                        // the next iter.
-                        self.f.add_block()
-                    } else {
-                        default_blk.unwrap_or(after)
-                    };
-                    // For most cases self.cur_block == cmp_blk (the eq
-                    // append was directly into cmp_blk). For the Str
-                    // inline-eq path, the multi-block helper moved
-                    // self.cur_block to its `done` block — the cond_br
-                    // must fire there, where `eq` is defined.
-                    let _ = cmp_blk;
-                    self.f.set_term(
-                        self.cur_block,
-                        Terminator::CondBr {
-                            cond: Operand::Value(eq),
-                            then_blk: body_blks[i],
-                            else_blk: next_cmp_or_default,
-                        },
-                    );
-                    // Lower the body in body_blks[i]. Fall-through goes
-                    // to body_blks[i+1] (or default, or after).
-                    let fall_through = if i + 1 < body_blks.len() {
-                        body_blks[i + 1]
-                    } else {
-                        default_blk.unwrap_or(after)
-                    };
-                    self.cur_block = body_blks[i];
-                    for s in &c.body {
-                        self.lower_stmt(s);
-                        if !self.cur_open() {
-                            break;
-                        }
-                    }
-                    if self.cur_open() {
-                        self.f
-                            .set_term(self.cur_block, Terminator::Br(fall_through));
-                    }
-                    // Position cur_block for the next iteration's cmp
-                    // (it's the block just made via "next_cmp_or_default"
-                    // when i+1 < cases.len()).
-                    if i + 1 < cases.len() {
-                        self.cur_block = next_cmp_or_default;
-                    }
-                }
-
-                if let (Some(db), Some(default_body)) = (default_blk, default) {
-                    self.cur_block = db;
-                    for s in default_body {
-                        self.lower_stmt(s);
-                        if !self.cur_open() {
-                            break;
-                        }
-                    }
-                    if self.cur_open() {
-                        self.f.set_term(self.cur_block, Terminator::Br(after));
-                    }
-                }
-                if cases.is_empty() {
-                    // Edge case: `switch (x) { default: ... }` (or
-                    // `switch (x) {}`) with no case arms. The cases
-                    // loop never ran, so `switch_entry` has no
-                    // terminator — wire it directly to the default body
-                    // (or to `after` when there's no default either).
-                    let target = default_blk.unwrap_or(after);
-                    self.f.set_term(switch_entry, Terminator::Br(target));
-                }
-
-                self.loop_stack.pop();
-                self.cur_block = after;
+                crate::ssa_lower_stmt_switch::lower(self, *scrutinee, cases, default);
             }
             Stmt::For {
                 init,
@@ -11056,7 +10874,7 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
-    fn emit_inline_str_eq_bytes(&mut self, other: Operand, bytes: &[u8]) -> Operand {
+    pub(crate) fn emit_inline_str_eq_bytes(&mut self, other: Operand, bytes: &[u8]) -> Operand {
         // For Substr we still load len at offset 8 (same as Str), but
         // bytes are accessed via (parent_data + offset). Compute the
         // data pointer once per call, then per-byte loads use it.
