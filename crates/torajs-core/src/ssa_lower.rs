@@ -7700,38 +7700,7 @@ impl<'a> LowerCtx<'a> {
                 crate::ssa_lower_stmt_for_of::lower(self, var_name, i_ident, *elem_expr, body);
             }
             Stmt::DoWhile { body, cond } => {
-                // Body executes at least once, then `cond` decides
-                // whether to repeat. Layout: body_blk → cond_blk → (back
-                // to body_blk | after). break/continue inside body act
-                // like a normal loop; continue jumps to cond_blk so the
-                // condition still re-evaluates.
-                let body_blk = self.f.add_block();
-                let cond_blk = self.f.add_block();
-                let after = self.f.add_block();
-
-                self.f.set_term(self.cur_block, Terminator::Br(body_blk));
-
-                self.loop_stack.push((cond_blk, after));
-                self.cur_block = body_blk;
-                self.lower_stmt(body);
-                if self.cur_open() {
-                    self.f.set_term(self.cur_block, Terminator::Br(cond_blk));
-                }
-                self.loop_stack.pop();
-
-                self.cur_block = cond_blk;
-                let c = self.lower_expr(*cond);
-                let c = self.coerce_to_bool(c);
-                self.f.set_term(
-                    self.cur_block,
-                    Terminator::CondBr {
-                        cond: c,
-                        then_blk: body_blk,
-                        else_blk: after,
-                    },
-                );
-
-                self.cur_block = after;
+                crate::ssa_lower_stmt_do_while::lower(self, body, *cond);
             }
             Stmt::Switch {
                 scrutinee,

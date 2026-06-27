@@ -365,6 +365,7 @@ pub mod ssa_lower_push_loop_detect;
 pub(crate) mod ssa_lower_regex_bake;
 pub(crate) mod ssa_lower_splice;
 pub(crate) mod ssa_lower_stmt_block;
+pub(crate) mod ssa_lower_stmt_do_while;
 pub(crate) mod ssa_lower_stmt_for;
 pub(crate) mod ssa_lower_stmt_for_of;
 pub(crate) mod ssa_lower_stmt_for_of_split_iter;
