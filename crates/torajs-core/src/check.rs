@@ -1307,7 +1307,7 @@ impl Checker {
 
 pub(crate) struct Checker {
     pub(crate) globals: HashMap<String, Type>,
-    scopes: Vec<HashMap<String, LocalInfo>>,
+    pub(crate) scopes: Vec<HashMap<String, LocalInfo>>,
     /// User-declared type aliases — populated in pass 0 from
     /// `Stmt::TypeDecl`. `Point → Type::Struct(...)`.
     pub(crate) aliases: HashMap<String, Type>,
@@ -1801,7 +1801,7 @@ impl Checker {
         }
     }
 
-    fn check_stmt(&mut self, ast: &Ast, stmt: &Stmt) {
+    pub(crate) fn check_stmt(&mut self, ast: &Ast, stmt: &Stmt) {
         match stmt {
             Stmt::Expr(eid) => {
                 if let Err(e) = self.type_of(ast, *eid) {
@@ -1809,14 +1809,10 @@ impl Checker {
                 }
             }
             Stmt::Yield(_) | Stmt::YieldInto { .. } => {
-                // Phase J — Yield only appears inside generator bodies,
-                // and `desugar_generators` rewrites those bodies into
-                // ordinary class-method bodies before typecheck. Reaching
-                // a raw Yield here means desugar didn't run / didn't
-                // catch this node — surface as a typecheck error rather
-                // than panicking at SSA lower time.
-                self.errors
-                    .push_err("yield is only valid inside a `function*` generator body".into());
+                // Phase J — desugar_generators rewrites generator
+                // bodies before typecheck. See
+                // [`crate::check_stmt_misc::check_yield`].
+                crate::check_stmt_misc::check_yield(self);
             }
             Stmt::If {
                 cond,
@@ -1948,34 +1944,10 @@ impl Checker {
                 cases,
                 default,
             } => {
-                let scrut_ty = match self.type_of(ast, *scrutinee) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        self.errors.push_err(e);
-                        return;
-                    }
-                };
-                for c in cases {
-                    match self.type_of(ast, c.value) {
-                        Ok(t) if t == scrut_ty => {}
-                        Ok(t) => self.errors.push_err(format!(
-                            "switch case value type {t:?} differs from scrutinee {scrut_ty:?}"
-                        )),
-                        Err(e) => self.errors.push_err(e),
-                    }
-                    self.scopes.push(HashMap::new());
-                    for s in &c.body {
-                        self.check_stmt(ast, s);
-                    }
-                    self.scopes.pop();
-                }
-                if let Some(db) = default {
-                    self.scopes.push(HashMap::new());
-                    for s in db {
-                        self.check_stmt(ast, s);
-                    }
-                    self.scopes.pop();
-                }
+                // Scrutinee type vs case value type; nested scope per
+                // case body + default. See
+                // [`crate::check_stmt_misc::check_switch`].
+                crate::check_stmt_misc::check_switch(self, ast, *scrutinee, cases, default);
             }
             Stmt::For {
                 init,

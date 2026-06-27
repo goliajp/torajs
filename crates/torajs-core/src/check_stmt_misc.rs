@@ -1,0 +1,68 @@
+//! Small `Stmt` arms (`Switch` / `Yield(Into)` / `Break-Continue` /
+//! `ClassDecl` / `ImportDecl`) pulled out of
+//! [`crate::check::Checker::check_stmt`] as chunk-100 of the
+//! check_stmt decomp.
+//!
+//! Bundled because each is small and independent:
+//!
+//! - **`Stmt::Switch`** — scrutinee type vs case value types; nested
+//!   scope per case body + default block. Walks each case's body
+//!   recursively via `check_stmt`.
+//! - **`Stmt::Yield` / `Stmt::YieldInto`** (Phase J) — `desugar_generators`
+//!   rewrites generator bodies before typecheck; reaching here = a
+//!   bare yield slipped through. Push typecheck error rather than
+//!   panicking at SSA lower time.
+//! - **`Stmt::Break` / `Stmt::Continue`** — no type-side state; the
+//!   lowerer enforces in-loop placement.
+//! - **`Stmt::ClassDecl`** (M5.1) — `desugar_classes` runs before
+//!   check; reaching here is an internal panic (desugar pass bug).
+//! - **`Stmt::ImportDecl`** (K.1 single-file mode) — parse-only, no
+//!   semantic effect. K.2 will add cross-file symbol table check.
+
+use std::collections::HashMap;
+
+use crate::ast::{Ast, ExprId, Stmt, SwitchCase};
+use crate::check::{Checker, DiagPush};
+
+pub(crate) fn check_switch(
+    checker: &mut Checker,
+    ast: &Ast,
+    scrutinee: ExprId,
+    cases: &[SwitchCase],
+    default: &Option<Vec<Stmt>>,
+) {
+    let scrut_ty = match checker.type_of(ast, scrutinee) {
+        Ok(t) => t,
+        Err(e) => {
+            checker.errors.push_err(e);
+            return;
+        }
+    };
+    for c in cases {
+        match checker.type_of(ast, c.value) {
+            Ok(t) if t == scrut_ty => {}
+            Ok(t) => checker.errors.push_err(format!(
+                "switch case value type {t:?} differs from scrutinee {scrut_ty:?}"
+            )),
+            Err(e) => checker.errors.push_err(e),
+        }
+        checker.scopes.push(HashMap::new());
+        for s in &c.body {
+            checker.check_stmt(ast, s);
+        }
+        checker.scopes.pop();
+    }
+    if let Some(db) = default {
+        checker.scopes.push(HashMap::new());
+        for s in db {
+            checker.check_stmt(ast, s);
+        }
+        checker.scopes.pop();
+    }
+}
+
+pub(crate) fn check_yield(checker: &mut Checker) {
+    checker
+        .errors
+        .push_err("yield is only valid inside a `function*` generator body".into());
+}
