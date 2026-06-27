@@ -5376,7 +5376,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     // tagged Closure and the value is a bare top-FnDecl Ident.
     let stmts_snapshot = ast.stmts.clone();
     for s in &stmts_snapshot {
-        collect_fn_to_closure_store_sites(
+        crate::ast_collect_fn_closure::collect_fn_to_closure_store_sites(
             ast,
             s,
             &fn_sigs,
@@ -5458,216 +5458,10 @@ fn is_fn_like_ann(s: &str) -> bool {
 /// Walk one Stmt (and any Stmts / Exprs it contains) looking for
 /// store-sites where a bare top-level FnDecl reference appears in a
 /// Closure-typed position. Mutates `targets` / `rewrites` in place.
-fn collect_fn_to_closure_store_sites(
-    ast: &Ast,
-    s: &Stmt,
-    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
-    struct_field_anns: &std::collections::HashMap<
-        String,
-        std::collections::HashMap<String, String>,
-    >,
-    targets: &mut std::collections::HashSet<String>,
-    rewrites: &mut Vec<(ExprId, String)>,
-) {
-    match s {
-        Stmt::LetDecl { type_ann, init, .. } => {
-            // The only LetDecl-shape that needs wrapping is an inline
-            // struct literal whose tagged-Closure field gets a bare
-            // top-FnDecl Ident. Plain `let f: (n)=>num = name` stays as
-            // FnSig → FnSig (Type::FnSig param/return preserves direct
-            // dispatch).
-            collect_objectlit_fn_to_closure(
-                ast,
-                *init,
-                type_ann.as_deref(),
-                fn_sigs,
-                struct_field_anns,
-                targets,
-                rewrites,
-            );
-            // Recurse into init expr for nested ObjectLits in Calls etc.
-            collect_expr_fn_to_closure(ast, *init, fn_sigs, targets, rewrites);
-        }
-        Stmt::FnDecl { body, .. } => {
-            for inner in body {
-                collect_fn_to_closure_store_sites(
-                    ast,
-                    inner,
-                    fn_sigs,
-                    struct_field_anns,
-                    targets,
-                    rewrites,
-                );
-            }
-        }
-        Stmt::Expr(eid) => {
-            collect_expr_fn_to_closure(ast, *eid, fn_sigs, targets, rewrites);
-        }
-        Stmt::Return(Some(eid)) => {
-            // synthesize_forwarders already handled the Return(Ident)
-            // case for fn-ret-typed surrounding fns; but Return(Call)
-            // and other nested exprs still need walking.
-            collect_expr_fn_to_closure(ast, *eid, fn_sigs, targets, rewrites);
-        }
-        Stmt::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_expr_fn_to_closure(ast, *cond, fn_sigs, targets, rewrites);
-            collect_fn_to_closure_store_sites(
-                ast,
-                then_branch,
-                fn_sigs,
-                struct_field_anns,
-                targets,
-                rewrites,
-            );
-            if let Some(eb) = else_branch {
-                collect_fn_to_closure_store_sites(
-                    ast,
-                    eb,
-                    fn_sigs,
-                    struct_field_anns,
-                    targets,
-                    rewrites,
-                );
-            }
-        }
-        Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
-            collect_expr_fn_to_closure(ast, *cond, fn_sigs, targets, rewrites);
-            collect_fn_to_closure_store_sites(
-                ast,
-                body,
-                fn_sigs,
-                struct_field_anns,
-                targets,
-                rewrites,
-            );
-        }
-        Stmt::For {
-            init,
-            cond,
-            step,
-            body,
-        } => {
-            if let Some(init) = init {
-                collect_fn_to_closure_store_sites(
-                    ast,
-                    init,
-                    fn_sigs,
-                    struct_field_anns,
-                    targets,
-                    rewrites,
-                );
-            }
-            if let Some(c) = cond {
-                collect_expr_fn_to_closure(ast, *c, fn_sigs, targets, rewrites);
-            }
-            if let Some(stp) = step {
-                collect_expr_fn_to_closure(ast, *stp, fn_sigs, targets, rewrites);
-            }
-            collect_fn_to_closure_store_sites(
-                ast,
-                body,
-                fn_sigs,
-                struct_field_anns,
-                targets,
-                rewrites,
-            );
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            for inner in stmts {
-                collect_fn_to_closure_store_sites(
-                    ast,
-                    inner,
-                    fn_sigs,
-                    struct_field_anns,
-                    targets,
-                    rewrites,
-                );
-            }
-        }
-        Stmt::Switch {
-            scrutinee,
-            cases,
-            default,
-        } => {
-            collect_expr_fn_to_closure(ast, *scrutinee, fn_sigs, targets, rewrites);
-            for c in cases {
-                for inner in &c.body {
-                    collect_fn_to_closure_store_sites(
-                        ast,
-                        inner,
-                        fn_sigs,
-                        struct_field_anns,
-                        targets,
-                        rewrites,
-                    );
-                }
-            }
-            if let Some(d) = default {
-                for inner in d {
-                    collect_fn_to_closure_store_sites(
-                        ast,
-                        inner,
-                        fn_sigs,
-                        struct_field_anns,
-                        targets,
-                        rewrites,
-                    );
-                }
-            }
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            for inner in body {
-                collect_fn_to_closure_store_sites(
-                    ast,
-                    inner,
-                    fn_sigs,
-                    struct_field_anns,
-                    targets,
-                    rewrites,
-                );
-            }
-            for inner in catch_body {
-                collect_fn_to_closure_store_sites(
-                    ast,
-                    inner,
-                    fn_sigs,
-                    struct_field_anns,
-                    targets,
-                    rewrites,
-                );
-            }
-            if let Some(fb) = finally_body {
-                for inner in fb {
-                    collect_fn_to_closure_store_sites(
-                        ast,
-                        inner,
-                        fn_sigs,
-                        struct_field_anns,
-                        targets,
-                        rewrites,
-                    );
-                }
-            }
-        }
-        Stmt::Throw(eid) | Stmt::Yield(eid) => {
-            collect_expr_fn_to_closure(ast, *eid, fn_sigs, targets, rewrites);
-        }
-        _ => {}
-    }
-}
 
 /// Walk an Expr looking for nested store-sites (Call args, nested
 /// ObjectLits not directly under a typed LetDecl, etc.).
-fn collect_expr_fn_to_closure(
+pub(crate) fn collect_expr_fn_to_closure(
     ast: &Ast,
     eid: ExprId,
     fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
@@ -5755,7 +5549,7 @@ fn collect_expr_fn_to_closure(
 /// resolves to a known TypeDecl whose field `k` is fn-typed, and `v`
 /// is a bare Ident referring to a top-level FnDecl, mark `v` as
 /// rewrite-target.
-fn collect_objectlit_fn_to_closure(
+pub(crate) fn collect_objectlit_fn_to_closure(
     ast: &Ast,
     init: ExprId,
     type_ann: Option<&str>,
