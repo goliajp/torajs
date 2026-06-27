@@ -1626,119 +1626,25 @@ fn lower_inner(
         bigint_as_uint_n: bigint_as_uint_n_id,
         bigint_drop_rc: bigint_drop_rc_id,
     } = crate::ssa_lower_intrinsics_bigint::declare(&mut module, &mut fn_table);
-    /* T-26 (v0.7) — WeakRef substrate. create takes a target ptr
-     * (any heap type, type-erased to Ptr at the SSA layer); deref
-     * returns the target +1 rc'd on success or NULL when the
-     * target was reclaimed. drop is rc-aware + unregisters from
-     * the runtime's global registry on last owner. */
-    let weakref_create_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakref_create",
-        &[Type::Ptr],
-        Type::WeakRef,
-    );
-    let weakref_deref_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakref_deref",
-        &[Type::WeakRef],
-        Type::Ptr,
-    );
-    let weakref_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakref_drop",
-        &[Type::WeakRef],
-        Type::Void,
-    );
-    let weakref_target_dying_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakref_target_dying",
-        &[Type::Ptr],
-        Type::Void,
-    );
-    /* T-26.B — WeakMap / WeakSet runtime. Pointer-identity-keyed
-     * collections with auto-eviction on key death via the shared
-     * weakref registry. */
-    let weakmap_create_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakmap_create",
-        &[],
-        Type::WeakMap,
-    );
-    let weakmap_set_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakmap_set",
-        &[Type::WeakMap, Type::Ptr, Type::Ptr],
-        Type::Void,
-    );
-    let weakmap_get_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakmap_get",
-        &[Type::WeakMap, Type::Ptr],
-        Type::Ptr,
-    );
-    let weakmap_has_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakmap_has",
-        &[Type::WeakMap, Type::Ptr],
-        Type::I64,
-    );
-    let weakmap_delete_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakmap_delete",
-        &[Type::WeakMap, Type::Ptr],
-        Type::I64,
-    );
-    let weakmap_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakmap_drop",
-        &[Type::WeakMap],
-        Type::Void,
-    );
-    let weakset_create_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakset_create",
-        &[],
-        Type::WeakSet,
-    );
-    let weakset_add_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakset_add",
-        &[Type::WeakSet, Type::Ptr],
-        Type::Void,
-    );
-    let weakset_has_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakset_has",
-        &[Type::WeakSet, Type::Ptr],
-        Type::I64,
-    );
-    let weakset_delete_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakset_delete",
-        &[Type::WeakSet, Type::Ptr],
-        Type::I64,
-    );
-    let weakset_drop_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_weakset_drop",
-        &[Type::WeakSet],
-        Type::Void,
-    );
+    // T-26 WeakRef + T-26.B WeakMap/WeakSet substrate (15 ids). See
+    // sibling for the per-decl ABI detail.
+    let crate::ssa_lower_intrinsics_weak::WeakIds {
+        weakref_create: weakref_create_id,
+        weakref_deref: weakref_deref_id,
+        weakref_drop: weakref_drop_id,
+        weakref_target_dying: weakref_target_dying_id,
+        weakmap_create: weakmap_create_id,
+        weakmap_set: weakmap_set_id,
+        weakmap_get: weakmap_get_id,
+        weakmap_has: weakmap_has_id,
+        weakmap_delete: weakmap_delete_id,
+        weakmap_drop: weakmap_drop_id,
+        weakset_create: weakset_create_id,
+        weakset_add: weakset_add_id,
+        weakset_has: weakset_has_id,
+        weakset_delete: weakset_delete_id,
+        weakset_drop: weakset_drop_id,
+    } = crate::ssa_lower_intrinsics_weak::declare(&mut module, &mut fn_table);
     /* P6.1 — Strong-ref `Map<K, V>` runtime. Tagged-Any keys + values
      * with SameValueZero key equality. set / has / delete take the
      * key as an unboxed (tag, payload) pair so the caller can avoid
