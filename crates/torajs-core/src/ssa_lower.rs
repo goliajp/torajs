@@ -1327,104 +1327,24 @@ fn lower_inner(
         arr_extend_unchecked: arr_extend_unchecked_id,
         arr_slice: arr_slice_id,
     } = crate::ssa_lower_intrinsics_arr::declare(&mut module, &mut fn_table);
-    let str_repeat_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_repeat",
-        &[Type::Str, Type::I64],
-        Type::Str,
-    );
-    let str_to_upper_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_to_upper",
-        &[Type::Str],
-        Type::Str,
-    );
-    let str_to_lower_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_to_lower",
-        &[Type::Str],
-        Type::Str,
-    );
-    let str_trim_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_trim",
-        &[Type::Str],
-        Type::Str,
-    );
-    let str_trim_start_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_trim_start",
-        &[Type::Str],
-        Type::Str,
-    );
-    let str_trim_end_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_trim_end",
-        &[Type::Str],
-        Type::Str,
-    );
-    let str_pad_start_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_pad_start",
-        &[Type::Str, Type::I64, Type::Str],
-        Type::Str,
-    );
-    let str_pad_end_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_pad_end",
-        &[Type::Str, Type::I64, Type::Str],
-        Type::Str,
-    );
-    let str_from_char_code_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_from_char_code",
-        &[Type::I64],
-        Type::Str,
-    );
-    let str_from_code_point_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_from_code_point",
-        &[Type::I64],
-        Type::Str,
-    );
-    let str_normalize_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_normalize",
-        &[Type::Str, Type::Str],
-        Type::Str,
-    );
-    let str_at_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_at",
-        &[Type::Str, Type::I64],
-        Type::Str,
-    );
-    let str_replace_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_replace",
-        &[Type::Str, Type::Str, Type::Str],
-        Type::Str,
-    );
-    let str_replace_all_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_str_replace_all",
-        &[Type::Str, Type::Str, Type::Str],
-        Type::Str,
-    );
+    // StrRepr method runtime group A (14 ids) — see sibling for the
+    // alloc / transform / lookup ABI detail.
+    let crate::ssa_lower_intrinsics_str_a::StrAIds {
+        str_repeat: str_repeat_id,
+        str_to_upper: str_to_upper_id,
+        str_to_lower: str_to_lower_id,
+        str_trim: str_trim_id,
+        str_trim_start: str_trim_start_id,
+        str_trim_end: str_trim_end_id,
+        str_pad_start: str_pad_start_id,
+        str_pad_end: str_pad_end_id,
+        str_from_char_code: str_from_char_code_id,
+        str_from_code_point: str_from_code_point_id,
+        str_normalize: str_normalize_id,
+        str_at: str_at_id,
+        str_replace: str_replace_id,
+        str_replace_all: str_replace_all_id,
+    } = crate::ssa_lower_intrinsics_str_a::declare(&mut module, &mut fn_table);
     let num_to_fixed_f_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
