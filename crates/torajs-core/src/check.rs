@@ -1315,7 +1315,7 @@ pub(crate) struct Checker {
     /// public APIs (`check`, `collect_errors`) stringify back to the
     /// caller's expected shape; LSP consumes via `collect_diagnostics`.
     pub(crate) errors: Vec<Diagnostic>,
-    expected_return: Option<Type>,
+    pub(crate) expected_return: Option<Type>,
     /// M-OO.5 — when typechecking a fn body whose name follows the
     /// `__cm_<Class>__<method>` / `__sm_<Class>__<method>` shape that
     /// `desugar_classes` mints, `current_class` records the enclosing
@@ -2428,56 +2428,11 @@ impl Checker {
                 // only — but the AST shape allows them anywhere.)
             }
             Stmt::Return(maybe_expr) => {
-                let Some(expected) = self.expected_return.clone() else {
-                    self.errors
-                        .push_err("`return` outside of a function".into());
-                    return;
-                };
-                let actual = match maybe_expr {
-                    None => Type::Void,
-                    Some(eid) => match self.type_of(ast, *eid) {
-                        Ok(t) => t,
-                        Err(e) => {
-                            self.errors.push_err(e);
-                            return;
-                        }
-                    },
-                };
-                // V3-18 wedge — Nullable<T> return type accepts both
-                // T-typed and Null values (Nullable's two value
-                // carriers), mirroring the call-arg widening rule
-                // for parameters.
-                let nullable_ok = if let Type::Nullable(inner) = &expected {
-                    actual == Type::Null || actual == **inner
-                } else {
-                    false
-                };
-                // P0.9 — return-type check goes through the
-                // assignability lattice so Any-typed expected (or
-                // structs containing Any fields) accept concrete
-                // returned values. Previous strict-eq blocked
-                // generators with default-Any yield types from
-                // returning concrete iterator-result structs.
-                if !nullable_ok
-                    && !is_assignable_to_resolved(
-                        &expected,
-                        &actual,
-                        &self.aliases,
-                        &self.generic_alias_decls,
-                    )
-                {
-                    self.errors.push_err(format!(
-                        "return type mismatch: function expects {expected:?}, got {actual:?}"
-                    ));
-                }
-                // Returning a non-Copy ident moves it out to the caller.
-                // Borrowed aliases may escape here — retain-at-return
-                // gives the caller its own +1.
-                if let Some(eid) = maybe_expr
-                    && !expected.is_copy()
-                {
-                    self.consume_escape(ast, *eid);
-                }
+                // expected_return + Nullable<T> wedge +
+                // P0.9 assignability lattice + move-out
+                // (consume_escape for non-Copy). See
+                // [`crate::check_stmt_return::check`].
+                crate::check_stmt_return::check(self, ast, *maybe_expr);
             }
             // M5.1 — desugar_classes runs before check, so by the time we
             // walk the AST every ClassDecl has been split into a TypeDecl
