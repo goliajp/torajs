@@ -200,6 +200,16 @@ pub(crate) fn check(
     {
         return r;
     }
+    // Set / Map / MapIter / ArrIter instance methods — see
+    // [`crate::check_type_of_member_setmap`] (chunk 193 —
+    // third sub-batch).
+    if matches!(
+        &obj_ty,
+        Type::Map | Type::Set | Type::MapIter | Type::ArrIter
+    ) && let Some(r) = crate::check_type_of_member_setmap::try_match(&obj_ty, name)
+    {
+        return r;
+    }
     match (&obj_ty, name) {
     (Type::Object("console"), m)
         if matches!(m, "log" | "error" | "warn" | "info" | "debug") =>
@@ -680,7 +690,8 @@ pub(crate) fn check(
      * arm dispatches to a Number-typed read; ssa_lower
      * calls `__torajs_map_size` (Set storage is the
      * same Map runtime). */
-    (Type::Map, "size") | (Type::Set, "size") => Ok(Type::Number),
+    // (Type::Map | Set, "size") — handled by the
+    // pre-match Set/Map try_match dispatch (chunk 193).
     // M6.1 — String methods. All borrow `this` and any
     // String args (consumption only fires at concat,
     // which has its own arm). Bool-returning methods
@@ -968,144 +979,8 @@ pub(crate) fn check(
     // (Type::WeakRef / WeakMap / WeakSet, _) — handled
     // by the pre-match try_match dispatch; see chunk 192
     // note above.
-    /* P6.1 — Map<K,V> methods. set takes (key, value)
-     * both type-erased to Any (the runtime stores
-     * tagged-Any slots regardless); set returns the
-     * map itchecker per spec §23.1.3.9 enabling chained
-     * `m.set(k,v).set(k2,v2)` idiom (S127-5). ssa-lower
-     * mirrors with an emit_rc_inc on the receiver
-     * before returning so the chained value owns its
-     * own ref independent of the source binding.
-     * get returns Nullable<Any>. has / delete return
-     * Boolean. clear returns Void. */
-    (Type::Map, "set") => Ok(Type::Function(
-        vec![Type::Any, Type::Any],
-        Box::new(Type::Map),
-    )),
-    (Type::Map, "get") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Nullable(Box::new(Type::Any))),
-    )),
-    (Type::Map, "has") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Boolean),
-    )),
-    (Type::Map, "delete") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Boolean),
-    )),
-    (Type::Map, "clear") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::Void),
-    )),
-    /* P6.4a — Map.forEach. Spec callback shape is
-     * `(value, key, map) => void`. Both `value` and
-     * `key` are type-erased to Any since storage is
-     * the (tag, payload) Any-domain. */
-    (Type::Map, "forEach") => Ok(Type::Function(
-        vec![Type::Function(
-            vec![Type::Any, Type::Any, Type::Map],
-            Box::new(Type::Void),
-        )],
-        Box::new(Type::Void),
-    )),
-    /* P6.4b — Map.keys / .values return a stateful
-     * MapIter (spec §23.1.3.8 / §23.1.3.13). The
-     * iter's `next()` produces `IteratorResult<any>`
-     * = `{ value: any, done: boolean }`. .entries is
-     * deferred to P6.4c (needs Array<Any> alloc per
-     * step + boxed (k, v) write). */
-    (Type::Map, "keys") | (Type::Map, "values") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::MapIter),
-    )),
-    /* P6.4c — Map.entries yields `[k, v]` pairs;
-     * Set.entries yields `[v, v]` pairs (spec
-     * §23.1.3.4 / §24.2.3.6). Both return the same
-     * MapIter handle (the runtime kind decides the
-     * yield shape). */
-    (Type::Map, "entries") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::MapIter),
-    )),
-    /* P6.4b — Set.keys = .values per spec §24.2.3.5
-     * (returns iterator over the elements). */
-    (Type::Set, "keys") | (Type::Set, "values") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::MapIter),
-    )),
-    (Type::Set, "entries") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::MapIter),
-    )),
-    /* P6.4b — MapIter.next() returns the spec-
-     * shaped IteratorResult struct. */
-    (Type::MapIter, "next") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::Struct(vec![
-            ("value".into(), Type::Any),
-            ("done".into(), Type::Boolean),
-        ])),
-    )),
-    /* P6.4c-C3 — ArrIter.next() shape matches
-     * MapIter (both produce `IteratorResult<any>`). */
-    (Type::ArrIter, "next") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::Struct(vec![
-            ("value".into(), Type::Any),
-            ("done".into(), Type::Boolean),
-        ])),
-    )),
-    /* P6.2 — Set<T> methods. add takes a single Any-
-     * typed value; storage piggy-backs on Map<T,
-     * undef> at runtime. S127-5 — add returns the set
-     * itchecker per spec §24.2.3.1 to enable chained
-     * `s.add(v1).add(v2)` idiom. ssa-lower mirrors
-     * with emit_rc_inc + receiver return. */
-    (Type::Set, "add") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Set),
-    )),
-    (Type::Set, "has") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Boolean),
-    )),
-    // ES2025 read-only Set setops (§24.2.3.{12,13,14}).
-    // Spec accepts any "Set-like" object; tora's narrow
-    // form requires the argument to also be a Set.
-    (Type::Set, "isSubsetOf")
-    | (Type::Set, "isSupersetOf")
-    | (Type::Set, "isDisjointFrom") => Ok(Type::Function(
-        vec![Type::Set],
-        Box::new(Type::Boolean),
-    )),
-    // ES2025 mutating Set setops (§24.2.3.{15,16,17,18}).
-    // Returns a fresh Set with rc=1.
-    (Type::Set, "union")
-    | (Type::Set, "intersection")
-    | (Type::Set, "difference")
-    | (Type::Set, "symmetricDifference") => Ok(Type::Function(
-        vec![Type::Set],
-        Box::new(Type::Set),
-    )),
-    (Type::Set, "delete") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Boolean),
-    )),
-    (Type::Set, "clear") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::Void),
-    )),
-    /* P6.4a — Set.forEach. Spec callback shape is
-     * `(value, value2, set) => void`, where the
-     * first two args are the same element. */
-    (Type::Set, "forEach") => Ok(Type::Function(
-        vec![Type::Function(
-            vec![Type::Any, Type::Any, Type::Set],
-            Box::new(Type::Void),
-        )],
-        Box::new(Type::Void),
-    )),
+    // (Type::Map | Set | MapIter | ArrIter, _) — handled
+    // by the pre-match Set/Map try_match dispatch (chunk 193).
     // (Type::Date, _) instance methods — handled by the
     // pre-match try_match dispatch; see chunk 191 note above.
     // Date.now() — static, returns ms-since-epoch.
