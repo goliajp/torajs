@@ -236,6 +236,7 @@ pub(crate) mod ssa_lower_assign_ident;
 pub(crate) mod ssa_lower_assign_member;
 pub(crate) mod ssa_lower_binop;
 pub(crate) mod ssa_lower_binop_inner;
+pub(crate) mod ssa_lower_binop_inner_any_arith;
 pub(crate) mod ssa_lower_binop_inner_bigint;
 pub(crate) mod ssa_lower_binop_inner_f64;
 pub(crate) mod ssa_lower_binop_inner_i64;
