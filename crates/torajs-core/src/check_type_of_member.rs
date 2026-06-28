@@ -279,109 +279,25 @@ pub(crate) fn check(
     {
         return r;
     }
+    // `Type::Object("NAMESPACE")` static-namespace members
+    // (console / Math / Number / BigInt / JSON / Array /
+    // Object single-type / Promise / Symbol) — see
+    // [`crate::check_type_of_member_namespace`] (chunk 200 —
+    // tenth sub-batch). Mixed-namespace arms (Object ∪
+    // Reflect for keys / hasOwn / ownKeys, generic
+    // Object(_) catch-alls, Object mutating /
+    // accessor / property-descriptor methods) stay in the
+    // main match because their patterns span more than one
+    // namespace tag or carry richer dispatch.
+    if let Type::Object(_) = &obj_ty
+        && let Some(r) = crate::check_type_of_member_namespace::try_match(&obj_ty, name)
+    {
+        return r;
+    }
     match (&obj_ty, name) {
-    (Type::Object("console"), m)
-        if matches!(m, "log" | "error" | "warn" | "info" | "debug") =>
-    {
-        // S328 — WHATWG console §1.1.{2,4}: `info` /
-        // `debug` print to the same stream as `log`.
-        // bun aliases info/debug to log (stdout); tr
-        // routes through the same `print_*` intrinsic
-        // family in ssa_lower.
-        Ok(Type::Function(vec![Type::Any], Box::new(Type::Void)))
-    }
-    // `Math` global — every method takes one number and
-    // returns a number. f64-flavored at the SSA level
-    // (the lowerer auto-promotes integer args), but
-    // check.rs uses the umbrella Type::Number.
-    (Type::Object("Math"), m)
-        if matches!(
-            m,
-            "sqrt" | "abs" | "floor" | "ceil" | "log" | "exp"
-            | "sign" | "round" | "trunc"
-            | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
-            | "log2" | "log10" | "cbrt"
-            | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh"
-            | "expm1" | "log1p" | "clz32" | "fround" | "f16round"
-        ) =>
-    {
-        Ok(Type::Function(vec![Type::Number], Box::new(Type::Number)))
-    }
-    (Type::Object("Math"), "imul") => Ok(Type::Function(
-        vec![Type::Number, Type::Number],
-        Box::new(Type::Number),
-    )),
-    // ES2025 §21.3.2.32 — correctly-rounded sum of an
-    // Array<Number>. Narrow form: only Array<Number>
-    // input (spec accepts any iterable of Number;
-    // tora's Set/Map/iterator surface comes later).
-    (Type::Object("Math"), "sumPrecise") => Ok(Type::Function(
-        vec![Type::Array(Box::new(Type::Number))],
-        Box::new(Type::Number),
-    )),
-    (Type::Object("Math"), "random") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::Number),
-    )),
-    // Two-arg methods: pow(x, y), min(a, b), max(a, b),
-    // atan2(y, x).
-    (Type::Object("Math"), m)
-        if matches!(m, "pow" | "min" | "max" | "atan2") =>
-    {
-        Ok(Type::Function(
-            vec![Type::Number, Type::Number],
-            Box::new(Type::Number),
-        ))
-    }
-    // Constants — read directly without parens.
-    (Type::Object("Math"), m)
-        if matches!(
-            m,
-            "PI" | "E" | "LN2" | "LN10" | "LOG2E" | "LOG10E"
-            | "SQRT2" | "SQRT1_2"
-        ) =>
-    {
-        Ok(Type::Number)
-    }
-    // Number namespace constants — common floating-point
-    // limits and integer-safety bounds.
-    (Type::Object("Number"), m)
-        if matches!(
-            m,
-            "NaN" | "POSITIVE_INFINITY" | "NEGATIVE_INFINITY"
-            | "EPSILON" | "MAX_SAFE_INTEGER" | "MIN_SAFE_INTEGER"
-            | "MAX_VALUE" | "MIN_VALUE"
-        ) =>
-    {
-        Ok(Type::Number)
-    }
-    // `Number` global — parseInt / parseFloat coerce a
-    // string to a number; isInteger / isNaN / isFinite
-    // are unary number predicates.
-    (Type::Object("Number"), "parseInt") => Ok(Type::Function(
-        vec![Type::String, Type::Number],
-        Box::new(Type::Number),
-    )),
-    (Type::Object("Number"), "parseFloat") => Ok(Type::Function(
-        vec![Type::String],
-        Box::new(Type::Number),
-    )),
-    (Type::Object("Number"), m)
-        if matches!(m, "isInteger" | "isNaN" | "isFinite" | "isSafeInteger") =>
-    {
-        Ok(Type::Function(vec![Type::Number], Box::new(Type::Boolean)))
-    }
-    // P12.4-B/C — `BigInt.asIntN(bits, value)` /
-    // `BigInt.asUintN(bits, value)` per ES §21.2.2.1 /
-    // §21.2.2.2. `bits` is a `Number` (Index per spec;
-    // tora's `Number` covers integer-shaped values
-    // already); `value` is `BigInt`; returns BigInt.
-    (Type::Object("BigInt"), "asIntN") | (Type::Object("BigInt"), "asUintN") => {
-        Ok(Type::Function(
-            vec![Type::Number, Type::BigInt],
-            Box::new(Type::BigInt),
-        ))
-    }
+    // (Type::Object("console" / "Math" / "Number" / "BigInt"),
+    // various) — handled by the pre-match namespace
+    // try_match dispatch (chunk 200).
     // V3-18 m2.b — Object.prototype methods on
     // constructor-namespace objects (Number / String /
     // Boolean / Array / etc). Same subset semantics as
@@ -412,36 +328,9 @@ pub(crate) fn check(
     (Type::Object(_), "prototype") => Ok(Type::Any),
     (Type::Object(_), "name") => Ok(Type::String),
     (Type::Object(_), "length") => Ok(Type::Number),
-    // JSON.stringify(value) — value can be any subset
-    // type; result is String. The actual type-aware
-    // serialization shape happens at lower-time
-    // (per-call-site monomorphization).
-    (Type::Object("JSON"), "stringify") => {
-        Ok(Type::Function(vec![Type::Any], Box::new(Type::String)))
-    }
-    // M6.3 — `JSON.parse(text): T` — caller-driven type
-    // inference. The return type at typecheck level is
-    // Any (effectively a hole); ssa_lower's LetDecl
-    // arm reads the slot's `type_ann` and emits the
-    // per-shape parser at lower time. check.rs accepts
-    // any `Type::Any` slot, so the let binding's
-    // declared `T` slot type drives the actual decode.
-    (Type::Object("JSON"), "parse") => {
-        Ok(Type::Function(vec![Type::String], Box::new(Type::Any)))
-    }
-    // Array.isArray(x) — compile-time static check.
-    (Type::Object("Array"), "isArray") => {
-        Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
-    }
-    // `Array.from(s)` over a string — returns `string[]`
-    // with one single-char string per byte. The other
-    // overloads (iterable / arrayLike / mapFn) aren't in
-    // tr's subset; ssa_lower validates the arg is Type::Str
-    // at lower-time.
-    (Type::Object("Array"), "from") => Ok(Type::Function(
-        vec![Type::String],
-        Box::new(Type::Array(Box::new(Type::String))),
-    )),
+    // (Type::Object("JSON" / "Array"), "stringify" / "parse" /
+    // "isArray" / "from") — handled by the pre-match
+    // namespace try_match dispatch (chunk 200).
     // `Object.keys(obj)` — returns Array<String> with the
     // field names of obj's struct type. Static-resolved at
     // codegen (the struct layout is known at compile
@@ -486,98 +375,16 @@ pub(crate) fn check(
         vec![Type::Any, Type::String],
         Box::new(Type::Any),
     )),
-    // Object.is(a, b) — strict equality with two
-    // corner-case overrides vs `===`: NaN is equal to
-    // NaN, and +0 is NOT equal to -0. Lowered per arg
-    // SSA type (Type::Number → __torajs_object_is_f64
-    // runtime helper that bitcasts the ±0 case;
-    // Type::String → __torajs_str_eq; everything else
-    // falls back to SSA-level == compare).
-    (Type::Object("Object"), "is") => Ok(Type::Function(
-        vec![Type::Any, Type::Any],
-        Box::new(Type::Boolean),
-    )),
-    /* T-09.b (v0.4.0) — Object.entries(obj) returns
-     * `Array<Array<Any>>` (each inner is `[key, value]`).
-     * Codegen unfolds at compile time using the static
-     * struct layout from check.rs's struct_layouts —
-     * zero-cost reflection just like Object.keys. The
-     * Type::Any tagged-slot path from T-10 carries the
-     * mixed key (Str) + value (per-field type). */
-    (Type::Object("Object"), "entries") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Array(Box::new(Type::Array(Box::new(Type::Any))))),
-    )),
-    /* T-09.c (v0.4.0) — Object.fromEntries(entries)
-     * uses caller-driven typing (similar to JSON.parse):
-     * the typecheck-level return is Any, and ssa_lower's
-     * LetDecl arm unfolds per the slot struct schema.
-     * MVP: entries are assumed to be in struct field
-     * declaration order (matches Object.entries
-     * round-trip), no key-matching scan. */
-    (Type::Object("Object"), "fromEntries") => Ok(Type::Function(
-        vec![Type::Array(Box::new(Type::Array(Box::new(Type::Any))))],
-        Box::new(Type::Any),
-    )),
-    /* S258 — Object.values(obj) → Array<Any>. SSA-emit
-     * already dispatches Obj/Arr/Str/Any receivers
-     * (ssa_lower.rs ~18495); checktime sig was missing.
-     * Return Array<Any> — heterogeneous struct fields
-     * + Any receiver both box to Any per ssa_lower's
-     * anyv_struct_values walker; homogeneous struct
-     * + Arr receivers also typecheck under Array<Any>
-     * (downcast-on-use). Trailing-arg widen folded
-     * into S256 below (matches!("entries"|"freeze"
-     * |"isFrozen"|"values"). */
-    (Type::Object("Object"), "values") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Array(Box::new(Type::Any))),
-    )),
-    /* T-09.d (v0.4.0) — Object.freeze(obj) sets the
-     * FROZEN bit on the universal heap header. Returns
-     * the same obj per spec. Subsequent field writes
-     * are silently ignored (matches non-strict mode;
-     * tr has no `"use strict"` directive). The arg
-     * type is permissive (Type::Any) — runtime accepts
-     * any heap object pointer. */
-    (Type::Object("Object"), "freeze") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Any),
-    )),
-    /* Object.isFrozen(obj) — reads the FROZEN bit. */
-    (Type::Object("Object"), "isFrozen") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Boolean),
-    )),
-    /* T-15.g.1 — Promise.resolve(v) / Promise.reject(v).
-     * MVP only Number arg (Type::Promise<Number>);
-     * heap types (Promise<string>, etc.) land in
-     * T-15.g.4 via direct call-arm handling that
-     * inspects the inferred arg type at the call site
-     * (the static-method table's TypeVar isn't
-     * instantiated automatically). */
-    (Type::Object("Promise"), "resolve")
-    | (Type::Object("Promise"), "reject") => Ok(Type::Function(
-        vec![Type::Number],
-        Box::new(Type::Promise(Box::new(Type::Number))),
-    )),
+    // (Type::Object("Object"), "is" / "entries" / "fromEntries"
+    // / "values" / "freeze" / "isFrozen") — handled by the
+    // pre-match namespace try_match dispatch (chunk 200).
+    // (Type::Object("Promise"), "resolve" / "reject") +
+    // (Type::Object("Symbol"), "for" / "keyFor") — handled
+    // by the pre-match namespace try_match dispatch
+    // (chunk 200).
     // (Type::Promise(_), "then" / "catch" / "finally")
     // — handled by the pre-match Promise try_match
     // dispatch (chunk 198).
-    /* T-13.b (v0.4.0) — Symbol.for(key) returns the
-     * registered Symbol for the key (creates one on
-     * first call). Identity preserved across calls. */
-    (Type::Object("Symbol"), "for") => Ok(Type::Function(
-        vec![Type::String],
-        Box::new(Type::Symbol),
-    )),
-    /* Symbol.keyFor(s) — inverse: returns the key
-     * Symbol.for() registered the symbol under, or
-     * null for unregistered (Symbol(...)) symbols. */
-    (Type::Object("Symbol"), "keyFor") => Ok(Type::Function(
-        vec![Type::Symbol],
-        Box::new(Type::Nullable(Box::new(Type::String))),
-    )),
     /* T-13.c (v0.4.0) — well-known Symbol singletons.
      * Process-level lazy-init pointers; identity
      * preserved across all access sites. for-of
