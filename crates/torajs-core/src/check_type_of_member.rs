@@ -267,6 +267,18 @@ pub(crate) fn check(
     {
         return r;
     }
+    // `Type::Struct` / `Type::Function` / `Type::Any`
+    // single-type members + per-type catch-alls — see
+    // [`crate::check_type_of_member_misc`] (chunk 199 —
+    // ninth sub-batch). The mixed-type prim+Any
+    // `hasOwnProperty` / `propertyIsEnumerable` arm and
+    // the `Array(_), name` catch-all stay in the main
+    // match (their patterns aren't single-type).
+    if matches!(&obj_ty, Type::Struct(_) | Type::Function(..) | Type::Any)
+        && let Some(r) = crate::check_type_of_member_misc::try_match(&obj_ty, name)
+    {
+        return r;
+    }
     match (&obj_ty, name) {
     (Type::Object("console"), m)
         if matches!(m, "log" | "error" | "warn" | "info" | "debug") =>
@@ -752,10 +764,9 @@ pub(crate) fn check(
     | (Type::Any, "propertyIsEnumerable") => {
         Ok(Type::Function(vec![Type::String], Box::new(Type::Boolean)))
     }
-    (Type::Any, "valueOf") => Ok(Type::Function(Vec::new(), Box::new(Type::Any))),
-    (Type::Any, "toString") => Ok(Type::Function(Vec::new(), Box::new(Type::String))),
-    (Type::Any, "isPrototypeOf") => Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean))),
-    (Type::Any, "constructor") => Ok(Type::Any),
+    // (Type::Any, "valueOf" / "toString" / "isPrototypeOf"
+    // / "constructor") — handled by the pre-match misc
+    // try_match dispatch (chunk 199).
     // RegExp instance methods. v0.2 #1 ships `.test(s)`;
     // `.exec` / `.toString` / `.source` / `.flags` /
     // `.global` / `.lastIndex` come in subsequent
@@ -1041,26 +1052,11 @@ pub(crate) fn check(
     //   .toString()                → "[object Object]"
     //                                 (subset stub).
     //   .constructor                → Type::Any.
-    (Type::Struct(_), "hasOwnProperty")
-    | (Type::Struct(_), "propertyIsEnumerable") => {
-        Ok(Type::Function(vec![Type::String], Box::new(Type::Boolean)))
-    }
-    (Type::Struct(_), "isPrototypeOf") => {
-        Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
-    }
-    (Type::Struct(_), "valueOf") => {
-        let inner = obj_ty.clone();
-        Ok(Type::Function(Vec::new(), Box::new(inner)))
-    }
-    (Type::Struct(_), "toString") => {
-        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
-    }
-    (Type::Struct(_), "constructor") => Ok(Type::Any),
-    // P3.2 — Member access on Type::Any returns Type::Any.
-    // Static layout unknown at compile time; ssa_lower
-    // routes through dynobj_get_tag/value. Missing
-    // properties read as undefined per spec.
-    (Type::Any, _) => Ok(Type::Any),
+    // (Type::Struct(_), "hasOwnProperty" / "propertyIsEnumerable"
+    // / "isPrototypeOf" / "valueOf" / "toString" /
+    // "constructor") + (Type::Any, _) catch-all —
+    // handled by the pre-match misc try_match dispatch
+    // (chunk 199).
     // T-29 — Array-as-Object reads. `arr.x` on an
     // array returns Type::Any (lookup via side table).
     // .length is already handled by the (Type::Array(_),
@@ -1082,19 +1078,9 @@ pub(crate) fn check(
     // are compile-time constants known from the fn's
     // static signature, so ssa_lower can fold them
     // without runtime dispatch.
-    (Type::Function(params, _), "length") => {
-        let _ = params;
-        Ok(Type::Number)
-    }
-    (Type::Function(..), "name") => Ok(Type::String),
-    // T-27 — Function-as-Object reads. Per ECMAScript
-    // §10.2 functions are objects. `f.x` on a closure
-    // reads from its lazy props_dynobj at offset
-    // CLOSURE_PROPS_OFF; missing/unset → undefined.
-    // Other built-in props (.bind, .call, .apply,
-    // .toString, etc.) are L3b T-27.c-rest — not
-    // implemented; currently return undefined.
-    (Type::Function(..), _) => Ok(Type::Any),
+    // (Type::Function(..), "length" / "name" + catch-all)
+    // — handled by the pre-match misc try_match dispatch
+    // (chunk 199).
     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
 }
 }
