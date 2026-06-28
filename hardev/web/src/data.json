@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-27T22:55:43.055Z",
+  "generatedAt": "2026-06-28T02:33:13.778Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "88787184",
-    "commitSubject": "refactor(torajs-core): extract lower_stmt Stmt::Try arm (chunk 155)",
+    "commit": "9ef2359f",
+    "commitSubject": "refactor(torajs-core): extract lower_binop_inner (chunk 160)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "9ef2359f",
+      "subject": "refactor(torajs-core): extract lower_binop_inner (chunk 160)"
+    },
+    {
+      "hash": "7f6a1e24",
+      "subject": "refactor(torajs-core): extract emit_drop_value (chunk 159)"
+    },
+    {
+      "hash": "833f3caa",
+      "subject": "refactor(torajs-core): extract lower_json_stringify (chunk 158)"
+    },
+    {
+      "hash": "66af9dae",
+      "subject": "refactor(torajs-core): extract lower_for_of_str + helpers (chunk 157)"
+    },
+    {
+      "hash": "a78d9e42",
+      "subject": "refactor(torajs-core): extract lower_stmt Stmt::LetDecl arm (chunk 156)"
+    },
+    {
+      "hash": "ac51d489",
+      "subject": "chore(handoff/dashboard): chunks 151-155 ship summary @ 88787184 (-1983 LOC session)"
+    },
+    {
       "hash": "88787184",
       "subject": "refactor(torajs-core): extract lower_stmt Stmt::Try arm (chunk 155)"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "3114d194",
       "subject": "chore(handoff/dashboard): chunks 145-150 ship summary @ e2d64f99 (-1165 LOC)"
-    },
-    {
-      "hash": "e2d64f99",
-      "subject": "refactor(torajs-core): extract lower_stmt Stmt::ForOfSplitIter arm (chunk 150)"
-    },
-    {
-      "hash": "0492859d",
-      "subject": "refactor(torajs-core): extract lower_stmt Stmt::Return arm (chunk 149)"
-    },
-    {
-      "hash": "32361426",
-      "subject": "refactor(torajs-core): extract lower_stmt Stmt::Throw arm (chunk 148)"
-    },
-    {
-      "hash": "c0f7b8f6",
-      "subject": "refactor(torajs-core): extract Stmt::ForOf arm of lower_stmt (chunk 147)"
-    },
-    {
-      "hash": "f0f64951",
-      "subject": "refactor(torajs-core): extract Stmt::Switch arm of lower_stmt (chunk 146)"
-    },
-    {
-      "hash": "3cb8c016",
-      "subject": "refactor(torajs-core): extract Stmt::For arm of lower_stmt (chunk 145)"
     }
   ],
-  "headSha": "88787184",
+  "headSha": "9ef2359f",
   "autorun": {
-    "total": 266,
+    "total": 267,
     "baselineTarget": 10,
-    "bySelf": 261,
+    "bySelf": 262,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782596903-55f5",
-      "at": "2026-06-27T21:48:23Z",
-      "ts": 1782596903,
+      "rotationId": "r-1782602309-35bf",
+      "at": "2026-06-27T23:18:29Z",
+      "ts": 1782602309,
       "trigger": "self",
-      "prevHead": "e2d64f99",
-      "handoffSha": "sha256:027b29127a260da1f809b2c26a3cd5d215bfc79421a764f6c2db4b5dade94d6c",
-      "handoffAgeSec": 7130,
+      "prevHead": "ac51d489",
+      "handoffSha": "sha256:994a99d86296216ae850fe80bae27c07f392595c27df62e1802af232ab476eb9",
+      "handoffAgeSec": 1312,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782602309-35bf",
+        "at": "2026-06-27T23:18:29Z",
+        "ts": 1782602309,
+        "trigger": "self",
+        "prevHead": "ac51d489",
+        "handoffSha": "sha256:994a99d86296216ae850fe80bae27c07f392595c27df62e1802af232ab476eb9",
+        "handoffAgeSec": 1312,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782596903-55f5",
         "at": "2026-06-27T21:48:23Z",
@@ -780,17 +791,6 @@
         "prevHead": "4b2c8316",
         "handoffSha": "sha256:b9673d40bf4db0e9f93798beb1cf036cf0595f29cda7bfce3c1592f23517ab17",
         "handoffAgeSec": 3434,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782542717-73f9",
-        "at": "2026-06-27T06:45:17Z",
-        "ts": 1782542717,
-        "trigger": "self",
-        "prevHead": "4f79899c",
-        "handoffSha": "sha256:6122fb3fb227c7c5a1e13fa20c3b02dcf91a199d544e69f03abb1365bda1fa84",
-        "handoffAgeSec": 12,
         "conformanceBefore": null,
         "commitsInSession": null
       }
