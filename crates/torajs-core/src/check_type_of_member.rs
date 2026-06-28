@@ -1,0 +1,1974 @@
+//! `Expr::Member` typecheck extracted from
+//! [`crate::check::Checker::type_of_inner`]'s `Expr::Member` arm
+//! (chunk 167).
+//!
+//! Pre-extract this arm was 1939 LOC inside `type_of_inner`. Body
+//! verbatim moves here as a `check` free fn taking `&mut Checker`;
+//! `type_of_inner`'s arm delegates with one line. This is the
+//! largest single arm in type_of_inner; chunk 167's sibling itself
+//! is over the 500-LOC file-size HARD limit (~1930 LOC) and is
+//! registered in `torajs-file-size-debt.md` as known-debt. Per-
+//! property-family sub-siblings are deferred to a follow-up
+//! rotation — this chunk just gets the LOC out of check.rs so the
+//! rest of the god-fn decomposition can continue.
+//!
+//! Body unchanged — handles every member access shape:
+//! - M-OO.5 visibility enforcement (Public/Private/Protected for
+//!   `this.x` and `let x: ClassName = ...; x.field`)
+//! - Class instance method / field / accessor (getter) lookups
+//! - String method dispatch (`s.length` / `s.charCodeAt` / `s.split` / ...)
+//! - Array method dispatch (`xs.length` / `xs.push` / `xs.map` / ...)
+//! - Number / Boolean / BigInt / Date / RegExp / Promise / Map / Set
+//!   / WeakRef / WeakMap / WeakSet / MapIter / ArrIter / Symbol
+//!   per-type method tables
+//! - Static class members (`Math.floor` / `ClassName.STATIC_FIELD`)
+//! - Any / Function fallbacks at the end
+
+use crate::ast::Visibility;
+use crate::ast::{Ast, Expr, ExprId};
+use crate::check::{Checker, Type, is_array_method_name, resolve_class_ref};
+
+pub(crate) fn check(
+    checker: &mut Checker,
+    ast: &Ast,
+    obj: &ExprId,
+    name: &str,
+) -> Result<Type, String> {
+    let obj_ty = checker.type_of(ast, *obj)?;
+    // M-OO.5 — visibility enforcement. Find the binding's
+    // nominal class:
+    //   - `this` inside a class method body inherits the
+    //     current class context.
+    //   - An Ident bound by `let x: ClassName = ...` carries
+    //     its `declared_class` from the LetDecl arm.
+    // Other shapes (chained Member, Call result, etc.)
+    // currently get no nominal info; treat their visibility
+    // as Public until that path needs tightening.
+    let obj_class: Option<String> = match ast.get_expr(*obj) {
+        Expr::This => checker.current_class.clone(),
+        Expr::Ident(n) => checker.lookup(n).and_then(|info| info.declared_class),
+        _ => None,
+    };
+    if let Some(cls) = obj_class.as_deref()
+        && let Some(vis) = ast
+            .member_visibility
+            .get(&(cls.to_string(), name.to_string()))
+            .copied()
+    {
+        let allowed = match vis {
+            Visibility::Public => true,
+            Visibility::Private => checker.current_class.as_deref() == Some(cls),
+            Visibility::Protected => checker
+                .current_class
+                .as_deref()
+                .map(|c| c == cls || checker.is_descendant_of(ast, c, cls))
+                .unwrap_or(false),
+        };
+        if !allowed {
+            return Err(format!(
+                "M-OO.5: cannot access {vis:?} member `{cls}.{name}` from {}",
+                checker
+                    .current_class
+                    .as_deref()
+                    .map(|c| format!("class `{c}`"))
+                    .unwrap_or_else(|| "outside any class".to_string())
+            ));
+        }
+    }
+    // Struct field access is the most general path — look up
+    // the named field; type is whatever it was declared as.
+    // V3-05 — resolve any ClassRef placeholder embedded in
+    // obj_ty (self-reference fields hit this).
+    let resolved_obj_ty =
+        resolve_class_ref(&obj_ty, &checker.aliases, &checker.generic_alias_decls);
+    if let Type::Struct(fields) = &resolved_obj_ty
+        && let Some((_, ty)) = fields.iter().find(|(fname, _)| fname == name)
+    {
+        return Ok(resolve_class_ref(
+            ty,
+            &checker.aliases,
+            &checker.generic_alias_decls,
+        ));
+    }
+    // P8.2 — accessor read: `c.value` where the resolved
+    // class C has a `get value(): T` declaration. After the
+    // struct-field lookup misses (accessors aren't fields),
+    // probe `accessor_getters` for the receiver's class and
+    // return the getter's declared return type. ssa_lower
+    // emits a `Call(__cm_<C>__value_get, c)` at the
+    // matching Member arm — type-wise we just return the
+    // getter's `ret` so caller sites see a normal value
+    // (not a Function), matching ES §10.1.7 [[Get]]
+    // semantics.
+    if let Type::Struct(_) = &resolved_obj_ty {
+        let mut accessor_class: Option<String> = None;
+        for (n, ty) in checker.aliases.iter() {
+            if *ty == resolved_obj_ty && ast.class_parents.contains_key(n) {
+                accessor_class = Some(n.clone());
+                break;
+            }
+        }
+        if let Some(cls) = accessor_class
+            && let Some(getter_fn) = ast.accessor_getters.get(&(cls.clone(), name.to_string()))
+            && let Some(Type::Function(_params, ret)) = checker.globals.get(getter_fn)
+        {
+            return Ok(resolve_class_ref(
+                ret,
+                &checker.aliases,
+                &checker.generic_alias_decls,
+            ));
+        }
+    }
+    /* T-15.g.2 (v0.5.0) — built-in `Promise<T>.value` returns
+     * T. The parser desugars `await p` to `p.value` (Phase L
+     * MVP — synchronous read of the resolved value), so this
+     * Member-access rule is the entire `await` typing for
+     * built-in promises. ssa_lower's matching arm emits
+     * `__torajs_promise_get_value(p)` which reads the i64
+     * value slot from the Promise heap block. The user-class
+     * Promise pattern keeps working since Type::Object
+     * structs go through the field-lookup branch above. */
+    if let Type::Promise(inner) = &obj_ty
+        && name == "value"
+    {
+        return Ok((**inner).clone());
+    }
+    /* P10.4 — `await e` on non-Promise e per ES spec:
+     * conceptually `Promise.resolve(e)` is constructed and
+     * its resolved value is yielded — which for any
+     * non-thenable e collapses to e itchecker. The parser
+     * desugars `await e` to `e.value`; this arm treats
+     * `.value` as identity for the types that can never
+     * carry a real `value` field of their own (primitives
+     * + the built-in heap container types). The Promise
+     * arm above takes precedence for actual Promise<T>;
+     * the user-struct field-lookup arm below takes
+     * precedence for declared `{ value: T }` Struct
+     * shapes. Type::Object("Symbol" / etc.), Type::Class
+     * and Type::Struct intentionally fall through —
+     * those CAN have a real `.value` member. */
+    if name == "value"
+        && matches!(
+            obj_ty,
+            Type::Number | Type::String | Type::Boolean | Type::Array(_) | Type::BigInt
+        )
+    {
+        return Ok(obj_ty);
+    }
+    // Phase I.1 — class method on Type::Struct. Reverse-lookup
+    // the class name from the struct shape (matches the
+    // first-aliased class with that struct), then probe
+    // `__cm_<class>__<name>` in globals. If found, return
+    // its Function type with `__this` (the implicit first
+    // param) stripped — caller's args fill the remaining
+    // params. Used by sibling-method calls left
+    // un-rewritten by desugar (the chain-and-static cases
+    // were rewritten into Ident calls already).
+    if let Type::Struct(_) = &obj_ty {
+        let mut class_name: Option<String> = None;
+        for (n, ty) in checker.aliases.iter() {
+            if *ty == obj_ty && ast.class_parents.contains_key(n) {
+                class_name = Some(n.clone());
+                break;
+            }
+        }
+        if let Some(cname) = class_name {
+            let cm_name = format!("__cm_{cname}__{name}");
+            if let Some(Type::Function(params, ret)) = checker.globals.get(&cm_name) {
+                // Strip the implicit `__this` first param.
+                if !params.is_empty() {
+                    let user_params = params[1..].to_vec();
+                    return Ok(Type::Function(user_params, ret.clone()));
+                }
+            }
+        }
+    }
+    match (&obj_ty, name) {
+    (Type::Object("console"), m)
+        if matches!(m, "log" | "error" | "warn" | "info" | "debug") =>
+    {
+        // S328 — WHATWG console §1.1.{2,4}: `info` /
+        // `debug` print to the same stream as `log`.
+        // bun aliases info/debug to log (stdout); tr
+        // routes through the same `print_*` intrinsic
+        // family in ssa_lower.
+        Ok(Type::Function(vec![Type::Any], Box::new(Type::Void)))
+    }
+    // `Math` global — every method takes one number and
+    // returns a number. f64-flavored at the SSA level
+    // (the lowerer auto-promotes integer args), but
+    // check.rs uses the umbrella Type::Number.
+    (Type::Object("Math"), m)
+        if matches!(
+            m,
+            "sqrt" | "abs" | "floor" | "ceil" | "log" | "exp"
+            | "sign" | "round" | "trunc"
+            | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
+            | "log2" | "log10" | "cbrt"
+            | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh"
+            | "expm1" | "log1p" | "clz32" | "fround" | "f16round"
+        ) =>
+    {
+        Ok(Type::Function(vec![Type::Number], Box::new(Type::Number)))
+    }
+    (Type::Object("Math"), "imul") => Ok(Type::Function(
+        vec![Type::Number, Type::Number],
+        Box::new(Type::Number),
+    )),
+    // ES2025 §21.3.2.32 — correctly-rounded sum of an
+    // Array<Number>. Narrow form: only Array<Number>
+    // input (spec accepts any iterable of Number;
+    // tora's Set/Map/iterator surface comes later).
+    (Type::Object("Math"), "sumPrecise") => Ok(Type::Function(
+        vec![Type::Array(Box::new(Type::Number))],
+        Box::new(Type::Number),
+    )),
+    (Type::Object("Math"), "random") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Number),
+    )),
+    // Two-arg methods: pow(x, y), min(a, b), max(a, b),
+    // atan2(y, x).
+    (Type::Object("Math"), m)
+        if matches!(m, "pow" | "min" | "max" | "atan2") =>
+    {
+        Ok(Type::Function(
+            vec![Type::Number, Type::Number],
+            Box::new(Type::Number),
+        ))
+    }
+    // Constants — read directly without parens.
+    (Type::Object("Math"), m)
+        if matches!(
+            m,
+            "PI" | "E" | "LN2" | "LN10" | "LOG2E" | "LOG10E"
+            | "SQRT2" | "SQRT1_2"
+        ) =>
+    {
+        Ok(Type::Number)
+    }
+    // Number namespace constants — common floating-point
+    // limits and integer-safety bounds.
+    (Type::Object("Number"), m)
+        if matches!(
+            m,
+            "NaN" | "POSITIVE_INFINITY" | "NEGATIVE_INFINITY"
+            | "EPSILON" | "MAX_SAFE_INTEGER" | "MIN_SAFE_INTEGER"
+            | "MAX_VALUE" | "MIN_VALUE"
+        ) =>
+    {
+        Ok(Type::Number)
+    }
+    // `Number` global — parseInt / parseFloat coerce a
+    // string to a number; isInteger / isNaN / isFinite
+    // are unary number predicates.
+    (Type::Object("Number"), "parseInt") => Ok(Type::Function(
+        vec![Type::String, Type::Number],
+        Box::new(Type::Number),
+    )),
+    (Type::Object("Number"), "parseFloat") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Number),
+    )),
+    (Type::Object("Number"), m)
+        if matches!(m, "isInteger" | "isNaN" | "isFinite" | "isSafeInteger") =>
+    {
+        Ok(Type::Function(vec![Type::Number], Box::new(Type::Boolean)))
+    }
+    // P12.4-B/C — `BigInt.asIntN(bits, value)` /
+    // `BigInt.asUintN(bits, value)` per ES §21.2.2.1 /
+    // §21.2.2.2. `bits` is a `Number` (Index per spec;
+    // tora's `Number` covers integer-shaped values
+    // already); `value` is `BigInt`; returns BigInt.
+    (Type::Object("BigInt"), "asIntN") | (Type::Object("BigInt"), "asUintN") => {
+        Ok(Type::Function(
+            vec![Type::Number, Type::BigInt],
+            Box::new(Type::BigInt),
+        ))
+    }
+    // V3-18 m2.b — Object.prototype methods on
+    // constructor-namespace objects (Number / String /
+    // Boolean / Array / etc). Same subset semantics as
+    // m2.a on primitives: hasOwnProperty /
+    // propertyIsEnumerable always false (no own enum
+    // properties tracked), valueOf identity.
+    (Type::Object(_), "hasOwnProperty")
+    | (Type::Object(_), "propertyIsEnumerable") => {
+        Ok(Type::Function(vec![Type::String], Box::new(Type::Boolean)))
+    }
+    (Type::Object(_), "isPrototypeOf") => {
+        Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
+    }
+    (Type::Object(_), "toString") => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+    }
+    // V3-18 m2.c → 2026-05-18 — `Number.prototype` /
+    // `String.prototype` / etc — every constructor
+    // object has a `.prototype` property. Subset
+    // returns Type::Any so subsequent `.X` access
+    // routes through dynobj_get (returning ANY_UNDEF
+    // for unknown fields, harmless when consumed by
+    // a verifyProperty-style stub). Pre-fix Type::Null
+    // blocked `verifyProperty(X.prototype.Y, ...)` —
+    // the dominant test262 shape — at typecheck time.
+    // typeof X.prototype still works via the typeof-
+    // namespace-member arm above.
+    (Type::Object(_), "prototype") => Ok(Type::Any),
+    (Type::Object(_), "name") => Ok(Type::String),
+    (Type::Object(_), "length") => Ok(Type::Number),
+    // JSON.stringify(value) — value can be any subset
+    // type; result is String. The actual type-aware
+    // serialization shape happens at lower-time
+    // (per-call-site monomorphization).
+    (Type::Object("JSON"), "stringify") => {
+        Ok(Type::Function(vec![Type::Any], Box::new(Type::String)))
+    }
+    // M6.3 — `JSON.parse(text): T` — caller-driven type
+    // inference. The return type at typecheck level is
+    // Any (effectively a hole); ssa_lower's LetDecl
+    // arm reads the slot's `type_ann` and emits the
+    // per-shape parser at lower time. check.rs accepts
+    // any `Type::Any` slot, so the let binding's
+    // declared `T` slot type drives the actual decode.
+    (Type::Object("JSON"), "parse") => {
+        Ok(Type::Function(vec![Type::String], Box::new(Type::Any)))
+    }
+    // Array.isArray(x) — compile-time static check.
+    (Type::Object("Array"), "isArray") => {
+        Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
+    }
+    // `Array.from(s)` over a string — returns `string[]`
+    // with one single-char string per byte. The other
+    // overloads (iterable / arrayLike / mapFn) aren't in
+    // tr's subset; ssa_lower validates the arg is Type::Str
+    // at lower-time.
+    (Type::Object("Array"), "from") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Array(Box::new(Type::String))),
+    )),
+    // `Object.keys(obj)` — returns Array<String> with the
+    // field names of obj's struct type. Static-resolved at
+    // codegen (the struct layout is known at compile
+    // time), so this is a compile-time constant array
+    // emitted at the call site. Param is Type::Any
+    // because the typechecker doesn't yet track
+    // "any-struct" as a constraint; ssa_lower verifies
+    // the arg actually carries Type::Obj at lower-time
+    // and panics on non-struct args.
+    (Type::Object("Object"), "keys")
+    // tr has no prototype chain, so own == all; alias
+    // getOwnPropertyNames to keys at lower time.
+    | (Type::Object("Object"), "getOwnPropertyNames")
+    // ES6 §28.1.11 — `Reflect.ownKeys` shares this
+    // signature; the ssa_lower dispatch routes both
+    // through the same struct-keys emit.
+    | (Type::Object("Reflect"), "ownKeys") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Array(Box::new(Type::String))),
+    )),
+    /* v0.2 #3 — Object.hasOwn(obj, key) — compile-time
+     * resolved when key is a Str literal (struct layout
+     * known at lower time). Boolean result.
+     *
+     * Object.freeze / isFrozen are deferred — pairing
+     * them as a no-op returning false would break
+     * `Object.isFrozen(Object.freeze(o)) === true`
+     * test262 cases. Real implementation needs a
+     * frozen bit on the universal heap header (v0.3). */
+    (Type::Object("Object"), "hasOwn")
+    // ES6 §28.1.9 — `Reflect.has` shares this signature.
+    | (Type::Object("Reflect"), "has") => Ok(Type::Function(
+        vec![Type::Any, Type::String],
+        Box::new(Type::Boolean),
+    )),
+    // ES6 §28.1.6 — `Reflect.get(target, key)`. Subset:
+    // typed struct target + literal-string key folds at
+    // ssa-lower time to a struct field load + box-to-Any
+    // (key not in layout → ANY_UNDEF). Dynamic key or
+    // non-struct target stays a deferred substrate.
+    (Type::Object("Reflect"), "get") => Ok(Type::Function(
+        vec![Type::Any, Type::String],
+        Box::new(Type::Any),
+    )),
+    // Object.is(a, b) — strict equality with two
+    // corner-case overrides vs `===`: NaN is equal to
+    // NaN, and +0 is NOT equal to -0. Lowered per arg
+    // SSA type (Type::Number → __torajs_object_is_f64
+    // runtime helper that bitcasts the ±0 case;
+    // Type::String → __torajs_str_eq; everything else
+    // falls back to SSA-level == compare).
+    (Type::Object("Object"), "is") => Ok(Type::Function(
+        vec![Type::Any, Type::Any],
+        Box::new(Type::Boolean),
+    )),
+    /* T-09.b (v0.4.0) — Object.entries(obj) returns
+     * `Array<Array<Any>>` (each inner is `[key, value]`).
+     * Codegen unfolds at compile time using the static
+     * struct layout from check.rs's struct_layouts —
+     * zero-cost reflection just like Object.keys. The
+     * Type::Any tagged-slot path from T-10 carries the
+     * mixed key (Str) + value (per-field type). */
+    (Type::Object("Object"), "entries") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Array(Box::new(Type::Array(Box::new(Type::Any))))),
+    )),
+    /* T-09.c (v0.4.0) — Object.fromEntries(entries)
+     * uses caller-driven typing (similar to JSON.parse):
+     * the typecheck-level return is Any, and ssa_lower's
+     * LetDecl arm unfolds per the slot struct schema.
+     * MVP: entries are assumed to be in struct field
+     * declaration order (matches Object.entries
+     * round-trip), no key-matching scan. */
+    (Type::Object("Object"), "fromEntries") => Ok(Type::Function(
+        vec![Type::Array(Box::new(Type::Array(Box::new(Type::Any))))],
+        Box::new(Type::Any),
+    )),
+    /* S258 — Object.values(obj) → Array<Any>. SSA-emit
+     * already dispatches Obj/Arr/Str/Any receivers
+     * (ssa_lower.rs ~18495); checktime sig was missing.
+     * Return Array<Any> — heterogeneous struct fields
+     * + Any receiver both box to Any per ssa_lower's
+     * anyv_struct_values walker; homogeneous struct
+     * + Arr receivers also typecheck under Array<Any>
+     * (downcast-on-use). Trailing-arg widen folded
+     * into S256 below (matches!("entries"|"freeze"
+     * |"isFrozen"|"values"). */
+    (Type::Object("Object"), "values") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Array(Box::new(Type::Any))),
+    )),
+    /* T-09.d (v0.4.0) — Object.freeze(obj) sets the
+     * FROZEN bit on the universal heap header. Returns
+     * the same obj per spec. Subsequent field writes
+     * are silently ignored (matches non-strict mode;
+     * tr has no `"use strict"` directive). The arg
+     * type is permissive (Type::Any) — runtime accepts
+     * any heap object pointer. */
+    (Type::Object("Object"), "freeze") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Any),
+    )),
+    /* Object.isFrozen(obj) — reads the FROZEN bit. */
+    (Type::Object("Object"), "isFrozen") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Boolean),
+    )),
+    /* T-15.g.1 — Promise.resolve(v) / Promise.reject(v).
+     * MVP only Number arg (Type::Promise<Number>);
+     * heap types (Promise<string>, etc.) land in
+     * T-15.g.4 via direct call-arm handling that
+     * inspects the inferred arg type at the call site
+     * (the static-method table's TypeVar isn't
+     * instantiated automatically). */
+    (Type::Object("Promise"), "resolve")
+    | (Type::Object("Promise"), "reject") => Ok(Type::Function(
+        vec![Type::Number],
+        Box::new(Type::Promise(Box::new(Type::Number))),
+    )),
+    /* T-15.g.3 / T-19.g (v0.5.0) — `Promise<T>.then(cb)`
+     * chains. cb signature is `(v: T) => T` (same T
+     * in/out — no generic U yet). T ∈ Number / String
+     * / Boolean — the three i64-roundtrippable
+     * primitives the runtime helper
+     * `__torajs_promise_then_simple` packs through.
+     * Heap T (Array / Struct / Date) deferred to
+     * T-15.g.5+ alongside the closure-cb substrate. */
+    (Type::Promise(inner), "then")
+        if matches!(
+            **inner,
+            Type::Number | Type::String | Type::Boolean | Type::Any
+        ) =>
+    {
+        // P10.7 — `Promise<Any>` participates same as
+        // the i64-roundtrippable primitives: cb is
+        // `(v: Any) => Any`; the existing
+        // `__torajs_promise_then_simple` helper takes
+        // / returns i64 (NaN-box AnyValue at the SSA
+        // layer is i64-sized).
+        Ok(Type::Function(
+            vec![Type::Function(
+                vec![(**inner).clone()],
+                Box::new((**inner).clone()),
+            )],
+            Box::new(Type::Promise(inner.clone())),
+        ))
+    }
+    /* T-19.k (v0.5.0) — `Promise<T>.catch(onRejected)`.
+     * cb sig is `(reason: T) => T` — same shape as
+     * .then's onFulfilled. Returns a Promise<T> that
+     * resolves with cb's return value on rejection,
+     * or passes through source's value on fulfillment.
+     * T scope matches .then (Number / String / Boolean)
+     * since both share the i64-roundtripping runtime
+     * helper. spec-strict heterogeneous T → U lands
+     * with TypeVar substitution post-T-15.g.4. */
+    (Type::Promise(inner), "catch")
+        if matches!(
+            **inner,
+            Type::Number | Type::String | Type::Boolean | Type::Any
+        ) =>
+    {
+        // P10.7 — symmetric with the `.then` widening
+        // above. `Promise<Any>.catch(cb)` runs through
+        // `__torajs_promise_catch_simple` / `_closure`
+        // unchanged at the SSA layer.
+        Ok(Type::Function(
+            vec![Type::Function(
+                vec![(**inner).clone()],
+                Box::new((**inner).clone()),
+            )],
+            Box::new(Type::Promise(inner.clone())),
+        ))
+    }
+    /* T-19.k — `Promise<T>.finally(onFinally)`. cb sig
+     * is `() => void` per spec — no value passed in,
+     * cb's return ignored. Returns a Promise<T> with
+     * the same state + value as the source (after
+     * cb runs). cb runs on either settled state. */
+    (Type::Promise(inner), "finally") => Ok(Type::Function(
+        vec![Type::Function(vec![], Box::new(Type::Void))],
+        Box::new(Type::Promise(inner.clone())),
+    )),
+    /* T-13.b (v0.4.0) — Symbol.for(key) returns the
+     * registered Symbol for the key (creates one on
+     * first call). Identity preserved across calls. */
+    (Type::Object("Symbol"), "for") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Symbol),
+    )),
+    /* Symbol.keyFor(s) — inverse: returns the key
+     * Symbol.for() registered the symbol under, or
+     * null for unregistered (Symbol(...)) symbols. */
+    (Type::Object("Symbol"), "keyFor") => Ok(Type::Function(
+        vec![Type::Symbol],
+        Box::new(Type::Nullable(Box::new(Type::String))),
+    )),
+    /* T-13.c (v0.4.0) — well-known Symbol singletons.
+     * Process-level lazy-init pointers; identity
+     * preserved across all access sites. for-of
+     * dispatch via `[Symbol.iterator]()` lands with
+     * v0.5 (iterator protocol substrate). */
+    (Type::Object("Symbol"), "iterator")
+    | (Type::Object("Symbol"), "asyncIterator")
+    | (Type::Object("Symbol"), "toPrimitive") => Ok(Type::Symbol),
+    /* T-09.a (v0.4.0) — 5 Object methods that don't fit
+     * tr's nominal class system / fixed struct schema.
+     * Reject at typecheck with a clear phase pointer
+     * rather than ship a silently-wrong implementation.
+     *
+     * - getPrototypeOf / setPrototypeOf: bun returns the
+     *   prototype object (a runtime value); tr's nominal
+     *   class system has no equivalent runtime concept.
+     *   Lands with T-27 (Function constructor era) when
+     *   dynamic substrate becomes available.
+     * - defineProperty / defineProperties /
+     *   getOwnPropertyDescriptor: dynamic property add /
+     *   descriptor introspection requires schema
+     *   mutation; tr's struct layout is fixed at class
+     *   declaration. Lands with T-27 / Type::Any field
+     *   substrate post-v0.5.
+     */
+    // P4.2 Phase B+C — Object.getPrototypeOf returns
+    // the class's prototype object as an Any-box (the
+    // same `__proto_<C>` registered via
+    // __torajs_proto_register at module init). Pre-P4.2
+    // the stub returned Null; with prototype singletons
+    // now exposed, return Any so the caller can `===`
+    // against `C.prototype` and chain-walk via further
+    // getPrototypeOf calls. Returns ANY_NULL (still
+    // Type::Any tag-wise) when the arg has no prototype
+    // (Type::Obj with class_tag 0, or a Type::Any whose
+    // dynobj lacks `__proto__`).
+    (Type::Object("Object"), "getPrototypeOf") => {
+        Ok(Type::Function(vec![Type::Any], Box::new(Type::Any)))
+    }
+    // P3.3 — Object.defineProperty(obj, key, descriptor)
+    // accepted at typecheck. ssa_lower intercepts the
+    // Call, extracts descriptor.value (other descriptor
+    // fields like writable/configurable/enumerable/get/
+    // set are subset-deferred), and routes to dynobj_set.
+    // obj is Type::Any (must be a dynobj-backed Any-box);
+    // key is Type::String; descriptor is Type::Any
+    // (typically a plain object literal at the call site
+    // — ssa_lower probes for the .value field at AST time).
+    (Type::Object("Object"), "defineProperty") => Ok(Type::Function(
+        vec![Type::Any, Type::String, Type::Any],
+        Box::new(Type::Void),
+    )),
+    // P3.getOwnPropertyDescriptor — accept at typecheck.
+    // ssa_lower intercepts and constructs an Any-boxed
+    // descriptor object `{value, writable, enumerable,
+    // configurable}` from the dynobj bucket's stored
+    // tag/value/flags (per dcf069f attribute-flag
+    // tracking). Missing key returns Any-boxed undefined.
+    (Type::Object("Object"), "getOwnPropertyDescriptor") => Ok(
+        Type::Function(
+            vec![Type::Any, Type::String],
+            Box::new(Type::Any),
+        ),
+    ),
+    // 2026-05-18 — accept these as permissive Any
+    // typecheck-only stubs (no real substrate yet).
+    // ssa_lower has no special intercept either: the
+    // calls reach the generic call path and would
+    // panic. With test262 5k unlock being the goal,
+    // accept here so harness-shim consumers (which
+    // never read the return) flow through; cases
+    // that need real spec behavior bucket as bugs
+    // rather than incompatible.
+    (Type::Object("Object"), "setPrototypeOf") => Ok(Type::Function(
+        vec![Type::Any, Type::Any],
+        Box::new(Type::Any),
+    )),
+    (Type::Object("Object"), "defineProperties") => Ok(Type::Function(
+        vec![Type::Any, Type::Any],
+        Box::new(Type::Void),
+    )),
+    // `Object.create(proto, descriptors?)` — common
+    // test262 init pattern (`Object.create(null)`).
+    // Returns Any (a fresh dynobj-backed Any-box at
+    // lower time).
+    (Type::Object("Object"), "create") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Any),
+    )),
+    // `Object.assign(target, ...sources)` — copy own
+    // enumerable props. Subset accepts any-typed
+    // target + variadic any sources; ssa_lower's
+    // generic-call path picks it up as a no-op
+    // (returns target) if not intercepted.
+    (Type::Object("Object"), "assign") => Ok(Type::Function(
+        vec![Type::Any, Type::Any],
+        Box::new(Type::Any),
+    )),
+    // `Object.preventExtensions(obj)` /
+    // `Object.isExtensible(obj)` / `Object.seal(obj)`
+    // / `Object.isSealed(obj)` — no-op substrate
+    // returns the obj / true|false. Real semantics
+    // (frozen-bit dispatch) requires runtime header
+    // flag extension — deferred.
+    (Type::Object("Object"), "preventExtensions")
+    | (Type::Object("Object"), "seal") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Any),
+    )),
+    (Type::Object("Object"), "isExtensible")
+    | (Type::Object("Object"), "isSealed") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Boolean),
+    )),
+    (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
+    /* P6.1 / P6.2 — Map.prototype.size / Set.prototype.size
+     * accessor (spec §23.1.3.10 / §24.2.3.9). Member
+     * arm dispatches to a Number-typed read; ssa_lower
+     * calls `__torajs_map_size` (Set storage is the
+     * same Map runtime). */
+    (Type::Map, "size") | (Type::Set, "size") => Ok(Type::Number),
+    // M6.1 — String methods. All borrow `this` and any
+    // String args (consumption only fires at concat,
+    // which has its own arm). Bool-returning methods
+    // return Type::Boolean; index/charCodeAt return
+    // Number; slice returns String.
+    (Type::String, "slice") | (Type::String, "substring") => {
+        Ok(Type::Function(
+            vec![Type::Number, Type::Number],
+            Box::new(Type::String),
+        ))
+    }
+    // T-49 — `String.prototype.substr(start, length?)` (annexB
+    // legacy). The 1-arg shape is the common one in test262;
+    // the call-site arity-tolerance arm above
+    // (`slice / substring / substr` with args.len() < 2)
+    // accepts 0/1 args, and ssa_lower fills the missing
+    // length with i64::MAX so the runtime helper clamps.
+    (Type::String, "substr") => Ok(Type::Function(
+        vec![Type::Number, Type::Number],
+        Box::new(Type::String),
+    )),
+    (Type::String, "repeat") => Ok(Type::Function(
+        vec![Type::Number],
+        Box::new(Type::String),
+    )),
+    (Type::String, "toUpperCase") | (Type::String, "toLowerCase")
+    | (Type::String, "trim") | (Type::String, "trimStart")
+    | (Type::String, "trimEnd")
+    // `trimLeft` / `trimRight` are the non-standard but
+    // de-facto aliases that ship in every JS engine —
+    // ECMAScript Annex B documents them as legacy of
+    // `trimStart` / `trimEnd`.
+    | (Type::String, "trimLeft") | (Type::String, "trimRight")
+    // s.normalize() — Unicode normalization. tr's
+    // current Str layer is byte-oriented; for ASCII
+    // strings (the dominant test262 case) all four NFC/
+    // NFD/NFKC/NFKD forms are byte-identical with the
+    // input, so an identity stub round-trips correctly.
+    // Multi-byte UTF-8 strings would need Unicode tables
+    // — deferred to v1.0 (`\p{...}` + ICU work).
+    | (Type::String, "normalize")
+    // ES2024 §22.1.3.30 — `toWellFormed()`. torajs is
+    // internally UTF-8, so lone surrogates can't be
+    // encoded; identity stub at lower time.
+    | (Type::String, "toWellFormed") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::String),
+    )),
+    // ES2024 §22.1.3.10 — `isWellFormed()`. Mirror of
+    // toWellFormed (see above) — always true.
+    (Type::String, "isWellFormed") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Boolean),
+    )),
+    (Type::String, "padStart") | (Type::String, "padEnd") => {
+        Ok(Type::Function(
+            vec![Type::Number, Type::String],
+            Box::new(Type::String),
+        ))
+    }
+    (Type::String, "replace") | (Type::String, "replaceAll") => {
+        // Pattern arg is either a literal Str (existing
+        // string-only path through __torajs_str_replace
+        // / __torajs_str_replace_all) or a RegExp
+        // (Phase 1b regex path). Repl arg is either a
+        // Str (existing path) or a callback fn (P9.5).
+        // Both args use Type::Any here so each can pass
+        // typecheck; ssa_lower picks the dispatch by
+        // operand SSA type. A1 callback shape required:
+        // `(m: string) => string` — multi-arg / capture-
+        // spread callbacks are A1.1.
+        Ok(Type::Function(
+            vec![Type::Any, Type::Any],
+            Box::new(Type::String),
+        ))
+    }
+    // `s.charAt(i)` — single-char substring at index i.
+    // Identical surface to `s[i]`; routed through the
+    // same substr_create / substr_slice path at lower
+    // time. tr's subset doesn't return "" on OOB —
+    // matches the unchecked-index convention used by
+    // index access.
+    (Type::String, "charAt") => Ok(Type::Function(
+        vec![Type::Number],
+        Box::new(Type::String),
+    )),
+    (Type::String, "at") => Ok(Type::Function(
+        vec![Type::Number],
+        Box::new(Type::String),
+    )),
+    (Type::Number, "toFixed")
+    | (Type::Number, "toExponential")
+    | (Type::Number, "toPrecision") => Ok(Type::Function(
+        vec![Type::Number],
+        Box::new(Type::String),
+    )),
+    (Type::Number, "toString") => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+    }
+    // S139 — `n.toLocaleString(locales?, options?)` per ES
+    // §21.1.3.4 accepts optional locale + options args;
+    // tr's subset is en-US only and ignores them, so the
+    // signature is `(Any?, Any?) -> string`. ssa_lower
+    // drops the args before the 1-arg runtime helper.
+    (Type::Number, "toLocaleString") => Ok(Type::Function(
+        vec![Type::Any, Type::Any],
+        Box::new(Type::String),
+    )),
+    // S140 — `s.toLocaleLowerCase` / `toLocaleUpperCase`
+    // per ES §22.1.3.21 / §22.1.3.23 accept optional
+    // locales arg; tr's subset is en-US only so the
+    // arg is accepted (Any?) and ignored — same shape
+    // as Number.toLocaleString (S139).
+    (Type::String, "toLocaleLowerCase") | (Type::String, "toLocaleUpperCase") => {
+        Ok(Type::Function(vec![Type::Any], Box::new(Type::String)))
+    }
+    // V3-18 wedge — Boolean.prototype.toString / valueOf.
+    // Per JS spec §20.3.3.2 / §20.3.3.3 — `(true).toString()`
+    // → "true", `(false).toString()` → "false". valueOf
+    // returns the boolean itchecker. Common in calls like
+    // `b.toString()` where b is a typed Boolean binding.
+    (Type::Boolean, "toString") | (Type::Boolean, "toLocaleString") => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+    }
+    (Type::Boolean, "valueOf") => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::Boolean)))
+    }
+    // V3-18 m1.h.27 — BigInt.prototype.toString() →
+    // decimal string (no `n` suffix). Per JS spec
+    // §21.2.3.5 / §21.2.3.6. The runtime path
+    // already exists (used by string concat coerce);
+    // this just wires up the typecheck.
+    //
+    // P12.4 — accept optional radix argument per ES
+    // §6.1.6.2.13 (`BigInt.prototype.toString(radix)`).
+    // Signature is `(radix?: Any) → String`; the Any
+    // slot is padded to `undefined` for the 0-arg
+    // common path and accepts a Number radix when
+    // supplied (ssa-lower routes to bigint_to_string
+    // vs bigint_to_string_radix per arg count).
+    // toLocaleString remains 0-arg per ES §22.2.3.2.
+    (Type::BigInt, "toString") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::String),
+    )),
+    (Type::BigInt, "toLocaleString") => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+    }
+    // V3-18 m1.h.47 — Symbol.prototype.toString() →
+    // "Symbol(<desc>)" / "Symbol()". Symbol.description
+    // returns the desc (or null for Symbol() with no
+    // arg). Per JS spec §20.4.3.3 / §20.4.3.2.
+    (Type::Symbol, "toString") | (Type::Symbol, "toLocaleString") => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+    }
+    // V3-18 m2.c — `.constructor` on primitives
+    // returns the constructor function (Number /
+    // String / etc). Subset stub: Type::Any (the
+    // constructor's actual type is callable but
+    // tora has no first-class function reference for
+    // the namespace ctor; Type::Any lets the test
+    // typecheck without committing to a real shape).
+    (Type::Number, "constructor")
+    | (Type::String, "constructor")
+    | (Type::Boolean, "constructor")
+    | (Type::BigInt, "constructor")
+    | (Type::Symbol, "constructor") => Ok(Type::Any),
+    // V3-18 m2.a — Object.prototype methods exposed on
+    // every primitive via JS's auto-boxing rules:
+    //   .valueOf()              → returns the primitive itself
+    //   .hasOwnProperty(name)    → false (primitives have
+    //                              no own properties in our
+    //                              subset)
+    //   .propertyIsEnumerable(name) → false (same)
+    //   .isPrototypeOf(obj)     → false (we have no real
+    //                              prototype chain)
+    // ssa_lower handles the dispatch with constant folds
+    // since the values can't actually carry user-added
+    // properties.
+    (Type::Number, "valueOf") => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::Number)))
+    }
+    // ES §23.1.3.34 — `arr.valueOf()` returns the
+    // Array itchecker (identity). The default Object
+    // protocol applies — Array doesn't override
+    // valueOf with its own coercion. ssa_lower folds
+    // the call to the receiver operand without a
+    // runtime helper.
+    (Type::Array(elem), "valueOf") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Array(elem.clone())),
+    )),
+    (Type::String, "valueOf")
+    // V3-18 wedge — String.prototype.toString /
+    // toLocaleString / valueOf all return the
+    // primitive string itchecker per JS spec
+    // §22.1.3.27 / §22.1.3.31 / §22.1.3.34.
+    // Already wired for Number / Boolean / BigInt /
+    // Symbol but missing for String, so `s.toString()`
+    // hit 'no member .toString on type String'.
+    | (Type::String, "toString")
+    | (Type::String, "toLocaleString") => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+    }
+    // (`(Type::Boolean, "valueOf")` is handled by the
+    // earlier Boolean arm — dead duplicate removed for
+    // the zero-warn build rule.)
+    (Type::BigInt, "valueOf") => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::BigInt)))
+    }
+    (Type::Number, "hasOwnProperty")
+    | (Type::String, "hasOwnProperty")
+    | (Type::Boolean, "hasOwnProperty")
+    | (Type::BigInt, "hasOwnProperty")
+    | (Type::Symbol, "hasOwnProperty")
+    | (Type::Any, "hasOwnProperty")
+    | (Type::Number, "propertyIsEnumerable")
+    | (Type::String, "propertyIsEnumerable")
+    | (Type::Boolean, "propertyIsEnumerable")
+    | (Type::BigInt, "propertyIsEnumerable")
+    | (Type::Symbol, "propertyIsEnumerable")
+    | (Type::Any, "propertyIsEnumerable") => {
+        Ok(Type::Function(vec![Type::String], Box::new(Type::Boolean)))
+    }
+    (Type::Any, "valueOf") => Ok(Type::Function(Vec::new(), Box::new(Type::Any))),
+    (Type::Any, "toString") => Ok(Type::Function(Vec::new(), Box::new(Type::String))),
+    (Type::Any, "isPrototypeOf") => Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean))),
+    (Type::Any, "constructor") => Ok(Type::Any),
+    // RegExp instance methods. v0.2 #1 ships `.test(s)`;
+    // `.exec` / `.toString` / `.source` / `.flags` /
+    // `.global` / `.lastIndex` come in subsequent
+    // sub-phases. The matching engine in
+    // `runtime_regex.c` is the single source of truth
+    // for both `re.test(s)` and the `s.match(re)` /
+    // `s.replace(re, repl)` paths in v0.2 #1.b/c.
+    (Type::RegExp, "test") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Boolean),
+    )),
+    // ES §22.2.6.13 — `re.toString()` returns
+    // `/` + source + `/` + flags. Runtime helper
+    // `__torajs_regex_to_string` builds the string in
+    // one alloc.
+    (Type::RegExp, "toString") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::String),
+    )),
+    // T-37 followup — `re.source` returns the original
+    // pattern string (no flags, no slashes). Compile-
+    // time wires through a runtime intrinsic that
+    // wraps re->src_bytes in a Str.
+    (Type::RegExp, "source") => Ok(Type::String),
+    // ES §22.2.6.4 — `re.flags` returns the spec-
+    // ordered flag string ("" / "g" / "im" / "gimsuy"
+    // / etc.). Order is fixed: g, i, m, s, u, y. The
+    // runtime helper `__torajs_regex_get_flags` builds
+    // the canonical string.
+    (Type::RegExp, "flags") => Ok(Type::String),
+    // ES §22.2.6.5-10 — boolean flag instance accessors.
+    // Each maps to a single bit test on `re.flags`;
+    // the runtime helper `__torajs_regex_has_flag(re,
+    // flag_bit)` does the AND. ssa_lower emits the
+    // appropriate `RE_FLAG_*` byte constant per arm.
+    (Type::RegExp, "global")
+    | (Type::RegExp, "ignoreCase")
+    | (Type::RegExp, "multiline")
+    | (Type::RegExp, "dotAll")
+    | (Type::RegExp, "unicode")
+    | (Type::RegExp, "sticky") => Ok(Type::Boolean),
+    // P9.4 — `re.lastIndex` is a writable Number per
+    // spec §22.2.6.9. ssa_lower routes reads through
+    // __torajs_regex_get_last_index; writes through
+    // __torajs_regex_set_last_index (see assign-Member
+    // arm). Tracks across exec/match when g or y set.
+    (Type::RegExp, "lastIndex") => Ok(Type::Number),
+    // Phase 1c.1 — re.exec(s) returns Array<Str>:
+    // [matched, group1, group2, ...] on hit, empty
+    // array on miss. JS spec returns null on miss;
+    // tr deviates until Nullable<Array<Str>> propagation
+    // lands (Phase 1c.4 — same gate as s.match).
+    (Type::RegExp, "exec") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Array(Box::new(Type::String))),
+    )),
+    /* T-26 — WeakRef.deref(). Returns the target if
+     * still alive (rc-bumped on success), or null.
+     * Type-erased to Type::Any; users `as` cast to
+     * the original concrete type.
+     *
+     * S325 — sig is 0-arg per ES §26.1.3.2; widen via
+     * a dedicated arm below (the static-table path
+     * only fires when args.len() == 0, so trailing
+     * args[1..] are typecheck-and-dropped there). */
+    (Type::WeakRef, "deref") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Nullable(Box::new(Type::Any))),
+    )),
+    /* T-26.B — WeakMap methods. set takes (key,
+     * value); both type-erased to Any. get returns
+     * Nullable<Any>. has / delete return Boolean. */
+    (Type::WeakMap, "set") => Ok(Type::Function(
+        vec![Type::Any, Type::Any],
+        Box::new(Type::Void),
+    )),
+    (Type::WeakMap, "get") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Nullable(Box::new(Type::Any))),
+    )),
+    (Type::WeakMap, "has") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Boolean),
+    )),
+    (Type::WeakMap, "delete") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Boolean),
+    )),
+    /* T-26.B — WeakSet methods. */
+    (Type::WeakSet, "add") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Void),
+    )),
+    (Type::WeakSet, "has") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Boolean),
+    )),
+    (Type::WeakSet, "delete") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Boolean),
+    )),
+    /* P6.1 — Map<K,V> methods. set takes (key, value)
+     * both type-erased to Any (the runtime stores
+     * tagged-Any slots regardless); set returns the
+     * map itchecker per spec §23.1.3.9 enabling chained
+     * `m.set(k,v).set(k2,v2)` idiom (S127-5). ssa-lower
+     * mirrors with an emit_rc_inc on the receiver
+     * before returning so the chained value owns its
+     * own ref independent of the source binding.
+     * get returns Nullable<Any>. has / delete return
+     * Boolean. clear returns Void. */
+    (Type::Map, "set") => Ok(Type::Function(
+        vec![Type::Any, Type::Any],
+        Box::new(Type::Map),
+    )),
+    (Type::Map, "get") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Nullable(Box::new(Type::Any))),
+    )),
+    (Type::Map, "has") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Boolean),
+    )),
+    (Type::Map, "delete") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Boolean),
+    )),
+    (Type::Map, "clear") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Void),
+    )),
+    /* P6.4a — Map.forEach. Spec callback shape is
+     * `(value, key, map) => void`. Both `value` and
+     * `key` are type-erased to Any since storage is
+     * the (tag, payload) Any-domain. */
+    (Type::Map, "forEach") => Ok(Type::Function(
+        vec![Type::Function(
+            vec![Type::Any, Type::Any, Type::Map],
+            Box::new(Type::Void),
+        )],
+        Box::new(Type::Void),
+    )),
+    /* P6.4b — Map.keys / .values return a stateful
+     * MapIter (spec §23.1.3.8 / §23.1.3.13). The
+     * iter's `next()` produces `IteratorResult<any>`
+     * = `{ value: any, done: boolean }`. .entries is
+     * deferred to P6.4c (needs Array<Any> alloc per
+     * step + boxed (k, v) write). */
+    (Type::Map, "keys") | (Type::Map, "values") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::MapIter),
+    )),
+    /* P6.4c — Map.entries yields `[k, v]` pairs;
+     * Set.entries yields `[v, v]` pairs (spec
+     * §23.1.3.4 / §24.2.3.6). Both return the same
+     * MapIter handle (the runtime kind decides the
+     * yield shape). */
+    (Type::Map, "entries") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::MapIter),
+    )),
+    /* P6.4b — Set.keys = .values per spec §24.2.3.5
+     * (returns iterator over the elements). */
+    (Type::Set, "keys") | (Type::Set, "values") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::MapIter),
+    )),
+    (Type::Set, "entries") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::MapIter),
+    )),
+    /* P6.4b — MapIter.next() returns the spec-
+     * shaped IteratorResult struct. */
+    (Type::MapIter, "next") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Struct(vec![
+            ("value".into(), Type::Any),
+            ("done".into(), Type::Boolean),
+        ])),
+    )),
+    /* P6.4c-C3 — ArrIter.next() shape matches
+     * MapIter (both produce `IteratorResult<any>`). */
+    (Type::ArrIter, "next") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Struct(vec![
+            ("value".into(), Type::Any),
+            ("done".into(), Type::Boolean),
+        ])),
+    )),
+    /* P6.2 — Set<T> methods. add takes a single Any-
+     * typed value; storage piggy-backs on Map<T,
+     * undef> at runtime. S127-5 — add returns the set
+     * itchecker per spec §24.2.3.1 to enable chained
+     * `s.add(v1).add(v2)` idiom. ssa-lower mirrors
+     * with emit_rc_inc + receiver return. */
+    (Type::Set, "add") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Set),
+    )),
+    (Type::Set, "has") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Boolean),
+    )),
+    // ES2025 read-only Set setops (§24.2.3.{12,13,14}).
+    // Spec accepts any "Set-like" object; tora's narrow
+    // form requires the argument to also be a Set.
+    (Type::Set, "isSubsetOf")
+    | (Type::Set, "isSupersetOf")
+    | (Type::Set, "isDisjointFrom") => Ok(Type::Function(
+        vec![Type::Set],
+        Box::new(Type::Boolean),
+    )),
+    // ES2025 mutating Set setops (§24.2.3.{15,16,17,18}).
+    // Returns a fresh Set with rc=1.
+    (Type::Set, "union")
+    | (Type::Set, "intersection")
+    | (Type::Set, "difference")
+    | (Type::Set, "symmetricDifference") => Ok(Type::Function(
+        vec![Type::Set],
+        Box::new(Type::Set),
+    )),
+    (Type::Set, "delete") => Ok(Type::Function(
+        vec![Type::Any],
+        Box::new(Type::Boolean),
+    )),
+    (Type::Set, "clear") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Void),
+    )),
+    /* P6.4a — Set.forEach. Spec callback shape is
+     * `(value, value2, set) => void`, where the
+     * first two args are the same element. */
+    (Type::Set, "forEach") => Ok(Type::Function(
+        vec![Type::Function(
+            vec![Type::Any, Type::Any, Type::Set],
+            Box::new(Type::Void),
+        )],
+        Box::new(Type::Void),
+    )),
+    // v0.2 #2 Phase 2.0a — Date instance methods.
+    (Type::Date, "getTime")
+    | (Type::Date, "valueOf") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Number),
+    )),
+    (Type::Date, "toISOString") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::String),
+    )),
+    // ES §21.4.4.37 — `d.toJSON(key?)` returns the
+    // canonical JSON serialization, defined as
+    // `this.toISOString()` for any finite Date. The
+    // optional `key` argument is ignored per spec
+    // (only meaningful to Object.toJSON callers). MVP
+    // collapses to toISOString without the non-finite
+    // null short-circuit; non-finite Dates are an
+    // independent substrate (the underlying ms field
+    // already rejects non-finite ToNumber). The
+    // `key` arg is silently dropped here — the
+    // ssa_lower-side arm doesn't pass it through.
+    (Type::Date, "toJSON") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::String),
+    )),
+    // v0.2 #2 Phase 2.0b — UTC getters. Local-time
+    // siblings (getFullYear etc.) collapse to UTC
+    // until timezone awareness ships in Phase 2.0c.
+    (Type::Date, "getFullYear")
+    | (Type::Date, "getUTCFullYear")
+    | (Type::Date, "getMonth")
+    | (Type::Date, "getUTCMonth")
+    | (Type::Date, "getDate")
+    | (Type::Date, "getUTCDate")
+    | (Type::Date, "getHours")
+    | (Type::Date, "getUTCHours")
+    | (Type::Date, "getMinutes")
+    | (Type::Date, "getUTCMinutes")
+    | (Type::Date, "getSeconds")
+    | (Type::Date, "getUTCSeconds")
+    | (Type::Date, "getMilliseconds")
+    | (Type::Date, "getUTCMilliseconds")
+    | (Type::Date, "getDay")
+    | (Type::Date, "getUTCDay")
+    | (Type::Date, "getTimezoneOffset") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Number),
+    )),
+    // T-30 — Date setters + annexB methods. setTime
+    // takes ms and returns the new ms. setYear takes
+    // a year (annexB §B.2.4.2 — 0-99 → +1900) and
+    // returns the new ms. getYear (annexB §B.2.4.1)
+    // returns year - 1900. toGMTString (annexB §B.2.4.3)
+    // is an alias for toUTCString format.
+    (Type::Date, "setTime") => Ok(Type::Function(
+        vec![Type::Number],
+        Box::new(Type::Number),
+    )),
+    (Type::Date, "setYear") => Ok(Type::Function(
+        vec![Type::Number],
+        Box::new(Type::Number),
+    )),
+    // Per-field setters per ES §21.4.4.20-26. Each
+    // takes 1-N Number args (trailing ones optional);
+    // we expose them as taking N required Numbers
+    // and let ssa_lower sentinel-pad missing trailing
+    // args. Returns the new `d.ms` (Number) per spec.
+    (Type::Date, "setFullYear") => Ok(Type::Function(
+        vec![Type::Number, Type::Number, Type::Number],
+        Box::new(Type::Number),
+    )),
+    (Type::Date, "setMonth") => Ok(Type::Function(
+        vec![Type::Number, Type::Number],
+        Box::new(Type::Number),
+    )),
+    (Type::Date, "setDate") => Ok(Type::Function(
+        vec![Type::Number],
+        Box::new(Type::Number),
+    )),
+    (Type::Date, "setHours") => Ok(Type::Function(
+        vec![Type::Number, Type::Number, Type::Number, Type::Number],
+        Box::new(Type::Number),
+    )),
+    (Type::Date, "setMinutes") => Ok(Type::Function(
+        vec![Type::Number, Type::Number, Type::Number],
+        Box::new(Type::Number),
+    )),
+    (Type::Date, "setSeconds") => Ok(Type::Function(
+        vec![Type::Number, Type::Number],
+        Box::new(Type::Number),
+    )),
+    (Type::Date, "setMilliseconds") => Ok(Type::Function(
+        vec![Type::Number],
+        Box::new(Type::Number),
+    )),
+    (Type::Date, "getYear") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Number),
+    )),
+    (Type::Date, "toGMTString")
+    | (Type::Date, "toUTCString")
+    | (Type::Date, "toDateString")
+    | (Type::Date, "toLocaleString")
+    | (Type::Date, "toLocaleDateString")
+    | (Type::Date, "toLocaleTimeString") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::String),
+    )),
+    // Date.now() — static, returns ms-since-epoch.
+    (Type::Object("Date"), "now") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Number),
+    )),
+    /* v0.3 #2 — Bun namespace (minimum).
+     * Bun.write(path, data) — bun-shape file write,
+     * routes to the same fs intrinsic. Bun.file(path)
+     * (chained-method shape returning a File object)
+     * lands when the surface gains object-result Calls. */
+    (Type::Object("Bun"), "write") => Ok(Type::Function(
+        vec![Type::String, Type::String],
+        Box::new(Type::Void),
+    )),
+    /* T-19 (v0.5.0) — `Bun.file(path)` returns an
+     * opaque BunFile handle. The user calls `.text()`
+     * (or future `.json()` / `.arrayBuffer()`) on it
+     * to actually read. The handle is internally
+     * `Type::String` (just the path) since the
+     * methods all dispatch through fs.readFileSync.
+     * Type::Object("BunFile") sentinel keeps the
+     * methods scoped so plain Strings don't match. */
+    (Type::Object("Bun"), "file") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Object("BunFile")),
+    )),
+    /* V3-08 — `Bun.gc(synchronous)`. tora's Bacon-Rajan
+     * cycle collector triggers regardless of the bool
+     * arg (we ignore it; bun uses it to gate JSC's
+     * concurrent GC). Both runtimes return void. */
+    (Type::Object("Bun"), "gc") => Ok(Type::Function(
+        vec![Type::Boolean],
+        Box::new(Type::Void),
+    )),
+    (Type::Object("BunFile"), "text") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Promise(Box::new(Type::String))),
+    )),
+    /* T-19.c (v0.5.0) — `Bun.file(p).exists()`. Bun
+     * exposes this as a fast existence-probe that
+     * doesn't open the file. Maps to fs.existsSync
+     * in the MVP "synchronous-then-resolve" model. */
+    (Type::Object("BunFile"), "exists") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Promise(Box::new(Type::Boolean))),
+    )),
+    /* T-19.d (v0.5.0) — `Bun.file(p).json()` returns
+     * Promise<Any>. The actual return type comes from
+     * the caller-driven `let X: T = await Bun.file(p)
+     * .json()` shape detection in ssa_lower's LetDecl
+     * arm — JSON.parse drives parsing per the slot's
+     * concrete T (number / string / Struct / Array<T>
+     * / etc.). At the typecheck layer we accept any
+     * slot type as long as the JSON parser knows how
+     * to handle it; concrete validation happens at
+     * lower time. */
+    (Type::Object("BunFile"), "json") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Promise(Box::new(Type::Any))),
+    )),
+    /* T-18.c (v0.5.0) — `Bun.file(p).size` synchronous
+     * property (NOT a method). Returns the file's
+     * byte size, or -1 if the path is missing or
+     * non-regular (bun returns 0 for missing — tr
+     * uses -1 to keep the missing case observable
+     * until typed-throw fs lands). */
+    (Type::Object("BunFile"), "size") => Ok(Type::Number),
+    /* T-21 (v0.6.0) — `fetch(url)` Response surface.
+     * `.text()` returns the (already-loaded) body as
+     * `Promise<string>`; `.status` is the HTTP status
+     * code (0 on transport error). `.ok` and JSON
+     * parsing land alongside the fetch options
+     * follow-up. */
+    (Type::Object("Response"), "text") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::Promise(Box::new(Type::String))),
+    )),
+    (Type::Object("Response"), "status") => Ok(Type::Number),
+    /* v0.3 #3 — process surface (minimum). */
+    (Type::Object("process"), "exit") => Ok(Type::Function(
+        vec![Type::Number],
+        Box::new(Type::Void),
+    )),
+    (Type::Object("process"), "cwd") => Ok(Type::Function(
+        Vec::new(),
+        Box::new(Type::String),
+    )),
+    /* `process.platform` — value access, not a Call.
+     * Returned as Type::String; ssa_lower's Member arm
+     * emits a runtime call to __torajs_process_platform. */
+    (Type::Object("process"), "platform") => Ok(Type::String),
+    /* `process.argv` / `Bun.argv` — runtime array of
+     * argv strings. Lowered by ssa_lower's Member arm
+     * to __torajs_process_argv(). */
+    (Type::Object("process"), "argv")
+    | (Type::Object("Bun"), "argv") => {
+        Ok(Type::Array(Box::new(Type::String)))
+    }
+    /* `process.env` — env-namespace Object; member
+     * access on it (`process.env.NAME`) routes through
+     * the (Object("env"), _) arm below to runtime getenv. */
+    (Type::Object("process"), "env") => Ok(Type::Object("env")),
+    /* `process.env.NAME` — Nullable<String> (NULL when
+     * var unset; tr's undefined→null bridge keeps
+     * `=== undefined` round-tripping). */
+    (Type::Object("env"), _) => Ok(Type::Nullable(Box::new(Type::String))),
+    /* T-03 (v0.3.0) — process.{stdout, stderr, stdin}
+     * value-Member: each exposes its own Object so the
+     * downstream `.write` / `.read` Call resolves at
+     * the (Object("process_stdout"), "write") arm
+     * below. (`process.stdout` itchecker is also a legal
+     * value reference — e.g. `let s = process.stdout`
+     * — so the value-Member must be type-able too.) */
+    (Type::Object("process"), "stdout") => Ok(Type::Object("process_stdout")),
+    (Type::Object("process"), "stderr") => Ok(Type::Object("process_stderr")),
+    /* `process.stdin` deferred — see comment on .read above. */
+    /* T-03 — process.stdout / process.stderr.write(s)
+     * Call shape. Returns Boolean to match bun's
+     * `process.stdout.write(s)` signature (true on
+     * success, false on backpressure / error — tr
+     * panics on short write so it always returns true
+     * when control returns). */
+    (Type::Object("process_stdout"), "write")
+    | (Type::Object("process_stderr"), "write") => {
+        Ok(Type::Function(
+            vec![Type::String],
+            Box::new(Type::Boolean),
+        ))
+    }
+    /* `process.stdin.read()` deferred to v0.5 — bun's
+     * API is Node Readable async (returns Buffer-or-
+     * null), so a sync drain-to-EOF would diverge from
+     * the oracle. Lands with the async substrate. */
+
+    /* v0.3 #1 — fs module surface (Phase 2.0a substrate).
+     * Synchronous file I/O; throw on error is Phase 2.0b. */
+    (Type::Object("fs"), "readFileSync") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::String),
+    )),
+    (Type::Object("fs"), "writeFileSync") => Ok(Type::Function(
+        vec![Type::String, Type::String],
+        Box::new(Type::Void),
+    )),
+    (Type::Object("fs"), "appendFileSync") => Ok(Type::Function(
+        vec![Type::String, Type::String],
+        Box::new(Type::Void),
+    )),
+    (Type::Object("fs"), "unlinkSync")
+    | (Type::Object("fs"), "mkdirSync") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Void),
+    )),
+    (Type::Object("fs"), "existsSync") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Boolean),
+    )),
+    /* T-18.b (v0.5.0) — fs.readdirSync(path) returns
+     * Array<string> with one entry per child (`.` /
+     * `..` filtered, matching bun spec). */
+    (Type::Object("fs"), "readdirSync") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Array(Box::new(Type::String))),
+    )),
+    (Type::Object("fs_promises"), "readdir") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Promise(Box::new(
+            Type::Array(Box::new(Type::String))
+        ))),
+    )),
+    /* T-18.a (v0.5.0) — `fs/promises` module. Each
+     * method calls the matching sync helper from
+     * `fs.<X>Sync` then wraps the result in
+     * Promise.resolve(...). MVP "synchronous-then-
+     * resolve" — real I/O suspension needs T-16
+     * state-machine async/await. Bun-parity:
+     * `import { readFile } from "fs/promises"; await
+     * readFile(p)` yields the file contents
+     * byte-identical with bun. */
+    (Type::Object("fs_promises"), "readFile") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Promise(Box::new(Type::String))),
+    )),
+    (Type::Object("fs_promises"), "writeFile") => Ok(Type::Function(
+        vec![Type::String, Type::String],
+        Box::new(Type::Promise(Box::new(Type::Void))),
+    )),
+    (Type::Object("fs_promises"), "appendFile") => Ok(Type::Function(
+        vec![Type::String, Type::String],
+        Box::new(Type::Promise(Box::new(Type::Void))),
+    )),
+    (Type::Object("fs_promises"), "unlink")
+    | (Type::Object("fs_promises"), "mkdir") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Promise(Box::new(Type::Void))),
+    )),
+    (Type::Object("fs_promises"), "exists") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Promise(Box::new(Type::Boolean))),
+    )),
+    // Phase 2.0b.2 — Date.parse(s) returns ms-since-epoch
+    // (or NaN sentinel — tr returns INT64_MIN; spec is NaN).
+    (Type::Object("Date"), "parse") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Number),
+    )),
+    // Date.UTC(year, month, day, hour, min, sec, ms) — UTC
+    // interpretation; returns ms-since-epoch. Min 2 args.
+    // tr accepts the 7-arg form via the same dispatch path
+    // as `new Date(...)` component ctor; missing trailing
+    // args default to month=0, day=1, rest=0 — but that
+    // padding happens at desugar time, which doesn't
+    // intercept `Date.UTC(...)` (only `new Date(...)`).
+    // For Phase 2.0b.2, tr's Date.UTC requires explicit
+    // 7 args; arity-aware desugar comes in 2.0c.
+    (Type::Object("Date"), "UTC") => Ok(Type::Function(
+        vec![Type::Number; 7],
+        Box::new(Type::Number),
+    )),
+    // String namespace static — `String.fromCharCode(n)`.
+    // `fromCodePoint` is the Unicode-aware sibling; in
+    // tr's byte-Str layout the two collapse for code
+    // points ≤ 0xff and ports keep arguments inside that
+    // range to stay bun-portable.
+    (Type::Object("String"), "fromCharCode")
+    | (Type::Object("String"), "fromCodePoint") => Ok(Type::Function(
+        vec![Type::Number],
+        Box::new(Type::String),
+    )),
+    (Type::String, "charCodeAt") | (Type::String, "codePointAt") => {
+        Ok(Type::Function(
+            vec![Type::Number],
+            Box::new(Type::Number),
+        ))
+    }
+    (Type::String, "startsWith") | (Type::String, "endsWith")
+    | (Type::String, "includes") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::Boolean),
+    )),
+    (Type::String, "indexOf")
+    | (Type::String, "lastIndexOf")
+    | (Type::String, "localeCompare")
+    // V3-18 wedge — String.prototype.search per JS
+    // spec §22.1.3.16. The full spec coerces the
+    // arg to a RegExp and uses Symbol.search, but
+    // for a plain string arg the result is exactly
+    // indexOf — first match position or -1.
+    // tora's subset only routes the string-arg
+    // form (RegExp arg is a follow-up substrate
+    // item alongside Symbol.search dispatch).
+    | (Type::String, "search") => {
+        Ok(Type::Function(
+            vec![Type::String],
+            Box::new(Type::Number),
+        ))
+    }
+    // s.split(sep): string[] — `sep` is Str or RegExp;
+    // Type::Any lets either type pass typecheck and
+    // ssa_lower dispatches on operand SSA type to the
+    // string-only `__torajs_str_split` or the regex
+    // path `__torajs_str_split_regex`.
+    // V3-18 wedge — `s.split(sep [, limit])` per ES
+    // §22.1.3.21. The optional `limit` slot uses
+    // Type::Any so the trailing-Any arity-pad path
+    // makes 1-arg calls type-check; the SSA layer in
+    // `ssa_lower_str.rs` already branches on
+    // `args.len() == 2` to emit the slice clamp.
+    (Type::String, "split") => Ok(Type::Function(
+        vec![Type::Any, Type::Any],
+        Box::new(Type::Array(Box::new(Type::String))),
+    )),
+    // s.match(re) — Phase 1b returns Array<Str>; without
+    // `g` flag the array has 1 element (the matched
+    // substring), with `g` it has all matches. Capture
+    // groups + JS-spec null-on-miss are Phase 1c.
+    (Type::String, "match") => Ok(Type::Function(
+        vec![Type::RegExp],
+        Box::new(Type::Array(Box::new(Type::String))),
+    )),
+    // s.matchAll(re) — Phase 1c.3 returns
+    // Array<Array<Str>>: outer = one entry per match,
+    // each inner = exec-shape [match, g1, g2, ...].
+    // JS spec returns an iterator; tr's array stand-in
+    // covers the dominant test262 usage pattern (a for-of
+    // loop or [...m]) until iterator protocol lands.
+    (Type::String, "matchAll") => Ok(Type::Function(
+        vec![Type::RegExp],
+        Box::new(Type::Array(Box::new(
+            Type::Array(Box::new(Type::String))
+        ))),
+    )),
+    // arr.join(sep): string — receiver is Array<T> for
+    // T = String / Number / Boolean (V3-18 m1.h.43:
+    // Number/Bool elements ToString'd inline by the
+    // runtime helper). sep borrowed; result freshly
+    // allocated.
+    (Type::Array(elem), "join")
+        if matches!(**elem, Type::String | Type::Number | Type::Boolean | Type::Any) => {
+        Ok(Type::Function(vec![Type::String], Box::new(Type::String)))
+    }
+    // V3-18 wedge — Array.prototype.toString. Per JS
+    // spec §22.1.3.30, equivalent to `arr.join(",")`.
+    // Subset matches the join intrinsic's element-type
+    // dispatch (Str / Number / Bool / Any — S126-4).
+    (Type::Array(elem), "toString" | "toLocaleString")
+        if matches!(**elem, Type::String | Type::Number | Type::Boolean | Type::Any) => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+    }
+    // M1.2 — `xs.push(v)`: takes one element-typed arg,
+    // returns the new length per JS spec §22.1.3.20.
+    // Runtime helper `__torajs_arr_push` already writes
+    // `len + 1` into `arr[#8]`; ssa_lower materializes
+    // the ret as `Load(I64, new_arr, ARR_LEN_OFF)`.
+    (Type::Array(elem), "push") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(vec![inner], Box::new(Type::Number)))
+    }
+    // `xs.pop()` — remove and return the last element.
+    // Mutates the receiver. tr's subset assumes a non-empty
+    // array (matches the `xs[xs.length - 1]` style call
+    // patterns this enables); `pop` on an empty array is
+    // unchecked. Returns the element type directly (no
+    // `T | undefined` since tr lacks union types).
+    (Type::Array(elem), "pop") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(Vec::new(), Box::new(inner)))
+    }
+    // `xs.shift()` — same shape as pop but removes the
+    // first element (memmoves the rest left). Subset
+    // convention: empty-array shift is unchecked.
+    (Type::Array(elem), "shift") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(Vec::new(), Box::new(inner)))
+    }
+    // `xs.unshift(v)` — insert v at slot 0 (memmoves
+    // the rest right; may realloc). Returns the new
+    // length per JS spec §22.1.3.34, mirroring push.
+    (Type::Array(elem), "unshift") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(vec![inner], Box::new(Type::Number)))
+    }
+    // `xs.splice(start, deleteCount)` — remove a slice
+    // in-place + return removed slice as a fresh
+    // Array<T>. Per JS spec §23.1.3.31. v0 subset: no
+    // `...items` rest-arg insert form (deferred).
+    (Type::Array(elem), "splice") | (Type::Array(elem), "toSpliced") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(
+            vec![Type::Number, Type::Number],
+            Box::new(Type::Array(Box::new(inner))),
+        ))
+    }
+    // `xs.flat()` — single-level flatten. Receiver must
+    // be `T[][]`; result is `T[]`. v0 supports depth=1
+    // only (no `.flat(2)` arg).
+    (Type::Array(elem), "flat") => {
+        // S129-3 Array<Any>.flat — Any elem bypasses
+        // the typed Array<Array<T>> shape check: any
+        // outer slot can wrap an inner Array<Any>
+        // (or a scalar that passes through). Routes
+        // to `__torajs_arr_flat_any` at ssa-lower
+        // which decodes each slot's NaN-box tag.
+        // Result stays Array<Any> (depth=1 only —
+        // mirror typed flat's v0 limit).
+        if matches!(**elem, Type::Any) {
+            return Ok(Type::Function(
+                Vec::new(),
+                Box::new(Type::Array(Box::new(Type::Any))),
+            ));
+        }
+        // ES §23.1.3.11 — non-nested receiver returns
+        // a shallow copy with the same element type
+        // (depth=1 leaves non-Array slots untouched).
+        // Pre-fix tora forced Array<Array<T>>, blocking
+        // the spec-canonical `[1,2,3].flat()` shape.
+        let result_inner = match (**elem).clone() {
+            Type::Array(inner) => *inner,
+            other => other,
+        };
+        Ok(Type::Function(
+            Vec::new(),
+            Box::new(Type::Array(Box::new(result_inner))),
+        ))
+    }
+    // `xs.sort(cmp)` — in-place sort using the comparator
+    // `(a: T, b: T) => number`. Returns the same array
+    // (chainable). Subset requires the comparator (no
+    // default lex-sort fallback).
+    (Type::Array(elem), "toSorted") => {
+        let inner = (**elem).clone();
+        let cmp_ty = Type::Function(
+            vec![inner.clone(), inner.clone()],
+            Box::new(Type::Number),
+        );
+        Ok(Type::Function(
+            vec![cmp_ty],
+            Box::new(Type::Array(Box::new(inner))),
+        ))
+    }
+    (Type::Array(elem), "sort") => {
+        let inner = (**elem).clone();
+        let cmp_ty = Type::Function(
+            vec![inner.clone(), inner.clone()],
+            Box::new(Type::Number),
+        );
+        Ok(Type::Function(
+            vec![cmp_ty],
+            Box::new(Type::Array(Box::new(inner))),
+        ))
+    }
+    // `a.concat(b)` — fresh array of a's elements then b's.
+    // Subset: binary only, both arrays must share element type.
+    (Type::Array(elem), "concat") => {
+        // S129-4 Array<Any>.concat — Any receiver accepts
+        // any Array<U> arg (typed slots get NaN-boxed at
+        // runtime via __torajs_arr_extend_typed_into_any
+        // when the SSA arg type isn't Array<Any>).
+        // Param sig is Type::Any so dispatch typecheck
+        // doesn't reject typed Array<U>; ssa-lower peeks
+        // expr_types to derive the elem tag. Result
+        // stays Array<Any>. Same S128-5 / S129-1 / S129-3
+        // mixed-Any series shape.
+        if matches!(**elem, Type::Any) {
+            return Ok(Type::Function(
+                vec![Type::Any],
+                Box::new(Type::Array(Box::new(Type::Any))),
+            ));
+        }
+        let inner = (**elem).clone();
+        Ok(Type::Function(
+            vec![Type::Array(Box::new(inner.clone()))],
+            Box::new(Type::Array(Box::new(inner))),
+        ))
+    }
+    // `s.concat(other)` — string concat. The single-arg
+    // shape lives here so the standard method-call path
+    // typechecks normally. Variadic forms drop into the
+    // arity-≠-1 guard below the Math/String variadic
+    // block.
+    (Type::String, "concat") => Ok(Type::Function(
+        vec![Type::String],
+        Box::new(Type::String),
+    )),
+    // `xs.at(i)` — element at i with negative-index wrap.
+    // Subset returns T (not T | undefined) — out-of-bounds
+    // is UB, matches the unchecked indexing convention.
+    (Type::Array(elem), "at") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(
+            vec![Type::Number],
+            Box::new(inner),
+        ))
+    }
+    // `xs.reverse()` — in-place reverse, returns the same
+    // array (chainable). Subset returns void since the
+    // chain shape isn't common in our test set.
+    // `toReversed` (ES2023) is the non-mutating sibling —
+    // identical signature, fresh `Array<T>` result.
+    (Type::Array(elem), "reverse") | (Type::Array(elem), "toReversed") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(
+            Vec::new(),
+            Box::new(Type::Array(Box::new(inner))),
+        ))
+    }
+    // `xs.with(i, v)` (ES2023) — non-mutating index update.
+    // Returns a fresh `Array<T>` with `xs[i] = v`. Negative
+    // `i` wraps via `len + i`. OOB is UB.
+    (Type::Array(elem), "with") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(
+            vec![Type::Number, inner.clone()],
+            Box::new(Type::Array(Box::new(inner))),
+        ))
+    }
+    // `xs.copyWithin(target, start, end)` — memmove
+    // [start, end) into `target` position, in-place.
+    (Type::Array(elem), "copyWithin") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(
+            vec![Type::Number, Type::Number, Type::Number],
+            Box::new(Type::Array(Box::new(inner))),
+        ))
+    }
+    // `xs.fill(value, start, end)` — uniform fill over a
+    // range. start/end optional in JS; subset requires
+    // both for now. Returns the same array.
+    (Type::Array(elem), "fill") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(
+            vec![inner.clone(), Type::Number, Type::Number],
+            Box::new(Type::Array(Box::new(inner))),
+        ))
+    }
+    // `xs.slice(start, end)` — fresh array of the
+    // [start, end) range. Same element type. Both
+    // bounds are required in this v0 subset.
+    (Type::Array(elem), "slice") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(
+            vec![Type::Number, Type::Number],
+            Box::new(Type::Array(Box::new(inner))),
+        ))
+    }
+    // `xs.indexOf(needle)` / `xs.lastIndexOf(needle)` —
+    // linear scan; returns -1 on miss. lastIndexOf scans
+    // from the end. Needle must match the element type.
+    (Type::Array(elem), "indexOf")
+    | (Type::Array(elem), "lastIndexOf") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(vec![inner], Box::new(Type::Number)))
+    }
+    // M6.2 — `xs.map(fn)`: takes a `(T) => T` closure,
+    // returns `T[]` (a fresh array). MVP keeps input
+    // and output element types the same; non-uniform
+    // map (e.g. `number[] → string[]`) lands when
+    // generic methods are wired (post-M6.2.a).
+    (Type::Array(elem), "map") => {
+        let inner = (**elem).clone();
+        let fn_ty = Type::Function(
+            vec![inner.clone()],
+            Box::new(inner.clone()),
+        );
+        Ok(Type::Function(
+            vec![fn_ty],
+            Box::new(Type::Array(Box::new(inner))),
+        ))
+    }
+    // `xs.flatMap(fn)` — same homogeneous constraint as
+    // map (`(T) => T[]` callback), returns `T[]`. Inner
+    // arrays are flattened one level into the result.
+    (Type::Array(elem), "flatMap") => {
+        let inner = (**elem).clone();
+        let arr_t = Type::Array(Box::new(inner.clone()));
+        let fn_ty = Type::Function(
+            vec![inner.clone()],
+            Box::new(arr_t.clone()),
+        );
+        Ok(Type::Function(vec![fn_ty], Box::new(arr_t)))
+    }
+    // M6.2 — `xs.filter(predicate)`: takes a `(T) => boolean`,
+    // returns `T[]` of kept elements.
+    (Type::Array(elem), "filter") => {
+        let inner = (**elem).clone();
+        let pred_ty = Type::Function(
+            vec![inner.clone()],
+            Box::new(Type::Boolean),
+        );
+        Ok(Type::Function(
+            vec![pred_ty],
+            Box::new(Type::Array(Box::new(inner))),
+        ))
+    }
+    // M6.2 — `xs.reduce(fn, initial)`: takes a
+    // `(acc: T, x: T) => T` and an initial T value;
+    // returns T. Two-arg reduce; the no-initial overload
+    // is deferred.
+    // S132 — reduceRight: identical signature to reduce,
+    // but walks last → first (spec §22.1.3.22). ssa-lower
+    // shares the loop scaffold with `reduce`, differing
+    // only in the cursor init / cmp / inc direction.
+    (Type::Array(elem), "reduce") | (Type::Array(elem), "reduceRight") => {
+        let inner = (**elem).clone();
+        let fn_ty = Type::Function(
+            vec![inner.clone(), inner.clone()],
+            Box::new(inner.clone()),
+        );
+        Ok(Type::Function(
+            vec![fn_ty, inner.clone()],
+            Box::new(inner),
+        ))
+    }
+    // M6.2 — `xs.forEach(fn)`: takes a `(T) => void`,
+    // returns void. Used for side-effecting iteration.
+    (Type::Array(elem), "forEach") => {
+        let inner = (**elem).clone();
+        let fn_ty = Type::Function(
+            vec![inner],
+            Box::new(Type::Void),
+        );
+        Ok(Type::Function(vec![fn_ty], Box::new(Type::Void)))
+    }
+    /* P6.4c-C3 / P5.4 — Array.keys / .values / .entries
+     * returning ArrIter. Array<Any> walks its 16B
+     * tagged-slot layout directly; typed Array<T> for
+     * non-Any T uses an 8B-per-slot layout the runtime
+     * step helper can't unbox. S132 narrow: typed-T
+     * .keys() yields 0..length-1 indices independent
+     * of the slot encoding, so runtime
+     * `arr_iter_create_keys` works uniformly — accept
+     * any typed Array<T> for `.keys()`. .values() /
+     * .entries() still need a box-the-slot walker
+     * follow-up (independent trunk). */
+    (Type::Array(_), "keys") => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::ArrIter)))
+    }
+    (Type::Array(elem), "values") | (Type::Array(elem), "entries")
+        if matches!(**elem, Type::Any) =>
+    {
+        Ok(Type::Function(Vec::new(), Box::new(Type::ArrIter)))
+    }
+    // `xs.includes(needle)` — boolean variant of indexOf.
+    (Type::Array(elem), "includes") => {
+        let inner = (**elem).clone();
+        Ok(Type::Function(vec![inner], Box::new(Type::Boolean)))
+    }
+    // `xs.findIndex(pred)` — index of first matching, or -1.
+    // (`xs.find` returns `T | undefined` which would need
+    // Nullable(Number) for Number arrays — not in v0;
+    // callers should use `xs[xs.findIndex(p)]` after a
+    // -1 check, or `xs.filter(p)[0]` with a length guard.)
+    // `findLastIndex` is the reverse-iteration sibling and
+    // shares the same -1-on-miss return, so it lives in
+    // the subset alongside findIndex.
+    // `xs.find(p)` / `xs.findLast(p)` — predicate scan.
+    // tr's subset returns the element type itchecker (no
+    // `T | undefined`); not-found returns the zero of
+    // T (null for refcounted, 0 / false for primitives).
+    // Caller can either disambiguate via findIndex first
+    // or check against the sentinel value.
+    (Type::Array(elem), "find") | (Type::Array(elem), "findLast") => {
+        let inner = (**elem).clone();
+        let pred_ty = Type::Function(
+            vec![inner.clone()],
+            Box::new(Type::Boolean),
+        );
+        Ok(Type::Function(vec![pred_ty], Box::new(inner)))
+    }
+    (Type::Array(elem), "findIndex")
+    | (Type::Array(elem), "findLastIndex") => {
+        let inner = (**elem).clone();
+        let pred_ty = Type::Function(
+            vec![inner],
+            Box::new(Type::Boolean),
+        );
+        Ok(Type::Function(
+            vec![pred_ty],
+            Box::new(Type::Number),
+        ))
+    }
+    // `xs.some(pred)` / `xs.every(pred)` — short-circuit
+    // ored / anded predicate iteration.
+    (Type::Array(elem), "some") | (Type::Array(elem), "every") => {
+        let inner = (**elem).clone();
+        let pred_ty = Type::Function(
+            vec![inner],
+            Box::new(Type::Boolean),
+        );
+        Ok(Type::Function(vec![pred_ty], Box::new(Type::Boolean)))
+    }
+    // V3-18 m1.h.47 — Symbol.prototype.description.
+    // Returns the desc the Symbol was created with, or
+    // null if Symbol() was called with no arg. Per JS
+    // spec §20.4.3.2.
+    (Type::Symbol, "description") => Ok(Type::String),
+    // (`<prim>.constructor` — V3-18 m2.c — is handled
+    // by the earlier identical arm; dead duplicate
+    // removed for the zero-warn build rule.)
+    // V3-18 m2.d — class-instance Object.prototype
+    // methods. Same shape as namespace ctors:
+    //   .hasOwnProperty(k)         → true if k is a
+    //                                 declared field
+    //                                 (compile-time
+    //                                 layout lookup).
+    //   .propertyIsEnumerable(k)   → same as
+    //                                 hasOwnProperty
+    //                                 (instance fields
+    //                                 are enumerable).
+    //   .isPrototypeOf(x)          → false (no real
+    //                                 prototype chain).
+    //   .valueOf()                 → identity (the
+    //                                 instance).
+    //   .toString()                → "[object Object]"
+    //                                 (subset stub).
+    //   .constructor                → Type::Any.
+    (Type::Struct(_), "hasOwnProperty")
+    | (Type::Struct(_), "propertyIsEnumerable") => {
+        Ok(Type::Function(vec![Type::String], Box::new(Type::Boolean)))
+    }
+    (Type::Struct(_), "isPrototypeOf") => {
+        Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
+    }
+    (Type::Struct(_), "valueOf") => {
+        let inner = obj_ty.clone();
+        Ok(Type::Function(Vec::new(), Box::new(inner)))
+    }
+    (Type::Struct(_), "toString") => {
+        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+    }
+    (Type::Struct(_), "constructor") => Ok(Type::Any),
+    // P3.2 — Member access on Type::Any returns Type::Any.
+    // Static layout unknown at compile time; ssa_lower
+    // routes through dynobj_get_tag/value. Missing
+    // properties read as undefined per spec.
+    (Type::Any, _) => Ok(Type::Any),
+    // T-29 — Array-as-Object reads. `arr.x` on an
+    // array returns Type::Any (lookup via side table).
+    // .length is already handled by the (Type::Array(_),
+    // "length") arm above; built-in methods (map /
+    // filter / push / etc.) are handled in the
+    // Expr::Call arm's per-method dispatch — those
+    // never reach this Member-only path because the
+    // Call dispatch matches obj_ty + name BEFORE
+    // calling type_of(callee). Only bare-Member
+    // access (without a following call site) lands
+    // here, so excluding the well-known method names
+    // keeps the user-visible Function-typed semantics
+    // for `let m = arr.map` patterns.
+    (Type::Array(_), name) if name != "length"
+        && !is_array_method_name(name) => Ok(Type::Any),
+    // T-27.c — built-in `length` (Number) and `name`
+    // (String) on a Function. length is the param
+    // count; name is the lifted FnDecl's name. Both
+    // are compile-time constants known from the fn's
+    // static signature, so ssa_lower can fold them
+    // without runtime dispatch.
+    (Type::Function(params, _), "length") => {
+        let _ = params;
+        Ok(Type::Number)
+    }
+    (Type::Function(..), "name") => Ok(Type::String),
+    // T-27 — Function-as-Object reads. Per ECMAScript
+    // §10.2 functions are objects. `f.x` on a closure
+    // reads from its lazy props_dynobj at offset
+    // CLOSURE_PROPS_OFF; missing/unset → undefined.
+    // Other built-in props (.bind, .call, .apply,
+    // .toString, etc.) are L3b T-27.c-rest — not
+    // implemented; currently return undefined.
+    (Type::Function(..), _) => Ok(Type::Any),
+    _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
+}
+}
