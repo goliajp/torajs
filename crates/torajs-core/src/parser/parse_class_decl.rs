@@ -329,142 +329,25 @@ impl<'a> Parser<'a> {
             };
             match next_tok {
                 Some(Token::LParen) => {
-                    // ctor or method
-                    if !consumed_computed_name {
-                        self.pos += 1; // consume name
-                    }
-                    let is_ctor_branch = member_name == "constructor";
-                    let (params, promoted_props, destr_lets) = if is_ctor_branch {
-                        let (p, pr, dl) = self.parse_ctor_param_list()?;
-                        (p, pr, dl)
-                    } else {
-                        let (p, dl) = self.parse_param_list()?;
-                        (p, Vec::new(), dl)
-                    };
-                    let return_type = if matches!(self.peek(), Token::Colon) {
-                        self.pos += 1;
-                        Some(self.parse_type_ann()?)
-                    } else {
-                        None
-                    };
-                    // V3-18 wedge — TS class-method overload signature:
-                    // `methodName(...): R;`. Type-only, terminated by `;`.
-                    // Skip and continue parsing the class body — the
-                    // real impl is the trailing same-named decl.
-                    if !is_abstract_method && matches!(self.peek(), Token::Semi) {
-                        self.pos += 1;
+                    // ctor or method — extracted to sub-sibling (chunk 174,
+                    // 2026-06-28). Returns Ok(true) for TS overload signature
+                    // (skip + continue outer loop); Ok(false) for normal flow.
+                    if self.parse_class_member_method_or_ctor(
+                        &name,
+                        member_name,
+                        consumed_computed_name,
+                        explicit_visibility,
+                        is_readonly,
+                        is_abstract_method,
+                        is_static,
+                        is_async,
+                        accessor_kind,
+                        &mut fields,
+                        &mut ctor,
+                        &mut methods,
+                        &mut static_methods,
+                    )? {
                         continue;
-                    }
-                    let body = if is_abstract_method {
-                        // M-OO.6 — abstract method has no body. ASI per
-                        // ES spec: `;` is optional when the next token
-                        // would naturally start a new statement, so
-                        // accept the next class member directly. Common
-                        // shape: `abstract area(): number\n  describe()`.
-                        if matches!(self.peek(), Token::Semi) {
-                            self.pos += 1;
-                        }
-                        Vec::new()
-                    } else {
-                        match self.peek() {
-                            Token::LBrace => self.pos += 1,
-                            t => {
-                                return Err(format!(
-                                    "expected `{{` for {member_name} body, got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
-                        }
-                        let mut body = Vec::new();
-                        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-                            body.push(self.parse_stmt()?);
-                        }
-                        match self.peek() {
-                            Token::RBrace => self.pos += 1,
-                            t => {
-                                return Err(format!(
-                                    "expected `}}` to end {member_name} body, got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
-                        }
-                        // V3-18 wedge — prepend destr-param lets when
-                        // class methods used a binding pattern.
-                        if destr_lets.is_empty() {
-                            body
-                        } else {
-                            let mut full = destr_lets;
-                            full.extend(body);
-                            full
-                        }
-                    };
-                    if member_name == "constructor" {
-                        if is_static {
-                            return Err(format!(
-                                "`static constructor` is not allowed in class `{name}`"
-                            ));
-                        }
-                        if is_abstract_method {
-                            return Err(format!(
-                                "`abstract constructor` is not allowed in class `{name}`"
-                            ));
-                        }
-                        if ctor.is_some() {
-                            return Err(format!("duplicate constructor in class `{name}`"));
-                        }
-                        // V3-18 wedge — for each TS parameter-property
-                        // (e.g. `public x: number`), promote to an
-                        // instance field on the class and prepend
-                        // `this.<n> = <n>` to the ctor body.
-                        let mut body = body;
-                        if !promoted_props.is_empty() {
-                            let mut prefix: Vec<Stmt> = Vec::new();
-                            for (idx, vis, rd) in &promoted_props {
-                                let p = &params[*idx];
-                                let ty_ann = p.type_ann.clone().unwrap_or_else(|| "any".into());
-                                fields.push((p.name.clone(), ty_ann));
-                                if *vis != ast::Visibility::Public {
-                                    self.ast
-                                        .member_visibility
-                                        .insert((name.clone(), p.name.clone()), *vis);
-                                }
-                                if *rd {
-                                    self.ast
-                                        .readonly_fields
-                                        .insert((name.clone(), p.name.clone()));
-                                }
-                                let this_ref = self.ast.add_expr(Expr::This);
-                                let lhs = self.ast.add_expr(Expr::Member {
-                                    obj: this_ref,
-                                    name: p.name.clone(),
-                                });
-                                let rhs = self.ast.add_expr(Expr::Ident(p.name.clone()));
-                                let assign = self.ast.add_expr(Expr::Assign {
-                                    target: lhs,
-                                    value: rhs,
-                                });
-                                prefix.push(Stmt::Expr(assign));
-                            }
-                            prefix.extend(body);
-                            body = prefix;
-                        }
-                        ctor = Some(ClassCtor { params, body });
-                    } else {
-                        self.finalize_class_method(
-                            &name,
-                            member_name,
-                            params,
-                            return_type,
-                            body,
-                            explicit_visibility,
-                            accessor_kind,
-                            is_readonly,
-                            is_abstract_method,
-                            is_static,
-                            is_async,
-                            &mut methods,
-                            &mut static_methods,
-                        )?;
                     }
                 }
                 Some(Token::Colon) => {

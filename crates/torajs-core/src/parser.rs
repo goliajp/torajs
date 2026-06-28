@@ -36,6 +36,7 @@ use crate::lexer::{self, Spanned, Token};
 mod class_member;
 mod object_member;
 mod parse_class_decl;
+mod parse_class_member_method;
 mod parse_postfix;
 mod parse_stmt;
 mod try_parse_for_of;
