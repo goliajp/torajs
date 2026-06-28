@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-28T14:02:32.069Z",
+  "generatedAt": "2026-06-28T17:16:48.220Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "f0504cb6",
-    "commitSubject": "refactor(torajs-core): split desugar Pass 3 ClassDecl rewrite (chunk 184)",
+    "commit": "b36197bf",
+    "commitSubject": "refactor(torajs-core): split lower_binop strict eq (===/!==) path (chunk 189)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "b36197bf",
+      "subject": "refactor(torajs-core): split lower_binop strict eq (===/!==) path (chunk 189)"
+    },
+    {
+      "hash": "01a218dc",
+      "subject": "refactor(torajs-core): split lower_binop Str eq+cmp path (chunk 188)"
+    },
+    {
+      "hash": "83ae9d47",
+      "subject": "refactor(torajs-core): split lower_binop BigInt path (chunk 187)"
+    },
+    {
+      "hash": "361070dc",
+      "subject": "refactor(torajs-core): split lower_binop f64 path (chunk 186)"
+    },
+    {
+      "hash": "b412afb6",
+      "subject": "refactor(torajs-core): split lower_binop i64 default dispatch (chunk 185)"
+    },
+    {
+      "hash": "e53a63e6",
+      "subject": "chore(handoff/dashboard): chunks 179-184 ship summary @ f0504cb6 (desugar_classes.rs ≤500 ✓ + Pass 2/3 抽出)"
+    },
+    {
       "hash": "f0504cb6",
       "subject": "refactor(torajs-core): split desugar Pass 3 ClassDecl rewrite (chunk 184)"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "74e47354",
       "subject": "refactor(torajs-core): split desugar field-inheritance flattening (chunk 179)"
-    },
-    {
-      "hash": "7b7d7521",
-      "subject": "chore(handoff/dashboard): chunks 174-178 ship summary @ 36cdee32 (parse_class_decl ≤500 ✓ + desugar_classes 3 sub-pass)"
-    },
-    {
-      "hash": "36cdee32",
-      "subject": "refactor(torajs-core): split desugar abstract-class collection (chunk 178)"
-    },
-    {
-      "hash": "e4c75682",
-      "subject": "refactor(torajs-core): split desugar static-member rewrites (chunk 177)"
-    },
-    {
-      "hash": "91a47a54",
-      "subject": "refactor(torajs-core): split desugar super-call passes (chunk 176)"
-    },
-    {
-      "hash": "59e52eb9",
-      "subject": "refactor(torajs-core): split class field-typed branch (chunk 175)"
-    },
-    {
-      "hash": "27c96dbf",
-      "subject": "refactor(torajs-core): split class method/ctor branch (chunk 174)"
     }
   ],
-  "headSha": "f0504cb6",
+  "headSha": "b36197bf",
   "autorun": {
-    "total": 272,
+    "total": 273,
     "baselineTarget": 10,
-    "bySelf": 267,
+    "bySelf": 268,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782649751-0e2d",
-      "at": "2026-06-28T12:29:11Z",
-      "ts": 1782649751,
+      "rotationId": "r-1782655394-190a",
+      "at": "2026-06-28T14:03:14Z",
+      "ts": 1782655394,
       "trigger": "self",
-      "prevHead": "7b7d7521",
-      "handoffSha": "sha256:03b6bb903269b90eda736b91facbb89002d07c2c1bf6fa75116fa78b3776aa3a",
-      "handoffAgeSec": 19,
+      "prevHead": "e53a63e6",
+      "handoffSha": "sha256:b3bb16e6b785a9ed5721b4896eb4267d92c46535b99273e9012f48faee86f346",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782655394-190a",
+        "at": "2026-06-28T14:03:14Z",
+        "ts": 1782655394,
+        "trigger": "self",
+        "prevHead": "e53a63e6",
+        "handoffSha": "sha256:b3bb16e6b785a9ed5721b4896eb4267d92c46535b99273e9012f48faee86f346",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782649751-0e2d",
         "at": "2026-06-28T12:29:11Z",
@@ -780,17 +791,6 @@
         "prevHead": "d97bd9b6",
         "handoffSha": "sha256:9bc4b5dd0524db821b8cd26acaf6a2f4d960ed6ef2eaa162452cd064ca4d40c5",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782580460-1018",
-        "at": "2026-06-27T17:14:20Z",
-        "ts": 1782580460,
-        "trigger": "self",
-        "prevHead": "ad317875",
-        "handoffSha": "sha256:a6358da5451c48790e1812131b72aecb220df67e8c68ec03a16cf15c67ff3ef0",
-        "handoffAgeSec": 440,
         "conformanceBefore": null,
         "commitsInSession": null
       }
