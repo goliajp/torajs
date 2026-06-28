@@ -333,6 +333,7 @@ pub(crate) mod ssa_lower_intrinsics_substr;
 pub(crate) mod ssa_lower_intrinsics_throw;
 pub(crate) mod ssa_lower_intrinsics_weak;
 pub(crate) mod ssa_lower_json_parse;
+pub(crate) mod ssa_lower_json_stringify;
 pub(crate) mod ssa_lower_lit;
 pub(crate) mod ssa_lower_logical;
 pub mod ssa_lower_main_exit;
