@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-28T17:16:48.220Z",
+  "generatedAt": "2026-06-28T18:44:31.703Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "b36197bf",
-    "commitSubject": "refactor(torajs-core): split lower_binop strict eq (===/!==) path (chunk 189)",
+    "commit": "7e4eefd9",
+    "commitSubject": "refactor(torajs-core): split check_type_of_member primitive wrappers (chunk 194)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "7e4eefd9",
+      "subject": "refactor(torajs-core): split check_type_of_member primitive wrappers (chunk 194)"
+    },
+    {
+      "hash": "232e6cf7",
+      "subject": "refactor(torajs-core): split check_type_of_member Set/Map family arms (chunk 193)"
+    },
+    {
+      "hash": "9556c697",
+      "subject": "refactor(torajs-core): split check_type_of_member Weak family arms (chunk 192)"
+    },
+    {
+      "hash": "06309448",
+      "subject": "refactor(torajs-core): split check_type_of_member Date arms (chunk 191)"
+    },
+    {
+      "hash": "65ef168a",
+      "subject": "refactor(torajs-core): split lower_binop Any arith/cmp path (chunk 190)"
+    },
+    {
+      "hash": "b2dbf5f3",
+      "subject": "chore(handoff/dashboard): chunks 185-189 ship summary @ b36197bf (ssa_lower_binop_inner.rs 921 → 530 -42.5%)"
+    },
+    {
       "hash": "b36197bf",
       "subject": "refactor(torajs-core): split lower_binop strict eq (===/!==) path (chunk 189)"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "e53a63e6",
       "subject": "chore(handoff/dashboard): chunks 179-184 ship summary @ f0504cb6 (desugar_classes.rs ≤500 ✓ + Pass 2/3 抽出)"
-    },
-    {
-      "hash": "f0504cb6",
-      "subject": "refactor(torajs-core): split desugar Pass 3 ClassDecl rewrite (chunk 184)"
-    },
-    {
-      "hash": "675b37c0",
-      "subject": "refactor(torajs-core): split desugar Pass 2 expr arena rewrite (chunk 183)"
-    },
-    {
-      "hash": "ca637d76",
-      "subject": "refactor(torajs-core): split desugar default-init synthesis (chunk 182)"
-    },
-    {
-      "hash": "8875919c",
-      "subject": "refactor(torajs-core): split desugar Phase H.3.b dispatch synthesis (chunk 181)"
-    },
-    {
-      "hash": "8e6d689c",
-      "subject": "refactor(torajs-core): split desugar method-owners + chain classification (chunk 180)"
-    },
-    {
-      "hash": "74e47354",
-      "subject": "refactor(torajs-core): split desugar field-inheritance flattening (chunk 179)"
     }
   ],
-  "headSha": "b36197bf",
+  "headSha": "7e4eefd9",
   "autorun": {
-    "total": 273,
+    "total": 274,
     "baselineTarget": 10,
-    "bySelf": 268,
+    "bySelf": 269,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782655394-190a",
-      "at": "2026-06-28T14:03:14Z",
-      "ts": 1782655394,
+      "rotationId": "r-1782667028-53de",
+      "at": "2026-06-28T17:17:08Z",
+      "ts": 1782667028,
       "trigger": "self",
-      "prevHead": "e53a63e6",
-      "handoffSha": "sha256:b3bb16e6b785a9ed5721b4896eb4267d92c46535b99273e9012f48faee86f346",
-      "handoffAgeSec": 10,
+      "prevHead": "b2dbf5f3",
+      "handoffSha": "sha256:ecc6196ab4d53c97adf2428f538a2380781143fef59453c32db5b2f9d45587ba",
+      "handoffAgeSec": 29,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782667028-53de",
+        "at": "2026-06-28T17:17:08Z",
+        "ts": 1782667028,
+        "trigger": "self",
+        "prevHead": "b2dbf5f3",
+        "handoffSha": "sha256:ecc6196ab4d53c97adf2428f538a2380781143fef59453c32db5b2f9d45587ba",
+        "handoffAgeSec": 29,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782655394-190a",
         "at": "2026-06-28T14:03:14Z",
@@ -780,17 +791,6 @@
         "prevHead": "ce7fe67e",
         "handoffSha": "sha256:027b29127a260da1f809b2c26a3cd5d215bfc79421a764f6c2db4b5dade94d6c",
         "handoffAgeSec": 1710,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782586077-03b4",
-        "at": "2026-06-27T18:47:57Z",
-        "ts": 1782586077,
-        "trigger": "self",
-        "prevHead": "d97bd9b6",
-        "handoffSha": "sha256:9bc4b5dd0524db821b8cd26acaf6a2f4d960ed6ef2eaa162452cd064ca4d40c5",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
