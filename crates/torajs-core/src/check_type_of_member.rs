@@ -232,6 +232,19 @@ pub(crate) fn check(
     {
         return r;
     }
+    // `Type::Array` instance methods — see
+    // [`crate::check_type_of_member_array`] (chunk 196 —
+    // sixth sub-batch). The shared
+    // `(Type::String, "length") | (Type::Array(_), "length")`
+    // arm and the catch-all
+    // `(Type::Array(_), name) if name != "length"
+    //   && !is_array_method_name(name)` arm stay in the main
+    // match because their patterns aren't Array-only.
+    if matches!(&obj_ty, Type::Array(_))
+        && let Some(r) = crate::check_type_of_member_array::try_match(&obj_ty, name)
+    {
+        return r;
+    }
     match (&obj_ty, name) {
     (Type::Object("console"), m)
         if matches!(m, "log" | "error" | "warn" | "info" | "debug") =>
@@ -844,16 +857,8 @@ pub(crate) fn check(
     // properties.
     // (Type::Number, "valueOf") — handled by the pre-match
     // prim try_match (chunk 194).
-    // ES §23.1.3.34 — `arr.valueOf()` returns the
-    // Array itchecker (identity). The default Object
-    // protocol applies — Array doesn't override
-    // valueOf with its own coercion. ssa_lower folds
-    // the call to the receiver operand without a
-    // runtime helper.
-    (Type::Array(elem), "valueOf") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::Array(elem.clone())),
-    )),
+    // (Type::Array(_), "valueOf") — handled by the
+    // pre-match Array try_match dispatch (chunk 196).
     (Type::String, "valueOf")
     // V3-18 wedge — String.prototype.toString /
     // toLocaleString / valueOf all return the
@@ -1197,149 +1202,11 @@ pub(crate) fn check(
             Type::Array(Box::new(Type::String))
         ))),
     )),
-    // arr.join(sep): string — receiver is Array<T> for
-    // T = String / Number / Boolean (V3-18 m1.h.43:
-    // Number/Bool elements ToString'd inline by the
-    // runtime helper). sep borrowed; result freshly
-    // allocated.
-    (Type::Array(elem), "join")
-        if matches!(**elem, Type::String | Type::Number | Type::Boolean | Type::Any) => {
-        Ok(Type::Function(vec![Type::String], Box::new(Type::String)))
-    }
-    // V3-18 wedge — Array.prototype.toString. Per JS
-    // spec §22.1.3.30, equivalent to `arr.join(",")`.
-    // Subset matches the join intrinsic's element-type
-    // dispatch (Str / Number / Bool / Any — S126-4).
-    (Type::Array(elem), "toString" | "toLocaleString")
-        if matches!(**elem, Type::String | Type::Number | Type::Boolean | Type::Any) => {
-        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
-    }
-    // M1.2 — `xs.push(v)`: takes one element-typed arg,
-    // returns the new length per JS spec §22.1.3.20.
-    // Runtime helper `__torajs_arr_push` already writes
-    // `len + 1` into `arr[#8]`; ssa_lower materializes
-    // the ret as `Load(I64, new_arr, ARR_LEN_OFF)`.
-    (Type::Array(elem), "push") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(vec![inner], Box::new(Type::Number)))
-    }
-    // `xs.pop()` — remove and return the last element.
-    // Mutates the receiver. tr's subset assumes a non-empty
-    // array (matches the `xs[xs.length - 1]` style call
-    // patterns this enables); `pop` on an empty array is
-    // unchecked. Returns the element type directly (no
-    // `T | undefined` since tr lacks union types).
-    (Type::Array(elem), "pop") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(Vec::new(), Box::new(inner)))
-    }
-    // `xs.shift()` — same shape as pop but removes the
-    // first element (memmoves the rest left). Subset
-    // convention: empty-array shift is unchecked.
-    (Type::Array(elem), "shift") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(Vec::new(), Box::new(inner)))
-    }
-    // `xs.unshift(v)` — insert v at slot 0 (memmoves
-    // the rest right; may realloc). Returns the new
-    // length per JS spec §22.1.3.34, mirroring push.
-    (Type::Array(elem), "unshift") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(vec![inner], Box::new(Type::Number)))
-    }
-    // `xs.splice(start, deleteCount)` — remove a slice
-    // in-place + return removed slice as a fresh
-    // Array<T>. Per JS spec §23.1.3.31. v0 subset: no
-    // `...items` rest-arg insert form (deferred).
-    (Type::Array(elem), "splice") | (Type::Array(elem), "toSpliced") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(
-            vec![Type::Number, Type::Number],
-            Box::new(Type::Array(Box::new(inner))),
-        ))
-    }
-    // `xs.flat()` — single-level flatten. Receiver must
-    // be `T[][]`; result is `T[]`. v0 supports depth=1
-    // only (no `.flat(2)` arg).
-    (Type::Array(elem), "flat") => {
-        // S129-3 Array<Any>.flat — Any elem bypasses
-        // the typed Array<Array<T>> shape check: any
-        // outer slot can wrap an inner Array<Any>
-        // (or a scalar that passes through). Routes
-        // to `__torajs_arr_flat_any` at ssa-lower
-        // which decodes each slot's NaN-box tag.
-        // Result stays Array<Any> (depth=1 only —
-        // mirror typed flat's v0 limit).
-        if matches!(**elem, Type::Any) {
-            return Ok(Type::Function(
-                Vec::new(),
-                Box::new(Type::Array(Box::new(Type::Any))),
-            ));
-        }
-        // ES §23.1.3.11 — non-nested receiver returns
-        // a shallow copy with the same element type
-        // (depth=1 leaves non-Array slots untouched).
-        // Pre-fix tora forced Array<Array<T>>, blocking
-        // the spec-canonical `[1,2,3].flat()` shape.
-        let result_inner = match (**elem).clone() {
-            Type::Array(inner) => *inner,
-            other => other,
-        };
-        Ok(Type::Function(
-            Vec::new(),
-            Box::new(Type::Array(Box::new(result_inner))),
-        ))
-    }
-    // `xs.sort(cmp)` — in-place sort using the comparator
-    // `(a: T, b: T) => number`. Returns the same array
-    // (chainable). Subset requires the comparator (no
-    // default lex-sort fallback).
-    (Type::Array(elem), "toSorted") => {
-        let inner = (**elem).clone();
-        let cmp_ty = Type::Function(
-            vec![inner.clone(), inner.clone()],
-            Box::new(Type::Number),
-        );
-        Ok(Type::Function(
-            vec![cmp_ty],
-            Box::new(Type::Array(Box::new(inner))),
-        ))
-    }
-    (Type::Array(elem), "sort") => {
-        let inner = (**elem).clone();
-        let cmp_ty = Type::Function(
-            vec![inner.clone(), inner.clone()],
-            Box::new(Type::Number),
-        );
-        Ok(Type::Function(
-            vec![cmp_ty],
-            Box::new(Type::Array(Box::new(inner))),
-        ))
-    }
-    // `a.concat(b)` — fresh array of a's elements then b's.
-    // Subset: binary only, both arrays must share element type.
-    (Type::Array(elem), "concat") => {
-        // S129-4 Array<Any>.concat — Any receiver accepts
-        // any Array<U> arg (typed slots get NaN-boxed at
-        // runtime via __torajs_arr_extend_typed_into_any
-        // when the SSA arg type isn't Array<Any>).
-        // Param sig is Type::Any so dispatch typecheck
-        // doesn't reject typed Array<U>; ssa-lower peeks
-        // expr_types to derive the elem tag. Result
-        // stays Array<Any>. Same S128-5 / S129-1 / S129-3
-        // mixed-Any series shape.
-        if matches!(**elem, Type::Any) {
-            return Ok(Type::Function(
-                vec![Type::Any],
-                Box::new(Type::Array(Box::new(Type::Any))),
-            ));
-        }
-        let inner = (**elem).clone();
-        Ok(Type::Function(
-            vec![Type::Array(Box::new(inner.clone()))],
-            Box::new(Type::Array(Box::new(inner))),
-        ))
-    }
+    // (Type::Array(_), "join" / "toString" / "toLocaleString"
+    // / "push" / "pop" / "shift" / "unshift" / "splice" /
+    // "toSpliced" / "flat" / "toSorted" / "sort" / "concat")
+    // — handled by the pre-match Array try_match dispatch
+    // (chunk 196).
     // `s.concat(other)` — string concat. The single-arg
     // shape lives here so the standard method-call path
     // typechecks normally. Variadic forms drop into the
@@ -1349,213 +1216,14 @@ pub(crate) fn check(
         vec![Type::String],
         Box::new(Type::String),
     )),
-    // `xs.at(i)` — element at i with negative-index wrap.
-    // Subset returns T (not T | undefined) — out-of-bounds
-    // is UB, matches the unchecked indexing convention.
-    (Type::Array(elem), "at") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(
-            vec![Type::Number],
-            Box::new(inner),
-        ))
-    }
-    // `xs.reverse()` — in-place reverse, returns the same
-    // array (chainable). Subset returns void since the
-    // chain shape isn't common in our test set.
-    // `toReversed` (ES2023) is the non-mutating sibling —
-    // identical signature, fresh `Array<T>` result.
-    (Type::Array(elem), "reverse") | (Type::Array(elem), "toReversed") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(
-            Vec::new(),
-            Box::new(Type::Array(Box::new(inner))),
-        ))
-    }
-    // `xs.with(i, v)` (ES2023) — non-mutating index update.
-    // Returns a fresh `Array<T>` with `xs[i] = v`. Negative
-    // `i` wraps via `len + i`. OOB is UB.
-    (Type::Array(elem), "with") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(
-            vec![Type::Number, inner.clone()],
-            Box::new(Type::Array(Box::new(inner))),
-        ))
-    }
-    // `xs.copyWithin(target, start, end)` — memmove
-    // [start, end) into `target` position, in-place.
-    (Type::Array(elem), "copyWithin") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(
-            vec![Type::Number, Type::Number, Type::Number],
-            Box::new(Type::Array(Box::new(inner))),
-        ))
-    }
-    // `xs.fill(value, start, end)` — uniform fill over a
-    // range. start/end optional in JS; subset requires
-    // both for now. Returns the same array.
-    (Type::Array(elem), "fill") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(
-            vec![inner.clone(), Type::Number, Type::Number],
-            Box::new(Type::Array(Box::new(inner))),
-        ))
-    }
-    // `xs.slice(start, end)` — fresh array of the
-    // [start, end) range. Same element type. Both
-    // bounds are required in this v0 subset.
-    (Type::Array(elem), "slice") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(
-            vec![Type::Number, Type::Number],
-            Box::new(Type::Array(Box::new(inner))),
-        ))
-    }
-    // `xs.indexOf(needle)` / `xs.lastIndexOf(needle)` —
-    // linear scan; returns -1 on miss. lastIndexOf scans
-    // from the end. Needle must match the element type.
-    (Type::Array(elem), "indexOf")
-    | (Type::Array(elem), "lastIndexOf") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(vec![inner], Box::new(Type::Number)))
-    }
-    // M6.2 — `xs.map(fn)`: takes a `(T) => T` closure,
-    // returns `T[]` (a fresh array). MVP keeps input
-    // and output element types the same; non-uniform
-    // map (e.g. `number[] → string[]`) lands when
-    // generic methods are wired (post-M6.2.a).
-    (Type::Array(elem), "map") => {
-        let inner = (**elem).clone();
-        let fn_ty = Type::Function(
-            vec![inner.clone()],
-            Box::new(inner.clone()),
-        );
-        Ok(Type::Function(
-            vec![fn_ty],
-            Box::new(Type::Array(Box::new(inner))),
-        ))
-    }
-    // `xs.flatMap(fn)` — same homogeneous constraint as
-    // map (`(T) => T[]` callback), returns `T[]`. Inner
-    // arrays are flattened one level into the result.
-    (Type::Array(elem), "flatMap") => {
-        let inner = (**elem).clone();
-        let arr_t = Type::Array(Box::new(inner.clone()));
-        let fn_ty = Type::Function(
-            vec![inner.clone()],
-            Box::new(arr_t.clone()),
-        );
-        Ok(Type::Function(vec![fn_ty], Box::new(arr_t)))
-    }
-    // M6.2 — `xs.filter(predicate)`: takes a `(T) => boolean`,
-    // returns `T[]` of kept elements.
-    (Type::Array(elem), "filter") => {
-        let inner = (**elem).clone();
-        let pred_ty = Type::Function(
-            vec![inner.clone()],
-            Box::new(Type::Boolean),
-        );
-        Ok(Type::Function(
-            vec![pred_ty],
-            Box::new(Type::Array(Box::new(inner))),
-        ))
-    }
-    // M6.2 — `xs.reduce(fn, initial)`: takes a
-    // `(acc: T, x: T) => T` and an initial T value;
-    // returns T. Two-arg reduce; the no-initial overload
-    // is deferred.
-    // S132 — reduceRight: identical signature to reduce,
-    // but walks last → first (spec §22.1.3.22). ssa-lower
-    // shares the loop scaffold with `reduce`, differing
-    // only in the cursor init / cmp / inc direction.
-    (Type::Array(elem), "reduce") | (Type::Array(elem), "reduceRight") => {
-        let inner = (**elem).clone();
-        let fn_ty = Type::Function(
-            vec![inner.clone(), inner.clone()],
-            Box::new(inner.clone()),
-        );
-        Ok(Type::Function(
-            vec![fn_ty, inner.clone()],
-            Box::new(inner),
-        ))
-    }
-    // M6.2 — `xs.forEach(fn)`: takes a `(T) => void`,
-    // returns void. Used for side-effecting iteration.
-    (Type::Array(elem), "forEach") => {
-        let inner = (**elem).clone();
-        let fn_ty = Type::Function(
-            vec![inner],
-            Box::new(Type::Void),
-        );
-        Ok(Type::Function(vec![fn_ty], Box::new(Type::Void)))
-    }
-    /* P6.4c-C3 / P5.4 — Array.keys / .values / .entries
-     * returning ArrIter. Array<Any> walks its 16B
-     * tagged-slot layout directly; typed Array<T> for
-     * non-Any T uses an 8B-per-slot layout the runtime
-     * step helper can't unbox. S132 narrow: typed-T
-     * .keys() yields 0..length-1 indices independent
-     * of the slot encoding, so runtime
-     * `arr_iter_create_keys` works uniformly — accept
-     * any typed Array<T> for `.keys()`. .values() /
-     * .entries() still need a box-the-slot walker
-     * follow-up (independent trunk). */
-    (Type::Array(_), "keys") => {
-        Ok(Type::Function(Vec::new(), Box::new(Type::ArrIter)))
-    }
-    (Type::Array(elem), "values") | (Type::Array(elem), "entries")
-        if matches!(**elem, Type::Any) =>
-    {
-        Ok(Type::Function(Vec::new(), Box::new(Type::ArrIter)))
-    }
-    // `xs.includes(needle)` — boolean variant of indexOf.
-    (Type::Array(elem), "includes") => {
-        let inner = (**elem).clone();
-        Ok(Type::Function(vec![inner], Box::new(Type::Boolean)))
-    }
-    // `xs.findIndex(pred)` — index of first matching, or -1.
-    // (`xs.find` returns `T | undefined` which would need
-    // Nullable(Number) for Number arrays — not in v0;
-    // callers should use `xs[xs.findIndex(p)]` after a
-    // -1 check, or `xs.filter(p)[0]` with a length guard.)
-    // `findLastIndex` is the reverse-iteration sibling and
-    // shares the same -1-on-miss return, so it lives in
-    // the subset alongside findIndex.
-    // `xs.find(p)` / `xs.findLast(p)` — predicate scan.
-    // tr's subset returns the element type itchecker (no
-    // `T | undefined`); not-found returns the zero of
-    // T (null for refcounted, 0 / false for primitives).
-    // Caller can either disambiguate via findIndex first
-    // or check against the sentinel value.
-    (Type::Array(elem), "find") | (Type::Array(elem), "findLast") => {
-        let inner = (**elem).clone();
-        let pred_ty = Type::Function(
-            vec![inner.clone()],
-            Box::new(Type::Boolean),
-        );
-        Ok(Type::Function(vec![pred_ty], Box::new(inner)))
-    }
-    (Type::Array(elem), "findIndex")
-    | (Type::Array(elem), "findLastIndex") => {
-        let inner = (**elem).clone();
-        let pred_ty = Type::Function(
-            vec![inner],
-            Box::new(Type::Boolean),
-        );
-        Ok(Type::Function(
-            vec![pred_ty],
-            Box::new(Type::Number),
-        ))
-    }
-    // `xs.some(pred)` / `xs.every(pred)` — short-circuit
-    // ored / anded predicate iteration.
-    (Type::Array(elem), "some") | (Type::Array(elem), "every") => {
-        let inner = (**elem).clone();
-        let pred_ty = Type::Function(
-            vec![inner],
-            Box::new(Type::Boolean),
-        );
-        Ok(Type::Function(vec![pred_ty], Box::new(Type::Boolean)))
-    }
+    // (Type::Array(_), "at" / "reverse" / "toReversed" /
+    // "with" / "copyWithin" / "fill" / "slice" / "indexOf"
+    // / "lastIndexOf" / "map" / "flatMap" / "filter" /
+    // "reduce" / "reduceRight" / "forEach" / "keys" /
+    // "values" / "entries" / "includes" / "find" /
+    // "findLast" / "findIndex" / "findLastIndex" / "some"
+    // / "every") — handled by the pre-match Array
+    // try_match dispatch (chunk 196).
     // (Type::Symbol, "description") — handled by the
     // pre-match prim try_match (chunk 194).
     // (`<prim>.constructor` — V3-18 m2.c — is handled
