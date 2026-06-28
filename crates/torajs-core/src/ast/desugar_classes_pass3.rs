@@ -145,10 +145,7 @@ pub(super) fn rewrite_classdecls_pass3(
             cname,
             type_params,
             &class_field_inits[cname],
-            class_field_preludes
-                .get(cname)
-                .cloned()
-                .unwrap_or_default(),
+            class_field_preludes.get(cname).cloned().unwrap_or_default(),
             ctor.as_ref(),
         );
         appended.push(Stmt::FnDecl {
