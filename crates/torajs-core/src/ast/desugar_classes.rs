@@ -123,53 +123,11 @@ pub fn desugar_classes(ast: &mut Ast) {
     // so ssa_lower's `__dispatch_` interception is a constant-time
     // contains lookup.
     // (Filled in after the per-method walk; HashMap moved at end.)
-    // Detect missing-parent and cycle errors. We don't allow forward
-    // references to classes that come later in source order — every
-    // ancestor must be declared before its descendants. This keeps
-    // field-flattening + factory-emission order trivially correct.
-    let mut declared_so_far: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (_, cname, _tp, parent, _, _, _, _, _) in &class_index {
-        if let Some(p) = parent {
-            if !declared_so_far.contains(p) {
-                panic!(
-                    "M5.2: `{cname} extends {p}` — parent class `{p}` must be declared \
-                     before `{cname}` (and must exist as a class, not a type alias)"
-                );
-            }
-        }
-        declared_so_far.insert(cname.clone());
-    }
-
-    // Compute the flattened (full) field list for each class along the
-    // inheritance chain: parent's fields followed by self's. This is the
-    // layout that `type C = { ... }` will declare and the factory will
-    // default-initialize.
-    let mut full_fields: std::collections::HashMap<String, Vec<(String, String)>> =
-        std::collections::HashMap::new();
-    for (_, cname, _tp, parent, fields, _, _, _, _) in &class_index {
-        let mut combined: Vec<(String, String)> = Vec::new();
-        if let Some(p) = parent {
-            // Parent must be in full_fields by now (declaration order check
-            // above guarantees this).
-            let pfields = full_fields.get(p).unwrap_or_else(|| {
-                panic!("internal: parent `{p}` of `{cname}` had no flattened fields")
-            });
-            combined.extend(pfields.iter().cloned());
-        }
-        for (fn_, ft) in fields {
-            // Subclass fields must not collide with parent fields. (TS
-            // allows shadowing with the same type, but M5.2.a keeps this
-            // simple — disallow.)
-            if combined.iter().any(|(n, _)| n == fn_) {
-                panic!(
-                    "M5.2: subclass `{cname}` redeclares parent field `{fn_}` — \
-                     not yet supported"
-                );
-            }
-            combined.push((fn_.clone(), ft.clone()));
-        }
-        full_fields.insert(cname.clone(), combined);
-    }
+    // Field-inheritance flattening + declaration-order validation
+    // extracted to `desugar_classes_fields.rs` sub-sibling (chunk 179,
+    // 2026-06-28). Pure data computation over `class_index`; panics on
+    // forward-reference parent / subclass field collision.
+    let full_fields = super::desugar_classes_fields::compute_full_fields(&class_index);
 
     // Build the method dispatch table. Phase H.3.b: ancestor-descendant
     // overrides go through a generated `__dispatch_<method>` fn (walks
