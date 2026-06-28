@@ -1,0 +1,239 @@
+//! `desugar_classes` Pass 3 — ClassDecl-to-TypeDecl replacement +
+//! per-class synthetic FnDecl emission (chunk 184, 2026-06-28).
+//!
+//! Extracted from `ast/desugar_classes.rs` after Pass 2.5 static-member
+//! table build, before the static_field_inits prepend. The big for-loop
+//! over `class_index` that does, per class:
+//!
+//!   * Replace `ast.stmts[idx] = TypeDecl { name, type_params, fields }`
+//!     using the flattened field list so subclasses carry parent fields.
+//!   * Emit `__cm_<C>__ctor(__this, __new_target, ...ctor_params)` as a
+//!     V3-18 wedge — every class gets a callable ctor symbol even when
+//!     the user wrote no explicit constructor (subclass `super()` needs
+//!     it; factory still elides the no-ctor call).
+//!   * Emit instance methods via
+//!     `desugar_classes_emit::emit_class_instance_methods`
+//!     (records P8.2 accessor entries through `accessor_*_records`).
+//!   * Emit factory `__new_<C>(ctor_params): C` via `build_factory_body`.
+//!   * Emit static fields as `let __sf_<C>__<name>: T = init`
+//!     (mutable for Copy primitives; const for refcounted) + static
+//!     blocks as `__sb_<C>__<idx>()` named-fn + top-level Call —
+//!     interleaved in source order via `static_init` walk.
+//!   * Emit static methods via
+//!     `desugar_classes_emit::emit_class_static_methods`.
+//!
+//! Caller flushes `appended` into `ast.stmts` after this returns
+//! (`ast.stmts.extend(appended)`).
+
+use super::desugar_classes_emit::{emit_class_instance_methods, emit_class_static_methods};
+use super::desugar_classes_super::ClassIndexEntry;
+use super::*;
+use std::collections::HashMap;
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn rewrite_classdecls_pass3(
+    ast: &mut Ast,
+    class_index: &[ClassIndexEntry],
+    full_fields: &HashMap<String, Vec<(String, String)>>,
+    class_field_inits: &HashMap<String, Vec<(String, ExprId)>>,
+    class_field_preludes: &HashMap<String, Vec<Stmt>>,
+    appended: &mut Vec<Stmt>,
+    static_field_inits: &mut Vec<Stmt>,
+    accessor_getter_records: &mut Vec<(String, String, String)>,
+    accessor_setter_records: &mut Vec<(String, String, String)>,
+) {
+    // Pass 3 — rewrite the stmt list. Replace each ClassDecl in-place
+    // with its TypeDecl (using the flattened field list so subclasses
+    // carry parent fields too), and accumulate the generated FnDecls.
+    for (
+        idx,
+        cname,
+        type_params,
+        _parent,
+        _own_fields,
+        static_init,
+        ctor,
+        methods,
+        static_methods,
+    ) in class_index
+    {
+        let type_decl = Stmt::TypeDecl {
+            name: cname.clone(),
+            type_params: type_params.clone(),
+            fields: full_fields[cname].clone(),
+        };
+        ast.stmts[*idx] = type_decl;
+
+        // For generic classes, the `__this` type ann must reference
+        // the instantiated form, e.g. `Wrapper<T>` not bare `Wrapper`.
+        let this_ann = if type_params.is_empty() {
+            cname.clone()
+        } else {
+            format!("{cname}<{}>", type_params.join("|"))
+        };
+
+        // Constructor → C__ctor(__this: C, params...): void { body }
+        //
+        // V3-18 wedge — always emit a `__cm_<C>__ctor` symbol, even
+        // when the user wrote no explicit constructor. Per ES spec
+        // §15.7.10 every class has a default ctor (empty body, or
+        // `super(...args)` for subclasses); subclass `super()` calls
+        // need a callable parent ctor, and pre-fix tora panicked at
+        // typecheck with `unknown identifier __cm_<Parent>__ctor`
+        // when the parent had no explicit constructor.
+        //
+        // The factory still elides the no-ctor call (build_factory_body
+        // gates on `ctor.is_some()`), so this only adds an unreferenced
+        // empty fn for ctor-less classes — observable only via
+        // `super()` in a subclass, which is exactly what we want.
+        let mut ctor_params_for_factory: Vec<Param> = Vec::new();
+        let (ctor_body, ctor_user_params): (Vec<Stmt>, Vec<Param>) = if let Some(c) = ctor {
+            ctor_params_for_factory = c.params.clone();
+            (c.body.clone(), c.params.clone())
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let mut params: Vec<Param> = Vec::with_capacity(ctor_user_params.len() + 2);
+        params.push(Param {
+            name: "__this".into(),
+            type_ann: Some(this_ann.clone()),
+            default: None,
+            is_rest: false,
+        });
+        // P4.5 — `__new_target: any` carries the class function that
+        // was used at the `new` site. Threaded through `super()` so
+        // chain ancestors see the actual derived class, not the
+        // static ctor owner. Used inside ctor body via the
+        // Expr::NewTarget → Ident("__new_target") rewrite (Pass 2).
+        params.push(Param {
+            name: "__new_target".into(),
+            type_ann: Some("any".into()),
+            default: None,
+            is_rest: false,
+        });
+        params.extend(ctor_user_params);
+        appended.push(Stmt::FnDecl {
+            name: format!("__cm_{cname}__ctor"),
+            type_params: type_params.clone(),
+            params,
+            return_type: Some("void".into()),
+            body: ctor_body,
+            is_generator: false,
+        });
+
+        // Methods → __cm_C__m(__this: C, params...): R { body }
+        // See `ast/desugar_classes_emit.rs`.
+        emit_class_instance_methods(
+            ast,
+            methods,
+            cname,
+            type_params,
+            &this_ann,
+            &full_fields[cname],
+            accessor_getter_records,
+            accessor_setter_records,
+            appended,
+        );
+
+        // Factory: __new_C(ctor_params...): C {
+        //   let __this: C = { f0: <init>, f1: <init>, ... };
+        //   C__ctor(__this, ctor_params...);   // only if a ctor was declared
+        //   return __this;
+        // }
+        let factory_body = super::build_factory_body(
+            ast,
+            cname,
+            type_params,
+            &class_field_inits[cname],
+            class_field_preludes
+                .get(cname)
+                .cloned()
+                .unwrap_or_default(),
+            ctor.as_ref(),
+        );
+        appended.push(Stmt::FnDecl {
+            name: format!("__new_{cname}"),
+            type_params: type_params.clone(),
+            params: ctor_params_for_factory,
+            return_type: Some(this_ann.clone()),
+            body: factory_body,
+            is_generator: false,
+        });
+
+        // M-OO.4 — emit `let __sf_<C>__<name>: T = init;` for each
+        // static field. const-form (mutable=false) so K.4 refcount
+        // globals accept it. The `init` ExprId is reused — desugar
+        // runs before any pass that might mutate the expression
+        // referenced by it.
+        //
+        // P8.3-A3 — `static { ... }` blocks share this walk with
+        // static fields so spec §15.7.10 source-order interleaving
+        // is preserved (a `static x = 1; static { use(C.x) } static
+        // y = 2; static { use(C.y) }` sequence emits four entries
+        // into `static_field_inits` in that exact order). Each
+        // Block desugars to a named-fn `__sb_<C>__<idx>` (mirrors
+        // `__sm_<C>__<m>`, no `__this` param, void return) appended
+        // to `ast.stmts`, plus a top-level `Stmt::Expr(Call(...))`
+        // at the block's source-order position.
+        //
+        // CRITICAL: static field LetDecls + static block Calls go
+        // into `static_field_inits` (NOT `appended`) so they can be
+        // prepended to `ast.stmts` before the user's top-level code
+        // runs. Otherwise the synth main fn would call `check()`
+        // BEFORE the static slot was initialized — every read of
+        // `Counter.label` inside `check()` would see the slot's
+        // null/zero default. This was a real silent leak +
+        // correctness bug uncovered by the m-oo-04-static
+        // `leaks --atExit` audit.
+        for (block_idx, si) in static_init.iter().enumerate() {
+            match si {
+                StaticInit::Field(sf) => {
+                    // V3-18 m1.h.26 — static fields with primitive Copy
+                    // types (number / boolean / int width-specifiers) are
+                    // mutable by default (`Counter.value = 5` is valid
+                    // TS). Refcount-typed fields (string / string[] /
+                    // Foo[] / etc) stay `mutable: false` because
+                    // ssa_lower's globals registry can't yet handle
+                    // mutable refcount globals — Str writes would need
+                    // ARC-dec-old + ARC-inc-new + writeback to the slot,
+                    // which the K.6 globals path doesn't yet emit. Marking
+                    // those as mutable makes ssa_lower skip them from
+                    // globals entirely (line ~3947), and the read path
+                    // then fails with "unknown ident".
+                    let is_copy_prim = matches!(
+                        sf.type_ann.as_str(),
+                        "number" | "boolean" | "i64" | "f64" | "bool" | "i32"
+                    );
+                    static_field_inits.push(Stmt::LetDecl {
+                        mutable: is_copy_prim,
+                        name: format!("__sf_{cname}__{}", sf.name),
+                        type_ann: Some(sf.type_ann.clone()),
+                        init: sf.init,
+                        is_var: false,
+                    });
+                }
+                StaticInit::Block(stmts) => {
+                    let fn_name = format!("__sb_{cname}__{block_idx}");
+                    appended.push(Stmt::FnDecl {
+                        name: fn_name.clone(),
+                        type_params: type_params.clone(),
+                        params: Vec::new(),
+                        return_type: Some("void".into()),
+                        body: stmts.clone(),
+                        is_generator: false,
+                    });
+                    let callee_id = ast.add_expr(Expr::Ident(fn_name));
+                    let call_id = ast.add_expr(Expr::Call {
+                        callee: callee_id,
+                        args: Vec::new(),
+                    });
+                    static_field_inits.push(Stmt::Expr(call_id));
+                }
+            }
+        }
+
+        // M-OO.4 — emit `function __sm_<C>__<name>(...): R { body }`
+        // for each static method. See `ast/desugar_classes_emit.rs`.
+        emit_class_static_methods(ast, static_methods, cname, type_params, appended);
+    }
+}
