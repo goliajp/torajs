@@ -136,72 +136,19 @@ pub fn desugar_classes(ast: &mut Ast) {
             &parent_map,
         );
 
-    // Phase H.3.b — emit `__dispatch_<method>(__this, args...)` for every
-    // method whose name has multiple owners (the override case). Body is
-    // an instanceof-chain checking subclasses deepest-first, falling
-    // through to the base owner's `__cm_<Base>__<method>`. Single-owner
-    // methods stay on the static `__cm_<Owner>__M` path — no dispatcher
-    // fn, no extra indirection.
-    for (m_name, owners) in &method_owners {
-        if !chain_methods.contains(m_name) {
-            continue;
-        }
-        // Locate the base owner's method to copy its signature.
-        let base_owner = &owners[0];
-        let (_, _, base_tp, _, _, _, _, base_methods, _) = class_index
-            .iter()
-            .find(|(_, n, ..)| n == base_owner)
-            .expect("base owner must exist in class_index");
-        let base_method = base_methods
-            .iter()
-            .find(|m| &m.name == m_name)
-            .expect("base owner declared the method by construction");
-        // Dispatcher params: `__this: Base, ...method_params`.
-        let mut params: Vec<Param> = Vec::with_capacity(base_method.params.len() + 1);
-        let this_ann = if base_tp.is_empty() {
-            base_owner.clone()
-        } else {
-            format!("{base_owner}<{}>", base_tp.join("|"))
-        };
-        params.push(Param {
-            name: "__this".into(),
-            type_ann: Some(this_ann),
-            default: None,
-            is_rest: false,
-        });
-        params.extend(base_method.params.iter().cloned());
-        // Body is a typecheck-clean stub that just forwards to the base
-        // owner's `__cm_<Base>__M` — passing `__this: Base` to a fn
-        // expecting `__this: Base` typechecks fine, and the SSA layer
-        // bypasses this body entirely (see `__dispatch_` interception
-        // in ssa_lower's Call arm). The stub is what tr would do if
-        // override were ignored; the real virtual dispatch happens at
-        // SSA level where untyped pointer args dodge the contravariance
-        // problem (subclass __cm fns expect __this: Sub which the
-        // typechecker won't widen Animal → Sub for, even though the
-        // runtime layout is compatible).
-        let mut body: Vec<Stmt> = Vec::new();
-        let stub_callee = ast.add_expr(Expr::Ident(format!("__cm_{base_owner}__{m_name}")));
-        let stub_this = ast.add_expr(Expr::Ident("__this".into()));
-        let mut stub_args: Vec<ExprId> = Vec::with_capacity(base_method.params.len() + 1);
-        stub_args.push(stub_this);
-        for p in &base_method.params {
-            stub_args.push(ast.add_expr(Expr::Ident(p.name.clone())));
-        }
-        let stub_call = ast.add_expr(Expr::Call {
-            callee: stub_callee,
-            args: stub_args,
-        });
-        body.push(Stmt::Return(Some(stub_call)));
-        appended.push(Stmt::FnDecl {
-            name: format!("__dispatch_{m_name}"),
-            type_params: base_tp.clone(),
-            params,
-            return_type: base_method.return_type.clone(),
-            body,
-            is_generator: false,
-        });
-    }
+    // Phase H.3.b — `__dispatch_<method>` synthesis extracted to
+    // `desugar_classes_dispatch.rs` sub-sibling (chunk 181, 2026-06-28).
+    // Mutates `ast.exprs` via `add_expr` + pushes Stmt::FnDecl per
+    // chain method into `appended`. SSA intercepts the stub
+    // (`__dispatch_` interception in lower_expr Call arm) so the body
+    // never runs at runtime.
+    super::desugar_classes_dispatch::emit_dispatch_method_stubs(
+        ast,
+        &class_index,
+        &method_owners,
+        &chain_methods,
+        &mut appended,
+    );
 
     // Build a snapshot of every TypeDecl's field layout. Used by the
     // default-init helper below so a class field whose type is a type

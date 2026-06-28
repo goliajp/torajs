@@ -5,6 +5,7 @@ use std::collections::HashMap;
 mod desugar_async;
 mod desugar_classes;
 mod desugar_classes_abstract;
+mod desugar_classes_dispatch;
 mod desugar_classes_emit;
 mod desugar_classes_fields;
 mod desugar_classes_method_owners;
