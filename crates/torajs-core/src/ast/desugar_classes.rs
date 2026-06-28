@@ -404,71 +404,11 @@ pub fn desugar_classes(ast: &mut Ast) {
         class_field_preludes.insert(cname.clone(), prelude);
     }
 
-    // Pass 1.5 — rewrite `super(args)` inside each subclass's ctor body
-    // into a Call to `__cm_<Parent>__ctor(__this, args)`. Must run before
-    // pass 2 (which rewrites `Expr::This` and method-call shapes).
-    for (_, cname, _tp, parent, _, _, ctor, _, _) in &class_index {
-        let Some(c) = ctor.as_ref() else { continue };
-        let mut super_sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();
-        for s in &c.body {
-            collect_super_in_stmt(ast, s, &mut super_sites);
-        }
-        for (eid, args) in super_sites {
-            let parent_name = parent.as_ref().unwrap_or_else(|| {
-                panic!(
-                    "M5.2: `super(...)` used in `{cname}.constructor` but `{cname}` \
-                     has no `extends` clause"
-                )
-            });
-            let callee = ast.add_expr(Expr::Ident(format!("__cm_{parent_name}__ctor")));
-            let this_id = ast.add_expr(Expr::This);
-            // P4.5 — `super()` forwards the current ctor's
-            // __new_target through to the parent ctor so chain
-            // ancestors see the actual class function that was
-            // invoked via `new`, not the static ctor owner.
-            let new_target_id = ast.add_expr(Expr::Ident("__new_target".into()));
-            let mut new_args = Vec::with_capacity(args.len() + 2);
-            new_args.push(this_id);
-            new_args.push(new_target_id);
-            new_args.extend(args);
-            ast.exprs[eid.0 as usize] = Expr::Call {
-                callee,
-                args: new_args,
-            };
-        }
-    }
-    // V3-18 wedge — Pass 1.6: rewrite `super.<m>(args)` (encoded
-    // as a Call to ident `__supercall__<m>`) inside each subclass's
-    // method bodies into `__cm_<Parent>__<m>(__this, args)`. Walks
-    // every method body of every class with an `extends` clause.
-    for (_, cname, _tp, parent, _, _, ctor, methods, static_methods) in &class_index {
-        let Some(parent_name) = parent.as_ref() else {
-            continue;
-        };
-        let mut sites: Vec<(ExprId, String, Vec<ExprId>)> = Vec::new();
-        if let Some(c) = ctor.as_ref() {
-            for s in &c.body {
-                collect_supercall_in_stmt(ast, s, &mut sites);
-            }
-        }
-        for m in methods.iter().chain(static_methods.iter()) {
-            for s in &m.body {
-                collect_supercall_in_stmt(ast, s, &mut sites);
-            }
-        }
-        for (eid, m_name, args) in sites {
-            let _ = cname; // diag context only
-            let callee = ast.add_expr(Expr::Ident(format!("__cm_{parent_name}__{m_name}")));
-            let this_id = ast.add_expr(Expr::This);
-            let mut new_args = Vec::with_capacity(args.len() + 1);
-            new_args.push(this_id);
-            new_args.extend(args);
-            ast.exprs[eid.0 as usize] = Expr::Call {
-                callee,
-                args: new_args,
-            };
-        }
-    }
+    // Pass 1.5 + Pass 1.6 — super-call rewriting (super(args) in ctor
+    // bodies + super.<m>(args) in method bodies). Extracted to
+    // `desugar_classes_super.rs` sub-sibling (chunk 176, 2026-06-28).
+    super::desugar_classes_super::rewrite_super_ctor_calls(ast, &class_index);
+    super::desugar_classes_super::rewrite_super_method_calls(ast, &class_index);
 
     // Pass 2 — rewrite the expression arena. Walking by index is safe
     // because we only mutate Exprs in place (or append new ones at the

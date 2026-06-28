@@ -5,6 +5,7 @@ use std::collections::HashMap;
 mod desugar_async;
 mod desugar_classes;
 mod desugar_classes_emit;
+mod desugar_classes_super;
 mod desugar_generators_methods;
 pub use desugar_async::desugar_async;
 use desugar_async::{body_ends_in_return, rewrite_returns_for_async};
