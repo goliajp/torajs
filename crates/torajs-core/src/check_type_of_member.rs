@@ -210,6 +210,20 @@ pub(crate) fn check(
     {
         return r;
     }
+    // Primitive wrappers (Number / Boolean / BigInt / Symbol)
+    // single-type arms — see
+    // [`crate::check_type_of_member_prim`] (chunk 194 —
+    // fourth sub-batch). Mixed arms (`(Number | String |
+    // Boolean | BigInt | Symbol, "constructor")` etc.) stay
+    // in the main match so the String / Any branches are
+    // still served when this dispatch returns None.
+    if matches!(
+        &obj_ty,
+        Type::Number | Type::Boolean | Type::BigInt | Type::Symbol
+    ) && let Some(r) = crate::check_type_of_member_prim::try_match(&obj_ty, name)
+    {
+        return r;
+    }
     match (&obj_ty, name) {
     (Type::Object("console"), m)
         if matches!(m, "log" | "error" | "warn" | "info" | "debug") =>
@@ -782,24 +796,9 @@ pub(crate) fn check(
         vec![Type::Number],
         Box::new(Type::String),
     )),
-    (Type::Number, "toFixed")
-    | (Type::Number, "toExponential")
-    | (Type::Number, "toPrecision") => Ok(Type::Function(
-        vec![Type::Number],
-        Box::new(Type::String),
-    )),
-    (Type::Number, "toString") => {
-        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
-    }
-    // S139 — `n.toLocaleString(locales?, options?)` per ES
-    // §21.1.3.4 accepts optional locale + options args;
-    // tr's subset is en-US only and ignores them, so the
-    // signature is `(Any?, Any?) -> string`. ssa_lower
-    // drops the args before the 1-arg runtime helper.
-    (Type::Number, "toLocaleString") => Ok(Type::Function(
-        vec![Type::Any, Type::Any],
-        Box::new(Type::String),
-    )),
+    // (Type::Number, "toFixed" / "toExponential" /
+    // "toPrecision" / "toString" / "toLocaleString") —
+    // handled by the pre-match prim try_match (chunk 194).
     // S140 — `s.toLocaleLowerCase` / `toLocaleUpperCase`
     // per ES §22.1.3.21 / §22.1.3.23 accept optional
     // locales arg; tr's subset is en-US only so the
@@ -808,45 +807,9 @@ pub(crate) fn check(
     (Type::String, "toLocaleLowerCase") | (Type::String, "toLocaleUpperCase") => {
         Ok(Type::Function(vec![Type::Any], Box::new(Type::String)))
     }
-    // V3-18 wedge — Boolean.prototype.toString / valueOf.
-    // Per JS spec §20.3.3.2 / §20.3.3.3 — `(true).toString()`
-    // → "true", `(false).toString()` → "false". valueOf
-    // returns the boolean itchecker. Common in calls like
-    // `b.toString()` where b is a typed Boolean binding.
-    (Type::Boolean, "toString") | (Type::Boolean, "toLocaleString") => {
-        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
-    }
-    (Type::Boolean, "valueOf") => {
-        Ok(Type::Function(Vec::new(), Box::new(Type::Boolean)))
-    }
-    // V3-18 m1.h.27 — BigInt.prototype.toString() →
-    // decimal string (no `n` suffix). Per JS spec
-    // §21.2.3.5 / §21.2.3.6. The runtime path
-    // already exists (used by string concat coerce);
-    // this just wires up the typecheck.
-    //
-    // P12.4 — accept optional radix argument per ES
-    // §6.1.6.2.13 (`BigInt.prototype.toString(radix)`).
-    // Signature is `(radix?: Any) → String`; the Any
-    // slot is padded to `undefined` for the 0-arg
-    // common path and accepts a Number radix when
-    // supplied (ssa-lower routes to bigint_to_string
-    // vs bigint_to_string_radix per arg count).
-    // toLocaleString remains 0-arg per ES §22.2.3.2.
-    (Type::BigInt, "toString") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::String),
-    )),
-    (Type::BigInt, "toLocaleString") => {
-        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
-    }
-    // V3-18 m1.h.47 — Symbol.prototype.toString() →
-    // "Symbol(<desc>)" / "Symbol()". Symbol.description
-    // returns the desc (or null for Symbol() with no
-    // arg). Per JS spec §20.4.3.3 / §20.4.3.2.
-    (Type::Symbol, "toString") | (Type::Symbol, "toLocaleString") => {
-        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
-    }
+    // (Type::Boolean / BigInt / Symbol, "toString" /
+    // "toLocaleString" / "valueOf") — handled by the
+    // pre-match prim try_match (chunk 194).
     // V3-18 m2.c — `.constructor` on primitives
     // returns the constructor function (Number /
     // String / etc). Subset stub: Type::Any (the
@@ -871,9 +834,8 @@ pub(crate) fn check(
     // ssa_lower handles the dispatch with constant folds
     // since the values can't actually carry user-added
     // properties.
-    (Type::Number, "valueOf") => {
-        Ok(Type::Function(Vec::new(), Box::new(Type::Number)))
-    }
+    // (Type::Number, "valueOf") — handled by the pre-match
+    // prim try_match (chunk 194).
     // ES §23.1.3.34 — `arr.valueOf()` returns the
     // Array itchecker (identity). The default Object
     // protocol applies — Array doesn't override
@@ -899,9 +861,8 @@ pub(crate) fn check(
     // (`(Type::Boolean, "valueOf")` is handled by the
     // earlier Boolean arm — dead duplicate removed for
     // the zero-warn build rule.)
-    (Type::BigInt, "valueOf") => {
-        Ok(Type::Function(Vec::new(), Box::new(Type::BigInt)))
-    }
+    // (Type::BigInt, "valueOf") — handled by the pre-match
+    // prim try_match (chunk 194).
     (Type::Number, "hasOwnProperty")
     | (Type::String, "hasOwnProperty")
     | (Type::Boolean, "hasOwnProperty")
@@ -1634,11 +1595,8 @@ pub(crate) fn check(
         );
         Ok(Type::Function(vec![pred_ty], Box::new(Type::Boolean)))
     }
-    // V3-18 m1.h.47 — Symbol.prototype.description.
-    // Returns the desc the Symbol was created with, or
-    // null if Symbol() was called with no arg. Per JS
-    // spec §20.4.3.2.
-    (Type::Symbol, "description") => Ok(Type::String),
+    // (Type::Symbol, "description") — handled by the
+    // pre-match prim try_match (chunk 194).
     // (`<prim>.constructor` — V3-18 m2.c — is handled
     // by the earlier identical arm; dead duplicate
     // removed for the zero-warn build rule.)
