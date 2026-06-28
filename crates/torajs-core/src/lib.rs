@@ -203,6 +203,7 @@ pub(crate) mod check_type_ann;
 pub(crate) mod check_type_ann_substitute;
 pub(crate) mod check_type_of_array;
 pub(crate) mod check_type_of_binop;
+pub(crate) mod check_type_of_call;
 pub(crate) mod check_type_of_fn;
 pub(crate) mod check_type_of_ident;
 pub(crate) mod check_type_of_member;

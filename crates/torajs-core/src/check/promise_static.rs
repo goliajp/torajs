@@ -20,7 +20,7 @@ use crate::ast::{Ast, Expr, ExprId};
 impl Checker {
     /// Returns `None` if `callee` is not `Promise.resolve` or
     /// `Promise.reject`; otherwise returns the typecheck verdict.
-    pub(super) fn check_promise_resolve_reject_static(
+    pub(crate) fn check_promise_resolve_reject_static(
         &mut self,
         ast: &Ast,
         callee: ExprId,

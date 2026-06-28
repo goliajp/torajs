@@ -25,7 +25,7 @@ use crate::ast::{Ast, Expr, ExprId};
 impl Checker {
     /// Returns `None` if `callee` is not `process.on`; otherwise
     /// returns the typecheck verdict.
-    pub(super) fn check_process_on(
+    pub(crate) fn check_process_on(
         &mut self,
         ast: &Ast,
         callee: ExprId,
