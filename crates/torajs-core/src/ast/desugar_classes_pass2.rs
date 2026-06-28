@@ -1,0 +1,184 @@
+//! `desugar_classes` Pass 2 — expression arena rewrite (chunk 183,
+//! 2026-06-28).
+//!
+//! Extracted from `ast/desugar_classes.rs` after Pass 1.5/1.6
+//! super-call rewriting + before Pass 2.5 static-member table build.
+//! Walks `ast.exprs` by index (safe: we only mutate in place or
+//! append new exprs at the tail; existing ExprIds keep their
+//! meaning).
+//!
+//! Three rewrite shapes handled here:
+//!   * `Expr::This` → `Expr::Ident("__this")` for method/ctor bodies
+//!     (new.target deliberately NOT rewritten — ssa_lower handles
+//!     `Expr::NewTarget` directly so non-ctor fn bodies get the
+//!     ANY_UNDEF box).
+//!   * `Expr::New { class_name, args }` for user classes →
+//!     `Expr::Call { callee: __new_<C>, args }`. Builtin Map/Set/
+//!     WeakRef/WeakMap/WeakSet/Array/RegExp left as Expr::New
+//!     (SSA-intercepted: see T-26 weak / P6.1 Map / P0.10 Array).
+//!   * `Expr::Call { callee: Member { obj, name } }` for method
+//!     calls →
+//!     - single-owner: `__cm_<Owner>__<name>(obj, ...args)`, with
+//!       a guard for `this.<field>` where the field is typed as a
+//!       known builtin (Array/string/number) — those dispatch to
+//!       intrinsic, not the user class's method (avoids
+//!       infinite-recursion in `class C { data: T[]; push(v) {
+//!       this.data.push(v); } }`).
+//!     - multi-owner ancestor-chain: `__dispatch_<name>(obj, ...args)`.
+//!     - sibling collision: leave Member as-is (SSA picks the
+//!       right `__cm_<C>__M` from obj's static type).
+
+use super::desugar_classes_super::ClassIndexEntry;
+use super::*;
+use std::collections::{HashMap, HashSet};
+
+pub(super) fn rewrite_expr_arena_pass2(
+    ast: &mut Ast,
+    class_index: &[ClassIndexEntry],
+    method_owners: &HashMap<String, Vec<String>>,
+    chain_methods: &HashSet<String>,
+) {
+    let n = ast.exprs.len();
+    for i in 0..n {
+        match &ast.exprs[i] {
+            Expr::This => {
+                ast.exprs[i] = Expr::Ident("__this".into());
+            }
+            // P4.5 — `new.target` deliberately NOT rewritten here.
+            // Unlike `this` (which is only valid inside class methods,
+            // where __this is always bound), new.target is valid in
+            // ANY fn body (per spec §13.3.10) and evaluates to
+            // `undefined` outside a ctor. Rewriting globally would
+            // emit Ident("__new_target") in non-ctor fns where the
+            // binding doesn't exist → check.rs unknown-ident reject.
+            // Instead ssa_lower handles Expr::NewTarget directly:
+            // if `__new_target` is a local (ctor body), load it;
+            // otherwise emit ANY_UNDEF box.
+            Expr::New { class_name, args } => {
+                /* Builtin News (Date, ...) are rewritten by
+                 * `desugar_builtin_new` BEFORE this pass, so any
+                 * remaining Expr::New here is a user class. */
+                /* T-26 — `new WeakRef(target)` / `new WeakMap()` /
+                 * `new WeakSet()` are intercepted at SSA-lower
+                 * time so target args pass as borrows (no consume
+                 * → owning bindings drop normally → registry
+                 * cleanup runs). Skip the generic factory rewrite
+                 * here to keep the Expr::New shape intact. */
+                if class_name == "WeakRef"
+                    || class_name == "WeakMap"
+                    || class_name == "WeakSet"
+                    || class_name == "Map"
+                    || class_name == "Set"
+                    || class_name == "Array"
+                    || class_name == "RegExp"
+                {
+                    /* P6.1 — `new Map()` is the same shape: SSA
+                     * intercepts to emit __torajs_map_create.
+                     * P6.2 — `new Set()` reuses the same Map storage,
+                     * SSA-side typed as Type::Set; the Map runtime
+                     * helpers serve add/has/delete/clear/size with
+                     * the value-side pinned to ANY_UNDEF.
+                     * P0.10 — `new Array(n)` 1-arg numeric form
+                     * stays as Expr::New so ssa_lower (line 13107)
+                     * intercepts it directly (the AST-Call route
+                     * can't express Array<Any> with arr_id intern'd
+                     * at lower time). 0-arg / ≥2-arg forms were
+                     * already rewritten to array literals by
+                     * desugar_builtin_new. Before this skip was
+                     * added, the rewrite below sent `new Array(n)`
+                     * to `__new_Array(n)`, an undefined identifier
+                     * — used to be hidden by desugar_classes'
+                     * early-return-on-empty-class_index, but
+                     * inject_builtin_classes can leave Error /
+                     * TypeError / RangeError stmts behind for
+                     * runtime-throw safety, so class_index is no
+                     * longer empty for typical programs. */
+                    let _ = args;
+                    continue;
+                }
+                let factory = format!("__new_{class_name}");
+                let args = args.clone();
+                let callee = ast.add_expr(Expr::Ident(factory));
+                ast.exprs[i] = Expr::Call { callee, args };
+            }
+            Expr::Call { callee, args } => {
+                let callee_id = *callee;
+                let args_clone = args.clone();
+                // Look at what the callee is pointing at.
+                if let Expr::Member { obj, name } = &ast.exprs[callee_id.0 as usize] {
+                    let m_name = name.clone();
+                    let obj_id = *obj;
+                    if let Some(owners) = method_owners.get(&m_name) {
+                        // Three cases:
+                        // (1) Single owner — keep static dispatch via
+                        //     `__cm_<C>__<M>`, EXCEPT when the receiver
+                        //     is `this.<field>` and the field is typed
+                        //     as a known builtin (Array `T[]`, `string`,
+                        //     `number`). Those calls dispatch to the
+                        //     intrinsic, not the user class's method
+                        //     — without the guard, `class C { data:
+                        //     T[]; push(v) { this.data.push(v); } }`
+                        //     would rewrite the inner `this.data.push`
+                        //     to `__cm_C__push(this.data, v)` and
+                        //     infinite-recurse.
+                        // (2) Multi-owner forming a single inheritance
+                        //     chain (override case) — route through
+                        //     `__dispatch_<M>` runtime-tag dispatcher.
+                        // (3) Multi-owner across unrelated hierarchies
+                        //     (sibling collision) — leave Member as-is.
+                        if owners.len() == 1 {
+                            let skip_for_builtin_field =
+                                crate::cm_demote::receiver_is_this_builtin_field(
+                                    ast,
+                                    obj_id,
+                                    owners[0].as_str(),
+                                    class_index,
+                                );
+                            if skip_for_builtin_field {
+                                // Leave Member; ssa_lower picks the
+                                // builtin intrinsic from the field's
+                                // actual type at SSA time.
+                            } else {
+                                crate::cm_demote::record_speculative_rewrite(
+                                    ast,
+                                    i,
+                                    callee_id,
+                                    obj_id,
+                                    &args_clone,
+                                );
+                                let mangled = format!("__cm_{}__{m_name}", owners[0]);
+                                let new_callee = ast.add_expr(Expr::Ident(mangled));
+                                let mut new_args = Vec::with_capacity(args_clone.len() + 1);
+                                new_args.push(obj_id);
+                                new_args.extend(args_clone);
+                                ast.exprs[i] = Expr::Call {
+                                    callee: new_callee,
+                                    args: new_args,
+                                };
+                            }
+                        } else if chain_methods.contains(&m_name) {
+                            crate::cm_demote::record_speculative_rewrite(
+                                ast,
+                                i,
+                                callee_id,
+                                obj_id,
+                                &args_clone,
+                            );
+                            let mangled = format!("__dispatch_{m_name}");
+                            let new_callee = ast.add_expr(Expr::Ident(mangled));
+                            let mut new_args = Vec::with_capacity(args_clone.len() + 1);
+                            new_args.push(obj_id);
+                            new_args.extend(args_clone);
+                            ast.exprs[i] = Expr::Call {
+                                callee: new_callee,
+                                args: new_args,
+                            };
+                        }
+                        // else: sibling collision — leave Member call AS-IS.
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
