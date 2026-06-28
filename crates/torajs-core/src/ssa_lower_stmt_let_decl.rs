@@ -52,49 +52,8 @@ use crate::ssa_lower::{LocalInfo, LowerCtx, intern_arr_layout};
 use crate::ssa_lower_parse_type::parse_type;
 
 pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, init: ExprId) {
-    // T-19.d — `let X: T = await Bun.file(p).json()`.
-    if let Some(mut slot_ty_for_parse) = ctx.try_resolve_type_ann(type_ann.map(|s| s.as_str()))
-        && let Some(path_eid) = ctx.is_bun_file_json_await(init)
-    {
-        if matches!(slot_ty_for_parse, Type::I64) && type_ann.map(|s| s.as_str()) == Some("number")
-        {
-            slot_ty_for_parse = Type::F64;
-        }
-        let path_op = ctx.lower_expr(path_eid);
-        let str_v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.fs_read_file_sync, vec![path_op]),
-            Type::Str,
-            None,
-        );
-        let cursor = ctx.alloca(Type::I64, Some("__json_pos"));
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::ConstI64(0), Operand::Value(cursor), 0),
-        );
-        let result = ctx.lower_json_parse(
-            Operand::Value(str_v),
-            Operand::Value(cursor),
-            slot_ty_for_parse,
-        );
-        ctx.emit_drop_value(Operand::Value(str_v), Type::Str);
-        let slot = ctx.binding_slot_alloca(slot_ty_for_parse, name);
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(result, Operand::Value(slot), 0),
-        );
-        let cur_depth = ctx.scope_stack.len() - 1;
-        ctx.locals.insert(
-            name.to_string(),
-            LocalInfo {
-                slot,
-                ty: slot_ty_for_parse,
-                moved: false,
-                borrowed: false,
-                scope_depth: cur_depth,
-            },
-        );
-        ctx.scope_stack.last_mut().unwrap().push(name.to_string());
+    // T-19.d — `let X: T = await Bun.file(p).json()`. Sub-sibling.
+    if crate::ssa_lower_stmt_let_decl_bun_json::try_lower(ctx, name, type_ann, init) {
         return;
     }
     // T-02 — `let v: T = JSON.parse(text)`.
