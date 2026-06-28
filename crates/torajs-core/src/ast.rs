@@ -7,6 +7,7 @@ mod desugar_classes;
 mod desugar_classes_abstract;
 mod desugar_classes_dispatch;
 mod desugar_classes_emit;
+mod desugar_classes_field_inits;
 mod desugar_classes_fields;
 mod desugar_classes_method_owners;
 mod desugar_classes_statics;

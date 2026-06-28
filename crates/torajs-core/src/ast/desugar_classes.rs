@@ -30,10 +30,9 @@ pub fn desugar_classes(ast: &mut Ast) {
     // (method_owners / chain_methods now built later via
     // `desugar_classes_method_owners::compute_method_owners_and_chain_methods`,
     // chunk 180 — needs `class_index` + `parent_map`.)
-    let mut class_field_inits: std::collections::HashMap<String, Vec<(String, ExprId)>> =
-        std::collections::HashMap::new();
-    let mut class_field_preludes: std::collections::HashMap<String, Vec<Stmt>> =
-        std::collections::HashMap::new();
+    // class_field_inits / class_field_preludes now built later via
+    // `desugar_classes_field_inits::compute_class_field_default_inits`,
+    // chunk 182 — needs `class_index` + `full_fields` + `&mut ast`.
     let mut appended: Vec<Stmt> = Vec::new();
     // P8.2 — buffered accessor map population. Each entry is
     // (class_name, property_name, synthesised_fn_name). Drained into
@@ -150,55 +149,17 @@ pub fn desugar_classes(ast: &mut Ast) {
         &mut appended,
     );
 
-    // Build a snapshot of every TypeDecl's field layout. Used by the
-    // default-init helper below so a class field whose type is a type
-    // alias (`type Step = { value: number, done: boolean }`) gets a
-    // structurally-correct zero rather than a Number(0).
-    let mut type_alias_fields: std::collections::HashMap<String, Vec<(String, String)>> =
-        std::collections::HashMap::new();
-    for s in &ast.stmts {
-        if let Stmt::TypeDecl { name, fields, .. } = s {
-            type_alias_fields.insert(name.clone(), fields.clone());
-        }
-    }
-    let combined_fields_map = full_fields.clone();
-
-    // For each class, build the list of typed default-initializer expressions
-    // that the factory will use to seed the `__this` object literal. We use
-    // the FLATTENED field list (parent fields + self fields) so subclass
-    // factories produce a fully-initialized object.
-    //
-    // Empty `T[]` defaults need special handling: a bare `[]` in expression
-    // position has no inferable element type. We hoist these out into a
-    // typed prelude let — `let __def_arr_<field>: T[] = []` — and use the
-    // ident as the field init. The let-binding's annotation gives ssa-lower
-    // enough context to emit a typed `arr_alloc(0)`.
-    //
-    // Class- or alias-typed fields recursively expand into a nested
-    // ObjectLit of zero-initialized children, looked up via
-    // `combined_fields_map` (classes) and `type_alias_fields` (aliases).
-    // This is what makes `__Gen_<X>` / `__step_<X>` fields work as
-    // class fields on outer iterator classes (J.3 / I.2-inside-gen).
-    for (_, cname, _tp, _, _, _, _, _, _) in &class_index {
-        let combined = full_fields.get(cname).unwrap().clone();
-        let mut init_pairs: Vec<(String, ExprId)> = Vec::with_capacity(combined.len());
-        let mut prelude: Vec<Stmt> = Vec::new();
-        for (fname, fty) in &combined {
-            let id = default_init_for_field(
-                ast,
-                fty,
-                &combined_fields_map,
-                &type_alias_fields,
-                &mut prelude,
-                cname,
-                fname,
-                &mut std::collections::HashSet::new(),
-            );
-            init_pairs.push((fname.clone(), id));
-        }
-        class_field_inits.insert(cname.clone(), init_pairs);
-        class_field_preludes.insert(cname.clone(), prelude);
-    }
+    // Per-class default-init synthesis (type_alias_fields snapshot +
+    // class_field_inits + class_field_preludes) extracted to
+    // `desugar_classes_field_inits.rs` sub-sibling (chunk 182,
+    // 2026-06-28). Mutates `ast.exprs` via `default_init_for_field`'s
+    // `add_expr` calls.
+    let (class_field_inits, class_field_preludes) =
+        super::desugar_classes_field_inits::compute_class_field_default_inits(
+            ast,
+            &class_index,
+            &full_fields,
+        );
 
     // Pass 1.5 + Pass 1.6 — super-call rewriting (super(args) in ctor
     // bodies + super.<m>(args) in method bodies). Extracted to
