@@ -192,6 +192,14 @@ pub(crate) fn check(
     {
         return r;
     }
+    // Weak family (WeakRef / WeakMap / WeakSet) instance
+    // methods — see [`crate::check_type_of_member_weak`]
+    // (chunk 192 — second sub-batch).
+    if matches!(&obj_ty, Type::WeakRef | Type::WeakMap | Type::WeakSet)
+        && let Some(r) = crate::check_type_of_member_weak::try_match(&obj_ty, name)
+    {
+        return r;
+    }
     match (&obj_ty, name) {
     (Type::Object("console"), m)
         if matches!(m, "log" | "error" | "warn" | "info" | "debug") =>
@@ -957,51 +965,9 @@ pub(crate) fn check(
         vec![Type::String],
         Box::new(Type::Array(Box::new(Type::String))),
     )),
-    /* T-26 — WeakRef.deref(). Returns the target if
-     * still alive (rc-bumped on success), or null.
-     * Type-erased to Type::Any; users `as` cast to
-     * the original concrete type.
-     *
-     * S325 — sig is 0-arg per ES §26.1.3.2; widen via
-     * a dedicated arm below (the static-table path
-     * only fires when args.len() == 0, so trailing
-     * args[1..] are typecheck-and-dropped there). */
-    (Type::WeakRef, "deref") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::Nullable(Box::new(Type::Any))),
-    )),
-    /* T-26.B — WeakMap methods. set takes (key,
-     * value); both type-erased to Any. get returns
-     * Nullable<Any>. has / delete return Boolean. */
-    (Type::WeakMap, "set") => Ok(Type::Function(
-        vec![Type::Any, Type::Any],
-        Box::new(Type::Void),
-    )),
-    (Type::WeakMap, "get") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Nullable(Box::new(Type::Any))),
-    )),
-    (Type::WeakMap, "has") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Boolean),
-    )),
-    (Type::WeakMap, "delete") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Boolean),
-    )),
-    /* T-26.B — WeakSet methods. */
-    (Type::WeakSet, "add") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Void),
-    )),
-    (Type::WeakSet, "has") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Boolean),
-    )),
-    (Type::WeakSet, "delete") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Boolean),
-    )),
+    // (Type::WeakRef / WeakMap / WeakSet, _) — handled
+    // by the pre-match try_match dispatch; see chunk 192
+    // note above.
     /* P6.1 — Map<K,V> methods. set takes (key, value)
      * both type-erased to Any (the runtime stores
      * tagged-Any slots regardless); set returns the
