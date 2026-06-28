@@ -183,6 +183,15 @@ pub(crate) fn check(
             }
         }
     }
+    // Date instance methods — see
+    // [`crate::check_type_of_member_date`] (chunk 191 —
+    // first sub-batch of check_type_of_member per-type-
+    // family decomposition).
+    if matches!(&obj_ty, Type::Date)
+        && let Some(r) = crate::check_type_of_member_date::try_match(name)
+    {
+        return r;
+    }
     match (&obj_ty, name) {
     (Type::Object("console"), m)
         if matches!(m, "log" | "error" | "warn" | "info" | "debug") =>
@@ -1131,114 +1140,8 @@ pub(crate) fn check(
         )],
         Box::new(Type::Void),
     )),
-    // v0.2 #2 Phase 2.0a — Date instance methods.
-    (Type::Date, "getTime")
-    | (Type::Date, "valueOf") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::Number),
-    )),
-    (Type::Date, "toISOString") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::String),
-    )),
-    // ES §21.4.4.37 — `d.toJSON(key?)` returns the
-    // canonical JSON serialization, defined as
-    // `this.toISOString()` for any finite Date. The
-    // optional `key` argument is ignored per spec
-    // (only meaningful to Object.toJSON callers). MVP
-    // collapses to toISOString without the non-finite
-    // null short-circuit; non-finite Dates are an
-    // independent substrate (the underlying ms field
-    // already rejects non-finite ToNumber). The
-    // `key` arg is silently dropped here — the
-    // ssa_lower-side arm doesn't pass it through.
-    (Type::Date, "toJSON") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::String),
-    )),
-    // v0.2 #2 Phase 2.0b — UTC getters. Local-time
-    // siblings (getFullYear etc.) collapse to UTC
-    // until timezone awareness ships in Phase 2.0c.
-    (Type::Date, "getFullYear")
-    | (Type::Date, "getUTCFullYear")
-    | (Type::Date, "getMonth")
-    | (Type::Date, "getUTCMonth")
-    | (Type::Date, "getDate")
-    | (Type::Date, "getUTCDate")
-    | (Type::Date, "getHours")
-    | (Type::Date, "getUTCHours")
-    | (Type::Date, "getMinutes")
-    | (Type::Date, "getUTCMinutes")
-    | (Type::Date, "getSeconds")
-    | (Type::Date, "getUTCSeconds")
-    | (Type::Date, "getMilliseconds")
-    | (Type::Date, "getUTCMilliseconds")
-    | (Type::Date, "getDay")
-    | (Type::Date, "getUTCDay")
-    | (Type::Date, "getTimezoneOffset") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::Number),
-    )),
-    // T-30 — Date setters + annexB methods. setTime
-    // takes ms and returns the new ms. setYear takes
-    // a year (annexB §B.2.4.2 — 0-99 → +1900) and
-    // returns the new ms. getYear (annexB §B.2.4.1)
-    // returns year - 1900. toGMTString (annexB §B.2.4.3)
-    // is an alias for toUTCString format.
-    (Type::Date, "setTime") => Ok(Type::Function(
-        vec![Type::Number],
-        Box::new(Type::Number),
-    )),
-    (Type::Date, "setYear") => Ok(Type::Function(
-        vec![Type::Number],
-        Box::new(Type::Number),
-    )),
-    // Per-field setters per ES §21.4.4.20-26. Each
-    // takes 1-N Number args (trailing ones optional);
-    // we expose them as taking N required Numbers
-    // and let ssa_lower sentinel-pad missing trailing
-    // args. Returns the new `d.ms` (Number) per spec.
-    (Type::Date, "setFullYear") => Ok(Type::Function(
-        vec![Type::Number, Type::Number, Type::Number],
-        Box::new(Type::Number),
-    )),
-    (Type::Date, "setMonth") => Ok(Type::Function(
-        vec![Type::Number, Type::Number],
-        Box::new(Type::Number),
-    )),
-    (Type::Date, "setDate") => Ok(Type::Function(
-        vec![Type::Number],
-        Box::new(Type::Number),
-    )),
-    (Type::Date, "setHours") => Ok(Type::Function(
-        vec![Type::Number, Type::Number, Type::Number, Type::Number],
-        Box::new(Type::Number),
-    )),
-    (Type::Date, "setMinutes") => Ok(Type::Function(
-        vec![Type::Number, Type::Number, Type::Number],
-        Box::new(Type::Number),
-    )),
-    (Type::Date, "setSeconds") => Ok(Type::Function(
-        vec![Type::Number, Type::Number],
-        Box::new(Type::Number),
-    )),
-    (Type::Date, "setMilliseconds") => Ok(Type::Function(
-        vec![Type::Number],
-        Box::new(Type::Number),
-    )),
-    (Type::Date, "getYear") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::Number),
-    )),
-    (Type::Date, "toGMTString")
-    | (Type::Date, "toUTCString")
-    | (Type::Date, "toDateString")
-    | (Type::Date, "toLocaleString")
-    | (Type::Date, "toLocaleDateString")
-    | (Type::Date, "toLocaleTimeString") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::String),
-    )),
+    // (Type::Date, _) instance methods — handled by the
+    // pre-match try_match dispatch; see chunk 191 note above.
     // Date.now() — static, returns ms-since-epoch.
     (Type::Object("Date"), "now") => Ok(Type::Function(
         Vec::new(),

@@ -207,6 +207,7 @@ pub(crate) mod check_type_of_call;
 pub(crate) mod check_type_of_fn;
 pub(crate) mod check_type_of_ident;
 pub(crate) mod check_type_of_member;
+pub(crate) mod check_type_of_member_date;
 pub(crate) mod check_type_of_misc;
 pub(crate) mod check_type_of_new;
 pub(crate) mod check_type_of_object_lit;
