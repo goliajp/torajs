@@ -1,0 +1,64 @@
+//! RegExp instance-method / property arms extracted from
+//! [`crate::check_type_of_member::check`]'s top-level
+//! `match (&obj_ty, name) { ... }` (chunk 195 — fifth sub-batch
+//! of check_type_of_member.rs per-type-family decomposition;
+//! mirrors chunks 191-194 try_match shape).
+//!
+//! Pure type-table — every RegExp arm returns a fixed
+//! `Type::Function(args, ret)` literal or a bare scalar
+//! (`Type::String` / `Type::Boolean` / `Type::Number`) with no
+//! `Checker` / `Ast` state. Phase 1c.1 + ES §22.2.6 surface.
+//!
+//! Returns `Some(Ok(_))` on hit, `None` when `name` is not a
+//! RegExp method / property.
+
+use crate::check::Type;
+
+pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
+    let ty = match name {
+        // ES §22.2.6.13 — `re.test(s)`. The matching engine
+        // in `runtime_regex.c` is the single source of
+        // truth for both `re.test(s)` and the `s.match(re)`
+        // / `s.replace(re, repl)` paths in v0.2 #1.b/c.
+        "test" => Type::Function(vec![Type::String], Box::new(Type::Boolean)),
+        // ES §22.2.6.13 — `re.toString()` returns
+        // `/` + source + `/` + flags. Runtime helper
+        // `__torajs_regex_to_string` builds the string in
+        // one alloc.
+        "toString" => Type::Function(Vec::new(), Box::new(Type::String)),
+        // T-37 followup — `re.source` returns the original
+        // pattern string (no flags, no slashes). Compile-
+        // time wires through a runtime intrinsic that
+        // wraps re->src_bytes in a Str.
+        "source" => Type::String,
+        // ES §22.2.6.4 — `re.flags` returns the spec-
+        // ordered flag string ("" / "g" / "im" / "gimsuy"
+        // / etc.). Order is fixed: g, i, m, s, u, y. The
+        // runtime helper `__torajs_regex_get_flags` builds
+        // the canonical string.
+        "flags" => Type::String,
+        // ES §22.2.6.5-10 — boolean flag instance accessors.
+        // Each maps to a single bit test on `re.flags`;
+        // the runtime helper `__torajs_regex_has_flag(re,
+        // flag_bit)` does the AND. ssa_lower emits the
+        // appropriate `RE_FLAG_*` byte constant per arm.
+        "global" | "ignoreCase" | "multiline" | "dotAll" | "unicode" | "sticky" => Type::Boolean,
+        // P9.4 — `re.lastIndex` is a writable Number per
+        // spec §22.2.6.9. ssa_lower routes reads through
+        // __torajs_regex_get_last_index; writes through
+        // __torajs_regex_set_last_index (see assign-Member
+        // arm). Tracks across exec/match when g or y set.
+        "lastIndex" => Type::Number,
+        // Phase 1c.1 — re.exec(s) returns Array<Str>:
+        // [matched, group1, group2, ...] on hit, empty
+        // array on miss. JS spec returns null on miss;
+        // tr deviates until Nullable<Array<Str>> propagation
+        // lands (Phase 1c.4 — same gate as s.match).
+        "exec" => Type::Function(
+            vec![Type::String],
+            Box::new(Type::Array(Box::new(Type::String))),
+        ),
+        _ => return None,
+    };
+    Some(Ok(ty))
+}

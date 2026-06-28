@@ -224,6 +224,14 @@ pub(crate) fn check(
     {
         return r;
     }
+    // RegExp instance methods + properties — see
+    // [`crate::check_type_of_member_regex`] (chunk 195 —
+    // fifth sub-batch).
+    if matches!(&obj_ty, Type::RegExp)
+        && let Some(r) = crate::check_type_of_member_regex::try_match(name)
+    {
+        return r;
+    }
     match (&obj_ty, name) {
     (Type::Object("console"), m)
         if matches!(m, "log" | "error" | "warn" | "info" | "debug") =>
@@ -888,55 +896,8 @@ pub(crate) fn check(
     // `runtime_regex.c` is the single source of truth
     // for both `re.test(s)` and the `s.match(re)` /
     // `s.replace(re, repl)` paths in v0.2 #1.b/c.
-    (Type::RegExp, "test") => Ok(Type::Function(
-        vec![Type::String],
-        Box::new(Type::Boolean),
-    )),
-    // ES §22.2.6.13 — `re.toString()` returns
-    // `/` + source + `/` + flags. Runtime helper
-    // `__torajs_regex_to_string` builds the string in
-    // one alloc.
-    (Type::RegExp, "toString") => Ok(Type::Function(
-        Vec::new(),
-        Box::new(Type::String),
-    )),
-    // T-37 followup — `re.source` returns the original
-    // pattern string (no flags, no slashes). Compile-
-    // time wires through a runtime intrinsic that
-    // wraps re->src_bytes in a Str.
-    (Type::RegExp, "source") => Ok(Type::String),
-    // ES §22.2.6.4 — `re.flags` returns the spec-
-    // ordered flag string ("" / "g" / "im" / "gimsuy"
-    // / etc.). Order is fixed: g, i, m, s, u, y. The
-    // runtime helper `__torajs_regex_get_flags` builds
-    // the canonical string.
-    (Type::RegExp, "flags") => Ok(Type::String),
-    // ES §22.2.6.5-10 — boolean flag instance accessors.
-    // Each maps to a single bit test on `re.flags`;
-    // the runtime helper `__torajs_regex_has_flag(re,
-    // flag_bit)` does the AND. ssa_lower emits the
-    // appropriate `RE_FLAG_*` byte constant per arm.
-    (Type::RegExp, "global")
-    | (Type::RegExp, "ignoreCase")
-    | (Type::RegExp, "multiline")
-    | (Type::RegExp, "dotAll")
-    | (Type::RegExp, "unicode")
-    | (Type::RegExp, "sticky") => Ok(Type::Boolean),
-    // P9.4 — `re.lastIndex` is a writable Number per
-    // spec §22.2.6.9. ssa_lower routes reads through
-    // __torajs_regex_get_last_index; writes through
-    // __torajs_regex_set_last_index (see assign-Member
-    // arm). Tracks across exec/match when g or y set.
-    (Type::RegExp, "lastIndex") => Ok(Type::Number),
-    // Phase 1c.1 — re.exec(s) returns Array<Str>:
-    // [matched, group1, group2, ...] on hit, empty
-    // array on miss. JS spec returns null on miss;
-    // tr deviates until Nullable<Array<Str>> propagation
-    // lands (Phase 1c.4 — same gate as s.match).
-    (Type::RegExp, "exec") => Ok(Type::Function(
-        vec![Type::String],
-        Box::new(Type::Array(Box::new(Type::String))),
-    )),
+    // (Type::RegExp, _) — handled by the pre-match
+    // RegExp try_match dispatch (chunk 195).
     // (Type::WeakRef / WeakMap / WeakSet, _) — handled
     // by the pre-match try_match dispatch; see chunk 192
     // note above.
