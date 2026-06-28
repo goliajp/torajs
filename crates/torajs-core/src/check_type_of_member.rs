@@ -256,6 +256,17 @@ pub(crate) fn check(
     {
         return r;
     }
+    // `Type::Promise` instance methods — see
+    // [`crate::check_type_of_member_promise`] (chunk 198 —
+    // eighth sub-batch). The pre-match structural getter
+    // forwarding (`if let Type::Promise(inner) = &obj_ty`)
+    // stays in the main module; only the 3 method arms
+    // (`then` / `catch` / `finally`) move.
+    if matches!(&obj_ty, Type::Promise(_))
+        && let Some(r) = crate::check_type_of_member_promise::try_match(&obj_ty, name)
+    {
+        return r;
+    }
     match (&obj_ty, name) {
     (Type::Object("console"), m)
         if matches!(m, "log" | "error" | "warn" | "info" | "debug") =>
@@ -538,70 +549,9 @@ pub(crate) fn check(
         vec![Type::Number],
         Box::new(Type::Promise(Box::new(Type::Number))),
     )),
-    /* T-15.g.3 / T-19.g (v0.5.0) — `Promise<T>.then(cb)`
-     * chains. cb signature is `(v: T) => T` (same T
-     * in/out — no generic U yet). T ∈ Number / String
-     * / Boolean — the three i64-roundtrippable
-     * primitives the runtime helper
-     * `__torajs_promise_then_simple` packs through.
-     * Heap T (Array / Struct / Date) deferred to
-     * T-15.g.5+ alongside the closure-cb substrate. */
-    (Type::Promise(inner), "then")
-        if matches!(
-            **inner,
-            Type::Number | Type::String | Type::Boolean | Type::Any
-        ) =>
-    {
-        // P10.7 — `Promise<Any>` participates same as
-        // the i64-roundtrippable primitives: cb is
-        // `(v: Any) => Any`; the existing
-        // `__torajs_promise_then_simple` helper takes
-        // / returns i64 (NaN-box AnyValue at the SSA
-        // layer is i64-sized).
-        Ok(Type::Function(
-            vec![Type::Function(
-                vec![(**inner).clone()],
-                Box::new((**inner).clone()),
-            )],
-            Box::new(Type::Promise(inner.clone())),
-        ))
-    }
-    /* T-19.k (v0.5.0) — `Promise<T>.catch(onRejected)`.
-     * cb sig is `(reason: T) => T` — same shape as
-     * .then's onFulfilled. Returns a Promise<T> that
-     * resolves with cb's return value on rejection,
-     * or passes through source's value on fulfillment.
-     * T scope matches .then (Number / String / Boolean)
-     * since both share the i64-roundtripping runtime
-     * helper. spec-strict heterogeneous T → U lands
-     * with TypeVar substitution post-T-15.g.4. */
-    (Type::Promise(inner), "catch")
-        if matches!(
-            **inner,
-            Type::Number | Type::String | Type::Boolean | Type::Any
-        ) =>
-    {
-        // P10.7 — symmetric with the `.then` widening
-        // above. `Promise<Any>.catch(cb)` runs through
-        // `__torajs_promise_catch_simple` / `_closure`
-        // unchanged at the SSA layer.
-        Ok(Type::Function(
-            vec![Type::Function(
-                vec![(**inner).clone()],
-                Box::new((**inner).clone()),
-            )],
-            Box::new(Type::Promise(inner.clone())),
-        ))
-    }
-    /* T-19.k — `Promise<T>.finally(onFinally)`. cb sig
-     * is `() => void` per spec — no value passed in,
-     * cb's return ignored. Returns a Promise<T> with
-     * the same state + value as the source (after
-     * cb runs). cb runs on either settled state. */
-    (Type::Promise(inner), "finally") => Ok(Type::Function(
-        vec![Type::Function(vec![], Box::new(Type::Void))],
-        Box::new(Type::Promise(inner.clone())),
-    )),
+    // (Type::Promise(_), "then" / "catch" / "finally")
+    // — handled by the pre-match Promise try_match
+    // dispatch (chunk 198).
     /* T-13.b (v0.4.0) — Symbol.for(key) returns the
      * registered Symbol for the key (creates one on
      * first call). Identity preserved across calls. */
