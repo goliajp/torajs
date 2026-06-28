@@ -27,12 +27,9 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Pass 1 — extract every ClassDecl. After this loop the original
     // ClassDecl stmts are replaced by their generated TypeDecl in-place;
     // ctor / methods / factory FnDecls accumulate in `appended`.
-    // method name → ordered list of declaring classes. Source order
-    // (deepest sub last) — this matters for dispatcher emission since
-    // we walk in reverse to check the deepest class first. Tracks
-    // every class that declares a method body, including overrides.
-    let mut method_owners: std::collections::HashMap<String, Vec<String>> =
-        std::collections::HashMap::new();
+    // (method_owners / chain_methods now built later via
+    // `desugar_classes_method_owners::compute_method_owners_and_chain_methods`,
+    // chunk 180 — needs `class_index` + `parent_map`.)
     let mut class_field_inits: std::collections::HashMap<String, Vec<(String, ExprId)>> =
         std::collections::HashMap::new();
     let mut class_field_preludes: std::collections::HashMap<String, Vec<Stmt>> =
@@ -129,53 +126,15 @@ pub fn desugar_classes(ast: &mut Ast) {
     // forward-reference parent / subclass field collision.
     let full_fields = super::desugar_classes_fields::compute_full_fields(&class_index);
 
-    // Build the method dispatch table. Phase H.3.b: ancestor-descendant
-    // overrides go through a generated `__dispatch_<method>` fn (walks
-    // runtime class tag). Phase I.1 lifted the sibling-collision panic:
-    // unrelated classes are allowed to share a method name now — call
-    // sites pick the right `__cm_<C>__M` from obj's static type at SSA
-    // lower time (handled by the `Type::Obj` Member-call arm).
-    for (_, cname, _tp, _, _, _, _, methods, _) in &class_index {
-        for m in methods {
-            // P8.2 — accessor methods (`get X` / `set X`) don't go through
-            // the `__dispatch_<M>` method-dispatch path; `c.X` /
-            // `c.X = v` are Member access / Assign sites that ssa_lower
-            // routes to the synthesised `__cm_<C>__X_get` / `_set`
-            // directly via the accessor side-channel maps. Keeping them
-            // out of `method_owners` prevents (a) a spurious
-            // `__dispatch_X` body that calls the never-emitted
-            // `__cm_<C>__X` (collision with the regular-method name)
-            // and (b) a same-name getter+setter pair (or accessor +
-            // regular method) from being miscounted as the override-
-            // case multi-owner chain.
-            if m.accessor_kind.is_some() {
-                continue;
-            }
-            method_owners
-                .entry(m.name.clone())
-                .or_default()
-                .push(cname.clone());
-        }
-    }
-    // Phase I.1 — categorize each multi-owner method. If owners[0]
-    // (source-first, the topmost in source order) is an ancestor of
-    // every other owner, the method forms a single inheritance chain
-    // and gets the `__dispatch_<M>` runtime-tag dispatcher (override
-    // case). Otherwise (siblings in unrelated hierarchies, or a mix),
-    // call sites stay as Member-shape and ssa_lower picks the right
-    // `__cm_<C>__M` from obj's static type.
-    let chain_methods: std::collections::HashSet<String> = method_owners
-        .iter()
-        .filter(|(_, owners)| owners.len() > 1)
-        .filter(|(_, owners)| {
-            let base = &owners[0];
-            owners
-                .iter()
-                .skip(1)
-                .all(|sub| method_owner_is_in_chain(&parent_map, base, sub))
-        })
-        .map(|(n, _)| n.clone())
-        .collect();
+    // Method-owner table + Phase I.1 chain-classification extracted to
+    // `desugar_classes_method_owners.rs` sub-sibling (chunk 180,
+    // 2026-06-28). Pure data computation over `class_index` +
+    // `parent_map`; no `&mut Ast` mutation.
+    let (method_owners, chain_methods) =
+        super::desugar_classes_method_owners::compute_method_owners_and_chain_methods(
+            &class_index,
+            &parent_map,
+        );
 
     // Phase H.3.b — emit `__dispatch_<method>(__this, args...)` for every
     // method whose name has multiple owners (the override case). Body is
