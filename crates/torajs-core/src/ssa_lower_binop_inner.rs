@@ -366,84 +366,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx, op: AstBinOp, a: Operand, b: Operand) ->
     } else {
         (a, b)
     };
-    /* T-25 — BigInt arithmetic / comparison. Routes (BigInt op
-     * BigInt) to the runtime helpers; Add/Sub/Mul return a fresh
-     * BigInt, comparisons return Bool via cmp + ICmp.
-     * lower_binop's caller drops the inputs (BigInt is refcounted),
-     * matching the existing Str/Substr concat ownership shape. */
-    {
-        let a_ty = ctx.operand_ty(&a);
-        let b_ty = ctx.operand_ty(&b);
-        if a_ty == Type::BigInt && b_ty == Type::BigInt {
-            let arith = match op {
-                AstBinOp::Add => Some(ctx.intrinsics.bigint_add),
-                AstBinOp::Sub => Some(ctx.intrinsics.bigint_sub),
-                AstBinOp::Mul => Some(ctx.intrinsics.bigint_mul),
-                AstBinOp::Div => Some(ctx.intrinsics.bigint_div),
-                AstBinOp::Mod => Some(ctx.intrinsics.bigint_mod),
-                AstBinOp::Pow => Some(ctx.intrinsics.bigint_pow),
-                AstBinOp::BitAnd => Some(ctx.intrinsics.bigint_and),
-                AstBinOp::BitOr => Some(ctx.intrinsics.bigint_or),
-                AstBinOp::BitXor => Some(ctx.intrinsics.bigint_xor),
-                AstBinOp::Shl => Some(ctx.intrinsics.bigint_shl),
-                AstBinOp::Shr => Some(ctx.intrinsics.bigint_shr),
-                _ => None,
-            };
-            if let Some(fid) = arith {
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(fid, vec![a, b]),
-                    Type::BigInt,
-                    None,
-                );
-                // P7.4-a-b — these bigint helpers can call
-                // __torajs_throw_range_error (divide-by-zero /
-                // negative exponent / shift too large). Flag it so
-                // the enclosing Expr::BinOp arm emits the throw-
-                // check AFTER dropping the refcounted operands;
-                // emitting it here would split the block before the
-                // a/b drops and strand them.
-                if matches!(
-                    op,
-                    AstBinOp::Div | AstBinOp::Mod | AstBinOp::Pow | AstBinOp::Shl | AstBinOp::Shr
-                ) {
-                    ctx.bigint_op_may_throw = true;
-                }
-                return Operand::Value(v);
-            }
-            if matches!(
-                op,
-                AstBinOp::Lt
-                    | AstBinOp::Gt
-                    | AstBinOp::Le
-                    | AstBinOp::Ge
-                    | AstBinOp::Eq
-                    | AstBinOp::Neq
-            ) {
-                let c = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.bigint_cmp, vec![a, b]),
-                    Type::I64,
-                    None,
-                );
-                let pred = match op {
-                    AstBinOp::Lt => IPred::Slt,
-                    AstBinOp::Gt => IPred::Sgt,
-                    AstBinOp::Le => IPred::Sle,
-                    AstBinOp::Ge => IPred::Sge,
-                    AstBinOp::Eq => IPred::Eq,
-                    AstBinOp::Neq => IPred::Ne,
-                    _ => unreachable!(),
-                };
-                let r = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::ICmp(pred, Operand::Value(c), Operand::ConstI64(0)),
-                    Type::Bool,
-                    None,
-                );
-                return Operand::Value(r);
-            }
-        }
+    // T-25 BigInt × BigInt path — see
+    // [`crate::ssa_lower_binop_inner_bigint`] (chunk 187 —
+    // sub-stage extraction mirroring chunks 185/186).
+    if let Some(v) = crate::ssa_lower_binop_inner_bigint::try_lower(ctx, op, a, b) {
+        return v;
     }
     // String concat short-circuit. Routes `str + str` to the runtime
     // concat intrinsic, which takes ownership of both operands.
