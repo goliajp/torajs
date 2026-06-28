@@ -56,56 +56,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     if crate::ssa_lower_stmt_let_decl_bun_json::try_lower(ctx, name, type_ann, init) {
         return;
     }
-    // T-02 — `let v: T = JSON.parse(text)`.
-    if let Some(mut slot_ty_for_parse) = ctx.try_resolve_type_ann(type_ann.map(|s| s.as_str()))
-        && ctx.is_json_parse_call(init)
-    {
-        if matches!(slot_ty_for_parse, Type::I64) && type_ann.map(|s| s.as_str()) == Some("number")
-        {
-            slot_ty_for_parse = Type::F64;
-        }
-        slot_ty_for_parse = crate::ssa_lower_container_width::widen_container_ty(
-            slot_ty_for_parse,
-            type_ann.map(|s| s.as_str()),
-            &ctx.num_width_local_key(name),
-            ctx.num_f64_slots,
-            ctx.arr_layouts,
-            ctx.struct_layouts,
-            ctx.fn_sigs,
-        );
-        let text_eid = if let Expr::Call { args, .. } = ctx.ast.get_expr(init).clone() {
-            args[0]
-        } else {
-            unreachable!()
-        };
-        let text_op = ctx.lower_expr(text_eid);
-        let cursor = ctx.alloca(Type::I64, Some("__json_pos"));
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::ConstI64(0), Operand::Value(cursor), 0),
-        );
-        let result = ctx.lower_json_parse(text_op, Operand::Value(cursor), slot_ty_for_parse);
-        if ctx.expr_is_fresh_owned(text_eid) && ctx.operand_ty(&text_op).is_refcounted() {
-            ctx.emit_drop_value(text_op, ctx.operand_ty(&text_op));
-        }
-        let slot = ctx.binding_slot_alloca(slot_ty_for_parse, name);
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(result, Operand::Value(slot), 0),
-        );
-        let cur_depth = ctx.scope_stack.len() - 1;
-        ctx.locals.insert(
-            name.to_string(),
-            LocalInfo {
-                slot,
-                ty: slot_ty_for_parse,
-                moved: false,
-                borrowed: false,
-                scope_depth: cur_depth,
-            },
-        );
-        let top = ctx.scope_stack.last_mut().expect("scope frame");
-        top.push(name.to_string());
+    // T-02 — `let v: T = JSON.parse(text)`. Sub-sibling.
+    if crate::ssa_lower_stmt_let_decl_json_parse::try_lower(ctx, name, type_ann, init) {
         return;
     }
     // T-09.c — `let o: Pair = Object.fromEntries(es)`. Sub-sibling.
