@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-28T18:44:31.703Z",
+  "generatedAt": "2026-06-28T18:58:21.541Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "7e4eefd9",
-    "commitSubject": "refactor(torajs-core): split check_type_of_member primitive wrappers (chunk 194)",
+    "commit": "12f70fa2",
+    "commitSubject": "refactor(torajs-core): split check_type_of_member RegExp arms (chunk 195)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "12f70fa2",
+      "subject": "refactor(torajs-core): split check_type_of_member RegExp arms (chunk 195)"
+    },
+    {
+      "hash": "75ba1638",
+      "subject": "chore(dashboard): chunks 190-194 snapshot @ 7e4eefd9"
+    },
+    {
       "hash": "7e4eefd9",
       "subject": "refactor(torajs-core): split check_type_of_member primitive wrappers (chunk 194)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "361070dc",
       "subject": "refactor(torajs-core): split lower_binop f64 path (chunk 186)"
-    },
-    {
-      "hash": "b412afb6",
-      "subject": "refactor(torajs-core): split lower_binop i64 default dispatch (chunk 185)"
-    },
-    {
-      "hash": "e53a63e6",
-      "subject": "chore(handoff/dashboard): chunks 179-184 ship summary @ f0504cb6 (desugar_classes.rs ≤500 ✓ + Pass 2/3 抽出)"
     }
   ],
-  "headSha": "7e4eefd9",
+  "headSha": "12f70fa2",
   "autorun": {
     "total": 274,
     "baselineTarget": 10,
