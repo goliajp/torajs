@@ -235,6 +235,7 @@ pub(crate) mod ssa_lower_array;
 pub(crate) mod ssa_lower_assign_ident;
 pub(crate) mod ssa_lower_assign_member;
 pub(crate) mod ssa_lower_binop;
+pub(crate) mod ssa_lower_binop_any;
 pub(crate) mod ssa_lower_binop_inner;
 pub(crate) mod ssa_lower_binop_loose_eq;
 pub(crate) mod ssa_lower_binop_null_undef;
