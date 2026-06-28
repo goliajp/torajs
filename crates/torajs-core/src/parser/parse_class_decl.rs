@@ -351,69 +351,20 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Some(Token::Colon) => {
-                    // field declaration. Instance: `name: T;`. Static
-                    // (M-OO.4): `name: T = init;` — init is required
-                    // (no constructor to default-init in).
-                    if is_abstract_method {
-                        return Err(format!(
-                            "`abstract` modifier is only valid on methods, not on field `{member_name}` in class `{name}` at {}",
-                            self.at()
-                        ));
-                    }
-                    if consumed_computed_name {
-                        self.pos += 1; // consume colon only
-                    } else {
-                        self.pos += 2; // consume name + colon
-                    }
-                    let ty = self.parse_type_ann()?;
-                    let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
-                    if visibility != ast::Visibility::Public {
-                        self.ast
-                            .member_visibility
-                            .insert((name.clone(), member_name.clone()), visibility);
-                    }
-                    if is_readonly {
-                        self.ast
-                            .readonly_fields
-                            .insert((name.clone(), member_name.clone()));
-                    }
-                    if is_static {
-                        match self.peek() {
-                            Token::Eq => self.pos += 1,
-                            t => {
-                                return Err(format!(
-                                    "static field `{member_name}` requires an initializer (`= ...`), got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
-                        }
-                        let init = self.parse_assign()?;
-                        if matches!(self.peek(), Token::Semi) {
-                            self.pos += 1;
-                        }
-                        static_init.push(StaticInit::Field(ast::StaticField {
-                            name: member_name,
-                            type_ann: ty,
-                            init,
-                        }));
-                    } else {
-                        // V3-18 wedge — accept `name: T = <init>` for
-                        // instance fields. Init runs in ctor scope
-                        // before user ctor body executes.
-                        let init = if matches!(self.peek(), Token::Eq) {
-                            self.pos += 1;
-                            Some(self.parse_assign()?)
-                        } else {
-                            None
-                        };
-                        if matches!(self.peek(), Token::Semi) {
-                            self.pos += 1;
-                        }
-                        if let Some(init_expr) = init {
-                            field_inits.push((member_name.clone(), init_expr));
-                        }
-                        fields.push((member_name, ty));
-                    }
+                    // field declaration with explicit type ann — extracted
+                    // to sub-sibling (chunk 175, 2026-06-28).
+                    self.parse_class_member_field_typed(
+                        &name,
+                        member_name,
+                        consumed_computed_name,
+                        explicit_visibility,
+                        is_readonly,
+                        is_abstract_method,
+                        is_static,
+                        &mut fields,
+                        &mut static_init,
+                        &mut field_inits,
+                    )?;
                 }
                 Some(Token::Eq) => {
                     // V3-18 wedge — class field with no explicit type
