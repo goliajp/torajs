@@ -187,7 +187,7 @@ fn maybe_rewrite_async_method_body(
 /// suffix and an entry in the accessor record vectors so the
 /// dispatch maps in check.rs / ssa_lower can recover the synth
 /// name from the user-written `c.prop` / `c.prop = v`.
-pub(super) fn emit_class_instance_methods(
+pub(in crate::ast) fn emit_class_instance_methods(
     ast: &mut Ast,
     methods: &[ClassMethod],
     cname: &str,
@@ -274,7 +274,7 @@ pub(super) fn emit_class_instance_methods(
 /// class. No `__this` param — statics don't bind a receiver. The
 /// enclosing class's `type_params` propagate so generic statics
 /// on a generic class continue to work.
-pub(super) fn emit_class_static_methods(
+pub(in crate::ast) fn emit_class_static_methods(
     ast: &mut Ast,
     static_methods: &[ClassMethod],
     cname: &str,
