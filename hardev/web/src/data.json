@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-28T04:03:12.548Z",
+  "generatedAt": "2026-06-28T05:27:05.984Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "1a6315ac",
-    "commitSubject": "refactor(torajs-core): extract Parser::parse_class_decl_with_abstract (chunk 165)",
+    "commit": "a25fa2cb",
+    "commitSubject": "refactor(torajs-core): extract type_of_inner Expr::Call arm (chunk 168)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,22 @@
   },
   "commits": [
     {
+      "hash": "a25fa2cb",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::Call arm (chunk 168)"
+    },
+    {
+      "hash": "b53783df",
+      "subject": "refactor(torajs-core): extract type_of_inner Expr::Member arm (chunk 167)"
+    },
+    {
+      "hash": "fbdf632e",
+      "subject": "refactor(torajs-core): extract lower_expr_inner (chunk 166)"
+    },
+    {
+      "hash": "c533825e",
+      "subject": "chore(handoff/dashboard): chunks 161-165 ship summary @ 1a6315ac (-2680 LOC session)"
+    },
+    {
       "hash": "1a6315ac",
       "subject": "refactor(torajs-core): extract Parser::parse_class_decl_with_abstract (chunk 165)"
     },
@@ -647,43 +663,38 @@
     {
       "hash": "7f6a1e24",
       "subject": "refactor(torajs-core): extract emit_drop_value (chunk 159)"
-    },
-    {
-      "hash": "833f3caa",
-      "subject": "refactor(torajs-core): extract lower_json_stringify (chunk 158)"
-    },
-    {
-      "hash": "66af9dae",
-      "subject": "refactor(torajs-core): extract lower_for_of_str + helpers (chunk 157)"
-    },
-    {
-      "hash": "a78d9e42",
-      "subject": "refactor(torajs-core): extract lower_stmt Stmt::LetDecl arm (chunk 156)"
-    },
-    {
-      "hash": "ac51d489",
-      "subject": "chore(handoff/dashboard): chunks 151-155 ship summary @ 88787184 (-1983 LOC session)"
     }
   ],
-  "headSha": "1a6315ac",
+  "headSha": "a25fa2cb",
   "autorun": {
-    "total": 268,
+    "total": 269,
     "baselineTarget": 10,
-    "bySelf": 263,
+    "bySelf": 264,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782614058-1c2a",
-      "at": "2026-06-28T02:34:18Z",
-      "ts": 1782614058,
+      "rotationId": "r-1782619470-015f",
+      "at": "2026-06-28T04:04:30Z",
+      "ts": 1782619470,
       "trigger": "self",
-      "prevHead": "8aa4db83",
-      "handoffSha": "sha256:efe9996f793ea915e68d6c7c2e85a411efeab2548b2e489564e02ad08526c7f2",
-      "handoffAgeSec": 11,
+      "prevHead": "c533825e",
+      "handoffSha": "sha256:729475a4a6bf9f02d532b4b742d0caf30ee14731b36b18462e99da3998c12721",
+      "handoffAgeSec": 21,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782619470-015f",
+        "at": "2026-06-28T04:04:30Z",
+        "ts": 1782619470,
+        "trigger": "self",
+        "prevHead": "c533825e",
+        "handoffSha": "sha256:729475a4a6bf9f02d532b4b742d0caf30ee14731b36b18462e99da3998c12721",
+        "handoffAgeSec": 21,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782614058-1c2a",
         "at": "2026-06-28T02:34:18Z",
@@ -780,17 +791,6 @@
         "prevHead": "223bcf1f",
         "handoffSha": "sha256:756afac88a93d6915d6edaeb478fa8a80bc06c7100419ff108afdf628906dbd0",
         "handoffAgeSec": 28,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782557096-6f0a",
-        "at": "2026-06-27T10:44:56Z",
-        "ts": 1782557096,
-        "trigger": "self",
-        "prevHead": "4e449d82",
-        "handoffSha": "sha256:fa4b014a4d24883d6d24825be0526b3d8ce03a184677f7d1b6cb4b8013e5dd63",
-        "handoffAgeSec": 8686,
         "conformanceBefore": null,
         "commitsInSession": null
       }
