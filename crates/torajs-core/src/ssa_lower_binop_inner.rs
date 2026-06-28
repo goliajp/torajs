@@ -25,7 +25,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::ast::BinOp as AstBinOp;
-use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx, op: AstBinOp, a: Operand, b: Operand) -> Operand {
@@ -190,126 +190,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx, op: AstBinOp, a: Operand, b: Operand) ->
             return Operand::Value(r);
         }
     }
-    if matches!(op, AstBinOp::Eq | AstBinOp::Neq) {
-        let a_ty = ctx.operand_ty(&a);
-        let b_ty = ctx.operand_ty(&b);
-        // P0.3 — Any === / !== per JS spec §7.2.13. When either
-        // operand is Type::Any the static-shape compare can't
-        // resolve at the SSA layer; route through runtime helpers
-        // that unbox each side and compare tag-then-payload.
-        if matches!(a_ty, Type::Any) || matches!(b_ty, Type::Any) {
-            let result = if matches!(a_ty, Type::Any) && matches!(b_ty, Type::Any) {
-                let r = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.any_any_strict_eq, vec![a, b]),
-                    Type::Bool,
-                    None,
-                );
-                Operand::Value(r)
-            } else {
-                // Pack the concrete side as (tag, value-as-i64) so
-                // the helper avoids a fresh Any-box alloc per
-                // compare. Mirrors the box_to_any tag/value
-                // extraction.
-                let (any_box, concrete, concrete_ty, concrete_is_undef) =
-                    if matches!(a_ty, Type::Any) {
-                        (a, b, b_ty, ctx.binop_right_undef_id.is_some())
-                    } else {
-                        (b, a, a_ty, ctx.binop_left_undef_id.is_some())
-                    };
-                let (tag, value): (i64, Operand) = match concrete_ty {
-                    Type::I64 | Type::I32 => (2, concrete),
-                    Type::F64 => {
-                        let bits = ctx.f.append_inst(
-                            ctx.cur_block,
-                            InstKind::BitCastF64ToI64(concrete),
-                            Type::I64,
-                            None,
-                        );
-                        (3, Operand::Value(bits))
-                    }
-                    Type::Bool => {
-                        let zext = ctx.f.append_inst(
-                            ctx.cur_block,
-                            InstKind::ZExtBoolToI64(concrete),
-                            Type::I64,
-                            None,
-                        );
-                        (1, Operand::Value(zext))
-                    }
-                    // P1.8 — `any === undefined` and `any === null`
-                    // are distinct: the concrete side must carry the
-                    // matching tag (5 vs 0) so the runtime helper's
-                    // tag-equality short-circuit fires correctly.
-                    // Pre-P1.8 both Ptr-shaped operands packed to 0,
-                    // making `<undefined-box> === undefined` falsely
-                    // false and `<undefined-box> === null` falsely
-                    // true.
-                    Type::Ptr if matches!(concrete, Operand::ConstPtrNull) => {
-                        if concrete_is_undef {
-                            (5, Operand::ConstI64(0))
-                        } else {
-                            (0, Operand::ConstI64(0))
-                        }
-                    }
-                    t if t.is_refcounted() => (4, concrete),
-                    _ => (0, Operand::ConstI64(0)),
-                };
-                let r = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.any_strict_eq,
-                        vec![any_box, Operand::ConstI64(tag), value],
-                    ),
-                    Type::Bool,
-                    None,
-                );
-                Operand::Value(r)
-            };
-            if matches!(op, AstBinOp::Neq) {
-                let neg = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::BinOp(SsaBinOp::Xor, result, Operand::ConstBool(true)),
-                    Type::Bool,
-                    None,
-                );
-                return Operand::Value(neg);
-            }
-            return result;
-        }
-        let numeric = |t: Type| matches!(t, Type::I64 | Type::F64);
-        // Pointer-shaped: strings, heap objects, the null literal,
-        // and Any. Nullable<T> (check.rs notion) erases to the
-        // underlying T at SSA — already covered. Comparing any of
-        // these against null literal (Ptr) at runtime needs a real
-        // pointer cmp, so they all share a family for fold purposes.
-        let pointerish = |t: Type| {
-            use crate::ssa::Type::*;
-            matches!(
-                t,
-                Ptr | Str
-                    | Substr
-                    | Obj(_)
-                    | Arr(_)
-                    | Closure(_)
-                    | Symbol
-                    | Promise
-                    | RegExp
-                    | Date
-                    | WeakRef
-                    | WeakMap
-                    | WeakSet
-                    | BigInt
-                    | Any
-            )
-        };
-        let same_family = (numeric(a_ty) && numeric(b_ty))
-            || (pointerish(a_ty) && pointerish(b_ty))
-            || a_ty == b_ty;
-        if !same_family {
-            let answer = matches!(op, AstBinOp::Neq);
-            return Operand::ConstBool(answer);
-        }
+    // Strict eq (=== / !==) path — see
+    // [`crate::ssa_lower_binop_inner_strict_eq`] (chunk 189 —
+    // sub-stage extraction mirroring chunks 185-188).
+    if let Some(v) = crate::ssa_lower_binop_inner_strict_eq::try_lower(ctx, op, a, b) {
+        return v;
     }
     let coerce_op = matches!(
         op,
