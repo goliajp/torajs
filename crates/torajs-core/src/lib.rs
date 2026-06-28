@@ -371,6 +371,7 @@ pub(crate) mod ssa_lower_stmt_for;
 pub(crate) mod ssa_lower_stmt_for_of;
 pub(crate) mod ssa_lower_stmt_for_of_split_iter;
 pub(crate) mod ssa_lower_stmt_if;
+pub(crate) mod ssa_lower_stmt_let_decl;
 pub(crate) mod ssa_lower_stmt_return;
 pub(crate) mod ssa_lower_stmt_switch;
 pub(crate) mod ssa_lower_stmt_throw;
