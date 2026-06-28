@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-28T05:27:05.984Z",
+  "generatedAt": "2026-06-28T05:45:52.569Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "a25fa2cb",
-    "commitSubject": "refactor(torajs-core): extract type_of_inner Expr::Call arm (chunk 168)",
+    "commit": "5a87f60f",
+    "commitSubject": "refactor(torajs-core): split T-09.c fromentries fast-path (chunk 169)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "5a87f60f",
+      "subject": "refactor(torajs-core): split T-09.c fromentries fast-path (chunk 169)"
+    },
+    {
+      "hash": "13eedefd",
+      "subject": "chore(handoff/dashboard): chunks 166-168 ship summary @ a25fa2cb (-6698 LOC session)"
+    },
+    {
       "hash": "a25fa2cb",
       "subject": "refactor(torajs-core): extract type_of_inner Expr::Call arm (chunk 168)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "8aa4db83",
       "subject": "chore(handoff/dashboard): chunks 156-160 ship summary @ 9ef2359f (-2781 LOC session)"
-    },
-    {
-      "hash": "9ef2359f",
-      "subject": "refactor(torajs-core): extract lower_binop_inner (chunk 160)"
-    },
-    {
-      "hash": "7f6a1e24",
-      "subject": "refactor(torajs-core): extract emit_drop_value (chunk 159)"
     }
   ],
-  "headSha": "a25fa2cb",
+  "headSha": "5a87f60f",
   "autorun": {
     "total": 269,
     "baselineTarget": 10,
