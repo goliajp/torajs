@@ -47,8 +47,8 @@
 //!      outer-scope name is reinstated on this scope's close.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{IPred, InstKind, Operand, Type};
-use crate::ssa_lower::{ARR_DATA_OFF, LocalInfo, LowerCtx, OBJ_HEADER_SIZE, intern_arr_layout};
+use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa_lower::{LocalInfo, LowerCtx, intern_arr_layout};
 use crate::ssa_lower_parse_type::parse_type;
 
 pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, init: ExprId) {
@@ -149,114 +149,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
         top.push(name.to_string());
         return;
     }
-    // T-09.c — `let o: Pair = Object.fromEntries(es)`.
-    if let Some(slot_ty) = ctx.try_resolve_type_ann(type_ann.map(|s| s.as_str()))
-        && ctx.is_fromentries_call(init)
-        && let Type::Obj(sid) = slot_ty
-    {
-        let (entries_eid, trailing): (ExprId, Vec<ExprId>) =
-            if let Expr::Call { args, .. } = ctx.ast.get_expr(init).clone() {
-                (args[0], args.iter().skip(1).copied().collect())
-            } else {
-                unreachable!()
-            };
-        let entries_op = ctx.lower_expr(entries_eid);
-        for tid in &trailing {
-            let top = ctx.lower_expr(*tid);
-            let tty = ctx.operand_ty(&top);
-            ctx.emit_drop_value(top, tty);
-        }
-        let layout = ctx.struct_layouts[sid.0 as usize].clone();
-        let obj_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
-        let obj_ptr = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.obj_alloc,
-                vec![Operand::ConstI64(obj_size as i64)],
-            ),
-            slot_ty,
-            None,
-        );
-        let obj_op = Operand::Value(obj_ptr);
-        ctx.emit_obj_header_init(obj_op.clone());
-        for (idx, (_fname, fty)) in layout.iter().enumerate() {
-            let inner_off = ARR_DATA_OFF + (idx as u64) * 8;
-            let inner_ptr = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::Ptr, entries_op.clone(), inner_off),
-                Type::Ptr,
-                None,
-            );
-            let val_tag = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.arr_get_any_tag,
-                    vec![Operand::Value(inner_ptr), Operand::ConstI64(1)],
-                ),
-                Type::I64,
-                None,
-            );
-            let val_raw = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.arr_get_any_value,
-                    vec![Operand::Value(inner_ptr), Operand::ConstI64(1)],
-                ),
-                Type::I64,
-                None,
-            );
-            let stored: Operand = match *fty {
-                Type::I64 | Type::I32 => Operand::Value(val_raw),
-                Type::F64 => {
-                    let f = ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::BitCastI64ToF64(Operand::Value(val_raw)),
-                        Type::F64,
-                        None,
-                    );
-                    Operand::Value(f)
-                }
-                Type::Bool => {
-                    let b = ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::ICmp(IPred::Ne, Operand::Value(val_raw), Operand::ConstI64(0)),
-                        Type::Bool,
-                        None,
-                    );
-                    Operand::Value(b)
-                }
-                t if t.is_refcounted() => {
-                    ctx.emit_rc_inc(Operand::Value(val_raw));
-                    Operand::Value(val_raw)
-                }
-                other => {
-                    panic!("not yet supported: Object.fromEntries field type {other:?}")
-                }
-            };
-            let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
-            ctx.f
-                .append_void(ctx.cur_block, InstKind::Store(stored, obj_op.clone(), off));
-            let _ = val_tag;
-        }
-        ctx.emit_drop_value(entries_op.clone(), ctx.operand_ty(&entries_op));
-        let slot = ctx.binding_slot_alloca(slot_ty, name);
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(obj_op, Operand::Value(slot), 0),
-        );
-        let cur_depth = ctx.scope_stack.len() - 1;
-        ctx.locals.insert(
-            name.to_string(),
-            LocalInfo {
-                slot,
-                ty: slot_ty,
-                moved: false,
-                borrowed: false,
-                scope_depth: cur_depth,
-            },
-        );
-        let top = ctx.scope_stack.last_mut().expect("scope frame");
-        top.push(name.to_string());
+    // T-09.c — `let o: Pair = Object.fromEntries(es)`. Sub-sibling.
+    if crate::ssa_lower_stmt_let_decl_fromentries::try_lower(ctx, name, type_ann, init) {
         return;
     }
     // K.3 / K.4 — top-level data global.
