@@ -225,6 +225,7 @@ pub(crate) mod check_type_of_call_math_min_max;
 pub(crate) mod check_type_of_call_math_pow_atan2_imul;
 pub(crate) mod check_type_of_call_math_unary_0arg;
 pub(crate) mod check_type_of_call_number_parse;
+pub(crate) mod check_type_of_call_number_predicate_loose;
 pub(crate) mod check_type_of_call_object_static;
 pub(crate) mod check_type_of_call_promise_all;
 pub(crate) mod check_type_of_call_promise_then;
