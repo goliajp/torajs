@@ -1060,50 +1060,15 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S269 — Object.{create,setPrototypeOf,defineProperties}
-    // trailing-arg ignore per ES §20.1.2.{1,5,21}. tora's
-    // fixed sigs (`vec![Type::Any]` for create / `vec![
-    // Type::Any, Type::Any]` for the other two) rejected
-    // the next arg; SSA-emit's intercept for all three
-    // already eval-and-drops args[1..] (`for a in args`
-    // / `for a in args.iter().skip(1)`), so the lower path
-    // is safe — S269 widens checktime to accept the matching
-    // floor and beyond.
-    //
-    // S317 — extend the same widen to `defineProperty(obj,
-    // key, desc, ...trailing)` per ES §20.1.2.6. fixed
-    // sig `vec![Type::Any, Type::String, Type::Any]` (3
-    // args) rejected the 4th; paired ssa_lower change
-    // widens `args.len() == 3` to `>= 3` + lowers-and-
-    // drops args[3..] after `emit_define_one` for spec
-    // left-to-right side-effect order.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(
-            m_name.as_str(),
-            "create" | "setPrototypeOf" | "defineProperties" | "defineProperty"
-        )
+    // S269 + S317 — `Object.{create,setPrototypeOf,
+    // defineProperties,defineProperty}(...)` Object-namespace
+    // trailing-arg ignore wedge extracted to
+    // [`crate::check_type_of_call_object_static_proto`]
+    // (chunk 267).
+    if let Some(r) =
+        crate::check_type_of_call_object_static_proto::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::Object("Object")) {
-            let floor: usize = match m_name.as_str() {
-                "create" => 2,
-                "setPrototypeOf" | "defineProperties" => 3,
-                "defineProperty" => 4,
-                _ => unreachable!(),
-            };
-            if args.len() >= floor {
-                for &arg in args.iter() {
-                    let _ = checker.type_of(ast, arg)?;
-                }
-                return Ok(match m_name.as_str() {
-                    "defineProperties" | "defineProperty" => Type::Void,
-                    _ => Type::Any,
-                });
-            }
-        }
+        return r;
     }
     // S268 — Date instance setter trailing-arg ignore per
     // ES §21.4.4.{20-26}: each per-field setter accepts up
