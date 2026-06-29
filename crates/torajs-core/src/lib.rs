@@ -215,6 +215,7 @@ pub(crate) mod check_type_of_member_namespace_io;
 pub(crate) mod check_type_of_member_object_meta;
 pub(crate) mod check_type_of_member_prim;
 pub(crate) mod check_type_of_member_promise;
+pub(crate) mod check_type_of_member_reflect;
 pub(crate) mod check_type_of_member_regex;
 pub(crate) mod check_type_of_member_setmap;
 pub(crate) mod check_type_of_member_string;
