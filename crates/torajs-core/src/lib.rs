@@ -222,6 +222,7 @@ pub(crate) mod check_type_of_call_array_slice;
 pub(crate) mod check_type_of_call_array_sort;
 pub(crate) mod check_type_of_call_bare_globals;
 pub(crate) mod check_type_of_call_console;
+pub(crate) mod check_type_of_call_date_setter;
 pub(crate) mod check_type_of_call_date_utc;
 pub(crate) mod check_type_of_call_generic_ident;
 pub(crate) mod check_type_of_call_global_ctors;
