@@ -330,63 +330,13 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_array_slice::try_match(checker, ast, callee, args) {
         return r;
     }
-    // V3-18 m1.h.53 — Array.fill with optional start /
-    // end args per JS spec §22.1.3.6:
-    //   xs.fill(v)            = xs.fill(v, 0, len)
-    //   xs.fill(v, start)     = xs.fill(v, start, len)
-    // Pre-fix tora declared with 3 fixed params so 1 / 2 -
-    // arg calls hit the arity check.
-    //
-    // S218 — extend the carve-out to args.len()==3 and
-    // accept Undefined for start/end per ES §23.1.3.7
-    // step 5/9 (ToIntegerOrInfinity(undefined)=0 for start,
-    // end===undefined → len for end). ssa_lower mirror
-    // short-circuits each undef slot to its spec default.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "fill"
-        && (1..=3).contains(&args.len())
-    {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if let Type::Array(elem) = &src_ty {
-            let v_ty = checker.type_of(ast, args[0])?;
-            // Array<Any>.fill accepts a cross-type fill
-            // value — ssa-lower routes through
-            // arr_fill_any which NaN-boxes the value
-            // regardless of type. Mirror of S127-4
-            // indexOf 2-arg dedicated-arm Any-escape.
-            if v_ty != **elem && !matches!(**elem, Type::Any) {
-                return Err(format!(
-                    "Array.fill arg 0 must match elem type {:?}, got {v_ty:?}",
-                    **elem
-                ));
-            }
-            // S335 — `xs.fill(v, Any [, Any])` per ES
-            // §23.1.3.7 step 5/9: ToIntegerOrInfinity accepts
-            // arbitrary-typed input. Sister to S334
-            // (Array.slice Any). ssa_lower mirror decodes via
-            // anyv_to_number → coerce_to_i64.
-            if args.len() >= 2 {
-                let start_ty = checker.type_of(ast, args[1])?;
-                if start_ty != Type::Number && start_ty != Type::Undefined && start_ty != Type::Any
-                {
-                    return Err(format!(
-                        "Array.fill arg 1 (start) must be number, got {start_ty:?}"
-                    ));
-                }
-            }
-            if args.len() == 3 {
-                let end_ty = checker.type_of(ast, args[2])?;
-                if end_ty != Type::Number && end_ty != Type::Undefined && end_ty != Type::Any {
-                    return Err(format!(
-                        "Array.fill arg 2 (end) must be number, got {end_ty:?}"
-                    ));
-                }
-            }
-            return Ok(Type::Array(Box::new((**elem).clone())));
-        }
+    // `xs.fill(v [, start [, end]])` 1/2/3-arg Array-receiver
+    // arm — see [`crate::check_type_of_call_array_fill`]
+    // (chunk 231 — twenty-fourth sub-batch). V3-18 m1.h.53
+    // widens past pre-fix 3-fixed-param sig; S218 typed-
+    // Undefined start/end + S335 Any start/end.
+    if let Some(r) = crate::check_type_of_call_array_fill::try_match(checker, ast, callee, args) {
+        return r;
     }
     // V3-18 m1.h.51 — String.startsWith / endsWith /
     // includes accept an optional 2nd `position` arg per
