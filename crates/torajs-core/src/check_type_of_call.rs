@@ -204,150 +204,16 @@ pub(crate) fn check(
     // in this cascade, so the previously-duplicated narrow
     // arm here was dead code; removed chunk 220.)
 
-    // Bare-name JS globals: `parseInt`, `parseFloat`, `isNaN`,
-    // `isFinite`. Subset routes them to their Number.X counterparts
-    // (the global isNaN / isFinite officially coerce non-numbers
-    // before testing; the subset only accepts numeric / string
-    // args directly).
-    if let Expr::Ident(name) = ast.get_expr(*callee) {
-        match name.as_str() {
-            "parseInt" => {
-                // S252 — parseInt(str, radix, ...trailing)
-                // per ES §19.2.5 trailing-arg ignore. Spec
-                // reads only the first 2; tora silent-drops
-                // trailing per generic trailing-arg-ignore
-                // policy. SSA-emit reads args[0..=1] (or
-                // less), so args[2..] dropped at lower-time.
-                for &arg in args.iter().skip(2) {
-                    let _ = checker.type_of(ast, arg)?;
-                }
-                // S202 — spec §19.2.5 step 1 reads `string`
-                // which defaults to undefined; ToString
-                // returns "undefined" → parse fails → NaN.
-                //
-                // S226 — accept explicit undefined arg
-                // via the same ToString → NaN path.
-                // S337 — bare-name `parseInt(Any, ...)` per ES
-                // §19.2.5 step 1: ToString accepts arbitrary-
-                // typed input. Sister to S336 (parseFloat bare-
-                // name Any). ssa_lower mirror routes Any
-                // through anyv_to_str_pair → any_to_str →
-                // num_parse_int. Radix slot also widens to
-                // Any (ToInt32 fold) — sister to S327
-                // (Number.parseInt member radix Any).
-                if let Some(arg0) = args.first() {
-                    let s_ty = checker.type_of(ast, *arg0)?;
-                    if !matches!(s_ty, Type::String | Type::Undefined | Type::Any) {
-                        return Err(format!("parseInt arg 0 must be string, got {s_ty:?}"));
-                    }
-                }
-                if args.len() == 2 {
-                    let r_ty = checker.type_of(ast, args[1])?;
-                    // S234 — accept Undefined radix per ES
-                    // §19.2.5.1 step 2-3: ToInt32(undefined)=0,
-                    // then step 8 R==0 → R=10 default. ssa_lower
-                    // mirror substitutes ConstI64(0) so the
-                    // helper's `r==0` auto-detect branch picks
-                    // up base 10 (or 16 if the input has a
-                    // "0x"/"0X" prefix).
-                    // S337 — extend the same widen to Any per
-                    // ES §19.2.5.1 step 2 ToInt32 (Any path).
-                    if !matches!(r_ty, Type::Number | Type::Undefined | Type::Any) {
-                        return Err(format!("parseInt arg 1 must be number, got {r_ty:?}"));
-                    }
-                }
-                return Ok(Type::Number);
-            }
-            "parseFloat" => {
-                // S252 — parseFloat(str, ...trailing) per ES
-                // §19.2.4 trailing-arg ignore. Spec reads
-                // only args[0]; tora silent-drops trailing.
-                // SSA-emit reads args[0] (or empty), so
-                // args[1..] dropped at lower-time.
-                for &arg in args.iter().skip(1) {
-                    let _ = checker.type_of(ast, arg)?;
-                }
-                // S202 — same default-undefined rule per
-                // §19.2.4: missing string → NaN.
-                // S226 — accept explicit undefined arg
-                // via the same ToString → NaN path.
-                // S336 — bare-name `parseFloat(Any)` per ES
-                // §19.2.4 step 1: ToString accepts arbitrary-
-                // typed input. Sister to S330 (Number.parseFloat
-                // member method same widen). ssa_lower mirror
-                // routes Any through anyv_to_str_pair →
-                // any_to_str → num_parse_float.
-                if let Some(arg0) = args.first() {
-                    let s_ty = checker.type_of(ast, *arg0)?;
-                    if !matches!(s_ty, Type::String | Type::Undefined | Type::Any) {
-                        return Err(format!("parseFloat arg must be string, got {s_ty:?}"));
-                    }
-                }
-                return Ok(Type::Number);
-            }
-            "isNaN" | "isFinite" => {
-                // S252 — isNaN/isFinite(value, ...trailing)
-                // per ES §19.2.3 / §19.2.4 trailing-arg
-                // ignore. Spec reads only args[0]; tora
-                // silent-drops trailing. SSA-emit reads
-                // args[0] (or empty), so args[1..] dropped
-                // at lower-time.
-                for &arg in args.iter().skip(1) {
-                    let _ = checker.type_of(ast, arg)?;
-                }
-                // V3-18 wedge — global isNaN / isFinite per
-                // JS spec §19.2.3 / §19.2.4 apply ToNumber
-                // on the argument before testing the
-                // predicate (intentional contrast with the
-                // strict Number.isNaN / Number.isFinite
-                // namespaced methods that don't coerce).
-                // Common idiom in TS code that copies JS
-                // patterns: `isFinite("3")` → true (not
-                // a type error). Drive type_of for any
-                // internal-error surface but accept any
-                // coercible type; ssa_lower applies the
-                // ToNumber step at lower time.
-                //
-                // S202 — 0-arg form skips the arg typecheck
-                // entirely; ssa_lower returns the spec
-                // constant (isNaN→true / isFinite→false).
-                if let Some(arg0) = args.first() {
-                    let _ = checker.type_of(ast, *arg0)?;
-                }
-                return Ok(Type::Boolean);
-            }
-            "queueMicrotask" => {
-                // P10.1-A1 — WHATWG HTML §queueMicrotask:
-                // schedule cb to run as a microtask before
-                // the next event-loop turn. cb is exactly
-                // `() => void`. Higher arities / non-void
-                // ret / simple-fn (no-env) defer to A1.1.
-                //
-                // S323 — Web IDL §3.2.1 over-arity rule:
-                // operations silently ignore trailing args.
-                // Widen `!= 1` → `is_empty()` + typecheck-
-                // and-drop args[1..] so the spec-aligned
-                // `queueMicrotask(cb, trail, ...)` shape
-                // parses; ssa_lower mirror lower-and-drops.
-                if args.is_empty() {
-                    return Err("queueMicrotask expects 1 arg, got 0".to_string());
-                }
-                let cb_ty = checker.type_of(ast, args[0])?;
-                match &cb_ty {
-                    Type::Function(params, ret) if params.is_empty() && **ret == Type::Void => {}
-                    _ => {
-                        return Err(format!(
-                            "queueMicrotask cb must be `() => void`, got {cb_ty:?}"
-                        ));
-                    }
-                }
-                for &a in args.iter().skip(1) {
-                    let _ = checker.type_of(ast, a)?;
-                }
-                return Ok(Type::Void);
-            }
-            _ => {}
-        }
+    // Bare-Ident JS globals dispatch
+    // (parseInt / parseFloat / isNaN / isFinite /
+    // queueMicrotask) — see
+    // [`crate::check_type_of_call_bare_globals`] (chunk 221
+    // — fourteenth sub-batch). Each branch returns the
+    // spec-aligned result type after typechecking arg shape;
+    // global isNaN / isFinite coerce via ToNumber (vs the
+    // strict Number.X namespaced methods).
+    if let Some(r) = crate::check_type_of_call_bare_globals::try_match(checker, ast, callee, args) {
+        return r;
     }
     // Math.min / Math.max — variadic. Accept any arg count >= 2,
     // every arg must be Number; result is Number. ssa-lower
