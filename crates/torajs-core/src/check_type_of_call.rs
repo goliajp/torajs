@@ -614,28 +614,14 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_value_of::try_match(checker, ast, callee, args) {
         return r;
     }
-    // S288 — Array<T>.{pop,shift}(...trailing) trailing-arg
-    // ignore per ES §23.1.3.{20,24}. Spec sigs are 0-arg;
-    // tora's runtime helpers (in-place len-- + tail/head
-    // slot load) ignore any extras. Typecheck-and-drop
-    // here; ssa_lower's try_arr_pop / try_arr_shift arms
-    // widen the `args.is_empty()` gate + lower-and-drop
-    // args[..] so step()-style exprs fire (S272 idiom).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "pop" | "shift")
-        && !args.is_empty()
+    // S288 — `xs.{pop,shift}(...trailing)` Array-receiver
+    // trailing-arg ignore arm extracted to
+    // [`crate::check_type_of_call_array_pop_shift`]
+    // (chunk 261).
+    if let Some(r) =
+        crate::check_type_of_call_array_pop_shift::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if let Type::Array(elem) = &src_ty {
-            let inner = (**elem).clone();
-            for &a in args.iter() {
-                let _ = checker.type_of(ast, a)?;
-            }
-            return Ok(inner);
-        }
+        return r;
     }
     // S287 — Array<T>.{reverse,toReversed,join,toString,
     // toLocaleString}(...trailing) trailing-arg ignore per
