@@ -118,42 +118,15 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_promise_all::try_match(checker, ast, callee, args) {
         return r;
     }
-    // `Object.assign(target, ...sources)` per §20.1.2.1 —
-    // copy own enumerable properties from each source into
-    // target, left-to-right. Subset constraint: target and
-    // every source must be the SAME struct type (no field-
-    // superset / partial / mismatched-shape yet). Static-
-    // resolved at lower time as N×(field-by-field copy).
-    // Returns target so chains like `let r = Object.assign(...)`
-    // type-check. S127-3 extends prior single-source MVP to
-    // N sources (closes the most common Object.assign idiom
-    // — `assign({}, a, b)` merge — without runtime shape work).
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "assign"
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ns == "Object"
+    // Object.assign / Object.values static-method early-route
+    // arms — see [`crate::check_type_of_call_object_static`]
+    // (chunk 211 — fifth sub-batch). Object.assign requires
+    // target+sources identical struct types in this subset;
+    // Object.values is polymorphic over Array / String / Any /
+    // struct receivers.
+    if let Some(r) = crate::check_type_of_call_object_static::try_match(checker, ast, callee, args)
     {
-        if args.is_empty() {
-            return Err("Object.assign requires at least a target arg".to_string());
-        }
-        let target_ty = checker.type_of(ast, args[0])?;
-        let Type::Struct(_) = &target_ty else {
-            return Err(format!(
-                "Object.assign target must be a struct, got {target_ty:?}"
-            ));
-        };
-        for (i, src_id) in args[1..].iter().enumerate() {
-            let source_ty = checker.type_of(ast, *src_id)?;
-            if target_ty != source_ty {
-                return Err(format!(
-                    "Object.assign requires identical struct types in this subset; target={target_ty:?}, source[{i}]={source_ty:?}"
-                ));
-            }
-        }
-        return Ok(target_ty);
+        return r;
     }
     // `arr.flat(N)` — deep flatten. N must be a literal
     // number so the type checker can peel that many
@@ -213,55 +186,6 @@ pub(crate) fn check(
             return Ok(t);
         }
         return Err("flat depth must be a number literal".into());
-    }
-    // `Object.values(obj)` — result Array<T> for a
-    // homogeneous struct (T = shared field type), resolved
-    // at lower time like Object.keys but packing values.
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "values"
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ns == "Object"
-        && args.len() == 1
-    {
-        let arg_ty = checker.type_of(ast, args[0])?;
-        // W-O — Array receiver: bun returns a fresh shallow
-        // array of slot values (spec §20.1.2.20); SSA-lower
-        // reuses the typed-struct Arr-field deep-clone arm.
-        if let Type::Array(elem) = &arg_ty {
-            return Ok(Type::Array(elem.clone()));
-        }
-        // W-O-2 — String receiver: bun returns the per-char
-        // Str array (spec §22.1.5.2 + §20.1.2.20 + ToObject
-        // on a primitive string → indexed-properties walk).
-        if matches!(arg_ty, Type::String) {
-            return Ok(Type::Array(Box::new(Type::String)));
-        }
-        // W-J Phase C2 — `any` receiver: struct identity
-        // (per-field types) known only at runtime → Array<Any>
-        // (SSA-lower routes through the struct_enum walker).
-        if matches!(arg_ty, Type::Any) {
-            return Ok(Type::Array(Box::new(Type::Any)));
-        }
-        let Type::Struct(fields) = &arg_ty else {
-            return Err(format!(
-                "Object.values requires a struct arg, got {arg_ty:?}"
-            ));
-        };
-        if fields.is_empty() {
-            return Err("Object.values on an empty struct can't infer element type".into());
-        }
-        let first = &fields[0].1;
-        for (n, t) in fields.iter().skip(1) {
-            if t != first {
-                return Err(format!(
-                    "Object.values requires homogeneous struct fields; field `{n}` is {t:?} but earlier fields are {first:?}"
-                ));
-            }
-        }
-        return Ok(Type::Array(Box::new(first.clone())));
     }
     // S132 — `Array.from(arrLike)` polymorphic over receiver.
     // The static fn-sig (2993) is fixed to `(String) → Array<String>`
