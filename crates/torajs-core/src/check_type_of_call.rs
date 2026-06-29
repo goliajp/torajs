@@ -769,74 +769,15 @@ pub(crate) fn check(
     // (ssa_lower mirrors break early past i=1 / drop
     // args[2..]). Same shape as S238 localeCompare.
     //
-    // S278 — widen `args.len() == 3` → `>= 3` + typecheck-
-    // and-drop args[2..] for any extra trailing operands per
-    // ES trailing-arg ignore (same family as S270/S272/S275/
-    // S276/S277). ssa_lower mirror widens the Array path
-    // gate to `>= 1` + lower-and-drop args[2..]; the String
-    // path swaps `break` to `let _ = lower_expr(a); continue`
-    // so step()-style side-effect exprs fire per ES eval-
-    // then-discard semantics.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(
-            m_name.as_str(),
-            "indexOf" | "lastIndexOf" | "includes" | "startsWith" | "endsWith"
-        )
-        && args.len() >= 3
+    // S278 — `recv.{indexOf,lastIndexOf,includes,startsWith,
+    // endsWith}(needle, fromIndex, ...trailing)` String- +
+    // Array-receiver trailing-arg ignore wedge extracted to
+    // [`crate::check_type_of_call_index_search_trailing`]
+    // (chunk 265).
+    if let Some(r) =
+        crate::check_type_of_call_index_search_trailing::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            let needle_ty = checker.type_of(ast, args[0])?;
-            if !matches!(needle_ty, Type::String | Type::Undefined) {
-                return Err(format!(
-                    "String.{m_name} arg 0 must be string, got {needle_ty:?}"
-                ));
-            }
-            let from_ty = checker.type_of(ast, args[1])?;
-            if !matches!(from_ty, Type::Number | Type::Undefined) {
-                return Err(format!(
-                    "String.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
-                ));
-            }
-            for &a in args.iter().skip(2) {
-                let _ = checker.type_of(ast, a)?;
-            }
-            return Ok(
-                if matches!(m_name.as_str(), "includes" | "startsWith" | "endsWith") {
-                    Type::Boolean
-                } else {
-                    Type::Number
-                },
-            );
-        }
-        if let Type::Array(elem) = &src_ty
-            && matches!(m_name.as_str(), "indexOf" | "lastIndexOf" | "includes")
-        {
-            let needle_ty = checker.type_of(ast, args[0])?;
-            if needle_ty != **elem && !matches!(**elem, Type::Any) {
-                return Err(format!(
-                    "Array.{m_name} arg 0 must match elem type {:?}, got {needle_ty:?}",
-                    **elem
-                ));
-            }
-            let from_ty = checker.type_of(ast, args[1])?;
-            if !matches!(from_ty, Type::Number | Type::Undefined) {
-                return Err(format!(
-                    "Array.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
-                ));
-            }
-            for &a in args.iter().skip(2) {
-                let _ = checker.type_of(ast, a)?;
-            }
-            return Ok(if m_name == "includes" {
-                Type::Boolean
-            } else {
-                Type::Number
-            });
-        }
+        return r;
     }
     // S255 — Object.keys / Object.getOwnPropertyNames /
     // Reflect.ownKeys (obj, ...trailing) trailing-arg ignore
