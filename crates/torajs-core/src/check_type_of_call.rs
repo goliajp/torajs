@@ -278,30 +278,15 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_console::try_match(checker, ast, callee, args) {
         return r;
     }
-    // `JSON.stringify(value, replacer?, indent?)` — accept
-    // 1, 2, or 3 args. The full JS spec defines `replacer`
-    // as a function or array; tr's stringify ignores
-    // anything non-null in slot 2 (no callback support yet
-    // — that's a roadmap item) and consumes only the
-    // indent shape (number or string). All args are
-    // typechecked against Type::Any so the call is
-    // accepted; runtime behavior matches the 1-arg form
-    // for now, with indent surface ready for a follow-up
-    // ssa_lower pass.
-    if let Expr::Member { obj, name } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "JSON"
-        && name == "stringify"
-        && !args.is_empty()
+    // `JSON.stringify(value, replacer?, indent?)` varargs-
+    // widening arm — see
+    // [`crate::check_type_of_call_json_stringify`] (chunk 217
+    // — eleventh sub-batch). S311 ES §25.5.2 silent trailing-
+    // arg ignore; runtime keeps consuming only the indent
+    // shape for now.
+    if let Some(r) = crate::check_type_of_call_json_stringify::try_match(checker, ast, callee, args)
     {
-        // S311 — ES §25.5.2 silently ignores args past
-        // (value, replacer, space). Widen to >=1 + the
-        // ssa_lower mirror loop drops trailing args[1..]
-        // (replacer/space substrate L3b).
-        for &aid in args {
-            checker.type_of(ast, aid)?;
-        }
-        return Ok(Type::String);
+        return r;
     }
     // `n.toString(radix?)` — JS Number primitive method that
     // accepts an optional radix in [2, 36]. The standard
