@@ -547,58 +547,13 @@ pub(crate) fn check(
     {
         return r;
     }
-    // V3-18 m1.h.45 — String.padStart / padEnd with 1 arg
-    // defaults the fill string to " " per JS spec §21.1.3.16.
-    // Pre-fix tora declared the methods with 2 fixed params
-    // so `s.padStart(3)` failed at the arity check.
-    //
-    // S201 — extend the same default-undefined rule to the
-    // 0-arg call per ES §22.1.3.{16,17} step 1:
-    // `intMaxLength = ToLength(undefined) = 0`, so the
-    // step-2 short-circuit `intMaxLength <= S.length`
-    // makes the no-arg form a no-op returning S unchanged.
-    //
-    // S223 — widen the same default-undefined rule to a
-    // 1- or 2-arg call with an explicit `undefined` in the
-    // maxLength slot. Routing the standard 2-arg shape
-    // (`s.padStart(3, "*")`) through the same carve-out is
-    // equivalent to the line-3413 Function sig but lets us
-    // accept Undefined for arg 0.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && (m_name == "padStart" || m_name == "padEnd")
-        && args.len() <= 2
-    {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            // S338 — `s.{padStart,padEnd}(Any [, fillStr])`
-            // per ES §22.1.3.{16,17} step 1: ToLength
-            // accepts arbitrary-typed input. Sister to
-            // S332/S334. ssa_lower mirror routes Any
-            // through anyv_to_number → coerce_to_i64.
-            if let Some(arg0) = args.first() {
-                let aty = checker.type_of(ast, *arg0)?;
-                if !matches!(aty, Type::Number | Type::Undefined | Type::Any) {
-                    return Err(format!("String.{m_name} arg 0 must be number, got {aty:?}"));
-                }
-            }
-            if let Some(arg1) = args.get(1) {
-                let aty = checker.type_of(ast, *arg1)?;
-                // S236 — accept Undefined for the fillStr
-                // slot per ES §22.1.3.{16,17} step 6.a: if
-                // fillString is undefined, set it to " ".
-                // ssa_lower_str's V3-18 m1.h.45 1-arg
-                // fallthrough already supplies the " "
-                // default, so we just need the type gate
-                // to accept the typed-Undefined operand.
-                if !matches!(aty, Type::String | Type::Undefined) {
-                    return Err(format!("String.{m_name} arg 1 must be string, got {aty:?}"));
-                }
-            }
-            return Ok(Type::String);
-        }
+    // V3-18 m1.h.45 + S201 + S223 + S338 + S236 —
+    // `s.{padStart,padEnd}(maxLength?[, fillStr?])` String-
+    // receiver 0-2-arg arm extracted to
+    // [`crate::check_type_of_call_string_pad`]
+    // (chunk 253).
+    if let Some(r) = crate::check_type_of_call_string_pad::try_match(checker, ast, callee, args) {
+        return r;
     }
     // V3-18 m1.h.42 — Array<String|Substr>.join() with no
     // sep arg defaults to ","; matches JS spec §22.1.3.13.
