@@ -305,6 +305,21 @@ pub(crate) fn check(
     {
         return r;
     }
+    // `Type::Object("Object")` accessor / mutating /
+    // property-descriptor arms (getPrototypeOf /
+    // defineProperty / getOwnPropertyDescriptor /
+    // setPrototypeOf / defineProperties / create / assign /
+    // preventExtensions / seal / isExtensible / isSealed)
+    // — see [`crate::check_type_of_member_object_meta`]
+    // (chunk 202 — twelfth sub-batch). Mixed Object/Reflect
+    // arms (`keys` ∪ `ownKeys`, `hasOwn` ∪ `has`,
+    // `Reflect.get`) + generic `(Type::Object(_), …)`
+    // catch-alls stay in the main match.
+    if matches!(&obj_ty, Type::Object("Object"))
+        && let Some(r) = crate::check_type_of_member_object_meta::try_match(name)
+    {
+        return r;
+    }
     match (&obj_ty, name) {
     // (Type::Object("console" / "Math" / "Number" / "BigInt"),
     // various) — handled by the pre-match namespace
@@ -404,112 +419,12 @@ pub(crate) fn check(
     (Type::Object("Symbol"), "iterator")
     | (Type::Object("Symbol"), "asyncIterator")
     | (Type::Object("Symbol"), "toPrimitive") => Ok(Type::Symbol),
-    /* T-09.a (v0.4.0) — 5 Object methods that don't fit
-     * tr's nominal class system / fixed struct schema.
-     * Reject at typecheck with a clear phase pointer
-     * rather than ship a silently-wrong implementation.
-     *
-     * - getPrototypeOf / setPrototypeOf: bun returns the
-     *   prototype object (a runtime value); tr's nominal
-     *   class system has no equivalent runtime concept.
-     *   Lands with T-27 (Function constructor era) when
-     *   dynamic substrate becomes available.
-     * - defineProperty / defineProperties /
-     *   getOwnPropertyDescriptor: dynamic property add /
-     *   descriptor introspection requires schema
-     *   mutation; tr's struct layout is fixed at class
-     *   declaration. Lands with T-27 / Type::Any field
-     *   substrate post-v0.5.
-     */
-    // P4.2 Phase B+C — Object.getPrototypeOf returns
-    // the class's prototype object as an Any-box (the
-    // same `__proto_<C>` registered via
-    // __torajs_proto_register at module init). Pre-P4.2
-    // the stub returned Null; with prototype singletons
-    // now exposed, return Any so the caller can `===`
-    // against `C.prototype` and chain-walk via further
-    // getPrototypeOf calls. Returns ANY_NULL (still
-    // Type::Any tag-wise) when the arg has no prototype
-    // (Type::Obj with class_tag 0, or a Type::Any whose
-    // dynobj lacks `__proto__`).
-    (Type::Object("Object"), "getPrototypeOf") => {
-        Ok(Type::Function(vec![Type::Any], Box::new(Type::Any)))
-    }
-    // P3.3 — Object.defineProperty(obj, key, descriptor)
-    // accepted at typecheck. ssa_lower intercepts the
-    // Call, extracts descriptor.value (other descriptor
-    // fields like writable/configurable/enumerable/get/
-    // set are subset-deferred), and routes to dynobj_set.
-    // obj is Type::Any (must be a dynobj-backed Any-box);
-    // key is Type::String; descriptor is Type::Any
-    // (typically a plain object literal at the call site
-    // — ssa_lower probes for the .value field at AST time).
-    (Type::Object("Object"), "defineProperty") => Ok(Type::Function(
-        vec![Type::Any, Type::String, Type::Any],
-        Box::new(Type::Void),
-    )),
-    // P3.getOwnPropertyDescriptor — accept at typecheck.
-    // ssa_lower intercepts and constructs an Any-boxed
-    // descriptor object `{value, writable, enumerable,
-    // configurable}` from the dynobj bucket's stored
-    // tag/value/flags (per dcf069f attribute-flag
-    // tracking). Missing key returns Any-boxed undefined.
-    (Type::Object("Object"), "getOwnPropertyDescriptor") => Ok(
-        Type::Function(
-            vec![Type::Any, Type::String],
-            Box::new(Type::Any),
-        ),
-    ),
-    // 2026-05-18 — accept these as permissive Any
-    // typecheck-only stubs (no real substrate yet).
-    // ssa_lower has no special intercept either: the
-    // calls reach the generic call path and would
-    // panic. With test262 5k unlock being the goal,
-    // accept here so harness-shim consumers (which
-    // never read the return) flow through; cases
-    // that need real spec behavior bucket as bugs
-    // rather than incompatible.
-    (Type::Object("Object"), "setPrototypeOf") => Ok(Type::Function(
-        vec![Type::Any, Type::Any],
-        Box::new(Type::Any),
-    )),
-    (Type::Object("Object"), "defineProperties") => Ok(Type::Function(
-        vec![Type::Any, Type::Any],
-        Box::new(Type::Void),
-    )),
-    // `Object.create(proto, descriptors?)` — common
-    // test262 init pattern (`Object.create(null)`).
-    // Returns Any (a fresh dynobj-backed Any-box at
-    // lower time).
-    (Type::Object("Object"), "create") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Any),
-    )),
-    // `Object.assign(target, ...sources)` — copy own
-    // enumerable props. Subset accepts any-typed
-    // target + variadic any sources; ssa_lower's
-    // generic-call path picks it up as a no-op
-    // (returns target) if not intercepted.
-    (Type::Object("Object"), "assign") => Ok(Type::Function(
-        vec![Type::Any, Type::Any],
-        Box::new(Type::Any),
-    )),
-    // `Object.preventExtensions(obj)` /
-    // `Object.isExtensible(obj)` / `Object.seal(obj)`
-    // / `Object.isSealed(obj)` — no-op substrate
-    // returns the obj / true|false. Real semantics
-    // (frozen-bit dispatch) requires runtime header
-    // flag extension — deferred.
-    (Type::Object("Object"), "preventExtensions")
-    | (Type::Object("Object"), "seal") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Any),
-    )),
-    (Type::Object("Object"), "isExtensible")
-    | (Type::Object("Object"), "isSealed") => Ok(Type::Function(
-        vec![Type::Any],
-        Box::new(Type::Boolean),
-    )),
+    // (Type::Object("Object"), "getPrototypeOf" /
+    // "defineProperty" / "getOwnPropertyDescriptor" /
+    // "setPrototypeOf" / "defineProperties" / "create" /
+    // "assign" / "preventExtensions" / "seal" /
+    // "isExtensible" / "isSealed") — handled by the
+    // pre-match Object-meta try_match dispatch (chunk 202).
     (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
     /* P6.1 / P6.2 — Map.prototype.size / Set.prototype.size
      * accessor (spec §23.1.3.10 / §24.2.3.9). Member
