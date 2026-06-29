@@ -197,23 +197,13 @@ pub(crate) fn check(
     {
         return r;
     }
-    // `Number(x)` / `String(x)` — coercion function calls
-    // (the bare-name shape is JS's primitive constructor invoked
-    // without `new`). Subset accepts most pseudo-Any types
-    // and routes to the appropriate coercion at lower-time.
-    if let Expr::Ident(name) = ast.get_expr(*callee)
-        && (name == "Number" || name == "String")
-    {
-        if args.len() != 1 {
-            return Err(format!("{name}() expects 1 arg, got {}", args.len()));
-        }
-        let _arg_ty = checker.type_of(ast, args[0])?;
-        if name == "Number" {
-            return Ok(Type::Number);
-        } else {
-            return Ok(Type::String);
-        }
-    }
+    // (`Number(x)` / `String(x)` callable coercion is fully
+    // covered by `check_type_of_call_global_ctors` chunk 208 —
+    // the Number|String|Boolean arm there is more permissive
+    // (S251 trailing-arg ignore + Boolean) and fires earlier
+    // in this cascade, so the previously-duplicated narrow
+    // arm here was dead code; removed chunk 220.)
+
     // Bare-name JS globals: `parseInt`, `parseFloat`, `isNaN`,
     // `isFinite`. Subset routes them to their Number.X counterparts
     // (the global isNaN / isFinite officially coerce non-numbers
