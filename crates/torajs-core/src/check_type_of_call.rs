@@ -623,48 +623,15 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S287 — Array<T>.{reverse,toReversed,join,toString,
-    // toLocaleString}(...trailing) trailing-arg ignore per
-    // ES §23.1.3.{27,33,15,32,31}. reverse / toReversed /
-    // toString / toLocaleString are 0-arg per spec; join is
-    // 1-arg (sep). tora's runtime helpers all read at most
-    // the documented slots, so trailing operands typecheck-
-    // and-drop here, ssa_lower mirrors with lower-and-drop
-    // in the dispatch arms (S272 idiom). join's sep slot
-    // accepts String | Undefined per S206; toString /
-    // toLocaleString gate on the join-compatible elem types
-    // (Str/Num/Bool/Any per S126-4 dispatch).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(
-            m_name.as_str(),
-            "reverse" | "toReversed" | "join" | "toString" | "toLocaleString"
-        )
+    // S287 — `xs.{reverse,toReversed,join,toString,
+    // toLocaleString}(...trailing)` Array-receiver trailing-
+    // arg ignore arm extracted to
+    // [`crate::check_type_of_call_array_reverse_join`]
+    // (chunk 262).
+    if let Some(r) =
+        crate::check_type_of_call_array_reverse_join::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if let Type::Array(elem) = &src_ty {
-            let inner = (**elem).clone();
-            let useful = if m_name == "join" { 1 } else { 0 };
-            if args.len() > useful {
-                if useful == 1 {
-                    let sep_ty = checker.type_of(ast, args[0])?;
-                    if !matches!(sep_ty, Type::String | Type::Undefined) {
-                        return Err(format!(
-                            "Array.join arg 0 (sep) must be string, got {sep_ty:?}"
-                        ));
-                    }
-                }
-                for &aid in &args[useful..] {
-                    let _ = checker.type_of(ast, aid)?;
-                }
-                return Ok(match m_name.as_str() {
-                    "reverse" | "toReversed" => Type::Array(Box::new(inner)),
-                    _ => Type::String,
-                });
-            }
-        }
+        return r;
     }
     // S286 — String.{match,matchAll}(re, ...trailing) trailing-
     // arg ignore per ES §22.1.3.{11,13}. Spec reads only `re`;
