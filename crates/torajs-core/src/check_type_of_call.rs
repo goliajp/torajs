@@ -538,46 +538,14 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_array_concat::try_match(checker, ast, callee, args) {
         return r;
     }
-    // V3-18 wedge — Array.copyWithin with 1 or 2 args per
-    // JS spec §22.1.3.3:
-    //   xs.copyWithin(target)            = (target, 0, len)
-    //   xs.copyWithin(target, start)     = (target, start, len)
-    //   xs.copyWithin(target, start, end)= (target, start, end)
-    // Pre-fix tora declared the method with a fixed 3-arg
-    // signature so `xs.copyWithin(0, 2)` failed at the
-    // arity check. SSA lower already had the 3-arg code
-    // path; this commit additionally fills the missing
-    // start (= 0) / end (= len) defaults at the SSA layer.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "copyWithin"
-        && args.len() >= 1
-        && args.len() <= 3
+    // V3-18 + S219 + S335 — `xs.copyWithin(target[, start
+    // [, end]])` Array-receiver 1-3-arg arm extracted to
+    // [`crate::check_type_of_call_array_copy_within`]
+    // (chunk 252).
+    if let Some(r) =
+        crate::check_type_of_call_array_copy_within::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if let Type::Array(elem) = &src_ty {
-            // S219 — accept Undefined for any arg per ES
-            // §23.1.3.4: target/start go through
-            // ToIntegerOrInfinity (undef → 0), end===undefined
-            // takes the omitted default (len). ssa_lower
-            // mirror short-circuits each undef slot to its
-            // spec default before relative_to_len.
-            // S335 — `xs.copyWithin(Any, Any, Any)` per ES
-            // §23.1.3.4: each arg goes through
-            // ToIntegerOrInfinity which accepts arbitrary-
-            // typed input. Sister to S334.
-            for (i, a) in args.iter().enumerate() {
-                let a_ty = checker.type_of(ast, *a)?;
-                if a_ty != Type::Number && a_ty != Type::Undefined && a_ty != Type::Any {
-                    return Err(format!(
-                        "Array.copyWithin arg {i} must be number, got {a_ty:?}"
-                    ));
-                }
-            }
-            return Ok(Type::Array(elem.clone()));
-        }
+        return r;
     }
     // V3-18 m1.h.45 — String.padStart / padEnd with 1 arg
     // defaults the fill string to " " per JS spec §21.1.3.16.

@@ -207,6 +207,7 @@ pub(crate) mod check_type_of_call;
 pub(crate) mod check_type_of_call_arr_flat;
 pub(crate) mod check_type_of_call_array_at_1arg;
 pub(crate) mod check_type_of_call_array_concat;
+pub(crate) mod check_type_of_call_array_copy_within;
 pub(crate) mod check_type_of_call_array_fill;
 pub(crate) mod check_type_of_call_array_from;
 pub(crate) mod check_type_of_call_array_index_2arg;
