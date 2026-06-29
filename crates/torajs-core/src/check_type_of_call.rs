@@ -466,31 +466,13 @@ pub(crate) fn check(
         return r;
     }
     // S222 — `s.{at,charAt,charCodeAt,codePointAt}(undefined)`
-    // per ES §22.1.3.{1,2,3,4} step 2-3:
-    // ToIntegerOrInfinity(undefined)=0, so an explicit undef
-    // index behaves as the 0-arg / index=0 form. ssa_lower
-    // mirror short-circuits the Undefined slot to ConstI64(0).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(
-            m_name.as_str(),
-            "at" | "charAt" | "charCodeAt" | "codePointAt"
-        )
-        && args.len() == 1
+    // 1-arg String-receiver undef-index arm extracted to
+    // [`crate::check_type_of_call_string_char_undef`]
+    // (chunk 244).
+    if let Some(r) =
+        crate::check_type_of_call_string_char_undef::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            let aty = checker.type_of(ast, args[0])?;
-            if matches!(aty, Type::Undefined) {
-                return Ok(if matches!(m_name.as_str(), "charAt" | "at") {
-                    Type::String
-                } else {
-                    Type::Number
-                });
-            }
-        }
+        return r;
     }
     // S332 — `s.{at,charAt,charCodeAt,codePointAt,repeat}(Any)`
     // per ES §22.1.3.{1,2,3,4,17} step 2-3 (or step 1 for
