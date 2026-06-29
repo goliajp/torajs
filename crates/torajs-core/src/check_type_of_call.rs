@@ -321,48 +321,14 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_math_min_max::try_match(checker, ast, callee, args) {
         return r;
     }
-    // V3-18 m1.h.35 — Array.slice with 0 or 1 args. Per
-    // JS spec §22.1.3.25:
-    //   xs.slice()      = xs.slice(0, xs.length)
-    //   xs.slice(start) = xs.slice(start, xs.length)
-    // Pre-fix tora declared slice with 2 fixed params so
-    // 0/1-arg calls hit the arity check below. Special-
-    // case here: typecheck the args we have, return
-    // Array<T>; ssa_lower fills in the defaults at
-    // lower-time.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "slice"
-        && args.len() <= 2
-    {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if let Type::Array(elem) = &src_ty {
-            // S213 — explicit `undefined` for either
-            // start or end per ES §23.1.3.27 step 1-2:
-            // start=undefined → 0, end=undefined → len.
-            // Pre-fix the 2-arg path took the declared
-            // `(Number, Number) -> Array<T>` dispatch
-            // which rejected the typed-Undefined operand;
-            // widen to args.len() <= 2 here and let
-            // ssa_lower fill the defaults.
-            // S334 — `xs.slice(Any [, Any])` per ES
-            // §23.1.3.{28,27}: ToIntegerOrInfinity accepts
-            // arbitrary-typed input. Sister to S332/S333.
-            // ssa_lower mirror routes Any through
-            // anyv_to_number → coerce_to_i64 → helper.
-            for &aid in args {
-                let aty = checker.type_of(ast, aid)?;
-                if matches!(aty, Type::Undefined | Type::Any) {
-                    continue;
-                }
-                if aty != Type::Number {
-                    return Err(format!("Array.slice arg must be number, got {aty:?}"));
-                }
-            }
-            return Ok(Type::Array(Box::new((**elem).clone())));
-        }
+    // `xs.slice([start [, end]])` 0/1/2-arg Array-receiver
+    // arm — see [`crate::check_type_of_call_array_slice`]
+    // (chunk 230 — twenty-third sub-batch). V3-18 m1.h.35
+    // widens past the pre-fix 2-fixed-param declaration so
+    // 0/1-arg + S213 typed-Undefined + S334 Any all fall to
+    // the same ssa_lower default-filling path.
+    if let Some(r) = crate::check_type_of_call_array_slice::try_match(checker, ast, callee, args) {
+        return r;
     }
     // V3-18 m1.h.53 — Array.fill with optional start /
     // end args per JS spec §22.1.3.6:
