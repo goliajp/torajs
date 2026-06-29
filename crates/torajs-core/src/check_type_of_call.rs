@@ -429,27 +429,13 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S225 — typed Array<T>.at(undefined) per ES §23.1.3.1
-    // step 2-3: ToIntegerOrInfinity(undefined)=0, returns
-    // arr[0]. Accept Undefined alongside Number; ssa_lower
-    // mirror short-circuits idx=undefined to ConstI64(0)
-    // before coerce_to_i64 (matches S222 charAt early-
-    // intercept idiom).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "at"
-        && args.len() == 1
+    // S225 — `xs.at(idx)` 1-arg Array-receiver arm extracted
+    // to [`crate::check_type_of_call_array_at_1arg`] (chunk
+    // 240). Accepts `Undefined` idx per ES §23.1.3.1
+    // step 2-3 (`ToIntegerOrInfinity(undefined) = 0`).
+    if let Some(r) = crate::check_type_of_call_array_at_1arg::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if let Type::Array(elem) = &src_ty {
-            let idx_ty = checker.type_of(ast, args[0])?;
-            if !matches!(idx_ty, Type::Number | Type::Undefined) {
-                return Err(format!("Array.at arg 0 must be number, got {idx_ty:?}"));
-            }
-            return Ok((**elem).clone());
-        }
+        return r;
     }
     // V3-18 wedge — Number.isFinite / isNaN / isInteger /
     // isSafeInteger per JS spec §21.1.2.2 / §21.1.2.4 /
