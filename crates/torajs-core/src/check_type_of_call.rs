@@ -523,32 +523,13 @@ pub(crate) fn check(
         return r;
     }
     // S254 — `n.{toFixed,toExponential,toPrecision}(digits,
-    // ...trailing)` per ES §21.1.3.{3,5,6} trailing-arg
-    // ignore. Spec reads only args[0] (digits/fractionDigits
-    // /precision); tora silent-drops trailing per generic
-    // trailing-arg-ignore policy. SSA-emit's per-method
-    // dispatch (line ~16700) pushes args into argv; the
-    // ssa-lower S254 mirror caps the push at args[0].
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "toFixed" | "toExponential" | "toPrecision")
-        && args.len() >= 2
+    // ...trailing)` trailing-arg ignore arm extracted to
+    // [`crate::check_type_of_call_number_fixed_trailing`]
+    // (chunk 250).
+    if let Some(r) =
+        crate::check_type_of_call_number_fixed_trailing::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::Number) {
-            let arg0_ty = checker.type_of(ast, args[0])?;
-            if !matches!(arg0_ty, Type::Number | Type::Undefined) {
-                return Err(format!(
-                    "Number.{m_name} arg 0 must be number, got {arg0_ty:?}"
-                ));
-            }
-            for &arg in args.iter().skip(1) {
-                let _ = checker.type_of(ast, arg)?;
-            }
-            return Ok(Type::String);
-        }
+        return r;
     }
     // V3-18 wedge — Array.concat accepts any number of
     // array args per JS spec §22.1.3.2:
