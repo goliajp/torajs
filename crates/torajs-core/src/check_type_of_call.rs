@@ -215,32 +215,13 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_bare_globals::try_match(checker, ast, callee, args) {
         return r;
     }
-    // Math.min / Math.max — variadic. Accept any arg count >= 2,
-    // every arg must be Number; result is Number. ssa-lower
-    // folds the call into a pairwise reduction. The general
-    // Type::Function check below would reject ≠2 args here.
-    // Math.hypot — variadic. sqrt(sum of args²). Per JS
-    // spec §21.3.2.18: 0-arg returns +0; 1-arg returns
-    // |arg|; 2+ uses libm hypot pairwise (V3-18 m1.h.56
-    // dropped the artificial 1-arg minimum).
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "Math"
-        && m == "hypot"
-    {
-        // S271 — accept Undefined alongside Number per
-        // ES §21.3.2.18: ToNumber(undefined)=NaN, sum² +
-        // sqrt containing NaN → NaN. ssa_lower mirror
-        // folds to ConstF64(NaN) when any arg is statically
-        // Undefined, after eval-and-dropping the non-undef
-        // args so trailing side-effect expressions fire.
-        for &aid in args {
-            let aty = checker.type_of(ast, aid)?;
-            if !matches!(aty, Type::Number | Type::Undefined) {
-                return Err(format!("Math.hypot args must be number, got {aty:?}"));
-            }
-        }
-        return Ok(Type::Number);
+    // Math.hypot variadic arm — see
+    // [`crate::check_type_of_call_math_hypot`] (chunk 222
+    // — fifteenth sub-batch). Spec §21.3.2.18; widens past
+    // the fixed-arity Type::Function sig. S271 accepts
+    // Undefined alongside Number per ToNumber(undefined)=NaN.
+    if let Some(r) = crate::check_type_of_call_math_hypot::try_match(checker, ast, callee, args) {
+        return r;
     }
     // S230 — `Date.parse(undefined)` per ES §21.4.3.2:
     // step 1 reads the arg through ToString. `ToString(undefined)
