@@ -437,74 +437,14 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S342 — `Math.<unary/binary>(Any[, Any])` per ES §21.3.2.*:
-    // every Math method that takes Number args applies ToNumber,
-    // which accepts arbitrary-typed input. Method-table sigs
-    // `vec![Type::Number]` / `vec![Type::Number, Type::Number]`
-    // at the Math dispatch site (~2912 / ~2943) strict-rejected
-    // `o: any` operands. Widen here so the ssa_lower mirror
-    // routes Any through anyv_to_number → F64 → Math helper.
-    // Per-arg check: Any or Number passes; everything else
-    // (String, Bool, Object) still hits the strict gate.
-    // min/max variadic stays one carve-out — the iter loop
-    // covers 0..N args uniformly.
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ns == "Math"
-        && matches!(
-            m_name.as_str(),
-            "sqrt"
-                | "abs"
-                | "floor"
-                | "ceil"
-                | "log"
-                | "exp"
-                | "sign"
-                | "round"
-                | "trunc"
-                | "sin"
-                | "cos"
-                | "tan"
-                | "asin"
-                | "acos"
-                | "atan"
-                | "log2"
-                | "log10"
-                | "cbrt"
-                | "sinh"
-                | "cosh"
-                | "tanh"
-                | "asinh"
-                | "acosh"
-                | "atanh"
-                | "expm1"
-                | "log1p"
-                | "clz32"
-                | "fround"
-                | "f16round"
-                | "pow"
-                | "min"
-                | "max"
-                | "atan2"
-        )
+    // S342 — `Math.<unary/binary>(Any[, Any])` widen arm
+    // extracted to [`crate::check_type_of_call_math_any_widen`]
+    // (chunk 242). Returns `Some(Ok(Number))` only when at
+    // least one Any arg is seen; falls through to the strict
+    // method-table when all args are Number.
+    if let Some(r) = crate::check_type_of_call_math_any_widen::try_match(checker, ast, callee, args)
     {
-        let mut any_seen = false;
-        let mut all_ok = true;
-        for &aid in args {
-            let aty = checker.type_of(ast, aid)?;
-            if matches!(aty, Type::Any) {
-                any_seen = true;
-            } else if aty != Type::Number {
-                all_ok = false;
-                break;
-            }
-        }
-        if any_seen && all_ok {
-            return Ok(Type::Number);
-        }
+        return r;
     }
     // V3-18 wedge / S202 / S253 — `Number.{isFinite,isNaN,
     // isInteger,isSafeInteger}(value, ...trailing)` loose
