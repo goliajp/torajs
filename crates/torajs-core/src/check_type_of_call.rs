@@ -291,51 +291,15 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S203 — Math unary methods 0-arg per ES §21.3.2.*
-    // step 1: missing arg defaults to undefined →
-    // ToNumber(undefined) = NaN → Math.<f>(NaN) = NaN.
-    // The declared `vec![Type::Number]` signature
-    // rejected the no-arg form at the generic arity
-    // gate; accept it and let ssa_lower emit the
-    // static NaN return (no helper Call).
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "Math"
-        && args.is_empty()
-        && matches!(
-            m.as_str(),
-            "sqrt"
-                | "abs"
-                | "floor"
-                | "ceil"
-                | "log"
-                | "exp"
-                | "sign"
-                | "round"
-                | "trunc"
-                | "sin"
-                | "cos"
-                | "tan"
-                | "asin"
-                | "acos"
-                | "atan"
-                | "log2"
-                | "log10"
-                | "cbrt"
-                | "sinh"
-                | "cosh"
-                | "tanh"
-                | "asinh"
-                | "acosh"
-                | "atanh"
-                | "expm1"
-                | "log1p"
-                | "clz32"
-                | "fround"
-                | "f16round"
-        )
+    // S203 — `Math.<unary>()` 0-arg arms — see
+    // [`crate::check_type_of_call_math_unary_0arg`] (chunk
+    // 227 — twentieth sub-batch). Accept the no-arg form
+    // rejected by `vec![Type::Number]` at the generic arity
+    // gate; ssa_lower emits the static NaN return.
+    if let Some(r) =
+        crate::check_type_of_call_math_unary_0arg::try_match(checker, ast, callee, args)
     {
-        return Ok(Type::Number);
+        return r;
     }
     // S205 — Math binary methods 0/1-arg per ES default-
     // undefined. Spec §21.3.2.{19,5,26}: Math.imul takes
