@@ -592,45 +592,15 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S211 — String.localeCompare(undefined) per ES
-    // §22.1.3.10 step 4: thatStr = ToString(thatValue)
-    // = "undefined". Pre-fix declared `(String) -> Number`
-    // rejected the typed-Undefined arg with
-    // "argument 0: expected String, got Undefined".
-    // ssa_lower inline-substitutes the interned
-    // "undefined" literal for the typed-undefined operand.
-    //
-    // S238 — extend the same carve-out to the 2-arg
-    // (locales) and 3-arg (locales, options) shapes per ES
-    // §22.1.3.10 trailing-arg ignore: the spec reserves
-    // those slots for Intl-aware locale comparison but
-    // tora's bytewise helper has no locale awareness, so
-    // they're ignored. The ssa_lower_str loop trims any
-    // arg beyond i=0 so the helper's (Str, Str) ABI never
-    // sees the trailing operands.
-    // S285 — widen S238 carve-out `(1..=3)` → `>= 1` so
-    // 4+ arg trailing-widen shape typechecks. ssa_lower
-    // mirror swaps the loop `break i > 0` to `let _ =
-    // lower_expr(a); continue` so step()-style side-effect
-    // exprs fire per ES eval-then-discard (S272 idiom).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "localeCompare"
-        && !args.is_empty()
+    // S211 + S238 + S285 — `s.localeCompare(thatStr,
+    // ...trailing)` String-receiver 1+arg wedge arm
+    // extracted to
+    // [`crate::check_type_of_call_string_locale_compare`]
+    // (chunk 258).
+    if let Some(r) =
+        crate::check_type_of_call_string_locale_compare::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            let aty0 = checker.type_of(ast, args[0])?;
-            let arg0_ok = matches!(aty0, Type::String | Type::Undefined);
-            if arg0_ok {
-                for &aid in &args[1..] {
-                    let _ = checker.type_of(ast, aid)?;
-                }
-                return Ok(Type::Number);
-            }
-        }
+        return r;
     }
     // S292 — Array<T>.keys(...trailing) trailing-arg ignore
     // per ES §23.1.3.16. Spec sig is 0-arg returning an
