@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-29T13:33:47.467Z",
+  "generatedAt": "2026-06-29T15:27:06.524Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "801b6412",
-    "commitSubject": "refactor(torajs-core): split check_type_of_call s.{at,charAt,charCodeAt,codePointAt,repeat}(Any) widen arm (chunk 245)",
+    "commit": "1abd290d",
+    "commitSubject": "refactor(torajs-core): split check_type_of_call xs.copyWithin(target[, start[, end]]) arm (chunk 252)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,38 @@
   },
   "commits": [
     {
+      "hash": "1abd290d",
+      "subject": "refactor(torajs-core): split check_type_of_call xs.copyWithin(target[, start[, end]]) arm (chunk 252)"
+    },
+    {
+      "hash": "447b5d36",
+      "subject": "refactor(torajs-core): split check_type_of_call xs.concat(...) Array multi-arg arm (chunk 251)"
+    },
+    {
+      "hash": "5b8b09cb",
+      "subject": "refactor(torajs-core): split check_type_of_call n.{toFixed,toExponential,toPrecision}(digits, ...trailing) trailing-arg ignore arm (chunk 250)"
+    },
+    {
+      "hash": "9a78f7ef",
+      "subject": "refactor(torajs-core): split check_type_of_call n.{toFixed,toExponential,toPrecision}() 0-arg / 1-arg-undef wedge arm (chunk 249)"
+    },
+    {
+      "hash": "e2ad6566",
+      "subject": "refactor(torajs-core): split check_type_of_call s.normalize(form) 1-arg optional-form wedge arm (chunk 248)"
+    },
+    {
+      "hash": "961bb83f",
+      "subject": "refactor(torajs-core): split check_type_of_call s.{trim,trimStart,trimEnd,trimLeft,trimRight,toUpperCase,toLowerCase,toWellFormed,isWellFormed}(...trailing) 0-arg trailing-arg ignore arm (chunk 247)"
+    },
+    {
+      "hash": "d03d3b70",
+      "subject": "refactor(torajs-core): split check_type_of_call s.{at,charAt,charCodeAt,codePointAt,repeat,normalize}(useful, ...trailing) trailing-arg ignore arm (chunk 246)"
+    },
+    {
+      "hash": "0e842086",
+      "subject": "chore(dashboard): chunks 240-245 snapshot @ 801b6412"
+    },
+    {
       "hash": "801b6412",
       "subject": "refactor(torajs-core): split check_type_of_call s.{at,charAt,charCodeAt,codePointAt,repeat}(Any) widen arm (chunk 245)"
     },
@@ -631,41 +663,9 @@
     {
       "hash": "3197c14f",
       "subject": "refactor(torajs-core): split check_type_of_call Math.<unary/binary>(Any[, Any]) widen arm (chunk 242)"
-    },
-    {
-      "hash": "01638a80",
-      "subject": "refactor(torajs-core): split check_type_of_call Number.is{Finite,NaN,Integer,SafeInteger} loose predicate arm (chunk 241)"
-    },
-    {
-      "hash": "2a8653fc",
-      "subject": "refactor(torajs-core): split check_type_of_call xs.at(undef) Array 1-arg arm (chunk 240)"
-    },
-    {
-      "hash": "3217a635",
-      "subject": "chore(dashboard): chunks 234-239 snapshot @ 1c0965ea"
-    },
-    {
-      "hash": "1c0965ea",
-      "subject": "refactor(torajs-core): split check_type_of_call xs.{indexOf,lastIndexOf,includes} 2-arg Array arm (chunk 239)"
-    },
-    {
-      "hash": "51230166",
-      "subject": "refactor(torajs-core): split check_type_of_call xs.{sort,toSorted} 0/1/2+-arg Array arm (chunk 238)"
-    },
-    {
-      "hash": "d25f2a47",
-      "subject": "refactor(torajs-core): split check_type_of_call Map/Set.{keys,values,entries}(...trailing) arm (chunk 237)"
-    },
-    {
-      "hash": "c5c5e2f9",
-      "subject": "refactor(torajs-core): split check_type_of_call s.split(sep, limit?) 2-arg arm (chunk 236)"
-    },
-    {
-      "hash": "9778c4b8",
-      "subject": "refactor(torajs-core): split check_type_of_call xs.{push,unshift} variadic Array arm (chunk 235)"
     }
   ],
-  "headSha": "801b6412",
+  "headSha": "1abd290d",
   "autorun": {
     "total": 281,
     "baselineTarget": 10,
