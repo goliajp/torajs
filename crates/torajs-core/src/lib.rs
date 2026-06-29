@@ -226,6 +226,7 @@ pub(crate) mod check_type_of_call_promise_then;
 pub(crate) mod check_type_of_call_reduce_1arg;
 pub(crate) mod check_type_of_call_string_concat;
 pub(crate) mod check_type_of_call_string_from_var;
+pub(crate) mod check_type_of_call_string_index_2arg;
 pub(crate) mod check_type_of_call_string_predicate_2arg;
 pub(crate) mod check_type_of_call_string_search_undef;
 pub(crate) mod check_type_of_call_to_string_radix;

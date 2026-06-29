@@ -361,45 +361,18 @@ pub(crate) fn check(
     {
         return r;
     }
-    // V3-18 m1.h.50 — String.indexOf / lastIndexOf accept
-    // an optional 2nd `fromIndex` arg per JS spec §21.1.3.7
-    // / §21.1.3.10. Pre-fix tora declared with 1 fixed
-    // param.
-    //
-    // S214 — String.indexOf(needle, undefined) per ES
-    // §22.1.3.8 step 4: ToIntegerOrInfinity(undefined)=0,
-    // accept Undefined fromIndex and treat as 0. ssa_lower
-    // mirror inline-replaces argv[1] with ConstI64(0).
-    // (lastIndexOf NaN→+∞ default is a follow-up ship.)
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "indexOf" | "lastIndexOf")
-        && args.len() == 2
+    // V3-18 m1.h.50 — `String.{indexOf,lastIndexOf}(needle,
+    // fromIndex?)` 2-arg widen + S214/S216 Undefined fromIndex
+    // arm — see
+    // [`crate::check_type_of_call_string_index_2arg`] (chunk
+    // 234 — twenty-seventh sub-batch). ssa_lower mirror lowers
+    // `undef` → `ConstI64(0)` for indexOf and `ConstI64(i64::MAX)`
+    // for lastIndexOf (NaN → +∞ per ES §22.1.3.10 step 5);
+    // helper clamps `from > len` to `len`.
+    if let Some(r) =
+        crate::check_type_of_call_string_index_2arg::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            let needle_ty = checker.type_of(ast, args[0])?;
-            if !matches!(needle_ty, Type::String) {
-                return Err(format!(
-                    "String.{m_name} arg 0 must be string, got {needle_ty:?}"
-                ));
-            }
-            let from_ty = checker.type_of(ast, args[1])?;
-            let from_undef = matches!(from_ty, Type::Undefined);
-            // S214 indexOf → fromIndex=0; S216 lastIndexOf
-            // → fromIndex=+∞ (ES §22.1.3.10 step 5: NaN→+∞)
-            // → ssa_lower lowers to i64::MAX and the helper
-            // clamps `from > len` to len, matching spec.
-            let allow_undef = from_undef;
-            if from_ty != Type::Number && !allow_undef {
-                return Err(format!(
-                    "String.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
-                ));
-            }
-            return Ok(Type::Number);
-        }
+        return r;
     }
     // V3-18 wedge — Array.push / Array.unshift accept
     // a variable number of args per JS spec §22.1.3.20
