@@ -153,25 +153,14 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_date_utc::try_match(checker, ast, callee, args) {
         return r;
     }
-    // `xs.reduce(cb)` / `xs.reduceRight(cb)` 1-arg overload —
-    // ES §23.1.3.24 / §23.1.3.25: initial value defaults to
-    // `arr[0]` (or `arr[len-1]` for reduceRight); empty array
-    // throws TypeError (per spec; tr's MVP elides the guard).
-    // The 2-arg form is covered by the static-sig arm. Return
-    // type is the callback's ret (consistent with the 2-arg
-    // path, where the static sig pins ret = elem).
-    if let Expr::Member {
-        obj: recv_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && (m_name == "reduce" || m_name == "reduceRight")
-        && args.len() == 1
-    {
-        let recv_ty = checker.type_of(ast, *recv_id)?;
-        if let Type::Array(elem) = &recv_ty {
-            let _ = checker.type_of(ast, args[0])?;
-            return Ok((**elem).clone());
-        }
+    // `xs.reduce(cb)` / `xs.reduceRight(cb)` 1-arg overload
+    // early-route arm — see
+    // [`crate::check_type_of_call_reduce_1arg`] (chunk 215 —
+    // ninth sub-batch). ES §23.1.3.24 / §23.1.3.25 init-value-
+    // defaulting form; the 2-arg form is covered by the
+    // static-sig arm.
+    if let Some(r) = crate::check_type_of_call_reduce_1arg::try_match(checker, ast, callee, args) {
+        return r;
     }
     // M3 — generic call inference. If callee is a bare Ident
     // naming a generic FnDecl, walk param/arg pairs unifying
