@@ -602,27 +602,11 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S292 — Array<T>.keys(...trailing) trailing-arg ignore
-    // per ES §23.1.3.16. Spec sig is 0-arg returning an
-    // ArrayIterator (tora: Type::ArrIter via
-    // arr_iter_create_keys, fed only `recv_op`). Trailing
-    // operands typecheck-and-drop here; ssa_lower mirrors
-    // with lower-and-drop. values / entries stay narrow to
-    // Array<Any> per the existing carve-out at 4540.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "keys"
-        && !args.is_empty()
-    {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::Array(_)) {
-            for &aid in args.iter() {
-                let _ = checker.type_of(ast, aid)?;
-            }
-            return Ok(Type::ArrIter);
-        }
+    // S292 — `xs.keys(...trailing)` Array-receiver trailing-
+    // arg ignore arm extracted to
+    // [`crate::check_type_of_call_array_keys`] (chunk 259).
+    if let Some(r) = crate::check_type_of_call_array_keys::try_match(checker, ast, callee, args) {
+        return r;
     }
     // S290 — primitive `.valueOf(...trailing)` trailing-arg
     // ignore per ES §21.1.3.27 / §20.4.3.4 / §22.1.3.34 /
