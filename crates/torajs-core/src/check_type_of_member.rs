@@ -352,6 +352,17 @@ pub(crate) fn check(
     {
         return r;
     }
+    // Mixed-primitive ∪ Any union arms (the cross-type-family
+    // arms whose `|`-union spans more than one primitive
+    // — `(String, "length") | (Array, "length")`, prim-union
+    // `constructor`, prim+Any union `hasOwnProperty` /
+    // `propertyIsEnumerable`). See
+    // [`crate::check_type_of_member_prim_union`] (chunk 205 —
+    // fifteenth sub-batch). Cross-family `|`-union patterns
+    // can't live in any single primitive's dedicated sibling.
+    if let Some(r) = crate::check_type_of_member_prim_union::try_match(&obj_ty, name) {
+        return r;
+    }
     match (&obj_ty, name) {
         // (Type::Object("console" / "Math" / "Number" / "BigInt"),
         // various) — handled by the pre-match namespace
@@ -387,7 +398,9 @@ pub(crate) fn check(
         // "assign" / "preventExtensions" / "seal" /
         // "isExtensible" / "isSealed") — handled by the
         // pre-match Object-meta try_match dispatch (chunk 202).
-        (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
+        // (Type::String, "length") | (Type::Array(_), "length")
+        // — handled by the pre-match prim-union try_match
+        // dispatch (chunk 205).
         /* P6.1 / P6.2 — Map.prototype.size / Set.prototype.size
          * accessor (spec §23.1.3.10 / §24.2.3.9). Member
          * arm dispatches to a Number-typed read; ssa_lower
@@ -409,18 +422,10 @@ pub(crate) fn check(
         // (Type::Boolean / BigInt / Symbol, "toString" /
         // "toLocaleString" / "valueOf") — handled by the
         // pre-match prim try_match (chunk 194).
-        // V3-18 m2.c — `.constructor` on primitives
-        // returns the constructor function (Number /
-        // String / etc). Subset stub: Type::Any (the
-        // constructor's actual type is callable but
-        // tora has no first-class function reference for
-        // the namespace ctor; Type::Any lets the test
-        // typecheck without committing to a real shape).
-        (Type::Number, "constructor")
-        | (Type::String, "constructor")
-        | (Type::Boolean, "constructor")
-        | (Type::BigInt, "constructor")
-        | (Type::Symbol, "constructor") => Ok(Type::Any),
+        // (Type::Number | String | Boolean | BigInt | Symbol,
+        // "constructor") — V3-18 m2.c primitive .constructor
+        // stub — handled by the pre-match prim-union try_match
+        // dispatch (chunk 205).
         // V3-18 m2.a — Object.prototype methods exposed on
         // every primitive via JS's auto-boxing rules:
         //   .valueOf()              → returns the primitive itself
@@ -445,20 +450,10 @@ pub(crate) fn check(
         // the zero-warn build rule.)
         // (Type::BigInt, "valueOf") — handled by the pre-match
         // prim try_match (chunk 194).
-        (Type::Number, "hasOwnProperty")
-        | (Type::String, "hasOwnProperty")
-        | (Type::Boolean, "hasOwnProperty")
-        | (Type::BigInt, "hasOwnProperty")
-        | (Type::Symbol, "hasOwnProperty")
-        | (Type::Any, "hasOwnProperty")
-        | (Type::Number, "propertyIsEnumerable")
-        | (Type::String, "propertyIsEnumerable")
-        | (Type::Boolean, "propertyIsEnumerable")
-        | (Type::BigInt, "propertyIsEnumerable")
-        | (Type::Symbol, "propertyIsEnumerable")
-        | (Type::Any, "propertyIsEnumerable") => {
-            Ok(Type::Function(vec![Type::String], Box::new(Type::Boolean)))
-        }
+        // (Type::Number | String | Boolean | BigInt | Symbol |
+        // Any, "hasOwnProperty" | "propertyIsEnumerable") —
+        // handled by the pre-match prim-union try_match
+        // dispatch (chunk 205).
         // (Type::Any, "valueOf" / "toString" / "isPrototypeOf"
         // / "constructor") — handled by the pre-match misc
         // try_match dispatch (chunk 199).
