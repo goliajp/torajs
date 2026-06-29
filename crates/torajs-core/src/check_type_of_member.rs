@@ -26,7 +26,7 @@
 
 use crate::ast::Visibility;
 use crate::ast::{Ast, Expr, ExprId};
-use crate::check::{Checker, Type, is_array_method_name, resolve_class_ref};
+use crate::check::{Checker, Type, resolve_class_ref};
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -232,14 +232,13 @@ pub(crate) fn check(
     {
         return r;
     }
-    // `Type::Array` instance methods — see
+    // `Type::Array` instance methods + the Array-as-Object
+    // catch-all (`arr.x` for unknown `x` → Type::Any) — see
     // [`crate::check_type_of_member_array`] (chunk 196 —
-    // sixth sub-batch). The shared
-    // `(Type::String, "length") | (Type::Array(_), "length")`
-    // arm and the catch-all
-    // `(Type::Array(_), name) if name != "length"
-    //   && !is_array_method_name(name)` arm stay in the main
-    // match because their patterns aren't Array-only.
+    // sixth sub-batch; chunk 206 folded the catch-all in as
+    // the last sibling arm). The shared `(Type::String,
+    // "length") | (Type::Array(_), "length")` arm stays in
+    // the main match (handled by chunk 205 prim-union).
     if matches!(&obj_ty, Type::Array(_))
         && let Some(r) = crate::check_type_of_member_array::try_match(&obj_ty, name)
     {
@@ -363,189 +362,29 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_member_prim_union::try_match(&obj_ty, name) {
         return r;
     }
-    match (&obj_ty, name) {
-        // (Type::Object("console" / "Math" / "Number" / "BigInt"),
-        // various) — handled by the pre-match namespace
-        // try_match dispatch (chunk 200).
-        // (Type::Object(_), "hasOwnProperty" /
-        // "propertyIsEnumerable" / "isPrototypeOf" /
-        // "toString" / "prototype" / "name" / "length") —
-        // handled by the pre-match Object-generic try_match
-        // dispatch (chunk 204).
-        // (Type::Object("JSON" / "Array"), "stringify" / "parse" /
-        // "isArray" / "from") — handled by the pre-match
-        // namespace try_match dispatch (chunk 200).
-        // (Type::Object("Object"), "keys" / "getOwnPropertyNames"
-        // / "hasOwn") + (Type::Object("Reflect"), "ownKeys" /
-        // "has" / "get") — handled by the pre-match Reflect
-        // try_match dispatch (chunk 203).
-        // (Type::Object("Object"), "is" / "entries" / "fromEntries"
-        // / "values" / "freeze" / "isFrozen") — handled by the
-        // pre-match namespace try_match dispatch (chunk 200).
-        // (Type::Object("Promise"), "resolve" / "reject") +
-        // (Type::Object("Symbol"), "for" / "keyFor") — handled
-        // by the pre-match namespace try_match dispatch
-        // (chunk 200).
-        // (Type::Promise(_), "then" / "catch" / "finally")
-        // — handled by the pre-match Promise try_match
-        // dispatch (chunk 198).
-        // (Type::Object("Symbol"), "iterator" / "asyncIterator"
-        // / "toPrimitive") — handled by the pre-match
-        // Object-generic try_match dispatch (chunk 204).
-        // (Type::Object("Object"), "getPrototypeOf" /
-        // "defineProperty" / "getOwnPropertyDescriptor" /
-        // "setPrototypeOf" / "defineProperties" / "create" /
-        // "assign" / "preventExtensions" / "seal" /
-        // "isExtensible" / "isSealed") — handled by the
-        // pre-match Object-meta try_match dispatch (chunk 202).
-        // (Type::String, "length") | (Type::Array(_), "length")
-        // — handled by the pre-match prim-union try_match
-        // dispatch (chunk 205).
-        /* P6.1 / P6.2 — Map.prototype.size / Set.prototype.size
-         * accessor (spec §23.1.3.10 / §24.2.3.9). Member
-         * arm dispatches to a Number-typed read; ssa_lower
-         * calls `__torajs_map_size` (Set storage is the
-         * same Map runtime). */
-        // (Type::Map | Set, "size") — handled by the
-        // pre-match Set/Map try_match dispatch (chunk 193).
-        // (Type::String, "slice" / "substring" / "substr" /
-        // "repeat" / "toUpperCase" / "toLowerCase" / "trim" /
-        // "trimStart" / "trimEnd" / "trimLeft" / "trimRight" /
-        // "normalize" / "toWellFormed" / "isWellFormed" /
-        // "padStart" / "padEnd" / "replace" / "replaceAll" /
-        // "charAt" / "at" / "toLocaleLowerCase" /
-        // "toLocaleUpperCase") — handled by the pre-match
-        // String try_match dispatch (chunk 197).
-        // (Type::Number, "toFixed" / "toExponential" /
-        // "toPrecision" / "toString" / "toLocaleString") —
-        // handled by the pre-match prim try_match (chunk 194).
-        // (Type::Boolean / BigInt / Symbol, "toString" /
-        // "toLocaleString" / "valueOf") — handled by the
-        // pre-match prim try_match (chunk 194).
-        // (Type::Number | String | Boolean | BigInt | Symbol,
-        // "constructor") — V3-18 m2.c primitive .constructor
-        // stub — handled by the pre-match prim-union try_match
-        // dispatch (chunk 205).
-        // V3-18 m2.a — Object.prototype methods exposed on
-        // every primitive via JS's auto-boxing rules:
-        //   .valueOf()              → returns the primitive itself
-        //   .hasOwnProperty(name)    → false (primitives have
-        //                              no own properties in our
-        //                              subset)
-        //   .propertyIsEnumerable(name) → false (same)
-        //   .isPrototypeOf(obj)     → false (we have no real
-        //                              prototype chain)
-        // ssa_lower handles the dispatch with constant folds
-        // since the values can't actually carry user-added
-        // properties.
-        // (Type::Number, "valueOf") — handled by the pre-match
-        // prim try_match (chunk 194).
-        // (Type::Array(_), "valueOf") — handled by the
-        // pre-match Array try_match dispatch (chunk 196).
-        // (Type::String, "valueOf" / "toString" / "toLocaleString")
-        // — handled by the pre-match String try_match dispatch
-        // (chunk 197).
-        // (`(Type::Boolean, "valueOf")` is handled by the
-        // earlier Boolean arm — dead duplicate removed for
-        // the zero-warn build rule.)
-        // (Type::BigInt, "valueOf") — handled by the pre-match
-        // prim try_match (chunk 194).
-        // (Type::Number | String | Boolean | BigInt | Symbol |
-        // Any, "hasOwnProperty" | "propertyIsEnumerable") —
-        // handled by the pre-match prim-union try_match
-        // dispatch (chunk 205).
-        // (Type::Any, "valueOf" / "toString" / "isPrototypeOf"
-        // / "constructor") — handled by the pre-match misc
-        // try_match dispatch (chunk 199).
-        // RegExp instance methods. v0.2 #1 ships `.test(s)`;
-        // `.exec` / `.toString` / `.source` / `.flags` /
-        // `.global` / `.lastIndex` come in subsequent
-        // sub-phases. The matching engine in
-        // `runtime_regex.c` is the single source of truth
-        // for both `re.test(s)` and the `s.match(re)` /
-        // `s.replace(re, repl)` paths in v0.2 #1.b/c.
-        // (Type::RegExp, _) — handled by the pre-match
-        // RegExp try_match dispatch (chunk 195).
-        // (Type::WeakRef / WeakMap / WeakSet, _) — handled
-        // by the pre-match try_match dispatch; see chunk 192
-        // note above.
-        // (Type::Map | Set | MapIter | ArrIter, _) — handled
-        // by the pre-match Set/Map try_match dispatch (chunk 193).
-        // (Type::Date, _) instance methods — handled by the
-        // pre-match try_match dispatch; see chunk 191 note above.
-        // (Type::Object("Date" / "Bun" / "BunFile" / "Response"
-        // / "process" / "env" / "process_stdout" /
-        // "process_stderr" / "fs" / "fs_promises" / "String"),
-        // various) — handled by the pre-match namespace_io
-        // try_match dispatch (chunk 201).
-        // (Type::String, "charCodeAt" / "codePointAt" /
-        // "startsWith" / "endsWith" / "includes" / "indexOf" /
-        // "lastIndexOf" / "localeCompare" / "search" / "split" /
-        // "match" / "matchAll" / "concat") — handled by the
-        // pre-match String try_match dispatch (chunk 197).
-        // (Type::Array(_), "join" / "toString" / "toLocaleString"
-        // / "push" / "pop" / "shift" / "unshift" / "splice" /
-        // "toSpliced" / "flat" / "toSorted" / "sort" / "concat")
-        // — handled by the pre-match Array try_match dispatch
-        // (chunk 196).
-        // (Type::Array(_), "at" / "reverse" / "toReversed" /
-        // "with" / "copyWithin" / "fill" / "slice" / "indexOf"
-        // / "lastIndexOf" / "map" / "flatMap" / "filter" /
-        // "reduce" / "reduceRight" / "forEach" / "keys" /
-        // "values" / "entries" / "includes" / "find" /
-        // "findLast" / "findIndex" / "findLastIndex" / "some"
-        // / "every") — handled by the pre-match Array
-        // try_match dispatch (chunk 196).
-        // (Type::Symbol, "description") — handled by the
-        // pre-match prim try_match (chunk 194).
-        // (`<prim>.constructor` — V3-18 m2.c — is handled
-        // by the earlier identical arm; dead duplicate
-        // removed for the zero-warn build rule.)
-        // V3-18 m2.d — class-instance Object.prototype
-        // methods. Same shape as namespace ctors:
-        //   .hasOwnProperty(k)         → true if k is a
-        //                                 declared field
-        //                                 (compile-time
-        //                                 layout lookup).
-        //   .propertyIsEnumerable(k)   → same as
-        //                                 hasOwnProperty
-        //                                 (instance fields
-        //                                 are enumerable).
-        //   .isPrototypeOf(x)          → false (no real
-        //                                 prototype chain).
-        //   .valueOf()                 → identity (the
-        //                                 instance).
-        //   .toString()                → "[object Object]"
-        //                                 (subset stub).
-        //   .constructor                → Type::Any.
-        // (Type::Struct(_), "hasOwnProperty" / "propertyIsEnumerable"
-        // / "isPrototypeOf" / "valueOf" / "toString" /
-        // "constructor") + (Type::Any, _) catch-all —
-        // handled by the pre-match misc try_match dispatch
-        // (chunk 199).
-        // T-29 — Array-as-Object reads. `arr.x` on an
-        // array returns Type::Any (lookup via side table).
-        // .length is already handled by the (Type::Array(_),
-        // "length") arm above; built-in methods (map /
-        // filter / push / etc.) are handled in the
-        // Expr::Call arm's per-method dispatch — those
-        // never reach this Member-only path because the
-        // Call dispatch matches obj_ty + name BEFORE
-        // calling type_of(callee). Only bare-Member
-        // access (without a following call site) lands
-        // here, so excluding the well-known method names
-        // keeps the user-visible Function-typed semantics
-        // for `let m = arr.map` patterns.
-        (Type::Array(_), name) if name != "length" && !is_array_method_name(name) => Ok(Type::Any),
-        // T-27.c — built-in `length` (Number) and `name`
-        // (String) on a Function. length is the param
-        // count; name is the lifted FnDecl's name. Both
-        // are compile-time constants known from the fn's
-        // static signature, so ssa_lower can fold them
-        // without runtime dispatch.
-        // (Type::Function(..), "length" / "name" + catch-all)
-        // — handled by the pre-match misc try_match dispatch
-        // (chunk 199).
-        _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
-    }
+    // Every other `(obj_ty, name)` shape has already been
+    // matched by one of the per-type-family `try_match`
+    // siblings above (chunks 191-206). The full sibling
+    // dispatch table:
+    //   191 Date / 192 Weak{Ref,Map,Set} / 193 Set ∪ Map ∪
+    //   MapIter ∪ ArrIter / 194 Number ∪ Boolean ∪ BigInt ∪
+    //   Symbol prim methods / 195 RegExp / 196 Array (incl.
+    //   chunk-206 Array-as-Object catch-all) / 197 String /
+    //   198 Promise / 199 Struct ∪ Function ∪ Any misc /
+    //   200 Object("console" | "Math" | "Number" | "BigInt"
+    //   | "JSON" | "Array" | "Promise" | "Symbol") +
+    //   single-tag Object static / 201 Object("Date" | "Bun"
+    //   | "BunFile" | "Response" | "process" | "env" |
+    //   "process_stdout" | "process_stderr" | "fs" |
+    //   "fs_promises" | "String") I/O namespaces / 202
+    //   Object("Object") accessor / mutating / property-
+    //   descriptor / 203 Object("Object") ∪ Object("Reflect")
+    //   mixed (keys / hasOwn / Reflect.get) / 204 generic
+    //   Object(_) catch-alls (hasOwnProperty / prototype /
+    //   name / length / etc.) + Symbol singletons / 205
+    //   prim ∪ Any unions (String|Array length, prim
+    //   constructor, prim|Any hasOwnProperty).
+    // Anything reaching this point is genuinely unknown for
+    // the obj_ty — emit a typecheck error.
+    Err(format!("no member `.{name}` on type {obj_ty:?}"))
 }

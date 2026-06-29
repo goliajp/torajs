@@ -23,7 +23,7 @@
 //! Returns `Some(Ok(_))` on hit, `None` when `(obj_ty, name)`
 //! doesn't match.
 
-use crate::check::Type;
+use crate::check::{Type, is_array_method_name};
 
 pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String>> {
     let ty = match (obj_ty, name) {
@@ -318,6 +318,18 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
             )],
             Box::new(Type::Boolean),
         ),
+        // T-29 — Array-as-Object catch-all read. `arr.x` on
+        // an array with an unknown name returns Type::Any
+        // (lookup via side table at lower time). Excludes
+        // `length` (handled by chunk 205 prim-union arm) +
+        // every built-in array method name (those guard-failing
+        // here return `None` so the main match's `_ => Err`
+        // arm fires with a per-method message — e.g.
+        // `arr.join` on Array<Struct> typecheck-errors instead
+        // of silently degrading to Any). Must remain the LAST
+        // arm in this match so it only fires after every
+        // typed-array dispatch above misses.
+        (Type::Array(_), n) if n != "length" && !is_array_method_name(n) => Type::Any,
         _ => return None,
     };
     Some(Ok(ty))
