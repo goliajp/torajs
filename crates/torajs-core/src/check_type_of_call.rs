@@ -270,26 +270,16 @@ pub(crate) fn check(
     {
         return r;
     }
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "String"
-        && (m == "fromCharCode" || m == "fromCodePoint")
-        && args.len() != 1
+    // `String.fromCharCode(...)` + `String.fromCodePoint(...)`
+    // variadic arms (arity ≠ 1) — see
+    // [`crate::check_type_of_call_string_from_var`] (chunk
+    // 225 — eighteenth sub-batch). S340 variadic Any per ES
+    // §22.1.2.{1,2} step 2; the arity-1 case stays on the
+    // general Type::Function table for the intrinsic call.
+    if let Some(r) =
+        crate::check_type_of_call_string_from_var::try_match(checker, ast, callee, args)
     {
-        if args.is_empty() {
-            return Ok(Type::String);
-        }
-        for &aid in args {
-            let aty = checker.type_of(ast, aid)?;
-            // S340 — variadic Any per ES §22.1.2.{1,2} step 2:
-            // ToNumber/ToUint16 accept arbitrary-typed input.
-            // fromCodePoint inherits its RangeError throw shape
-            // via the runtime helper. Sister to S329.
-            if aty != Type::Number && !matches!(aty, Type::Any) {
-                return Err(format!("String.{m} args must be number, got {aty:?}"));
-            }
-        }
-        return Ok(Type::String);
+        return r;
     }
     // `s.concat(...others)` with arity != 1 — variadic string
     // concatenation. The arity-1 case takes the Type::Function
