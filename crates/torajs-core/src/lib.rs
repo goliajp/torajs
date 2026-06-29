@@ -230,6 +230,7 @@ pub(crate) mod check_type_of_call_string_from_var;
 pub(crate) mod check_type_of_call_string_index_2arg;
 pub(crate) mod check_type_of_call_string_predicate_2arg;
 pub(crate) mod check_type_of_call_string_search_undef;
+pub(crate) mod check_type_of_call_string_split_2arg;
 pub(crate) mod check_type_of_call_to_string_radix;
 pub(crate) mod check_type_of_call_undef_widen_1arg;
 pub(crate) mod check_type_of_fn;

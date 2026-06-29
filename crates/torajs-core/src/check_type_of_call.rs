@@ -386,35 +386,16 @@ pub(crate) fn check(
     {
         return r;
     }
-    // V3-18 wedge — String.split accepts an optional
-    // 2nd `limit` arg per JS spec §22.1.3.21. Returns
-    // first `limit` substrings (or fewer if the source
-    // splits into fewer). Pre-fix tora's strict 1-arg
-    // signature rejected the 2-arg form.
-    //
-    // S215 — `s.split(sep, undefined)` per ES §22.1.3.21
-    // step 2: `If limit is undefined, lim = 2^32-1` (no
-    // truncation). Accept Undefined limit; ssa_lower
-    // mirror inline-replaces argv[2] with ConstI64(i64::MAX)
-    // so the take-min branch falls to len.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "split"
-        && args.len() == 2
+    // V3-18 wedge — `s.split(sep, limit?)` 2-arg arm + S215
+    // Undefined limit widen — see
+    // [`crate::check_type_of_call_string_split_2arg`] (chunk
+    // 236 — twenty-ninth sub-batch). ssa_lower mirror inline-
+    // replaces `argv[2]` with `ConstI64(i64::MAX)` for the
+    // Undefined limit case so the take-min branch falls to `len`.
+    if let Some(r) =
+        crate::check_type_of_call_string_split_2arg::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            let _ = checker.type_of(ast, args[0])?;
-            let limit_ty = checker.type_of(ast, args[1])?;
-            if limit_ty != Type::Number && limit_ty != Type::Undefined {
-                return Err(format!(
-                    "String.split arg 1 (limit) must be number, got {limit_ty:?}"
-                ));
-            }
-            return Ok(Type::Array(Box::new(Type::String)));
-        }
+        return r;
     }
     // V3-18 wedge — Array.sort / toSorted accept an
     // optional comparator. Per JS spec §22.1.3.27 the
