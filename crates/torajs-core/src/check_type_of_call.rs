@@ -270,21 +270,13 @@ pub(crate) fn check(
         let _ = args;
         return Ok(resolved_ret);
     }
-    // `console.{log,error,warn,info,debug}(arg0, arg1, …)` —
-    // accept any arity. The standard typecheck path would
-    // reject ≠1 args because Type::Function has fixed
-    // arity. Args are typed Type::Any so any value is
-    // acceptable. S328 added `info` / `debug` per WHATWG
-    // console §1.1.{2,4}.
-    if let Expr::Member { obj, name } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "console"
-        && matches!(name.as_str(), "log" | "error" | "warn" | "info" | "debug")
-    {
-        for &aid in args {
-            checker.type_of(ast, aid)?;
-        }
-        return Ok(Type::Void);
+    // `console.{log,error,warn,info,debug}(...)` varargs-
+    // widening arm — see [`crate::check_type_of_call_console`]
+    // (chunk 216 — tenth sub-batch). S328 WHATWG console
+    // §1.1.{2,4}; widens past the fixed-arity Type::Function
+    // sig so any arg count is acceptable.
+    if let Some(r) = crate::check_type_of_call_console::try_match(checker, ast, callee, args) {
+        return r;
     }
     // `JSON.stringify(value, replacer?, indent?)` — accept
     // 1, 2, or 3 args. The full JS spec defines `replacer`
