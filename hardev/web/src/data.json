@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-29T00:11:19.166Z",
+  "generatedAt": "2026-06-29T01:43:10.541Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "7f5d6769",
-    "commitSubject": "refactor(torajs-core): split check_type_of_member I/O namespace arms (chunk 201)",
+    "commit": "bae3d8f7",
+    "commitSubject": "refactor(torajs-core): split check_type_of_call Array.from polymorphic (chunk 213)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,84 @@
   },
   "commits": [
     {
-      "hash": "7f5d6769",
-      "subject": "refactor(torajs-core): split check_type_of_member I/O namespace arms (chunk 201)"
+      "hash": "bae3d8f7",
+      "subject": "refactor(torajs-core): split check_type_of_call Array.from polymorphic (chunk 213)"
     },
     {
-      "hash": "f9a1a3e6",
-      "subject": "refactor(torajs-core): split check_type_of_member namespace arms (chunk 200)"
+      "hash": "54854169",
+      "subject": "refactor(torajs-core): split check_type_of_call arr.flat early-route (chunk 212)"
     },
     {
-      "hash": "d91a39ae",
-      "subject": "refactor(torajs-core): split check_type_of_member Struct/Function/Any arms (chunk 199)"
+      "hash": "5bf6755e",
+      "subject": "refactor(torajs-core): split check_type_of_call Object.assign/values (chunk 211)"
     },
     {
-      "hash": "bf6d8aca",
-      "subject": "refactor(torajs-core): split check_type_of_member Type::Promise arms (chunk 198)"
+      "hash": "83b560ba",
+      "subject": "refactor(torajs-core): split check_type_of_call Promise.all/race/any/allSettled (chunk 210)"
     },
     {
-      "hash": "4e9258d2",
-      "subject": "refactor(torajs-core): split check_type_of_member Type::String arms (chunk 197)"
+      "hash": "d43fc0eb",
+      "subject": "refactor(torajs-core): split check_type_of_call Number.parseInt/parseFloat (chunk 209)"
     },
     {
-      "hash": "48afc102",
-      "subject": "refactor(torajs-core): split check_type_of_member Type::Array arms (chunk 196)"
+      "hash": "d7522a27",
+      "subject": "refactor(torajs-core): split check_type_of_call global Ident ctors (chunk 208)"
     },
     {
-      "hash": "68373488",
-      "subject": "chore(dashboard): chunks 190-195 snapshot @ 12f70fa2"
+      "hash": "84850c1c",
+      "subject": "refactor(torajs-core): split check_type_of_call Promise.then/catch early-route arms (chunk 207)"
     },
     {
-      "hash": "12f70fa2",
-      "subject": "refactor(torajs-core): split check_type_of_member RegExp arms (chunk 195)"
+      "hash": "17e34d4a",
+      "subject": "refactor(torajs-core): fold Array-as-Object catch-all + trim main match (chunk 206 — HARD LIMIT CLEAR)"
     },
     {
-      "hash": "75ba1638",
-      "subject": "chore(dashboard): chunks 190-194 snapshot @ 7e4eefd9"
+      "hash": "f3fb4914",
+      "subject": "refactor(torajs-core): split check_type_of_member prim/Any union arms (chunk 205)"
     },
     {
-      "hash": "7e4eefd9",
-      "subject": "refactor(torajs-core): split check_type_of_member primitive wrappers (chunk 194)"
+      "hash": "fdd890b0",
+      "subject": "refactor(torajs-core): split check_type_of_member generic Object arms (chunk 204)"
     },
     {
-      "hash": "232e6cf7",
-      "subject": "refactor(torajs-core): split check_type_of_member Set/Map family arms (chunk 193)"
+      "hash": "265e2150",
+      "subject": "refactor(torajs-core): split check_type_of_member Reflect/Object mixed arms (chunk 203)"
     },
     {
-      "hash": "9556c697",
-      "subject": "refactor(torajs-core): split check_type_of_member Weak family arms (chunk 192)"
+      "hash": "8c55dd7f",
+      "subject": "refactor(torajs-core): split check_type_of_member Object meta arms (chunk 202)"
     }
   ],
-  "headSha": "7f5d6769",
+  "headSha": "bae3d8f7",
   "autorun": {
-    "total": 275,
+    "total": 276,
     "baselineTarget": 10,
-    "bySelf": 270,
+    "bySelf": 271,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782673180-5603",
-      "at": "2026-06-28T18:59:40Z",
-      "ts": 1782673180,
+      "rotationId": "r-1782691961-2dd3",
+      "at": "2026-06-29T00:12:41Z",
+      "ts": 1782691961,
       "trigger": "self",
-      "prevHead": "68373488",
-      "handoffSha": "sha256:2d42d5cfb50bb319ddf86dfe13bb366b0d06441ac1e383db1d6efb2c3dbbc634",
-      "handoffAgeSec": 23,
+      "prevHead": "6cf98f7a",
+      "handoffSha": "sha256:966e1c270de927f82717e8f1e4b61eccd9a2d37d3c5339c7abfce87c70aa3f7d",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782691961-2dd3",
+        "at": "2026-06-29T00:12:41Z",
+        "ts": 1782691961,
+        "trigger": "self",
+        "prevHead": "6cf98f7a",
+        "handoffSha": "sha256:966e1c270de927f82717e8f1e4b61eccd9a2d37d3c5339c7abfce87c70aa3f7d",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782673180-5603",
         "at": "2026-06-28T18:59:40Z",
@@ -780,17 +791,6 @@
         "prevHead": "ac51d489",
         "handoffSha": "sha256:994a99d86296216ae850fe80bae27c07f392595c27df62e1802af232ab476eb9",
         "handoffAgeSec": 1312,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782596903-55f5",
-        "at": "2026-06-27T21:48:23Z",
-        "ts": 1782596903,
-        "trigger": "self",
-        "prevHead": "e2d64f99",
-        "handoffSha": "sha256:027b29127a260da1f809b2c26a3cd5d215bfc79421a764f6c2db4b5dade94d6c",
-        "handoffAgeSec": 7130,
         "conformanceBefore": null,
         "commitsInSession": null
       }
