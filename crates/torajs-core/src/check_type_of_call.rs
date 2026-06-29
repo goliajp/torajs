@@ -563,49 +563,15 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_array_join::try_match(checker, ast, callee, args) {
         return r;
     }
-    // V3-18 m1.h.36 — String.slice / substring with 0 or
-    // 1 args. Per JS spec §21.1.3.21 / §21.1.3.23:
-    //   s.slice()      = s.slice(0, s.length)
-    //   s.slice(start) = s.slice(start, s.length)
-    //   (same for substring; substring also clamps and
-    //   swaps args, but the optional-arity shape is
-    //   identical at the call site)
-    //
-    // S232 — accept Undefined for the start slot per ES
-    // §22.1.3.20 step 3 (slice) / §22.1.3.22 step 4
-    // (substring): ToIntegerOrInfinity(undef)=0. The
-    // ssa_lower_str mirror substitutes ConstI64(0) and
-    // the existing 0-1-arg fallthrough fills in the
-    // end=length default. `substr` is excluded — its
-    // 2nd arg is a length not an end index, and the
-    // T-49 carve-out below handles its own arity-undef.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && (m_name == "slice" || m_name == "substring" || m_name == "substr")
-        && args.len() < 2
+    // V3-18 m1.h.36 + S232 + S333 —
+    // `s.{slice,substring,substr}(start?)` String-receiver
+    // 0-1-arg wedge arm extracted to
+    // [`crate::check_type_of_call_string_slice_0_1arg`]
+    // (chunk 255).
+    if let Some(r) =
+        crate::check_type_of_call_string_slice_0_1arg::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            let allow_undef = m_name == "slice" || m_name == "substring";
-            // S333 — `s.{slice,substring,substr}(Any)` per ES
-            // §22.1.3.{20,22,23}: ToIntegerOrInfinity accepts
-            // arbitrary-typed input. Widen the strict-Number
-            // gate; ssa_lower mirror routes Any through
-            // anyv_to_number → coerce_to_i64 → helper. Sister
-            // to S332 (charCodeAt/charAt/... Any).
-            for &aid in args {
-                let aty = checker.type_of(ast, aid)?;
-                if aty != Type::Number
-                    && !(allow_undef && aty == Type::Undefined)
-                    && aty != Type::Any
-                {
-                    return Err(format!("String.{m_name} arg must be number, got {aty:?}"));
-                }
-            }
-            return Ok(Type::String);
-        }
+        return r;
     }
     // S221 — `s.substring(start, end)` accepts Undefined for
     // either positional per ES §22.1.3.22 step 4/5:
