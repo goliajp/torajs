@@ -493,47 +493,15 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S281 — String.{trim,trimStart,trimEnd,trimLeft,
-    // trimRight,toUpperCase,toLowerCase,toWellFormed,
-    // isWellFormed}(...trailing) trailing-arg ignore per
-    // ES §22.1.3.{30,32,33,28,29,34,10}. Spec-defined
-    // 0-arg methods; spec reserves no positional slots so
-    // any trailing operand is silently ignored. tora's
-    // helpers are 0-arg only (recv only); typecheck-and-
-    // drop trailing here; ssa_lower mirror lowers each
-    // operand for side effects then drops the value (S272
-    // idiom — never push into argv). toLocale{Upper,Lower}Case
-    // is excluded (S140 sig + drop_args path own those —
-    // they take a locales arg and already silent-drop it).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(
-            m_name.as_str(),
-            "trim"
-                | "trimStart"
-                | "trimEnd"
-                | "trimLeft"
-                | "trimRight"
-                | "toUpperCase"
-                | "toLowerCase"
-                | "toWellFormed"
-                | "isWellFormed"
-        )
-        && !args.is_empty()
+    // S281 — `s.{trim,trimStart,trimEnd,trimLeft,trimRight,
+    // toUpperCase,toLowerCase,toWellFormed,isWellFormed}(
+    // ...trailing)` 0-arg trailing-arg ignore arm extracted
+    // to [`crate::check_type_of_call_string_trim_case`]
+    // (chunk 247).
+    if let Some(r) =
+        crate::check_type_of_call_string_trim_case::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            for &a in args {
-                let _ = checker.type_of(ast, a)?;
-            }
-            return Ok(if m_name == "isWellFormed" {
-                Type::Boolean
-            } else {
-                Type::String
-            });
-        }
+        return r;
     }
     // V3-18 m1.h.48 — String.normalize accepts an optional
     // form arg ("NFC" / "NFD" / "NFKC" / "NFKD"). Per JS
