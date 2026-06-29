@@ -1078,28 +1078,14 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_date_setter::try_match(checker, ast, callee, args) {
         return r;
     }
-    // S267 — Array.isArray(value, ...trailing) per ES
-    // §23.1.2.2. The spec uses only step 1's `value`;
-    // trailing args silent-drop. tora's check.rs sig
-    // `vec![Type::Any] -> Boolean` rejected 1+ trailing
-    // with "expected 1 argument(s), got N"; ssa_lower's
-    // intercept already routes through args[0] only, so
-    // a skip(1) eval-and-drop loop preserves side effects
-    // for any trailing expression.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "isArray"
-        && args.len() >= 2
+    // S267 — `Array.isArray(value, ...trailing)` Array-
+    // namespace trailing-arg ignore wedge extracted to
+    // [`crate::check_type_of_call_array_isarray_trailing`]
+    // (chunk 269).
+    if let Some(r) =
+        crate::check_type_of_call_array_isarray_trailing::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::Object("Array")) {
-            for &arg in args.iter() {
-                let _ = checker.type_of(ast, arg)?;
-            }
-            return Ok(Type::Boolean);
-        }
+        return r;
     }
     // S266 — RegExp.{test,exec,toString}(s?, ...trailing)
     // per ES §22.2.6.{2,7,16}. Each method's fixed sig
