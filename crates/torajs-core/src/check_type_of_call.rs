@@ -26,14 +26,10 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use std::collections::HashMap;
-
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{
     Checker, STRING_BORROW_METHODS, Type, is_class_method_name, struct_is_prefix_subtype,
-    substitute_typevars,
 };
-use crate::check_typevar::{typevar_appears_in, typevar_appears_in_iter, unify_typevar};
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -162,113 +158,16 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_reduce_1arg::try_match(checker, ast, callee, args) {
         return r;
     }
-    // M3 — generic call inference. If callee is a bare Ident
-    // naming a generic FnDecl, walk param/arg pairs unifying
-    // each TypeVar against the actual arg type, then
-    // substitute back into the return type. Side-table records
-    // the inferred substitution so ssa_lower can monomorphize.
-    if let Expr::Ident(name) = ast.get_expr(*callee)
-        && let Some(type_params) = checker.generic_type_params.get(name).cloned()
-        && let Some(Type::Function(params, ret)) = checker.globals.get(name).cloned()
+    // M3 — generic call inference for bare-Ident callee
+    // naming a generic FnDecl — see
+    // [`crate::check_type_of_call_generic_ident`] (chunk 219
+    // — thirteenth sub-batch). T-28 trailing-typevar-Any
+    // padding + regular unify path; side-table records the
+    // inferred substitution so ssa_lower can monomorphize.
+    if let Some(r) =
+        crate::check_type_of_call_generic_ident::try_match(checker, ast, eid, callee, args)
     {
-        // T-28 — Default param missing → undefined for
-        // implicit-generic fns. Untyped JS params
-        // (`function f(a, b)`) get rewritten to fresh
-        // independent TypeVars by `desugar_implicit_generics`,
-        // so they land here. Conditions: trailing missing
-        // params must all be TypeVar AND each trailing
-        // TypeVar must NOT appear in earlier params or in
-        // the return type. When safe, bind them to
-        // Type::Any and pad with ANY_UNDEF at the call
-        // site (T-28-substrate enables Any to round-trip
-        // through type_to_ann / parse_type so the mono
-        // gets a real Any-typed param slot).
-        if args.len() < params.len() {
-            let missing = params.len() - args.len();
-            let trailing = &params[args.len()..];
-            let trailing_typevars: Vec<&str> = trailing
-                .iter()
-                .filter_map(|p| match p {
-                    Type::TypeVar(n) => Some(n.as_str()),
-                    _ => None,
-                })
-                .collect();
-            let trailing_all_typevar = trailing_typevars.len() == trailing.len();
-            let earlier = &params[..args.len()];
-            let trailing_independent = trailing_all_typevar
-                && trailing_typevars.iter().all(|tv| {
-                    !typevar_appears_in_iter(earlier, tv) && !typevar_appears_in(&ret, tv)
-                });
-            if trailing_independent {
-                let mut subst: HashMap<String, Type> = HashMap::new();
-                for (i, (param_ty, arg_id)) in
-                    params.iter().take(args.len()).zip(args.iter()).enumerate()
-                {
-                    let arg_ty = checker.type_of(ast, *arg_id)?;
-                    if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst) {
-                        return Err(format!("argument {i} to `{name}`: {e}"));
-                    }
-                }
-                for tv in &trailing_typevars {
-                    subst.insert(tv.to_string(), Type::Any);
-                }
-                for tp in &type_params {
-                    subst.entry(tp.clone()).or_insert(Type::Any);
-                }
-                let resolved_ret = substitute_typevars(&ret, &subst);
-                let type_args: Vec<Type> = type_params
-                    .iter()
-                    .map(|tp| subst.get(tp).cloned().unwrap())
-                    .collect();
-                checker
-                    .generic_call_sites
-                    .insert(eid, (name.clone(), type_args));
-                checker.arity_pad_count.insert(eid, missing);
-                return Ok(resolved_ret);
-            }
-        }
-        if params.len() != args.len() {
-            return Err(format!(
-                "expected {} argument(s) to `{name}`, got {}",
-                params.len(),
-                args.len()
-            ));
-        }
-        let mut subst: HashMap<String, Type> = HashMap::new();
-        let mut arg_tys: Vec<Type> = Vec::with_capacity(args.len());
-        for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
-            let arg_ty = checker.type_of(ast, *arg_id)?;
-            if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst) {
-                return Err(format!("argument {i} to `{name}`: {e}"));
-            }
-            arg_tys.push(arg_ty);
-        }
-        // Validate every type-param was bound.
-        for tp in &type_params {
-            if !subst.contains_key(tp) {
-                return Err(format!(
-                    "could not infer type parameter `{tp}` for `{name}`"
-                ));
-            }
-        }
-        let resolved_ret = substitute_typevars(&ret, &subst);
-        // Record the substitution for the SSA monomorphizer.
-        // Keyed by ExprId of the call so each call site gets
-        // its own type-argument set.
-        let type_args: Vec<Type> = type_params
-            .iter()
-            .map(|tp| subst.get(tp).cloned().unwrap())
-            .collect();
-        checker
-            .generic_call_sites
-            .insert(eid, (name.clone(), type_args));
-        // Generic call args also follow the new TS-shape
-        // borrow semantics — non-Copy args are not consumed
-        // by passing. See the comment in the regular Call
-        // arm below for the rationale + caveat.
-        let _ = params;
-        let _ = args;
-        return Ok(resolved_ret);
+        return r;
     }
     // `console.{log,error,warn,info,debug}(...)` varargs-
     // widening arm — see [`crate::check_type_of_call_console`]
