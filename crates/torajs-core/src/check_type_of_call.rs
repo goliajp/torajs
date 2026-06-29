@@ -483,45 +483,15 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S240 — String.{at,charAt,charCodeAt,codePointAt,
-    // repeat,normalize}(useful, ...trailing) trailing-arg
-    // ignore per ES §22.1.3.{1,2,3,4,17,13}: spec reserves
-    // slots past useful arg 0 but tora's helpers are 1-arg
-    // only. Trailing operands type_of'd for side effects;
-    // ssa_lower mirror evals-and-drops past i=0.
-    //
-    // S272 widens from `args.len() == 2` (single trailing)
-    // to `args.len() >= 2` (any trailing count).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(
-            m_name.as_str(),
-            "at" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" | "normalize"
-        )
-        && args.len() >= 2
+    // S240 — `s.{at,charAt,charCodeAt,codePointAt,repeat,
+    // normalize}(useful, ...trailing)` trailing-arg ignore
+    // arm extracted to
+    // [`crate::check_type_of_call_string_trailing_ignore`]
+    // (chunk 246).
+    if let Some(r) =
+        crate::check_type_of_call_string_trailing_ignore::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            let aty0 = checker.type_of(ast, args[0])?;
-            let arg0_ok = match m_name.as_str() {
-                "at" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" => {
-                    matches!(aty0, Type::Number | Type::Undefined)
-                }
-                "normalize" => matches!(aty0, Type::String | Type::Undefined),
-                _ => false,
-            };
-            if arg0_ok {
-                for &a in &args[1..] {
-                    let _ = checker.type_of(ast, a)?;
-                }
-                return Ok(match m_name.as_str() {
-                    "at" | "charAt" | "repeat" | "normalize" => Type::String,
-                    _ => Type::Number,
-                });
-            }
-        }
+        return r;
     }
     // S281 — String.{trim,trimStart,trimEnd,trimLeft,
     // trimRight,toUpperCase,toLowerCase,toWellFormed,
