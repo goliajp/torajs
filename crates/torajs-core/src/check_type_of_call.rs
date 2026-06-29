@@ -512,34 +512,15 @@ pub(crate) fn check(
     {
         return r;
     }
-    // V3-18 m1.h.46 — Number.toFixed / toExponential /
-    // toPrecision with 0 args. Per JS spec §21.1.3.3 etc:
-    //   n.toFixed()        defaults to digits = 0
-    //   n.toExponential()  defaults to fractionDigits = "as
-    //                       few as needed" (we use 6 — bun
-    //                       matches; actual spec call ToInteger
-    //                       on undefined gives 0 but bun's
-    //                       output uses default precision)
-    //   n.toPrecision()    no precision = same as toString
-    // Pre-fix tora declared with 1 fixed param so 0-arg
-    // calls failed at the arity check. Implementation:
-    // typecheck-only pass through; ssa_lower handles the
-    // missing-arg defaults.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "toFixed" | "toExponential" | "toPrecision")
-        && (args.is_empty()
-            || (args.len() == 1 && matches!(checker.type_of(ast, args[0])?, Type::Undefined)))
+    // V3-18 m1.h.46 + S229 — `n.{toFixed,toExponential,
+    // toPrecision}()` 0-arg or 1-arg-undefined arm
+    // extracted to
+    // [`crate::check_type_of_call_number_fixed_0arg`]
+    // (chunk 249).
+    if let Some(r) =
+        crate::check_type_of_call_number_fixed_0arg::try_match(checker, ast, callee, args)
     {
-        // S229 — accept the 1-arg explicit-Undefined shape per
-        // ES §21.1.3.{3,5,6} where an undef digits/precision
-        // arg folds to the same default as the 0-arg form.
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::Number) {
-            return Ok(Type::String);
-        }
+        return r;
     }
     // S254 — `n.{toFixed,toExponential,toPrecision}(digits,
     // ...trailing)` per ES §21.1.3.{3,5,6} trailing-arg
