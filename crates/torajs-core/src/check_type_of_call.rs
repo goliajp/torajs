@@ -128,64 +128,14 @@ pub(crate) fn check(
     {
         return r;
     }
-    // `arr.flat(N)` — deep flatten. N must be a literal
-    // number so the type checker can peel that many
-    // Array<> layers from the receiver's element type.
-    // depth=0 is a shallow clone (returns Array<T_0>);
-    // depth>0 peels per-iter, stopping early if a layer
-    // is non-Array. Subset constraint: literal depth only
-    // (no `flat(n)` with runtime n — would need a depth-
-    // aware runtime helper).
-    if let Expr::Member {
-        obj: recv,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "flat"
-        && !args.is_empty()
-    {
-        // S289 — Array<T>.flat(depth, ...trailing) trailing-arg
-        // ignore per ES §23.1.3.10. Spec reads only `depth`;
-        // tora's runtime + SSA-emit also peek only args[0].
-        // Eval-and-drop args[1..] for side effects below.
-        for &aid in &args[1..] {
-            let _ = checker.type_of(ast, aid)?;
-        }
-        // S129-5 — accept `Infinity` as the depth literal
-        // (ES §23.1.3.13 spec form for full-depth flatten).
-        // Both check + ssa-lower peel up to 64 layers
-        // (matches V8/JSC fixture conventions; no
-        // realistic nesting reaches that depth).
-        let depth_opt: Option<i64> = match ast.get_expr(args[0]) {
-            Expr::Number(d) => Some(*d as i64),
-            Expr::Ident(name) if name == "Infinity" => Some(64),
-            // S220 — `xs.flat(undefined)` per ES §23.1.3.10
-            // step 1: `If depth is undefined, depthNum = 1`.
-            // bun matches: explicit-undefined behaves as the
-            // 0-arg `xs.flat()` default.
-            Expr::Ident(name) if name == "undefined" => Some(1),
-            _ => None,
-        };
-        if let Some(depth) = depth_opt {
-            if depth < 0 {
-                return Err("flat depth must be non-negative".into());
-            }
-            let recv_ty = checker.type_of(ast, *recv)?;
-            let Type::Array(_) = &recv_ty else {
-                return Err(format!("flat receiver must be Array<...>, got {recv_ty:?}"));
-            };
-            let mut t = recv_ty.clone();
-            for _ in 0..depth {
-                if let Type::Array(elem) = t.clone()
-                    && let Type::Array(inner_inner) = (*elem).clone()
-                {
-                    t = Type::Array(inner_inner);
-                } else {
-                    break;
-                }
-            }
-            return Ok(t);
-        }
-        return Err("flat depth must be a number literal".into());
+    // `arr.flat(N)` literal-depth early-route arm — see
+    // [`crate::check_type_of_call_arr_flat`] (chunk 212 —
+    // sixth sub-batch). Peels `Array<>` layers from the
+    // receiver's element type when the depth arg is a
+    // Number / `Infinity` / `undefined` literal. The 0-arg
+    // `xs.flat()` shape uses the regular method-table arm.
+    if let Some(r) = crate::check_type_of_call_arr_flat::try_match(checker, ast, callee, args) {
+        return r;
     }
     // S132 — `Array.from(arrLike)` polymorphic over receiver.
     // The static fn-sig (2993) is fixed to `(String) → Array<String>`
