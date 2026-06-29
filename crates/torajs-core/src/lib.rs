@@ -207,6 +207,7 @@ pub(crate) mod check_type_of_call;
 pub(crate) mod check_type_of_call_arr_flat;
 pub(crate) mod check_type_of_call_array_fill;
 pub(crate) mod check_type_of_call_array_from;
+pub(crate) mod check_type_of_call_array_index_2arg;
 pub(crate) mod check_type_of_call_array_isarray_of;
 pub(crate) mod check_type_of_call_array_push_unshift;
 pub(crate) mod check_type_of_call_array_slice;

@@ -418,61 +418,16 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_array_sort::try_match(checker, ast, callee, args) {
         return r;
     }
-    // V3-18 m1.h.49 — Array.indexOf / lastIndexOf accept
-    // an optional fromIndex 2nd arg per JS spec §22.1.3.13
-    // / §22.1.3.16. Pre-fix tora declared with 1 fixed
-    // param so 2-arg calls hit the arity check.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "indexOf" | "lastIndexOf" | "includes")
-        && args.len() == 2
+    // V3-18 m1.h.49 — `xs.{indexOf,lastIndexOf,includes}
+    // (needle, fromIndex)` 2-arg Array-receiver arm — see
+    // [`crate::check_type_of_call_array_index_2arg`] (chunk
+    // 239 — thirty-second sub-batch). S127-4 Array<Any>
+    // cross-type needle + S217 Undefined fromIndex + S331 Any
+    // fromIndex per ES §22.1.3.{13,14,16}.
+    if let Some(r) =
+        crate::check_type_of_call_array_index_2arg::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if let Type::Array(elem) = &src_ty {
-            let needle_ty = checker.type_of(ast, args[0])?;
-            // S127-4: Array<Any> accepts cross-type needle —
-            // ssa-lower's strict-eq packing arm already
-            // handles I64/F64/Bool/Ptr/refcounted/Any
-            // (ssa_lower_str.rs §arr.indexOf needle pack).
-            // The 1-arg path falls through the generic arg-
-            // unify which skips equality when param is Any,
-            // but this dedicated 2-arg branch hand-wrote a
-            // strict-eq compare with no Any escape. Bring it
-            // in line with the 1-arg case + spec §22.1.3.x
-            // (no static type restriction on needle).
-            if needle_ty != **elem && !matches!(**elem, Type::Any) {
-                return Err(format!(
-                    "Array.{m_name} arg 0 must match elem type {:?}, got {needle_ty:?}",
-                    **elem
-                ));
-            }
-            let from_ty = checker.type_of(ast, args[1])?;
-            // S217 — Array.{indexOf,lastIndexOf,includes}
-            // (needle, undefined) per ES §22.1.3.{13,14,16}:
-            // ToIntegerOrInfinity(undefined)=0. Accept
-            // Undefined alongside Number; ssa_lower mirror
-            // short-circuits fromIndex=undefined to
-            // ConstI64(0).
-            //
-            // S331 — widen accept Any fromIndex per ES
-            // §23.1.3.{14,17,18} step 4: ToIntegerOrInfinity
-            // already coerces arbitrary-typed input (NaN→0,
-            // ±∞→sat). ssa_lower mirror routes Any through
-            // anyv_to_number → coerce_to_i64. Pattern A
-            // sister to S327 / S329.
-            if from_ty != Type::Number && from_ty != Type::Undefined && from_ty != Type::Any {
-                return Err(format!(
-                    "Array.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
-                ));
-            }
-            return Ok(if m_name == "includes" {
-                Type::Boolean
-            } else {
-                Type::Number
-            });
-        }
+        return r;
     }
     // S225 — typed Array<T>.at(undefined) per ES §23.1.3.1
     // step 2-3: ToIntegerOrInfinity(undefined)=0, returns
