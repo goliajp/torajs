@@ -223,72 +223,19 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_math_hypot::try_match(checker, ast, callee, args) {
         return r;
     }
-    // S230 — `Date.parse(undefined)` per ES §21.4.3.2:
-    // step 1 reads the arg through ToString. `ToString(undefined)
-    // = "undefined"` which is not a valid date string, so the
-    // result is NaN. Accept Undefined alongside String; ssa_lower
-    // mirror folds the call to ConstF64(NaN).
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "Date"
-        && m == "parse"
-        && args.len() == 1
+    // Explicit-Undefined / Any 1-arg spec-corner widen arms
+    // (Date.parse / Math.<unary> / String.fromCharCode /
+    // String.fromCodePoint) — see
+    // [`crate::check_type_of_call_undef_widen_1arg`] (chunk
+    // 223 — sixteenth sub-batch). Each pattern widens past
+    // the static-sig rejection of explicit Undefined / Any
+    // 1-arg so ssa_lower can fold the spec-aligned result.
+    if let Some(r) =
+        crate::check_type_of_call_undef_widen_1arg::try_match(checker, ast, callee, args)
     {
-        let arg_ty = checker.type_of(ast, args[0])?;
-        if matches!(arg_ty, Type::Undefined) {
-            return Ok(Type::Number);
-        }
+        return r;
     }
-    // S227 — Math.<unary>(undefined) per ES §21.3.2.* step 1:
-    // ToNumber(undefined) = NaN, and every NaN-propagating
-    // unary method returns NaN. `Math.clz32(undefined)` is
-    // the lone exception — its ToUint32(undefined)=0 path
-    // returns 32. Mirror the 0-arg carve-out (S203) for the
-    // explicit-undefined 1-arg shape; ssa_lower folds the
-    // call to ConstF64 without lowering the arg.
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "Math"
-        && args.len() == 1
-    {
-        let arg_ty = checker.type_of(ast, args[0])?;
-        if matches!(arg_ty, Type::Undefined)
-            && matches!(
-                m.as_str(),
-                "sqrt"
-                    | "abs"
-                    | "floor"
-                    | "ceil"
-                    | "log"
-                    | "exp"
-                    | "sign"
-                    | "round"
-                    | "trunc"
-                    | "sin"
-                    | "cos"
-                    | "tan"
-                    | "asin"
-                    | "acos"
-                    | "atan"
-                    | "log2"
-                    | "log10"
-                    | "cbrt"
-                    | "sinh"
-                    | "cosh"
-                    | "tanh"
-                    | "asinh"
-                    | "acosh"
-                    | "atanh"
-                    | "expm1"
-                    | "log1p"
-                    | "clz32"
-                    | "fround"
-                    | "f16round"
-            )
-        {
-            return Ok(Type::Number);
-        }
-    }
+    // (Math.<unary>(undefined) handled by chunk 223 sibling.)
     // S231 — `String.fromCharCode(undefined)` per ES §22.1.2.1:
     // each arg is converted via ToUint16; ToUint16(undefined) = 0,
     // so the single-arg undef shape yields " ". The standard
@@ -298,26 +245,7 @@ pub(crate) fn check(
     // ConstI64(0) into the helper call. fromCodePoint diverges
     // here — bun throws a RangeError at runtime for undefined,
     // so its throw-shape alignment stays L3b.
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "String"
-        && m == "fromCharCode"
-        && args.len() == 1
-    {
-        let aty = checker.type_of(ast, args[0])?;
-        if matches!(aty, Type::Undefined) {
-            return Ok(Type::String);
-        }
-        // S329 — `String.fromCharCode(Any)` per ES §22.1.2.1:
-        // each arg goes through ToUint16, which accepts any
-        // value. The method-table sig `(Number) -> String`
-        // rejected explicit `o: any` operands at typecheck;
-        // widen here so the ssa_lower mirror routes Any
-        // through anyv_to_number → coerce_to_i64 → helper.
-        if matches!(aty, Type::Any) {
-            return Ok(Type::String);
-        }
-    }
+    // (String.fromCharCode 1-arg undef/Any handled by chunk 223 sibling.)
     // S340 — `String.fromCodePoint(Any)` per ES §22.1.2.2 step 2:
     // ToNumber accepts arbitrary-typed input; RangeError throw
     // shape (non-integer / out-of-range [0, 0x10FFFF]) is
@@ -325,17 +253,7 @@ pub(crate) fn check(
     // (pending throw + emit_throw_check propagates), so the
     // Any path inherits the same throw semantics for free.
     // Sister to S329 (fromCharCode Any).
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "String"
-        && m == "fromCodePoint"
-        && args.len() == 1
-    {
-        let aty = checker.type_of(ast, args[0])?;
-        if matches!(aty, Type::Any) {
-            return Ok(Type::String);
-        }
-    }
+    // (String.fromCodePoint 1-arg Any handled by chunk 223 sibling.)
     // `String.fromCharCode(...codes)` — variadic. Each code is a
     // Number; result is a String. The single-arg case still goes
     // through the general type table for the intrinsic call; we

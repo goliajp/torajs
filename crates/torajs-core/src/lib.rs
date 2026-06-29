@@ -219,6 +219,7 @@ pub(crate) mod check_type_of_call_promise_all;
 pub(crate) mod check_type_of_call_promise_then;
 pub(crate) mod check_type_of_call_reduce_1arg;
 pub(crate) mod check_type_of_call_to_string_radix;
+pub(crate) mod check_type_of_call_undef_widen_1arg;
 pub(crate) mod check_type_of_fn;
 pub(crate) mod check_type_of_ident;
 pub(crate) mod check_type_of_member;
