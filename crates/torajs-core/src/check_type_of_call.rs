@@ -288,61 +288,15 @@ pub(crate) fn check(
     {
         return r;
     }
-    // `n.toString(radix?)` — JS Number primitive method that
-    // accepts an optional radix in [2, 36]. The standard
-    // Type::Function check rejects variable arity; intercept
-    // here.
-    // S247 — BigInt.prototype.toString(radix, ...trailing)
-    // trailing-arg ignore per ES §21.2.3.5. Spec reserves
-    // slots past the 1 useful radix but tora's helpers
-    // (bigint_to_string / bigint_to_string_radix) are 1-
-    // arg only; trailing operand type_of'd for side effects
-    // then dropped at lower-time. Same shape as S244
-    // Number.toString trailing-arg ignore.
-    if let Expr::Member { obj, name } = ast.get_expr(*callee)
-        && name == "toString"
+    // `n.toString(radix?)` primitive arms (BigInt + Number
+    // receivers) — see
+    // [`crate::check_type_of_call_to_string_radix`] (chunk
+    // 218 — twelfth sub-batch). S247 BigInt trailing-arg
+    // ignore + S229/S244 Number radix + trailing-arg handling.
+    if let Some(r) =
+        crate::check_type_of_call_to_string_radix::try_match(checker, ast, callee, args)
     {
-        let recv_ty = checker.type_of(ast, *obj)?;
-        if recv_ty == Type::BigInt && args.len() >= 2 {
-            for &aid in &args[1..] {
-                let _ = checker.type_of(ast, aid)?;
-            }
-            // arg 0 still type_of'd via the Function sig's
-            // first slot above; type_of args[0] here too
-            // so any earlier-skipped inference fires.
-            let _ = checker.type_of(ast, args[0])?;
-            return Ok(Type::String);
-        }
-    }
-    if let Expr::Member { obj, name } = ast.get_expr(*callee)
-        && name == "toString"
-    {
-        let recv_ty = checker.type_of(ast, *obj)?;
-        if recv_ty == Type::Number {
-            if args.is_empty() {
-                return Ok(Type::String);
-            }
-            let r_ty = checker.type_of(ast, args[0])?;
-            // S229 — accept Undefined for radix per ES
-            // §21.1.3.6 step 2-3: undefined radix folds
-            // to 10 (the default). ssa_lower mirror
-            // short-circuits to the no-arg path.
-            if !matches!(r_ty, Type::Number | Type::Undefined) {
-                return Err(format!(
-                    "Number.toString radix must be number, got {r_ty:?}"
-                ));
-            }
-            // S244 — accept trailing args past the 1 useful
-            // radix slot per ES §21.1.3.6 trailing-arg
-            // ignore. Same shape as S238/S243; ssa_lower
-            // mirror keys on `args.len() >= 1` so the
-            // num_to_string_radix_i/f helper still receives
-            // the radix; trailing operand never lowered.
-            for &aid in &args[1..] {
-                let _ = checker.type_of(ast, aid)?;
-            }
-            return Ok(Type::String);
-        }
+        return r;
     }
     // `Number(x)` / `String(x)` — coercion function calls
     // (the bare-name shape is JS's primitive constructor invoked
