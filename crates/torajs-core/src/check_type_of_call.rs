@@ -301,26 +301,17 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S205 — Math binary methods 0/1-arg per ES default-
-    // undefined. Spec §21.3.2.{19,5,26}: Math.imul takes
-    // ToUint32 on each arg (undefined → 0 → imul = 0);
-    // Math.pow / Math.atan2 take ToNumber (undefined → NaN
-    // → NaN-propagating result). The declared
-    // `vec![Number, Number]` signature rejects shorter
-    // forms at the generic arity gate.
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "Math"
-        && matches!(m.as_str(), "pow" | "atan2" | "imul")
-        && args.len() < 2
+    // `Math.{pow,atan2,imul}` short-arity (S205) + 2-arg
+    // undef widen (S228) arms — see
+    // [`crate::check_type_of_call_math_pow_atan2_imul`]
+    // (chunk 228 — twenty-first sub-batch). Disjoint from
+    // `Math.{min,max}` arm just below; placing the sibling
+    // here preserves cascade semantics (B can never match
+    // pow/atan2/imul).
+    if let Some(r) =
+        crate::check_type_of_call_math_pow_atan2_imul::try_match(checker, ast, callee, args)
     {
-        for &aid in args {
-            let aty = checker.type_of(ast, aid)?;
-            if aty != Type::Number {
-                return Err(format!("Math.{m} args must be number, got {aty:?}"));
-            }
-        }
-        return Ok(Type::Number);
+        return r;
     }
     if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
         && let Expr::Ident(ns) = ast.get_expr(*obj)
@@ -352,31 +343,8 @@ pub(crate) fn check(
         }
         return Ok(Type::Number);
     }
-    // S228 — Math.{pow, atan2, imul}(undef [, undef]) per
-    // ES §21.3.2.{5,19,26}. pow / atan2 propagate NaN:
-    // any undef arg → ToNumber(undef)=NaN → NaN. imul
-    // applies ToUint32 which folds undefined to 0, so any
-    // undef arg makes the 32-bit multiply 0. ssa_lower
-    // mirror folds the call (extending S205) when either
-    // arg is statically Undefined.
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "Math"
-        && matches!(m.as_str(), "pow" | "atan2" | "imul")
-        && args.len() == 2
-    {
-        let arg0_ty = checker.type_of(ast, args[0])?;
-        let arg1_ty = checker.type_of(ast, args[1])?;
-        let any_undef = matches!(arg0_ty, Type::Undefined) || matches!(arg1_ty, Type::Undefined);
-        if any_undef {
-            for (i, aty) in [&arg0_ty, &arg1_ty].iter().enumerate() {
-                if !matches!(**aty, Type::Number | Type::Undefined) {
-                    return Err(format!("Math.{m} arg {i} must be number, got {aty:?}"));
-                }
-            }
-            return Ok(Type::Number);
-        }
-    }
+    // (Math.{pow,atan2,imul} 2-arg undef widen handled by
+    // chunk 228 sibling above.)
     // V3-18 m1.h.35 — Array.slice with 0 or 1 args. Per
     // JS spec §22.1.3.25:
     //   xs.slice()      = xs.slice(0, xs.length)
