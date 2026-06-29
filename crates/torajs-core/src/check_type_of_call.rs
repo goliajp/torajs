@@ -77,154 +77,16 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_promise_then::try_match(checker, ast, callee, args) {
         return r;
     }
-    /* T-21 (v0.6.0) — `fetch(url)` returns Promise<Response>.
-     * Response has `.text(): Promise<string>` and a `status:
-     * number` property; both are SSA-level operations on
-     * the heap-alloc'd Response struct populated by
-     * `__torajs_fetch_sync`. POST / headers / method /
-     * body land in a fetch options follow-up. */
-    if let Expr::Ident(n) = ast.get_expr(*callee)
-        && n == "fetch"
-    {
-        if args.len() != 1 {
-            return Err(format!(
-                "fetch(url) expects 1 string arg, got {}",
-                args.len()
-            ));
-        }
-        let url_ty = checker.type_of(ast, args[0])?;
-        if !matches!(url_ty, Type::String) {
-            return Err(format!("fetch(url) — url must be string, got {url_ty:?}"));
-        }
-        return Ok(Type::Promise(Box::new(Type::Object("Response"))));
-    }
-    // V3-18 m1.h.8 — `Number(x)` / `String(x)` / `Boolean(x)`
-    // callable coercion (NOT `new` — that's the wrapper-
-    // object form, deferred). Spec §21.1.1 Number(value),
-    // §22.1.1 String(value), §20.3.1 Boolean(value):
-    // unconditionally coerce to the named primitive type.
-    // ssa_lower's per-input dispatch covers Number+Bool+
-    // Null (and String for the String() case); other arg
-    // types panic — String/Object → Number ToString-then-
-    // parse path lands with the m1.h.9 wedge.
-    if let Expr::Ident(n) = ast.get_expr(*callee)
-        && (n == "Number" || n == "String" || n == "Boolean")
-    {
-        let result_ty = match n.as_str() {
-            "Number" => Type::Number,
-            "String" => Type::String,
-            "Boolean" => Type::Boolean,
-            _ => unreachable!(),
-        };
-        // S251 — Number/String/Boolean(value, ...trailing)
-        // per ES §21.1.1 / §22.1.1 / §20.3.1 trailing-arg
-        // ignore. Spec coerces only args[0]; tora silent-
-        // drops trailing per generic trailing-arg-ignore
-        // policy. SSA-emit reads args[0] (or empty), so
-        // args[1..] dropped at lower-time without further
-        // change.
-        for &arg in args.iter().skip(1) {
-            let _ = checker.type_of(ast, arg)?;
-        }
-        if let Some(a) = args.first() {
-            let arg_ty = checker.type_of(ast, *a)?;
-            let ok = match n.as_str() {
-                "Boolean" => true,
-                // P1.5 — Number(undefined) === NaN per spec §7.1.4.
-                // String(undefined) === "undefined" per §7.1.17.
-                // S172 — Number(Array<T>) routes through
-                // ToPrimitive("string") = arr.join(",")
-                // then ToNumber(String) (bun parity:
-                // Number([]) === 0, Number([1]) === 1,
-                // Number([1,2]) === NaN).
-                "Number" => matches!(
-                    arg_ty,
-                    Type::Number
-                        | Type::Boolean
-                        | Type::Null
-                        | Type::Undefined
-                        | Type::String
-                        | Type::Any
-                        | Type::Array(_)
-                ),
-                // S137 — `String(arr)` routes to arr_join
-                // (ES §22.1.3.30 same path as `arr.toString`);
-                // `String(struct)` is the generic Object
-                // `[object Object]` per §20.1.4.4. Generic
-                // dynobj branch lands when the dynobj-toString
-                // substrate ships.
-                "String" => matches!(
-                    arg_ty,
-                    Type::Number
-                        | Type::Boolean
-                        | Type::Null
-                        | Type::Undefined
-                        | Type::String
-                        | Type::Any
-                        | Type::Array(_)
-                        | Type::Struct(_)
-                ),
-                _ => false,
-            };
-            if !ok {
-                return Err(format!(
-                    "{n}({arg_ty:?}) coercion not yet supported (V3-18 m1.h.9 follow-up)"
-                ));
-            }
-        }
-        return Ok(result_ty);
-    }
-    /* V3-03 — `BigInt(value)` callable ctor. One required
-     * arg, type-dispatched by ssa_lower:
-     *   bigint  → clone
-     *   string  → from_str (auto-radix from prefix)
-     *   number  → from_number (RangeError on non-integer
-     *             / non-finite)
-     * Type::Any is deferred (Any-tagged dispatch lands
-     * with the test262 push). */
-    if let Expr::Ident(n) = ast.get_expr(*callee)
-        && n == "BigInt"
-    {
-        if args.is_empty() {
-            return Err("BigInt(value) expects exactly 1 arg, got 0".to_string());
-        }
-        let arg_ty = checker.type_of(ast, args[0])?;
-        if !matches!(arg_ty, Type::BigInt | Type::String | Type::Number) {
-            return Err(format!(
-                "BigInt(value) — value must be bigint / string / number, got {arg_ty:?}"
-            ));
-        }
-        // S308 — typecheck-and-drop trailing args[1..] per ES
-        // §21.2.1 trailing-arg ignore. Spec coerces only args[0];
-        // ssa_lower mirror at ~16022 reads only args[0] so
-        // args[1..] dropped at lower-time without further
-        // change. Mirror requires lower-and-drop in SSA.
-        for &a in args.iter().skip(1) {
-            let _ = checker.type_of(ast, a)?;
-        }
-        return Ok(Type::BigInt);
-    }
-    // T-13.a (v0.4.0) — `Symbol(desc?)` constructor call.
-    // Returns Type::Symbol. Optional desc Str arg; missing
-    // desc = NULL pointer at runtime, prints `Symbol()`.
-    if let Expr::Ident(n) = ast.get_expr(*callee)
-        && n == "Symbol"
-    {
-        if !args.is_empty() {
-            let arg_ty = checker.type_of(ast, args[0])?;
-            if !matches!(arg_ty, Type::String) {
-                return Err(format!(
-                    "Symbol(desc) — desc must be string, got {arg_ty:?}"
-                ));
-            }
-        }
-        // S308 — typecheck-and-drop trailing args[1..] per ES
-        // §20.4.1 trailing-arg ignore (Symbol(desc, ...trailing)
-        // — only desc is read; trailing dropped).
-        for &a in args.iter().skip(1) {
-            let _ = checker.type_of(ast, a)?;
-        }
-        return Ok(Type::Symbol);
+    // Global bare-Ident ctor / coercion call shapes
+    // (`fetch(url)` / `Number|String|Boolean(x)` callable
+    // coercion / `BigInt(value)` ctor / `Symbol(desc?)`) —
+    // see [`crate::check_type_of_call_global_ctors`] (chunk
+    // 208 — second sub-batch of check_type_of_call.rs per-
+    // shape decomposition). All 4 are early-route Ident
+    // callee shapes that must run BEFORE the regular
+    // method-table / general-call dispatch.
+    if let Some(r) = crate::check_type_of_call_global_ctors::try_match(checker, ast, callee, args) {
+        return r;
     }
     /* T-15.g.5 (v0.5.0) — `Promise.resolve(v)` / `Promise.reject(v)`
      * with arg-type-driven return inference. Static-method
