@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-29T11:40:25.483Z",
+  "generatedAt": "2026-06-29T13:33:47.467Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "1c0965ea",
-    "commitSubject": "refactor(torajs-core): split check_type_of_call xs.{indexOf,lastIndexOf,includes} 2-arg Array arm (chunk 239)",
+    "commit": "801b6412",
+    "commitSubject": "refactor(torajs-core): split check_type_of_call s.{at,charAt,charCodeAt,codePointAt,repeat}(Any) widen arm (chunk 245)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,34 @@
   },
   "commits": [
     {
+      "hash": "801b6412",
+      "subject": "refactor(torajs-core): split check_type_of_call s.{at,charAt,charCodeAt,codePointAt,repeat}(Any) widen arm (chunk 245)"
+    },
+    {
+      "hash": "e42b0837",
+      "subject": "refactor(torajs-core): split check_type_of_call s.{at,charAt,charCodeAt,codePointAt}(undef) 1-arg arm (chunk 244)"
+    },
+    {
+      "hash": "cae2a5ea",
+      "subject": "refactor(torajs-core): split check_type_of_call s.{charAt,charCodeAt,codePointAt}() 0-arg arm (chunk 243)"
+    },
+    {
+      "hash": "3197c14f",
+      "subject": "refactor(torajs-core): split check_type_of_call Math.<unary/binary>(Any[, Any]) widen arm (chunk 242)"
+    },
+    {
+      "hash": "01638a80",
+      "subject": "refactor(torajs-core): split check_type_of_call Number.is{Finite,NaN,Integer,SafeInteger} loose predicate arm (chunk 241)"
+    },
+    {
+      "hash": "2a8653fc",
+      "subject": "refactor(torajs-core): split check_type_of_call xs.at(undef) Array 1-arg arm (chunk 240)"
+    },
+    {
+      "hash": "3217a635",
+      "subject": "chore(dashboard): chunks 234-239 snapshot @ 1c0965ea"
+    },
+    {
       "hash": "1c0965ea",
       "subject": "refactor(torajs-core): split check_type_of_call xs.{indexOf,lastIndexOf,includes} 2-arg Array arm (chunk 239)"
     },
@@ -635,55 +663,38 @@
     {
       "hash": "9778c4b8",
       "subject": "refactor(torajs-core): split check_type_of_call xs.{push,unshift} variadic Array arm (chunk 235)"
-    },
-    {
-      "hash": "0c959a7b",
-      "subject": "refactor(torajs-core): split check_type_of_call String.{indexOf,lastIndexOf} 2-arg fromIndex widen (chunk 234)"
-    },
-    {
-      "hash": "34141205",
-      "subject": "chore(dashboard): chunks 224-233 snapshot @ 9edcd060"
-    },
-    {
-      "hash": "9edcd060",
-      "subject": "refactor(torajs-core): split check_type_of_call String.{indexOf,…,search}(undef) 1-arg widen (chunk 233)"
-    },
-    {
-      "hash": "8b782da2",
-      "subject": "refactor(torajs-core): split check_type_of_call String.{startsWith,endsWith,includes} 2-arg arm (chunk 232)"
-    },
-    {
-      "hash": "e82c63f0",
-      "subject": "refactor(torajs-core): split check_type_of_call xs.fill 1/2/3-arg Array arm (chunk 231)"
-    },
-    {
-      "hash": "adbb642e",
-      "subject": "refactor(torajs-core): split check_type_of_call xs.slice 0/1/2-arg Array arm (chunk 230)"
-    },
-    {
-      "hash": "26449a20",
-      "subject": "refactor(torajs-core): split check_type_of_call Math.{min,max} variadic arm (chunk 229)"
     }
   ],
-  "headSha": "1c0965ea",
+  "headSha": "801b6412",
   "autorun": {
-    "total": 280,
+    "total": 281,
     "baselineTarget": 10,
-    "bySelf": 275,
+    "bySelf": 276,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782733215-7db2",
-      "at": "2026-06-29T11:40:15Z",
-      "ts": 1782733215,
+      "rotationId": "r-1782739924-15f5",
+      "at": "2026-06-29T13:32:04Z",
+      "ts": 1782739924,
       "trigger": "self",
-      "prevHead": "1c0965ea",
-      "handoffSha": "sha256:37bb3c33e3545b0d67340627849928779280a555d747530bdafabe3a2e01fec5",
-      "handoffAgeSec": 6065,
+      "prevHead": "801b6412",
+      "handoffSha": "sha256:50cafbb61a8260ffe9a9fbcf8878359de30731fc744ca29082ab3c8c6652f691",
+      "handoffAgeSec": 6648,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782739924-15f5",
+        "at": "2026-06-29T13:32:04Z",
+        "ts": 1782739924,
+        "trigger": "self",
+        "prevHead": "801b6412",
+        "handoffSha": "sha256:50cafbb61a8260ffe9a9fbcf8878359de30731fc744ca29082ab3c8c6652f691",
+        "handoffAgeSec": 6648,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782733215-7db2",
         "at": "2026-06-29T11:40:15Z",
@@ -780,17 +791,6 @@
         "prevHead": "7b7d7521",
         "handoffSha": "sha256:03b6bb903269b90eda736b91facbb89002d07c2c1bf6fa75116fa78b3776aa3a",
         "handoffAgeSec": 19,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782642270-6c94",
-        "at": "2026-06-28T10:24:30Z",
-        "ts": 1782642270,
-        "trigger": "self",
-        "prevHead": "d97e273d",
-        "handoffSha": "sha256:fd7fca0776e491a2419ccc4a394f1c9942396be90dc3338fd457547a440cc996",
-        "handoffAgeSec": 17,
         "conformanceBefore": null,
         "commitsInSession": null
       }
