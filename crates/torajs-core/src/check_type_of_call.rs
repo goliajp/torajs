@@ -338,40 +338,16 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_array_fill::try_match(checker, ast, callee, args) {
         return r;
     }
-    // V3-18 m1.h.51 — String.startsWith / endsWith /
-    // includes accept an optional 2nd `position` arg per
-    // JS spec §21.1.3.20 / §21.1.3.6 / §21.1.3.7.
-    //
-    // S224 — accept Undefined for the position slot per
-    // ES §22.1.3.{21,5} (startsWith/includes:
-    // ToIntegerOrInfinity(undefined)=0) and §22.1.3.7
-    // (endsWith: endPosition undef → length). ssa_lower
-    // mirror lowers undef → ConstI64(0) for startsWith /
-    // includes and ConstI64(i64::MAX) for endsWith; the
-    // _from helpers clamp `> len` to `len`.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "startsWith" | "endsWith" | "includes")
-        && args.len() == 2
+    // `String.{startsWith,endsWith,includes}(needle, pos?)`
+    // 2-arg arm — see
+    // [`crate::check_type_of_call_string_predicate_2arg`]
+    // (chunk 232 — twenty-fifth sub-batch). V3-18 m1.h.51
+    // widens past pre-fix 1-fixed-param sig; S224 accepts
+    // Undefined position slot.
+    if let Some(r) =
+        crate::check_type_of_call_string_predicate_2arg::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            let needle_ty = checker.type_of(ast, args[0])?;
-            if !matches!(needle_ty, Type::String) {
-                return Err(format!(
-                    "String.{m_name} arg 0 must be string, got {needle_ty:?}"
-                ));
-            }
-            let from_ty = checker.type_of(ast, args[1])?;
-            if !matches!(from_ty, Type::Number | Type::Undefined) {
-                return Err(format!(
-                    "String.{m_name} arg 1 must be number, got {from_ty:?}"
-                ));
-            }
-            return Ok(Type::Boolean);
-        }
+        return r;
     }
     // S235 — String.{indexOf,lastIndexOf,includes,startsWith,
     // endsWith,search}(undefined) 1-arg-undef-needle per ES
