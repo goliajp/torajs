@@ -210,6 +210,7 @@ pub(crate) mod check_type_of_call_array_from;
 pub(crate) mod check_type_of_call_array_isarray_of;
 pub(crate) mod check_type_of_call_array_push_unshift;
 pub(crate) mod check_type_of_call_array_slice;
+pub(crate) mod check_type_of_call_array_sort;
 pub(crate) mod check_type_of_call_bare_globals;
 pub(crate) mod check_type_of_call_console;
 pub(crate) mod check_type_of_call_date_utc;

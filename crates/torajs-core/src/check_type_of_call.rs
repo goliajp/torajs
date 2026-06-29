@@ -397,23 +397,6 @@ pub(crate) fn check(
     {
         return r;
     }
-    // V3-18 wedge — Array.sort / toSorted accept an
-    // optional comparator. Per JS spec §22.1.3.27 the
-    // default cmp converts to string and compares
-    // lexicographically; subset uses element-type-aware
-    // `<`/`>` comparison via the runtime helper. Pre-fix
-    // tora's strict 1-arg signature rejected the no-arg
-    // form `arr.sort()`.
-    //
-    // ES §23.1.3.{29,31} step 1 also explicitly accepts
-    // the literal `undefined` for `comparefn`: "If
-    // comparefn is not undefined and not callable, throw
-    // a TypeError". bun observes `undefined` → default
-    // compare; tora's strict comparator-type check
-    // rejected the 1-arg form `.sort(undefined)`. Treat
-    // a 1-arg call with arg type Undefined as equivalent
-    // to the no-arg case (SSA mirror at
-    // ssa_lower_str.rs `sort/toSorted` dispatch).
     // S277 — `Map.{keys,values,entries}(...trailing)` /
     // `Set.{keys,values,entries}(...trailing)` iterator-factory
     // trailing-arg-ignore arm — see
@@ -425,48 +408,15 @@ pub(crate) fn check(
     {
         return r;
     }
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "sort" | "toSorted")
-    {
-        if args.is_empty() {
-            let src_ty = checker.type_of(ast, *src_id)?;
-            if let Type::Array(elem) = src_ty {
-                return Ok(Type::Array(elem));
-            }
-        } else if args.len() == 1 {
-            let arg_ty = checker.type_of(ast, args[0])?;
-            if arg_ty == Type::Undefined {
-                let src_ty = checker.type_of(ast, *src_id)?;
-                if let Type::Array(elem) = src_ty {
-                    return Ok(Type::Array(elem));
-                }
-            }
-        } else if args.len() >= 2 {
-            // S276 — Array.{sort,toSorted}(cmp, ...trailing) per
-            // ES §23.1.3.{30,33} trailing-arg ignore: spec
-            // reads only cmp; trailing slots silent-drop.
-            // tora's static sig is fixed 1-arg, so 2+ args
-            // bounce at strict arity. Accept any cmp shape
-            // (Function | Any), typecheck-and-drop trailing.
-            // S303 — also accept Undefined cmp per ES §23.1.3.30
-            // step 2: `sort(undef)` = `sort()` (default lex
-            // comparator). The 1-arg `undef` branch above
-            // handles args.len()==1; this widens 2+ to fold
-            // through the same default path + drop trailing.
-            let src_ty = checker.type_of(ast, *src_id)?;
-            if let Type::Array(elem) = src_ty {
-                let aty0 = checker.type_of(ast, args[0])?;
-                if matches!(aty0, Type::Function(..) | Type::Any | Type::Undefined) {
-                    for &a in &args[1..] {
-                        let _ = checker.type_of(ast, a)?;
-                    }
-                    return Ok(Type::Array(elem));
-                }
-            }
-        }
+    // V3-18 wedge — `xs.{sort,toSorted}(cmp?, ...trailing)`
+    // 0/1/2+-arg Array-receiver arm — see
+    // [`crate::check_type_of_call_array_sort`] (chunk 238 —
+    // thirty-first sub-batch). Folds 0-arg default, S303 1-arg
+    // Undefined-cmp, and S276 2+-arg trailing-ignore into one
+    // sibling; 1-arg non-Undefined falls through to the regular
+    // comparator-type-check path.
+    if let Some(r) = crate::check_type_of_call_array_sort::try_match(checker, ast, callee, args) {
+        return r;
     }
     // V3-18 m1.h.49 — Array.indexOf / lastIndexOf accept
     // an optional fromIndex 2nd arg per JS spec §22.1.3.13
