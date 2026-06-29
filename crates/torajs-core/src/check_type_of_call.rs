@@ -414,26 +414,16 @@ pub(crate) fn check(
     // a 1-arg call with arg type Undefined as equivalent
     // to the no-arg case (SSA mirror at
     // ssa_lower_str.rs `sort/toSorted` dispatch).
-    // S277 — Map/Set.{keys,values,entries}(...trailing) per
-    // ES §23.{1,2}.3.X iterator-factory trailing-arg ignore.
-    // Spec defines 0-arg only; trailing slots silent-drop.
-    // tora's static sig is `Vec::new() → MapIter`; 1+ args
-    // bounce at strict arity. Accept any arg count and
+    // S277 — `Map.{keys,values,entries}(...trailing)` /
+    // `Set.{keys,values,entries}(...trailing)` iterator-factory
+    // trailing-arg-ignore arm — see
+    // [`crate::check_type_of_call_mapset_iter_trailing`] (chunk
+    // 237 — thirtieth sub-batch). Spec defines 0-arg only;
     // typecheck-and-drop trailing exprs.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "keys" | "values" | "entries")
-        && !args.is_empty()
+    if let Some(r) =
+        crate::check_type_of_call_mapset_iter_trailing::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::Map | Type::Set) {
-            for &a in args.iter() {
-                let _ = checker.type_of(ast, a)?;
-            }
-            return Ok(Type::MapIter);
-        }
+        return r;
     }
     if let Expr::Member {
         obj: src_id,

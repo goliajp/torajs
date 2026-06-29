@@ -216,6 +216,7 @@ pub(crate) mod check_type_of_call_date_utc;
 pub(crate) mod check_type_of_call_generic_ident;
 pub(crate) mod check_type_of_call_global_ctors;
 pub(crate) mod check_type_of_call_json_stringify;
+pub(crate) mod check_type_of_call_mapset_iter_trailing;
 pub(crate) mod check_type_of_call_math_hypot;
 pub(crate) mod check_type_of_call_math_min_max;
 pub(crate) mod check_type_of_call_math_pow_atan2_imul;
