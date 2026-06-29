@@ -573,46 +573,14 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S221 — `s.substring(start, end)` accepts Undefined for
-    // either positional per ES §22.1.3.22 step 4/5:
-    // ToIntegerOrInfinity(undef)=0 for start, end===undefined
-    // takes the omitted default (len). ssa_lower mirror
-    // short-circuits each undef slot to 0 / recv.length so
-    // the str_substring helper's I64 ABI never sees an
-    // Undefined operand.
-    //
-    // S232 — extend the same widen to `s.slice(start, end)`
-    // 2-arg per ES §22.1.3.20 step 3/4: start undef → 0,
-    // end undef → length. slice's negative-index handling
-    // is orthogonal — the helper still receives concrete
-    // I64s after the ssa_lower mirror substitutes.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && (m_name == "substring" || m_name == "slice" || m_name == "substr")
-        && args.len() == 2
+    // S221 + S232 + S333 — `s.{slice,substring,substr}(start,
+    // end)` String-receiver 2-arg wedge arm extracted to
+    // [`crate::check_type_of_call_string_slice_2arg`]
+    // (chunk 256).
+    if let Some(r) =
+        crate::check_type_of_call_string_slice_2arg::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            // S333 — 2-arg form widens Any. Same Any coerce
-            // pattern A as the 1-arg path. substr extends the
-            // method-table sig (Number, Number) here so the
-            // (Any, Any) shape doesn't fall through to the
-            // strict gate; ssa_lower mirror decodes via
-            // anyv_to_number → coerce_to_i64.
-            let allow_undef = m_name == "substring" || m_name == "slice";
-            for &aid in args {
-                let aty = checker.type_of(ast, aid)?;
-                if aty != Type::Number
-                    && !(allow_undef && aty == Type::Undefined)
-                    && aty != Type::Any
-                {
-                    return Err(format!("String.{m_name} arg must be number, got {aty:?}"));
-                }
-            }
-            return Ok(Type::String);
-        }
+        return r;
     }
     // S241 — String.{slice,substring,substr,padStart,padEnd}
     // (a, b, ...trailing) trailing-arg ignore per ES
