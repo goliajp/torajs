@@ -88,116 +88,14 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_global_ctors::try_match(checker, ast, callee, args) {
         return r;
     }
-    /* T-15.g.5 (v0.5.0) — `Promise.resolve(v)` / `Promise.reject(v)`
-     * with arg-type-driven return inference. Static-method
-     * table can't carry generic T (TypeVar isn't auto-
-     * unified), so we special-case here: inspect arg type,
-     * return Promise<T>. Subset: T ∈ {Number, String,
-     * Boolean} for now; arrays / objects in T-15.g.6+.
-     * (Object.is uses the static-table path because both
-     * args / return are concrete.) */
-    // V3-18 wedge — `Number.parseInt(s)` and
-    // `Number.parseInt(s, radix)`. Per JS spec §21.1.2.13
-    // the radix is optional; bare `Number.parseInt(s)`
-    // auto-detects (`0x` prefix → 16, otherwise 10).
-    // Pre-fix the type was declared as
-    // `Function([String, Number], Number)` so the 1-arg
-    // form failed at the unified arity check. Mirror of
-    // the global `parseInt` handler at line ~4615.
-    // SSA lower already handles the 1-arg shape (passes
-    // ConstI64(0) as the auto-detect radix sentinel).
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "parseInt"
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ns == "Number"
-    {
-        // S253 — Number.parseInt(str, radix, ...trailing)
-        // per ES §21.1.2.13 trailing-arg ignore. SSA-emit
-        // reads args[0..=1] (or less), so args[2..]
-        // dropped at lower-time.
-        for &arg in args.iter().skip(2) {
-            let _ = checker.type_of(ast, arg)?;
-        }
-        // S202 — spec §21.1.2.13 Number.parseInt aliases
-        // global parseInt. Step 1 reads `string` which
-        // defaults to undefined when omitted; ToString →
-        // "undefined" → parse fails → NaN.
-        //
-        // S226 — also accept an explicit `undefined` arg
-        // via the same ToString("undefined") → NaN path;
-        // ssa_lower mirror folds the call to ConstF64(NaN).
-        if let Some(arg0) = args.first() {
-            let s_ty = checker.type_of(ast, *arg0)?;
-            if !matches!(s_ty, Type::String | Type::Undefined) {
-                return Err(format!(
-                    "Number.parseInt arg 0 must be string, got {s_ty:?}"
-                ));
-            }
-        }
-        if args.len() == 2 {
-            let r_ty = checker.type_of(ast, args[1])?;
-            // S234 — accept Undefined radix per ES §21.1.2.13
-            // (aliases §19.2.5.1 step 2-3): ToInt32(undefined)=0,
-            // step 8 R==0 → R=10 default. ssa_lower mirror
-            // substitutes ConstI64(0) for the helper's
-            // auto-detect branch.
-            //
-            // S327 — widen accept Any radix. Spec
-            // §19.2.5.1 step 2 calls ToInt32 on the radix,
-            // which already coerces Any (NaN→0, ∞→0, etc.).
-            // ssa_lower mirror routes Any through
-            // coerce_to_i64 instead of panicking on the
-            // integer-shape guard. Narrow widen — only the
-            // Number.parseInt 2-arg shape; global parseInt
-            // (line ~17219) has no shape guard.
-            if !matches!(r_ty, Type::Number | Type::Undefined | Type::Any) {
-                return Err(format!(
-                    "Number.parseInt arg 1 must be number, got {r_ty:?}"
-                ));
-            }
-        }
-        return Ok(Type::Number);
-    }
-    // S202 — Number.parseFloat 0-arg per ES §21.1.2.12.
-    // Alias to global parseFloat; missing string defaults
-    // to undefined → ToString → "undefined" → NaN. The
-    // declared `vec![Type::String]` signature was rejecting
-    // the 0-arg form through the generic arity gate.
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "parseFloat"
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ns == "Number"
-    {
-        // S253 — Number.parseFloat(str, ...trailing) per
-        // ES §21.1.2.12 trailing-arg ignore. SSA-emit
-        // reads args[0] (or empty), so args[1..] dropped
-        // at lower-time.
-        for &arg in args.iter().skip(1) {
-            let _ = checker.type_of(ast, arg)?;
-        }
-        // S226 — explicit undefined arg → NaN (same path).
-        //
-        // S330 — widen accept Any. Spec §19.2.5.2 step 1
-        // calls ToString on the operand, which already
-        // coerces arbitrary-typed input. ssa_lower mirror
-        // decodes Any via anyv_to_str_pair (tag + value)
-        // before passing to num_parse_float. Sister to
-        // S327 (parseInt Any radix).
-        if let Some(arg0) = args.first() {
-            let s_ty = checker.type_of(ast, *arg0)?;
-            if !matches!(s_ty, Type::String | Type::Undefined | Type::Any) {
-                return Err(format!(
-                    "Number.parseFloat arg 0 must be string, got {s_ty:?}"
-                ));
-            }
-        }
-        return Ok(Type::Number);
+    // Number.parseInt + Number.parseFloat early-route arms —
+    // see [`crate::check_type_of_call_number_parse`] (chunk
+    // 209 — third sub-batch). Both need early-route handling
+    // because the regular static-method table fixes arity in
+    // ways the spec ignores (parseInt 1-arg, parseFloat 0-arg
+    // both had to circumvent the unified arity gate).
+    if let Some(r) = crate::check_type_of_call_number_parse::try_match(checker, ast, callee, args) {
+        return r;
     }
     // T-15.g.5 / T-19.b/d/f — `Promise.resolve(v)` /
     // `Promise.reject(v)` with arg-type-driven return

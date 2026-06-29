@@ -205,6 +205,7 @@ pub(crate) mod check_type_of_array;
 pub(crate) mod check_type_of_binop;
 pub(crate) mod check_type_of_call;
 pub(crate) mod check_type_of_call_global_ctors;
+pub(crate) mod check_type_of_call_number_parse;
 pub(crate) mod check_type_of_call_promise_then;
 pub(crate) mod check_type_of_fn;
 pub(crate) mod check_type_of_ident;
