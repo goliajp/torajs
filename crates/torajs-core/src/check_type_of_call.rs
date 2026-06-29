@@ -313,38 +313,14 @@ pub(crate) fn check(
     {
         return r;
     }
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "Math"
-        && (m == "min" || m == "max")
-    {
-        // V3-18 m1.h.24 — JS spec §21.3.2.24/25:
-        // Math.max() returns -Infinity, Math.min()
-        // returns +Infinity (the identity element of
-        // the reduction). Math.max(x) returns x.
-        // Drop the artificial 2-arg minimum.
-        //
-        // S228 — accept Undefined args per ES NaN-
-        // propagation: any undef arg coerces to NaN
-        // (ToNumber(undefined)=NaN) and Math.min/max
-        // with any NaN operand returns NaN. ssa_lower
-        // mirror folds the call when any arg is undef.
-        //
-        // S342 — accept Any args per ES §21.3.2.{24,25}
-        // ToNumber: arbitrary-typed input is accepted.
-        // ssa_lower's variadic Math.min/max path routes
-        // Any through anyv_to_number → F64 (math_to_f64
-        // closure at ~17898).
-        for &aid in args {
-            let aty = checker.type_of(ast, aid)?;
-            if !matches!(aty, Type::Number | Type::Undefined | Type::Any) {
-                return Err(format!("Math.{m} args must be number, got {aty:?}"));
-            }
-        }
-        return Ok(Type::Number);
+    // `Math.{min,max}(...)` variadic arm — see
+    // [`crate::check_type_of_call_math_min_max`] (chunk 229
+    // — twenty-second sub-batch). V3-18 m1.h.24 drops the
+    // artificial 2-arg minimum; S228 Undefined + S342 Any
+    // arg propagation.
+    if let Some(r) = crate::check_type_of_call_math_min_max::try_match(checker, ast, callee, args) {
+        return r;
     }
-    // (Math.{pow,atan2,imul} 2-arg undef widen handled by
-    // chunk 228 sibling above.)
     // V3-18 m1.h.35 — Array.slice with 0 or 1 args. Per
     // JS spec §22.1.3.25:
     //   xs.slice()      = xs.slice(0, xs.length)
