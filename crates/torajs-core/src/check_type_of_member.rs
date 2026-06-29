@@ -333,37 +333,34 @@ pub(crate) fn check(
     {
         return r;
     }
+    // Generic `(Type::Object(_), …)` Object.prototype catch-alls
+    // (V3-18 m2.b — hasOwnProperty / propertyIsEnumerable /
+    // isPrototypeOf / toString — subset stubs that fire for
+    // every namespace tag) + constructor introspection (V3-18
+    // m2.c — prototype / name / length) + Symbol singleton
+    // accessors (T-13.c — `Symbol.iterator` / `asyncIterator` /
+    // `toPrimitive`, which gate on `Type::Object("Symbol")`).
+    // See [`crate::check_type_of_member_object_generic`]
+    // (chunk 204 — fourteenth sub-batch). All other
+    // `Type::Object(...)` arms have already been handled by
+    // the more-specific pre-match dispatches above (chunks
+    // 200 namespace / 201 namespace_io / 202 object_meta /
+    // 203 reflect); the generic catch-alls fire last for any
+    // namespace tag not picked up earlier.
+    if let Type::Object(_) = &obj_ty
+        && let Some(r) = crate::check_type_of_member_object_generic::try_match(&obj_ty, name)
+    {
+        return r;
+    }
     match (&obj_ty, name) {
         // (Type::Object("console" / "Math" / "Number" / "BigInt"),
         // various) — handled by the pre-match namespace
         // try_match dispatch (chunk 200).
-        // V3-18 m2.b — Object.prototype methods on
-        // constructor-namespace objects (Number / String /
-        // Boolean / Array / etc). Same subset semantics as
-        // m2.a on primitives: hasOwnProperty /
-        // propertyIsEnumerable always false (no own enum
-        // properties tracked), valueOf identity.
-        (Type::Object(_), "hasOwnProperty") | (Type::Object(_), "propertyIsEnumerable") => {
-            Ok(Type::Function(vec![Type::String], Box::new(Type::Boolean)))
-        }
-        (Type::Object(_), "isPrototypeOf") => {
-            Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
-        }
-        (Type::Object(_), "toString") => Ok(Type::Function(Vec::new(), Box::new(Type::String))),
-        // V3-18 m2.c → 2026-05-18 — `Number.prototype` /
-        // `String.prototype` / etc — every constructor
-        // object has a `.prototype` property. Subset
-        // returns Type::Any so subsequent `.X` access
-        // routes through dynobj_get (returning ANY_UNDEF
-        // for unknown fields, harmless when consumed by
-        // a verifyProperty-style stub). Pre-fix Type::Null
-        // blocked `verifyProperty(X.prototype.Y, ...)` —
-        // the dominant test262 shape — at typecheck time.
-        // typeof X.prototype still works via the typeof-
-        // namespace-member arm above.
-        (Type::Object(_), "prototype") => Ok(Type::Any),
-        (Type::Object(_), "name") => Ok(Type::String),
-        (Type::Object(_), "length") => Ok(Type::Number),
+        // (Type::Object(_), "hasOwnProperty" /
+        // "propertyIsEnumerable" / "isPrototypeOf" /
+        // "toString" / "prototype" / "name" / "length") —
+        // handled by the pre-match Object-generic try_match
+        // dispatch (chunk 204).
         // (Type::Object("JSON" / "Array"), "stringify" / "parse" /
         // "isArray" / "from") — handled by the pre-match
         // namespace try_match dispatch (chunk 200).
@@ -381,14 +378,9 @@ pub(crate) fn check(
         // (Type::Promise(_), "then" / "catch" / "finally")
         // — handled by the pre-match Promise try_match
         // dispatch (chunk 198).
-        /* T-13.c (v0.4.0) — well-known Symbol singletons.
-         * Process-level lazy-init pointers; identity
-         * preserved across all access sites. for-of
-         * dispatch via `[Symbol.iterator]()` lands with
-         * v0.5 (iterator protocol substrate). */
-        (Type::Object("Symbol"), "iterator")
-        | (Type::Object("Symbol"), "asyncIterator")
-        | (Type::Object("Symbol"), "toPrimitive") => Ok(Type::Symbol),
+        // (Type::Object("Symbol"), "iterator" / "asyncIterator"
+        // / "toPrimitive") — handled by the pre-match
+        // Object-generic try_match dispatch (chunk 204).
         // (Type::Object("Object"), "getPrototypeOf" /
         // "defineProperty" / "getOwnPropertyDescriptor" /
         // "setPrototypeOf" / "defineProperties" / "create" /

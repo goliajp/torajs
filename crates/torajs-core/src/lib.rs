@@ -212,6 +212,7 @@ pub(crate) mod check_type_of_member_date;
 pub(crate) mod check_type_of_member_misc;
 pub(crate) mod check_type_of_member_namespace;
 pub(crate) mod check_type_of_member_namespace_io;
+pub(crate) mod check_type_of_member_object_generic;
 pub(crate) mod check_type_of_member_object_meta;
 pub(crate) mod check_type_of_member_prim;
 pub(crate) mod check_type_of_member_promise;
