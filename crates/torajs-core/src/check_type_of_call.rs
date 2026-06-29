@@ -1087,38 +1087,14 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S266 — RegExp.{test,exec,toString}(s?, ...trailing)
-    // per ES §22.2.6.{2,7,16}. Each method's fixed sig
-    // (`vec![Type::String]` / `Vec::new()`) rejected 1+
-    // trailing args. SSA-emit uses only args[0] (test/exec)
-    // or no args (toString); the matching widen relaxes
-    // the debug-assert + eval-and-drops args[1..].
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "test" | "exec" | "toString")
+    // S266 — `r.{test,exec,toString}(s?, ...trailing)`
+    // RegExp-receiver trailing-arg ignore wedge extracted
+    // to [`crate::check_type_of_call_regexp_test_exec`]
+    // (chunk 270).
+    if let Some(r) =
+        crate::check_type_of_call_regexp_test_exec::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::RegExp)
-            && matches!(m_name.as_str(), "test" | "exec")
-            && args.len() >= 2
-        {
-            for &arg in args.iter() {
-                let _ = checker.type_of(ast, arg)?;
-            }
-            return Ok(match m_name.as_str() {
-                "test" => Type::Boolean,
-                "exec" => Type::Array(Box::new(Type::String)),
-                _ => unreachable!(),
-            });
-        }
-        if matches!(src_ty, Type::RegExp) && m_name == "toString" && !args.is_empty() {
-            for &arg in args.iter() {
-                let _ = checker.type_of(ast, arg)?;
-            }
-            return Ok(Type::String);
-        }
+        return r;
     }
     // S265 — Object.{getPrototypeOf,isExtensible,isSealed,
     // preventExtensions,seal}(obj, ...trailing) per ES
