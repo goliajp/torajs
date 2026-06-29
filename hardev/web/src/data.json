@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-29T01:43:10.541Z",
+  "generatedAt": "2026-06-29T06:34:22.649Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "bae3d8f7",
-    "commitSubject": "refactor(torajs-core): split check_type_of_call Array.from polymorphic (chunk 213)",
+    "commit": "490b15b4",
+    "commitSubject": "refactor(torajs-core): split check_type_of_call undef/Any 1-arg widen arms (chunk 223)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,84 @@
   },
   "commits": [
     {
+      "hash": "490b15b4",
+      "subject": "refactor(torajs-core): split check_type_of_call undef/Any 1-arg widen arms (chunk 223)"
+    },
+    {
+      "hash": "be5c9188",
+      "subject": "refactor(torajs-core): split check_type_of_call Math.hypot variadic (chunk 222)"
+    },
+    {
+      "hash": "2e8fd9e2",
+      "subject": "refactor(torajs-core): split check_type_of_call bare-Ident globals (chunk 221)"
+    },
+    {
+      "hash": "e3be6043",
+      "subject": "refactor(torajs-core): drop dead Number/String coercion arm (chunk 220)"
+    },
+    {
+      "hash": "47e02d1b",
+      "subject": "refactor(torajs-core): split check_type_of_call M3 generic Ident call inference (chunk 219)"
+    },
+    {
+      "hash": "7784c790",
+      "subject": "refactor(torajs-core): split check_type_of_call BigInt/Number .toString(radix) (chunk 218)"
+    },
+    {
+      "hash": "29c039eb",
+      "subject": "refactor(torajs-core): split check_type_of_call JSON.stringify varargs (chunk 217)"
+    },
+    {
+      "hash": "76f86ec4",
+      "subject": "refactor(torajs-core): split check_type_of_call console.* varargs (chunk 216)"
+    },
+    {
+      "hash": "197856cd",
+      "subject": "refactor(torajs-core): split check_type_of_call xs.reduce 1-arg overload (chunk 215)"
+    },
+    {
+      "hash": "3901073c",
+      "subject": "refactor(torajs-core): split check_type_of_call Date.UTC overload (chunk 214)"
+    },
+    {
+      "hash": "521aff47",
+      "subject": "chore(dashboard): chunks 202-213 snapshot @ bae3d8f7"
+    },
+    {
       "hash": "bae3d8f7",
       "subject": "refactor(torajs-core): split check_type_of_call Array.from polymorphic (chunk 213)"
-    },
-    {
-      "hash": "54854169",
-      "subject": "refactor(torajs-core): split check_type_of_call arr.flat early-route (chunk 212)"
-    },
-    {
-      "hash": "5bf6755e",
-      "subject": "refactor(torajs-core): split check_type_of_call Object.assign/values (chunk 211)"
-    },
-    {
-      "hash": "83b560ba",
-      "subject": "refactor(torajs-core): split check_type_of_call Promise.all/race/any/allSettled (chunk 210)"
-    },
-    {
-      "hash": "d43fc0eb",
-      "subject": "refactor(torajs-core): split check_type_of_call Number.parseInt/parseFloat (chunk 209)"
-    },
-    {
-      "hash": "d7522a27",
-      "subject": "refactor(torajs-core): split check_type_of_call global Ident ctors (chunk 208)"
-    },
-    {
-      "hash": "84850c1c",
-      "subject": "refactor(torajs-core): split check_type_of_call Promise.then/catch early-route arms (chunk 207)"
-    },
-    {
-      "hash": "17e34d4a",
-      "subject": "refactor(torajs-core): fold Array-as-Object catch-all + trim main match (chunk 206 — HARD LIMIT CLEAR)"
-    },
-    {
-      "hash": "f3fb4914",
-      "subject": "refactor(torajs-core): split check_type_of_member prim/Any union arms (chunk 205)"
-    },
-    {
-      "hash": "fdd890b0",
-      "subject": "refactor(torajs-core): split check_type_of_member generic Object arms (chunk 204)"
-    },
-    {
-      "hash": "265e2150",
-      "subject": "refactor(torajs-core): split check_type_of_member Reflect/Object mixed arms (chunk 203)"
-    },
-    {
-      "hash": "8c55dd7f",
-      "subject": "refactor(torajs-core): split check_type_of_member Object meta arms (chunk 202)"
     }
   ],
-  "headSha": "bae3d8f7",
+  "headSha": "490b15b4",
   "autorun": {
-    "total": 276,
+    "total": 277,
     "baselineTarget": 10,
-    "bySelf": 271,
+    "bySelf": 272,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782691961-2dd3",
-      "at": "2026-06-29T00:12:41Z",
-      "ts": 1782691961,
+      "rotationId": "r-1782697492-3a80",
+      "at": "2026-06-29T01:44:52Z",
+      "ts": 1782697492,
       "trigger": "self",
-      "prevHead": "6cf98f7a",
-      "handoffSha": "sha256:966e1c270de927f82717e8f1e4b61eccd9a2d37d3c5339c7abfce87c70aa3f7d",
+      "prevHead": "521aff47",
+      "handoffSha": "sha256:d8c97fbc0ca946acaf11615a0ec2a8a5842afe12ed805dd3191bdd18499b499f",
       "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782697492-3a80",
+        "at": "2026-06-29T01:44:52Z",
+        "ts": 1782697492,
+        "trigger": "self",
+        "prevHead": "521aff47",
+        "handoffSha": "sha256:d8c97fbc0ca946acaf11615a0ec2a8a5842afe12ed805dd3191bdd18499b499f",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782691961-2dd3",
         "at": "2026-06-29T00:12:41Z",
@@ -780,17 +791,6 @@
         "prevHead": "8aa4db83",
         "handoffSha": "sha256:efe9996f793ea915e68d6c7c2e85a411efeab2548b2e489564e02ad08526c7f2",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782602309-35bf",
-        "at": "2026-06-27T23:18:29Z",
-        "ts": 1782602309,
-        "trigger": "self",
-        "prevHead": "ac51d489",
-        "handoffSha": "sha256:994a99d86296216ae850fe80bae27c07f392595c27df62e1802af232ab476eb9",
-        "handoffAgeSec": 1312,
         "conformanceBefore": null,
         "commitsInSession": null
       }
