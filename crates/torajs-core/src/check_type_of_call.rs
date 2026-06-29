@@ -109,78 +109,14 @@ pub(crate) fn check(
     if let Some(r) = checker.check_process_on(ast, *callee, args) {
         return r;
     }
-    /* T-17.a (v0.5.0) — Promise.all<T>(promises: Promise<T>[])
-     * → Promise<Array<T>>. Sync fast-path MVP — caller's
-     * input must be all-fulfilled at call time (pending
-     * elements yield a rejected outer Promise). Real
-     * callback fan-in lands post-T-15.g.6 once PromiseId
-     * interning preserves T element shape. */
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && (m_name == "all" || m_name == "race" || m_name == "any" || m_name == "allSettled")
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ns == "Promise"
-    {
-        // S273 — accept `>= 1` arg per ES §27.2.4.{1,3,5,2}
-        // trailing-arg ignore: spec reads only the iterable
-        // at args[0]; trailing slots silent-drop. ssa_lower
-        // mirror evals-and-drops args[1..]; typecheck-and-
-        // drop here so trailing expr internal errors surface.
-        if args.is_empty() {
-            return Err(format!(
-                "Promise.{m_name} expects 1 arg (the array of Promises), got {}",
-                args.len()
-            ));
-        }
-        for &a in &args[1..] {
-            let _ = checker.type_of(ast, a)?;
-        }
-        let arg_ty = checker.type_of(ast, args[0])?;
-        let inner = match &arg_ty {
-            Type::Array(boxed) => match &**boxed {
-                Type::Promise(t_box) => (**t_box).clone(),
-                other => {
-                    return Err(format!(
-                        "Promise.{m_name}: arg must be Array<Promise<T>>, got Array<{other:?}>"
-                    ));
-                }
-            },
-            other => {
-                return Err(format!(
-                    "Promise.{m_name}: arg must be Array<Promise<T>>, got {other:?}"
-                ));
-            }
-        };
-        /* Promise.all → Promise<T[]>; .race / .any →
-         * Promise<T>; .allSettled → Promise<{status,
-         * value}[]>. T-17.c-A3 — allSettled accepts T
-         * from the {Number, String, Bool} primitive set
-         * (parity with Promise.all's existing T
-         * support). Result struct's value field tracks
-         * the inner T monomorphically — ssa_lower picks
-         * up the field type via the returned Type::Struct
-         * and emits the matching field drop (str_drop
-         * for String; no-op for Number/Bool which are
-         * i64-inline). Heterogeneous T-tuples per spec
-         * are deferred until PromiseId interning. */
-        let result = match m_name.as_str() {
-            "all" => Type::Promise(Box::new(Type::Array(Box::new(inner)))),
-            "allSettled" => {
-                if !matches!(inner, Type::Number | Type::String | Type::Boolean) {
-                    return Err(format!(
-                        "Promise.allSettled: T must be Number, String, or Boolean in v0.5 MVP (got {inner:?}); spec-strict heterogeneous-T shape ships post-PromiseId interning"
-                    ));
-                }
-                Type::Promise(Box::new(Type::Array(Box::new(Type::Struct(vec![
-                    ("status".to_string(), Type::String),
-                    ("value".to_string(), inner.clone()),
-                ])))))
-            }
-            _ => Type::Promise(Box::new(inner)), // race / any
-        };
-        return Ok(result);
+    // Promise.all / .race / .any / .allSettled fan-in static
+    // methods — see [`crate::check_type_of_call_promise_all`]
+    // (chunk 210 — fourth sub-batch). Input is
+    // Array<Promise<T>>; result varies per method
+    // (.all → Promise<T[]> / .race | .any → Promise<T> /
+    // .allSettled → Promise<{status,value}[]>).
+    if let Some(r) = crate::check_type_of_call_promise_all::try_match(checker, ast, callee, args) {
+        return r;
     }
     // `Object.assign(target, ...sources)` per §20.1.2.1 —
     // copy own enumerable properties from each source into
