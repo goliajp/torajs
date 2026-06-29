@@ -258,45 +258,17 @@ pub(crate) fn check(
     // Number; result is a String. The single-arg case still goes
     // through the general type table for the intrinsic call; we
     // only intercept when the arity is ≠ 1.
-    // `Array.of(...vals)` — variadic factory that returns a
-    // fresh `Array<T>` with the given values in order. Empty
-    // call requires the caller to use a typed `[]` literal
-    // instead (no element to anchor the type). All args must
-    // unify on the same type.
-    // S204 — `Array.isArray()` 0-arg per ES §23.1.2.2 step 1:
-    // missing `arg` defaults to undefined; undefined is not an
-    // Array, so the predicate is statically false. The
-    // declared `vec![Type::Any]` signature was rejecting the
-    // no-arg form at the generic arity gate.
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "Array"
-        && m == "isArray"
-        && args.is_empty()
+    // `Array.isArray()` 0-arg + `Array.of(...vals)` variadic
+    // arms — see
+    // [`crate::check_type_of_call_array_isarray_of`] (chunk
+    // 224 — seventeenth sub-batch). S204 isArray 0-arg
+    // statically-false predicate (sig table rejects no-arg) +
+    // Array.of variadic factory anchoring element type on
+    // first arg.
+    if let Some(r) =
+        crate::check_type_of_call_array_isarray_of::try_match(checker, ast, callee, args)
     {
-        return Ok(Type::Boolean);
-    }
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "Array"
-        && m == "of"
-    {
-        if args.is_empty() {
-            return Err("Array.of() with zero args needs a typed `[]` literal; \
-             tr can't infer the element type"
-                .into());
-        }
-        let first_ty = checker.type_of(ast, args[0])?;
-        for &aid in args.iter().skip(1) {
-            let aty = checker.type_of(ast, aid)?;
-            if aty != first_ty {
-                return Err(format!(
-                    "Array.of args must agree on element type; first is \
-                 {first_ty:?}, later arg is {aty:?}"
-                ));
-            }
-        }
-        return Ok(Type::Array(Box::new(first_ty)));
+        return r;
     }
     if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
         && let Expr::Ident(ns) = ast.get_expr(*obj)
