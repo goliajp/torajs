@@ -1005,27 +1005,13 @@ pub(crate) fn check(
         }
     }
     // S260 — `n.toLocaleString(locales?, options?, ...trailing)`
-    // trailing-arg ignore per ES §21.1.3.4. Spec reads
-    // locales + options + ignores rest; tora ignores all
-    // formatting args already (en-US-only subset; ssa_lower
-    // pass_args=false at line ~16707). The fixed-arity
-    // `vec![Any, Any]` sig above rejects 3+ arg calls —
-    // widen here. Type-erased silent-drop matches the
-    // SSA-emit reality (no arg flows to runtime helper).
-    if let Expr::Member {
-        obj: recv_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "toLocaleString"
-        && args.len() >= 3
+    // Number-receiver 3+ arg trailing-arg wedge extracted to
+    // [`crate::check_type_of_call_number_tolocale_trailing`]
+    // (chunk 287).
+    if let Some(r) =
+        crate::check_type_of_call_number_tolocale_trailing::try_match(checker, ast, callee, args)
     {
-        let recv_ty = checker.type_of(ast, *recv_id)?;
-        if matches!(recv_ty, Type::Number) {
-            for &arg in args.iter() {
-                let _ = checker.type_of(ast, arg)?;
-            }
-            return Ok(Type::String);
-        }
+        return r;
     }
     // S259 — `Symbol.{for,keyFor}(key, ...trailing)`
     // namespace trailing-arg ignore wedge extracted to

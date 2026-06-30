@@ -244,6 +244,7 @@ pub(crate) mod check_type_of_call_number_fixed_0arg;
 pub(crate) mod check_type_of_call_number_fixed_trailing;
 pub(crate) mod check_type_of_call_number_parse;
 pub(crate) mod check_type_of_call_number_predicate_loose;
+pub(crate) mod check_type_of_call_number_tolocale_trailing;
 pub(crate) mod check_type_of_call_object_fromentries;
 pub(crate) mod check_type_of_call_object_getownpropdesc;
 pub(crate) mod check_type_of_call_object_static;
