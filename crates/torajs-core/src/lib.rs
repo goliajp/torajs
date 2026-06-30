@@ -474,6 +474,7 @@ pub(crate) mod ssa_lower_intrinsics_str_a;
 pub(crate) mod ssa_lower_intrinsics_str_b;
 pub(crate) mod ssa_lower_intrinsics_str_extra;
 pub(crate) mod ssa_lower_intrinsics_substr;
+pub(crate) mod ssa_lower_intrinsics_table;
 pub(crate) mod ssa_lower_intrinsics_throw;
 pub(crate) mod ssa_lower_intrinsics_weak;
 pub(crate) mod ssa_lower_json_parse;
