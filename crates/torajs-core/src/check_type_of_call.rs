@@ -1093,7 +1093,6 @@ pub(crate) fn check(
         // the cases we ship today this is fine; the ts-subset
         // doc calls out the constraint.
         let _ = is_string_borrow;
-        let _ = is_class_method;
         if consume_bitmap.get(i).copied().unwrap_or(false)
             && !arg_ty.is_copy()
             && !checker.consumed_calls.contains(&eid)
