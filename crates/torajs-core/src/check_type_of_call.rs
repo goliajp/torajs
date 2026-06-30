@@ -1027,29 +1027,14 @@ pub(crate) fn check(
             return Ok(Type::String);
         }
     }
-    // S259 — Symbol.{for,keyFor}(key|s, ...trailing)
-    // trailing-arg ignore per ES §19.4.{2,3}. Spec reads
-    // only args[0]; tora silent-drops trailing. SSA-emit
-    // mirror widens `args.len() == 1` gate to `>= 1`
-    // (ssa_lower.rs ~18877).
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ns == "Symbol"
-        && matches!(m_name.as_str(), "for" | "keyFor")
-        && args.len() >= 2
+    // S259 — `Symbol.{for,keyFor}(key, ...trailing)`
+    // namespace trailing-arg ignore wedge extracted to
+    // [`crate::check_type_of_call_symbol_static_trailing`]
+    // (chunk 286).
+    if let Some(r) =
+        crate::check_type_of_call_symbol_static_trailing::try_match(checker, ast, callee, args)
     {
-        let _ = checker.type_of(ast, args[0])?;
-        for &arg in args.iter().skip(1) {
-            let _ = checker.type_of(ast, arg)?;
-        }
-        return Ok(match m_name.as_str() {
-            "for" => Type::Symbol,
-            "keyFor" => Type::Nullable(Box::new(Type::String)),
-            _ => unreachable!(),
-        });
+        return r;
     }
     // S248 — `Set.add(value, ...trailing)` / `Map.set(key,
     // value, ...trailing)` Set/Map-receiver trailing-arg
