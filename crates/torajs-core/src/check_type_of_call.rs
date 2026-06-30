@@ -959,33 +959,18 @@ pub(crate) fn check(
         params.len(),
         &mut effective_args,
     )?;
-    // T-28 — Default param missing → undefined (per ES
-    // spec §10.2.1.4). When fewer args are supplied than
-    // params, JS sets the missing slots to undefined. Only
-    // safe for Type::Any params (typed slots can't hold
-    // undefined). Typed missing params still error so
-    // typed code keeps strict arity. ssa_lower pads the
-    // missing positions with ANY_UNDEF boxes at the call
-    // site.
-    if effective_args.len() < params.len() {
-        let trailing_all_any = params[effective_args.len()..]
-            .iter()
-            .all(|t| matches!(t, Type::Any));
-        if trailing_all_any {
-            // Type-check what was actually passed (rest stay
-            // as undefined). Pad-with-undef happens at SSA
-            // layer via the `padded_args` path keyed off
-            // expr_arity_pad. Stash the missing count on
-            // the call site so ssa_lower can emit ANY_UNDEF
-            // boxes for the trailing positions.
-            for arg_id in effective_args.iter() {
-                let _ = checker.type_of(ast, *arg_id)?;
-            }
-            checker
-                .arity_pad_count
-                .insert(eid, params.len() - effective_args.len());
-            return Ok((*ret).clone());
-        }
+    // T-28 — Default param missing → undefined widen wedge
+    // extracted to [`crate::check_type_of_call_t28_pad`]
+    // (chunk 298).
+    if let Some(r) = crate::check_type_of_call_t28_pad::try_pad(
+        checker,
+        ast,
+        eid,
+        &params,
+        &effective_args,
+        &ret,
+    ) {
+        return r;
     }
     // Date per-field setters (setFullYear / setMonth /
     // setHours / setMinutes / setSeconds / …) accept 1-N
