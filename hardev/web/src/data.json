@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-30T20:49:05.684Z",
+  "generatedAt": "2026-06-30T21:04:17.264Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "955dfe96",
-    "commitSubject": "refactor(torajs-core): aggregate lower_inner Pass 0 batch D into init_d sibling (chunk 326)",
+    "commit": "4cf94937",
+    "commitSubject": "refactor(torajs-core): split check::{is_class_method_name, is_array_method_name} name-classifier pair (chunk 327)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "4cf94937",
+      "subject": "refactor(torajs-core): split check::{is_class_method_name, is_array_method_name} name-classifier pair (chunk 327)"
+    },
+    {
+      "hash": "8fe6bc89",
+      "subject": "chore(dashboard): chunks 317-326 snapshot @ 955dfe96"
+    },
+    {
       "hash": "955dfe96",
       "subject": "refactor(torajs-core): aggregate lower_inner Pass 0 batch D into init_d sibling (chunk 326)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "e8fca77b",
       "subject": "refactor(torajs-core): split check::{resolve_type_ann, build_fn_type} cluster (chunk 319)"
-    },
-    {
-      "hash": "7df6a397",
-      "subject": "refactor(torajs-core): split check entry-point cluster to sibling (chunk 318)"
-    },
-    {
-      "hash": "8edbe24b",
-      "subject": "refactor(torajs-core): split check::stmt_diverges to sibling (chunk 317)"
     }
   ],
-  "headSha": "955dfe96",
+  "headSha": "4cf94937",
   "autorun": {
     "total": 293,
     "baselineTarget": 10,
