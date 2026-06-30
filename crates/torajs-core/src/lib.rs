@@ -190,6 +190,7 @@ pub(crate) mod check_assignable;
 pub(crate) mod check_assigns_to;
 pub(crate) mod check_entry;
 pub(crate) mod check_fn_type;
+pub(crate) mod check_js_semantics;
 pub(crate) mod check_pipeline;
 pub(crate) mod check_resolve_class_ref;
 pub(crate) mod check_stmt_diverges;
