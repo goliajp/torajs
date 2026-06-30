@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-30T16:10:06.754Z",
+  "generatedAt": "2026-06-30T17:34:05.245Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "8b2922b8",
-    "commitSubject": "refactor(torajs-core): prune dead M6.1 String borrow flag from dispatch_flags (chunk 311)",
+    "commit": "7397786c",
+    "commitSubject": "refactor(torajs-core): split check::resolve_class_ref + private helper to sibling (chunk 316)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "7397786c",
+      "subject": "refactor(torajs-core): split check::resolve_class_ref + private helper to sibling (chunk 316)"
+    },
+    {
+      "hash": "41f998ae",
+      "subject": "refactor(torajs-core): split check::stmt_assigns_to + expr_assigns_to to sibling (chunk 315)"
+    },
+    {
+      "hash": "16007c0d",
+      "subject": "refactor(torajs-core): split check::type_to_ann to sibling (chunk 314)"
+    },
+    {
+      "hash": "1d25a9f4",
+      "subject": "refactor(torajs-core): split type_of_inner Expr::Assign arm (chunk 313)"
+    },
+    {
+      "hash": "4092c758",
+      "subject": "refactor(torajs-core): split type_of_inner Expr::Index arm (chunk 312)"
+    },
+    {
+      "hash": "aee5ba54",
+      "subject": "chore(dashboard): chunks 308-311 snapshot @ 8b2922b8"
+    },
+    {
       "hash": "8b2922b8",
       "subject": "refactor(torajs-core): prune dead M6.1 String borrow flag from dispatch_flags (chunk 311)"
     },
@@ -639,33 +663,9 @@
     {
       "hash": "532b5777",
       "subject": "refactor(torajs-core): split check_type_of_call S133 callback Function subtype carve-out (chunk 307)"
-    },
-    {
-      "hash": "e5ccde1a",
-      "subject": "refactor(torajs-core): split check_type_of_call M5.1/M6.1 dispatch flag derivations (chunk 306)"
-    },
-    {
-      "hash": "f5296d0e",
-      "subject": "refactor(torajs-core): split check_type_of_call per-call-site consume bitmap derivation (chunk 305)"
-    },
-    {
-      "hash": "7fb83ada",
-      "subject": "refactor(torajs-core): split check_type_of_call Math/Date trailing-arg ignore wedge (chunk 304)"
-    },
-    {
-      "hash": "f88e6bab",
-      "subject": "refactor(torajs-core): split check_type_of_call Array/String search 0-arg arity narrow wedge (chunk 303)"
-    },
-    {
-      "hash": "6f17cea1",
-      "subject": "refactor(torajs-core): split check_type_of_call Array/String at() 0-arg arity narrow wedge (chunk 302)"
-    },
-    {
-      "hash": "274f3777",
-      "subject": "refactor(torajs-core): split check_type_of_call S237 splice/toSpliced 2-arg-undef arity narrow wedge (chunk 301)"
     }
   ],
-  "headSha": "8b2922b8",
+  "headSha": "7397786c",
   "autorun": {
     "total": 291,
     "baselineTarget": 10,
