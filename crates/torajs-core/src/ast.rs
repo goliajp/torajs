@@ -14,6 +14,7 @@ mod desugar_classes_pass2;
 mod desugar_classes_pass3;
 mod desugar_classes_statics;
 mod desugar_classes_super;
+mod desugar_generators_class;
 mod desugar_generators_methods;
 mod desugar_generators_rewrite;
 pub use desugar_async::desugar_async;
@@ -1034,72 +1035,20 @@ pub fn desugar_generators(ast: &mut Ast) {
         // changing in this phase, so a per-class field-name
         // marker is the narrow fix that keeps the dispatch
         // correct without an SSA-level type-system overhaul).
-        let mut class_fields: Vec<(String, String)> = vec![
-            (format!("__gen_nominal_{gen_name}"), "number".into()),
-            ("__state".into(), "number".into()),
-            ("__sent".into(), yield_ty.clone()),
-        ];
-        // Lifted locals as class fields. Their initial values are zero
-        // (computed from the type ann) — actual initialization happens
-        // when the corresponding let-rewrite assignment fires inside
-        // next() body.
-        for (lname, lty) in &lifted_locals {
-            class_fields.push((lname.clone(), lty.clone()));
-        }
-        let mut ctor_body_with_params = ctor.body.clone();
-        for p in &gen_params {
-            let pname = p.name.clone();
-            let pty = p.type_ann.clone().unwrap_or_else(|| "number".into());
-            class_fields.push((pname.clone(), pty));
-            // this.<param> = <param>
-            let this_id = ast.add_expr(Expr::This);
-            let f_member = ast.add_expr(Expr::Member {
-                obj: this_id,
-                name: pname.clone(),
-            });
-            let arg_ident = ast.add_expr(Expr::Ident(pname));
-            let assign = ast.add_expr(Expr::Assign {
-                target: f_member,
-                value: arg_ident,
-            });
-            ctor_body_with_params.push(Stmt::Expr(assign));
-        }
-        let ctor_with_params = ClassCtor {
-            params: gen_params.clone(),
-            body: ctor_body_with_params,
-        };
-
-        appended.push(Stmt::ClassDecl {
-            name: class_name.clone(),
-            type_params: Vec::new(),
-            parent: None,
-            is_abstract: false,
-            fields: class_fields,
-            static_init: Vec::new(),
-            ctor: Some(ctor_with_params),
-            methods: vec![next_method, return_method, throw_method],
-            static_methods: Vec::new(),
-        });
-
-        // Replace the original generator FnDecl with a thin factory
-        // that returns `new __Gen_<name>(args)`.
-        let factory_args: Vec<ExprId> = gen_params
-            .iter()
-            .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
-            .collect();
-        let new_expr = ast.add_expr(Expr::New {
-            class_name: class_name.clone(),
-            args: factory_args,
-        });
-        let factory_body = vec![Stmt::Return(Some(new_expr))];
-        ast.stmts[idx] = Stmt::FnDecl {
-            name: gen_name,
-            type_params: Vec::new(),
-            params: gen_params,
-            return_type: Some(class_name),
-            body: factory_body,
-            is_generator: false,
-        };
+        crate::ast::desugar_generators_class::assemble_generator_class_and_factory(
+            ast,
+            idx,
+            gen_name,
+            gen_params,
+            &yield_ty,
+            class_name,
+            &lifted_locals,
+            ctor.body,
+            next_method,
+            return_method,
+            throw_method,
+            &mut appended,
+        );
     }
 
     ast.stmts.extend(appended);
