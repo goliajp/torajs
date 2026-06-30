@@ -230,6 +230,7 @@ pub(crate) mod check_type_of_call_bigint_asint;
 pub(crate) mod check_type_of_call_console;
 pub(crate) mod check_type_of_call_date_instance_trailing;
 pub(crate) mod check_type_of_call_date_setter;
+pub(crate) mod check_type_of_call_date_setter_narrow;
 pub(crate) mod check_type_of_call_date_utc;
 pub(crate) mod check_type_of_call_generic_ident;
 pub(crate) mod check_type_of_call_global_ctors;

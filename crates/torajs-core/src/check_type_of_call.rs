@@ -972,26 +972,16 @@ pub(crate) fn check(
     ) {
         return r;
     }
-    // Date per-field setters (setFullYear / setMonth /
-    // setHours / setMinutes / setSeconds / …) accept 1-N
-    // args per ES §21.4.4.20-26 with trailing positions
-    // optional. The sig declares the FULL arity (max); when
-    // the caller supplied fewer args we narrow the sig to
-    // the supplied arity so strict-arity below passes. The
-    // ssa_lower side sentinel-pads the missing trailing
-    // positions with `DATE_FIELD_KEEP` (i64::MIN).
-    if effective_args.len() < params.len()
-        && let Expr::Member { obj, name } = ast.get_expr(*callee)
-        && matches!(
-            name.as_str(),
-            "setFullYear" | "setMonth" | "setHours" | "setMinutes" | "setSeconds"
-        )
-    {
-        let recv_ty = checker.type_of(ast, *obj)?;
-        if recv_ty == Type::Date && effective_args.len() >= 1 {
-            params.truncate(effective_args.len());
-        }
-    }
+    // Date per-field setter arity narrow wedge extracted to
+    // [`crate::check_type_of_call_date_setter_narrow`]
+    // (chunk 299).
+    crate::check_type_of_call_date_setter_narrow::apply(
+        checker,
+        ast,
+        callee,
+        &effective_args,
+        &mut params,
+    )?;
     // `arr.splice(start, deleteCount?)` — per ES §23.1.3.31
     // both args are spec-optional: 0-arg form gives
     // `start = 0`/`deleteCount = 0`, 1-arg form defaults
