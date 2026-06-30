@@ -1172,26 +1172,13 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S325 — WeakRef.deref(...trailing) trailing-arg ignore
-    // per ES §26.1.3.2. spec is 0-arg; tora's static-table sig
-    // `(WeakRef, "deref") -> Function([], Nullable<Any>)` at
-    // ~3661 rejected 1+ arg calls at strict arity. Carve-out
-    // typecheck-and-drops args[..]; ssa_lower mirror peeks the
-    // receiver via expr_types and lower-and-drops trailing.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "deref"
-        && !args.is_empty()
+    // S325 — `WeakRef.deref(...trailing)` trailing-arg
+    // ignore wedge extracted to
+    // [`crate::check_type_of_call_weakref_deref`]
+    // (chunk 279).
+    if let Some(r) = crate::check_type_of_call_weakref_deref::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::WeakRef) {
-            for &a in args.iter() {
-                let _ = checker.type_of(ast, a)?;
-            }
-            return Ok(Type::Nullable(Box::new(Type::Any)));
-        }
+        return r;
     }
     // S324 — String.search(needle, ...trailing) trailing-arg
     // ignore per ES §22.1.3.20. spec reads only needle; tora's
