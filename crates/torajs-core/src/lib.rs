@@ -279,6 +279,7 @@ pub(crate) mod check_type_of_call_string_slicepad_trailing;
 pub(crate) mod check_type_of_call_string_split_2arg;
 pub(crate) mod check_type_of_call_string_trailing_ignore;
 pub(crate) mod check_type_of_call_string_trim_case;
+pub(crate) mod check_type_of_call_struct_proto_trailing;
 pub(crate) mod check_type_of_call_symbol_static_trailing;
 pub(crate) mod check_type_of_call_to_string_radix;
 pub(crate) mod check_type_of_call_undef_widen_1arg;
