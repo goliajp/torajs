@@ -453,6 +453,7 @@ pub(crate) mod ssa_lower_intrinsics_arr_str_etc;
 pub(crate) mod ssa_lower_intrinsics_bigint;
 pub(crate) mod ssa_lower_intrinsics_date;
 pub(crate) mod ssa_lower_intrinsics_fs;
+pub(crate) mod ssa_lower_intrinsics_init_a;
 pub(crate) mod ssa_lower_intrinsics_json_misc;
 pub(crate) mod ssa_lower_intrinsics_map_set;
 pub(crate) mod ssa_lower_intrinsics_math;
