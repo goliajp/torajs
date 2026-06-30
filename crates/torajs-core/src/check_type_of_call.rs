@@ -876,20 +876,14 @@ pub(crate) fn check(
     // (Number.toLocaleString already handled by S260 above
     // with the 2-arg sig; Number.toString radix handled by
     // S244 in the wedge.)
-    if let Expr::Member {
-        obj: recv_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "toString" | "toLocaleString")
-        && !args.is_empty()
+    // Boolean / Symbol / String primitive `toString` /
+    // `toLocaleString` trailing-arg ignore wedge extracted to
+    // [`crate::check_type_of_call_primitive_proto_trailing`]
+    // (chunk 290).
+    if let Some(r) =
+        crate::check_type_of_call_primitive_proto_trailing::try_match(checker, ast, callee, args)
     {
-        let recv_ty = checker.type_of(ast, *recv_id)?;
-        if matches!(recv_ty, Type::Boolean | Type::Symbol | Type::String) {
-            for &arg in args.iter() {
-                let _ = checker.type_of(ast, arg)?;
-            }
-            return Ok(Type::String);
-        }
+        return r;
     }
     // S304 — Struct-instance Object.prototype methods
     // trailing-arg ignore wedge extracted to
