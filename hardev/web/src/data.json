@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-30T19:03:41.523Z",
+  "generatedAt": "2026-06-30T19:19:20.724Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "654f42c0",
-    "commitSubject": "refactor(torajs-core): split check JS-semantics acceptance family to sibling (chunk 321)",
+    "commit": "78b3764e",
+    "commitSubject": "refactor(torajs-core): split check::substitute_typevars to sibling (chunk 322)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "78b3764e",
+      "subject": "refactor(torajs-core): split check::substitute_typevars to sibling (chunk 322)"
+    },
+    {
+      "hash": "4fa3ee7d",
+      "subject": "chore(dashboard): chunks 317-321 snapshot @ 654f42c0"
+    },
+    {
       "hash": "654f42c0",
       "subject": "refactor(torajs-core): split check JS-semantics acceptance family to sibling (chunk 321)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "1d25a9f4",
       "subject": "refactor(torajs-core): split type_of_inner Expr::Assign arm (chunk 313)"
-    },
-    {
-      "hash": "4092c758",
-      "subject": "refactor(torajs-core): split type_of_inner Expr::Index arm (chunk 312)"
-    },
-    {
-      "hash": "aee5ba54",
-      "subject": "chore(dashboard): chunks 308-311 snapshot @ 8b2922b8"
     }
   ],
-  "headSha": "654f42c0",
+  "headSha": "78b3764e",
   "autorun": {
     "total": 292,
     "baselineTarget": 10,
