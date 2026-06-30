@@ -1,0 +1,84 @@
+//! Pass 3 of `lower_inner` — synthesize the `main` fn from top-level
+//! non-`FnDecl` statements. Skipped when the module has no top-level
+//! statements. Both the synthesized fn and its newly-interned string
+//! literals are appended to `module` in lockstep so the StringId
+//! counter stays consistent.
+//!
+//! Extracted from `lower_inner` (chunk-334 of the lower_inner RFC
+//! decomp, after the Pass 0.5 / Pass 1 / Intrinsics-table /
+//! module-metadata / Pass 2.5 / env-drop-setup siblings in
+//! chunks 328-333). Pure mechanical move: substrate codegen invariant.
+
+use std::collections::HashMap;
+
+use crate::ast::{Ast, ExprId, Stmt};
+use crate::num_width::WidthTable;
+use crate::ssa::{self, BakedRegexEntry, FuncId, Module, Type};
+use crate::ssa_lower::{Intrinsics, synthesize_main};
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run(
+    ast: &Ast,
+    module: &mut Module,
+    fn_table: &HashMap<String, FuncId>,
+    signatures: &HashMap<FuncId, Type>,
+    fn_sig_ids: &HashMap<FuncId, ssa::SigId>,
+    intrinsics: &Intrinsics,
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    baked_regex_buf: &mut Vec<BakedRegexEntry>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    inst_memo: &mut HashMap<String, ssa::StructId>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    closure_captures: &mut HashMap<String, Vec<(Type, bool)>>,
+    call_retargets: &HashMap<ExprId, String>,
+    may_throw: &std::collections::HashSet<String>,
+    class_name_to_tag: &HashMap<String, u32>,
+    anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
+    globals: &HashMap<String, Type>,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
+    arity_pad_count: &HashMap<ExprId, usize>,
+    num_f64_slots: &WidthTable,
+    promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
+) {
+    let top_level: Vec<&Stmt> = ast
+        .stmts
+        .iter()
+        .filter(|s| !matches!(s, Stmt::FnDecl { .. }))
+        .collect();
+    if top_level.is_empty() {
+        return;
+    }
+    let string_id_base = module.strings.len();
+    let (main_fn, new_strings) = synthesize_main(
+        &top_level,
+        ast,
+        fn_table,
+        signatures,
+        fn_sig_ids,
+        intrinsics,
+        aliases,
+        arr_layouts,
+        baked_regex_buf,
+        fn_sigs,
+        struct_layouts,
+        inst_memo,
+        generic_struct_decls,
+        string_id_base,
+        closure_captures,
+        call_retargets,
+        may_throw,
+        class_name_to_tag,
+        anon_stamp_pool,
+        globals,
+        expr_types,
+        arity_pad_count,
+        num_f64_slots,
+        promise_thunks,
+    );
+    for s in new_strings {
+        module.strings.push(s);
+    }
+    module.funcs.push(main_fn);
+}

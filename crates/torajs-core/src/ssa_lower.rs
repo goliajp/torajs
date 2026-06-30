@@ -1568,44 +1568,32 @@ fn lower_inner(
     }
 
     // Pass 3: synthesize `main` from top-level non-FnDecl statements.
-    let top_level: Vec<&Stmt> = ast
-        .stmts
-        .iter()
-        .filter(|s| !matches!(s, Stmt::FnDecl { .. }))
-        .collect();
-    if !top_level.is_empty() {
-        let string_id_base = module.strings.len();
-        let (main_fn, new_strings) = synthesize_main(
-            &top_level,
-            ast,
-            &fn_table,
-            &signatures,
-            &fn_sig_ids,
-            &intrinsics,
-            &aliases,
-            &mut arr_layouts,
-            &mut baked_regex_buf,
-            &mut fn_sigs,
-            &mut struct_layouts,
-            &mut inst_memo,
-            &generic_struct_decls,
-            string_id_base,
-            &mut closure_captures,
-            &call_retargets,
-            &may_throw,
-            &class_name_to_tag,
-            &anon_stamp_pool,
-            &globals,
-            expr_types,
-            arity_pad_count,
-            &num_f64_slots,
-            &promise_thunks,
-        );
-        for s in new_strings {
-            module.strings.push(s);
-        }
-        module.funcs.push(main_fn);
-    }
+    // Delegated to [`crate::ssa_lower_pass_3::run`].
+    crate::ssa_lower_pass_3::run(
+        ast,
+        &mut module,
+        &fn_table,
+        &signatures,
+        &fn_sig_ids,
+        &intrinsics,
+        &aliases,
+        &mut arr_layouts,
+        &mut baked_regex_buf,
+        &mut fn_sigs,
+        &mut struct_layouts,
+        &mut inst_memo,
+        &generic_struct_decls,
+        &mut closure_captures,
+        &call_retargets,
+        &may_throw,
+        &class_name_to_tag,
+        &anon_stamp_pool,
+        &globals,
+        expr_types,
+        arity_pad_count,
+        &num_f64_slots,
+        &promise_thunks,
+    );
 
     // Pass 2B (T-15.g.5): lower lifted-closure bodies. Deferred until
     // after main-synth so top-level construction sites (`let cb =
@@ -2384,7 +2372,7 @@ pub(crate) fn declare_intrinsic(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn synthesize_main(
+pub(crate) fn synthesize_main(
     stmts: &[&Stmt],
     ast: &Ast,
     fn_table: &HashMap<String, FuncId>,
