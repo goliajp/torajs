@@ -570,23 +570,12 @@ pub(crate) fn is_array_method_name(name: &str) -> bool {
     )
 }
 
-pub(crate) fn substitute_typevars(ty: &Type, subst: &HashMap<String, Type>) -> Type {
-    match ty {
-        Type::TypeVar(name) => subst.get(name).cloned().unwrap_or_else(|| ty.clone()),
-        Type::Array(inner) => Type::Array(Box::new(substitute_typevars(inner, subst))),
-        Type::Function(args, ret) => Type::Function(
-            args.iter().map(|t| substitute_typevars(t, subst)).collect(),
-            Box::new(substitute_typevars(ret, subst)),
-        ),
-        Type::Struct(fields) => Type::Struct(
-            fields
-                .iter()
-                .map(|(n, t)| (n.clone(), substitute_typevars(t, subst)))
-                .collect(),
-        ),
-        other => other.clone(),
-    }
-}
+// `substitute_typevars` (M3 generic typevar substitution recursive
+// walker) lives in [`crate::check_substitute_typevars`] (chunk-322 of
+// the check.rs god-file decomp). Re-exported here so the external
+// caller (`check_type_of_call_generic_ident`) keeps the canonical
+// `crate::check::substitute_typevars` import path.
+pub(crate) use crate::check_substitute_typevars::substitute_typevars;
 
 impl Checker {
     pub(crate) fn declare(&mut self, name: String, info: LocalInfo) -> Result<(), String> {
