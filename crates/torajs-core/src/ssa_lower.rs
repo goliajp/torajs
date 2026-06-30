@@ -1595,57 +1595,34 @@ fn lower_inner(
         &promise_thunks,
     );
 
-    // Pass 2B (T-15.g.5): lower lifted-closure bodies. Deferred until
-    // after main-synth so top-level construction sites (`let cb =
-    // function(v) { ... }` at module scope) have populated
-    // closure_captures. Closures still lower in reverse append order
-    // among themselves so an outer closure's body (which constructs
-    // the inner closure) runs before the inner closure's body.
-    for (stmt_idx, fid) in closure_decls {
-        if let Stmt::FnDecl {
-            name,
-            params,
-            return_type,
-            body,
-            ..
-        } = &ast.stmts[stmt_idx]
-        {
-            let string_id_base = module.strings.len();
-            let (f, new_strings) = crate::ssa_lower_fn::lower_fn(
-                name,
-                params,
-                return_type.as_deref(),
-                body,
-                ast,
-                &fn_table,
-                &signatures,
-                &fn_sig_ids,
-                &intrinsics,
-                &aliases,
-                &mut arr_layouts,
-                &mut baked_regex_buf,
-                &mut fn_sigs,
-                &mut struct_layouts,
-                &mut inst_memo,
-                &generic_struct_decls,
-                string_id_base,
-                &mut closure_captures,
-                &call_retargets,
-                &may_throw,
-                &class_name_to_tag,
-                &anon_stamp_pool,
-                &globals,
-                expr_types,
-                arity_pad_count,
-                &num_f64_slots,
-                &promise_thunks,
-            );
-            module.funcs[fid.0 as usize] = f;
-            for s in new_strings {
-                module.strings.push(s);
-            }
-        }
-    }
+    // Pass 2B (T-15.g.5): lower lifted-closure bodies. Delegated to
+    // [`crate::ssa_lower_pass_2b::run`].
+    crate::ssa_lower_pass_2b::run(
+        closure_decls,
+        ast,
+        &mut module,
+        &fn_table,
+        &signatures,
+        &fn_sig_ids,
+        &intrinsics,
+        &aliases,
+        &mut arr_layouts,
+        &mut baked_regex_buf,
+        &mut fn_sigs,
+        &mut struct_layouts,
+        &mut inst_memo,
+        &generic_struct_decls,
+        &mut closure_captures,
+        &call_retargets,
+        &may_throw,
+        &class_name_to_tag,
+        &anon_stamp_pool,
+        &globals,
+        expr_types,
+        arity_pad_count,
+        &num_f64_slots,
+        &promise_thunks,
+    );
 
     // Pass 2.5: synthesize each pre-registered env-drop fn body now
     // that closure_captures is populated. Delegated to

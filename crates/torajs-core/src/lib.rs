@@ -509,6 +509,7 @@ pub(crate) mod ssa_lower_parse_type;
 pub(crate) mod ssa_lower_pass_0_5;
 pub(crate) mod ssa_lower_pass_1;
 pub(crate) mod ssa_lower_pass_2_5;
+pub(crate) mod ssa_lower_pass_2b;
 pub(crate) mod ssa_lower_pass_3;
 pub(crate) mod ssa_lower_post_incr;
 pub mod ssa_lower_process_on;
