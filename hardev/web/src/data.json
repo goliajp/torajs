@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-30T17:34:05.245Z",
+  "generatedAt": "2026-06-30T19:03:41.523Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "7397786c",
-    "commitSubject": "refactor(torajs-core): split check::resolve_class_ref + private helper to sibling (chunk 316)",
+    "commit": "654f42c0",
+    "commitSubject": "refactor(torajs-core): split check JS-semantics acceptance family to sibling (chunk 321)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "654f42c0",
+      "subject": "refactor(torajs-core): split check JS-semantics acceptance family to sibling (chunk 321)"
+    },
+    {
+      "hash": "0bee18f6",
+      "subject": "refactor(torajs-core): split check::{unify_ternary, struct_is_prefix_subtype} to sibling (chunk 320)"
+    },
+    {
+      "hash": "e8fca77b",
+      "subject": "refactor(torajs-core): split check::{resolve_type_ann, build_fn_type} cluster (chunk 319)"
+    },
+    {
+      "hash": "7df6a397",
+      "subject": "refactor(torajs-core): split check entry-point cluster to sibling (chunk 318)"
+    },
+    {
+      "hash": "8edbe24b",
+      "subject": "refactor(torajs-core): split check::stmt_diverges to sibling (chunk 317)"
+    },
+    {
+      "hash": "6df9fa16",
+      "subject": "chore(dashboard): chunks 312-316 snapshot @ 7397786c"
+    },
+    {
       "hash": "7397786c",
       "subject": "refactor(torajs-core): split check::resolve_class_ref + private helper to sibling (chunk 316)"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "aee5ba54",
       "subject": "chore(dashboard): chunks 308-311 snapshot @ 8b2922b8"
-    },
-    {
-      "hash": "8b2922b8",
-      "subject": "refactor(torajs-core): prune dead M6.1 String borrow flag from dispatch_flags (chunk 311)"
-    },
-    {
-      "hash": "5e577f16",
-      "subject": "refactor(torajs-core): drop redundant `let _ = is_class_method` silencer (chunk 310 cleanup)"
-    },
-    {
-      "hash": "043fb0b0",
-      "subject": "refactor(torajs-core): split check_type_of_call M5.2 class-method receiver subclass prefix-subtype check (chunk 309)"
-    },
-    {
-      "hash": "2cff5a03",
-      "subject": "refactor(torajs-core): split check_type_of_call V3-18 Nullable<T> match wedge (chunk 308)"
-    },
-    {
-      "hash": "f68895e8",
-      "subject": "chore(dashboard): chunks 300-307 snapshot @ 532b5777"
-    },
-    {
-      "hash": "532b5777",
-      "subject": "refactor(torajs-core): split check_type_of_call S133 callback Function subtype carve-out (chunk 307)"
     }
   ],
-  "headSha": "7397786c",
+  "headSha": "654f42c0",
   "autorun": {
-    "total": 291,
+    "total": 292,
     "baselineTarget": 10,
-    "bySelf": 286,
+    "bySelf": 287,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782831361-0011",
-      "at": "2026-06-30T14:56:01Z",
-      "ts": 1782831361,
+      "rotationId": "r-1782840865-7e57",
+      "at": "2026-06-30T17:34:25Z",
+      "ts": 1782840865,
       "trigger": "self",
-      "prevHead": "f68895e8",
-      "handoffSha": "sha256:751c6a0397141984d5663196cc43764d45f80faec5b644449107884a5171519d",
-      "handoffAgeSec": 5,
+      "prevHead": "6df9fa16",
+      "handoffSha": "sha256:fff7d93bdf26d1ff7a8f88f1496b8c5e03bda9316be1cabf299679ad625e91fd",
+      "handoffAgeSec": 58,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782840865-7e57",
+        "at": "2026-06-30T17:34:25Z",
+        "ts": 1782840865,
+        "trigger": "self",
+        "prevHead": "6df9fa16",
+        "handoffSha": "sha256:fff7d93bdf26d1ff7a8f88f1496b8c5e03bda9316be1cabf299679ad625e91fd",
+        "handoffAgeSec": 58,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782831361-0011",
         "at": "2026-06-30T14:56:01Z",
@@ -780,17 +791,6 @@
         "prevHead": "abeea0a4",
         "handoffSha": "sha256:c118651470c7172ca3c237cdd15ddde2c7ec0b46b512d868a0a21ac9bb8d5da9",
         "handoffAgeSec": 33,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782746896-3c4a",
-        "at": "2026-06-29T15:28:16Z",
-        "ts": 1782746896,
-        "trigger": "self",
-        "prevHead": "40bcb6d7",
-        "handoffSha": "sha256:4f5568d8a5600cc07034c17bb80d78c790f4f9f3cfb9f263da589a45f39727a8",
-        "handoffAgeSec": 14,
         "conformanceBefore": null,
         "commitsInSession": null
       }
