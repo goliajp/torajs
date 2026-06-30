@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-30T04:41:04.172Z",
+  "generatedAt": "2026-06-30T07:38:12.530Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "20300196",
-    "commitSubject": "refactor(torajs-core): split check_type_of_call BigInt.{asIntN,asUintN}(bits, value, ...trailing) wedge arm (chunk 276)",
+    "commit": "4650590c",
+    "commitSubject": "refactor(torajs-core): split check_type_of_call String.{replace,replaceAll}(<2 args) wedge arm (chunk 282)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,34 @@
   },
   "commits": [
     {
+      "hash": "4650590c",
+      "subject": "refactor(torajs-core): split check_type_of_call String.{replace,replaceAll}(<2 args) wedge arm (chunk 282)"
+    },
+    {
+      "hash": "2e7c45a8",
+      "subject": "refactor(torajs-core): split check_type_of_call String.repeat(undefined) wedge arm (chunk 281)"
+    },
+    {
+      "hash": "ae8f7f0c",
+      "subject": "refactor(torajs-core): split check_type_of_call String.search(needle, ...trailing) wedge arm (chunk 280)"
+    },
+    {
+      "hash": "b45eef07",
+      "subject": "refactor(torajs-core): split check_type_of_call WeakRef.deref(...trailing) wedge arm (chunk 279)"
+    },
+    {
+      "hash": "536ca920",
+      "subject": "refactor(torajs-core): split check_type_of_call String.search() / String.search(undefined) short-circuit wedge arm (chunk 278)"
+    },
+    {
+      "hash": "893778a8",
+      "subject": "refactor(torajs-core): split check_type_of_call Object.fromEntries(entries, ...trailing) wedge arm (chunk 277)"
+    },
+    {
+      "hash": "6f1367dd",
+      "subject": "chore(dashboard): chunks 272-276 snapshot @ 20300196"
+    },
+    {
       "hash": "20300196",
       "subject": "refactor(torajs-core): split check_type_of_call BigInt.{asIntN,asUintN}(bits, value, ...trailing) wedge arm (chunk 276)"
     },
@@ -635,37 +663,9 @@
     {
       "hash": "903f063e",
       "subject": "refactor(torajs-core): split check_type_of_call (Set|Map).{has,delete,get,clear}(...trailing) Set/Map instance-method wedge arm (chunk 272)"
-    },
-    {
-      "hash": "2d6db617",
-      "subject": "chore(dashboard): chunks 264-271 snapshot @ a806f874"
-    },
-    {
-      "hash": "a806f874",
-      "subject": "refactor(torajs-core): split check_type_of_call Object.{getPrototypeOf,isExtensible,isSealed,preventExtensions,seal}(obj, ...trailing) wedge arm (chunk 271)"
-    },
-    {
-      "hash": "915c6f39",
-      "subject": "refactor(torajs-core): split check_type_of_call r.{test,exec,toString}(s?, ...trailing) RegExp-receiver wedge arm (chunk 270)"
-    },
-    {
-      "hash": "d53ad50c",
-      "subject": "refactor(torajs-core): split check_type_of_call Array.isArray(value, ...trailing) Array-namespace wedge arm (chunk 269)"
-    },
-    {
-      "hash": "32db22e3",
-      "subject": "refactor(torajs-core): split check_type_of_call d.set{FullYear,Month,Date,Hours,Minutes,Seconds,Milliseconds,Time,Year}(..., ...trailing) Date setter wedge arm (chunk 268)"
-    },
-    {
-      "hash": "61226de4",
-      "subject": "refactor(torajs-core): split check_type_of_call Object.{create,setPrototypeOf,defineProperties,defineProperty}(...trailing) wedge arm (chunk 267)"
-    },
-    {
-      "hash": "c7b37389",
-      "subject": "refactor(torajs-core): split check_type_of_call Set.add/Map.set trailing-arg wedge arm (chunk 266)"
     }
   ],
-  "headSha": "20300196",
+  "headSha": "4650590c",
   "autorun": {
     "total": 286,
     "baselineTarget": 10,
