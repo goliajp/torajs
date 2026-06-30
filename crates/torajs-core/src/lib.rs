@@ -219,6 +219,7 @@ pub(crate) mod check_type_of_call_array_join;
 pub(crate) mod check_type_of_call_array_keys;
 pub(crate) mod check_type_of_call_array_pop_shift;
 pub(crate) mod check_type_of_call_array_push_unshift;
+pub(crate) mod check_type_of_call_array_reduce_trailing;
 pub(crate) mod check_type_of_call_array_reverse_join;
 pub(crate) mod check_type_of_call_array_slice;
 pub(crate) mod check_type_of_call_array_sort;

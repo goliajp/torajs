@@ -648,48 +648,15 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S245 — Array<T>.{reduce,reduceRight}(fn, init, ...trailing)
-    // trailing-arg ignore per ES §22.1.3.{21,22}. Spec
-    // reserves slots past the 2 useful args (callback +
-    // initial value) but tora's inline reduce loop is
-    // 2-arg only. Trailing operand type_of'd for side
-    // effects then dropped at lower-time; SSA-emit reads
-    // only args[0..=1] so args[2..] are silently ignored
-    // without any SSA-side change. Same shape as S243/S244.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "reduce" | "reduceRight")
-        && args.len() >= 3
+    // S245/S276 — `Array<T>.{reduce,reduceRight}(fn, init,
+    // ...trailing)` Array-receiver trailing-arg ignore wedge
+    // extracted to
+    // [`crate::check_type_of_call_array_reduce_trailing`]
+    // (chunk 295).
+    if let Some(r) =
+        crate::check_type_of_call_array_reduce_trailing::try_match(checker, ast, callee, args)
     {
-        // S276 — widen `== 3` to `>= 3` per ES §23.1.3.{22,23}
-        // trailing-arg ignore. Spec reads cb + initialValue
-        // only; trailing slots silent-drop. ssa_lower's
-        // 22487 entry reads only args[0] (cb) + args[1]
-        // (initial); args[2..] handled by S270 skip(2) loop.
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if let Type::Array(elem) = &src_ty {
-            let inner = (**elem).clone();
-            let aty0 = checker.type_of(ast, args[0])?;
-            let fn_ok = matches!(aty0, Type::Function(..) | Type::Any);
-            if !fn_ok {
-                return Err(format!(
-                    "Array.{m_name} arg 0 must be a callback function, got {aty0:?}"
-                ));
-            }
-            let aty1 = checker.type_of(ast, args[1])?;
-            if aty1 != inner && !matches!(inner, Type::Any) {
-                return Err(format!(
-                    "Array.{m_name} arg 1 (initial) must match elem type {:?}, got {aty1:?}",
-                    inner
-                ));
-            }
-            for &a in &args[2..] {
-                let _ = checker.type_of(ast, a)?;
-            }
-            return Ok(inner);
-        }
+        return r;
     }
     // S242/S299 — `arr.{at,slice,join}(useful, ...trailing)`
     // Array-receiver trailing-arg ignore wedge extracted to
