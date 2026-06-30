@@ -263,6 +263,7 @@ pub(crate) mod check_type_of_call_string_match;
 pub(crate) mod check_type_of_call_string_normalize_form;
 pub(crate) mod check_type_of_call_string_pad;
 pub(crate) mod check_type_of_call_string_predicate_2arg;
+pub(crate) mod check_type_of_call_string_search_short_circuit;
 pub(crate) mod check_type_of_call_string_search_undef;
 pub(crate) mod check_type_of_call_string_slice_0_1arg;
 pub(crate) mod check_type_of_call_string_slice_2arg;

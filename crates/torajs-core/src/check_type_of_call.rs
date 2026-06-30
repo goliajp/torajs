@@ -1163,31 +1163,14 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S210 — String.search() / search(undefined) per ES
-    // §22.1.3.20: RegExpCreate(undefined, undefined)
-    // yields an empty regex which matches at index 0.
-    // Pre-fix tora declared `(String) -> Number`, so
-    // 0-arg failed at arity and 1-arg-undefined failed
-    // with "argument 0: expected String, got Undefined".
-    // ssa_lower short-circuits to ConstI64(0).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "search"
-        && args.len() < 2
+    // S210 — `String.search()` / `String.search(undefined)`
+    // short-circuit wedge extracted to
+    // [`crate::check_type_of_call_string_search_short_circuit`]
+    // (chunk 278).
+    if let Some(r) =
+        crate::check_type_of_call_string_search_short_circuit::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            if let Some(&aid) = args.first() {
-                let aty = checker.type_of(ast, aid)?;
-                if matches!(aty, Type::Undefined) {
-                    return Ok(Type::Number);
-                }
-            } else {
-                return Ok(Type::Number);
-            }
-        }
+        return r;
     }
     // S325 — WeakRef.deref(...trailing) trailing-arg ignore
     // per ES §26.1.3.2. spec is 0-arg; tora's static-table sig
