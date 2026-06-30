@@ -1153,28 +1153,15 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_call_bigint_asint::try_match(checker, ast, callee, args) {
         return r;
     }
-    // S309 — Object.fromEntries(entries, ...trailing) per ES
-    // §20.1.2.7: spec sig is 1-arg (entries iterable);
-    // trailing args are silently ignored. Pre-S309 the
-    // fixed (Type::Object("Object"), "fromEntries") method-
-    // table sig rejected `args.len() >= 2` with "expected
-    // 1 argument(s), got M". typecheck-drop args[1..] +
-    // ssa_lower mirror (LetDecl fast-path widens
-    // is_fromentries_call gate + lower-and-drop trailing).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "fromEntries"
-        && args.len() >= 2
+    // S309 — `Object.fromEntries(entries, ...trailing)`
+    // Object-namespace 1-arg-spec trailing-arg ignore wedge
+    // extracted to
+    // [`crate::check_type_of_call_object_fromentries`]
+    // (chunk 277).
+    if let Some(r) =
+        crate::check_type_of_call_object_fromentries::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::Object("Object")) {
-            for &a in args.iter() {
-                let _ = checker.type_of(ast, a)?;
-            }
-            return Ok(Type::Any);
-        }
+        return r;
     }
     // S210 — String.search() / search(undefined) per ES
     // §22.1.3.20: RegExpCreate(undefined, undefined)
