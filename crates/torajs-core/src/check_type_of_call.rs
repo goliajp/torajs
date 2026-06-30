@@ -1198,39 +1198,14 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S207 — String.replace / replaceAll with fewer-than-2
-    // args per ES §22.1.3.18 / §22.1.3.19 step 4 + step 6a:
-    //   searchString = ToString(searchValue ?? undefined)
-    //                = "undefined"
-    //   replaceValue = ToString(replaceValue ?? undefined)
-    //                = "undefined"
-    // Declared `(Any, Any) -> String` would reject 0/1-arg
-    // shapes at the strict-arity gate; widen here and let
-    // ssa_lower_str push the missing "undefined" interns
-    // so the helper sees a valid Str needle / replacement.
-    // Bun-aligned: 0-arg → identity unless haystack contains
-    // "undefined"; 1-arg → first match of needle replaced
-    // by the literal "undefined".
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && (m_name == "replace" || m_name == "replaceAll")
-        && args.len() < 2
+    // S207 — `String.replace` / `String.replaceAll` with
+    // fewer-than-2-arg widen wedge extracted to
+    // [`crate::check_type_of_call_string_replace_undef`]
+    // (chunk 282).
+    if let Some(r) =
+        crate::check_type_of_call_string_replace_undef::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            // Populate expr_types for any present arg so
-            // ssa_lower_str can detect a typed-undefined
-            // operand (via expr_types.get) and substitute
-            // the interned "undefined" literal instead of
-            // emitting a non-Str operand the helper would
-            // deref as a Str pointer.
-            for &aid in args {
-                checker.type_of(ast, aid)?;
-            }
-            return Ok(Type::String);
-        }
+        return r;
     }
     // S339 — `xs.with(Any idx, val)` per ES §23.1.3.39 step 2:
     // ToIntegerOrInfinity accepts arbitrary-typed input. The
