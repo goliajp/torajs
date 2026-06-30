@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-30T19:19:20.724Z",
+  "generatedAt": "2026-06-30T20:49:05.684Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "78b3764e",
-    "commitSubject": "refactor(torajs-core): split check::substitute_typevars to sibling (chunk 322)",
+    "commit": "955dfe96",
+    "commitSubject": "refactor(torajs-core): aggregate lower_inner Pass 0 batch D into init_d sibling (chunk 326)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,26 @@
   },
   "commits": [
     {
+      "hash": "955dfe96",
+      "subject": "refactor(torajs-core): aggregate lower_inner Pass 0 batch D into init_d sibling (chunk 326)"
+    },
+    {
+      "hash": "62a47d74",
+      "subject": "refactor(torajs-core): aggregate lower_inner Pass 0 batch C into init_c sibling (chunk 325)"
+    },
+    {
+      "hash": "85a0b9a5",
+      "subject": "refactor(torajs-core): aggregate lower_inner Pass 0 batch B into init_b sibling (chunk 324)"
+    },
+    {
+      "hash": "75530436",
+      "subject": "refactor(torajs-core): aggregate lower_inner Pass 0 batch A into init_a sibling (chunk 323)"
+    },
+    {
+      "hash": "35d3fc1e",
+      "subject": "chore(dashboard): chunks 317-322 snapshot @ 78b3764e"
+    },
+    {
       "hash": "78b3764e",
       "subject": "refactor(torajs-core): split check::substitute_typevars to sibling (chunk 322)"
     },
@@ -643,47 +663,38 @@
     {
       "hash": "8edbe24b",
       "subject": "refactor(torajs-core): split check::stmt_diverges to sibling (chunk 317)"
-    },
-    {
-      "hash": "6df9fa16",
-      "subject": "chore(dashboard): chunks 312-316 snapshot @ 7397786c"
-    },
-    {
-      "hash": "7397786c",
-      "subject": "refactor(torajs-core): split check::resolve_class_ref + private helper to sibling (chunk 316)"
-    },
-    {
-      "hash": "41f998ae",
-      "subject": "refactor(torajs-core): split check::stmt_assigns_to + expr_assigns_to to sibling (chunk 315)"
-    },
-    {
-      "hash": "16007c0d",
-      "subject": "refactor(torajs-core): split check::type_to_ann to sibling (chunk 314)"
-    },
-    {
-      "hash": "1d25a9f4",
-      "subject": "refactor(torajs-core): split type_of_inner Expr::Assign arm (chunk 313)"
     }
   ],
-  "headSha": "78b3764e",
+  "headSha": "955dfe96",
   "autorun": {
-    "total": 292,
+    "total": 293,
     "baselineTarget": 10,
-    "bySelf": 287,
+    "bySelf": 288,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782840865-7e57",
-      "at": "2026-06-30T17:34:25Z",
-      "ts": 1782840865,
+      "rotationId": "r-1782847166-4fbf",
+      "at": "2026-06-30T19:19:26Z",
+      "ts": 1782847166,
       "trigger": "self",
-      "prevHead": "6df9fa16",
-      "handoffSha": "sha256:fff7d93bdf26d1ff7a8f88f1496b8c5e03bda9316be1cabf299679ad625e91fd",
-      "handoffAgeSec": 58,
+      "prevHead": "35d3fc1e",
+      "handoffSha": "sha256:ca79810cb8953766acd46ca4d2fe40cdf2f3b754c9c3028477ac4a8dccdf05c3",
+      "handoffAgeSec": 11,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782847166-4fbf",
+        "at": "2026-06-30T19:19:26Z",
+        "ts": 1782847166,
+        "trigger": "self",
+        "prevHead": "35d3fc1e",
+        "handoffSha": "sha256:ca79810cb8953766acd46ca4d2fe40cdf2f3b754c9c3028477ac4a8dccdf05c3",
+        "handoffAgeSec": 11,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782840865-7e57",
         "at": "2026-06-30T17:34:25Z",
@@ -780,17 +791,6 @@
         "prevHead": "5a5c3c30",
         "handoffSha": "sha256:4279d100c0a918c7a381657a4c68c1e9f9fb73db88d5fe8f6cc7d531217ef706",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782754690-2eff",
-        "at": "2026-06-29T17:38:10Z",
-        "ts": 1782754690,
-        "trigger": "self",
-        "prevHead": "abeea0a4",
-        "handoffSha": "sha256:c118651470c7172ca3c237cdd15ddde2c7ec0b46b512d868a0a21ac9bb8d5da9",
-        "handoffAgeSec": 33,
         "conformanceBefore": null,
         "commitsInSession": null
       }
