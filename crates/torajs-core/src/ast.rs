@@ -865,73 +865,11 @@ pub fn desugar_generators(ast: &mut Ast) {
             ],
         });
 
-        // Build the state machine. Each arm is the body of one state in
-        // an if-chain wrapped by `while (true) { ... }`. Yields close an
-        // arm with `return {value:e, done:false}`; control-flow gotos
-        // close with `state = N; continue;` and the `while(true)` loop
-        // re-enters the if-chain at the new state.
-        let mut sm = GenSm::new(ast, yield_ty.clone());
-        sm.lower_seq(gen_body);
-        // After the last body stmt, the natural exit is "done forever".
-        let zero = default_init_for_type(&yield_ty);
-        let zero_id = sm.ast.add_expr(zero);
-        let done_lit = sm.ast.add_expr(Expr::Bool(true));
-        let final_obj = sm.ast.add_expr(Expr::ObjectLit {
-            fields: vec![("value".into(), zero_id), ("done".into(), done_lit)],
-        });
-        sm.cur_buf.push(Stmt::Return(Some(final_obj)));
-        sm.flush_cur();
-
-        // Assemble: while (true) { if (state==0){arm0} if (state==1){arm1} ... ; catch-all }
-        let mut loop_body: Vec<Stmt> = Vec::new();
-        for (i, arm_stmts) in sm.arms.iter().enumerate() {
-            let i_lit = ast.add_expr(Expr::Number(i as f64));
-            let this_state = ast.add_expr(Expr::This);
-            let state_member = ast.add_expr(Expr::Member {
-                obj: this_state,
-                name: "__state".into(),
-            });
-            let cond = ast.add_expr(Expr::BinOp {
-                op: BinOp::Eq,
-                left: state_member,
-                right: i_lit,
-            });
-            loop_body.push(Stmt::If {
-                cond,
-                then_branch: Box::new(Stmt::Block(arm_stmts.clone())),
-                else_branch: None,
-            });
-        }
-        // Catch-all for any state past the last allocated arm (covers
-        // unreachable dead-states from break/continue and any "fell off
-        // the end" case that didn't return inside the if-chain).
-        let zero_tail = default_init_for_type(&yield_ty);
-        let zero_tail_id = ast.add_expr(zero_tail);
-        let done_tail = ast.add_expr(Expr::Bool(true));
-        let final_tail = ast.add_expr(Expr::ObjectLit {
-            fields: vec![("value".into(), zero_tail_id), ("done".into(), done_tail)],
-        });
-        loop_body.push(Stmt::Return(Some(final_tail)));
-
-        let true_lit = ast.add_expr(Expr::Bool(true));
-        // Unreachable trailing return after the `while (true)` — the
-        // typechecker's "all paths return" analysis doesn't infer that
-        // a `cond=true` while never falls out, so without this the
-        // function's tail path looks indeterminate. Cheap to emit, no
-        // runtime cost (LLVM dead-code-eliminates it).
-        let zero_after = default_init_for_type(&yield_ty);
-        let zero_after_id = ast.add_expr(zero_after);
-        let done_after = ast.add_expr(Expr::Bool(true));
-        let final_after = ast.add_expr(Expr::ObjectLit {
-            fields: vec![("value".into(), zero_after_id), ("done".into(), done_after)],
-        });
-        let next_body: Vec<Stmt> = vec![
-            Stmt::While {
-                cond: true_lit,
-                body: Box::new(Stmt::Block(loop_body)),
-            },
-            Stmt::Return(Some(final_after)),
-        ];
+        // Build the state machine + while-true loop body + tail return.
+        // Yields close an arm with `return {value:e, done:false}`;
+        // control-flow gotos close with `state = N; continue;` and the
+        // `while(true)` loop re-enters the if-chain at the new state.
+        let next_body = build_state_machine_next_body(ast, gen_body, &yield_ty);
 
         // Build the generator class with __state field + ctor + next().
         let zero_init = default_init_for_type("number");
@@ -1007,6 +945,87 @@ pub fn desugar_generators(ast: &mut Ast) {
     }
 
     ast.stmts.extend(appended);
+}
+
+/// Build the next()'s state-machine body: lower `gen_body` through
+/// GenSm into `arms`, then assemble `[while(true) { if(state==0){arm0}
+/// if(state==1){arm1} ... ; catch-all }, return {value:0,done:true}]`
+/// as the two-stmt body. Caller wraps it into the ClassMethod.
+///
+/// Kept file-private (not a sibling) so GenSm and `default_init_for_type`
+/// stay ast-internal — externalizing would require a handful of
+/// pub(super) markers across the GenSm struct, three of its methods,
+/// three of its fields, and `default_init_for_type`. Inlining the
+/// driver here closes the desugar_generators-LOC HARD limit gap
+/// (208 -> 148 LOC) at zero visibility cost.
+fn build_state_machine_next_body(ast: &mut Ast, gen_body: Vec<Stmt>, yield_ty: &str) -> Vec<Stmt> {
+    // Build the state machine. Each arm is the body of one state in
+    // an if-chain wrapped by `while (true) { ... }`. Yields close an
+    // arm with `return {value:e, done:false}`; control-flow gotos
+    // close with `state = N; continue;` and the `while(true)` loop
+    // re-enters the if-chain at the new state.
+    let mut sm = GenSm::new(ast, yield_ty.to_string());
+    sm.lower_seq(gen_body);
+    // After the last body stmt, the natural exit is "done forever".
+    let zero = default_init_for_type(yield_ty);
+    let zero_id = sm.ast.add_expr(zero);
+    let done_lit = sm.ast.add_expr(Expr::Bool(true));
+    let final_obj = sm.ast.add_expr(Expr::ObjectLit {
+        fields: vec![("value".into(), zero_id), ("done".into(), done_lit)],
+    });
+    sm.cur_buf.push(Stmt::Return(Some(final_obj)));
+    sm.flush_cur();
+
+    // Assemble: while (true) { if (state==0){arm0} if (state==1){arm1} ... ; catch-all }
+    let mut loop_body: Vec<Stmt> = Vec::new();
+    for (i, arm_stmts) in sm.arms.iter().enumerate() {
+        let i_lit = ast.add_expr(Expr::Number(i as f64));
+        let this_state = ast.add_expr(Expr::This);
+        let state_member = ast.add_expr(Expr::Member {
+            obj: this_state,
+            name: "__state".into(),
+        });
+        let cond = ast.add_expr(Expr::BinOp {
+            op: BinOp::Eq,
+            left: state_member,
+            right: i_lit,
+        });
+        loop_body.push(Stmt::If {
+            cond,
+            then_branch: Box::new(Stmt::Block(arm_stmts.clone())),
+            else_branch: None,
+        });
+    }
+    // Catch-all for any state past the last allocated arm (covers
+    // unreachable dead-states from break/continue and any "fell off
+    // the end" case that didn't return inside the if-chain).
+    let zero_tail = default_init_for_type(yield_ty);
+    let zero_tail_id = ast.add_expr(zero_tail);
+    let done_tail = ast.add_expr(Expr::Bool(true));
+    let final_tail = ast.add_expr(Expr::ObjectLit {
+        fields: vec![("value".into(), zero_tail_id), ("done".into(), done_tail)],
+    });
+    loop_body.push(Stmt::Return(Some(final_tail)));
+
+    let true_lit = ast.add_expr(Expr::Bool(true));
+    // Unreachable trailing return after the `while (true)` — the
+    // typechecker's "all paths return" analysis doesn't infer that
+    // a `cond=true` while never falls out, so without this the
+    // function's tail path looks indeterminate. Cheap to emit, no
+    // runtime cost (LLVM dead-code-eliminates it).
+    let zero_after = default_init_for_type(yield_ty);
+    let zero_after_id = ast.add_expr(zero_after);
+    let done_after = ast.add_expr(Expr::Bool(true));
+    let final_after = ast.add_expr(Expr::ObjectLit {
+        fields: vec![("value".into(), zero_after_id), ("done".into(), done_after)],
+    });
+    vec![
+        Stmt::While {
+            cond: true_lit,
+            body: Box::new(Stmt::Block(loop_body)),
+        },
+        Stmt::Return(Some(final_after)),
+    ]
 }
 
 /// J.4 — recursively expand every `Stmt::YieldInto { var, type_ann,
