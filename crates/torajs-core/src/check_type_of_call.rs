@@ -949,34 +949,16 @@ pub(crate) fn check(
     // missing-this substrate; the silent drop doesn't
     // make those worse.
     let mut effective_args = args.clone();
-    if args.len() >= params.len() + 1
-        && let Expr::Member { name: m_name, .. } = ast.get_expr(*callee)
-        && matches!(
-            m_name.as_str(),
-            "map"
-                | "filter"
-                | "every"
-                | "some"
-                | "forEach"
-                | "find"
-                | "findIndex"
-                | "findLast"
-                | "findLastIndex"
-                | "flatMap"
-        )
-    {
-        // S270 — widen the thisArg drop from `== params+1`
-        // to `>= params+1` so any trailing args past thisArg
-        // are also silent-dropped per ES §23.1.3.X trailing-
-        // arg ignore (xs.map(cb, thisArg, ...trailing) is
-        // spec-legal — spec uses only cb + thisArg). Type-
-        // check every dropped arg so expr's internal errors
-        // still surface; SSA-emit reads only args[0] (cb).
-        for &arg in &effective_args[params.len()..] {
-            let _ = checker.type_of(ast, arg)?;
-        }
-        effective_args.truncate(params.len());
-    }
+    // P1 / S270 — Array.prototype callback methods trailing
+    // thisArg drop wedge extracted to
+    // [`crate::check_type_of_call_p1_thisarg`] (chunk 297).
+    crate::check_type_of_call_p1_thisarg::apply(
+        checker,
+        ast,
+        callee,
+        params.len(),
+        &mut effective_args,
+    )?;
     // T-28 — Default param missing → undefined (per ES
     // spec §10.2.1.4). When fewer args are supplied than
     // params, JS sets the missing slots to undefined. Only
