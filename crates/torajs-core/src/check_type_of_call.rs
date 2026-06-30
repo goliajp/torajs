@@ -1180,35 +1180,14 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S324 — String.search(needle, ...trailing) trailing-arg
-    // ignore per ES §22.1.3.20. spec reads only needle; tora's
-    // declared `(String) -> Number` sig at ~4194 rejected 2+ arg
-    // calls at strict arity. Mirror the S240-family widen (1-
-    // useful methods): typecheck-and-drop args[1..] and let the
-    // existing (String) -> Number arm pick up the result type.
-    // ssa_lower_str dispatch loop adds `"search"` to the S240
-    // 1-useful trailing-drop list so step()-style trailing args
-    // fire and the (Str, Str) helper ABI never sees them.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "search"
-        && args.len() >= 2
+    // S324 — `String.search(needle, ...trailing)` trailing-
+    // arg ignore wedge extracted to
+    // [`crate::check_type_of_call_string_search_trailing`]
+    // (chunk 280).
+    if let Some(r) =
+        crate::check_type_of_call_string_search_trailing::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            let needle_ty = checker.type_of(ast, args[0])?;
-            if !matches!(needle_ty, Type::String | Type::Undefined) {
-                return Err(format!(
-                    "String.search arg 0 must be string, got {needle_ty:?}"
-                ));
-            }
-            for &a in args.iter().skip(1) {
-                let _ = checker.type_of(ast, a)?;
-            }
-            return Ok(Type::Number);
-        }
+        return r;
     }
     // S209 — String.repeat(undefined) per ES §22.1.3.17
     // step 1: ToIntegerOrInfinity(undefined) = 0 → return
