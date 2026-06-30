@@ -68,9 +68,7 @@ pub(crate) fn try_match(
             Err(e) => return Some(Err(e)),
         };
         if !matches!(aty0, Type::Number | Type::Undefined) {
-            return Some(Err(format!(
-                "Array.at arg 0 must be number, got {aty0:?}"
-            )));
+            return Some(Err(format!("Array.at arg 0 must be number, got {aty0:?}")));
         }
         for &a in args.iter().skip(1) {
             if let Err(e) = checker.type_of(ast, a) {
