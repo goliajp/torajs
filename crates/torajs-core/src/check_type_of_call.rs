@@ -1215,39 +1215,13 @@ pub(crate) fn check(
         return r;
     }
     // S283 — Array.prototype.with(index, value, ...trailing)
-    // trailing-arg ignore per ES §23.1.3.39. Spec reads only
-    // index + value; tora's arr_with intrinsic is 2-arg only.
-    // Widen check.rs to accept args.len() >= 3; ssa_lower
-    // mirror widens the `args.len() == 2` gate to `>= 2`
-    // and lowers args[2..] for side effects (S272 idiom).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "with"
-        && args.len() >= 3
+    // 3+ arg trailing-arg wedge extracted to
+    // [`crate::check_type_of_call_array_with_trailing`]
+    // (chunk 284).
+    if let Some(r) =
+        crate::check_type_of_call_array_with_trailing::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if let Type::Array(elem) = &src_ty {
-            let inner = (**elem).clone();
-            let aty0 = checker.type_of(ast, args[0])?;
-            if !matches!(aty0, Type::Number) {
-                return Err(format!(
-                    "Array.with arg 0 (index) must be number, got {aty0:?}"
-                ));
-            }
-            let aty1 = checker.type_of(ast, args[1])?;
-            if aty1 != inner && !matches!(inner, Type::Any) {
-                return Err(format!(
-                    "Array.with arg 1 (value) must match elem type {:?}, got {aty1:?}",
-                    inner
-                ));
-            }
-            for &aid in &args[2..] {
-                let _ = checker.type_of(ast, aid)?;
-            }
-            return Ok(Type::Array(Box::new(inner)));
-        }
+        return r;
     }
     // S282 — String.{replace,replaceAll,split}(useful, useful,
     // ...trailing) trailing-arg ignore per ES §22.1.3.{18,19,
