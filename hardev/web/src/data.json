@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-30T11:29:15.408Z",
+  "generatedAt": "2026-06-30T13:05:54.445Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "79c8276f",
-    "commitSubject": "chore(fmt): rustfmt c294 sibling — inline a single-arg format!",
+    "commit": "9db020f0",
+    "commitSubject": "refactor(torajs-core): split check_type_of_call Date per-field setter arity narrow wedge (chunk 299)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "9db020f0",
+      "subject": "refactor(torajs-core): split check_type_of_call Date per-field setter arity narrow wedge (chunk 299)"
+    },
+    {
+      "hash": "4e4a5305",
+      "subject": "refactor(torajs-core): split check_type_of_call T-28 default-param undefined widen wedge (chunk 298)"
+    },
+    {
+      "hash": "8234870a",
+      "subject": "refactor(torajs-core): split check_type_of_call P1/S270 Array.prototype callback thisArg drop wedge (chunk 297)"
+    },
+    {
+      "hash": "03cea4bd",
+      "subject": "refactor(torajs-core): split check_type_of_call __torajs_in_op synthetic-call wedge arm (chunk 296)"
+    },
+    {
+      "hash": "68eaf04c",
+      "subject": "refactor(torajs-core): split check_type_of_call Array.{reduce,reduceRight}(fn, init, ...trailing) Array-receiver wedge arm (chunk 295)"
+    },
+    {
+      "hash": "597f9604",
+      "subject": "chore(dashboard): chunks 290-294 snapshot @ 79c8276f"
+    },
+    {
       "hash": "79c8276f",
       "subject": "chore(fmt): rustfmt c294 sibling — inline a single-arg format!"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "1ac6bb7b",
       "subject": "refactor(torajs-core): split check_type_of_call Boolean/Symbol/String primitive {toString,toLocaleString}(...trailing) wedge arm (chunk 290)"
-    },
-    {
-      "hash": "80a20639",
-      "subject": "chore(dashboard): chunks 283-289 snapshot @ 5aa3c335"
-    },
-    {
-      "hash": "5aa3c335",
-      "subject": "refactor(torajs-core): split check_type_of_call Struct.{toString,valueOf,hasOwnProperty,propertyIsEnumerable,isPrototypeOf}(...trailing) wedge arm (chunk 289)"
-    },
-    {
-      "hash": "eed4a23f",
-      "subject": "refactor(torajs-core): split check_type_of_call Date instance 0-arg getter/format family trailing-arg wedge arm (chunk 288)"
-    },
-    {
-      "hash": "3d6a47a1",
-      "subject": "refactor(torajs-core): split check_type_of_call n.toLocaleString(...trailing) Number-receiver 3+arg wedge arm (chunk 287)"
-    },
-    {
-      "hash": "6e845f2f",
-      "subject": "refactor(torajs-core): split check_type_of_call Symbol.{for,keyFor}(key, ...trailing) namespace trailing-arg wedge arm (chunk 286)"
-    },
-    {
-      "hash": "4df6b585",
-      "subject": "refactor(torajs-core): split check_type_of_call String.{replace,replaceAll,split}(useful, useful, ...trailing) 3+arg wedge arm (chunk 285)"
     }
   ],
-  "headSha": "79c8276f",
+  "headSha": "9db020f0",
   "autorun": {
-    "total": 288,
+    "total": 289,
     "baselineTarget": 10,
-    "bySelf": 283,
+    "bySelf": 284,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782812514-4d7a",
-      "at": "2026-06-30T09:41:54Z",
-      "ts": 1782812514,
+      "rotationId": "r-1782818975-2ea9",
+      "at": "2026-06-30T11:29:35Z",
+      "ts": 1782818975,
       "trigger": "self",
-      "prevHead": "80a20639",
-      "handoffSha": "sha256:62c1ab52e3380ea550900d71d47ff7eacea16cb3f01f524be316e9039a5ac1b1",
-      "handoffAgeSec": 3,
+      "prevHead": "597f9604",
+      "handoffSha": "sha256:c085470fe3a620cf2a3b62bcd8e380977d10b3dec71a264718790400fcbe068d",
+      "handoffAgeSec": 29,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782818975-2ea9",
+        "at": "2026-06-30T11:29:35Z",
+        "ts": 1782818975,
+        "trigger": "self",
+        "prevHead": "597f9604",
+        "handoffSha": "sha256:c085470fe3a620cf2a3b62bcd8e380977d10b3dec71a264718790400fcbe068d",
+        "handoffAgeSec": 29,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782812514-4d7a",
         "at": "2026-06-30T09:41:54Z",
@@ -780,17 +791,6 @@
         "prevHead": "1c0965ea",
         "handoffSha": "sha256:37bb3c33e3545b0d67340627849928779280a555d747530bdafabe3a2e01fec5",
         "handoffAgeSec": 6065,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782727179-4d04",
-        "at": "2026-06-29T09:59:39Z",
-        "ts": 1782727179,
-        "trigger": "self",
-        "prevHead": "34141205",
-        "handoffSha": "sha256:37bb3c33e3545b0d67340627849928779280a555d747530bdafabe3a2e01fec5",
-        "handoffAgeSec": 29,
         "conformanceBefore": null,
         "commitsInSession": null
       }
