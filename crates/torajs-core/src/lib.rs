@@ -231,6 +231,7 @@ pub(crate) mod check_type_of_call_index_search_trailing;
 pub(crate) mod check_type_of_call_json_stringify;
 pub(crate) mod check_type_of_call_mapset_add_set;
 pub(crate) mod check_type_of_call_mapset_iter_trailing;
+pub(crate) mod check_type_of_call_mapset_query;
 pub(crate) mod check_type_of_call_math_any_widen;
 pub(crate) mod check_type_of_call_math_hypot;
 pub(crate) mod check_type_of_call_math_min_max;

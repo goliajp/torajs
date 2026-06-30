@@ -1107,45 +1107,14 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S264 — Set/Map instance method trailing-arg ignore
-    // per ES §24.2.3.{4,5,7} (Set.{delete,clear,has}) +
-    // §23.1.3.{3,4,6,7} (Map.{delete,clear,get,has}).
-    // Each method's fixed sig (vec![Any] / Vec::new())
-    // rejected 1+ trailing args; ssa_lower's strict
-    // `debug_assert_eq!(args.len(), 1)` / `args.is_empty()`
-    // becomes a `>= N` floor in the matching widen below.
-    // (Set.add / Map.set already covered by S248.)
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "has" | "delete" | "get" | "clear")
-    {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        // (Set|Map).{has,delete} accept >= 2 (key + trail).
-        if matches!(src_ty, Type::Set | Type::Map)
-            && matches!(m_name.as_str(), "has" | "delete")
-            && args.len() >= 2
-        {
-            for &arg in args.iter() {
-                let _ = checker.type_of(ast, arg)?;
-            }
-            return Ok(Type::Boolean);
-        }
-        // Map.get accepts >= 2 (key + trail).
-        if matches!(src_ty, Type::Map) && m_name == "get" && args.len() >= 2 {
-            for &arg in args.iter() {
-                let _ = checker.type_of(ast, arg)?;
-            }
-            return Ok(Type::Nullable(Box::new(Type::Any)));
-        }
-        // (Set|Map).clear accept >= 1 (trail only).
-        if matches!(src_ty, Type::Set | Type::Map) && m_name == "clear" && !args.is_empty() {
-            for &arg in args.iter() {
-                let _ = checker.type_of(ast, arg)?;
-            }
-            return Ok(Type::Void);
-        }
+    // S264 — `(Set|Map).{has,delete}(key, ...trailing)` /
+    // `Map.get(key, ...trailing)` / `(Set|Map).clear(...trailing)`
+    // Set/Map-receiver instance-method trailing-arg ignore
+    // wedge extracted to
+    // [`crate::check_type_of_call_mapset_query`]
+    // (chunk 272).
+    if let Some(r) = crate::check_type_of_call_mapset_query::try_match(checker, ast, callee, args) {
+        return r;
     }
     // S301 — WeakMap.{set,get,has,delete} + WeakSet.{add,has,
     // delete} trailing-arg ignore per ES §24.{3,4}.3.*. Useful
