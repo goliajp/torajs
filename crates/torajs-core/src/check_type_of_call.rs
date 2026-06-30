@@ -1014,38 +1014,17 @@ pub(crate) fn check(
         &effective_args,
         &mut params,
     )?;
-    // `arr.indexOf() / .includes() / .lastIndexOf()` and
-    // `s.indexOf() / .includes() / .lastIndexOf() /
-    // .startsWith() / .endsWith()` — per ES §22.1.3.{8,13,...}
-    // and §23.1.3.{14,17,18}, `searchElement` / `searchString`
-    // defaults to undefined when omitted (algorithm steps
-    // read the missing argument as undefined). The
-    // Type::Function declared above is the 1-arg full form;
-    // truncate to 0 params on the no-arg call.
-    //
-    // SSA emit semantics:
-    //   String: fill needle = ToString(undefined) = "undefined"
-    //     and search normally (bun observable).
-    //   Array<T> with T ≠ Any: undefined cannot strict-equal
-    //     any typed element, so the result is fixed
-    //     (-1 / false). Array<Any> is omitted from the
-    //     truncate here because the search would need an
-    //     Any-tagged undefined sentinel; L3b.
-    if effective_args.is_empty()
-        && let Expr::Member { obj, name } = ast.get_expr(*callee)
-    {
-        let recv_ty = checker.type_of(ast, *obj)?;
-        let trunc = match (&recv_ty, name.as_str()) {
-            (Type::String, "indexOf" | "includes" | "lastIndexOf" | "startsWith" | "endsWith") => {
-                true
-            }
-            (Type::Array(elem), "indexOf" | "includes" | "lastIndexOf") => **elem != Type::Any,
-            _ => false,
-        };
-        if trunc {
-            params.truncate(0);
-        }
-    }
+    // Array/String search-method 0-arg arity narrow wedge
+    // extracted to
+    // [`crate::check_type_of_call_search_0arg`]
+    // (chunk 303).
+    crate::check_type_of_call_search_0arg::apply(
+        checker,
+        ast,
+        callee,
+        &effective_args,
+        &mut params,
+    )?;
     // S243 — narrow trailing-arg ignore for Math.* namespace
     // methods per ES §21.3.2.* "trailing args are ignored":
     // each Math.* algorithm reads only the declared positional
