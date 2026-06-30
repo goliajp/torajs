@@ -1728,156 +1728,16 @@ fn lower_inner(
     module.struct_layouts = struct_layouts;
     module.baked_regex_entries = baked_regex_buf;
 
-    /* T-24 — populate per-class vtables. Slot order matches
-     * `ast.method_index` (sorted-by-name index). For each class C, slot
-     * `i` for method `M[i]` is the `__cm_<X>__M[i]` FuncId where X is
-     * the deepest ancestor of C (incl. itself) that has an own impl —
-     * walk C → parent → ... and stop at the first match in `fn_table`.
-     * Classes that don't appear in any chain method's MRO still get an
-     * empty vtable (length = method_index.len()) so the layout stays
-     * uniform; never-used slots are None and emitted as null ptrs. */
-    if !ast.method_index.is_empty() {
-        let n_methods = ast.method_index.len();
-        // Reverse method_index → ordered method names by slot.
-        let mut methods_by_slot: Vec<&str> = vec![""; n_methods];
-        for (m_name, idx) in &ast.method_index {
-            methods_by_slot[*idx as usize] = m_name.as_str();
-        }
-        let mut class_names: Vec<&String> = ast.class_parents.keys().collect();
-        class_names.sort();
-        for cname in class_names {
-            let mut fn_ids: Vec<Option<ssa::FuncId>> = Vec::with_capacity(n_methods);
-            for &m_name in &methods_by_slot {
-                let mut found: Option<ssa::FuncId> = None;
-                let mut cur: Option<String> = Some(cname.clone());
-                let mut depth = 0u32;
-                while let Some(name) = cur {
-                    if depth > 64 {
-                        break;
-                    }
-                    let candidate = format!("__cm_{name}__{m_name}");
-                    if let Some(fid) = fn_table.get(&candidate) {
-                        found = Some(*fid);
-                        break;
-                    }
-                    cur = ast.class_parents.get(&name).and_then(|p| p.clone());
-                    depth += 1;
-                }
-                fn_ids.push(found);
-            }
-            module.vtable_globals.push(ssa::VtableGlobal {
-                class_name: cname.clone(),
-                fn_ids,
-            });
-        }
-    }
-
-    /* T-26.C — per-class children-offset metadata. Indexed by
-     * (class_tag - 1) so the cycle collector can drive a generic
-     * trial-deletion descent. We walk every class in
-     * class_name_to_tag order (tag 1, 2, ...) so the resulting
-     * Vec lines up with the runtime's index arithmetic.
-     *
-     * For each class, find its sid via aliases, look up the
-     * struct layout, and emit byte-offsets of every refcounted
-     * field. Class instances live behind a 24-byte object header
-     * so field i is at OBJ_HEADER_SIZE + i*8. Non-class types
-     * (anonymous `type X = {...}` aliases) get tag 0 and are
-     * excluded — cycle detection on them is a follow-up that
-     * needs heap-header-keyed sid lookup. */
-    {
-        let mut class_names_by_tag: Vec<(&String, u32)> =
-            class_name_to_tag.iter().map(|(n, t)| (n, *t)).collect();
-        class_names_by_tag.sort_by_key(|(_, t)| *t);
-        for (cname, _tag) in &class_names_by_tag {
-            let sid = match module.struct_layouts.iter().enumerate().find_map(|(i, _)| {
-                aliases.get(*cname).and_then(|t| match t {
-                    Type::Obj(s) if s.0 as usize == i => Some(i),
-                    _ => None,
-                })
-            }) {
-                Some(i) => i,
-                None => continue,
-            };
-            let layout = &module.struct_layouts[sid];
-            let mut child_offsets: Vec<u32> = Vec::new();
-            let mut field_metadata: Vec<ssa::FieldMetaSpec> = Vec::new();
-            for (i, (fname, fty)) in layout.iter().enumerate() {
-                let off = OBJ_HEADER_SIZE as u32 + (i as u32) * 8;
-                if fty.is_refcounted() {
-                    child_offsets.push(off);
-                }
-                // W-J Phase A3: per-field metadata for the reflection
-                // consumers (Phase B `gOPD` struct cell arm / Phase C
-                // `Object.keys`/`values`/`entries` / Phase D
-                // `inspect.rs` Tag::Obj walker). Carried through to
-                // Phase A3b's `.__class_fields_<i>` rodata emit.
-                field_metadata.push(ssa::FieldMetaSpec {
-                    name: fname.clone(),
-                    offset: off,
-                    type_tag: ssa::field_type_tag_of(*fty),
-                });
-            }
-            module.class_layouts.push(ssa::ClassLayoutMeta {
-                class_name: (*cname).clone(),
-                child_offsets,
-                field_metadata,
-            });
-        }
-    }
-
-    /* W-J Phase A0 (RFC 20260614-w-j-struct-reflect §3) — anonymous
-     * ObjectLit struct also registers a ClassLayoutMeta entry so the
-     * downstream reflection substrate (Phase B `gOPD` struct cell arm /
-     * Phase C `Object.keys`/`values`/`entries` / Phase D `inspect.rs`
-     * Tag::Obj walker) can look up field metadata by `class_tag@+8`.
-     *
-     * A0 keeps stamp paths unchanged — `class_tag@+8` continues to be
-     * 0 for ObjectLit (line ~20970 `unwrap_or(0)`), so these new
-     * entries are dead from the cycle collector's perspective; the
-     * stamp is wired in Phase A1. The only observable here is
-     * `__torajs_n_class_layouts` count grows by `n_anon_sids` =
-     * anonymous-only sid count, validating that the dyld chain-fixup
-     * substrate scales with entry growth (proven separately by the
-     * Phase 2 fn-name table region's same pattern). */
-    {
-        let named_sids: std::collections::HashSet<ssa::StructId> = class_name_to_tag
-            .keys()
-            .filter_map(|cname| match aliases.get(cname) {
-                Some(Type::Obj(sid)) => Some(*sid),
-                _ => None,
-            })
-            .collect();
-        let layouts = module.struct_layouts.clone();
-        for (sid_idx, layout) in layouts.iter().enumerate() {
-            let sid = ssa::StructId(sid_idx as u32);
-            if named_sids.contains(&sid) {
-                continue;
-            }
-            let mut child_offsets: Vec<u32> = Vec::new();
-            let mut field_metadata: Vec<ssa::FieldMetaSpec> = Vec::new();
-            for (i, (fname, fty)) in layout.iter().enumerate() {
-                let off = OBJ_HEADER_SIZE as u32 + (i as u32) * 8;
-                if fty.is_refcounted() {
-                    child_offsets.push(off);
-                }
-                // W-J Phase A3 — same per-field metadata population
-                // as the named-class branch above. Anonymous structs
-                // share the reflection consumer surface (`{a:1}` as
-                // `gOPD` target, `Object.keys({a:1})` etc.).
-                field_metadata.push(ssa::FieldMetaSpec {
-                    name: fname.clone(),
-                    offset: off,
-                    type_tag: ssa::field_type_tag_of(*fty),
-                });
-            }
-            module.class_layouts.push(ssa::ClassLayoutMeta {
-                class_name: format!("__anon_struct_{sid_idx}"),
-                child_offsets,
-                field_metadata,
-            });
-        }
-    }
+    // T-24 vtables (per-class slot dispatch) + T-26.C named-class
+    // ClassLayoutMeta + W-J Phase A0 anonymous-struct ClassLayoutMeta
+    // — see [`crate::ssa_lower_module_metadata`] for the consolidated
+    // builder docs.
+    crate::ssa_lower_module_metadata::populate_vtables(ast, &fn_table, &mut module);
+    crate::ssa_lower_module_metadata::populate_class_layouts(
+        &class_name_to_tag,
+        &aliases,
+        &mut module,
+    );
 
     // W-J Phase A1 follow-up — append `ClassLayoutMeta` rows for
     // each Pass 2 fresh sid recorded in `anon_stamp_pool`.
