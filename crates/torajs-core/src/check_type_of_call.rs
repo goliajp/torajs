@@ -934,75 +934,13 @@ pub(crate) fn check(
         }
     }
     // S261 — Date instance 0-arg getter / format method
-    // family (`d.getTime() / d.getFullYear() / d.toISOString() /
-    // d.toLocaleString() / ...`) trailing-arg ignore per ES
-    // §21.4.4.*. Spec methods either take 0 args or have
-    // optional `key`/`locales`/`options` args that tora's
-    // subset silently drops; the SSA-emit default branch
-    // (ssa_lower.rs ~21601 `else { vec![recv_op] }`) only
-    // forwards recv_op for these 0-arg methods, so trailing
-    // user args naturally drop. Narrow widen: matches the
-    // 0-arg method list, Type::Date receiver, args.len() >= 1.
-    if let Expr::Member {
-        obj: recv_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(
-            m_name.as_str(),
-            "getTime"
-                | "valueOf"
-                | "toISOString"
-                | "toJSON"
-                | "getFullYear"
-                | "getUTCFullYear"
-                | "getMonth"
-                | "getUTCMonth"
-                | "getDate"
-                | "getUTCDate"
-                | "getHours"
-                | "getUTCHours"
-                | "getMinutes"
-                | "getUTCMinutes"
-                | "getSeconds"
-                | "getUTCSeconds"
-                | "getMilliseconds"
-                | "getUTCMilliseconds"
-                | "getDay"
-                | "getUTCDay"
-                | "getTimezoneOffset"
-                | "getYear"
-                | "toGMTString"
-                | "toUTCString"
-                | "toDateString"
-                | "toLocaleString"
-                | "toLocaleDateString"
-                | "toLocaleTimeString"
-        )
-        && !args.is_empty()
+    // family trailing-arg ignore wedge extracted to
+    // [`crate::check_type_of_call_date_instance_trailing`]
+    // (chunk 288).
+    if let Some(r) =
+        crate::check_type_of_call_date_instance_trailing::try_match(checker, ast, callee, args)
     {
-        let recv_ty = checker.type_of(ast, *recv_id)?;
-        if matches!(recv_ty, Type::Date) {
-            for &arg in args.iter() {
-                let _ = checker.type_of(ast, arg)?;
-            }
-            return Ok(
-                if matches!(
-                    m_name.as_str(),
-                    "toISOString"
-                        | "toJSON"
-                        | "toGMTString"
-                        | "toUTCString"
-                        | "toDateString"
-                        | "toLocaleString"
-                        | "toLocaleDateString"
-                        | "toLocaleTimeString"
-                ) {
-                    Type::String
-                } else {
-                    Type::Number
-                },
-            );
-        }
+        return r;
     }
     // S260 — `n.toLocaleString(locales?, options?, ...trailing)`
     // Number-receiver 3+ arg trailing-arg wedge extracted to
