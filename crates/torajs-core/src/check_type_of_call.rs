@@ -1072,31 +1072,11 @@ pub(crate) fn check(
         } else {
             false
         };
-        // S133 narrow — callback Function subtype:
-        // JS spec lets a callback accept fewer args than
-        // the formal Function param declares
-        // (Map.forEach: `(v) =>` legal even though spec sig
-        // is `(v, k, map) => void`). Strict equality on
-        // Type::Function rejects shorter callbacks. Accept
-        // when actual arity ≤ formal arity, every prefix
-        // slot matches with either side being Any (user
-        // callback without type-ann defaults to Any —
-        // accept against typed formal; formal Any accepts
-        // any typed actual), and the return type matches
-        // (or either side Any).
-        let callback_subtype = match (param_ty, &arg_ty) {
-            (Type::Function(formal_ps, formal_ret), Type::Function(actual_ps, actual_ret)) => {
-                actual_ps.len() <= formal_ps.len()
-                    && (formal_ret.as_ref() == actual_ret.as_ref()
-                        || matches!(formal_ret.as_ref(), Type::Any)
-                        || matches!(actual_ret.as_ref(), Type::Any))
-                    && actual_ps
-                        .iter()
-                        .zip(formal_ps.iter())
-                        .all(|(a, f)| a == f || matches!(f, Type::Any) || matches!(a, Type::Any))
-            }
-            _ => false,
-        };
+        // S133 callback Function subtype carve-out extracted
+        // to [`crate::check_type_of_call_callback_subtype`]
+        // (chunk 307).
+        let callback_subtype =
+            crate::check_type_of_call_callback_subtype::matches(param_ty, &arg_ty);
         if !skip_type_check
             && !nullable_match
             && !callback_subtype
