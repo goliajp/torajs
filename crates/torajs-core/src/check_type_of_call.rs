@@ -44,21 +44,10 @@ pub(crate) fn check(
         return demoted;
     }
     // T-45 — synthetic call from parser for binary `in`
-    // operator: `__torajs_in_op(key, obj)`. ssa_lower
-    // intercepts by name and emits the type-dispatched
-    // membership check. Returns Boolean unconditionally.
-    if let Expr::Ident(n) = ast.get_expr(*callee)
-        && n == "__torajs_in_op"
-        && args.len() == 2
-    {
-        let _ = checker.type_of(ast, args[0])?;
-        let obj_ty = checker.type_of(ast, args[1])?;
-        if !matches!(obj_ty, Type::Array(_) | Type::Any | Type::Struct(_)) {
-            return Err(format!(
-                "`in` rhs must be Array, Struct, or any (subset stub); got {obj_ty:?}"
-            ));
-        }
-        return Ok(Type::Boolean);
+    // operator: `__torajs_in_op(key, obj)`. Wedge extracted to
+    // [`crate::check_type_of_call_in_op`] (chunk 296).
+    if let Some(r) = crate::check_type_of_call_in_op::try_match(checker, ast, callee, args) {
+        return r;
     }
     // Promise<T>.then / .catch early-route arms (T-19.l 2-arg
     // shape, T-19.o heterogeneous T→U + P10.7 Promise<Any>,

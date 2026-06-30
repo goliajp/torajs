@@ -1,0 +1,54 @@
+//! T-45 — `__torajs_in_op(key, obj)` synthetic call typecheck
+//! extracted from [`crate::check_type_of_call::check`]'s
+//! top-level cascade (chunk 296 — eighty-eighth sub-batch of
+//! check_type_of_call.rs per-shape decomposition).
+//!
+//! The parser lowers a binary `in` operator (`key in obj`)
+//! into a synthetic call `__torajs_in_op(key, obj)` so the
+//! type checker sees a uniform `Expr::Call` and ssa_lower
+//! can intercept by name to emit the type-dispatched
+//! membership check. This wedge gates the 2-arg shape, runs
+//! `type_of` on both operands for side effects, validates
+//! that the rhs is one of `Array | Struct | Any`, and
+//! returns `Type::Boolean` unconditionally.
+//!
+//! Returns:
+//! - `Some(Ok(Type::Boolean))` — the synthetic call typechecks
+//!   (both operand `type_of` calls succeed, rhs ∈
+//!   {Array, Struct, Any})
+//! - `Some(Err(_))` on either operand `type_of` failure, or
+//!   on rhs type outside the allowed set (`\`in\` rhs must
+//!   be Array, Struct, or any (subset stub); got T`)
+//! - `None` otherwise (non-Ident callee, callee name not
+//!   `__torajs_in_op`, or args.len() != 2 — cascade falls
+//!   through to the Promise.then / global-ctor siblings)
+
+use crate::ast::{Ast, Expr, ExprId};
+use crate::check::{Checker, Type};
+
+pub(crate) fn try_match(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Option<Result<Type, String>> {
+    let Expr::Ident(n) = ast.get_expr(*callee) else {
+        return None;
+    };
+    if n != "__torajs_in_op" || args.len() != 2 {
+        return None;
+    }
+    if let Err(e) = checker.type_of(ast, args[0]) {
+        return Some(Err(e));
+    }
+    let obj_ty = match checker.type_of(ast, args[1]) {
+        Ok(t) => t,
+        Err(e) => return Some(Err(e)),
+    };
+    if !matches!(obj_ty, Type::Array(_) | Type::Any | Type::Struct(_)) {
+        return Some(Err(format!(
+            "`in` rhs must be Array, Struct, or any (subset stub); got {obj_ty:?}"
+        )));
+    }
+    Some(Ok(Type::Boolean))
+}

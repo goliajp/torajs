@@ -233,6 +233,7 @@ pub(crate) mod check_type_of_call_date_setter;
 pub(crate) mod check_type_of_call_date_utc;
 pub(crate) mod check_type_of_call_generic_ident;
 pub(crate) mod check_type_of_call_global_ctors;
+pub(crate) mod check_type_of_call_in_op;
 pub(crate) mod check_type_of_call_index_search_trailing;
 pub(crate) mod check_type_of_call_json_stringify;
 pub(crate) mod check_type_of_call_mapset_add_set;
