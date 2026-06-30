@@ -6,10 +6,11 @@
 //! prototype methods (`.return`, `.throw`, future iterator-
 //! protocol surface).
 
-use super::{Ast, ClassMethod, Expr, Param, Stmt, Visibility};
+use super::{Ast, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 
 const RET_VAL_PARAM: &str = "__ret_val";
 const THROW_ERR_PARAM: &str = "__err";
+const YIELD_ARG_PARAM: &str = "__yield_arg";
 
 /// Emit `this.__state = -1;` — the sentinel that turns any
 /// subsequent `next()` into a no-op (no state-machine arm
@@ -94,6 +95,56 @@ pub(super) fn build_throw_method(ast: &mut Ast, step_ann: &str) -> ClassMethod {
         params: vec![err_param],
         return_type: Some(step_ann.into()),
         body: vec![close_stmt, Stmt::Throw(err_ident)],
+        is_abstract: false,
+        visibility: Visibility::Public,
+        accessor_kind: None,
+    }
+}
+
+/// Build the `Generator.prototype.next(arg)` method. Prepends a
+/// `this.__sent = __yield_arg;` stash so YieldInto-expanded reads
+/// of `this.__sent` see whatever the caller passed to `g.next(arg)`
+/// on the resume; the rest of the method body is the caller-built
+/// state-machine `while(true) { ... }` + tail return.
+///
+/// `yield_arg_default_id` carries the type-driven default value
+/// (built via `default_init_for_type` at the caller — kept caller-
+/// side so this sibling doesn't need to import that ast-internal
+/// helper just to forward an ExprId).
+pub(super) fn build_next_method(
+    ast: &mut Ast,
+    yield_arg_default_id: ExprId,
+    yield_ty: &str,
+    step_ann: &str,
+    state_machine_body: Vec<Stmt>,
+) -> ClassMethod {
+    let yield_arg_param = Param {
+        name: YIELD_ARG_PARAM.into(),
+        type_ann: Some(yield_ty.into()),
+        default: Some(yield_arg_default_id),
+        is_rest: false,
+    };
+    let stash_sent = {
+        let this_id = ast.add_expr(Expr::This);
+        let sent_member = ast.add_expr(Expr::Member {
+            obj: this_id,
+            name: "__sent".into(),
+        });
+        let arg_ident = ast.add_expr(Expr::Ident(YIELD_ARG_PARAM.into()));
+        let assign = ast.add_expr(Expr::Assign {
+            target: sent_member,
+            value: arg_ident,
+        });
+        Stmt::Expr(assign)
+    };
+    let mut body: Vec<Stmt> = Vec::with_capacity(state_machine_body.len() + 1);
+    body.push(stash_sent);
+    body.extend(state_machine_body);
+    ClassMethod {
+        name: "next".into(),
+        params: vec![yield_arg_param],
+        return_type: Some(step_ann.into()),
+        body,
         is_abstract: false,
         visibility: Visibility::Public,
         accessor_kind: None,

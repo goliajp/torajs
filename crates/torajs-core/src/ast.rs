@@ -1002,38 +1002,13 @@ pub fn desugar_generators(ast: &mut Ast) {
         // typed-default uses zero/empty depending on yield type.
         let yield_arg_default = default_init_for_type(&yield_ty);
         let yield_arg_default_id = ast.add_expr(yield_arg_default);
-        let yield_arg_param = Param {
-            name: "__yield_arg".into(),
-            type_ann: Some(yield_ty.clone()),
-            default: Some(yield_arg_default_id),
-            is_rest: false,
-        };
-        let stash_sent = {
-            let this_id = ast.add_expr(Expr::This);
-            let sent_member = ast.add_expr(Expr::Member {
-                obj: this_id,
-                name: "__sent".into(),
-            });
-            let arg_ident = ast.add_expr(Expr::Ident("__yield_arg".into()));
-            let assign = ast.add_expr(Expr::Assign {
-                target: sent_member,
-                value: arg_ident,
-            });
-            Stmt::Expr(assign)
-        };
-        let mut next_body_with_stash: Vec<Stmt> = Vec::with_capacity(next_body.len() + 1);
-        next_body_with_stash.push(stash_sent);
-        next_body_with_stash.extend(next_body);
-
-        let next_method = ClassMethod {
-            name: "next".into(),
-            params: vec![yield_arg_param],
-            return_type: Some(step_ann.clone()),
-            body: next_body_with_stash,
-            is_abstract: false,
-            visibility: Visibility::Public,
-            accessor_kind: None,
-        };
+        let next_method = crate::ast::desugar_generators_methods::build_next_method(
+            ast,
+            yield_arg_default_id,
+            &yield_ty,
+            &step_ann,
+            next_body,
+        );
         let return_method =
             crate::ast::desugar_generators_methods::build_return_method(ast, &yield_ty, &step_ann);
         let throw_method =
