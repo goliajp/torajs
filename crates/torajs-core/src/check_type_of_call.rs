@@ -1145,40 +1145,13 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S314 — BigInt.{asIntN,asUintN}(bits, value, ...trailing)
-    // per ES §21.2.2.{1,2}: spec sig is 2-arg; trailing args
-    // MUST be silently ignored. Pre-S314 the fixed (Type::
-    // Object("BigInt"), m) method-table sig rejected
-    // `args.len() >= 3` with "expected 2 argument(s), got M".
-    // typecheck-drop trailing + ssa_lower mirror widens gate
-    // + lower-and-drop trailing.
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "asIntN" | "asUintN")
-        && args.len() >= 3
-    {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::Object("BigInt")) {
-            // Useful arg typecheck (bits: Number, value: BigInt).
-            let aty0 = checker.type_of(ast, args[0])?;
-            if !matches!(aty0, Type::Number) {
-                return Err(format!(
-                    "BigInt.{m_name} arg 0 (bits) must be number, got {aty0:?}"
-                ));
-            }
-            let aty1 = checker.type_of(ast, args[1])?;
-            if !matches!(aty1, Type::BigInt) {
-                return Err(format!(
-                    "BigInt.{m_name} arg 1 (value) must be bigint, got {aty1:?}"
-                ));
-            }
-            for &a in args.iter().skip(2) {
-                let _ = checker.type_of(ast, a)?;
-            }
-            return Ok(Type::BigInt);
-        }
+    // S314 — `BigInt.{asIntN,asUintN}(bits, value,
+    // ...trailing)` BigInt-namespace 2-arg-spec trailing-arg
+    // ignore wedge extracted to
+    // [`crate::check_type_of_call_bigint_asint`]
+    // (chunk 276).
+    if let Some(r) = crate::check_type_of_call_bigint_asint::try_match(checker, ast, callee, args) {
+        return r;
     }
     // S309 — Object.fromEntries(entries, ...trailing) per ES
     // §20.1.2.7: spec sig is 1-arg (entries iterable);
