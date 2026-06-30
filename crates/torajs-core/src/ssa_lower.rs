@@ -1312,193 +1312,25 @@ fn lower_inner(
     // batch). After this Pass 0 is fully drained from `lower_inner`.
     let init_d = crate::ssa_lower_intrinsics_init_d::declare(&mut module, &mut fn_table);
 
-    // Pass 0.5: register user-declared type aliases. `type Point = { x:
-    // number, y: number }` interns the layout in `module.struct_layouts`
-    // and adds `Point → Type::Obj(StructId)` to `aliases`. Order matters:
-    // forward references between aliases aren't supported (matches
-    // check.rs's behavior — would error there before reaching here).
-    let mut aliases: HashMap<String, Type> = HashMap::new();
-    // arr_layouts is the lowering-phase Array<T> element-type interner.
-    // Threaded through every parse_type call so `let xs: number[]` /
-    // struct fields / fn params / fn returns all share one table.
-    // Written into module.arr_layouts at the very end of `lower()`.
-    let mut arr_layouts: Vec<Type> = Vec::new();
-    // V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-6 — host-built baked DFA
-    // collection. `LowerCtx::try_bake_regex_dfa` pushes entries on
-    // DFA-eligible literal regex sites; written into
-    // module.baked_regex_entries at the end so the link layer's
-    // user_regex_baked_layout pipeline (C-5b/c) can lay out the
-    // BakedDfaMeta + [DfaState; N] payload in __DATA_CONST.
-    let mut baked_regex_buf: Vec<BakedRegexEntry> = Vec::new();
-    // M2 Phase B Stage 2 — fn-pointer signature interner. Same threading
-    // pattern as arr_layouts: collected during pass 0.5 / 1 / 2 and
-    // written into `module.signatures` at the end.
-    let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
-    // M4.3.b — may-throw analysis (collection + fixed-point live in
-    // ast_throw_info.rs). Per-call-site `emit_throw_check` skips the
-    // check entirely when the callee's name isn't in this set.
-    let may_throw = crate::ast_throw_info::compute_may_throw_fns(ast, expr_types);
-
-    // M3.4 — generic struct decls indexed by name. parse_type instantiates
-    // a fresh `Type::Obj(sid)` on-demand each time it encounters a
-    // `Foo<arg1|arg2>` annotation (caching by interned struct layout).
-    let mut generic_struct_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)> =
-        HashMap::new();
-    // M3.4 — detach struct_layouts from the module so generic-struct
-    // instantiation during pass 1/2 can intern new layouts without
-    // borrow-checker fights against `&mut module.funcs`. Written back
-    // at the end of `lower()`.
-    let mut struct_layouts: Vec<Vec<(String, Type)>> = std::mem::take(&mut module.struct_layouts);
-    let mut inst_memo: HashMap<String, ssa::StructId> = HashMap::new();
-    // V3-05 — two-phase TypeDecl resolution so self-referential
-    // classes (`class Node { next: Node | null }`) work. Phase 1
-    // reserves a fresh sid + empty layout for every non-generic
-    // TypeDecl and inserts `name → Type::Obj(sid)` into aliases.
-    // Phase 2 fills each reserved layout — by then the alias table
-    // has every class name, so a field type that references its
-    // own class (or a forward-declared sibling) resolves cleanly.
-    // Layouts are NOT interned in phase 1 (interning relies on
-    // field equality which we don't yet have); duplicates are
-    // collapsed in phase 2 by rewriting alias entries.
-    let mut class_sids: std::collections::HashMap<String, ssa::StructId> =
-        std::collections::HashMap::new();
-    for stmt in &ast.stmts {
-        if let Stmt::TypeDecl {
-            name,
-            type_params,
-            fields,
-        } = stmt
-        {
-            if !type_params.is_empty() {
-                continue;
-            }
-            // V3-18 wedge — bare type alias (`type ID = number`)
-            // is encoded by the parser as a single field named
-            // "__alias__"; skip the placeholder-sid reservation
-            // and resolve to the underlying type instead.
-            if fields.len() == 1 && fields[0].0 == "__alias__" {
-                let ty = parse_type(
-                    Some(fields[0].1.as_str()),
-                    &aliases,
-                    &mut arr_layouts,
-                    &mut fn_sigs,
-                    &generic_struct_decls,
-                    &mut struct_layouts,
-                    &mut inst_memo,
-                );
-                aliases.insert(name.clone(), ty);
-                continue;
-            }
-            let sid = ssa::StructId(struct_layouts.len() as u32);
-            struct_layouts.push(Vec::new());
-            class_sids.insert(name.clone(), sid);
-            aliases.insert(name.clone(), Type::Obj(sid));
-        }
-    }
-    for stmt in &ast.stmts {
-        if let Stmt::TypeDecl {
-            name,
-            type_params,
-            fields,
-        } = stmt
-        {
-            if !type_params.is_empty() {
-                generic_struct_decls.insert(name.clone(), (type_params.clone(), fields.clone()));
-                continue;
-            }
-            // V3-18 wedge — already handled in the placeholder
-            // pass above for bare aliases; skip here to avoid
-            // accidentally finalizing a struct layout.
-            if fields.len() == 1 && fields[0].0 == "__alias__" {
-                continue;
-            }
-            let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
-            // W4 — class field widths join over all instances through
-            // the nominal Class key. D5 — cyclic plain aliases take
-            // the same nominal widths (their reserved sid closes the
-            // recursion right here; see num_width/alias.rs). F3 —
-            // generator `__step_*` aliases too, so the state machine's
-            // value slot width joins over every yielded expression.
-            // Other plain aliases widen per consuming slot instead.
-            let class_key = (ast.class_parents.contains_key(name)
-                || num_f64_slots.is_nominal_alias(name))
-            .then(|| crate::num_width::SlotKey::Class(name.clone()));
-            for (fname, fty_ann) in fields {
-                let mut ty = parse_type(
-                    Some(fty_ann.as_str()),
-                    &aliases,
-                    &mut arr_layouts,
-                    &mut fn_sigs,
-                    &generic_struct_decls,
-                    &mut struct_layouts,
-                    &mut inst_memo,
-                );
-                if let Some(ck) = &class_key {
-                    let fkey =
-                        crate::num_width::SlotKey::Field(Box::new(ck.clone()), fname.clone());
-                    ty = match ty {
-                        Type::I64
-                            if fty_ann == "number" && num_f64_slots.field_is_f64(ck, fname) =>
-                        {
-                            Type::F64
-                        }
-                        Type::Arr(_) => crate::ssa_lower_container_width::widen_arr_elem(
-                            ty,
-                            Some(fty_ann.as_str()),
-                            &fkey,
-                            &num_f64_slots,
-                            &mut arr_layouts,
-                        ),
-                        other => other,
-                    };
-                }
-                layout.push((fname.clone(), ty));
-            }
-            let reserved_sid = class_sids[name];
-            // Try to intern: if another non-reserved layout already
-            // matches, alias `name` to that sid and leave the
-            // reserved slot empty (harmless — nothing references it).
-            let mut found: Option<ssa::StructId> = None;
-            for (i, ex) in struct_layouts.iter().enumerate() {
-                if i as u32 == reserved_sid.0 {
-                    continue;
-                }
-                if *ex == layout {
-                    found = Some(ssa::StructId(i as u32));
-                    break;
-                }
-            }
-            if let Some(canonical) = found {
-                aliases.insert(name.clone(), Type::Obj(canonical));
-            } else {
-                struct_layouts[reserved_sid.0 as usize] = layout;
-            }
-        }
-    }
-
-    /* Phase H.1.b — assign each declared class a runtime tag.
-     *
-     * Tags are keyed by **class name**, not by sid, because classes
-     * with structurally identical fields share a single sid via the
-     * intern table (see line 2940). Keying tags by sid would alias
-     * those classes to the same tag, which silently mis-routes
-     * `__dispatch_<M>` (the dispatcher reads obj.class_tag and a
-     * shared tag picks the wrong override). Tag 0 is reserved for
-     * "not a class" — plain `type` aliases stay tagged 0.
-     *
-     * Tags start at 1 and walk class names in lexical order so
-     * codegen stays deterministic across builds (HashMap iteration
-     * is unordered).
-     */
-    let class_name_to_tag: HashMap<String, u32> = {
-        let mut class_names: Vec<&String> = ast.class_parents.keys().collect();
-        class_names.sort();
-        class_names
-            .iter()
-            .enumerate()
-            .map(|(i, cname)| ((*cname).clone(), (i as u32) + 1))
-            .collect()
-    };
+    // Pass 0.5: type-alias registration + V3-05 two-phase TypeDecl
+    // resolution + Phase H.1.b class tag table + may-throw fixed-point
+    // (chunk-328 RFC continuation). All the mutable interner state
+    // threaded through Pass 1 / 2 — aliases, arr_layouts, fn_sigs,
+    // baked_regex_buf, inst_memo, generic_struct_decls, struct_layouts,
+    // class_sids, class_name_to_tag, plus the may_throw set — is built
+    // by [`crate::ssa_lower_pass_0_5::run`] and handed back through the
+    // `Pass05` holder. struct_layouts is `mem::take`'d off `module`
+    // inside the sibling; everything else is fresh.
+    let pass05 = crate::ssa_lower_pass_0_5::run(ast, expr_types, &mut module, &num_f64_slots);
+    let aliases = pass05.aliases;
+    let mut arr_layouts = pass05.arr_layouts;
+    let mut baked_regex_buf = pass05.baked_regex_buf;
+    let mut fn_sigs = pass05.fn_sigs;
+    let may_throw = pass05.may_throw;
+    let generic_struct_decls = pass05.generic_struct_decls;
+    let mut struct_layouts = pass05.struct_layouts;
+    let mut inst_memo = pass05.inst_memo;
+    let class_name_to_tag = pass05.class_name_to_tag;
 
     // Pass 1: pre-allocate FuncIds + record correct return types for every
     // user FnDecl. The placeholder body is empty; pass 2 fills it in. Setting

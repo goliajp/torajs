@@ -1,0 +1,197 @@
+//! Pass 0.5 of `lower_inner` — register user-declared type aliases, run
+//! the V3-05 two-phase TypeDecl resolution (placeholder sids → fill +
+//! intern), assign each declared class a runtime tag (Phase H.1.b), and
+//! init the mutable interner state threaded through Pass 1 / 2
+//! (`aliases`, `arr_layouts`, `fn_sigs`, `baked_regex_buf`, `inst_memo`,
+//! `generic_struct_decls`, `struct_layouts`, `class_sids`,
+//! `class_name_to_tag`). Also folds in the `may_throw` fixed-point
+//! collection that immediately preceded the TypeDecl walks in the
+//! original Pass 0.5 block.
+//!
+//! Extracted from `lower_inner` to drain the ~186-LOC Pass 0.5 region
+//! out of the god-fn (chunk-328 of the lower_inner RFC decomp, after
+//! Pass 0 batches A-D in chunks 323-326). Pure mechanical move: the
+//! returned [`Pass05`] holder hands every binding back to `lower_inner`
+//! by name, substrate codegen is invariant (binary byte-identical with
+//! chunk-326 baseline 59444912).
+
+use std::collections::{HashMap, HashSet};
+
+use crate::ast::{Ast, ExprId, Stmt};
+use crate::num_width::WidthTable;
+use crate::ssa::{self, BakedRegexEntry, Module, Type};
+use crate::ssa_lower_parse_type::parse_type;
+
+pub(crate) struct Pass05 {
+    pub aliases: HashMap<String, Type>,
+    pub arr_layouts: Vec<Type>,
+    pub baked_regex_buf: Vec<BakedRegexEntry>,
+    pub fn_sigs: Vec<(Vec<Type>, Type)>,
+    pub may_throw: HashSet<String>,
+    pub generic_struct_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    pub struct_layouts: Vec<Vec<(String, Type)>>,
+    pub inst_memo: HashMap<String, ssa::StructId>,
+    pub class_name_to_tag: HashMap<String, u32>,
+}
+
+pub(crate) fn run(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
+    module: &mut Module,
+    num_f64_slots: &WidthTable,
+) -> Pass05 {
+    let mut aliases: HashMap<String, Type> = HashMap::new();
+    let mut arr_layouts: Vec<Type> = Vec::new();
+    let baked_regex_buf: Vec<BakedRegexEntry> = Vec::new();
+    let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
+    let may_throw = crate::ast_throw_info::compute_may_throw_fns(ast, expr_types);
+
+    let mut generic_struct_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)> =
+        HashMap::new();
+    let mut struct_layouts: Vec<Vec<(String, Type)>> = std::mem::take(&mut module.struct_layouts);
+    let mut inst_memo: HashMap<String, ssa::StructId> = HashMap::new();
+    let mut class_sids: std::collections::HashMap<String, ssa::StructId> =
+        std::collections::HashMap::new();
+    for stmt in &ast.stmts {
+        if let Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        } = stmt
+        {
+            if !type_params.is_empty() {
+                continue;
+            }
+            // V3-18 wedge — bare type alias (`type ID = number`)
+            // is encoded by the parser as a single field named
+            // "__alias__"; skip the placeholder-sid reservation
+            // and resolve to the underlying type instead.
+            if fields.len() == 1 && fields[0].0 == "__alias__" {
+                let ty = parse_type(
+                    Some(fields[0].1.as_str()),
+                    &aliases,
+                    &mut arr_layouts,
+                    &mut fn_sigs,
+                    &generic_struct_decls,
+                    &mut struct_layouts,
+                    &mut inst_memo,
+                );
+                aliases.insert(name.clone(), ty);
+                continue;
+            }
+            let sid = ssa::StructId(struct_layouts.len() as u32);
+            struct_layouts.push(Vec::new());
+            class_sids.insert(name.clone(), sid);
+            aliases.insert(name.clone(), Type::Obj(sid));
+        }
+    }
+    for stmt in &ast.stmts {
+        if let Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        } = stmt
+        {
+            if !type_params.is_empty() {
+                generic_struct_decls.insert(name.clone(), (type_params.clone(), fields.clone()));
+                continue;
+            }
+            // V3-18 wedge — already handled in the placeholder
+            // pass above for bare aliases; skip here to avoid
+            // accidentally finalizing a struct layout.
+            if fields.len() == 1 && fields[0].0 == "__alias__" {
+                continue;
+            }
+            let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
+            // W4 — class field widths join over all instances through
+            // the nominal Class key. D5 — cyclic plain aliases take
+            // the same nominal widths (their reserved sid closes the
+            // recursion right here; see num_width/alias.rs). F3 —
+            // generator `__step_*` aliases too, so the state machine's
+            // value slot width joins over every yielded expression.
+            // Other plain aliases widen per consuming slot instead.
+            let class_key = (ast.class_parents.contains_key(name)
+                || num_f64_slots.is_nominal_alias(name))
+            .then(|| crate::num_width::SlotKey::Class(name.clone()));
+            for (fname, fty_ann) in fields {
+                let mut ty = parse_type(
+                    Some(fty_ann.as_str()),
+                    &aliases,
+                    &mut arr_layouts,
+                    &mut fn_sigs,
+                    &generic_struct_decls,
+                    &mut struct_layouts,
+                    &mut inst_memo,
+                );
+                if let Some(ck) = &class_key {
+                    let fkey =
+                        crate::num_width::SlotKey::Field(Box::new(ck.clone()), fname.clone());
+                    ty = match ty {
+                        Type::I64
+                            if fty_ann == "number" && num_f64_slots.field_is_f64(ck, fname) =>
+                        {
+                            Type::F64
+                        }
+                        Type::Arr(_) => crate::ssa_lower_container_width::widen_arr_elem(
+                            ty,
+                            Some(fty_ann.as_str()),
+                            &fkey,
+                            num_f64_slots,
+                            &mut arr_layouts,
+                        ),
+                        other => other,
+                    };
+                }
+                layout.push((fname.clone(), ty));
+            }
+            let reserved_sid = class_sids[name];
+            // Try to intern: if another non-reserved layout already
+            // matches, alias `name` to that sid and leave the
+            // reserved slot empty (harmless — nothing references it).
+            let mut found: Option<ssa::StructId> = None;
+            for (i, ex) in struct_layouts.iter().enumerate() {
+                if i as u32 == reserved_sid.0 {
+                    continue;
+                }
+                if *ex == layout {
+                    found = Some(ssa::StructId(i as u32));
+                    break;
+                }
+            }
+            if let Some(canonical) = found {
+                aliases.insert(name.clone(), Type::Obj(canonical));
+            } else {
+                struct_layouts[reserved_sid.0 as usize] = layout;
+            }
+        }
+    }
+
+    // Phase H.1.b — assign each declared class a runtime tag.
+    // Tags are keyed by class name (not sid) because structurally
+    // identical classes share a single sid via the intern table;
+    // keying by sid would silently mis-route `__dispatch_<M>`. Tag 0
+    // is reserved for "not a class". Walk names in lexical order so
+    // codegen stays deterministic across builds (HashMap iteration
+    // is unordered).
+    let class_name_to_tag: HashMap<String, u32> = {
+        let mut class_names: Vec<&String> = ast.class_parents.keys().collect();
+        class_names.sort();
+        class_names
+            .iter()
+            .enumerate()
+            .map(|(i, cname)| ((*cname).clone(), (i as u32) + 1))
+            .collect()
+    };
+
+    Pass05 {
+        aliases,
+        arr_layouts,
+        baked_regex_buf,
+        fn_sigs,
+        may_throw,
+        generic_struct_decls,
+        struct_layouts,
+        inst_memo,
+        class_name_to_tag,
+    }
+}
