@@ -16,6 +16,7 @@ mod desugar_classes_statics;
 mod desugar_classes_super;
 mod desugar_generators_class;
 mod desugar_generators_methods;
+mod desugar_generators_prep;
 mod desugar_generators_rewrite;
 pub use desugar_async::desugar_async;
 use desugar_async::{body_ends_in_return, rewrite_returns_for_async};
@@ -839,63 +840,17 @@ pub fn desugar_generators(ast: &mut Ast) {
         // `IterableIterator<T>` annotations keep their explicit T.
         let yield_ty = gen_ret.unwrap_or_else(|| "any".into());
 
-        // J.2.a/b — lift every `let x: T = init` ANYWHERE in the body
-        // (including for-init, if/else branches, while/for bodies) to a
-        // class field so the binding survives yield boundaries. Each
-        // lifted let becomes:
-        //   - a new field on the iterator class
-        //   - a `this.<name> = init` assignment expr at the let's source
-        //     position (replacing the LetDecl in-place)
-        //   - a `this.<name>` rewrite for every Ident reference further
-        //     down the body
-        //
-        // Same-name lets in different scopes both map to the same field
-        // and would clobber each other; we panic on collision so the
-        // user has to rename. Switch / try lets are not lifted (those
-        // forms don't yet support yields).
-        let mut gen_body = gen_body;
-        // J.4 — expand every `let v(:T)? = yield <e>;` into
-        //   yield <e>;
-        //   let v(:T)? = this.__sent;
-        // so the rest of the pipeline only sees standard `Stmt::Yield`
-        // and `Stmt::LetDecl`. The `this.__sent` reference picks up
-        // whatever was passed to `g.next(arg)` on the resume.
-        for s in &mut gen_body {
-            expand_yield_into_in_stmt(ast, s, &yield_ty);
-        }
-        // After expansion, gen_body may contain Multi(Vec<Stmt>) holding
-        // the [Yield; LetDecl] pair. The recursive let-lift below walks
-        // Multi just fine.
-
-        let mut lifted_locals: Vec<(String, String)> = Vec::new();
-        for s in &mut gen_body {
-            lift_lets_in_stmt(ast, s, &mut lifted_locals);
-        }
-        for i in 0..lifted_locals.len() {
-            for j in (i + 1)..lifted_locals.len() {
-                if lifted_locals[i].0 == lifted_locals[j].0 {
-                    panic!(
-                        "function* {gen_name}: duplicate `let {}` declarations across \
-                         scopes — both lift to `this.{}` and would collide. Rename \
-                         one (Phase J.2.b limitation).",
-                        lifted_locals[i].0, lifted_locals[i].0
-                    );
-                }
-            }
-        }
-        // Names to rewrite to `this.<name>`: generator params + lifted
-        // locals. Both share the same identifier-shadowing semantics
-        // for our MVP (no shadowing).
-        let mut all_names: Vec<Param> = gen_params.clone();
-        for (n, t) in &lifted_locals {
-            all_names.push(Param {
-                name: n.clone(),
-                type_ann: Some(t.clone()),
-                default: None,
-                is_rest: false,
-            });
-        }
-        crate::ast::desugar_generators_rewrite::rewrite_params_to_this(ast, &gen_body, &all_names);
+        // J.2.a/b + J.4 — prep gen_body: expand yield-into pairs,
+        // lift `let` decls to class fields, rewrite param/local
+        // idents to `this.<name>`. Returns (prepared_body,
+        // lifted_locals) for the class-assembly step below.
+        let (gen_body, lifted_locals) = crate::ast::desugar_generators_prep::prep_generator_body(
+            ast,
+            gen_body,
+            &gen_name,
+            &gen_params,
+            &yield_ty,
+        );
 
         // Class name + struct return type for next().
         let class_name = format!("__Gen_{gen_name}");
@@ -1064,7 +1019,7 @@ pub fn desugar_generators(ast: &mut Ast) {
 /// `yield_ty` is the surrounding generator's declared yield type; it
 /// supplies the let's annotation when the user omitted one (so the
 /// J.2.b lift picks the right field type).
-fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &str) {
+pub(super) fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &str) {
     match s {
         Stmt::YieldInto {
             var,
@@ -1123,7 +1078,7 @@ fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &str) {
 /// in `lifted`. Used by `desugar_generators` so locals declared in
 /// for-init / if-branches / while-bodies survive yield boundaries
 /// the same way top-level lets do.
-fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(String, String)>) {
+pub(super) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(String, String)>) {
     match s {
         Stmt::LetDecl {
             name,
