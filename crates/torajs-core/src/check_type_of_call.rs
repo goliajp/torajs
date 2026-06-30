@@ -1224,32 +1224,13 @@ pub(crate) fn check(
         return r;
     }
     // S282 — String.{replace,replaceAll,split}(useful, useful,
-    // ...trailing) trailing-arg ignore per ES §22.1.3.{18,19,
-    // 21}. Spec reads only 2 args (search/replace or
-    // separator/limit); tora's helpers are 2-arg only.
-    // Widen check.rs to accept args.len() >= 3; ssa_lower
-    // mirror lowers args[2..] for side effects then drops
-    // the values (S272 idiom).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "replace" | "replaceAll" | "split")
-        && args.len() >= 3
-    {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if matches!(src_ty, Type::String) {
-            let _ = checker.type_of(ast, args[0])?;
-            let _ = checker.type_of(ast, args[1])?;
-            for &aid in &args[2..] {
-                let _ = checker.type_of(ast, aid)?;
-            }
-            return Ok(match m_name.as_str() {
-                "replace" | "replaceAll" => Type::String,
-                "split" => Type::Array(Box::new(Type::String)),
-                _ => unreachable!(),
-            });
-        }
+    // ...trailing) 3+ arg trailing-arg wedge extracted to
+    // [`crate::check_type_of_call_string_replace_split_trailing`]
+    // (chunk 285).
+    if let Some(r) = crate::check_type_of_call_string_replace_split_trailing::try_match(
+        checker, ast, callee, args,
+    ) {
+        return r;
     }
     let callee_ty = checker.type_of(ast, *callee)?;
     let Type::Function(mut params, ret) = callee_ty else {
