@@ -666,62 +666,12 @@ pub(crate) fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
 /// type (field access, unify, member-call dispatch) — without it,
 /// a self-referential class field stays at the placeholder and
 /// the consumer sees no fields.
-pub fn resolve_class_ref(
-    ty: &Type,
-    aliases: &std::collections::HashMap<String, Type>,
-    generic_aliases: &GenericAliasMap,
-) -> Type {
-    match ty {
-        Type::ClassRef(name) => {
-            match aliases.get(name) {
-                Some(t) if !matches!(t, Type::ClassRef(_)) => {
-                    // Recurse: the alias entry's own fields may
-                    // themselves contain ClassRef placeholders (the
-                    // self-ref case — Node's `next` field carries
-                    // ClassRef("Node")). One unwrap pass keeps
-                    // following levels resolved at access time.
-                    let resolved = t.clone();
-                    resolve_class_ref_one(&resolved, aliases, generic_aliases)
-                }
-                // Generic-instantiation back-edge (`Rec<number>` from a
-                // recursive `type Rec<T>`): the key is not in `aliases`
-                // (instantiation is lazy, there is no Pass-0 entry) but
-                // it IS its own canonical annotation — re-instantiate
-                // one shallow layer. Recursive fields inside come back
-                // as ClassRef again, so this terminates: same lazy
-                // one-layer-per-access contract as the named-class arm.
-                None if name.contains('<') => {
-                    match resolve_type_ann_full(name, aliases, &[], generic_aliases) {
-                        Some(t) if !matches!(t, Type::ClassRef(_)) => t,
-                        _ => ty.clone(),
-                    }
-                }
-                _ => ty.clone(),
-            }
-        }
-        _ => resolve_class_ref_one(ty, aliases, generic_aliases),
-    }
-}
-
-/// Helper: walk every wrapper variant once, leaving ClassRef nodes
-/// embedded in struct/array fields alone (they get resolved on the
-/// next access). This keeps recursive class layouts finite — a
-/// fully-resolved Node would expand infinitely.
-fn resolve_class_ref_one(
-    ty: &Type,
-    aliases: &std::collections::HashMap<String, Type>,
-    generic_aliases: &GenericAliasMap,
-) -> Type {
-    match ty {
-        Type::Nullable(inner) => {
-            Type::Nullable(Box::new(resolve_class_ref(inner, aliases, generic_aliases)))
-        }
-        Type::Array(inner) => {
-            Type::Array(Box::new(resolve_class_ref(inner, aliases, generic_aliases)))
-        }
-        _ => ty.clone(),
-    }
-}
+// `resolve_class_ref` + private helper `resolve_class_ref_one`
+// live in [`crate::check_resolve_class_ref`] (chunk-316 of the
+// check.rs god-file decomp). Re-exported here so callers
+// continue to use the canonical `crate::check::resolve_class_ref`
+// import path.
+pub use crate::check_resolve_class_ref::resolve_class_ref;
 
 // `type_to_ann` lives in [`crate::check_type_to_ann`] (chunk-314
 // of the check.rs god-file decomp). Re-exported here so callers
