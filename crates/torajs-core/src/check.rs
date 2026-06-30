@@ -1880,31 +1880,10 @@ impl Checker {
                 crate::check_type_of_unary::check(self, ast, *op, *expr)
             }
             Expr::Assign { target, value } => {
-                match ast.get_expr(*target).clone() {
-                    Expr::Ident(name) => {
-                        // K.3 top-level data global vs local binding
-                        // (lookup → globals → LocalInfo). See
-                        // [`crate::check_assign_ident::check`].
-                        return crate::check_assign_ident::check(self, ast, name, *value);
-                    }
-                    Expr::Member { obj, name: field } => {
-                        // M1.4 / P3.2 / T-27 / T-29 / P9.4 / P8.2 /
-                        // V3-05 / V3-06 / M-OO.5 readonly. See
-                        // [`crate::check_assign_target::check_member`].
-                        return crate::check_assign_target::check_member(
-                            self, ast, obj, field, *value,
-                        );
-                    }
-                    Expr::Index { obj, index } => {
-                        // M1.4 — arr[i] = value (Array<T> + Number
-                        // index + elem type match). See
-                        // [`crate::check_assign_target::check_index`].
-                        return crate::check_assign_target::check_index(
-                            self, ast, obj, index, *value,
-                        );
-                    }
-                    _ => Err("invalid assignment target".into()),
-                }
+                // Target-shape dispatch (Ident / Member / Index /
+                // invalid). See
+                // [`crate::check_type_of_assign::check`].
+                crate::check_type_of_assign::check(self, ast, *target, *value)
             }
             Expr::ArrowFn {
                 params,
