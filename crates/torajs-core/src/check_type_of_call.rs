@@ -779,38 +779,16 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S255 — Object.keys / Object.getOwnPropertyNames /
-    // Reflect.ownKeys (obj, ...trailing) trailing-arg ignore
-    // per ES §20.1.2.{17,22} / §28.1.11. Spec reads only
-    // args[0]; tora silent-drops trailing per generic
-    // trailing-arg-ignore policy. SSA-emit mirror widens
-    // the `args.len() == 1` gate to `>= 1` (ssa_lower.rs:
-    // ~18745). Narrow to this shared 3-method SSA-emit
-    // dispatch — other Object/Reflect methods need
-    // per-method SSA-emit widening (L3b).
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ((ns == "Object" && (m_name == "keys" || m_name == "getOwnPropertyNames"))
-            || (ns == "Reflect" && m_name == "ownKeys"))
-        && args.len() >= 2
+    // `Object.{keys,getOwnPropertyNames}(obj, ...trailing)` /
+    // `Reflect.ownKeys(obj, ...trailing)` namespace
+    // 1-useful-arg trailing-arg ignore wedge extracted to
+    // [`crate::check_type_of_call_object_keys_ownkeys`]
+    // (chunk 293).
+    if let Some(r) =
+        crate::check_type_of_call_object_keys_ownkeys::try_match(checker, ast, callee, args)
     {
-        let _ = checker.type_of(ast, args[0])?;
-        for &arg in args.iter().skip(1) {
-            let _ = checker.type_of(ast, arg)?;
-        }
-        return Ok(Type::Array(Box::new(Type::String)));
+        return r;
     }
-    // S256 — Object.{entries,freeze,isFrozen}(obj, ...trailing)
-    // trailing-arg ignore per ES §20.1.2.{5,12,15}. Spec
-    // reads only args[0]; tora silent-drops trailing per
-    // generic trailing-arg-ignore policy. SSA-emit mirror
-    // widens each `args.len() == 1` gate to `>= 1`.
-    // S258 extends to `values` — same shape, returns
-    // Array<Any> (the per-method 1-arg sig was missing
-    // entirely; now added above).
     // `Object.{entries,freeze,isFrozen,values}(obj,
     // ...trailing)` Object-namespace 1-useful-arg trailing-
     // arg ignore wedge extracted to
