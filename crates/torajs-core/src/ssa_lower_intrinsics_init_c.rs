@@ -1,0 +1,51 @@
+//! Pass-0 intrinsic declarations — batch C — chunk-325 RFC of the
+//! ssa_lower.rs god-file + lower_inner god-fn decomp.
+//!
+//! Sibling to `ssa_lower_intrinsics_init_a` (chunk-323) and
+//! `ssa_lower_intrinsics_init_b` (chunk-324). Aggregates the next 6
+//! sub-system declares (any_substrate / print_freeze / bigint / weak
+//! / map_set / runtime_misc — 123 FuncIds total) plus the three
+//! orchestration side effects that immediately follow them in the
+//! original Pass 0 body:
+//!
+//! - the `gc` → `cycle_collect` alias insert,
+//! - `ssa_lower_main_exit::declare`,
+//! - `ssa_lower_process_on::declare`.
+//!
+//! Folding the side effects in keeps the caller's Pass 0 a single
+//! line per batch. Same orchestration-only shape as init_a / init_b.
+
+use crate::ssa::{FuncId, Module};
+use std::collections::HashMap;
+
+pub(crate) struct InitC {
+    pub any_substrate: crate::ssa_lower_intrinsics_any_substrate::AnySubstrateIds,
+    pub print_freeze: crate::ssa_lower_intrinsics_print_freeze::PrintFreezeIds,
+    pub bigint: crate::ssa_lower_intrinsics_bigint::BigIntIds,
+    pub weak: crate::ssa_lower_intrinsics_weak::WeakIds,
+    pub map_set: crate::ssa_lower_intrinsics_map_set::MapSetIds,
+    pub runtime_misc: crate::ssa_lower_intrinsics_runtime_misc::RuntimeMiscIds,
+}
+
+pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> InitC {
+    let any_substrate = crate::ssa_lower_intrinsics_any_substrate::declare(module, fn_table);
+    let print_freeze = crate::ssa_lower_intrinsics_print_freeze::declare(module, fn_table);
+    let bigint = crate::ssa_lower_intrinsics_bigint::declare(module, fn_table);
+    let weak = crate::ssa_lower_intrinsics_weak::declare(module, fn_table);
+    let map_set = crate::ssa_lower_intrinsics_map_set::declare(module, fn_table);
+    let runtime_misc = crate::ssa_lower_intrinsics_runtime_misc::declare(module, fn_table);
+    // User-visible `gc()` lowers as a direct call to cycle_collect.
+    // Register the alias so the existing global-fn path picks it up
+    // without a new desugar.
+    fn_table.insert("gc".to_string(), runtime_misc.cycle_collect);
+    crate::ssa_lower_main_exit::declare(module, fn_table);
+    crate::ssa_lower_process_on::declare(module, fn_table);
+    InitC {
+        any_substrate,
+        print_freeze,
+        bigint,
+        weak,
+        map_set,
+        runtime_misc,
+    }
+}
