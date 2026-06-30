@@ -300,27 +300,11 @@ pub(crate) type MovedSnapshot = Vec<Vec<(String, bool)>>;
 // `crate::check::stmt_assigns_to` import path.
 pub(crate) use crate::check_assigns_to::stmt_assigns_to;
 
-pub(crate) fn stmt_diverges(s: &crate::ast::Stmt) -> bool {
-    use crate::ast::Stmt;
-    match s {
-        Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue => true,
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.last().is_some_and(stmt_diverges),
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            // If both branches diverge, the if as a whole diverges.
-            stmt_diverges(then_branch) && else_branch.as_deref().is_some_and(stmt_diverges)
-        }
-        // While/For/DoWhile/Switch/Try/etc. could diverge in principle
-        // (e.g. `while(true) { return ... }`) but we conservatively say
-        // they don't — avoids false negatives on potentially-finite
-        // loops. Worst case is we keep moves that should have been
-        // discarded; the trailing post-loop code stays safe.
-        _ => false,
-    }
-}
+// `stmt_diverges` lives in [`crate::check_stmt_diverges`] (chunk-317
+// of the check.rs god-file decomp). Re-exported here so the external
+// caller (`check_stmt_if`) continues to use the canonical
+// `crate::check::stmt_diverges` import path.
+pub(crate) use crate::check_stmt_diverges::stmt_diverges;
 
 /// M5.2 — structural-prefix subtyping for class-method receiver arguments.
 /// `Dog` (fields: name, bark_count) is a valid receiver for an

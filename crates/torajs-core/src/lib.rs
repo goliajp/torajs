@@ -190,6 +190,7 @@ pub(crate) mod check_assignable;
 pub(crate) mod check_assigns_to;
 pub(crate) mod check_pipeline;
 pub(crate) mod check_resolve_class_ref;
+pub(crate) mod check_stmt_diverges;
 pub(crate) mod check_stmt_fn_decl;
 pub(crate) mod check_stmt_for;
 pub(crate) mod check_stmt_for_of;
