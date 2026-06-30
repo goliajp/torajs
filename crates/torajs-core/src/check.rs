@@ -662,100 +662,19 @@ pub use crate::check_resolve_class_ref::resolve_class_ref;
 // continue to use the canonical `crate::check::type_to_ann` path.
 pub use crate::check_type_to_ann::type_to_ann;
 
-pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
-    check_with_types(ast).map(|(g, _)| g)
-}
-
-/// T-15.g.6 (v0.5.0) — typed variant of `check`. Also returns the
-/// per-Expr type map so ssa_lower can recover Promise<T>'s inner T
-/// at the await Member-access site (Type::Promise is unit at SSA;
-/// PromiseId interning would be the cleaner fix but threads through
-/// 22+ parse_type call sites — this side-channel is the smaller
-/// change).
-pub fn check_with_types(ast: &Ast) -> Result<(GenericCallSites, HashMap<ExprId, Type>), String> {
-    check_with_arity(ast).map(|(g, t, _, _)| (g, t))
-}
-
-/// T-28 — full pipeline artifacts: generic call sites, per-Expr types,
-/// per-Call arity pad map, and the demoted speculative-rewrite map
-/// (name-based class-method rewrites whose receiver checked as a
-/// builtin container; ssa_lower restores the member-call shape for
-/// those — see cm_demote.rs).
-pub type CheckArtifacts = (
-    GenericCallSites,
-    HashMap<ExprId, Type>,
-    HashMap<ExprId, usize>,
-    HashMap<ExprId, ExprId>,
-);
-
-/// T-28 — check that also returns the per-Call arity pad + demotion
-/// maps. New callers (main.rs `tr run` / `tr build`) use this; the
-/// older `check_with_types` is kept for back-compat (tests, lsp).
-pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
-    let mut c = Checker::new();
-    c.run_full_pipeline(ast);
-    let error_messages: Vec<String> = c
-        .errors
-        .iter()
-        .filter(|d| d.severity == Severity::Error)
-        .map(|d| d.message.clone())
-        .collect();
-    if error_messages.is_empty() {
-        Ok((
-            c.generic_call_sites,
-            c.expr_types,
-            c.arity_pad_count,
-            c.demoted_cm_rewrites,
-        ))
-    } else {
-        Err(error_messages.join("\n"))
-    }
-}
-
-/// v0.3 #5 LSP — string-typed errors-only collector kept for back-
-/// compat. Filters out warnings so callers that historically only
-/// surfaced errors keep the same shape. New callers should prefer
-/// `collect_diagnostics` (T-04).
-pub fn collect_errors(ast: &Ast) -> Vec<String> {
-    let mut c = Checker::new();
-    c.run_full_pipeline(ast);
-    c.errors
-        .into_iter()
-        .filter(|d| d.severity == Severity::Error)
-        .map(|d| d.message)
-        .collect()
-}
-
-/// T-04 (v0.3.0) — full diagnostic stream with source spans + severity.
-/// LSP consumes this to publish per-site squiggles + warning bucket
-/// (lint also reads this same stream once it lands in T-06).
-pub fn collect_diagnostics(ast: &Ast) -> Vec<Diagnostic> {
-    let mut c = Checker::new();
-    c.run_full_pipeline(ast);
-    c.errors
-}
-
-/// v0.3 #5 LSP L-3 — run the full typecheck pipeline and return
-/// the per-Expr type table (populated as a side-effect by every
-/// `type_of` call). Caller looks up by ExprId. Errors during
-/// typecheck don't abort the table — partial coverage on the
-/// reachable Exprs is still useful for hover. Errors are stringified
-/// (errors-only, no warnings) for back-compat with existing LSP
-/// hover code; full diagnostics flow through `collect_diagnostics`.
-pub fn collect_types_and_errors(ast: &Ast) -> (HashMap<ExprId, Type>, Vec<String>) {
-    let mut c = Checker::new();
-    c.run_full_pipeline(ast);
-    let errs: Vec<String> = c
-        .errors
-        .into_iter()
-        .filter(|d| d.severity == Severity::Error)
-        .map(|d| d.message)
-        .collect();
-    (c.expr_types, errs)
-}
+// The six public entry-point fns + the `CheckArtifacts` tuple type
+// live in [`crate::check_entry`] (chunk-318 of the check.rs god-file
+// decomp). Re-exported here so external callers
+// (`torajs_core::check::collect_diagnostics`,
+// `torajs_core::check::check_with_arity`, etc.) keep their import
+// paths working.
+pub use crate::check_entry::{
+    CheckArtifacts, check, check_with_arity, check_with_types, collect_diagnostics, collect_errors,
+    collect_types_and_errors,
+};
 
 impl Checker {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             globals: HashMap::new(),
             scopes: vec![HashMap::new()],
@@ -776,7 +695,7 @@ impl Checker {
         }
     }
 
-    fn run_full_pipeline(&mut self, ast: &Ast) {
+    pub(crate) fn run_full_pipeline(&mut self, ast: &Ast) {
         // Three native passes split out into `check_pipeline` sibling
         // (chunk 136). Order matters: Pass 1 reads aliases populated
         // by Pass 0; Pass 2 reads globals populated by Pass 1 and
