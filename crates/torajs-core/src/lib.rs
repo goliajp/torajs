@@ -269,6 +269,7 @@ pub(crate) mod check_type_of_call_string_trim_case;
 pub(crate) mod check_type_of_call_to_string_radix;
 pub(crate) mod check_type_of_call_undef_widen_1arg;
 pub(crate) mod check_type_of_call_value_of;
+pub(crate) mod check_type_of_call_weak_collection;
 pub(crate) mod check_type_of_fn;
 pub(crate) mod check_type_of_ident;
 pub(crate) mod check_type_of_member;
