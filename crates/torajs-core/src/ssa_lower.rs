@@ -1377,62 +1377,18 @@ fn lower_inner(
     closure_decls.reverse();
     let decl_indices: Vec<_> = user_decls;
 
-    // Pre-allocate FuncIds for per-closure env-drop fns. Each lifted
-    // `__closure_N` gets a paired `__env_drop___closure_N` FuncId.
-    // Body is a placeholder Function for now; Pass 2.5 fills it in
-    // once closure_captures is populated by the construction sites.
-    // Pre-registration lets Pass 2 closure-construction sites
-    // FnAddr(drop_fid) and store it into env+8.
-    let mut env_drop_fids: Vec<(String, FuncId, ssa::SigId)> = Vec::new();
-    for stmt in &ast.stmts {
-        // Any FnDecl with `__env` as its first param is a closure-
-        // shaped body (lifted arrow OR synthesized forwarder for
-        // mixed-return wrapping). Each gets a paired env-drop fn.
-        if let Stmt::FnDecl { name, params, .. } = stmt
-            && params.first().is_some_and(|p| p.name == "__env")
-        {
-            let drop_name = format!("__env_drop_{name}");
-            let fid = FuncId(module.funcs.len() as u32);
-            fn_table.insert(drop_name.clone(), fid);
-            let drop_sig = intern_fn_sig(&mut fn_sigs, vec![Type::Ptr], Type::Void);
-            fn_sig_ids.insert(fid, drop_sig);
-            module
-                .funcs
-                .push(ssa::Function::new(&drop_name, Type::Void));
-            env_drop_fids.push((name.clone(), fid, drop_sig));
-        }
-    }
-
-    // Trivial drop fn for "no-capture closure wrappers" — used by the
-    // Return arm when wrapping a top-level FnAddr (Type::FnSig) into
-    // a Closure-typed value to satisfy a fn signature that returns
-    // `(...) => R`. The wrapper env has just fn_addr@0 + drop_fn@8,
-    // no captures. Drop body just frees the env block.
-    let env_drop_trivial_fid = {
-        let fid = FuncId(module.funcs.len() as u32);
-        fn_table.insert("__env_drop_trivial".into(), fid);
-        let sig = intern_fn_sig(&mut fn_sigs, vec![Type::Ptr], Type::Void);
-        fn_sig_ids.insert(fid, sig);
-        let mut f = ssa::Function::new("__env_drop_trivial", Type::Void);
-        let env_pid = f.add_param(Type::Ptr, "env");
-        let entry = f.add_block();
-        // Trivial env wrapper: no captures, env block size = closure
-        // header only (`fn_addr@8 + drop_fn@16 + props@24 + cap_base@32`
-        // = 32 bytes = `CLOSURE_CAP_BASE_OFF`).
-        f.append_void(
-            entry,
-            InstKind::Call(
-                init_a.obj_capture.obj_drop_sized,
-                vec![
-                    Operand::Value(env_pid),
-                    Operand::ConstI64(CLOSURE_CAP_BASE_OFF as i64),
-                ],
-            ),
-        );
-        f.set_term(entry, Terminator::Ret(None));
-        module.funcs.push(f);
-        (fid, sig)
-    };
+    // Env-drop fn infrastructure (per-closure pre-allocate + trivial
+    // wrapper) — see [`crate::ssa_lower_env_drop_setup`].
+    let env_drop_setup = crate::ssa_lower_env_drop_setup::run(
+        ast,
+        &mut module,
+        &mut fn_table,
+        &mut fn_sigs,
+        &mut fn_sig_ids,
+        &init_a,
+    );
+    let env_drop_fids = env_drop_setup.env_drop_fids;
+    let env_drop_trivial_fid = env_drop_setup.env_drop_trivial_fid;
 
     // ②.6b — promise callback ABI thunks (bits-adapters for f64-faced
     // `.then` / `.catch` handlers). Synthesized here because the fn
