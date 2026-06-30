@@ -1207,41 +1207,12 @@ pub(crate) fn check(
     {
         return r;
     }
-    // S339 — `xs.with(Any idx, val)` per ES §23.1.3.39 step 2:
-    // ToIntegerOrInfinity accepts arbitrary-typed input. The
-    // method-table sig `(Number, T) -> Array<T>` at the Array
-    // dispatch site (~4422) strict-rejected `o: any` operands
-    // at typecheck ('argument 0: expected Number, got Any').
-    // Widen here so the ssa_lower mirror routes Any through
-    // anyv_to_number → coerce_to_i64 → arr_with helper.
-    // Sister to S331/S332/S333/S334/S335. Covers both basic
-    // 2-arg case and trailing-arg ≥3 case (S283 sibling
-    // below stays strict-Number for non-Any args[0]).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "with"
-        && args.len() >= 2
+    // S339 — `xs.with(Any idx, val)` Any-index widen wedge
+    // extracted to [`crate::check_type_of_call_array_with_any`]
+    // (chunk 283).
+    if let Some(r) = crate::check_type_of_call_array_with_any::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if let Type::Array(elem) = &src_ty {
-            let aty0 = checker.type_of(ast, args[0])?;
-            if matches!(aty0, Type::Any) {
-                let inner = (**elem).clone();
-                let aty1 = checker.type_of(ast, args[1])?;
-                if aty1 != inner && !matches!(inner, Type::Any) {
-                    return Err(format!(
-                        "Array.with arg 1 (value) must match elem type {:?}, got {aty1:?}",
-                        inner
-                    ));
-                }
-                for &aid in &args[2..] {
-                    let _ = checker.type_of(ast, aid)?;
-                }
-                return Ok(Type::Array(Box::new(inner)));
-            }
-        }
+        return r;
     }
     // S283 — Array.prototype.with(index, value, ...trailing)
     // trailing-arg ignore per ES §23.1.3.39. Spec reads only

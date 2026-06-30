@@ -221,6 +221,7 @@ pub(crate) mod check_type_of_call_array_push_unshift;
 pub(crate) mod check_type_of_call_array_reverse_join;
 pub(crate) mod check_type_of_call_array_slice;
 pub(crate) mod check_type_of_call_array_sort;
+pub(crate) mod check_type_of_call_array_with_any;
 pub(crate) mod check_type_of_call_bare_globals;
 pub(crate) mod check_type_of_call_bigint_asint;
 pub(crate) mod check_type_of_call_console;
