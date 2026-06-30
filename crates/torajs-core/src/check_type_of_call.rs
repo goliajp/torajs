@@ -811,40 +811,16 @@ pub(crate) fn check(
     // S258 extends to `values` — same shape, returns
     // Array<Any> (the per-method 1-arg sig was missing
     // entirely; now added above).
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ns == "Object"
-        && matches!(
-            m_name.as_str(),
-            "entries" | "freeze" | "isFrozen" | "values"
-        )
-        && args.len() >= 2
+    // `Object.{entries,freeze,isFrozen,values}(obj,
+    // ...trailing)` Object-namespace 1-useful-arg trailing-
+    // arg ignore wedge extracted to
+    // [`crate::check_type_of_call_object_entries_freeze`]
+    // (chunk 292).
+    if let Some(r) =
+        crate::check_type_of_call_object_entries_freeze::try_match(checker, ast, callee, args)
     {
-        let arg0_ty = checker.type_of(ast, args[0])?;
-        for &arg in args.iter().skip(1) {
-            let _ = checker.type_of(ast, arg)?;
-        }
-        return Ok(match m_name.as_str() {
-            "entries" => Type::Array(Box::new(Type::Array(Box::new(Type::Any)))),
-            "freeze" => arg0_ty,
-            "isFrozen" => Type::Boolean,
-            "values" => Type::Array(Box::new(Type::Any)),
-            _ => unreachable!(),
-        });
+        return r;
     }
-    // S257 — Object.{hasOwn,is} / Reflect.{has,get} (obj,
-    // key|b, ...trailing) trailing-arg ignore per ES
-    // §20.1.2.{4,9} / §28.1.{6,9}. Spec reads only
-    // args[0..2]; tora silent-drops trailing. SSA-emit
-    // mirror widens each `args.len() == 2` gate to `>= 2`
-    // (ssa_lower.rs ~18649/18710/19802). Narrow to these
-    // 4 SSA-emit dispatches — Reflect.get's 3rd `receiver`
-    // arg is spec-meaningful only for Proxy targets (tora
-    // has no Proxy substrate), silent-drop is spec-correct
-    // for the non-Proxy case tora supports.
     // S270/S271/S272 — `Object.{hasOwn,is}(target, key,
     // ...trailing)` / `Reflect.{has,get}(target, key,
     // ...trailing)` namespace 3+arg trailing-arg ignore
