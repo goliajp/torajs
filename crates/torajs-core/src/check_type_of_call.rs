@@ -27,7 +27,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::ast::{Ast, ExprId};
-use crate::check::{Checker, Type, struct_is_prefix_subtype};
+use crate::check::{Checker, Type};
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -1054,15 +1054,14 @@ pub(crate) fn check(
         crate::check_type_of_call_consume_bitmap::derive(ast, callee, args.len());
     for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
         let arg_ty = checker.type_of(ast, *arg_id)?;
-        // M5.2 — class-method dispatch: arg[0] is the receiver
-        // and may be a SUBCLASS of the declared param type
-        // (structural super-set: subclass struct's fields are
-        // a prefix-extension of the parent's). The SSA / LLVM
-        // layer treats both as ptr, so the call is correct as
-        // long as the layout prefix matches. We just skip the
-        // strict equality here.
-        let skip_type_check =
-            is_class_method && i == 0 && struct_is_prefix_subtype(&arg_ty, param_ty);
+        // M5.2 class-method receiver subclass prefix-subtype check extracted
+        // to [`crate::check_type_of_call_class_method_subtype`] (chunk 309).
+        let skip_type_check = crate::check_type_of_call_class_method_subtype::skip(
+            is_class_method,
+            i,
+            &arg_ty,
+            param_ty,
+        );
         // V3-18 Nullable<T> match wedge extracted to
         // [`crate::check_type_of_call_nullable_match`]
         // (chunk 308).
