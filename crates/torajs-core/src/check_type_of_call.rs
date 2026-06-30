@@ -845,37 +845,17 @@ pub(crate) fn check(
     // arg is spec-meaningful only for Proxy targets (tora
     // has no Proxy substrate), silent-drop is spec-correct
     // for the non-Proxy case tora supports.
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ((ns == "Object" && matches!(m_name.as_str(), "hasOwn" | "is"))
-            || (ns == "Reflect" && matches!(m_name.as_str(), "has" | "get")))
-        && args.len() >= 3
+    // S270/S271/S272 — `Object.{hasOwn,is}(target, key,
+    // ...trailing)` / `Reflect.{has,get}(target, key,
+    // ...trailing)` namespace 3+arg trailing-arg ignore
+    // wedge extracted to
+    // [`crate::check_type_of_call_object_reflect_3arg`]
+    // (chunk 291).
+    if let Some(r) =
+        crate::check_type_of_call_object_reflect_3arg::try_match(checker, ast, callee, args)
     {
-        let _ = checker.type_of(ast, args[0])?;
-        let _ = checker.type_of(ast, args[1])?;
-        for &arg in args.iter().skip(2) {
-            let _ = checker.type_of(ast, arg)?;
-        }
-        return Ok(match m_name.as_str() {
-            "hasOwn" | "is" | "has" => Type::Boolean,
-            "get" => Type::Any,
-            _ => unreachable!(),
-        });
+        return r;
     }
-    // S262 — Boolean/Symbol/String × {toString,toLocaleString}
-    // trailing-arg ignore per ES §20.3.3.{2,3} / §20.4.3.3
-    // / §22.1.3.{27,28}. Each method's `Vec::new()` sig
-    // rejected 1+ arg calls; SSA-emit already silent-drops
-    // user args (ssa_lower.rs ~16565 Symbol / ~16579 Bool
-    // both push only `vec![recv_op]`; ~16593 String returns
-    // recv_op identity). Narrow widen: matches m_name +
-    // 3 receiver types + args.len() >= 1, returns String.
-    // (Number.toLocaleString already handled by S260 above
-    // with the 2-arg sig; Number.toString radix handled by
-    // S244 in the wedge.)
     // Boolean / Symbol / String primitive `toString` /
     // `toLocaleString` trailing-arg ignore wedge extracted to
     // [`crate::check_type_of_call_primitive_proto_trailing`]
