@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
+use crate::ast::{Ast, BinOp, Expr, ExprId, Stmt};
 use crate::lexer::Span;
 
 mod process_on;
@@ -246,7 +246,6 @@ impl Type {
     }
 }
 
-use crate::check_type_ann::resolve_type_ann_full;
 pub(crate) type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(String, String)>)>;
 
 /// M6.1 — string / array methods that borrow both their receiver and
@@ -363,90 +362,14 @@ pub(crate) fn struct_is_prefix_subtype(arg: &Type, param: &Type) -> bool {
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type> {
-    resolve_type_ann_full(name, aliases, &[], &HashMap::new())
-}
-
-/// Like `resolve_type_ann`, but accepts a slice of in-scope type-parameter
-/// names. A bare identifier matching one of those resolves to
-/// `Type::TypeVar(name)` regardless of any conflicting alias / primitive.
-/// Used by `build_fn_type` for generic fn bodies. M3.
-#[allow(dead_code)]
-fn resolve_type_ann_with_vars(
-    name: &str,
-    aliases: &HashMap<String, Type>,
-    type_params: &[String],
-) -> Option<Type> {
-    resolve_type_ann_full(name, aliases, type_params, &HashMap::new())
-}
-
-/// Full resolver: also accepts a generic-alias-decls map so `Pair<X|Y>`
-/// instantiates against the original `type Pair<A, B> = { ... }` decl.
-/// M3.4.
-pub(crate) fn build_fn_type(
-    fn_name: &str,
-    params: &[Param],
-    return_type: &Option<String>,
-    aliases: &HashMap<String, Type>,
-) -> Result<Type, String> {
-    build_fn_type_with_vars(fn_name, params, return_type, aliases, &[])
-}
-
-fn build_fn_type_with_vars(
-    fn_name: &str,
-    params: &[Param],
-    return_type: &Option<String>,
-    aliases: &HashMap<String, Type>,
-    type_params: &[String],
-) -> Result<Type, String> {
-    build_fn_type_full(
-        fn_name,
-        params,
-        return_type,
-        aliases,
-        type_params,
-        &HashMap::new(),
-    )
-}
-
-pub(crate) fn build_fn_type_full(
-    fn_name: &str,
-    params: &[Param],
-    return_type: &Option<String>,
-    aliases: &HashMap<String, Type>,
-    type_params: &[String],
-    generic_aliases: &GenericAliasMap,
-) -> Result<Type, String> {
-    let mut param_tys = Vec::new();
-    for p in params {
-        let Some(ann) = &p.type_ann else {
-            return Err(format!(
-                "parameter `{}` of function `{fn_name}` requires a type annotation",
-                p.name
-            ));
-        };
-        let Some(ty) = resolve_type_ann_full(ann, aliases, type_params, generic_aliases) else {
-            return Err(format!(
-                "unknown type `{ann}` for parameter `{}` of function `{fn_name}`",
-                p.name
-            ));
-        };
-        param_tys.push(ty);
-    }
-    let ret_ty = match return_type {
-        None => Type::Void,
-        Some(t) => match resolve_type_ann_full(t, aliases, type_params, generic_aliases) {
-            Some(ty) => ty,
-            None => {
-                return Err(format!(
-                    "unknown return type `{t}` for function `{fn_name}`"
-                ));
-            }
-        },
-    };
-    Ok(Type::Function(param_tys, Box::new(ret_ty)))
-}
+// The `resolve_type_ann` / `build_fn_type` cluster (5 fn — 3 live thin
+// wrappers + 2 dead `with_vars` variants kept under
+// `#[allow(dead_code)]`) lives in [`crate::check_fn_type`] (chunk-319
+// of the check.rs god-file decomp). Re-exported here so callers
+// (`check_type_of_fn::build_fn_type`,
+// `check_pipeline::{resolve_type_ann, build_fn_type_full}`) keep the
+// canonical `crate::check::<name>` import path.
+pub(crate) use crate::check_fn_type::{build_fn_type, build_fn_type_full, resolve_type_ann};
 
 #[derive(Debug, Clone)]
 pub(crate) struct LocalInfo {
