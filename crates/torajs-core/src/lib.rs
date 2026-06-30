@@ -231,6 +231,7 @@ pub(crate) mod check_type_of_call_array_with_trailing;
 pub(crate) mod check_type_of_call_bare_globals;
 pub(crate) mod check_type_of_call_bigint_asint;
 pub(crate) mod check_type_of_call_console;
+pub(crate) mod check_type_of_call_consume_bitmap;
 pub(crate) mod check_type_of_call_date_instance_trailing;
 pub(crate) mod check_type_of_call_date_setter;
 pub(crate) mod check_type_of_call_date_setter_narrow;

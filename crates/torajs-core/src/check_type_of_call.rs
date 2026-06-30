@@ -1059,25 +1059,11 @@ pub(crate) fn check(
         ast.get_expr(*callee),
         Expr::Ident(name) if is_class_method_name(name)
     );
-    // Per-call-site consume bitmap, derived from
-    // `ast.consuming_params` for the callee fn (computed by
-    // `compute_consuming_params` from the body's flow into
-    // `__new_*` / `this.<field> =` sinks). For unknown
-    // callees (intrinsics, builtins) the default is "borrow"
-    // — only the constructor-factory shortcut here triggers
-    // when consuming_params doesn't have an entry.
-    let consume_bitmap: Vec<bool> = match ast.get_expr(*callee) {
-        Expr::Ident(callee_name) => {
-            if let Some(bm) = ast.consuming_params.get(callee_name) {
-                bm.clone()
-            } else if callee_name.starts_with("__new_") {
-                vec![true; args.len()]
-            } else {
-                vec![false; args.len()]
-            }
-        }
-        _ => vec![false; args.len()],
-    };
+    // Per-call-site consume bitmap derivation extracted to
+    // [`crate::check_type_of_call_consume_bitmap`]
+    // (chunk 305).
+    let consume_bitmap: Vec<bool> =
+        crate::check_type_of_call_consume_bitmap::derive(ast, callee, args.len());
     for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
         let arg_ty = checker.type_of(ast, *arg_id)?;
         // M5.2 — class-method dispatch: arg[0] is the receiver
