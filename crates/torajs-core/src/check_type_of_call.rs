@@ -1063,15 +1063,10 @@ pub(crate) fn check(
         // strict equality here.
         let skip_type_check =
             is_class_method && i == 0 && struct_is_prefix_subtype(&arg_ty, param_ty);
-        // V3-18 wedge — Nullable<T> param accepts both
-        // T-typed and Null arg (TS spec §3.9.2.4 optional
-        // param widens to T | undefined; subset models
-        // optional as Nullable<T>).
-        let nullable_match = if let Type::Nullable(inner) = param_ty {
-            arg_ty == Type::Null || &arg_ty == inner.as_ref()
-        } else {
-            false
-        };
+        // V3-18 Nullable<T> match wedge extracted to
+        // [`crate::check_type_of_call_nullable_match`]
+        // (chunk 308).
+        let nullable_match = crate::check_type_of_call_nullable_match::matches(param_ty, &arg_ty);
         // S133 callback Function subtype carve-out extracted
         // to [`crate::check_type_of_call_callback_subtype`]
         // (chunk 307).
