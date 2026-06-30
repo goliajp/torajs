@@ -187,6 +187,7 @@ pub mod check;
 pub(crate) mod check_assign_ident;
 pub(crate) mod check_assign_target;
 pub(crate) mod check_assignable;
+pub(crate) mod check_assigns_to;
 pub(crate) mod check_pipeline;
 pub(crate) mod check_stmt_fn_decl;
 pub(crate) mod check_stmt_for;
