@@ -691,74 +691,14 @@ pub(crate) fn check(
             return Ok(inner);
         }
     }
-    // S242 — Array<T>.{at,slice,join}(useful, ...trailing)
-    // trailing-arg ignore per ES §23.1.3.{1,28,16}. Spec
-    // reserves slots past the useful args but tora's
-    // helpers are 1-/2-/1-arg only; trailing operand
-    // type_of'd for side effects then dropped at lower-
-    // time (ssa_lower's args[N] slot never read).
-    if let Expr::Member {
-        obj: src_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && matches!(m_name.as_str(), "at" | "slice" | "join")
+    // S242/S299 — `arr.{at,slice,join}(useful, ...trailing)`
+    // Array-receiver trailing-arg ignore wedge extracted to
+    // [`crate::check_type_of_call_array_at_slice_join`]
+    // (chunk 294).
+    if let Some(r) =
+        crate::check_type_of_call_array_at_slice_join::try_match(checker, ast, callee, args)
     {
-        let src_ty = checker.type_of(ast, *src_id)?;
-        if let Type::Array(elem) = &src_ty {
-            // S299 — widen `args.len() == 2` → `>= 2` + typecheck-
-            // and-drop args[1..] for any extra trailing operands per
-            // ES §23.1.3.1 trailing-arg ignore (same family as S272/
-            // S278/S293-S298). ssa_lower mirror widens at arm gate
-            // from `args.len() <= 2` to no upper-cap + lower-and-drop
-            // args[1..] so step()-style side-effect exprs fire per
-            // ES eval-then-discard semantics.
-            if m_name == "at" && args.len() >= 2 {
-                let aty0 = checker.type_of(ast, args[0])?;
-                if !matches!(aty0, Type::Number | Type::Undefined) {
-                    return Err(format!("Array.at arg 0 must be number, got {aty0:?}"));
-                }
-                for &a in args.iter().skip(1) {
-                    let _ = checker.type_of(ast, a)?;
-                }
-                return Ok((**elem).clone());
-            }
-            // S299 — widen `== 3` → `>= 3` + drop args[2..] per ES
-            // §23.1.3.28 trailing-arg ignore.
-            if m_name == "slice" && args.len() >= 3 {
-                let aty0 = checker.type_of(ast, args[0])?;
-                if !matches!(aty0, Type::Number | Type::Undefined) {
-                    return Err(format!("Array.slice arg 0 must be number, got {aty0:?}"));
-                }
-                let aty1 = checker.type_of(ast, args[1])?;
-                if !matches!(aty1, Type::Number | Type::Undefined) {
-                    return Err(format!("Array.slice arg 1 must be number, got {aty1:?}"));
-                }
-                for &a in args.iter().skip(2) {
-                    let _ = checker.type_of(ast, a)?;
-                }
-                return Ok(Type::Array(elem.clone()));
-            }
-            // S299 — widen `== 2` → `>= 2` + drop args[1..] per ES
-            // §23.1.3.16 trailing-arg ignore. ssa_lower's join arm
-            // already loop-drops args[1..] via the S287 useful=1
-            // skip; widening the typecheck gate completes the pair.
-            if m_name == "join"
-                && args.len() >= 2
-                && matches!(
-                    **elem,
-                    Type::String | Type::Number | Type::Boolean | Type::Any
-                )
-            {
-                let aty0 = checker.type_of(ast, args[0])?;
-                if !matches!(aty0, Type::String | Type::Undefined) {
-                    return Err(format!("Array.join arg 0 must be string, got {aty0:?}"));
-                }
-                for &a in args.iter().skip(1) {
-                    let _ = checker.type_of(ast, a)?;
-                }
-                return Ok(Type::String);
-            }
-        }
+        return r;
     }
     // S239 — String/Array.{indexOf,lastIndexOf,includes}
     // + String.{startsWith,endsWith}(needle, fromIndex,
