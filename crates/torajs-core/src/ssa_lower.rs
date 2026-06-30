@@ -1704,24 +1704,16 @@ fn lower_inner(
     }
 
     // Pass 2.5: synthesize each pre-registered env-drop fn body now
-    // that closure_captures is populated. The drop fn frees each
-    // capture slot (heap-promoted Copy boxes via obj_drop, non-Copy
-    // values via type-specific drops) and then the env block itself.
-    for (closure_name, drop_fid, drop_sig) in &env_drop_fids {
-        let cap_meta = closure_captures
-            .get(closure_name)
-            .cloned()
-            .unwrap_or_default();
-        let f = synthesize_env_drop(
-            &format!("__env_drop_{closure_name}"),
-            &cap_meta,
-            &intrinsics,
-            &arr_layouts,
-            &struct_layouts,
-            *drop_sig,
-        );
-        module.funcs[drop_fid.0 as usize] = f;
-    }
+    // that closure_captures is populated. Delegated to
+    // [`crate::ssa_lower_pass_2_5::populate_env_drop_bodies`].
+    crate::ssa_lower_pass_2_5::populate_env_drop_bodies(
+        &env_drop_fids,
+        &closure_captures,
+        &intrinsics,
+        &arr_layouts,
+        &struct_layouts,
+        &mut module,
+    );
 
     module.arr_layouts = arr_layouts;
     module.signatures = fn_sigs;
@@ -1764,7 +1756,7 @@ fn lower_inner(
 /// All called intrinsics are runtime-provided. The fn signature is
 /// `(env: ptr) -> void` and matches the FuncId pre-registered at
 /// Pass 1.
-fn synthesize_env_drop(
+pub(crate) fn synthesize_env_drop(
     name: &str,
     cap_meta: &[(Type, bool)],
     intrinsics: &Intrinsics,
