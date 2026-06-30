@@ -305,62 +305,13 @@ pub(crate) use crate::check_assigns_to::stmt_assigns_to;
 // `crate::check::stmt_diverges` import path.
 pub(crate) use crate::check_stmt_diverges::stmt_diverges;
 
-/// M5.2 — structural-prefix subtyping for class-method receiver arguments.
-/// `Dog` (fields: name, bark_count) is a valid receiver for an
-/// `Animal`-typed method (fields: name) because the `name` field sits at
-/// the same offset in both layouts. We accept `arg` as a subtype of
-/// `param` iff `param` is a `Struct` whose entire field list is a prefix
-/// (in order, by name + type) of `arg`'s field list. Anything else falls
-/// back to strict equality. Layout compatibility at the SSA / LLVM level
-/// is the same — both are ptr to the heap-allocated obj header.
-/// V3-18 wedge — ternary branch unification.
-/// Returns the join type if `t` and `e` can unify, else None.
-/// Rules:
-///   - identical types unify to themselves
-///   - `Null` and `T` unify to `Nullable<T>`
-///   - `Nullable<T>` and `T` unify to `Nullable<T>`
-///   - `Nullable<T>` and `Null` unify to `Nullable<T>`
-pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
-    if t == e {
-        return Some(t.clone());
-    }
-    // S129-1 mixed-Any wedge — mirror of S128-5 LAnd/LOr / S127-4
-    // indexOf 2-arg Any-escape. `b ? typed : (x: any)` widens the
-    // result to Any; ssa-lower NaN-boxes the non-Any branch so the
-    // shared __tern slot stays uniform.
-    if matches!(t, Type::Any) || matches!(e, Type::Any) {
-        return Some(Type::Any);
-    }
-    match (t, e) {
-        (Type::Null, other) | (other, Type::Null) => Some(Type::Nullable(Box::new(other.clone()))),
-        (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {
-            if inner.as_ref() == other {
-                Some(Type::Nullable(inner.clone()))
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
-}
-
-pub(crate) fn struct_is_prefix_subtype(arg: &Type, param: &Type) -> bool {
-    match (arg, param) {
-        (Type::Struct(arg_fields), Type::Struct(param_fields)) => {
-            if param_fields.len() > arg_fields.len() {
-                return false;
-            }
-            for (i, (pn, pt)) in param_fields.iter().enumerate() {
-                let (an, at) = &arg_fields[i];
-                if an != pn || at != pt {
-                    return false;
-                }
-            }
-            true
-        }
-        _ => false,
-    }
-}
+// The `unify_ternary` / `struct_is_prefix_subtype` pair (type-shape
+// comparison family) lives in [`crate::check_type_compare`] (chunk-320
+// of the check.rs god-file decomp). Re-exported here so callers
+// (`check_type_of_ternary::unify_ternary`,
+// `check_type_of_call_class_method_subtype::struct_is_prefix_subtype`)
+// keep the canonical `crate::check::<name>` import path.
+pub(crate) use crate::check_type_compare::{struct_is_prefix_subtype, unify_ternary};
 
 // The `resolve_type_ann` / `build_fn_type` cluster (5 fn — 3 live thin
 // wrappers + 2 dead `with_vars` variants kept under

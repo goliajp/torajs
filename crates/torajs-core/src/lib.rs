@@ -206,6 +206,7 @@ pub(crate) mod check_stmt_try;
 pub(crate) mod check_stmt_while;
 pub(crate) mod check_type_ann;
 pub(crate) mod check_type_ann_substitute;
+pub(crate) mod check_type_compare;
 pub(crate) mod check_type_of_array;
 pub(crate) mod check_type_of_assign;
 pub(crate) mod check_type_of_binop;
