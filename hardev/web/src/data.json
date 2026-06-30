@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-30T14:54:23.143Z",
+  "generatedAt": "2026-06-30T16:10:06.754Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "532b5777",
-    "commitSubject": "refactor(torajs-core): split check_type_of_call S133 callback Function subtype carve-out (chunk 307)",
+    "commit": "8b2922b8",
+    "commitSubject": "refactor(torajs-core): prune dead M6.1 String borrow flag from dispatch_flags (chunk 311)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,26 @@
   },
   "commits": [
     {
+      "hash": "8b2922b8",
+      "subject": "refactor(torajs-core): prune dead M6.1 String borrow flag from dispatch_flags (chunk 311)"
+    },
+    {
+      "hash": "5e577f16",
+      "subject": "refactor(torajs-core): drop redundant `let _ = is_class_method` silencer (chunk 310 cleanup)"
+    },
+    {
+      "hash": "043fb0b0",
+      "subject": "refactor(torajs-core): split check_type_of_call M5.2 class-method receiver subclass prefix-subtype check (chunk 309)"
+    },
+    {
+      "hash": "2cff5a03",
+      "subject": "refactor(torajs-core): split check_type_of_call V3-18 Nullable<T> match wedge (chunk 308)"
+    },
+    {
+      "hash": "f68895e8",
+      "subject": "chore(dashboard): chunks 300-307 snapshot @ 532b5777"
+    },
+    {
       "hash": "532b5777",
       "subject": "refactor(torajs-core): split check_type_of_call S133 callback Function subtype carve-out (chunk 307)"
     },
@@ -643,47 +663,38 @@
     {
       "hash": "274f3777",
       "subject": "refactor(torajs-core): split check_type_of_call S237 splice/toSpliced 2-arg-undef arity narrow wedge (chunk 301)"
-    },
-    {
-      "hash": "25072fec",
-      "subject": "refactor(torajs-core): split check_type_of_call array splice/toSpliced arity narrow wedge (chunk 300)"
-    },
-    {
-      "hash": "29c9d493",
-      "subject": "chore(dashboard): chunks 295-299 snapshot @ 9db020f0"
-    },
-    {
-      "hash": "9db020f0",
-      "subject": "refactor(torajs-core): split check_type_of_call Date per-field setter arity narrow wedge (chunk 299)"
-    },
-    {
-      "hash": "4e4a5305",
-      "subject": "refactor(torajs-core): split check_type_of_call T-28 default-param undefined widen wedge (chunk 298)"
-    },
-    {
-      "hash": "8234870a",
-      "subject": "refactor(torajs-core): split check_type_of_call P1/S270 Array.prototype callback thisArg drop wedge (chunk 297)"
     }
   ],
-  "headSha": "532b5777",
+  "headSha": "8b2922b8",
   "autorun": {
-    "total": 290,
+    "total": 291,
     "baselineTarget": 10,
-    "bySelf": 285,
+    "bySelf": 286,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782824767-6f5d",
-      "at": "2026-06-30T13:06:07Z",
-      "ts": 1782824767,
+      "rotationId": "r-1782831361-0011",
+      "at": "2026-06-30T14:56:01Z",
+      "ts": 1782831361,
       "trigger": "self",
-      "prevHead": "29c9d493",
-      "handoffSha": "sha256:0d1598666d8ff39f0764d8560f90dbb0d85899fb2fa9e43da20466498ddd375f",
-      "handoffAgeSec": 19,
+      "prevHead": "f68895e8",
+      "handoffSha": "sha256:751c6a0397141984d5663196cc43764d45f80faec5b644449107884a5171519d",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782831361-0011",
+        "at": "2026-06-30T14:56:01Z",
+        "ts": 1782831361,
+        "trigger": "self",
+        "prevHead": "f68895e8",
+        "handoffSha": "sha256:751c6a0397141984d5663196cc43764d45f80faec5b644449107884a5171519d",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782824767-6f5d",
         "at": "2026-06-30T13:06:07Z",
@@ -780,17 +791,6 @@
         "prevHead": "40bcb6d7",
         "handoffSha": "sha256:4f5568d8a5600cc07034c17bb80d78c790f4f9f3cfb9f263da589a45f39727a8",
         "handoffAgeSec": 14,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782739924-15f5",
-        "at": "2026-06-29T13:32:04Z",
-        "ts": 1782739924,
-        "trigger": "self",
-        "prevHead": "801b6412",
-        "handoffSha": "sha256:50cafbb61a8260ffe9a9fbcf8878359de30731fc744ca29082ab3c8c6652f691",
-        "handoffAgeSec": 6648,
         "conformanceBefore": null,
         "commitsInSession": null
       }
