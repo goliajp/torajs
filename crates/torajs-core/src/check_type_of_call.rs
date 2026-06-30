@@ -26,10 +26,8 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use crate::ast::{Ast, Expr, ExprId};
-use crate::check::{
-    Checker, STRING_BORROW_METHODS, Type, is_class_method_name, struct_is_prefix_subtype,
-};
+use crate::ast::{Ast, ExprId};
+use crate::check::{Checker, Type, struct_is_prefix_subtype};
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -1044,21 +1042,11 @@ pub(crate) fn check(
         ));
     }
     let args = &effective_args;
-    // M6.1 — String borrow-methods (slice/includes/indexOf/...)
-    // don't transfer ownership of either receiver or args.
-    // They read both, allocate a fresh result, and return.
-    let is_string_borrow = matches!(
-        ast.get_expr(*callee),
-        Expr::Member { obj: _, name }
-            if STRING_BORROW_METHODS.iter().any(|m| *m == name.as_str())
-    );
-    // M5.1 — class methods (`__cm_C__m(receiver, ...)`) borrow
-    // the receiver: arg[0] is read, never consumed. Args[1..]
-    // follow the normal affine rules.
-    let is_class_method = matches!(
-        ast.get_expr(*callee),
-        Expr::Ident(name) if is_class_method_name(name)
-    );
+    // M5.1 / M6.1 dispatch flag derivations extracted to
+    // [`crate::check_type_of_call_dispatch_flags`]
+    // (chunk 306).
+    let (is_string_borrow, is_class_method) =
+        crate::check_type_of_call_dispatch_flags::derive(ast, callee);
     // Per-call-site consume bitmap derivation extracted to
     // [`crate::check_type_of_call_consume_bitmap`]
     // (chunk 305).
