@@ -308,6 +308,7 @@ pub(crate) mod check_type_of_call_weak_collection;
 pub(crate) mod check_type_of_call_weakref_deref;
 pub(crate) mod check_type_of_fn;
 pub(crate) mod check_type_of_ident;
+pub(crate) mod check_type_of_index;
 pub(crate) mod check_type_of_member;
 pub(crate) mod check_type_of_member_array;
 pub(crate) mod check_type_of_member_date;

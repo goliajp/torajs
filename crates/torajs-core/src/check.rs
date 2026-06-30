@@ -1838,16 +1838,10 @@ impl Checker {
             }
             Expr::Member { obj, name } => crate::check_type_of_member::check(self, ast, obj, name),
             Expr::Index { obj, index } => {
-                let obj_ty = self.type_of(ast, *obj)?;
-                let idx_ty = self.type_of(ast, *index)?;
-                if idx_ty != Type::Number {
-                    return Err(format!("index must be number, got {idx_ty:?}"));
-                }
-                match obj_ty {
-                    Type::String => Ok(Type::String),
-                    Type::Array(elem) => Ok(*elem),
-                    other => Err(format!("can't index into {other:?}")),
-                }
+                // V3-18 index-expression — `obj[index]` Number-index
+                // narrow + String/Array<T> receiver narrow. See
+                // [`crate::check_type_of_index::check`].
+                crate::check_type_of_index::check(self, ast, *obj, *index)
             }
             Expr::Array(elements) => {
                 // T-10.c / P0.10 / S134 / S141 — array literal
