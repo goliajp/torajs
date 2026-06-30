@@ -1042,11 +1042,10 @@ pub(crate) fn check(
         ));
     }
     let args = &effective_args;
-    // M5.1 / M6.1 dispatch flag derivations extracted to
-    // [`crate::check_type_of_call_dispatch_flags`]
-    // (chunk 306).
-    let (is_string_borrow, is_class_method) =
-        crate::check_type_of_call_dispatch_flags::derive(ast, callee);
+    // M5.1 class-method dispatch flag derived in
+    // [`crate::check_type_of_call_dispatch_flags`] (chunk 306;
+    // M6.1 String borrow flag pruned in chunk 311).
+    let is_class_method = crate::check_type_of_call_dispatch_flags::derive(ast, callee);
     // Per-call-site consume bitmap derivation extracted to
     // [`crate::check_type_of_call_consume_bitmap`]
     // (chunk 305).
@@ -1092,7 +1091,6 @@ pub(crate) fn check(
         // the original — there's no GC to keep it alive. For
         // the cases we ship today this is fine; the ts-subset
         // doc calls out the constraint.
-        let _ = is_string_borrow;
         if consume_bitmap.get(i).copied().unwrap_or(false)
             && !arg_ty.is_copy()
             && !checker.consumed_calls.contains(&eid)
