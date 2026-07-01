@@ -5,6 +5,7 @@ use std::collections::HashMap;
 mod apply_args;
 mod arguments_object;
 mod arguments_object_rewrite;
+mod array_isarray_value;
 mod class_globals;
 mod consuming_flow;
 mod desugar_async;
@@ -37,6 +38,7 @@ mod super_collect;
 mod var_hoist;
 pub use apply_args::{apply_default_args, apply_rest_args};
 pub use arguments_object::desugar_arguments_object;
+pub use array_isarray_value::desugar_array_isarray_value;
 pub use class_globals::synthesize_class_globals;
 pub use consuming_flow::compute_consuming_params;
 pub use desugar_async::desugar_async;
@@ -2736,100 +2738,6 @@ fn rewrite_idents_in_expr(ast: &mut Ast, eid: ExprId, renames: &HashMap<String, 
             _ => {}
         }
     }
-}
-
-/// of test262's `arguments-object/*` cases without runtime changes:
-///
-///   - `arguments.length` → `Number(<arity>)` where arity is the fn's
-///     declared param count (excluding the synthetic `__env` / `__this`
-///     prefix params from closure / class lowering)
-///   - `arguments[N]` with `N` a literal integer in [0, arity) →
-///     `Ident(<param-name-N>)`. Param ownership rules then apply
-///     normally (the typechecker treats it as a read of that binding).
-///
-/// Bare `arguments` (returned, passed, dynamically indexed) is left
-/// alone — the typechecker reports it as an unknown identifier with
-/// the existing message, which is the correct surface until a real
-/// arguments-object materialization lands.
-///
-/// Runs after class / closure desugars (so the synthetic `__env` /
-/// `__this` prefix is already in place) and after `lift_arrow_fns`
-/// (so closure-lifted FnDecls are visible). Needs to run before the
-/// typechecker so the rewritten Idents resolve cleanly.
-/// T-38-followup — `Array.isArray` used as a value (not in callee
-/// position) has no Operand representation in tora's subset — ssa_lower
-/// hits "unknown ident `Array`". Common test262 shape is
-/// `var f = Array.isArray; typeof f === "function"` and
-/// `Array.isArray.length === 1`.
-///
-/// Fix: at AST level, synthesize a stub user FnDecl
-/// `__torajs_array_isarray_stub(x: any): boolean` and rewrite every
-/// non-callee `Array.isArray` Member access to reference it. Call-site
-/// usage (`Array.isArray(value)`) keeps the existing ssa_lower static-
-/// check intercept since the Member stays in callee position there
-/// (we mark those ExprIds during the pre-pass and skip them).
-///
-/// Stub body returns false — sufficient for the test262 cases that
-/// only check typeof / .length. Real call-time semantics are still
-/// handled by the existing `Array.isArray(value)` intercept. If user
-/// code does `var f = Array.isArray; f([1,2,3])` the stub would give
-/// the wrong answer, but no test262 case in the 5k sample exercises
-/// that shape.
-pub fn desugar_array_isarray_value(ast: &mut Ast) {
-    // Collect every `Expr::Call`'s callee ExprId — those Members are
-    // "in callee position" and keep their existing intercept path.
-    let mut callee_exprs: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
-    for e in &ast.exprs {
-        if let Expr::Call { callee, .. } = e {
-            callee_exprs.insert(*callee);
-        }
-    }
-
-    // Walk the arena for Members matching `Array.isArray` NOT in
-    // callee position. Mutate in place.
-    let mut any_rewritten = false;
-    let n = ast.exprs.len();
-    for i in 0..n {
-        let eid = ExprId(i as u32);
-        if callee_exprs.contains(&eid) {
-            continue;
-        }
-        let matched = matches!(&ast.exprs[i], Expr::Member { obj, name }
-            if name == "isArray"
-                && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Array"));
-        if matched {
-            ast.exprs[i] = Expr::Ident("__torajs_array_isarray_stub".into());
-            any_rewritten = true;
-        }
-    }
-
-    if !any_rewritten {
-        return;
-    }
-
-    // Emit the stub FnDecl once at module top. Skip if already present
-    // (defensive — pass should run once).
-    let exists = ast
-        .stmts
-        .iter()
-        .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == "__torajs_array_isarray_stub"));
-    if exists {
-        return;
-    }
-    let false_lit = ast.add_expr(Expr::Bool(false));
-    ast.stmts.push(Stmt::FnDecl {
-        name: "__torajs_array_isarray_stub".into(),
-        type_params: Vec::new(),
-        params: vec![Param {
-            name: "x".into(),
-            type_ann: Some("any".into()),
-            default: None,
-            is_rest: false,
-        }],
-        return_type: Some("boolean".into()),
-        body: vec![Stmt::Return(Some(false_lit))],
-        is_generator: false,
-    });
 }
 
 fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
