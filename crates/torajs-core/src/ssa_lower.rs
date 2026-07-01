@@ -26,7 +26,6 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, BinOp as AstBinOp, Expr, ExprId, Stmt};
-use crate::short_str_encode::encode_short_str_literal;
 use crate::ssa::{
     self, BinOp as SsaBinOp, BlockId, FPred, FuncId, IPred, InstKind, Module, Operand, Terminator,
     Type, ValueId,
