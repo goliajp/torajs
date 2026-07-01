@@ -444,6 +444,7 @@ pub(crate) mod ssa_lower_fn;
 pub(crate) mod ssa_lower_for_of_iter_protocol;
 pub(crate) mod ssa_lower_for_of_map_like;
 pub(crate) mod ssa_lower_for_of_str;
+pub(crate) mod ssa_lower_generics_monomorph;
 pub(crate) mod ssa_lower_ident;
 pub(crate) mod ssa_lower_index;
 pub(crate) mod ssa_lower_index_assign;
