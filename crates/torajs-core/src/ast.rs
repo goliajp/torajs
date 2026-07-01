@@ -34,6 +34,7 @@ mod sfi_pass;
 mod sfi_rewrite;
 mod sfi_safe;
 mod super_collect;
+mod uninit_let;
 mod var_hoist;
 pub use apply_args::{apply_default_args, apply_rest_args};
 pub use arguments_object::desugar_arguments_object;
@@ -50,6 +51,7 @@ pub use forwarders_object::{synthesize_fn_to_closure_forwarders, tag_struct_fiel
 pub use infer_closure_params::infer_anonymous_closure_params;
 pub use nested_fns::desugar_nested_fns;
 pub use sfi_pass::rewrite_split_for_i_to_iter;
+pub use uninit_let::desugar_uninit_let;
 pub use var_hoist::desugar_var_hoist;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -2216,148 +2218,6 @@ pub(crate) fn collect_objectlit_fn_to_closure(
                 rewrites.push((*feid, name.clone()));
             }
         }
-    }
-}
-
-/// Untyped fn params (`function f(x) {}`) and explicit `: any` annotations
-/// are folded into the existing M3 generic-monomorphization pipeline by
-/// rewriting each untyped/any param's annotation to a fresh `TypeVar` and
-/// adding the new name to the fn's `type_params`. This keeps the
-/// substrate "TS subset" — every param still has a concrete type at SSA
-/// time, but the typechecker can defer that type to call-site inference
-/// (see check.rs's generic call-site arm and ssa_lower's
-/// `monomorphize_generics`). Same treatment for an untyped/`any` return
-/// type, BUT only when the body actually returns a non-void expression
-/// — otherwise we'd flip the default-void semantic for stub fns.
-///
-/// Runs after `lift_arrow_fns` / `infer_anonymous_closure_params` so
-/// closure params that already got concrete annotations from method
-/// inference don't get re-genericized.
-///
-/// Skipped:
-///   - lifted-closure FnDecls (first param `__env`) — those need their
-///     concrete env layout for capture lowering; also their user params
-///     are already inferred by `infer_anonymous_closure_params` for the
-///     known-receiver-method shape.
-///   - desugar-synthesized fns whose first param is `__this` — that's a
-///     class instance/factory binding and must stay nominally typed.
-///   - generator/factory helpers (the desugarers stamp explicit
-///     annotations on every param they emit).
-/// `let x;` (the `var x;` shape after the test262 runner's `var → let`
-/// rewrite) parses to `Stmt::LetDecl { init: Expr::Uninit }`. This
-/// pass walks each declaring scope, finds the first
-/// `Stmt::Expr(Assign { Ident(x), value })` after the let, splices
-/// `value` into the let's init, and removes the assignment. Anything
-/// that doesn't have a matching follow-up assignment keeps the
-/// `Uninit` sentinel; the typechecker reports it with a clear "let
-/// declared but never assigned" message — better than the previous
-/// `expected `=`, got Semi` parse error.
-///
-/// Limitations of the search:
-///   - same scope only — won't promote an inner-block assignment to
-///     the outer let's init, since that would change scope semantics
-///   - first matching assignment wins — chains like
-///     `let x; if (...) x = 1; else x = "two";` don't unify; only the
-///     first branch's value lifts in, the second stays an assign and
-///     the regular type checker handles the agreement check
-///   - top-level vs fn-body scopes are walked uniformly; nested
-///     control-flow children don't bubble assignments across their
-///     boundary (we only splice within the same `Vec<Stmt>`)
-pub fn desugar_uninit_let(ast: &mut Ast) {
-    rewrite_uninit_in_stmts(&mut ast.stmts, &ast.exprs.clone());
-    // FnDecl bodies live inside `ast.stmts` already; the recursive
-    // walk handles them when it descends into Stmt::FnDecl variants.
-}
-
-fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
-    let mut i = 0;
-    while i < stmts.len() {
-        // Recurse into nested scopes first so each scope's lets see
-        // their own follow-up assignments.
-        match &mut stmts[i] {
-            Stmt::FnDecl { body, .. } => {
-                rewrite_uninit_in_stmts(body, exprs);
-            }
-            Stmt::Block(inner) | Stmt::Multi(inner) => {
-                rewrite_uninit_in_stmts(inner, exprs);
-            }
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                if let Stmt::Block(b) | Stmt::Multi(b) = then_branch.as_mut() {
-                    rewrite_uninit_in_stmts(b, exprs);
-                }
-                if let Some(eb) = else_branch
-                    && let Stmt::Block(b) | Stmt::Multi(b) = eb.as_mut()
-                {
-                    rewrite_uninit_in_stmts(b, exprs);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-                if let Stmt::Block(b) | Stmt::Multi(b) = body.as_mut() {
-                    rewrite_uninit_in_stmts(b, exprs);
-                }
-            }
-            Stmt::For { body, .. } => {
-                if let Stmt::Block(b) | Stmt::Multi(b) = body.as_mut() {
-                    rewrite_uninit_in_stmts(b, exprs);
-                }
-            }
-            Stmt::Try {
-                body,
-                catch_body,
-                finally_body,
-                ..
-            } => {
-                rewrite_uninit_in_stmts(body, exprs);
-                rewrite_uninit_in_stmts(catch_body, exprs);
-                if let Some(fb) = finally_body {
-                    rewrite_uninit_in_stmts(fb, exprs);
-                }
-            }
-            _ => {}
-        }
-        // Now, if this stmt is an Uninit let, scan forward for the
-        // first matching `name = EXPR;` and splice.
-        let (name, init_eid) = match &stmts[i] {
-            Stmt::LetDecl { name, init, .. } => (name.clone(), *init),
-            _ => {
-                i += 1;
-                continue;
-            }
-        };
-        let is_uninit = matches!(exprs.get(init_eid.0 as usize), Some(Expr::Uninit));
-        if !is_uninit {
-            i += 1;
-            continue;
-        }
-        let mut j = i + 1;
-        let mut found: Option<(usize, ExprId)> = None;
-        while j < stmts.len() {
-            if let Stmt::Expr(eid) = &stmts[j]
-                && let Some(Expr::Assign { target, value }) = exprs.get(eid.0 as usize)
-                && let Some(Expr::Ident(n)) = exprs.get(target.0 as usize)
-                && n == &name
-            {
-                found = Some((j, *value));
-                break;
-            }
-            // Don't reach into non-flat control-flow: an assignment in
-            // a sibling block / if-branch doesn't lift to the outer
-            // scope. Only adjacent flat stmts in the SAME Vec<Stmt>
-            // count.
-            j += 1;
-        }
-        if let Some((stmt_idx, value)) = found {
-            // Splice value into the let's init, drop the assignment.
-            if let Stmt::LetDecl { init, .. } = &mut stmts[i] {
-                *init = value;
-            }
-            stmts.remove(stmt_idx);
-        }
-        i += 1;
     }
 }
 
