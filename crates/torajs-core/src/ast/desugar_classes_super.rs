@@ -16,9 +16,11 @@
 //! by reference; we declare a `ClassIndexEntry` type alias here so the
 //! sub-fn signatures stay readable (the main fn keeps the inline shape
 //! for now). `collect_super_in_stmt` / `collect_supercall_in_stmt`
-//! are `ast` module-private fns imported via `use super::*;`
-//! (child module sees parent's private items per Rust visibility).
+//! now live in the `super_collect` sibling (chunk 350) and are
+//! reached via an explicit `use` path since `pub(super)` items in
+//! sibling modules don't leak through `use super::*;`.
 
+use super::super_collect::{collect_super_in_stmt, collect_supercall_in_stmt};
 use super::*;
 
 pub(super) type ClassIndexEntry = (
