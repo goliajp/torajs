@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-30T22:34:45.350Z",
+  "generatedAt": "2026-07-01T00:09:34.811Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c3142144",
-    "commitSubject": "refactor(torajs-core): extract Pass 2B closure-body driver into ssa_lower_pass_2b sibling (chunk 335)",
+    "commit": "32a364fc",
+    "commitSubject": "refactor(torajs-core): extract 4 sfi_x_safe / sfi_stmt_uses_ident helpers into ast::sfi_safe sibling (chunk 348)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,84 @@
   },
   "commits": [
     {
-      "hash": "c3142144",
-      "subject": "refactor(torajs-core): extract Pass 2B closure-body driver into ssa_lower_pass_2b sibling (chunk 335)"
+      "hash": "32a364fc",
+      "subject": "refactor(torajs-core): extract 4 sfi_x_safe / sfi_stmt_uses_ident helpers into ast::sfi_safe sibling (chunk 348)"
     },
     {
-      "hash": "49afa9d5",
-      "subject": "refactor(torajs-core): extract Pass 3 main-synth driver into ssa_lower_pass_3 sibling (chunk 334)"
+      "hash": "0da8a855",
+      "subject": "refactor(torajs-core): extract 3 sfi_rewrite fns into ast::sfi_rewrite sibling (chunk 347)"
     },
     {
-      "hash": "5b64777f",
-      "subject": "refactor(torajs-core): extract env-drop fn setup into ssa_lower_env_drop_setup sibling (chunk 333)"
+      "hash": "9bb49511",
+      "subject": "refactor(torajs-core): extract free_vars_of_arrow + 3 walker helpers into ast::free_vars sibling (chunk 346)"
     },
     {
-      "hash": "54395a3d",
-      "subject": "refactor(torajs-core): extract Pass 2.5 env-drop body synthesis into ssa_lower_pass_2_5 sibling (chunk 332)"
+      "hash": "d4af7c80",
+      "subject": "refactor(torajs-core): extract desugar_arguments_object + 6 helpers into ast::arguments_object sibling (chunk 345)"
     },
     {
-      "hash": "9e886d9f",
-      "subject": "refactor(torajs-core): extract module-metadata builders into ssa_lower_module_metadata (chunk 331)"
+      "hash": "5d5a56c0",
+      "subject": "refactor(torajs-core): extract 2 arguments-object rewriters into ast::arguments_object_rewrite sibling (chunk 344)"
     },
     {
-      "hash": "b302dc5b",
-      "subject": "refactor(torajs-core): extract Intrinsics literal into ssa_lower_intrinsics_table::build (chunk 330)"
+      "hash": "c6e98c38",
+      "subject": "refactor(torajs-core): extract synthesize_class_globals into ast::class_globals sibling (chunk 343)"
     },
     {
-      "hash": "978c741d",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 1 into ssa_lower_pass_1 sibling (chunk 329)"
+      "hash": "2cf5969a",
+      "subject": "refactor(torajs-core): extract infer_anonymous_closure_params + its 2 collect helpers into ast::infer_closure_params sibling (chunk 342)"
     },
     {
-      "hash": "55a1168a",
-      "subject": "refactor(torajs-core): extract lower_inner Pass 0.5 into ssa_lower_pass_0_5 sibling (chunk 328)"
+      "hash": "6d3a91e4",
+      "subject": "refactor(torajs-core): extract GenSm state-machine emitter + 2 helpers into ast::desugar_generators_sm sibling (chunk 341)"
     },
     {
-      "hash": "cf4048d3",
-      "subject": "chore(dashboard): chunk 327 snapshot @ 4cf94937"
+      "hash": "98e3af70",
+      "subject": "refactor(torajs-core): close desugar_generators 200-LOC HARD limit by wrapping state machine assembly into file-private build_state_machine_next_body (chunk 340)"
     },
     {
-      "hash": "4cf94937",
-      "subject": "refactor(torajs-core): split check::{is_class_method_name, is_array_method_name} name-classifier pair (chunk 327)"
+      "hash": "88ecd193",
+      "subject": "refactor(torajs-core): extract generator body prep (yield-into + let-lift + ident rewrite) into desugar_generators_prep sibling (chunk 339)"
     },
     {
-      "hash": "8fe6bc89",
-      "subject": "chore(dashboard): chunks 317-326 snapshot @ 955dfe96"
+      "hash": "b07f11b9",
+      "subject": "refactor(torajs-core): extract generator-class assembly + factory FnDecl replacement into desugar_generators_class sibling (chunk 338)"
     },
     {
-      "hash": "955dfe96",
-      "subject": "refactor(torajs-core): aggregate lower_inner Pass 0 batch D into init_d sibling (chunk 326)"
+      "hash": "056c6940",
+      "subject": "refactor(torajs-core): extract Generator.prototype.next builder into desugar_generators_methods::build_next_method (chunk 337)"
     }
   ],
-  "headSha": "c3142144",
+  "headSha": "32a364fc",
   "autorun": {
-    "total": 294,
+    "total": 295,
     "baselineTarget": 10,
-    "bySelf": 289,
+    "bySelf": 290,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782853459-3dcf",
-      "at": "2026-06-30T21:04:19Z",
-      "ts": 1782853459,
+      "rotationId": "r-1782858974-4f2b",
+      "at": "2026-06-30T22:36:14Z",
+      "ts": 1782858974,
       "trigger": "self",
-      "prevHead": "cf4048d3",
-      "handoffSha": "sha256:e5e849534a691497dd40d01723f4863226f0622cb761283b585f6cb28959b148",
-      "handoffAgeSec": 8,
+      "prevHead": "00760294",
+      "handoffSha": "sha256:5fd8fa7a0879bfdcc5f1b7175730f0f57f60ae2e098ca644fe407af1ae5ca937",
+      "handoffAgeSec": 11,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782858974-4f2b",
+        "at": "2026-06-30T22:36:14Z",
+        "ts": 1782858974,
+        "trigger": "self",
+        "prevHead": "00760294",
+        "handoffSha": "sha256:5fd8fa7a0879bfdcc5f1b7175730f0f57f60ae2e098ca644fe407af1ae5ca937",
+        "handoffAgeSec": 11,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782853459-3dcf",
         "at": "2026-06-30T21:04:19Z",
@@ -779,17 +790,6 @@
         "trigger": "self",
         "prevHead": "20300196",
         "handoffSha": "sha256:9872345ee854099fe606fe192e6657cbd28181cd54d50b7cfaa8679c23a7fed9",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782768990-231d",
-        "at": "2026-06-29T21:36:30Z",
-        "ts": 1782768990,
-        "trigger": "self",
-        "prevHead": "2d6db617",
-        "handoffSha": "sha256:5fead2befc94d0efd27da089735ec1db1f032c9878f225304349cea1280f7854",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
