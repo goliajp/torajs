@@ -530,6 +530,7 @@ pub(crate) mod ssa_lower_promise_thunk;
 pub mod ssa_lower_push_loop_detect;
 pub(crate) mod ssa_lower_rc_emit;
 pub(crate) mod ssa_lower_regex_bake;
+pub(crate) mod ssa_lower_relative_index;
 pub(crate) mod ssa_lower_rewrite_inner_generics;
 pub(crate) mod ssa_lower_splice;
 pub(crate) mod ssa_lower_stmt_block;
