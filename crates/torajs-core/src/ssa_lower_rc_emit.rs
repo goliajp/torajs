@@ -1,0 +1,87 @@
+//! Refcount inc / dec / drop emit helpers for `LowerCtx<'a>` extracted
+//! from `ssa_lower.rs` chunk 378.
+//!
+//! Four ARC-emit helpers that are the single retrofit surface for the
+//! future biased ARC (owner-thread fast path + share transition +
+//! atomic slow path,see `.claude/vision.md` 三-1 节 +
+//! `rules/torajs-design-principles.md` §6.2):
+//!
+//! - `emit_rc_inc(op)`         — inc in current block
+//! - `emit_rc_inc_in(blk, op)` — inc in an explicit block (branch tails)
+//! - `emit_rc_dec_inline(hdr)` — inline Load-Sub-Store dec, returns new rc
+//! - `emit_drop_value(v, ty)`  — thin proxy into `ssa_lower_emit_drop_value`
+//!
+//! **HARD RULE (§6.2):** all refcount inc/dec emit goes through these
+//! helpers or the typed drop intrinsics; direct
+//! `InstKind::Call(intrinsics.rc_inc/rc_dec, ...)` in lowering code is
+//! a §6 violation. Method bodies are byte-for-byte preserved from the
+//! source; sibling reaches LowerCtx fields via
+//! `impl<'a> super::LowerCtx<'a>`, so call sites need zero edits.
+
+use crate::ssa::{BinOp as SsaBinOp, BlockId, InstKind, Operand, Type};
+use crate::ssa_lower::LowerCtx;
+
+impl<'a> LowerCtx<'a> {
+    /// Emit a refcount inc on `op`. Today expands to a single
+    /// `Call(intrinsics.rc_inc, vec![op])` — semantically and
+    /// instruction-wise equivalent to a direct emit. This helper
+    /// is the single retrofit point for the future biased ARC
+    /// (owner-thread fast path 0 atomic 增量 + share transition +
+    /// atomic 慢路径,详见 `.claude/vision.md` 三-1 节 +
+    /// `rules/torajs-design-principles.md` §6.2)。
+    ///
+    /// **HARD RULE (§6.2):** all refcount inc emit goes through
+    /// this helper. Direct `InstKind::Call(intrinsics.rc_inc, ...)`
+    /// in lowering code is a §6 violation.
+    pub(crate) fn emit_rc_inc(&mut self, op: Operand) {
+        let block = self.cur_block;
+        self.emit_rc_inc_in(block, op);
+    }
+
+    /// Same as [`emit_rc_inc`] but emits into an explicit `block`
+    /// instead of `self.cur_block`. Used by control-flow shapes that
+    /// build a fresh `then_end` / `else_blk` and need to inc in a
+    /// branch tail (e.g. Nullish-coalescing `??`).
+    pub(crate) fn emit_rc_inc_in(&mut self, block: BlockId, op: Operand) {
+        self.f
+            .append_void(block, InstKind::Call(self.intrinsics.rc_inc, vec![op]));
+    }
+
+    /// Emit an inline refcount dec on the heap-header pointer `hdr`.
+    /// Returns the new refcount value (Type::I32) so the caller can
+    /// `ICmp(Eq, _, ConstI32(0))` to dispatch to drop. Mirrors the
+    /// existing Bacon-Rajan inline shape: Load i32 @ offset 0 →
+    /// `Sub 1` → Store back.
+    ///
+    /// Future biased ARC swap-point: this helper expands to an
+    /// owner-thread check + atomic_rmw fetch_sub for shared objects.
+    /// Today equivalent to the raw Load-Sub-Store sequence.
+    ///
+    /// **HARD RULE (§6.2):** all refcount dec emit goes through
+    /// this helper or through the typed drop helpers
+    /// (`emit_drop_value` / `intrinsics.{str_drop, arr_drop,
+    /// substr_drop, value_drop_heap}`).
+    pub(crate) fn emit_rc_dec_inline(&mut self, hdr: Operand) -> Operand {
+        let rc_now = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I32, hdr.clone(), 0),
+            Type::I32,
+            None,
+        );
+        let rc_new = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Sub, Operand::Value(rc_now), Operand::ConstI32(1)),
+            Type::I32,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(rc_new), hdr, 0),
+        );
+        Operand::Value(rc_new)
+    }
+
+    pub(crate) fn emit_drop_value(&mut self, val: Operand, ty: Type) {
+        crate::ssa_lower_emit_drop_value::emit(self, val, ty)
+    }
+}
