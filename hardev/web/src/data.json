@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T00:09:34.811Z",
+  "generatedAt": "2026-07-01T02:55:11.045Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "32a364fc",
-    "commitSubject": "refactor(torajs-core): extract 4 sfi_x_safe / sfi_stmt_uses_ident helpers into ast::sfi_safe sibling (chunk 348)",
+    "commit": "94e5367b",
+    "commitSubject": "refactor(torajs-core): extract rewrite_split_for_i_to_iter pass into ast::sfi_pass sibling (chunk 353)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "94e5367b",
+      "subject": "refactor(torajs-core): extract rewrite_split_for_i_to_iter pass into ast::sfi_pass sibling (chunk 353)"
+    },
+    {
+      "hash": "e1723fa6",
+      "subject": "refactor(torajs-core): extract desugar_variadic_push + 3 helpers into sibling (chunk 352)"
+    },
+    {
+      "hash": "dfc7294d",
+      "subject": "refactor(torajs-core): extract apply_default_args + apply_rest_args into ast::apply_args sibling (chunk 351)"
+    },
+    {
+      "hash": "6470ff8c",
+      "subject": "refactor(torajs-core): extract 4 collect_super* helpers into ast::super_collect sibling (chunk 350)"
+    },
+    {
+      "hash": "0c324fdf",
+      "subject": "refactor(torajs-core): extract compute_consuming_params + 2 scan helpers into ast::consuming_flow sibling (chunk 349)"
+    },
+    {
+      "hash": "d05413f7",
+      "subject": "chore(dashboard): chunks 336-348 snapshot @ 32a364fc"
+    },
+    {
       "hash": "32a364fc",
       "subject": "refactor(torajs-core): extract 4 sfi_x_safe / sfi_stmt_uses_ident helpers into ast::sfi_safe sibling (chunk 348)"
     },
@@ -639,51 +663,49 @@
     {
       "hash": "c6e98c38",
       "subject": "refactor(torajs-core): extract synthesize_class_globals into ast::class_globals sibling (chunk 343)"
-    },
-    {
-      "hash": "2cf5969a",
-      "subject": "refactor(torajs-core): extract infer_anonymous_closure_params + its 2 collect helpers into ast::infer_closure_params sibling (chunk 342)"
-    },
-    {
-      "hash": "6d3a91e4",
-      "subject": "refactor(torajs-core): extract GenSm state-machine emitter + 2 helpers into ast::desugar_generators_sm sibling (chunk 341)"
-    },
-    {
-      "hash": "98e3af70",
-      "subject": "refactor(torajs-core): close desugar_generators 200-LOC HARD limit by wrapping state machine assembly into file-private build_state_machine_next_body (chunk 340)"
-    },
-    {
-      "hash": "88ecd193",
-      "subject": "refactor(torajs-core): extract generator body prep (yield-into + let-lift + ident rewrite) into desugar_generators_prep sibling (chunk 339)"
-    },
-    {
-      "hash": "b07f11b9",
-      "subject": "refactor(torajs-core): extract generator-class assembly + factory FnDecl replacement into desugar_generators_class sibling (chunk 338)"
-    },
-    {
-      "hash": "056c6940",
-      "subject": "refactor(torajs-core): extract Generator.prototype.next builder into desugar_generators_methods::build_next_method (chunk 337)"
     }
   ],
-  "headSha": "32a364fc",
+  "headSha": "94e5367b",
   "autorun": {
-    "total": 295,
+    "total": 297,
     "baselineTarget": 10,
-    "bySelf": 290,
+    "bySelf": 292,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782858974-4f2b",
-      "at": "2026-06-30T22:36:14Z",
-      "ts": 1782858974,
+      "rotationId": "r-1782874427-2e69",
+      "at": "2026-07-01T02:53:47Z",
+      "ts": 1782874427,
       "trigger": "self",
-      "prevHead": "00760294",
-      "handoffSha": "sha256:5fd8fa7a0879bfdcc5f1b7175730f0f57f60ae2e098ca644fe407af1ae5ca937",
-      "handoffAgeSec": 11,
+      "prevHead": "94e5367b",
+      "handoffSha": "sha256:c1ba19a6af237504c62f2579b24d3eaa86c5fbd3608e25efa8745476e2174355",
+      "handoffAgeSec": 9769,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782874427-2e69",
+        "at": "2026-07-01T02:53:47Z",
+        "ts": 1782874427,
+        "trigger": "self",
+        "prevHead": "94e5367b",
+        "handoffSha": "sha256:c1ba19a6af237504c62f2579b24d3eaa86c5fbd3608e25efa8745476e2174355",
+        "handoffAgeSec": 9769,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1782864662-35a2",
+        "at": "2026-07-01T00:11:02Z",
+        "ts": 1782864662,
+        "trigger": "self",
+        "prevHead": "d05413f7",
+        "handoffSha": "sha256:c1ba19a6af237504c62f2579b24d3eaa86c5fbd3608e25efa8745476e2174355",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782858974-4f2b",
         "at": "2026-06-30T22:36:14Z",
@@ -769,28 +791,6 @@
         "prevHead": "80a20639",
         "handoffSha": "sha256:62c1ab52e3380ea550900d71d47ff7eacea16cb3f01f524be316e9039a5ac1b1",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782805179-5bdd",
-        "at": "2026-06-30T07:39:39Z",
-        "ts": 1782805179,
-        "trigger": "self",
-        "prevHead": "f78b3929",
-        "handoffSha": "sha256:767e8f27695cbe29734862dad8f10604f396c0d3f18ccdc8b489429e4ee0a0a5",
-        "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782794456-279d",
-        "at": "2026-06-30T04:40:56Z",
-        "ts": 1782794456,
-        "trigger": "self",
-        "prevHead": "20300196",
-        "handoffSha": "sha256:9872345ee854099fe606fe192e6657cbd28181cd54d50b7cfaa8679c23a7fed9",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
