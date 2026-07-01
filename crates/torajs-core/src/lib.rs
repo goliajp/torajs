@@ -506,6 +506,7 @@ pub(crate) mod ssa_lower_member_regexp_props;
 pub(crate) mod ssa_lower_member_symbol_wellknown;
 pub(crate) mod ssa_lower_member_typed_props;
 pub(crate) mod ssa_lower_member_web_runtime;
+pub(crate) mod ssa_lower_micro_helpers;
 pub(crate) mod ssa_lower_module_metadata;
 pub(crate) mod ssa_lower_new;
 pub(crate) mod ssa_lower_new_arr_init;
