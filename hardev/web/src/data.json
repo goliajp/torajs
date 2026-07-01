@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T06:35:33.010Z",
+  "generatedAt": "2026-07-01T08:28:25.376Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c42d9b53",
-    "commitSubject": "refactor(torajs-core): extract Array.isArray-value desugar into ast::array_isarray_value sibling + orphan doc cleanup (chunk 357)",
+    "commit": "c21ef1cd",
+    "commitSubject": "fixup(chunk 363): reorder pub use desugar_generators to alphabetical position",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,42 @@
   },
   "commits": [
     {
+      "hash": "c21ef1cd",
+      "subject": "fixup(chunk 363): reorder pub use desugar_generators to alphabetical position"
+    },
+    {
+      "hash": "2589b350",
+      "subject": "refactor(torajs-core): extract Phase-J generator desugar driver into ast::desugar_generators sibling (chunk 363)"
+    },
+    {
+      "hash": "eafeac2d",
+      "subject": "refactor(torajs-core): extract Error+NativeError class injection pass into ast::inject_builtin_classes sibling (chunk 362)"
+    },
+    {
+      "hash": "17a161ae",
+      "subject": "refactor(torajs-core): extract implicit-generics static inference helpers into ast::implicit_generics_infer sibling (chunk 361)"
+    },
+    {
+      "hash": "10152c31",
+      "subject": "refactor(torajs-core): extract lift_arrow_fns + class-factory helpers into ast::lift_arrow_fns sibling (chunk 360)"
+    },
+    {
+      "hash": "e016c95d",
+      "subject": "refactor(torajs-core): extract uninit-let init-splice pass into ast::uninit_let sibling + orphan doc cleanup (chunk 359)"
+    },
+    {
+      "hash": "1d473570",
+      "subject": "fixup(chunk 358): drop unused HashMap import + fmt alphabetical pub-use + collapse blank line"
+    },
+    {
+      "hash": "4935d572",
+      "subject": "refactor(torajs-core): extract nested-fn hoisting pass into ast::nested_fns sibling (chunk 358)"
+    },
+    {
+      "hash": "0568f1c3",
+      "subject": "chore(dashboard): chunks 354-357 snapshot @ c42d9b53"
+    },
+    {
       "hash": "c42d9b53",
       "subject": "refactor(torajs-core): extract Array.isArray-value desugar into ast::array_isarray_value sibling + orphan doc cleanup (chunk 357)"
     },
@@ -627,45 +663,9 @@
     {
       "hash": "2a865000",
       "subject": "refactor(torajs-core): extract var-hoist pass family into ast::var_hoist sibling (chunk 355)"
-    },
-    {
-      "hash": "724990fb",
-      "subject": "refactor(torajs-core): extract closure-forwarder pass family into ast::forwarders(_object) siblings (chunk 354)"
-    },
-    {
-      "hash": "a1a2f3ed",
-      "subject": "chore(dashboard): chunks 349-353 snapshot @ 94e5367b"
-    },
-    {
-      "hash": "94e5367b",
-      "subject": "refactor(torajs-core): extract rewrite_split_for_i_to_iter pass into ast::sfi_pass sibling (chunk 353)"
-    },
-    {
-      "hash": "e1723fa6",
-      "subject": "refactor(torajs-core): extract desugar_variadic_push + 3 helpers into sibling (chunk 352)"
-    },
-    {
-      "hash": "dfc7294d",
-      "subject": "refactor(torajs-core): extract apply_default_args + apply_rest_args into ast::apply_args sibling (chunk 351)"
-    },
-    {
-      "hash": "6470ff8c",
-      "subject": "refactor(torajs-core): extract 4 collect_super* helpers into ast::super_collect sibling (chunk 350)"
-    },
-    {
-      "hash": "0c324fdf",
-      "subject": "refactor(torajs-core): extract compute_consuming_params + 2 scan helpers into ast::consuming_flow sibling (chunk 349)"
-    },
-    {
-      "hash": "d05413f7",
-      "subject": "chore(dashboard): chunks 336-348 snapshot @ 32a364fc"
-    },
-    {
-      "hash": "32a364fc",
-      "subject": "refactor(torajs-core): extract 4 sfi_x_safe / sfi_stmt_uses_ident helpers into ast::sfi_safe sibling (chunk 348)"
     }
   ],
-  "headSha": "c42d9b53",
+  "headSha": "c21ef1cd",
   "autorun": {
     "total": 298,
     "baselineTarget": 10,
