@@ -353,6 +353,7 @@ pub mod short_str_encode;
 pub mod ssa;
 pub mod ssa_lower;
 pub(crate) mod ssa_lower_accessor;
+pub(crate) mod ssa_lower_alloca;
 pub(crate) mod ssa_lower_anon_stamp;
 pub(crate) mod ssa_lower_any_box;
 pub(crate) mod ssa_lower_any_cast;
