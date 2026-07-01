@@ -435,6 +435,7 @@ pub(crate) mod ssa_lower_closure;
 pub mod ssa_lower_closure_captures;
 pub(crate) mod ssa_lower_console_log_multiarg;
 pub(crate) mod ssa_lower_container_width;
+pub(crate) mod ssa_lower_ctx_struct;
 pub(crate) mod ssa_lower_deep_clone;
 pub mod ssa_lower_deque_escape;
 pub(crate) mod ssa_lower_drops;
