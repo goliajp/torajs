@@ -439,6 +439,7 @@ pub(crate) mod ssa_lower_deep_clone;
 pub mod ssa_lower_deque_escape;
 pub(crate) mod ssa_lower_drops;
 pub(crate) mod ssa_lower_emit_drop_value;
+pub(crate) mod ssa_lower_env_drop_and_ret_ty;
 pub(crate) mod ssa_lower_env_drop_setup;
 pub(crate) mod ssa_lower_expr_inner;
 pub(crate) mod ssa_lower_fn;
