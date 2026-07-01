@@ -435,6 +435,7 @@ pub(crate) mod ssa_lower_call_vtable_dispatch;
 pub(crate) mod ssa_lower_call_weakref_collections;
 pub(crate) mod ssa_lower_closure;
 pub mod ssa_lower_closure_captures;
+pub(crate) mod ssa_lower_coerce_to_str;
 pub(crate) mod ssa_lower_console_dispatch;
 pub(crate) mod ssa_lower_console_log_multiarg;
 pub(crate) mod ssa_lower_container_width;
