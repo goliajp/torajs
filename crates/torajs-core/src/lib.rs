@@ -450,6 +450,7 @@ pub(crate) mod ssa_lower_generics_monomorph;
 pub(crate) mod ssa_lower_ident;
 pub(crate) mod ssa_lower_index;
 pub(crate) mod ssa_lower_index_assign;
+pub(crate) mod ssa_lower_inner;
 pub(crate) mod ssa_lower_instanceof;
 pub(crate) mod ssa_lower_intrinsics_any_substrate;
 pub(crate) mod ssa_lower_intrinsics_arr;
