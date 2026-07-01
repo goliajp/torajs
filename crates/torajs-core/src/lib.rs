@@ -445,6 +445,7 @@ pub(crate) mod ssa_lower_env_drop_and_ret_ty;
 pub(crate) mod ssa_lower_env_drop_setup;
 pub(crate) mod ssa_lower_expr_inner;
 pub(crate) mod ssa_lower_fn;
+pub(crate) mod ssa_lower_fn_props;
 pub(crate) mod ssa_lower_for_of_iter_protocol;
 pub(crate) mod ssa_lower_for_of_map_like;
 pub(crate) mod ssa_lower_for_of_str;
