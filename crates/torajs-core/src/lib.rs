@@ -495,6 +495,7 @@ pub(crate) mod ssa_lower_json_stringify;
 pub(crate) mod ssa_lower_lit;
 pub(crate) mod ssa_lower_logical;
 pub mod ssa_lower_main_exit;
+pub(crate) mod ssa_lower_materialize_arr;
 pub(crate) mod ssa_lower_member;
 pub(crate) mod ssa_lower_member_builtin_namespace;
 pub(crate) mod ssa_lower_member_fn_intro;
