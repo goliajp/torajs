@@ -1,7 +1,5 @@
 //! AST — arena-allocated. Children referenced by `ExprId(u32)`, not Box.
 
-use std::collections::HashMap;
-
 mod apply_args;
 mod arguments_object;
 mod arguments_object_rewrite;
@@ -47,10 +45,10 @@ use desugar_async::{body_ends_in_return, rewrite_returns_for_async};
 pub use desugar_classes::desugar_classes;
 pub use desugar_variadic_push::desugar_variadic_push;
 pub use escape_analyze::escape_analyze_array_literals;
-pub use nested_fns::desugar_nested_fns;
 pub use forwarders::synthesize_forwarders;
 pub use forwarders_object::{synthesize_fn_to_closure_forwarders, tag_struct_field_closure_types};
 pub use infer_closure_params::infer_anonymous_closure_params;
+pub use nested_fns::desugar_nested_fns;
 pub use sfi_pass::rewrite_split_for_i_to_iter;
 pub use var_hoist::desugar_var_hoist;
 
@@ -2270,7 +2268,6 @@ pub fn desugar_uninit_let(ast: &mut Ast) {
     // FnDecl bodies live inside `ast.stmts` already; the recursive
     // walk handles them when it descends into Stmt::FnDecl variants.
 }
-
 
 fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
     let mut i = 0;
