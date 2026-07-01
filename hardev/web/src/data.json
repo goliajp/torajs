@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T08:28:25.376Z",
+  "generatedAt": "2026-07-01T10:44:52.759Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c21ef1cd",
-    "commitSubject": "fixup(chunk 363): reorder pub use desugar_generators to alphabetical position",
+    "commit": "f7a81a83",
+    "commitSubject": "refactor(torajs-core): extract LowerCtx struct into ssa_lower_ctx_struct sibling (chunk 370)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,38 @@
   },
   "commits": [
     {
+      "hash": "f7a81a83",
+      "subject": "refactor(torajs-core): extract LowerCtx struct into ssa_lower_ctx_struct sibling (chunk 370)"
+    },
+    {
+      "hash": "82d87a1c",
+      "subject": "refactor(torajs-core): extract lower_inner driver into ssa_lower_inner sibling (chunk 369)"
+    },
+    {
+      "hash": "cbadffca",
+      "subject": "refactor(torajs-core): extract synthesize_env_drop + effective_ret_ty family into ssa_lower_env_drop_and_ret_ty sibling (chunk 368)"
+    },
+    {
+      "hash": "3317cfda",
+      "subject": "refactor(torajs-core): extract declare_intrinsic + synthesize_main into ssa_lower_synthesize_main sibling (chunk 367)"
+    },
+    {
+      "hash": "8e0ef7c0",
+      "subject": "refactor(torajs-core): extract rewrite_inner_generic_calls into ssa_lower_rewrite_inner_generics sibling (chunk 366)"
+    },
+    {
+      "hash": "d11bdab9",
+      "subject": "refactor(torajs-core): extract deep_clone_stmt/expr into ssa_lower_deep_clone sibling (chunk 365)"
+    },
+    {
+      "hash": "96dbda8d",
+      "subject": "refactor(torajs-core): extract generics-monomorphization pre-pass into ssa_lower_generics_monomorph sibling (chunk 364)"
+    },
+    {
+      "hash": "b975a291",
+      "subject": "chore(dashboard): chunks 358-363 snapshot @ c21ef1cd"
+    },
+    {
       "hash": "c21ef1cd",
       "subject": "fixup(chunk 363): reorder pub use desugar_generators to alphabetical position"
     },
@@ -631,59 +663,49 @@
     {
       "hash": "17a161ae",
       "subject": "refactor(torajs-core): extract implicit-generics static inference helpers into ast::implicit_generics_infer sibling (chunk 361)"
-    },
-    {
-      "hash": "10152c31",
-      "subject": "refactor(torajs-core): extract lift_arrow_fns + class-factory helpers into ast::lift_arrow_fns sibling (chunk 360)"
-    },
-    {
-      "hash": "e016c95d",
-      "subject": "refactor(torajs-core): extract uninit-let init-splice pass into ast::uninit_let sibling + orphan doc cleanup (chunk 359)"
-    },
-    {
-      "hash": "1d473570",
-      "subject": "fixup(chunk 358): drop unused HashMap import + fmt alphabetical pub-use + collapse blank line"
-    },
-    {
-      "hash": "4935d572",
-      "subject": "refactor(torajs-core): extract nested-fn hoisting pass into ast::nested_fns sibling (chunk 358)"
-    },
-    {
-      "hash": "0568f1c3",
-      "subject": "chore(dashboard): chunks 354-357 snapshot @ c42d9b53"
-    },
-    {
-      "hash": "c42d9b53",
-      "subject": "refactor(torajs-core): extract Array.isArray-value desugar into ast::array_isarray_value sibling + orphan doc cleanup (chunk 357)"
-    },
-    {
-      "hash": "0ddd0351",
-      "subject": "refactor(torajs-core): extract escape-analyze pass into ast::escape_analyze sibling (chunk 356)"
-    },
-    {
-      "hash": "2a865000",
-      "subject": "refactor(torajs-core): extract var-hoist pass family into ast::var_hoist sibling (chunk 355)"
     }
   ],
-  "headSha": "c21ef1cd",
+  "headSha": "f7a81a83",
   "autorun": {
-    "total": 298,
+    "total": 300,
     "baselineTarget": 10,
-    "bySelf": 293,
+    "bySelf": 295,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782887712-7a0b",
-      "at": "2026-07-01T06:35:12Z",
-      "ts": 1782887712,
+      "rotationId": "r-1782902677-4ea0",
+      "at": "2026-07-01T10:44:37Z",
+      "ts": 1782902677,
       "trigger": "self",
-      "prevHead": "c42d9b53",
-      "handoffSha": "sha256:e1bde5301f28ec608523d7df8de461075a01c0f3a799791dec750cbb8477fd2f",
-      "handoffAgeSec": 13205,
+      "prevHead": "f7a81a83",
+      "handoffSha": "sha256:08813d25ddb0df18665cf9f2648af8028d88c70eb7265237bb4a6e0189d21f0a",
+      "handoffAgeSec": 8086,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782902677-4ea0",
+        "at": "2026-07-01T10:44:37Z",
+        "ts": 1782902677,
+        "trigger": "self",
+        "prevHead": "f7a81a83",
+        "handoffSha": "sha256:08813d25ddb0df18665cf9f2648af8028d88c70eb7265237bb4a6e0189d21f0a",
+        "handoffAgeSec": 8086,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1782894602-2fcd",
+        "at": "2026-07-01T08:30:02Z",
+        "ts": 1782894602,
+        "trigger": "self",
+        "prevHead": "b975a291",
+        "handoffSha": "sha256:08813d25ddb0df18665cf9f2648af8028d88c70eb7265237bb4a6e0189d21f0a",
+        "handoffAgeSec": 11,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782887712-7a0b",
         "at": "2026-07-01T06:35:12Z",
@@ -769,28 +791,6 @@
         "prevHead": "f68895e8",
         "handoffSha": "sha256:751c6a0397141984d5663196cc43764d45f80faec5b644449107884a5171519d",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782824767-6f5d",
-        "at": "2026-06-30T13:06:07Z",
-        "ts": 1782824767,
-        "trigger": "self",
-        "prevHead": "29c9d493",
-        "handoffSha": "sha256:0d1598666d8ff39f0764d8560f90dbb0d85899fb2fa9e43da20466498ddd375f",
-        "handoffAgeSec": 19,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782818975-2ea9",
-        "at": "2026-06-30T11:29:35Z",
-        "ts": 1782818975,
-        "trigger": "self",
-        "prevHead": "597f9604",
-        "handoffSha": "sha256:c085470fe3a620cf2a3b62bcd8e380977d10b3dec71a264718790400fcbe068d",
-        "handoffAgeSec": 29,
         "conformanceBefore": null,
         "commitsInSession": null
       }
