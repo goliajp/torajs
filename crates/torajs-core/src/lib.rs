@@ -359,6 +359,7 @@ pub(crate) mod ssa_lower_any_member;
 pub(crate) mod ssa_lower_arr_any_fill;
 pub(crate) mod ssa_lower_arr_any_push;
 pub(crate) mod ssa_lower_arr_from_set;
+pub(crate) mod ssa_lower_arr_layout;
 pub(crate) mod ssa_lower_arr_mutators;
 pub(crate) mod ssa_lower_array;
 pub(crate) mod ssa_lower_assign_ident;
