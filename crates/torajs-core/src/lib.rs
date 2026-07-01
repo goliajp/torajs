@@ -354,6 +354,7 @@ pub mod ssa;
 pub mod ssa_lower;
 pub(crate) mod ssa_lower_accessor;
 pub(crate) mod ssa_lower_anon_stamp;
+pub(crate) mod ssa_lower_any_box;
 pub(crate) mod ssa_lower_any_cast;
 pub(crate) mod ssa_lower_any_member;
 pub(crate) mod ssa_lower_arr_any_fill;
