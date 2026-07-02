@@ -123,7 +123,6 @@ pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> 
     )
 }
 
-
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LocalInfo {
     /// Pointer to the alloca slot — Type::Ptr.
@@ -178,4 +177,3 @@ pub(crate) struct PreReserveState {
     /// this to a phi-register at -O1+.
     pub(crate) len_slot: ValueId,
 }
-
