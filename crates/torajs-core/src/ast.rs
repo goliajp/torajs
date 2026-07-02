@@ -35,6 +35,7 @@ mod inject_builtin_classes;
 mod lift_arrow_fns;
 mod module_passes;
 mod nested_fns;
+mod prototype_call;
 mod sfi_pass;
 mod sfi_rewrite;
 mod sfi_safe;
@@ -68,6 +69,7 @@ pub(crate) use lift_arrow_fns::{
 };
 pub use module_passes::{desugar_builtin_imports, rename_user_main, unwrap_exports};
 pub use nested_fns::desugar_nested_fns;
+pub use prototype_call::desugar_prototype_call;
 pub use sfi_pass::rewrite_split_for_i_to_iter;
 pub use uninit_let::desugar_uninit_let;
 pub use var_hoist::desugar_var_hoist;
@@ -792,209 +794,6 @@ pub struct Ast {
 /// `ast_desugar_builtin_new` sibling (chunk 139).
 pub fn desugar_builtin_new(ast: &mut Ast) {
     crate::ast_desugar_builtin_new::run(ast);
-}
-
-/// V3-18 m2.f — rewrite `X.prototype.foo.call(recv, ...args)` to
-/// the equivalent direct-method form `recv.foo(...args)`. Tora has
-/// no real prototype object so the literal traversal would fail at
-/// `Number.prototype.toString` (Type::Null doesn't have .toString).
-/// Pattern-matched at the AST level so check.rs / ssa_lower see only
-/// the rewritten form. Ns coverage: every constructor namespace
-/// listed (Number / String / Boolean / Object / Array / BigInt /
-/// Symbol / Function / Date / RegExp / Error). `.apply(recv, args)`
-/// is similar but takes args as an array — handled in a follow-up
-/// when an array-spread call shape lands.
-pub fn desugar_prototype_call(ast: &mut Ast) {
-    let n = ast.exprs.len();
-    for i in 0..n {
-        let Expr::Call { callee, args } = ast.exprs[i].clone() else {
-            continue;
-        };
-        let Expr::Member {
-            obj: outer_obj,
-            name: outer_name,
-        } = ast.get_expr(callee).clone()
-        else {
-            continue;
-        };
-        if outer_name != "call" || args.is_empty() {
-            continue;
-        }
-        let Expr::Member {
-            obj: inner_obj,
-            name: method_name,
-        } = ast.get_expr(outer_obj).clone()
-        else {
-            continue;
-        };
-        let Expr::Member {
-            obj: ns_id,
-            name: proto_name,
-        } = ast.get_expr(inner_obj).clone()
-        else {
-            continue;
-        };
-        if proto_name != "prototype" {
-            continue;
-        }
-        let Expr::Ident(ns) = ast.get_expr(ns_id).clone() else {
-            continue;
-        };
-        let known_ns = matches!(
-            ns.as_str(),
-            "Number"
-                | "String"
-                | "Boolean"
-                | "BigInt"
-                | "Symbol"
-                | "Object"
-                | "Array"
-                | "Function"
-                | "Date"
-                | "RegExp"
-                | "Error"
-                | "Promise"
-                | "Map"
-                | "Set"
-        );
-        if !known_ns {
-            continue;
-        }
-        let recv = args[0];
-        let rest = args[1..].to_vec();
-        let new_callee = ast.add_expr(Expr::Member {
-            obj: recv,
-            name: method_name,
-        });
-        ast.exprs[i] = Expr::Call {
-            callee: new_callee,
-            args: rest,
-        };
-    }
-}
-
-/// Walk one Stmt (and any Stmts / Exprs it contains) looking for
-/// store-sites where a bare top-level FnDecl reference appears in a
-/// Closure-typed position. Mutates `targets` / `rewrites` in place.
-
-/// Walk an Expr looking for nested store-sites (Call args, nested
-/// ObjectLits not directly under a typed LetDecl, etc.).
-pub(crate) fn collect_expr_fn_to_closure(
-    ast: &Ast,
-    eid: ExprId,
-    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
-    targets: &mut std::collections::HashSet<String>,
-    rewrites: &mut Vec<(ExprId, String)>,
-) {
-    match ast.get_expr(eid) {
-        Expr::Call { callee, args } => {
-            // Call args are FnSig-typed (parse_type maps `__fn` →
-            // FnSig); bare top-FnDecl Idents passed as callbacks
-            // stay raw FnSig values, matching the FnSig param ABI
-            // directly. We only need to recurse for nested ObjectLits
-            // (e.g. `f({k: top_fn})` inside a typed param position
-            // would still need the ObjectLit-field arm).
-            collect_expr_fn_to_closure(ast, *callee, fn_sigs, targets, rewrites);
-            for arg in args {
-                collect_expr_fn_to_closure(ast, *arg, fn_sigs, targets, rewrites);
-            }
-        }
-        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
-            collect_expr_fn_to_closure(ast, *obj, fn_sigs, targets, rewrites);
-        }
-        Expr::Index { obj, index } => {
-            collect_expr_fn_to_closure(ast, *obj, fn_sigs, targets, rewrites);
-            collect_expr_fn_to_closure(ast, *index, fn_sigs, targets, rewrites);
-        }
-        Expr::Assign { target, value } => {
-            collect_expr_fn_to_closure(ast, *target, fn_sigs, targets, rewrites);
-            collect_expr_fn_to_closure(ast, *value, fn_sigs, targets, rewrites);
-        }
-        Expr::BinOp { left, right, .. } => {
-            collect_expr_fn_to_closure(ast, *left, fn_sigs, targets, rewrites);
-            collect_expr_fn_to_closure(ast, *right, fn_sigs, targets, rewrites);
-        }
-        Expr::Unary { expr, .. }
-        | Expr::TypeOf { expr }
-        | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. }
-        | Expr::As { expr, .. } => {
-            collect_expr_fn_to_closure(ast, *expr, fn_sigs, targets, rewrites);
-        }
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_expr_fn_to_closure(ast, *cond, fn_sigs, targets, rewrites);
-            collect_expr_fn_to_closure(ast, *then_branch, fn_sigs, targets, rewrites);
-            collect_expr_fn_to_closure(ast, *else_branch, fn_sigs, targets, rewrites);
-        }
-        Expr::Sequence { left, right }
-        | Expr::Nullish {
-            lhs: left,
-            rhs: right,
-        } => {
-            collect_expr_fn_to_closure(ast, *left, fn_sigs, targets, rewrites);
-            collect_expr_fn_to_closure(ast, *right, fn_sigs, targets, rewrites);
-        }
-        Expr::Array(eids) => {
-            for e in eids {
-                collect_expr_fn_to_closure(ast, *e, fn_sigs, targets, rewrites);
-            }
-        }
-        Expr::ObjectLit { fields } => {
-            // Untyped ObjectLit — only recurse into fields (no
-            // closure-typed signal available without surrounding
-            // LetDecl context).
-            for (_, eid) in fields {
-                collect_expr_fn_to_closure(ast, *eid, fn_sigs, targets, rewrites);
-            }
-        }
-        Expr::PostIncr { target, .. } => {
-            collect_expr_fn_to_closure(ast, *target, fn_sigs, targets, rewrites);
-        }
-        Expr::New { args, .. } | Expr::Super { args } => {
-            for a in args {
-                collect_expr_fn_to_closure(ast, *a, fn_sigs, targets, rewrites);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// When a LetDecl has shape `const o: T = { k: v, ... }` and `T`
-/// resolves to a known TypeDecl whose field `k` is fn-typed, and `v`
-/// is a bare Ident referring to a top-level FnDecl, mark `v` as
-/// rewrite-target.
-pub(crate) fn collect_objectlit_fn_to_closure(
-    ast: &Ast,
-    init: ExprId,
-    type_ann: Option<&str>,
-    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
-    struct_field_anns: &std::collections::HashMap<
-        String,
-        std::collections::HashMap<String, String>,
-    >,
-    targets: &mut std::collections::HashSet<String>,
-    rewrites: &mut Vec<(ExprId, String)>,
-) {
-    let Some(ann) = type_ann else { return };
-    let Some(field_anns) = struct_field_anns.get(ann.trim()) else {
-        return;
-    };
-    if let Expr::ObjectLit { fields } = ast.get_expr(init) {
-        for (fname, feid) in fields {
-            if let Some(fann) = field_anns.get(fname)
-                && is_fn_like_ann(fann)
-                && let Expr::Ident(name) = ast.get_expr(*feid)
-                && fn_sigs.contains_key(name)
-            {
-                targets.insert(name.clone());
-                rewrites.push((*feid, name.clone()));
-            }
-        }
-    }
 }
 
 /// P4.4 — `Function.prototype.bind / call / apply` desugar pass.

@@ -20,9 +20,7 @@
 //! dispatch preserved); the wrap only fires when the destination
 //! is tagged Any.
 
-use crate::ast::{
-    Ast, ExprId, Param, Stmt, collect_expr_fn_to_closure, collect_objectlit_fn_to_closure,
-};
+use crate::ast::{Ast, Expr, ExprId, Param, Stmt, is_fn_like_ann};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_fn_to_closure_store_sites(
@@ -220,5 +218,129 @@ pub(crate) fn collect_fn_to_closure_store_sites(
             collect_expr_fn_to_closure(ast, *eid, fn_sigs, targets, rewrites);
         }
         _ => {}
+    }
+}
+
+/// Walk one Stmt (and any Stmts / Exprs it contains) looking for
+/// store-sites where a bare top-level FnDecl reference appears in a
+/// Closure-typed position. Mutates `targets` / `rewrites` in place.
+
+/// Walk an Expr looking for nested store-sites (Call args, nested
+/// ObjectLits not directly under a typed LetDecl, etc.).
+pub(crate) fn collect_expr_fn_to_closure(
+    ast: &Ast,
+    eid: ExprId,
+    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
+    targets: &mut std::collections::HashSet<String>,
+    rewrites: &mut Vec<(ExprId, String)>,
+) {
+    match ast.get_expr(eid) {
+        Expr::Call { callee, args } => {
+            // Call args are FnSig-typed (parse_type maps `__fn` →
+            // FnSig); bare top-FnDecl Idents passed as callbacks
+            // stay raw FnSig values, matching the FnSig param ABI
+            // directly. We only need to recurse for nested ObjectLits
+            // (e.g. `f({k: top_fn})` inside a typed param position
+            // would still need the ObjectLit-field arm).
+            collect_expr_fn_to_closure(ast, *callee, fn_sigs, targets, rewrites);
+            for arg in args {
+                collect_expr_fn_to_closure(ast, *arg, fn_sigs, targets, rewrites);
+            }
+        }
+        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
+            collect_expr_fn_to_closure(ast, *obj, fn_sigs, targets, rewrites);
+        }
+        Expr::Index { obj, index } => {
+            collect_expr_fn_to_closure(ast, *obj, fn_sigs, targets, rewrites);
+            collect_expr_fn_to_closure(ast, *index, fn_sigs, targets, rewrites);
+        }
+        Expr::Assign { target, value } => {
+            collect_expr_fn_to_closure(ast, *target, fn_sigs, targets, rewrites);
+            collect_expr_fn_to_closure(ast, *value, fn_sigs, targets, rewrites);
+        }
+        Expr::BinOp { left, right, .. } => {
+            collect_expr_fn_to_closure(ast, *left, fn_sigs, targets, rewrites);
+            collect_expr_fn_to_closure(ast, *right, fn_sigs, targets, rewrites);
+        }
+        Expr::Unary { expr, .. }
+        | Expr::TypeOf { expr }
+        | Expr::Spread { expr }
+        | Expr::InstanceOf { expr, .. }
+        | Expr::As { expr, .. } => {
+            collect_expr_fn_to_closure(ast, *expr, fn_sigs, targets, rewrites);
+        }
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_expr_fn_to_closure(ast, *cond, fn_sigs, targets, rewrites);
+            collect_expr_fn_to_closure(ast, *then_branch, fn_sigs, targets, rewrites);
+            collect_expr_fn_to_closure(ast, *else_branch, fn_sigs, targets, rewrites);
+        }
+        Expr::Sequence { left, right }
+        | Expr::Nullish {
+            lhs: left,
+            rhs: right,
+        } => {
+            collect_expr_fn_to_closure(ast, *left, fn_sigs, targets, rewrites);
+            collect_expr_fn_to_closure(ast, *right, fn_sigs, targets, rewrites);
+        }
+        Expr::Array(eids) => {
+            for e in eids {
+                collect_expr_fn_to_closure(ast, *e, fn_sigs, targets, rewrites);
+            }
+        }
+        Expr::ObjectLit { fields } => {
+            // Untyped ObjectLit — only recurse into fields (no
+            // closure-typed signal available without surrounding
+            // LetDecl context).
+            for (_, eid) in fields {
+                collect_expr_fn_to_closure(ast, *eid, fn_sigs, targets, rewrites);
+            }
+        }
+        Expr::PostIncr { target, .. } => {
+            collect_expr_fn_to_closure(ast, *target, fn_sigs, targets, rewrites);
+        }
+        Expr::New { args, .. } | Expr::Super { args } => {
+            for a in args {
+                collect_expr_fn_to_closure(ast, *a, fn_sigs, targets, rewrites);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// When a LetDecl has shape `const o: T = { k: v, ... }` and `T`
+/// resolves to a known TypeDecl whose field `k` is fn-typed, and `v`
+/// is a bare Ident referring to a top-level FnDecl, mark `v` as
+/// rewrite-target.
+pub(crate) fn collect_objectlit_fn_to_closure(
+    ast: &Ast,
+    init: ExprId,
+    type_ann: Option<&str>,
+    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
+    struct_field_anns: &std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, String>,
+    >,
+    targets: &mut std::collections::HashSet<String>,
+    rewrites: &mut Vec<(ExprId, String)>,
+) {
+    let Some(ann) = type_ann else { return };
+    let Some(field_anns) = struct_field_anns.get(ann.trim()) else {
+        return;
+    };
+    if let Expr::ObjectLit { fields } = ast.get_expr(init) {
+        for (fname, feid) in fields {
+            if let Some(fann) = field_anns.get(fname)
+                && is_fn_like_ann(fann)
+                && let Expr::Ident(name) = ast.get_expr(*feid)
+                && fn_sigs.contains_key(name)
+            {
+                targets.insert(name.clone());
+                rewrites.push((*feid, name.clone()));
+            }
+        }
     }
 }
