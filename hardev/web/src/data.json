@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T23:05:22.267Z",
+  "generatedAt": "2026-07-02T01:00:02.689Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "91d10823",
-    "commitSubject": "refactor(torajs-core): extract 2 relative-index helpers into ssa_lower_relative_index sibling (chunk 379)",
+    "commit": "33b82c50",
+    "commitSubject": "refactor(torajs-core): extract 3 lowering-strategy probes into ssa_lower_lowering_probes sibling (chunk 385)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,34 @@
   },
   "commits": [
     {
+      "hash": "33b82c50",
+      "subject": "refactor(torajs-core): extract 3 lowering-strategy probes into ssa_lower_lowering_probes sibling (chunk 385)"
+    },
+    {
+      "hash": "8bff3127",
+      "subject": "refactor(torajs-core): extract 3 call-shape recognizers into ssa_lower_call_recognizers sibling (chunk 384)"
+    },
+    {
+      "hash": "f6b44459",
+      "subject": "refactor(torajs-core): extract 2 math recognizers into ssa_lower_math_recognize sibling (chunk 383)"
+    },
+    {
+      "hash": "4759e48c",
+      "subject": "refactor(torajs-core): extract 4 SSA-emit shorthand helpers into ssa_lower_emit_shorthand sibling (chunk 382)"
+    },
+    {
+      "hash": "e0f23449",
+      "subject": "refactor(torajs-core): extract materialize_arr_substr_to_str into ssa_lower_materialize_arr sibling (chunk 381)"
+    },
+    {
+      "hash": "59e3af03",
+      "subject": "refactor(torajs-core): extract 3 micro-helpers into ssa_lower_micro_helpers sibling (chunk 380)"
+    },
+    {
+      "hash": "0ccc8db7",
+      "subject": "chore(dashboard): chunks 375-379 snapshot @ 91d10823"
+    },
+    {
       "hash": "91d10823",
       "subject": "refactor(torajs-core): extract 2 relative-index helpers into ssa_lower_relative_index sibling (chunk 379)"
     },
@@ -635,55 +663,38 @@
     {
       "hash": "01516b72",
       "subject": "refactor(torajs-core): extract coerce_to_str into ssa_lower_coerce_to_str sibling (chunk 375)"
-    },
-    {
-      "hash": "995c376b",
-      "subject": "chore(dashboard): chunks 371-374 snapshot @ 0f3d42e7"
-    },
-    {
-      "hash": "0f3d42e7",
-      "subject": "refactor(torajs-core): extract console dispatch helpers into ssa_lower_console_dispatch sibling (chunk 374)"
-    },
-    {
-      "hash": "81178615",
-      "subject": "fixup(chunk 373): drop now-unused encode_short_str_literal import from ssa_lower.rs"
-    },
-    {
-      "hash": "5e59b1f1",
-      "subject": "refactor(torajs-core): extract 6 any-box helpers into ssa_lower_any_box sibling (chunk 373)"
-    },
-    {
-      "hash": "9be80d6d",
-      "subject": "refactor(torajs-core): extract fn_props_set/get into ssa_lower_fn_props sibling (chunk 372)"
-    },
-    {
-      "hash": "8bd483ac",
-      "subject": "refactor(torajs-core): extract 5 arr-layout helpers into ssa_lower_arr_layout sibling (chunk 371)"
-    },
-    {
-      "hash": "68de6a33",
-      "subject": "chore(dashboard): chunks 364-370 snapshot @ f7a81a83"
     }
   ],
-  "headSha": "91d10823",
+  "headSha": "33b82c50",
   "autorun": {
-    "total": 301,
+    "total": 302,
     "baselineTarget": 10,
-    "bySelf": 296,
+    "bySelf": 297,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782919077-3a72",
-      "at": "2026-07-01T15:17:57Z",
-      "ts": 1782919077,
+      "rotationId": "r-1782947214-25ff",
+      "at": "2026-07-01T23:06:54Z",
+      "ts": 1782947214,
       "trigger": "self",
-      "prevHead": "995c376b",
-      "handoffSha": "sha256:1827cb3abeb9aed9c278571923745b945745f4b221a2814c60b23141908604fb",
+      "prevHead": "0ccc8db7",
+      "handoffSha": "sha256:129c46d2d8080deed5e21c894dc69557fdac0d0b6fedd41c3f94c7e60bd587ea",
       "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782947214-25ff",
+        "at": "2026-07-01T23:06:54Z",
+        "ts": 1782947214,
+        "trigger": "self",
+        "prevHead": "0ccc8db7",
+        "handoffSha": "sha256:129c46d2d8080deed5e21c894dc69557fdac0d0b6fedd41c3f94c7e60bd587ea",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782919077-3a72",
         "at": "2026-07-01T15:17:57Z",
@@ -780,17 +791,6 @@
         "prevHead": "35d3fc1e",
         "handoffSha": "sha256:ca79810cb8953766acd46ca4d2fe40cdf2f3b754c9c3028477ac4a8dccdf05c3",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782840865-7e57",
-        "at": "2026-06-30T17:34:25Z",
-        "ts": 1782840865,
-        "trigger": "self",
-        "prevHead": "6df9fa16",
-        "handoffSha": "sha256:fff7d93bdf26d1ff7a8f88f1496b8c5e03bda9316be1cabf299679ad625e91fd",
-        "handoffAgeSec": 58,
         "conformanceBefore": null,
         "commitsInSession": null
       }
