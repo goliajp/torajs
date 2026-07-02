@@ -16,8 +16,8 @@ mod scope_moves;
 mod stmt;
 mod type_of;
 
-pub use diag::{Diagnostic, Severity};
 pub(crate) use diag::DiagPush;
+pub use diag::{Diagnostic, Severity};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
