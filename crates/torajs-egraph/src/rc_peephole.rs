@@ -249,6 +249,7 @@ pub(crate) fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) 
         | InstKind::TruncI64ToBool(o)
         | InstKind::Identity(o)
         | InstKind::Neg(o)
+        | InstKind::Ctpop(o)
         | InstKind::Copy(_, o) => v(o),
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)

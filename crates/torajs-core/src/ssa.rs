@@ -426,6 +426,14 @@ pub enum InstKind {
     /// `neg Xd, Xn` is the `sub Xd, XZR, Xn` alias (ARM ARM C7.2.273);
     /// LLVM: `sub i64 0, %x`. i64 only — FP Neg deferred.
     Neg(Operand),
+    /// `%v = ctpop <op>` — population count of an i64 (number of set
+    /// bits, 0..=64). Produced only by the egraph `ctpop_idiom` pass
+    /// (LLVM LoopIdiomRecognize analogue) replacing the Kernighan
+    /// `while (n) { n &= n - 1; c++ }` loop; never lowered directly
+    /// from source. Codegen: aarch64 has no scalar popcount at the
+    /// base ISA — the canonical sequence is `fmov d,x; cnt v.8b;
+    /// addv b,v.8b; fmov x,d` (what LLVM emits for `llvm.ctpop.i64`).
+    Ctpop(Operand),
     /// `%v = copy <ty> <op>` — register-level move, the destruction
     /// product of mem2reg's φ placement (LLVM PHIElimination's mov
     /// shape). Emitted at predecessor-block ends so a φ-merged value

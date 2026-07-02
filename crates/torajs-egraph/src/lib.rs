@@ -19,6 +19,7 @@
 //! rule cluster.
 
 pub mod cost;
+pub mod ctpop_idiom;
 pub mod devirt;
 pub mod dominator;
 pub mod egraph;
@@ -231,6 +232,17 @@ pub fn transform_module(mut module: Module) -> Module {
         let sx_stats = sext_elide::elide_sext_pairs(&mut module, &sext_seeds);
         if std::env::var("TORAJS_SEXT_ELIDE_STATS").as_deref() == Ok("1") {
             eprintln!("torajs-sext-elide-stats: {sx_stats:?}");
+        }
+    }
+    // Kernighan popcount loop-idiom recognition (LLVM
+    // LoopIdiomRecognize analogue) — after sext_elide, whose
+    // interval-seeded pair elision produces the pair-free 5-inst loop
+    // body this pass matches. Replaces the whole 2-block loop with a
+    // single `ctpop` + add. `TORAJS_CTPOP_OFF=1` skips (bisect gate).
+    if std::env::var("TORAJS_CTPOP_OFF").as_deref() != Ok("1") {
+        let cp_stats = ctpop_idiom::recognize_ctpop_loops(&mut module);
+        if std::env::var("TORAJS_CTPOP_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-ctpop-stats: {cp_stats:?}");
         }
     }
     // TORAJS_SSA_DUMP=1 — pretty-print the post-egraph pre-peephole

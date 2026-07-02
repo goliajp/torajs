@@ -8,8 +8,9 @@ use super::{
     OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, add_reg, and_reg, asrv_reg, bl_imm26, eor_reg, fadd_d, fdiv_d, fmov_d_to_d, fmul_d,
-    fsub_d, lslv_reg, lsrv_reg, msub_reg, mul_reg, orr_reg, sdiv_reg, sub_imm, sub_reg,
+    add_imm, add_reg, addv_b_v8b, and_reg, asrv_reg, bl_imm26, cnt_v8b, eor_reg, fadd_d, fdiv_d,
+    fmov_d_from_x, fmov_d_to_d, fmov_x_from_d, fmul_d, fsub_d, lslv_reg, lsrv_reg, msub_reg,
+    mul_reg, orr_reg, sdiv_reg, sub_imm, sub_reg,
 };
 use crate::reg::aapcs64;
 use crate::regalloc::Assignment;
@@ -24,6 +25,28 @@ pub fn emit_neg(bytes: &mut Vec<u8>, inst: &Inst, op: &Operand, alloc: &Assignme
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let rn = materialize_operand_gpr(bytes, op, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, sub_reg(dst, Gpr::XZR, rn));
+    write_def_spill_gpr(bytes, spill_off, dst);
+}
+
+/// Emit `%v = ctpop %op` — i64 population count via the canonical
+/// aarch64 SIMD round trip (no scalar popcount at the base ISA; this
+/// is the exact sequence LLVM emits for `llvm.ctpop.i64`):
+///
+///   FMOV Dt, Xn        ; GPR → SIMD
+///   CNT  Vt.8B, Vt.8B  ; per-byte popcount
+///   ADDV Bt, Vt.8B     ; sum the 8 byte counts (zeroes rest of Vt)
+///   FMOV Xd, Dt        ; SIMD → GPR (0..=64)
+///
+/// `FP_SCRATCH_LHS` is reserved out of the FPR allocator, so the
+/// clobber is invisible to live f64 values.
+pub fn emit_ctpop(bytes: &mut Vec<u8>, inst: &Inst, op: &Operand, alloc: &Assignment) {
+    let result_vid = inst.result.expect("Ctpop must have a result ValueId");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    let rn = materialize_operand_gpr(bytes, op, OP_SCRATCH_LHS, alloc);
+    write_u32(bytes, fmov_d_from_x(FP_SCRATCH_LHS, rn));
+    write_u32(bytes, cnt_v8b(FP_SCRATCH_LHS, FP_SCRATCH_LHS));
+    write_u32(bytes, addv_b_v8b(FP_SCRATCH_LHS, FP_SCRATCH_LHS));
+    write_u32(bytes, fmov_x_from_d(dst, FP_SCRATCH_LHS));
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 

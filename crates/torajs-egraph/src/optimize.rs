@@ -355,6 +355,7 @@ fn operands_loop_invariant(
         | InstKind::ZExtBoolToI64(v)
         | InstKind::ZExtI32ToI64(v)
         | InstKind::Neg(v)
+        | InstKind::Ctpop(v)
         | InstKind::Identity(v) => check(v),
         // Load is filtered out by is_pure; including it here would be
         // unsafe without alias analysis (a Store inside the loop body
@@ -400,6 +401,7 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::ZExtI32ToI64(v) => InstKind::ZExtI32ToI64(map_op(v, egraph)),
         InstKind::Identity(v) => InstKind::Identity(map_op(v, egraph)),
         InstKind::Neg(v) => InstKind::Neg(map_op(v, egraph)),
+        InstKind::Ctpop(v) => InstKind::Ctpop(map_op(v, egraph)),
         // Side-effecting kinds (Store, StoreDyn, Call, Alloca,
         // AllocaBytes) are not GVN candidates — return as-is. They
         // pass through the walk but don't participate in
@@ -438,6 +440,8 @@ fn is_pure(kind: &InstKind) -> bool {
         // `Neg(op)` is a pure single-operand arithmetic op — no
         // memory effect, deterministic output. GVN-eligible.
         InstKind::Neg(_) => true,
+        // `Ctpop(op)` — pure single-operand bit count, deterministic.
+        InstKind::Ctpop(_) => true,
         // `Load` / `LoadDyn` are NOT pure without alias analysis —
         // a syntactically identical `load %p+off` may yield a
         // DIFFERENT value if an intervening `Store` to %p+off

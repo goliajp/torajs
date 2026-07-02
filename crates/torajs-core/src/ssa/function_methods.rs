@@ -285,6 +285,10 @@ impl Function {
                 write!(w, "neg ")?;
                 self.write_operand(w, op)?;
             }
+            InstKind::Ctpop(op) => {
+                write!(w, "ctpop ")?;
+                self.write_operand(w, op)?;
+            }
             InstKind::Copy(ty, op) => {
                 write!(w, "copy {} ", ty.as_str())?;
                 self.write_operand(w, op)?;

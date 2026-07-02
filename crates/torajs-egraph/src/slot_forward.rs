@@ -195,6 +195,7 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
         | InstKind::TruncI64ToBool(a)
         | InstKind::Identity(a)
         | InstKind::Neg(a)
+        | InstKind::Ctpop(a)
         | InstKind::Copy(_, a) => r(a),
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)

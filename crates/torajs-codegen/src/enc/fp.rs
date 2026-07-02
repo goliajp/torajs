@@ -47,6 +47,21 @@ pub fn fcmp_d(rn: Fpr, rm: Fpr) -> u32 {
     0x1E60_2000 | (rm.idx() << 16) | (rn.idx() << 5)
 }
 
+/// CNT Vd.8B, Vn.8B — per-byte population count over the low 64 bits.
+/// Advanced SIMD two-register misc, Q=0 size=00. ARM ARM C7.2.35.
+/// Base = 0x0E20_5800.
+pub fn cnt_v8b(rd: Fpr, rn: Fpr) -> u32 {
+    0x0E20_5800 | (rn.idx() << 5) | rd.idx()
+}
+
+/// ADDV Bd, Vn.8B — horizontal add of the 8 byte lanes into Bd; the
+/// scalar write zeroes the rest of Vd, so a following `FMOV Xd, Dn`
+/// reads the clean sum. Advanced SIMD across lanes, Q=0 size=00.
+/// ARM ARM C7.2.7. Base = 0x0E31_B800.
+pub fn addv_b_v8b(rd: Fpr, rn: Fpr) -> u32 {
+    0x0E31_B800 | (rn.idx() << 5) | rd.idx()
+}
+
 /// SCVTF Dd, Xn — signed int64 → f64. ARM ARM C6.2.353. Base = 0x9E62_0000.
 pub fn scvtf_d_x(rd: Fpr, rn: Gpr) -> u32 {
     0x9E62_0000 | (rn.idx() << 5) | rd.idx()
@@ -144,6 +159,30 @@ mod tests {
     #[test]
     fn fcmp_d16_d17_matches_arm_arm() {
         assert_eq!(fcmp_d(Fpr::V16, Fpr::V17), 0x1E71_2200);
+    }
+
+    #[test]
+    fn cnt_v0_v0_matches_clang() {
+        // clang -arch arm64: `cnt v0.8b, v0.8b` → 0x0E20_5800.
+        assert_eq!(cnt_v8b(Fpr::V0, Fpr::V0), 0x0E20_5800);
+    }
+
+    #[test]
+    fn cnt_v3_v7_matches_clang() {
+        // clang: `cnt v3.8b, v7.8b` → 0x0E20_58E3.
+        assert_eq!(cnt_v8b(Fpr::V3, Fpr::V7), 0x0E20_58E3);
+    }
+
+    #[test]
+    fn addv_b0_v0_matches_clang() {
+        // clang: `addv b0, v0.8b` → 0x0E31_B800.
+        assert_eq!(addv_b_v8b(Fpr::V0, Fpr::V0), 0x0E31_B800);
+    }
+
+    #[test]
+    fn addv_b5_v2_matches_clang() {
+        // clang: `addv b5, v2.8b` → 0x0E31_B845.
+        assert_eq!(addv_b_v8b(Fpr::V5, Fpr::V2), 0x0E31_B845);
     }
 
     #[test]

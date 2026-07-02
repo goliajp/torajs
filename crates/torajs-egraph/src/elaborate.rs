@@ -325,6 +325,7 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::ZExtI32ToI64(v) => InstKind::ZExtI32ToI64(map_operand(v, egraph)),
         InstKind::Identity(v) => InstKind::Identity(map_operand(v, egraph)),
         InstKind::Neg(v) => InstKind::Neg(map_operand(v, egraph)),
+        InstKind::Ctpop(v) => InstKind::Ctpop(map_operand(v, egraph)),
         InstKind::Copy(_, _) => unreachable!(
             "InstKind::Copy reached the egraph elaborator — mem2reg's φ \
              destruction introduces Copy only after the egraph pass"

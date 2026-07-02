@@ -150,6 +150,10 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         // `sub Xd, XZR, Xn`; LLVM `sub i64 0, %x`).
         InstKind::Neg(_) => ALU_COST,
 
+        // `Ctpop(op)` lowers to a 4-instruction GPR→SIMD→GPR round
+        // trip (`fmov; cnt; addv; fmov`).
+        InstKind::Ctpop(_) => Cost::new(4),
+
         // Anything not enumerated above defaults to ALU cost. Adding a
         // new `InstKind` variant without updating this match is fine
         // (defensive default), but the variant author should add an

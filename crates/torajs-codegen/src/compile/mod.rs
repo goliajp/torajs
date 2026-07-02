@@ -53,7 +53,7 @@ use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 
-pub use binop::{emit_binop, emit_neg};
+pub use binop::{emit_binop, emit_ctpop, emit_neg};
 pub use call::{emit_call, emit_call_indirect};
 pub use cast::{
     emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64, emit_fp_to_si, emit_int_to_ptr,
@@ -279,6 +279,7 @@ fn emit_inst(
              drop it via set_opt_value before this point"
         ),
         InstKind::Neg(op) => emit_neg(bytes, inst, op, alloc),
+        InstKind::Ctpop(op) => emit_ctpop(bytes, inst, op, alloc),
         InstKind::Copy(ty, op) => emit_copy(bytes, inst, *ty, op, alloc),
     }
 }

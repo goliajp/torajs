@@ -358,6 +358,7 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         }
         InstKind::PtrToInt(a) | InstKind::IntToPtr(a) => visit(a),
         InstKind::Neg(a) => visit(a),
+        InstKind::Ctpop(a) => visit(a),
         InstKind::Copy(_, a) => visit(a),
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => {}
         InstKind::Load(_, ptr, _) => visit(ptr),
