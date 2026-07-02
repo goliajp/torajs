@@ -1453,48 +1453,6 @@ impl<'a> LowerCtx<'a> {
         crate::ssa_lower_expr_inner::lower(self, eid)
     }
 
-    /// Promote an i64 operand to f64. Constants are rewritten in place
-    /// (cheaper than emitting a sitofp instruction LLVM would constant-fold
-    /// anyway). Value operands emit an explicit InstKind::SiToFp.
-    pub(crate) fn coerce_to_f64(&mut self, op: Operand) -> Operand {
-        match self.operand_ty(&op) {
-            Type::F64 => op,
-            Type::I64 => match op {
-                Operand::ConstI64(n) => Operand::ConstF64(n as f64),
-                Operand::Value(_) => {
-                    let v =
-                        self.f
-                            .append_inst(self.cur_block, InstKind::SiToFp(op), Type::F64, None);
-                    Operand::Value(v)
-                }
-                _ => op,
-            },
-            other => panic!("ssa-lower: cannot coerce {other:?} to f64"),
-        }
-    }
-
-    /// P7.2b — coerce an Any operand to a concrete numeric: JS spec
-    /// §7.1.4 ToNumber via the one `__torajs_any_to_number` runtime
-    /// helper, then narrowed to `target` (F64 as-is, or I64 via the
-    /// existing F64→i64 ToInteger path). Single place for the
-    /// Any→number sink so Stmt::Return and Assign can't drift apart
-    /// (mirrors coerce_to_bool's `Type::Any => any_to_bool`
-    /// precedent). Caller guarantees `operand_ty(op) == Type::Any`
-    /// and `target` ∈ {I64, F64}.
-    pub(crate) fn coerce_any_to_number(&mut self, op: Operand, target: Type) -> Operand {
-        let num = Operand::Value(self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(self.intrinsics.any_to_number, vec![op]),
-            Type::F64,
-            None,
-        ));
-        if target == Type::F64 {
-            num
-        } else {
-            self.coerce_to_i64(num)
-        }
-    }
-
     /// Type-aware BinOp lowering. Decision rule:
     ///   - `/` always produces f64. Both operands coerced to f64. (Use `>>`
     ///     or explicit conversion for integer division — see collatz.tora.ts
