@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T04:34:05.763Z",
+  "generatedAt": "2026-07-02T04:51:04.493Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "6c8a9eaa",
-    "commitSubject": "refactor(torajs-core): extract emit_throw_check into ssa_lower_emit_throw_check sibling (chunk 393)",
+    "commit": "0eda83d8",
+    "commitSubject": "refactor(torajs-core): drop 3 for-of thin wrappers, inline callers direct into sibling fns (chunk 394)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "0eda83d8",
+      "subject": "refactor(torajs-core): drop 3 for-of thin wrappers, inline callers direct into sibling fns (chunk 394)"
+    },
+    {
+      "hash": "2bb90e29",
+      "subject": "chore(dashboard): chunk 393 snapshot @ 6c8a9eaa"
+    },
+    {
       "hash": "6c8a9eaa",
       "subject": "refactor(torajs-core): extract emit_throw_check into ssa_lower_emit_throw_check sibling (chunk 393)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "0f0d2b53",
       "subject": "refactor(torajs-core): extract str-byte helpers pair into ssa_lower_str_byte_helpers sibling (chunk 389)"
-    },
-    {
-      "hash": "11a5105a",
-      "subject": "chore(dashboard): chunk 388 snapshot @ 816cc51e"
-    },
-    {
-      "hash": "816cc51e",
-      "subject": "refactor(torajs-core): extract number-coerce pair into ssa_lower_number_coerce sibling (chunk 388)"
     }
   ],
-  "headSha": "6c8a9eaa",
+  "headSha": "0eda83d8",
   "autorun": {
     "total": 304,
     "baselineTarget": 10,
