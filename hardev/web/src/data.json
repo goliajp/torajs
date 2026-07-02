@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T06:31:59.878Z",
+  "generatedAt": "2026-07-02T06:42:01.858Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "09defd02",
-    "commitSubject": "refactor(torajs-core): fold lower_expr + drop lower_expr_inner wrapper into ssa_lower_expr_inner sibling (chunk 406)",
+    "commit": "840f316b",
+    "commitSubject": "refactor(torajs-core): extract Intrinsics FuncId table into carve-out sibling — ssa_lower.rs HARD 500 CLEAR (chunk 407)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "840f316b",
+      "subject": "refactor(torajs-core): extract Intrinsics FuncId table into carve-out sibling — ssa_lower.rs HARD 500 CLEAR (chunk 407)"
+    },
+    {
+      "hash": "16958cf8",
+      "subject": "chore(dashboard): chunk 406 snapshot @ HEAD"
+    },
+    {
       "hash": "09defd02",
       "subject": "refactor(torajs-core): fold lower_expr + drop lower_expr_inner wrapper into ssa_lower_expr_inner sibling (chunk 406)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "64f6daf1",
       "subject": "chore(dashboard): chunk 401 snapshot @ HEAD"
-    },
-    {
-      "hash": "ea2bcc48",
-      "subject": "refactor(torajs-core): extract lower_stmt into ssa_lower_stmt_dispatch sibling (chunk 401)"
-    },
-    {
-      "hash": "acc89559",
-      "subject": "chore(dashboard): chunk 400 snapshot @ HEAD"
     }
   ],
-  "headSha": "09defd02",
+  "headSha": "840f316b",
   "autorun": {
     "total": 305,
     "baselineTarget": 10,
