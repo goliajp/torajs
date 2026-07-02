@@ -553,6 +553,7 @@ pub(crate) mod ssa_lower_rewrite_inner_generics;
 pub(crate) mod ssa_lower_splice;
 pub(crate) mod ssa_lower_stmt_block;
 pub(crate) mod ssa_lower_stmt_break_continue;
+pub(crate) mod ssa_lower_stmt_dispatch;
 pub(crate) mod ssa_lower_stmt_do_while;
 pub(crate) mod ssa_lower_stmt_for;
 pub(crate) mod ssa_lower_stmt_for_of;
