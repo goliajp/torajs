@@ -758,35 +758,4 @@ impl<'a> LowerCtx<'a> {
 
     // (`coerce_to_bool` lives in `ssa_lower_logical.rs`.)
 
-    /// Phase H.3.b — set of runtime class tags that satisfy `instanceof
-    /// class_name`: `class_name` itself plus every transitively-extending
-    /// subclass. Empty if `class_name` isn't a declared class. Same
-    /// algorithm as instanceof's lower path, factored out so the
-    /// `__dispatch_<M>` interception can reuse it.
-    fn compute_descendant_tags(&self, class_name: &str) -> Vec<u32> {
-        let mut out: Vec<u32> = Vec::new();
-        if !self.ast.class_parents.contains_key(class_name) {
-            return out;
-        }
-        for c in self.ast.class_parents.keys() {
-            let mut cur = Some(c.clone());
-            let mut depth = 0u32;
-            while let Some(name) = cur {
-                if depth > 64 {
-                    break;
-                }
-                if name == *class_name {
-                    if let Some(tag) = self.class_name_to_tag.get(c) {
-                        out.push(*tag);
-                    }
-                    break;
-                }
-                cur = self.ast.class_parents.get(&name).and_then(|p| p.clone());
-                depth += 1;
-            }
-        }
-        out.sort();
-        out.dedup();
-        out
-    }
 }
