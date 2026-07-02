@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T01:00:02.689Z",
+  "generatedAt": "2026-07-02T02:17:01.154Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "33b82c50",
-    "commitSubject": "refactor(torajs-core): extract 3 lowering-strategy probes into ssa_lower_lowering_probes sibling (chunk 385)",
+    "commit": "d961f656",
+    "commitSubject": "refactor(torajs-core): extract lower_dynobj_init into ssa_lower_dynobj_init sibling (chunk 386)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "d961f656",
+      "subject": "refactor(torajs-core): extract lower_dynobj_init into ssa_lower_dynobj_init sibling (chunk 386)"
+    },
+    {
+      "hash": "3dcc81c1",
+      "subject": "chore(dashboard): chunks 380-385 snapshot @ 33b82c50"
+    },
+    {
       "hash": "33b82c50",
       "subject": "refactor(torajs-core): extract 3 lowering-strategy probes into ssa_lower_lowering_probes sibling (chunk 385)"
     },
@@ -655,35 +663,38 @@
     {
       "hash": "e0dcd56e",
       "subject": "refactor(torajs-core): extract 2 affine-consume helpers into ssa_lower_consume sibling (chunk 377)"
-    },
-    {
-      "hash": "cc8c18d6",
-      "subject": "refactor(torajs-core): extract 4 alloca helpers into ssa_lower_alloca sibling (chunk 376)"
-    },
-    {
-      "hash": "01516b72",
-      "subject": "refactor(torajs-core): extract coerce_to_str into ssa_lower_coerce_to_str sibling (chunk 375)"
     }
   ],
-  "headSha": "33b82c50",
+  "headSha": "d961f656",
   "autorun": {
-    "total": 302,
+    "total": 303,
     "baselineTarget": 10,
-    "bySelf": 297,
+    "bySelf": 298,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782947214-25ff",
-      "at": "2026-07-01T23:06:54Z",
-      "ts": 1782947214,
+      "rotationId": "r-1782954090-5aa7",
+      "at": "2026-07-02T01:01:30Z",
+      "ts": 1782954090,
       "trigger": "self",
-      "prevHead": "0ccc8db7",
-      "handoffSha": "sha256:129c46d2d8080deed5e21c894dc69557fdac0d0b6fedd41c3f94c7e60bd587ea",
+      "prevHead": "3dcc81c1",
+      "handoffSha": "sha256:5dc5e761c332c92671d93f379815969fedab679ffe9ac5d4e9faa7058de22bac",
       "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782954090-5aa7",
+        "at": "2026-07-02T01:01:30Z",
+        "ts": 1782954090,
+        "trigger": "self",
+        "prevHead": "3dcc81c1",
+        "handoffSha": "sha256:5dc5e761c332c92671d93f379815969fedab679ffe9ac5d4e9faa7058de22bac",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782947214-25ff",
         "at": "2026-07-01T23:06:54Z",
@@ -780,17 +791,6 @@
         "prevHead": "cf4048d3",
         "handoffSha": "sha256:e5e849534a691497dd40d01723f4863226f0622cb761283b585f6cb28959b148",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782847166-4fbf",
-        "at": "2026-06-30T19:19:26Z",
-        "ts": 1782847166,
-        "trigger": "self",
-        "prevHead": "35d3fc1e",
-        "handoffSha": "sha256:ca79810cb8953766acd46ca4d2fe40cdf2f3b754c9c3028477ac4a8dccdf05c3",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
