@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T06:02:45.084Z",
+  "generatedAt": "2026-07-02T06:08:11.909Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "ea2bcc48",
-    "commitSubject": "refactor(torajs-core): extract lower_stmt into ssa_lower_stmt_dispatch sibling (chunk 401)",
+    "commit": "d5eac0a2",
+    "commitSubject": "refactor(torajs-core): pack 3 ctx-state query helpers + clean 4 unused imports (chunk 402)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "d5eac0a2",
+      "subject": "refactor(torajs-core): pack 3 ctx-state query helpers + clean 4 unused imports (chunk 402)"
+    },
+    {
+      "hash": "64f6daf1",
+      "subject": "chore(dashboard): chunk 401 snapshot @ HEAD"
+    },
+    {
       "hash": "ea2bcc48",
       "subject": "refactor(torajs-core): extract lower_stmt into ssa_lower_stmt_dispatch sibling (chunk 401)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "36676eb8",
       "subject": "chore(dashboard): chunk 396 snapshot @ 7bb24f1d"
-    },
-    {
-      "hash": "7bb24f1d",
-      "subject": "refactor(torajs-core): extract 2 free-fn helpers into ssa_lower_free_helpers sibling (chunk 396)"
-    },
-    {
-      "hash": "96862e87",
-      "subject": "chore(dashboard): chunk 395 snapshot @ e59d1a0d"
     }
   ],
-  "headSha": "ea2bcc48",
+  "headSha": "d5eac0a2",
   "autorun": {
     "total": 305,
     "baselineTarget": 10,
