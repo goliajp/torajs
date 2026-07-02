@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T06:25:58.427Z",
+  "generatedAt": "2026-07-02T06:31:59.878Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "4cb8017f",
-    "commitSubject": "refactor(torajs-core): drop dead is_console_log_member + inline lower_json_stringify wrapper (chunk 405)",
+    "commit": "09defd02",
+    "commitSubject": "refactor(torajs-core): fold lower_expr + drop lower_expr_inner wrapper into ssa_lower_expr_inner sibling (chunk 406)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "09defd02",
+      "subject": "refactor(torajs-core): fold lower_expr + drop lower_expr_inner wrapper into ssa_lower_expr_inner sibling (chunk 406)"
+    },
+    {
+      "hash": "e9580800",
+      "subject": "chore(dashboard): chunk 405 snapshot @ HEAD"
+    },
+    {
       "hash": "4cb8017f",
       "subject": "refactor(torajs-core): drop dead is_console_log_member + inline lower_json_stringify wrapper (chunk 405)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "acc89559",
       "subject": "chore(dashboard): chunk 400 snapshot @ HEAD"
-    },
-    {
-      "hash": "667566b5",
-      "subject": "refactor(torajs-core): extract lower_top_stmt into ssa_lower_top_stmt sibling (chunk 400)"
-    },
-    {
-      "hash": "b6bac420",
-      "subject": "chore(dashboard): chunk 399 snapshot @ HEAD"
     }
   ],
-  "headSha": "4cb8017f",
+  "headSha": "09defd02",
   "autorun": {
     "total": 305,
     "baselineTarget": 10,
