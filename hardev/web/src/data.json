@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T05:55:28.166Z",
+  "generatedAt": "2026-07-02T06:02:45.084Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "667566b5",
-    "commitSubject": "refactor(torajs-core): extract lower_top_stmt into ssa_lower_top_stmt sibling (chunk 400)",
+    "commit": "ea2bcc48",
+    "commitSubject": "refactor(torajs-core): extract lower_stmt into ssa_lower_stmt_dispatch sibling (chunk 401)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "ea2bcc48",
+      "subject": "refactor(torajs-core): extract lower_stmt into ssa_lower_stmt_dispatch sibling (chunk 401)"
+    },
+    {
+      "hash": "acc89559",
+      "subject": "chore(dashboard): chunk 400 snapshot @ HEAD"
+    },
+    {
       "hash": "667566b5",
       "subject": "refactor(torajs-core): extract lower_top_stmt into ssa_lower_top_stmt sibling (chunk 400)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "96862e87",
       "subject": "chore(dashboard): chunk 395 snapshot @ e59d1a0d"
-    },
-    {
-      "hash": "e59d1a0d",
-      "subject": "refactor(torajs-core): extract 2 module-level type interners into ssa_lower_interners sibling (chunk 395)"
-    },
-    {
-      "hash": "3098df97",
-      "subject": "chore(dashboard): chunk 394 snapshot @ 0eda83d8"
     }
   ],
-  "headSha": "667566b5",
+  "headSha": "ea2bcc48",
   "autorun": {
     "total": 305,
     "baselineTarget": 10,
