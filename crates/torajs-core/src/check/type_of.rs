@@ -1,0 +1,252 @@
+//! `Checker::type_of` expression-typing cluster (chunk 427).
+//!
+//! Extracted verbatim from check.rs:
+//! - type_of — LSP-caching outer wrapper (records every inferred
+//!   type into `expr_types` for hover queries)
+//! - type_of_inner — the per-Expr dispatch match; most arms are
+//!   thin delegates into `check_type_of_*` sibling modules
+//! - member_type — field/method lookup on an object type, shared
+//!   by the Member and OptChain arms
+//!
+//! Bodies unchanged.
+
+use super::*;
+
+impl Checker {
+    /// v0.3 #5 LSP — outer wrapper that records every successful
+    /// type-of result into `expr_types` so the LSP hover handler
+    /// can answer position queries without re-running the typecheck
+    /// pipeline. Recursive calls hit this same wrapper, so deeply
+    /// nested Exprs all get their inferred type cached.
+    pub(crate) fn type_of(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
+        let result = self.type_of_inner(ast, eid);
+        if let Ok(t) = &result {
+            self.expr_types.insert(eid, t.clone());
+        }
+        result
+    }
+
+    fn type_of_inner(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
+        match ast.get_expr(eid) {
+            // P4.5 — `new.target` is Type::Any. Inside a ctor body
+            // desugar_classes rewrites to Ident("__new_target") which
+            // typechecks against the synthesized param's type. Outside
+            // ctors the bare NewTarget reaches here and resolves to
+            // Any (spec §13.3.10 says `undefined` outside ctor;
+            // tagged ANY_UNDEF at the SSA layer).
+            Expr::NewTarget => Ok(Type::Any),
+            Expr::String(_) => Ok(Type::String),
+            Expr::Number(_) => Ok(Type::Number),
+            Expr::BigInt { .. } => Ok(Type::BigInt),
+            Expr::Bool(_) => Ok(Type::Boolean),
+            Expr::Null => Ok(Type::Null),
+            // P1.3 — `let x;` (no init) gives x the value `undefined`
+            // per ES spec §8.1 / §14.3.2. Pre-P1 tora returned
+            // Type::Null (collapsed with undefined at the runtime).
+            // Now Type::Undefined first-class: typeof an uninit
+            // binding correctly returns "undefined" and strict-eq
+            // distinguishes from null. Still resolved by
+            // `desugar_uninit_let` to the first follow-up assignment's
+            // RHS when one exists; the Type::Undefined fallback only
+            // fires for genuinely uninit slots.
+            Expr::Uninit => Ok(Type::Undefined),
+            // Regex literal `/pat/flags` — produces a `Type::RegExp`.
+            // Pattern + flags are validated at runtime in
+            // `__torajs_regex_compile` (allocates the NFA + flag bits);
+            // the typechecker only confirms the literal is well-shaped.
+            // Method dispatch (`.test`, `.exec`, ...) is resolved
+            // through the Member arm against `Type::RegExp`.
+            Expr::Regex {
+                pattern: _,
+                flags: _,
+            } => Ok(Type::RegExp),
+            Expr::Ident(name) => {
+                // Resolution order: local binding → module global →
+                // built-in namespace (console/Math/Object/Array/...) →
+                // synthesized intrinsic fn (__torajs_*) → manual GC /
+                // distinguished literal (undefined / NaN / Infinity) →
+                // unknown identifier error. See
+                // [`crate::check_type_of_ident::check`].
+                crate::check_type_of_ident::check(self, name)
+            }
+            Expr::Member { obj, name } => crate::check_type_of_member::check(self, ast, obj, name),
+            Expr::Index { obj, index } => {
+                // V3-18 index-expression — `obj[index]` Number-index
+                // narrow + String/Array<T> receiver narrow. See
+                // [`crate::check_type_of_index::check`].
+                crate::check_type_of_index::check(self, ast, *obj, *index)
+            }
+            Expr::Array(elements) => {
+                // T-10.c / P0.10 / S134 / S141 — array literal
+                // typecheck (empty default Array<Any>; per-element
+                // value type incl. spread sources Array<T>/String/Set;
+                // anchor + heterogeneous → Array<Any> widen). See
+                // [`crate::check_type_of_array::check`].
+                crate::check_type_of_array::check(self, ast, elements)
+            }
+            Expr::Spread { .. } => Err("spread `...` is only valid inside an array literal".into()),
+            Expr::ObjectLit { fields } => {
+                // ObjectLit type-build: spread member sentinel
+                // `__spread__` unfolds source struct fields;
+                // inline members win on key collision; final
+                // type is freshly-merged Type::Struct. See
+                // [`crate::check_type_of_object_lit::check`].
+                crate::check_type_of_object_lit::check(self, ast, fields)
+            }
+            Expr::Call { callee, args } => {
+                crate::check_type_of_call::check(self, ast, eid, callee, args)
+            }
+            Expr::BinOp { op, left, right } => {
+                // 8 op-family per-shape rules (Add /
+                // Sub-Mul-Div-Mod / Pow / Bitwise / UShr /
+                // Lt-Gt-Le-Ge / Eq-Neq-LooseEq-LooseNeq /
+                // LAnd-LOr). See
+                // [`crate::check_type_of_binop::check`].
+                crate::check_type_of_binop::check(self, ast, *op, *left, *right)
+            }
+            Expr::Unary { op, expr } => {
+                // V3-18 m1.h.2 / m1.f / m1.h.4 / V3-02 — `!` / `-`
+                // / `+` / `~` per-op type rules (ToBoolean for `!`;
+                // ToNumber/Int32 for the rest; BigInt special-cases;
+                // Any → Any). See
+                // [`crate::check_type_of_unary::check`].
+                crate::check_type_of_unary::check(self, ast, *op, *expr)
+            }
+            Expr::Assign { target, value } => {
+                // Target-shape dispatch (Ident / Member / Index /
+                // invalid). See
+                // [`crate::check_type_of_assign::check`].
+                crate::check_type_of_assign::check(self, ast, *target, *value)
+            }
+            Expr::ArrowFn {
+                params,
+                return_type,
+                body,
+            } => {
+                // Non-capturing arrow (lift_arrow_fns survivor). See
+                // [`crate::check_type_of_fn::check_arrow_fn`].
+                crate::check_type_of_fn::check_arrow_fn(self, ast, params, return_type, body)
+            }
+            Expr::Closure { fn_name, captures } => {
+                // Lifted FnDecl with capture types resolved in outer
+                // scope + lazy body walk. See
+                // [`crate::check_type_of_fn::check_closure`].
+                crate::check_type_of_fn::check_closure(self, ast, fn_name, captures)
+            }
+            // M5.1 — desugar_classes flattens these out before check runs.
+            // Reaching here is an internal compiler error, not a user error.
+            Expr::This => panic!("internal: bare `this` reached check.rs (desugar didn't run?)"),
+            Expr::New { class_name, args } => {
+                // 7 built-in classes (WeakRef / WeakMap / WeakSet /
+                // Map / Set / Array / RegExp) with their constructor
+                // arg shape rules — user classes are pre-rewritten
+                // to `__new_<C>(…)` Call by `desugar_classes`. See
+                // [`crate::check_type_of_new::try_check`].
+                if let Some(r) = crate::check_type_of_new::try_check(self, ast, class_name, args) {
+                    return r;
+                }
+                panic!("internal: `new {class_name}` reached check.rs (desugar didn't run?)")
+            }
+            Expr::Super { .. } => {
+                panic!("internal: `super(...)` reached check.rs (desugar didn't run?)")
+            }
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                // V3-18 ternary-narrow wedge + Nullable<T>
+                // branch widen. See
+                // [`crate::check_type_of_ternary::check`].
+                crate::check_type_of_ternary::check(self, ast, *cond, *then_branch, *else_branch)
+            }
+            Expr::TypeOf { expr } => {
+                // V3-18 m1.h.3 / m1.h.20 — `typeof expr` → String
+                // with known-builtin Ident / namespace-member short-
+                // circuit. See
+                // [`crate::check_type_of_misc::check_typeof`].
+                crate::check_type_of_misc::check_typeof(self, ast, *expr)
+            }
+            Expr::InstanceOf { expr, .. } => {
+                // `x instanceof C` → Boolean. See
+                // [`crate::check_type_of_misc::check_instanceof`].
+                crate::check_type_of_misc::check_instanceof(self, ast, *expr)
+            }
+            Expr::Nullish { lhs, rhs } => {
+                // `lhs ?? rhs` — Nullable/Null/Undef/Any lhs +
+                // rhs T or Nullable<T>; non-nullable lhs → lhs
+                // type. See
+                // [`crate::check_type_of_misc::check_nullish`].
+                crate::check_type_of_misc::check_nullish(self, ast, *lhs, *rhs)
+            }
+            Expr::OptChain { obj, name } => {
+                // P3.5 — `obj?.field` returns Type::Any per ES
+                // §13.3.9 (Nullable/Null/Undefined/Any obj); plain
+                // obj → concrete member type. See
+                // [`crate::check_type_of_misc::check_opt_chain`].
+                crate::check_type_of_misc::check_opt_chain(self, ast, *obj, name)
+            }
+            Expr::PostIncr { target, .. } => {
+                // `x++` / `x--` — Number target → Number result.
+                // See [`crate::check_type_of_misc::check_post_incr`].
+                crate::check_type_of_misc::check_post_incr(self, ast, *target)
+            }
+            // V3-18 m1.h.6 — comma operator `(a, b)` evaluates left
+            // (side effects, value discarded) then right; result type
+            // = right's type. Both sub-expressions still type-checked.
+            Expr::Sequence { left, right } => {
+                // V3-18 m1.h.6 — comma operator. See
+                // [`crate::check_type_of_misc::check_sequence`].
+                crate::check_type_of_misc::check_sequence(self, ast, *left, *right)
+            }
+            // V3-07 — `expr as T` TS type assertion. Typecheck the
+            // inner expression for side effects (so it still
+            // participates in move tracking + sub-expression validation),
+            // then return the asserted target type. Spec-strict TS
+            // narrows assertion compatibility (`x as Foo` requires
+            // either side to be assignable to the other); we accept
+            // unconditionally for now — matches `as any` widening +
+            // the common downcast pattern. Full bidirectional
+            // assignability check lands when test262 surfaces a case
+            // that requires it.
+            Expr::As { expr, ty_ann } => {
+                // V3-07 / V3-18 — TS type assertion + non-null
+                // assertion (`x!` encoded ty_ann = "__nonnull__").
+                // See [`crate::check_type_of_misc::check_as`].
+                crate::check_type_of_misc::check_as(self, ast, *expr, ty_ann)
+            }
+        }
+    }
+
+    /// Look up `name` on `obj_ty` and return the field/method type.
+    /// Pulled out so OptChain can reuse Member's resolution logic
+    /// without re-implementing the alias / array / class / Math /
+    /// console branches.
+    pub(crate) fn member_type(&mut self, obj_ty: &Type, name: &str) -> Result<Type, String> {
+        match (obj_ty, name) {
+            (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
+            /* v0.3 #3 — process.platform constant string read. */
+            (Type::Object("process"), "platform") => Ok(Type::String),
+            (Type::Object("process"), "argv") | (Type::Object("Bun"), "argv") => {
+                Ok(Type::Array(Box::new(Type::String)))
+            }
+            /* `process.env` — returns the env namespace, used as
+             * the receiver for further `process.env.NAME` access. */
+            (Type::Object("process"), "env") => Ok(Type::Object("env")),
+            /* `process.env.NAME` — runtime getenv, Nullable<String>. */
+            (Type::Object("env"), _name) => Ok(Type::Nullable(Box::new(Type::String))),
+            /* T-03 (v0.3.0) — process.{stdout, stderr, stdin} expose
+             * their own Object so `.write` / `.read` resolve at the
+             * Call type-check arm (see member-Call dispatch above). */
+            (Type::Object("process"), "stdout") => Ok(Type::Object("process_stdout")),
+            (Type::Object("process"), "stderr") => Ok(Type::Object("process_stderr")),
+            (Type::Object("process"), "stdin") => Ok(Type::Object("process_stdin")),
+            (Type::Struct(fields), n) => fields
+                .iter()
+                .find(|(fn_, _)| fn_ == n)
+                .map(|(_, t)| t.clone())
+                .ok_or_else(|| format!("no field `{n}` on struct {obj_ty:?}")),
+            (other, _) => Err(format!("no field `{name}` accessible on type {other:?}")),
+        }
+    }
+}
