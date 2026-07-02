@@ -1,0 +1,378 @@
+//! TypeScript type-annotation parsing (chunk 409).
+//!
+//! Extracted verbatim from parser.rs:
+//! parse_type_ann — top-level type reader (idents, arrays, generics,
+//!   inline object literals, string/number/boolean literal types,
+//!   `readonly`, `T | null`, `this` polymorphic type, and `is T`
+//!   type predicate return);
+//! parse_fn_type_ann — the `(params) => Ret` fn-type shape,
+//!   delegated to when parse_type_ann sees a `(`.
+//!
+//! Both methods `pub(super)` for cross-module impl-block access from
+//! parser.rs main file and other parser/*.rs siblings (parse_postfix,
+//! parse_stmt, parse_class_decl, try_parse_for_of, object_member,
+//! parse_class_member_method, parse_class_member_field). Body
+//! unchanged.
+
+use super::*;
+
+impl<'a> Parser<'a> {
+    pub(super) fn parse_type_ann(&mut self) -> Result<String, String> {
+        // V3-18 wedge — TS type-predicate return type:
+        //   function isT(v: any): v is T { ... }
+        // Per TS spec §3.6.5 the return type is `boolean` at the
+        // value level; the `is T` half is a flow-narrowing hint
+        // for callers. The subset accepts and discards the
+        // predicate (no flow narrowing) — typecheck sees the
+        // function's return as `boolean`. Matched only when the
+        // shape is `<paramName> is <Type>`.
+        if let Token::Ident(_) = self.peek()
+            && let Some(Token::Ident(maybe_is)) = self.tokens.get(self.pos + 1).map(|s| &s.token)
+            && maybe_is == "is"
+        {
+            self.pos += 2; // consume <param> + "is"
+            let _ = self.parse_type_ann()?; // consume the asserted type
+            return Ok("boolean".to_string());
+        }
+        // V3-18 wedge — `readonly T[]` modifier on array-of types.
+        // Per TS spec §3.10.2 the modifier is type-side and has no
+        // runtime effect; the subset treats it as an identity skip.
+        // Common in fn-param positions like `xs: readonly number[]`.
+        if let Token::Ident(s) = self.peek() {
+            if s == "readonly" {
+                let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
+                if matches!(
+                    next,
+                    Some(Token::Ident(_))
+                        | Some(Token::Void)
+                        | Some(Token::LBrace)
+                        | Some(Token::LParen)
+                ) {
+                    self.pos += 1;
+                }
+            }
+        }
+        // Function type: `(p: T, ...) => R`.
+        if matches!(self.peek(), Token::LParen) {
+            return self.parse_fn_type_ann();
+        }
+        // V3-18 P2.4.c.2 — inline object type literal `{ x: T; y: U }`.
+        // Encoded as `__inlobj(x:T|y:U)` for downstream check.rs to
+        // decode into a Type::Struct. Same encoding scheme as `__fn(...)`.
+        if matches!(self.peek(), Token::LBrace) {
+            self.pos += 1;
+            let mut fields: Vec<String> = Vec::new();
+            if !matches!(self.peek(), Token::RBrace) {
+                loop {
+                    // V3-18 wedge — `readonly` modifier on an inline-obj
+                    // field. Type-side only; subset accepts and discards.
+                    if let Token::Ident(s) = self.peek()
+                        && s == "readonly"
+                        && let Some(next) = self.tokens.get(self.pos + 1)
+                        && matches!(next.token, Token::Ident(_))
+                    {
+                        self.pos += 1;
+                    }
+                    let fname = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => {
+                            return Err(format!(
+                                "expected field name in inline obj type, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    };
+                    self.pos += 1;
+                    // V3-18 wedge — optional field `field?: T`. TS spec
+                    // §3.9: makes the property absence-tolerant. Subset
+                    // models it as `T | null` (we don't have a separate
+                    // Type::Undefined for property absence yet).
+                    let optional = matches!(self.peek(), Token::Question);
+                    if optional {
+                        self.pos += 1;
+                    }
+                    match self.peek() {
+                        Token::Colon => self.pos += 1,
+                        t => {
+                            return Err(format!(
+                                "expected `:` after inline obj field name, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    let fty_raw = self.parse_type_ann()?;
+                    let fty = if optional && !fty_raw.starts_with("__nullable(") {
+                        format!("__nullable({fty_raw})")
+                    } else {
+                        fty_raw
+                    };
+                    fields.push(format!("{fname}:{fty}"));
+                    match self.peek() {
+                        Token::Comma | Token::Semi => self.pos += 1,
+                        Token::RBrace => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` `;` or `}}` in inline obj type, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    if matches!(self.peek(), Token::RBrace) {
+                        break;
+                    }
+                }
+            }
+            match self.peek() {
+                Token::RBrace => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `}}` to end inline obj type, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            let mut name = format!("__inlobj({})", fields.join("|"));
+            // V3-18 wedge — `{ ... } | null` shape. Mirror the
+            // post-Ident pipe handler below for the inline-obj case.
+            while matches!(self.peek(), Token::LBracket)
+                && matches!(
+                    self.tokens.get(self.pos + 1).map(|s| &s.token),
+                    Some(Token::RBracket)
+                )
+            {
+                self.pos += 2;
+                name.push_str("[]");
+            }
+            if matches!(self.peek(), Token::Pipe) {
+                self.pos += 1;
+                if matches!(self.peek(), Token::Null) {
+                    self.pos += 1;
+                    name = format!("__nullable({name})");
+                } else {
+                    return Err(format!(
+                        "only `T | null` unions are supported (no other unions yet); got {:?} at {}",
+                        self.peek(),
+                        self.at()
+                    ));
+                }
+            }
+            return Ok(name);
+        }
+        // V3-18 wedge — string-literal type-ann (`type Mode =
+        // "dev" | "prod"`). Per TS spec §3.2.10 a string literal
+        // is a type that has only that literal as its value. The
+        // subset widens to plain `string` and consumes any
+        // following `| "..."` chain (treating them as further
+        // string-literal alternatives that all collapse to the
+        // same `string`).
+        if let Token::String(_) = self.peek() {
+            self.pos += 1;
+            while matches!(self.peek(), Token::Pipe)
+                && matches!(
+                    self.tokens.get(self.pos + 1).map(|s| &s.token),
+                    Some(Token::String(_))
+                )
+            {
+                self.pos += 2;
+            }
+            return Ok("string".to_string());
+        }
+        // V3-18 wedge — number-literal type-ann (`type Bit =
+        // 0 | 1`). Same widening to plain `number`.
+        if let Token::Number(_) = self.peek() {
+            self.pos += 1;
+            while matches!(self.peek(), Token::Pipe)
+                && matches!(
+                    self.tokens.get(self.pos + 1).map(|s| &s.token),
+                    Some(Token::Number(_))
+                )
+            {
+                self.pos += 2;
+            }
+            return Ok("number".to_string());
+        }
+        // V3-18 wedge — boolean-literal type-ann (`type Always =
+        // true`). Same widening to plain `boolean`.
+        if matches!(self.peek(), Token::True | Token::False) {
+            self.pos += 1;
+            while matches!(self.peek(), Token::Pipe)
+                && matches!(
+                    self.tokens.get(self.pos + 1).map(|s| &s.token),
+                    Some(Token::True) | Some(Token::False)
+                )
+            {
+                self.pos += 2;
+            }
+            return Ok("boolean".to_string());
+        }
+        let mut name = match self.peek() {
+            Token::Ident(n) => n.clone(),
+            // V3-18 m1.h.30 — `void` was promoted to a keyword for
+            // the unary operator path, but it's also the canonical
+            // return type for void-returning fns: `: void`. Accept
+            // it here so type annotations still resolve.
+            Token::Void => "void".to_string(),
+            // V3-18 wedge — `this` as a type annotation (TS
+            // polymorphic-this, spec §3.6.3). Standard in fluent
+            // builder APIs:
+            //   class Builder { add(...): this { return this } }
+            // Parsed as the literal token "this"; desugar_classes
+            // rewrites occurrences in a method's return type to
+            // the enclosing class's this_ann (cname or
+            // cname<TParams>) before emit. Outside class methods
+            // the placeholder leaks through to typecheck and fails
+            // there — TS only allows `this` types inside class
+            // bodies anyway, so this matches the spec.
+            Token::This => "this".to_string(),
+            t => {
+                return Err(format!("expected type name, got {t:?} at {}", self.at()));
+            }
+        };
+        self.pos += 1;
+        // M3.4 — generic type instantiation `Pair<A, B>`. Encoded into the
+        // flat ann string as `Pair<A|B>` (inner `|` mirrors the `__fn(P|Q)`
+        // separator). Same depth-aware decoding shape, so check.rs and
+        // ssa_lower can share parsers with the existing fn-type reader.
+        if matches!(self.peek(), Token::Lt) {
+            self.pos += 1;
+            let mut args: Vec<String> = Vec::new();
+            if !matches!(self.peek(), Token::Gt) {
+                loop {
+                    args.push(self.parse_type_ann()?);
+                    // S155 — ShrShr/ShrShrShr at the close position
+                    // signals a nested-generic `>>` / `>>>`; treat it
+                    // as a close marker so the outer close arm can peel
+                    // the next virtual `>`.
+                    match self.peek() {
+                        Token::Comma => self.pos += 1,
+                        Token::Gt => break,
+                        _ if matches!(
+                            &self.tokens[self.pos].token,
+                            Token::ShrShr | Token::ShrShrShr
+                        ) =>
+                        {
+                            break;
+                        }
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `>` in type args, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
+            }
+            // S155 — close consumes one virtual `>`. If we're inside
+            // `Foo<Bar<X>>` the real token is ShrShr; peel it once and
+            // advance pos when fully consumed (peel == 2 for ShrShr,
+            // peel == 3 for ShrShrShr).
+            match &self.tokens[self.pos].token {
+                Token::Gt => {
+                    self.pos += 1;
+                    self.type_close_peel = 0;
+                }
+                Token::ShrShr => {
+                    self.type_close_peel += 1;
+                    if self.type_close_peel >= 2 {
+                        self.pos += 1;
+                        self.type_close_peel = 0;
+                    }
+                }
+                Token::ShrShrShr => {
+                    self.type_close_peel += 1;
+                    if self.type_close_peel >= 3 {
+                        self.pos += 1;
+                        self.type_close_peel = 0;
+                    }
+                }
+                _ => {
+                    return Err(format!(
+                        "expected `>` to close type args, got {:?} at {}",
+                        self.peek(),
+                        self.at()
+                    ));
+                }
+            }
+            name = format!("{name}<{}>", args.join("|"));
+        }
+        while matches!(self.peek(), Token::LBracket) {
+            self.pos += 1;
+            match self.peek() {
+                Token::RBracket => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `]` in array type, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            name.push_str("[]");
+        }
+        // Trailing `| null` → wrap in a `__nullable(T)` marker. Parser
+        // doesn't try to be a full TS union solver — only the
+        // single-side-null case is supported in this subset.
+        if matches!(self.peek(), Token::Pipe) {
+            self.pos += 1;
+            if matches!(self.peek(), Token::Null) {
+                self.pos += 1;
+                name = format!("__nullable({name})");
+            } else {
+                return Err(format!(
+                    "only `T | null` unions are supported (no other unions yet); got {:?} at {}",
+                    self.peek(),
+                    self.at()
+                ));
+            }
+        }
+        Ok(name)
+    }
+
+    pub(super) fn parse_fn_type_ann(&mut self) -> Result<String, String> {
+        // current token = `(`
+        self.pos += 1;
+        let mut params: Vec<String> = Vec::new();
+        if !matches!(self.peek(), Token::RParen) {
+            loop {
+                // Optional `name:` prefix on each param. Name is discarded;
+                // we keep only the type. Two shapes accepted:
+                //   `name: T` — TS standard fn-type form.
+                //   `T`       — bare type, no name (fallback).
+                let name_then_colon = matches!(self.peek(), Token::Ident(_))
+                    && matches!(
+                        self.tokens.get(self.pos + 1).map(|s| &s.token),
+                        Some(Token::Colon)
+                    );
+                if name_then_colon {
+                    self.pos += 2;
+                }
+                let pty = self.parse_type_ann()?;
+                params.push(pty);
+                match self.peek() {
+                    Token::Comma => self.pos += 1,
+                    Token::RParen => break,
+                    t => {
+                        return Err(format!(
+                            "expected `,` or `)` in fn-type params, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+            }
+        }
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+        }
+        match self.peek() {
+            Token::FatArrow => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `=>` in fn-type, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let ret = self.parse_type_ann()?;
+        Ok(format!("__fn({})->{}", params.join("|"), ret))
+    }
+}
