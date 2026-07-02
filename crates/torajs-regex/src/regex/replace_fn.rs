@@ -85,7 +85,7 @@ unsafe fn replace_fn_inner(
             // routes through `str_slice` (transcodes to owned bytes),
             // so the ASCII-view shortcut isn't on this path. Pass
             // `false`; semantics preserved.
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false, true)
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);

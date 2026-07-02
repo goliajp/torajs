@@ -224,7 +224,7 @@ pub fn search_from(
     // Hot-loop callers route through `search_from_with_ws` and pass `true`
     // when they've already established the haystack is ASCII via
     // `str_slice_ascii_view`.
-    search_from_with_ws(prog, s, from_pos, flags, &mut ws, dfa_cached, false)
+    search_from_with_ws(prog, s, from_pos, flags, &mut ws, dfa_cached, false, true)
 }
 
 /// Tight-loop variant of [`search_from`]: caller owns the workspace
@@ -238,6 +238,15 @@ pub fn search_from(
 /// short-circuits, saving ~12 ns/iter on ASCII-only haystacks under
 /// `RE_FLAG_U`. `false` keeps the original per-iter check (safe for
 /// non-ASCII / unknown haystacks).
+///
+/// `want_saves` (Round 5 attack str-replace #1) — caller asserts it
+/// will actually read `MatchResult::saves()`. When `false` on a
+/// program WITH `Op::Save`, the DFA hit returns `no_saves` directly,
+/// skipping the 512-byte `[i64; 64]` init AND the second-pass Pike VM
+/// capture extraction (~150 ns/hit) — the JSC-parity dollarless
+/// `replace` fast path. Callers that consume captures (exec /
+/// matchAll / split / replace-with-`$` / fn-replace) pass `true`.
+#[allow(clippy::too_many_arguments)]
 pub fn search_from_with_ws(
     prog: &Program,
     s: &[u8],
@@ -246,6 +255,7 @@ pub fn search_from_with_ws(
     ws: &mut Workspace,
     dfa_cached: Option<&crate::dfa::DfaProgram>,
     haystack_is_ascii: bool,
+    want_saves: bool,
 ) -> Option<MatchResult> {
     let slen = s.len() as i64;
     let mut st = from_pos;
@@ -410,7 +420,7 @@ pub fn search_from_with_ws(
                 // the per-iter `[-1i64; REGEX_SAVE_SLOTS]` stack init
                 // entirely; the `EMPTY_SAVES` const ref is materialised
                 // only when a caller actually calls `m.saves()`.
-                if !prog_has_save(prog) {
+                if !prog_has_save(prog) || !want_saves {
                     return Some(MatchResult::no_saves(st, end));
                 }
                 let mut saves = [-1i64; REGEX_SAVE_SLOTS];
@@ -435,7 +445,7 @@ pub fn search_from_with_ws(
         // `end` boundary (no DFA to give us one), but skip the slot
         // array entirely — `MatchResult::no_saves` carries the
         // `EMPTY_SAVES` sentinel.
-        if !prog_has_save(prog) {
+        if !prog_has_save(prog) || !want_saves {
             let end = match_at::vm_match_at(prog, s, st, flags, ws, None, -1);
             if end >= 0 {
                 return Some(MatchResult::no_saves(st, end));

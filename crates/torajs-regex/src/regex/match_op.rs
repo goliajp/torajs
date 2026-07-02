@@ -268,6 +268,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
                 ws_ref,
                 dfa_ref,
                 haystack_is_ascii,
+                true,
             )
         };
         let Some(m) = hit else { break };

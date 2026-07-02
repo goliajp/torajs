@@ -169,6 +169,7 @@ pub unsafe extern "C" fn __torajs_regex_compile(
         last_index: 0,
         // V0.2 P14-S8 — lazy-init Pike VM workspace cache.
         workspace_cache: core::cell::UnsafeCell::new(None),
+        replace_out_cache: core::cell::UnsafeCell::new(alloc::vec::Vec::new()),
         // V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-2 — runtime
         // compile path: no AOT-baked DFA. Set non-`None` only by
         // [`super::compile_aot::__torajs_regex_compile_from_static_dfa`]

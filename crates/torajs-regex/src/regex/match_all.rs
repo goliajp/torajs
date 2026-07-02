@@ -71,7 +71,7 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
             // freshly-allocated Vec<u8>), so the ASCII-view shortcut
             // isn't on this path. Pass `false`; the u-flag
             // continuation-byte gate stays correct for any haystack.
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false, true)
         };
         let Some(m) = hit else { break };
         outer = unsafe { append_inner(outer, re, &s, m.saves(), m.start, m.end) };

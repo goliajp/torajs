@@ -50,7 +50,7 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
             // Round 3 Phase B attack #R-A1 — split currently routes
             // through `str_slice` (transcodes to owned bytes), so the
             // ASCII-view shortcut isn't on this path. Pass `false`.
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false, true)
         };
         let Some(m) = m else { break };
         if m.end == m.start {

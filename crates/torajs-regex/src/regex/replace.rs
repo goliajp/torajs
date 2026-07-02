@@ -9,7 +9,10 @@
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
-use super::{RegExp, abort_unsupported, as_regex, str_from_bytes, str_slice};
+use super::{
+    RegExp, abort_unsupported, as_regex, str_from_bytes, str_from_bytes_ascii, str_slice,
+    str_slice_ascii_view,
+};
 use crate::node::{REGEX_MAX_CAPTURES, REGEX_SAVE_SLOTS};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{Workspace, match_anchor, search_from_with_ws};
@@ -79,7 +82,13 @@ pub fn expand_repl(
     }
 }
 
-fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
+fn replace_inner<'a>(
+    re: &'a RegExp,
+    s: &[u8],
+    repl: &[u8],
+    global: bool,
+    haystack_is_ascii: bool,
+) -> &'a [u8] {
     let slen = s.len() as i64;
     // V0.2 P14-S8 — reuse the per-RegExp cached Pike VM
     // workspace. The Pike VM's `step_id` counter increments
@@ -92,9 +101,21 @@ fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
     let ws = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
     ws.cur.list.clear();
     ws.nxt.list.clear();
-    let mut out: Vec<u8> = Vec::with_capacity(s.len() + 16);
+    // Round 5 attack str-replace #3 — reuse the per-RegExp output
+    // buffer (alloc/free once per RegExp instead of per call). Same
+    // single-threaded interior-mutability contract as
+    // `workspace_cache` above; the borrow ends when the returned
+    // slice is consumed by `str_from_bytes` in the extern wrapper.
+    let out: &mut Vec<u8> = unsafe { &mut *re.replace_out_cache.get() };
+    out.clear();
+    out.reserve(s.len() + 16);
     let mut pos: i64 = 0;
     let sticky = re.flags & RE_FLAG_Y != 0;
+    // Round 5 attack str-replace #1 (JSC `substituteBackreferences`
+    // dollarless parity) — a replacement with no `$` provably never
+    // reads captures, so the search can skip the 512-byte saves init
+    // + the second-pass Pike VM capture extraction per hit.
+    let want_saves = repl.contains(&b'$');
     // Phase C-3 — bind the AOT-baked DFA view once outside the loop.
     // See match_all.rs for the rationale.
     // Round 3 Phase B sub-batch 7.2 — prefer the AOT-baked view, fall
@@ -109,14 +130,20 @@ fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
         let m = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            // Round 3 Phase B attack #R-A1 — replace currently routes
-            // through `str_slice` (transcodes to owned bytes), so the
-            // ASCII-view shortcut isn't on this path. Pass `false`.
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws, dfa_ref, false)
+            search_from_with_ws(
+                &re.prog,
+                &s,
+                pos,
+                re.flags,
+                ws,
+                dfa_ref,
+                haystack_is_ascii,
+                want_saves,
+            )
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
-        expand_repl(repl, s, m.start, m.end, m.saves(), re.n_captures, &mut out);
+        expand_repl(repl, s, m.start, m.end, m.saves(), re.n_captures, out);
         if m.end == m.start {
             if m.start < slen {
                 out.push(s[m.start as usize]);
@@ -156,11 +183,36 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
     if re.rejected != 0 {
         abort_unsupported(re);
     }
-    let s = unsafe { str_slice(str_ptr) };
-    let repl = unsafe { str_slice(repl_ptr) };
+    // Round 5 attacks str-replace #2/#4 — borrow the Str payload
+    // directly when it's pure-ASCII Latin-1 (no transcode, no owned
+    // Vec alloc/free per call); fall back to the owned transcode for
+    // non-ASCII. The borrow is bounded to this call frame, same
+    // contract as the match/exec paths using `str_slice_ascii_view`.
+    let s_owned;
+    let (s, haystack_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(str_ptr) } {
+        Some(v) => (v, true),
+        None => {
+            s_owned = unsafe { str_slice(str_ptr) };
+            (&s_owned, false)
+        }
+    };
+    let repl_owned;
+    let (repl, repl_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(repl_ptr) } {
+        Some(v) => (v, true),
+        None => {
+            repl_owned = unsafe { str_slice(repl_ptr) };
+            (&repl_owned, false)
+        }
+    };
     let global = re.flags & RE_FLAG_G != 0;
-    let out = replace_inner(re, &s, &repl, global);
-    unsafe { str_from_bytes(&out) as *mut c_void }
+    let out = replace_inner(re, s, repl, global, haystack_is_ascii);
+    // Round 5 attack str-replace #5 — the output is gap-copies of `s`
+    // plus expansions of `repl`; when both are ASCII the result is
+    // provably ASCII, so skip the encoding re-scan in the Str alloc.
+    if haystack_is_ascii && repl_is_ascii {
+        return unsafe { str_from_bytes_ascii(out) as *mut c_void };
+    }
+    unsafe { str_from_bytes(out) as *mut c_void }
 }
 
 /// # Safety
@@ -181,11 +233,30 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
     if re.rejected != 0 {
         abort_unsupported(re);
     }
-    let s = unsafe { str_slice(str_ptr) };
-    let repl = unsafe { str_slice(repl_ptr) };
+    // Round 5 attacks str-replace #2/#4 — same ASCII borrow shape as
+    // `__torajs_str_replace_regex` above.
+    let s_owned;
+    let (s, haystack_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(str_ptr) } {
+        Some(v) => (v, true),
+        None => {
+            s_owned = unsafe { str_slice(str_ptr) };
+            (&s_owned, false)
+        }
+    };
+    let repl_owned;
+    let (repl, repl_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(repl_ptr) } {
+        Some(v) => (v, true),
+        None => {
+            repl_owned = unsafe { str_slice(repl_ptr) };
+            (&repl_owned, false)
+        }
+    };
     // replace_all == replace with implicit `g` (ignore the regex's
     // own g flag — JS spec actually throws TypeError if no g, but
     // tr deferred that to v0.2 #1.c per the C port comment).
-    let out = replace_inner(re, &s, &repl, /* global */ true);
-    unsafe { str_from_bytes(&out) as *mut c_void }
+    let out = replace_inner(re, s, repl, /* global */ true, haystack_is_ascii);
+    if haystack_is_ascii && repl_is_ascii {
+        return unsafe { str_from_bytes_ascii(out) as *mut c_void };
+    }
+    unsafe { str_from_bytes(out) as *mut c_void }
 }

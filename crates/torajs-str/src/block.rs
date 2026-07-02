@@ -321,6 +321,32 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
     StrBlock::alloc(len as u32).into_raw()
 }
 
+/// ASCII-certain variant of [`__torajs_str_alloc`] — Round 5 attack
+/// str-replace #5 (2026-07-03). The caller has already established
+/// every byte of `src[0..len]` is ≤ 0x7F (e.g. the regex replace
+/// builder whose haystack AND replacement both passed the
+/// `str_slice_ascii_view` scan), so the per-char classification
+/// scan inside `__torajs_str_alloc` is provably redundant: alloc
+/// the Latin-1 layout and memcpy verbatim.
+///
+/// # Safety
+///
+/// `src` must point at `len` readable bytes, ALL ≤ 0x7F (or be NULL
+/// when `len == 0`). Returned pointer is a fresh refcount=1 Str
+/// block owned by the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *mut u8 {
+    let len_u = len as usize;
+    let length = len_u as u32;
+    let mut block = StrBlock::alloc_with_encoding(length, true);
+    if len_u > 0 {
+        let src_slice = unsafe { core::slice::from_raw_parts(src, len_u) };
+        let dst = unsafe { block.as_bytes_mut(length) };
+        dst.copy_from_slice(src_slice);
+    }
+    block.into_raw()
+}
+
 /// Str alloc + UTF-8 → canonical encoding payload write in one call.
 ///
 /// Pre-S2 this was a plain `alloc + memcpy` (input bytes copied

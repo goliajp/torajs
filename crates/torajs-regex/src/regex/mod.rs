@@ -116,6 +116,13 @@ pub struct RegExp {
     /// re-allocates the cache through the cross-thread atomic
     /// path.
     pub workspace_cache: core::cell::UnsafeCell<Option<crate::vm::Workspace>>,
+    /// Round 5 attack str-replace #3 (2026-07-03) — reusable output
+    /// buffer for the `replace` builders. Same single-threaded
+    /// interior-mutability contract as `workspace_cache` above: the
+    /// borrow is scoped to one `replace_inner` call, cleared (not
+    /// freed) between calls so a hot `s.replace(re, r)` loop pays
+    /// the Vec alloc/free once instead of per iteration.
+    pub replace_out_cache: core::cell::UnsafeCell<alloc::vec::Vec<u8>>,
     /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-2 (2026-06-24) —
     /// optional AOT-baked DFA metadata pointer. `None` when this
     /// `RegExp` came from `__torajs_regex_compile` (runtime literal /
@@ -186,6 +193,7 @@ unsafe extern "C" {
     /// resulting Str round-trips correctly through downstream
     /// print / concat / search.
     pub fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
+    pub fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *mut u8;
     pub fn __torajs_str_drop(s: *mut c_void);
     pub fn __torajs_arr_alloc(initial_cap: u64) -> *mut c_void;
     pub fn __torajs_arr_push(arr: *mut c_void, val: i64) -> *mut c_void;
@@ -332,6 +340,20 @@ pub unsafe fn str_from_bytes(data: &[u8]) -> *mut u8 {
     // replacement-builder buffer that the regex engine assembled
     // codepoint-by-codepoint).
     unsafe { __torajs_str_alloc(data.as_ptr(), data.len() as i64) }
+}
+
+/// ASCII-certain sibling of [`str_from_bytes`] — Round 5 attack
+/// str-replace #5. Caller proves every byte of `data` is ≤ 0x7F
+/// (haystack and replacement both passed `str_slice_ascii_view`),
+/// skipping the encoding-classification scan in
+/// `__torajs_str_alloc`.
+///
+/// # Safety
+///
+/// Same allocator contract as [`str_from_bytes`]; additionally all
+/// bytes of `data` must be ASCII.
+pub unsafe fn str_from_bytes_ascii(data: &[u8]) -> *mut u8 {
+    unsafe { __torajs_str_alloc_ascii(data.as_ptr(), data.len() as i64) }
 }
 
 /// Abort with "not yet supported:" for a rejected regex. The

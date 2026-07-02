@@ -156,6 +156,7 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
         n_named_captures,
         last_index: 0,
         workspace_cache: core::cell::UnsafeCell::new(None),
+        replace_out_cache: core::cell::UnsafeCell::new(alloc::vec::Vec::new()),
         baked_dfa,
         // Round 3 Phase B sub-batch 7.2 — AOT path uses the
         // `.rodata`-baked DFA via `baked_dfa` / `baked_dfa_view`,
