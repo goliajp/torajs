@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T05:27:01.453Z",
+  "generatedAt": "2026-07-02T05:34:11.372Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "7bb24f1d",
-    "commitSubject": "refactor(torajs-core): extract 2 free-fn helpers into ssa_lower_free_helpers sibling (chunk 396)",
+    "commit": "c85445c1",
+    "commitSubject": "refactor(torajs-core): pack binop dispatch layer + drop 1 dead fn + inline 1 wrapper (chunk 397)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "c85445c1",
+      "subject": "refactor(torajs-core): pack binop dispatch layer + drop 1 dead fn + inline 1 wrapper (chunk 397)"
+    },
+    {
+      "hash": "36676eb8",
+      "subject": "chore(dashboard): chunk 396 snapshot @ 7bb24f1d"
+    },
+    {
       "hash": "7bb24f1d",
       "subject": "refactor(torajs-core): extract 2 free-fn helpers into ssa_lower_free_helpers sibling (chunk 396)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "18c6a7ad",
       "subject": "chore(dashboard): chunk 391 snapshot @ 6c012d1a"
-    },
-    {
-      "hash": "6c012d1a",
-      "subject": "refactor(torajs-core): extract lower_array_any_literal into ssa_lower_array_any_literal sibling (chunk 391)"
-    },
-    {
-      "hash": "e41ca6c5",
-      "subject": "chore(dashboard): pre-rotation snapshot @ 18757bb3"
     }
   ],
-  "headSha": "7bb24f1d",
+  "headSha": "c85445c1",
   "autorun": {
     "total": 305,
     "baselineTarget": 10,
