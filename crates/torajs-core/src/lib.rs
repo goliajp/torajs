@@ -451,6 +451,7 @@ pub(crate) mod ssa_lower_emit_drop_value;
 pub(crate) mod ssa_lower_emit_shorthand;
 pub(crate) mod ssa_lower_env_drop_and_ret_ty;
 pub(crate) mod ssa_lower_env_drop_setup;
+pub(crate) mod ssa_lower_eq_fastpath;
 pub(crate) mod ssa_lower_expr_inner;
 pub(crate) mod ssa_lower_fn;
 pub(crate) mod ssa_lower_fn_props;
