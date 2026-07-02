@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T06:20:47.313Z",
+  "generatedAt": "2026-07-02T06:25:58.427Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "af673be0",
-    "commitSubject": "refactor(torajs-core): drop dead compute_descendant_tags method (chunk 404)",
+    "commit": "4cb8017f",
+    "commitSubject": "refactor(torajs-core): drop dead is_console_log_member + inline lower_json_stringify wrapper (chunk 405)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "4cb8017f",
+      "subject": "refactor(torajs-core): drop dead is_console_log_member + inline lower_json_stringify wrapper (chunk 405)"
+    },
+    {
+      "hash": "ccfe8d5e",
+      "subject": "chore(dashboard): chunk 404 snapshot @ HEAD"
+    },
+    {
       "hash": "af673be0",
       "subject": "refactor(torajs-core): drop dead compute_descendant_tags method (chunk 404)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "b6bac420",
       "subject": "chore(dashboard): chunk 399 snapshot @ HEAD"
-    },
-    {
-      "hash": "4ce384c4",
-      "subject": "refactor(torajs-core): pack 3 FuncId lookup helpers into ssa_lower_fn_meta sibling (chunk 399)"
-    },
-    {
-      "hash": "db9b59de",
-      "subject": "chore(dashboard): chunk 398 snapshot @ HEAD"
     }
   ],
-  "headSha": "af673be0",
+  "headSha": "4cb8017f",
   "autorun": {
     "total": 305,
     "baselineTarget": 10,
