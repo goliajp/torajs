@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T13:24:15.879Z",
+  "generatedAt": "2026-07-02T15:36:44.349Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "5c0ccdfc",
-    "commitSubject": "refactor(torajs-core): extract scope/move-tracking cluster into check/scope_moves sibling (chunk 425)",
+    "commit": "4b239b21",
+    "commitSubject": "fix(torajs-promise): drop std Mutex from unhandled-rejection list, root-causing the regex-017 flaky SIGBUS",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,73 +617,84 @@
   },
   "commits": [
     {
+      "hash": "4b239b21",
+      "subject": "fix(torajs-promise): drop std Mutex from unhandled-rejection list, root-causing the regex-017 flaky SIGBUS"
+    },
+    {
+      "hash": "b79bcff8",
+      "subject": "refactor(torajs-core): move Expr AST types into ast/expr sibling (chunk 432)"
+    },
+    {
+      "hash": "b89bd786",
+      "subject": "refactor(torajs-core): move Stmt/class-decl AST types into ast/stmt sibling (chunk 431)"
+    },
+    {
+      "hash": "5d6e744d",
+      "subject": "refactor(torajs-core): move prototype_call pass + collect fns out of ast.rs (chunk 430)"
+    },
+    {
+      "hash": "925a73be",
+      "subject": "chore(torajs-core): rustfmt use-ordering in check.rs (chunk 428 fixup)"
+    },
+    {
+      "hash": "c0d273ec",
+      "subject": "refactor(torajs-core): move module/export passes into ast/module_passes sibling (chunk 429)"
+    },
+    {
+      "hash": "94cf6012",
+      "subject": "refactor(torajs-core): move Diagnostic cluster into check/diag sibling (chunk 428)"
+    },
+    {
+      "hash": "89da3e29",
+      "subject": "refactor(torajs-core): move type_of cluster into check/type_of sibling (chunk 427)"
+    },
+    {
+      "hash": "b67cf6b1",
+      "subject": "refactor(torajs-core): move check_stmt into check/stmt sibling (chunk 426)"
+    },
+    {
+      "hash": "789d4aa2",
+      "subject": "chore(dashboard): chunk 425 snapshot @ HEAD — check.rs -342 LOC (scope/move cluster extracted)"
+    },
+    {
       "hash": "5c0ccdfc",
       "subject": "refactor(torajs-core): extract scope/move-tracking cluster into check/scope_moves sibling (chunk 425)"
     },
     {
       "hash": "be26fc3b",
       "subject": "chore(dashboard): chunks 420-424 snapshot @ HEAD — parser.rs 466, under 500 hard limit"
-    },
-    {
-      "hash": "bc3c0825",
-      "subject": "refactor(torajs-core): move parse_primary dispatcher + array cluster into parser/primary sibling (chunk 424)"
-    },
-    {
-      "hash": "1f4cc532",
-      "subject": "refactor(torajs-core): move parse_fn into parser/parse_fn sibling, decomposed (chunk 423)"
-    },
-    {
-      "hash": "3ef43d67",
-      "subject": "refactor(torajs-core): extract primary atom arms into parser/primary_atoms sibling (chunk 422)"
-    },
-    {
-      "hash": "bb594b5c",
-      "subject": "refactor(torajs-core): extract super/new arms into parser/primary_new_super sibling (chunk 421)"
-    },
-    {
-      "hash": "f4dfba1e",
-      "subject": "refactor(torajs-core): extract async expression cluster into parser/primary_async sibling (chunk 420)"
-    },
-    {
-      "hash": "ead29e07",
-      "subject": "chore(dashboard): chunk 419 snapshot @ HEAD — parser.rs -224 LOC (abrupt-completion cluster extracted)"
-    },
-    {
-      "hash": "f7fc3c23",
-      "subject": "refactor(torajs-core): extract abrupt-completion statement cluster into parser/ret_throw_try sibling (chunk 419)"
-    },
-    {
-      "hash": "d094fed9",
-      "subject": "chore(dashboard): chunk 418 snapshot @ HEAD — parser.rs -225 LOC (import/export cluster extracted)"
-    },
-    {
-      "hash": "a241b953",
-      "subject": "refactor(torajs-core): extract import/export cluster into parser/import_export sibling (chunk 418)"
-    },
-    {
-      "hash": "68dcb684",
-      "subject": "chore(dashboard): chunk 417 snapshot @ HEAD — parser.rs -269 LOC (loop/switch cluster extracted)"
     }
   ],
-  "headSha": "5c0ccdfc",
+  "headSha": "4b239b21",
   "autorun": {
-    "total": 308,
+    "total": 309,
     "baselineTarget": 10,
-    "bySelf": 303,
+    "bySelf": 304,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782992945-37c6",
-      "at": "2026-07-02T11:49:05Z",
-      "ts": 1782992945,
+      "rotationId": "r-1782998758-0ec6",
+      "at": "2026-07-02T13:25:58Z",
+      "ts": 1782998758,
       "trigger": "self",
-      "prevHead": "ead29e07",
-      "handoffSha": "sha256:ad2aa218234f78cfc38f1b140caaef9eabaa552d81690156a2ca24d0ef69f102",
-      "handoffAgeSec": 6,
+      "prevHead": "789d4aa2",
+      "handoffSha": "sha256:07078e5ca301ed01d89011270c36d69b2f40b448805ced8dcc7fdbcdd33ab8ab",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782998758-0ec6",
+        "at": "2026-07-02T13:25:58Z",
+        "ts": 1782998758,
+        "trigger": "self",
+        "prevHead": "789d4aa2",
+        "handoffSha": "sha256:07078e5ca301ed01d89011270c36d69b2f40b448805ced8dcc7fdbcdd33ab8ab",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782992945-37c6",
         "at": "2026-07-02T11:49:05Z",
@@ -780,17 +791,6 @@
         "prevHead": "f7a81a83",
         "handoffSha": "sha256:08813d25ddb0df18665cf9f2648af8028d88c70eb7265237bb4a6e0189d21f0a",
         "handoffAgeSec": 8086,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782894602-2fcd",
-        "at": "2026-07-01T08:30:02Z",
-        "ts": 1782894602,
-        "trigger": "self",
-        "prevHead": "b975a291",
-        "handoffSha": "sha256:08813d25ddb0df18665cf9f2648af8028d88c70eb7265237bb4a6e0189d21f0a",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
