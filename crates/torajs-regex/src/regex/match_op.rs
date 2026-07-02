@@ -259,13 +259,16 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             re.last_index = h.as_ref().map(|m| m.end).unwrap_or(0);
             h
         } else {
-            let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
+            // Round 5 attack #1 — Workspace materialisation is sunk
+            // into the vm's `vm_match_at` call sites: DFA-resident +
+            // no-save programs never touch it, so the whole 5-Vec
+            // alloc/free cycle disappears from this hot loop.
             search_from_with_ws(
                 &re.prog,
                 &s,
                 pos,
                 re.flags,
-                ws_ref,
+                &mut ws,
                 dfa_ref,
                 haystack_is_ascii,
                 true,

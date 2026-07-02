@@ -46,11 +46,12 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
         let m = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
             // Round 3 Phase B attack #R-A1 — split currently routes
             // through `str_slice` (transcodes to owned bytes), so the
             // ASCII-view shortcut isn't on this path. Pass `false`.
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false, true)
+            // Round 5 attack #1 — Workspace materialises lazily
+            // inside the vm.
+            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws, dfa_ref, false, true)
         };
         let Some(m) = m else { break };
         if m.end == m.start {

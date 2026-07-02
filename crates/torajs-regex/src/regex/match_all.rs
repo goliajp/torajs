@@ -65,13 +65,14 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
         let hit = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
             // Round 3 Phase B attack #R-A1 — match_all currently
             // routes through `str_slice` (always transcodes to a
             // freshly-allocated Vec<u8>), so the ASCII-view shortcut
             // isn't on this path. Pass `false`; the u-flag
             // continuation-byte gate stays correct for any haystack.
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false, true)
+            // Round 5 attack #1 — Workspace materialises lazily
+            // inside the vm.
+            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws, dfa_ref, false, true)
         };
         let Some(m) = hit else { break };
         outer = unsafe { append_inner(outer, re, &s, m.saves(), m.start, m.end) };

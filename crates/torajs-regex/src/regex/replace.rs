@@ -15,7 +15,7 @@ use super::{
 };
 use crate::node::{REGEX_MAX_CAPTURES, REGEX_SAVE_SLOTS};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
-use crate::vm::{Workspace, match_anchor, search_from_with_ws};
+use crate::vm::{match_anchor, search_from_with_ws};
 
 /// Expand `repl` into `out`, dereferencing `$N` against the
 /// captured `saves[]` pairs. Unparticipating groups substitute the
@@ -96,11 +96,13 @@ fn replace_inner<'a>(
     // `visited[]` entries from prior runs auto-invalidate
     // (no clear pass needed). Only the cur/nxt thread lists
     // need explicit reset between invocations.
+    // Round 5 attack #1 — pass the cache's `Option<Workspace>` down
+    // as-is; the vm materialises it lazily at its `vm_match_at` call
+    // sites (DFA-resident + no-save programs never touch it). No
+    // explicit cur/nxt reset needed: `vm_match_at` clears `cur` and
+    // resets the arena on entry, `nxt` per step.
     let ws_cell = re.workspace_cache.get();
     let ws = unsafe { &mut *ws_cell };
-    let ws = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
-    ws.cur.list.clear();
-    ws.nxt.list.clear();
     // Round 5 attack str-replace #3 — reuse the per-RegExp output
     // buffer (alloc/free once per RegExp instead of per call). Same
     // single-threaded interior-mutability contract as

@@ -217,7 +217,7 @@ pub fn search_from(
     if prog.is_empty() {
         return None;
     }
-    let mut ws = Workspace::for_program(prog);
+    let mut ws: Option<Workspace> = None;
     // Round 3 Phase B attack #R-A1: callers without ASCII-pre-classification
     // (tests, internal entry points) default `haystack_is_ascii = false` —
     // safe (the u-flag continuation-byte gate still fires as before).
@@ -252,7 +252,7 @@ pub fn search_from_with_ws(
     s: &[u8],
     from_pos: i64,
     flags: u8,
-    ws: &mut Workspace,
+    ws: &mut Option<Workspace>,
     dfa_cached: Option<&crate::dfa::DfaProgram>,
     haystack_is_ascii: bool,
     want_saves: bool,
@@ -430,7 +430,15 @@ pub fn search_from_with_ws(
                 // a phantom — this should not happen since the DFA's
                 // accept set is derived from the same NFA's `Op::Match`
                 // PCs.
-                let nfa_end = match_at::vm_match_at(prog, s, st, flags, ws, Some(&mut saves), end);
+                let nfa_end = match_at::vm_match_at(
+                    prog,
+                    s,
+                    st,
+                    flags,
+                    ws.get_or_insert_with(|| Workspace::for_program(prog)),
+                    Some(&mut saves),
+                    end,
+                );
                 if nfa_end != end {
                     saves = [-1i64; REGEX_SAVE_SLOTS];
                 }
@@ -446,13 +454,29 @@ pub fn search_from_with_ws(
         // array entirely — `MatchResult::no_saves` carries the
         // `EMPTY_SAVES` sentinel.
         if !prog_has_save(prog) || !want_saves {
-            let end = match_at::vm_match_at(prog, s, st, flags, ws, None, -1);
+            let end = match_at::vm_match_at(
+                prog,
+                s,
+                st,
+                flags,
+                ws.get_or_insert_with(|| Workspace::for_program(prog)),
+                None,
+                -1,
+            );
             if end >= 0 {
                 return Some(MatchResult::no_saves(st, end));
             }
         } else {
             let mut saves = [-1i64; REGEX_SAVE_SLOTS];
-            let end = match_at::vm_match_at(prog, s, st, flags, ws, Some(&mut saves), -1);
+            let end = match_at::vm_match_at(
+                prog,
+                s,
+                st,
+                flags,
+                ws.get_or_insert_with(|| Workspace::for_program(prog)),
+                Some(&mut saves),
+                -1,
+            );
             if end >= 0 {
                 return Some(MatchResult::with_saves(st, end, saves));
             }

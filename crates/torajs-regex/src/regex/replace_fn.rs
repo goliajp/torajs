@@ -80,12 +80,12 @@ unsafe fn replace_fn_inner(
         let m = if sticky {
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(&re.prog));
             // Round 3 Phase B attack #R-A1 — replace_fn currently
             // routes through `str_slice` (transcodes to owned bytes),
             // so the ASCII-view shortcut isn't on this path. Pass
-            // `false`; semantics preserved.
-            search_from_with_ws(&re.prog, &s, pos, re.flags, ws_ref, dfa_ref, false, true)
+            // `false`; semantics preserved. Round 5 attack #1 —
+            // Workspace materialises lazily inside the vm.
+            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws, dfa_ref, false, true)
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
