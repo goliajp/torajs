@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T10:19:04.151Z",
+  "generatedAt": "2026-07-02T10:34:13.920Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "efe473d6",
-    "commitSubject": "refactor(torajs-core): extract object-literal cluster into parser/object_literal sibling + re-attach orphan type-decl doc (chunk 413)",
+    "commit": "3ce15657",
+    "commitSubject": "refactor(torajs-core): extract function-expression cluster into parser/fn_expr sibling (chunk 414)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "3ce15657",
+      "subject": "refactor(torajs-core): extract function-expression cluster into parser/fn_expr sibling (chunk 414)"
+    },
+    {
+      "hash": "60fa30ff",
+      "subject": "chore(dashboard): chunk 413 snapshot @ HEAD — parser.rs -454 LOC (object-literal cluster extracted)"
+    },
+    {
       "hash": "efe473d6",
       "subject": "refactor(torajs-core): extract object-literal cluster into parser/object_literal sibling + re-attach orphan type-decl doc (chunk 413)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "23a6b60e",
       "subject": "chore(dashboard): chunk 408 snapshot @ HEAD — parser.rs -391 LOC (expr precedence ladder extracted)"
-    },
-    {
-      "hash": "69de8c56",
-      "subject": "refactor(torajs-core): extract 14-method expression precedence ladder into parser/expr_prec sibling (chunk 408)"
-    },
-    {
-      "hash": "290273c4",
-      "subject": "chore(torajs-core): fmt-clean pre-existing mod-order + trailing-blank drift"
     }
   ],
-  "headSha": "efe473d6",
+  "headSha": "3ce15657",
   "autorun": {
     "total": 307,
     "baselineTarget": 10,
