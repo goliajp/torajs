@@ -276,7 +276,15 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
         };
         let Some(m) = hit else { break };
         if out.is_null() {
-            out = unsafe { __torajs_arr_alloc(0) };
+            // Round 5 attack #6 — pre-size to the exec shape
+            // (m[0] + capture groups) so the first push never takes
+            // the cap0→4 grow (pool pop + 32B header memcpy + pool
+            // push) that used to fire on every fresh result array.
+            // The global branch pushes one segment per hit and grows
+            // normally past the pre-size; still strictly better than
+            // starting at 0.
+            let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
+            out = unsafe { __torajs_arr_alloc(1 + n_cap_lim as u64) };
         }
         let seg = unsafe { str_from_bytes(&s[m.start as usize..m.end as usize]) };
         out = unsafe { __torajs_arr_push(out, seg as i64) };
@@ -366,10 +374,12 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     if track {
         re.last_index = m.end;
     }
-    let mut out = unsafe { __torajs_arr_alloc(0) };
+    // Round 5 attack #6 — pre-size to the exec shape (see match loop
+    // above); the pushes below fill exactly 1 + n_cap_lim slots.
+    let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
+    let mut out = unsafe { __torajs_arr_alloc(1 + n_cap_lim as u64) };
     let whole = unsafe { str_from_bytes(&s[m.start as usize..m.end as usize]) };
     out = unsafe { __torajs_arr_push(out, whole as i64) };
-    let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
     for i in 1..=n_cap_lim {
         let gs = m.saves()[2 * i];
         let ge = m.saves()[2 * i + 1];

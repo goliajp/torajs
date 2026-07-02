@@ -12,6 +12,8 @@
 //! read [`EMPTY_SAVES`] via the [`MatchResult::saves`] accessor for
 //! backwards-compat.
 
+use alloc::boxed::Box;
+
 use crate::node::REGEX_SAVE_SLOTS;
 
 /// Successful match outcome from [`search_from`](super::search_from)
@@ -26,10 +28,18 @@ pub struct MatchResult {
 /// Storage backing [`MatchResult::saves`]. `None` is the
 /// no-capture-group fast path (skips the 512-byte stack init); `Some`
 /// carries the populated slot array from a Pike VM second-pass.
+///
+/// Round 5 attack #5 — the array is boxed so the enum (and with it
+/// `MatchResult`) shrinks from 536 to 24 bytes: the no-save hot path
+/// used to memcpy the full 536-byte enum on every `Option<MatchResult>`
+/// move up the call chain (profile: 4-6 ns/iter). The with-saves path
+/// trades those repeated moves for one heap alloc per hit — that path
+/// already pays a 512-byte second-pass extraction, so the alloc is in
+/// the noise there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum MatchSaves {
     None,
-    Some([i64; REGEX_SAVE_SLOTS]),
+    Some(Box<[i64; REGEX_SAVE_SLOTS]>),
 }
 
 /// Shared all-`-1` sentinel returned by [`MatchResult::saves`] when
@@ -58,7 +68,7 @@ impl MatchResult {
         Self {
             start,
             end,
-            saves_repr: MatchSaves::Some(saves),
+            saves_repr: MatchSaves::Some(Box::new(saves)),
         }
     }
 
