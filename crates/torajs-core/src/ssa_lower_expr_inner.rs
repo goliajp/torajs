@@ -353,3 +353,19 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         other => panic!("ssa-lower: unsupported expr: {other:?}"),
     }
 }
+
+impl<'a> LowerCtx<'a> {
+    /// v0.3 #4 D-3 — outer wrapper that stamps every Inst emitted
+    /// while lowering `eid` with `current_origin = Some(eid)` so
+    /// debug-info emission can resolve the source span for DWARF.
+    /// Recursive `self.lower_expr(...)` calls re-enter this wrapper
+    /// so nested exprs get their own tighter origin scoped to the
+    /// inner subtree (RAII-style save/restore on the prev value).
+    pub(crate) fn lower_expr(&mut self, eid: ExprId) -> Operand {
+        let prev = self.f.current_origin;
+        self.f.current_origin = Some(eid);
+        let result = lower(self, eid);
+        self.f.current_origin = prev;
+        result
+    }
+}

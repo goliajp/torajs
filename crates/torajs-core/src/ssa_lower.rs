@@ -26,7 +26,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, ExprId};
-use crate::ssa::{self, FuncId, Module, Operand, Type, ValueId};
+use crate::ssa::{self, FuncId, Module, Type, ValueId};
 pub(crate) use crate::ssa_lower_ctx_struct::LowerCtx;
 pub(crate) use crate::ssa_lower_deep_clone::deep_clone_stmt;
 pub(crate) use crate::ssa_lower_env_drop_and_ret_ty::{effective_ret_ty, synthesize_env_drop};
@@ -712,31 +712,3 @@ pub(crate) struct PreReserveState {
     pub(crate) len_slot: ValueId,
 }
 
-impl<'a> LowerCtx<'a> {
-    /// Coerce a value of any type to Type::Str. Used by multi-arg
-    /// console.X to build a space-joined output line.
-    /// `console.log` recognized as an Ident("console") + Member.name == "log".
-    /// v0.3 #4 D-3 — outer wrapper that stamps every Inst emitted
-    /// while lowering `eid` with `current_origin = Some(eid)` so
-    /// debug-info emission can resolve the source span for DWARF.
-    /// Recursive `self.lower_expr(...)` calls re-enter this wrapper
-    /// so nested exprs get their own tighter origin scoped to the
-    /// inner subtree (RAII-style save/restore on the prev value).
-    pub(crate) fn lower_expr(&mut self, eid: ExprId) -> Operand {
-        let prev = self.f.current_origin;
-        self.f.current_origin = Some(eid);
-        let result = self.lower_expr_inner(eid);
-        self.f.current_origin = prev;
-        result
-    }
-
-    fn lower_expr_inner(&mut self, eid: ExprId) -> Operand {
-        crate::ssa_lower_expr_inner::lower(self, eid)
-    }
-
-    // (`lower_logical_and` / `lower_logical_or` live in
-    // `ssa_lower_logical.rs`.)
-
-    // (`coerce_to_bool` lives in `ssa_lower_logical.rs`.)
-
-}
