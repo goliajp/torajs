@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T11:33:22.522Z",
+  "generatedAt": "2026-07-02T11:47:56.911Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "a241b953",
-    "commitSubject": "refactor(torajs-core): extract import/export cluster into parser/import_export sibling (chunk 418)",
+    "commit": "f7fc3c23",
+    "commitSubject": "refactor(torajs-core): extract abrupt-completion statement cluster into parser/ret_throw_try sibling (chunk 419)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "f7fc3c23",
+      "subject": "refactor(torajs-core): extract abrupt-completion statement cluster into parser/ret_throw_try sibling (chunk 419)"
+    },
+    {
+      "hash": "d094fed9",
+      "subject": "chore(dashboard): chunk 418 snapshot @ HEAD — parser.rs -225 LOC (import/export cluster extracted)"
+    },
+    {
       "hash": "a241b953",
       "subject": "refactor(torajs-core): extract import/export cluster into parser/import_export sibling (chunk 418)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "60fa30ff",
       "subject": "chore(dashboard): chunk 413 snapshot @ HEAD — parser.rs -454 LOC (object-literal cluster extracted)"
-    },
-    {
-      "hash": "efe473d6",
-      "subject": "refactor(torajs-core): extract object-literal cluster into parser/object_literal sibling + re-attach orphan type-decl doc (chunk 413)"
-    },
-    {
-      "hash": "6e55e0b0",
-      "subject": "chore(dashboard): chunk 412 snapshot @ HEAD — parser.rs -208 LOC (expr-entry cluster extracted)"
     }
   ],
-  "headSha": "a241b953",
+  "headSha": "f7fc3c23",
   "autorun": {
     "total": 307,
     "baselineTarget": 10,
