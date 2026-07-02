@@ -396,6 +396,7 @@ pub(crate) mod ssa_lower_call_bun_runtime;
 pub(crate) mod ssa_lower_call_class_synth;
 pub(crate) mod ssa_lower_call_closure_local;
 pub(crate) mod ssa_lower_call_coercion;
+pub(crate) mod ssa_lower_call_fn_value;
 pub(crate) mod ssa_lower_call_console;
 pub(crate) mod ssa_lower_call_date_methods;
 pub(crate) mod ssa_lower_call_date_parse_undef_fold;
