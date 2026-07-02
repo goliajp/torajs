@@ -69,7 +69,9 @@ pub(crate) fn lower(
         src_ty,
         Type::Map | Type::Set | Type::MapIter | Type::ArrIter
     ) {
-        ctx.lower_for_of_map_like(src_ptr_op, src_ty, var_name, body);
+        crate::ssa_lower_for_of_map_like::lower_for_of_map_like(
+            ctx, src_ptr_op, src_ty, var_name, body,
+        );
         return;
     }
     if let Type::Obj(sid) = src_ty {
@@ -83,7 +85,9 @@ pub(crate) fn lower(
         if let Some(cname) = cname {
             let iter_fn = format!("__cm_{cname}____sym_Symbol_iterator__");
             if let Some(&iter_fid) = ctx.fn_table.get(&iter_fn) {
-                ctx.lower_for_of_iter_protocol(src_ptr_op, iter_fid, var_name, body, &cname);
+                crate::ssa_lower_for_of_iter_protocol::lower_for_of_iter_protocol(
+                    ctx, src_ptr_op, iter_fid, var_name, body, &cname,
+                );
                 return;
             }
             panic!(
@@ -96,7 +100,7 @@ pub(crate) fn lower(
         );
     }
     if src_ty == Type::Str {
-        ctx.lower_for_of_str(src_ptr_op, i_ident, var_name, body);
+        crate::ssa_lower_for_of_str::lower(ctx, src_ptr_op, i_ident, var_name, body);
         return;
     }
     if !matches!(src_ty, Type::Arr(_)) {
