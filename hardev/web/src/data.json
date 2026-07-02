@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T02:34:29.572Z",
+  "generatedAt": "2026-07-02T02:49:38.839Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "df319909",
-    "commitSubject": "refactor(torajs-core): extract 6-fn int32-coerce family into ssa_lower_int32_coerce sibling (chunk 387)",
+    "commit": "816cc51e",
+    "commitSubject": "refactor(torajs-core): extract number-coerce pair into ssa_lower_number_coerce sibling (chunk 388)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "816cc51e",
+      "subject": "refactor(torajs-core): extract number-coerce pair into ssa_lower_number_coerce sibling (chunk 388)"
+    },
+    {
+      "hash": "05636434",
+      "subject": "chore(dashboard): chunk 387 snapshot @ df319909"
+    },
+    {
       "hash": "df319909",
       "subject": "refactor(torajs-core): extract 6-fn int32-coerce family into ssa_lower_int32_coerce sibling (chunk 387)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "59e3af03",
       "subject": "refactor(torajs-core): extract 3 micro-helpers into ssa_lower_micro_helpers sibling (chunk 380)"
-    },
-    {
-      "hash": "0ccc8db7",
-      "subject": "chore(dashboard): chunks 375-379 snapshot @ 91d10823"
-    },
-    {
-      "hash": "91d10823",
-      "subject": "refactor(torajs-core): extract 2 relative-index helpers into ssa_lower_relative_index sibling (chunk 379)"
     }
   ],
-  "headSha": "df319909",
+  "headSha": "816cc51e",
   "autorun": {
     "total": 303,
     "baselineTarget": 10,
