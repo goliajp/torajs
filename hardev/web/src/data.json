@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T11:47:56.911Z",
+  "generatedAt": "2026-07-02T13:07:43.313Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "f7fc3c23",
-    "commitSubject": "refactor(torajs-core): extract abrupt-completion statement cluster into parser/ret_throw_try sibling (chunk 419)",
+    "commit": "bc3c0825",
+    "commitSubject": "refactor(torajs-core): move parse_primary dispatcher + array cluster into parser/primary sibling (chunk 424)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,30 @@
   },
   "commits": [
     {
+      "hash": "bc3c0825",
+      "subject": "refactor(torajs-core): move parse_primary dispatcher + array cluster into parser/primary sibling (chunk 424)"
+    },
+    {
+      "hash": "1f4cc532",
+      "subject": "refactor(torajs-core): move parse_fn into parser/parse_fn sibling, decomposed (chunk 423)"
+    },
+    {
+      "hash": "3ef43d67",
+      "subject": "refactor(torajs-core): extract primary atom arms into parser/primary_atoms sibling (chunk 422)"
+    },
+    {
+      "hash": "bb594b5c",
+      "subject": "refactor(torajs-core): extract super/new arms into parser/primary_new_super sibling (chunk 421)"
+    },
+    {
+      "hash": "f4dfba1e",
+      "subject": "refactor(torajs-core): extract async expression cluster into parser/primary_async sibling (chunk 420)"
+    },
+    {
+      "hash": "ead29e07",
+      "subject": "chore(dashboard): chunk 419 snapshot @ HEAD — parser.rs -224 LOC (abrupt-completion cluster extracted)"
+    },
+    {
       "hash": "f7fc3c23",
       "subject": "refactor(torajs-core): extract abrupt-completion statement cluster into parser/ret_throw_try sibling (chunk 419)"
     },
@@ -639,51 +663,38 @@
     {
       "hash": "e45ffa8e",
       "subject": "chore(dashboard): chunk 416 snapshot @ HEAD — parser.rs -329 LOC (parameter-list cluster extracted)"
-    },
-    {
-      "hash": "d71f463c",
-      "subject": "refactor(torajs-core): extract parameter-list cluster into parser/param_list sibling (chunk 416)"
-    },
-    {
-      "hash": "cfc402a0",
-      "subject": "chore(dashboard): chunk 415 snapshot @ HEAD — parser.rs -337 LOC (type-declaration cluster extracted)"
-    },
-    {
-      "hash": "f6c409f5",
-      "subject": "refactor(torajs-core): extract type-declaration cluster into parser/type_decl sibling (chunk 415)"
-    },
-    {
-      "hash": "634144b2",
-      "subject": "chore(dashboard): chunk 414 snapshot @ HEAD — parser.rs -389 LOC (fn-expression cluster extracted; regex-017-sticky known-flaky single-hit, 3/3 standalone pass)"
-    },
-    {
-      "hash": "3ce15657",
-      "subject": "refactor(torajs-core): extract function-expression cluster into parser/fn_expr sibling (chunk 414)"
-    },
-    {
-      "hash": "60fa30ff",
-      "subject": "chore(dashboard): chunk 413 snapshot @ HEAD — parser.rs -454 LOC (object-literal cluster extracted)"
     }
   ],
-  "headSha": "f7fc3c23",
+  "headSha": "bc3c0825",
   "autorun": {
-    "total": 307,
+    "total": 308,
     "baselineTarget": 10,
-    "bySelf": 302,
+    "bySelf": 303,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782980721-3a74",
-      "at": "2026-07-02T08:25:21Z",
-      "ts": 1782980721,
+      "rotationId": "r-1782992945-37c6",
+      "at": "2026-07-02T11:49:05Z",
+      "ts": 1782992945,
       "trigger": "self",
-      "prevHead": "6e55e0b0",
-      "handoffSha": "sha256:522abef61d16994331028f9fc30ab4938f25a57f8df90b14efae8cb2c8dafe33",
-      "handoffAgeSec": 6102,
+      "prevHead": "ead29e07",
+      "handoffSha": "sha256:ad2aa218234f78cfc38f1b140caaef9eabaa552d81690156a2ca24d0ef69f102",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782992945-37c6",
+        "at": "2026-07-02T11:49:05Z",
+        "ts": 1782992945,
+        "trigger": "self",
+        "prevHead": "ead29e07",
+        "handoffSha": "sha256:ad2aa218234f78cfc38f1b140caaef9eabaa552d81690156a2ca24d0ef69f102",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782980721-3a74",
         "at": "2026-07-02T08:25:21Z",
@@ -780,17 +791,6 @@
         "prevHead": "b975a291",
         "handoffSha": "sha256:08813d25ddb0df18665cf9f2648af8028d88c70eb7265237bb4a6e0189d21f0a",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782887712-7a0b",
-        "at": "2026-07-01T06:35:12Z",
-        "ts": 1782887712,
-        "trigger": "self",
-        "prevHead": "c42d9b53",
-        "handoffSha": "sha256:e1bde5301f28ec608523d7df8de461075a01c0f3a799791dec750cbb8477fd2f",
-        "handoffAgeSec": 13205,
         "conformanceBefore": null,
         "commitsInSession": null
       }
