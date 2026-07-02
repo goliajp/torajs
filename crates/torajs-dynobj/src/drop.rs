@@ -51,8 +51,19 @@ pub unsafe extern "C" fn __torajs_dynobj_drop(obj: *mut c_void) {
             __torajs_value_drop_heap((*ent.add(i)).value_anyv as *mut c_void);
         }
     }
-    let total = block_bytes(unsafe { cap(obj) });
+    let obj_cap = unsafe { cap(obj) };
+    // Round 5 attack #3 — never-grown blocks recycle through the
+    // LIFO pool (uniform 168-byte size class); the allocator re-inits
+    // header/counts/index on pop. Grown blocks have a different byte
+    // size and take the plain free path.
+    if obj_cap == crate::layout::DYNOBJ_INITIAL_CAP {
+        if let Some(nn) = core::ptr::NonNull::new(obj as *mut u8) {
+            if crate::pool::push(nn) {
+                return;
+            }
+        }
+    }
     unsafe {
-        free(obj, total);
+        free(obj, block_bytes(obj_cap));
     }
 }

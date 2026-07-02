@@ -45,6 +45,19 @@ unsafe extern "C" {
     /// Cross-tier — universal heap value dropper. Used to release the
     /// dynobj on drop_entry.
     fn __torajs_value_drop_heap(p: *mut c_void);
+
+    /// Cross-tier — batch exec-props attach (torajs-dynobj
+    /// `attach_exec.rs`, Round 5 attack #4). Allocates the dynobj
+    /// when `*slot` is NULL and writes the `index`/`input`/`groups`
+    /// triple without per-key probe / rc_inc.
+    fn __torajs_dynobj_attach_exec3(
+        obj_slot: *mut *mut c_void,
+        k_index: *mut c_void,
+        index_val: i64,
+        k_input: *mut c_void,
+        input_ptr: i64,
+        k_groups: *mut c_void,
+    );
 }
 
 /// Inline slot pointer for the array's props_dynobj.
@@ -90,6 +103,30 @@ pub unsafe extern "C" fn __torajs_arrprops_set(
             *slot = __torajs_dynobj_alloc();
         }
         __torajs_dynobj_set(slot, key, tag as u64, value as u64);
+    }
+}
+
+/// Batch exec-triple attach — `arr.index = i; arr.input = s;
+/// arr.groups = undefined` in one cross-tier call (Round 5 regex
+/// re-decomposition attack #4). Fresh match arrays always have a
+/// NULL props slot, so the dynobj side takes its no-probe fast path.
+///
+/// # Safety
+/// `arr_ptr` is a live array heap block whose props slot is NULL or
+/// a fresh empty dynobj; keys are the immortal static exec keys;
+/// `input_ptr`'s rc share transfers to the entry.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arrprops_attach_exec3(
+    arr_ptr: *mut c_void,
+    k_index: *mut c_void,
+    index_val: i64,
+    k_input: *mut c_void,
+    input_ptr: i64,
+    k_groups: *mut c_void,
+) {
+    unsafe {
+        let slot = props_slot_ptr(arr_ptr);
+        __torajs_dynobj_attach_exec3(slot, k_index, index_val, k_input, input_ptr, k_groups);
     }
 }
 

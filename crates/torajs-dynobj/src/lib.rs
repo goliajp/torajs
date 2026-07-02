@@ -24,6 +24,7 @@ extern crate torajs_mmalloc as _;
 
 pub mod accessor;
 pub mod alloc;
+pub mod attach_exec;
 pub mod define;
 pub mod delete;
 pub mod drop;
@@ -31,6 +32,7 @@ pub mod get;
 pub mod has;
 pub mod iter;
 pub mod layout;
+pub mod pool;
 pub mod print_any;
 pub mod probe;
 pub mod resize;
@@ -109,4 +111,28 @@ pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
     panic!(
         "torajs-dynobj unit-test stub: __torajs_str_drop should not be called from cargo test paths"
     );
+}
+
+// Faithful *pair* of NaN-box stubs for unit tests (attach_exec /
+// probe round-trips). The real torajs-anyvalue encoding is linked at
+// `tr build` time; these test stubs only need to be mutually
+// consistent (box → unbox round-trips) — structural correctness of
+// the entries is what the tests assert, byte-level encoding parity
+// is covered end-to-end by the conformance gate.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64 {
+    ((tag as u64) << 48) | ((value as u64) & 0x0000_FFFF_FFFF_FFFF)
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_unbox_tag(v: u64) -> i64 {
+    (v >> 48) as i64
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_unbox_value(v: u64) -> i64 {
+    (v & 0x0000_FFFF_FFFF_FFFF) as i64
 }

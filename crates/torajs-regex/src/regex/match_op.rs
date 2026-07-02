@@ -6,10 +6,10 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
 use super::{
-    __torajs_arr_alloc, __torajs_arr_push, __torajs_arrprops_set, __torajs_dynobj_alloc,
-    __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_rc_inc, __torajs_str_drop,
-    ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, abort_unsupported, as_regex_mut, str_from_bytes,
-    str_slice, str_slice_ascii_view,
+    __torajs_arr_alloc, __torajs_arr_push, __torajs_arrprops_attach_exec3, __torajs_arrprops_set,
+    __torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_rc_inc,
+    __torajs_str_drop, ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, abort_unsupported, as_regex_mut,
+    str_from_bytes, str_slice, str_slice_ascii_view,
 };
 use crate::node::{REGEX_MAX_CAPTURES, REGEX_SAVE_SLOTS};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -108,6 +108,50 @@ unsafe fn cached_static_key(slot: &AtomicPtr<c_void>, bytes: &[u8]) -> *const c_
 /// # Safety
 ///
 /// `arr` is a live tora Array; `str_ptr` a live Str outliving it.
+/// Attach the full exec triple (`index` / `input` / `groups`) —
+/// Round 5 attack #4 batch fast path for the no-named-captures shape
+/// (one cross-tier call, no probe, no per-key rc_inc; the dynobj
+/// side computes the three hash slots from compile-time FNV
+/// constants). Named-capture regexes keep the generic
+/// [`attach_exec_props`] + [`attach_groups`] pair.
+///
+/// # Safety
+///
+/// Same contract as [`attach_exec_props`] + [`attach_groups`]; `arr`
+/// must be a fresh match array (NULL props slot).
+pub unsafe fn attach_exec_all(
+    arr: *mut c_void,
+    re: &RegExp,
+    s: &[u8],
+    str_ptr: *const c_void,
+    index: i64,
+    saves: &[i64; REGEX_SAVE_SLOTS],
+) {
+    if re.n_named_captures == 0 || re.capture_names.is_empty() {
+        unsafe {
+            let k_index = cached_static_key(&K_INDEX, b"index");
+            let k_input = cached_static_key(&K_INPUT, b"input");
+            let k_groups = cached_static_key(&K_GROUPS, b"groups");
+            // the entry takes an rc share of the subject (exactly
+            // like the dynobj_set path did).
+            __torajs_rc_inc(str_ptr as *mut c_void);
+            __torajs_arrprops_attach_exec3(
+                arr,
+                k_index as *mut c_void,
+                index,
+                k_input as *mut c_void,
+                str_ptr as i64,
+                k_groups as *mut c_void,
+            );
+        }
+    } else {
+        unsafe {
+            attach_exec_props(arr, str_ptr, index);
+            attach_groups(arr, re, s, saves);
+        }
+    }
+}
+
 pub unsafe fn attach_exec_props(arr: *mut c_void, str_ptr: *const c_void, index: i64) {
     unsafe {
         let k_index = cached_static_key(&K_INDEX, b"index");
@@ -304,8 +348,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             // Non-global match = exec shape (spec §22.2.7.8):
             // index / input / groups attach in print order.
             unsafe {
-                attach_exec_props(out, str_ptr, m.start);
-                attach_groups(out, re, &s, m.saves());
+                attach_exec_all(out, re, &s, str_ptr, m.start, m.saves());
             }
             break;
         }
@@ -391,8 +434,7 @@ pub unsafe extern "C" fn __torajs_regex_exec(
         }
     }
     unsafe {
-        attach_exec_props(out, str_ptr, m.start);
-        attach_groups(out, re, &s, m.saves());
+        attach_exec_all(out, re, &s, str_ptr, m.start, m.saves());
     }
     out
 }

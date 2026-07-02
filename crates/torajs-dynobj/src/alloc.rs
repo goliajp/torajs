@@ -32,14 +32,23 @@ unsafe extern "C" {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut c_void {
     let cap = DYNOBJ_INITIAL_CAP;
-    let p = unsafe { calloc(block_bytes(cap)) } as *mut u8;
+    // Round 5 attack #3 — pool-first. A popped block carries stale
+    // bytes; the re-init below covers everything a fresh dynobj
+    // reads: header, counts, hash index. The dense entry region is
+    // deliberately NOT cleared — `entries_len = 0` means no reader
+    // reaches it before a set overwrites the slot it appends to.
+    let p = match crate::pool::pop() {
+        Some(nn) => nn.as_ptr(),
+        None => unsafe { calloc(block_bytes(cap)) as *mut u8 },
+    };
     unsafe {
         // Header init: rc=1, tag=DynObj, flags=0.
         *(p as *mut u32) = 1;
         *(p.add(4) as *mut u16) = TAG_DYNOBJ;
         *(p.add(6) as *mut u16) = 0;
-        // count = 0 / entries_len = 0 (already zeroed by calloc —
-        // explicit for clarity); cap / entries_cap = initial sizing.
+        // count = 0 / entries_len = 0; cap / entries_cap = initial
+        // sizing. (Explicit stores — the block may be recycled, so
+        // calloc's zero fill cannot be assumed.)
         *(p.add(DYNOBJ_COUNT_OFF) as *mut u32) = 0;
         *(p.add(DYNOBJ_CAP_OFF) as *mut u32) = cap;
         *(p.add(DYNOBJ_ENTRIES_LEN_OFF) as *mut u32) = 0;

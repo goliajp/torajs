@@ -201,6 +201,17 @@ unsafe extern "C" {
     pub fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
     pub fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     pub fn __torajs_arrprops_set(arr_ptr: *mut c_void, key: *mut c_void, tag: i64, value: i64);
+    /// Round 5 attack #4 — batch exec-triple attach (torajs-arr →
+    /// torajs-dynobj `attach_exec3` fast path: no probe, no per-key
+    /// rc_inc, const hashes).
+    pub fn __torajs_arrprops_attach_exec3(
+        arr_ptr: *mut c_void,
+        k_index: *mut c_void,
+        index_val: i64,
+        k_input: *mut c_void,
+        input_ptr: i64,
+        k_groups: *mut c_void,
+    );
     pub fn __torajs_throw_type_error(msg: *const u8);
 }
 

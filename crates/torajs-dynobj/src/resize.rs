@@ -93,6 +93,15 @@ pub(crate) unsafe fn resize(obj_slot: *mut *mut c_void) {
         *(p.add(DYNOBJ_COUNT_OFF) as *mut u32) = n;
         *(p.add(DYNOBJ_ENTRIES_LEN_OFF) as *mut u32) = n;
         *obj_slot = new_obj;
+        // Round 5 attack #3 — a grown-away initial-cap block feeds
+        // the pool like any other dead 168-byte block.
+        if old_cap == crate::layout::DYNOBJ_INITIAL_CAP {
+            if let Some(nn) = core::ptr::NonNull::new(old as *mut u8) {
+                if crate::pool::push(nn) {
+                    return;
+                }
+            }
+        }
         free(old, block_bytes(old_cap));
     }
 }
