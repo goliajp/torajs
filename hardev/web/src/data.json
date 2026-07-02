@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T08:10:41.915Z",
+  "generatedAt": "2026-07-02T08:25:18.657Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "2c0dd6a8",
-    "commitSubject": "refactor(torajs-core): extract 4 destructuring drivers into parser/destr_drivers sibling + drop orphan for-of docstring (chunk 411)",
+    "commit": "e135d136",
+    "commitSubject": "refactor(torajs-core): extract expression-entry cluster into parser/expr_entry sibling (chunk 412)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "e135d136",
+      "subject": "refactor(torajs-core): extract expression-entry cluster into parser/expr_entry sibling (chunk 412)"
+    },
+    {
+      "hash": "3a045fa9",
+      "subject": "chore(dashboard): chunk 411 snapshot @ HEAD — parser.rs -424 LOC (4 destr drivers + orphan for-of doc drop)"
+    },
+    {
       "hash": "2c0dd6a8",
       "subject": "refactor(torajs-core): extract 4 destructuring drivers into parser/destr_drivers sibling + drop orphan for-of docstring (chunk 411)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "840f316b",
       "subject": "refactor(torajs-core): extract Intrinsics FuncId table into carve-out sibling — ssa_lower.rs HARD 500 CLEAR (chunk 407)"
-    },
-    {
-      "hash": "16958cf8",
-      "subject": "chore(dashboard): chunk 406 snapshot @ HEAD"
-    },
-    {
-      "hash": "09defd02",
-      "subject": "refactor(torajs-core): fold lower_expr + drop lower_expr_inner wrapper into ssa_lower_expr_inner sibling (chunk 406)"
     }
   ],
-  "headSha": "2c0dd6a8",
+  "headSha": "e135d136",
   "autorun": {
     "total": 306,
     "baselineTarget": 10,
