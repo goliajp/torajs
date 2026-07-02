@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T11:18:48.715Z",
+  "generatedAt": "2026-07-02T11:33:22.522Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "6bc52df2",
-    "commitSubject": "refactor(torajs-core): extract loop/switch statement cluster into parser/loops sibling + re-attach drifted for doc (chunk 417)",
+    "commit": "a241b953",
+    "commitSubject": "refactor(torajs-core): extract import/export cluster into parser/import_export sibling (chunk 418)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "a241b953",
+      "subject": "refactor(torajs-core): extract import/export cluster into parser/import_export sibling (chunk 418)"
+    },
+    {
+      "hash": "68dcb684",
+      "subject": "chore(dashboard): chunk 417 snapshot @ HEAD — parser.rs -269 LOC (loop/switch cluster extracted)"
+    },
+    {
       "hash": "6bc52df2",
       "subject": "refactor(torajs-core): extract loop/switch statement cluster into parser/loops sibling + re-attach drifted for doc (chunk 417)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "6e55e0b0",
       "subject": "chore(dashboard): chunk 412 snapshot @ HEAD — parser.rs -208 LOC (expr-entry cluster extracted)"
-    },
-    {
-      "hash": "e135d136",
-      "subject": "refactor(torajs-core): extract expression-entry cluster into parser/expr_entry sibling (chunk 412)"
-    },
-    {
-      "hash": "3a045fa9",
-      "subject": "chore(dashboard): chunk 411 snapshot @ HEAD — parser.rs -424 LOC (4 destr drivers + orphan for-of doc drop)"
     }
   ],
-  "headSha": "6bc52df2",
+  "headSha": "a241b953",
   "autorun": {
     "total": 307,
     "baselineTarget": 10,
