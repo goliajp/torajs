@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T06:08:11.909Z",
+  "generatedAt": "2026-07-02T06:16:14.243Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "d5eac0a2",
-    "commitSubject": "refactor(torajs-core): pack 3 ctx-state query helpers + clean 4 unused imports (chunk 402)",
+    "commit": "c9d28b66",
+    "commitSubject": "refactor(torajs-core): fold intern_string_literal into ssa_lower_interners sibling (chunk 403)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "c9d28b66",
+      "subject": "refactor(torajs-core): fold intern_string_literal into ssa_lower_interners sibling (chunk 403)"
+    },
+    {
+      "hash": "bfd0c433",
+      "subject": "chore(dashboard): chunk 402 snapshot @ HEAD"
+    },
+    {
       "hash": "d5eac0a2",
       "subject": "refactor(torajs-core): pack 3 ctx-state query helpers + clean 4 unused imports (chunk 402)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "a33b6716",
       "subject": "chore(dashboard): chunk 397 snapshot @ c85445c1"
-    },
-    {
-      "hash": "c85445c1",
-      "subject": "refactor(torajs-core): pack binop dispatch layer + drop 1 dead fn + inline 1 wrapper (chunk 397)"
-    },
-    {
-      "hash": "36676eb8",
-      "subject": "chore(dashboard): chunk 396 snapshot @ 7bb24f1d"
     }
   ],
-  "headSha": "d5eac0a2",
+  "headSha": "c9d28b66",
   "autorun": {
     "total": 305,
     "baselineTarget": 10,
