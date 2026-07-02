@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T10:34:13.920Z",
+  "generatedAt": "2026-07-02T10:49:20.203Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "3ce15657",
-    "commitSubject": "refactor(torajs-core): extract function-expression cluster into parser/fn_expr sibling (chunk 414)",
+    "commit": "f6c409f5",
+    "commitSubject": "refactor(torajs-core): extract type-declaration cluster into parser/type_decl sibling (chunk 415)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "f6c409f5",
+      "subject": "refactor(torajs-core): extract type-declaration cluster into parser/type_decl sibling (chunk 415)"
+    },
+    {
+      "hash": "634144b2",
+      "subject": "chore(dashboard): chunk 414 snapshot @ HEAD — parser.rs -389 LOC (fn-expression cluster extracted; regex-017-sticky known-flaky single-hit, 3/3 standalone pass)"
+    },
+    {
       "hash": "3ce15657",
       "subject": "refactor(torajs-core): extract function-expression cluster into parser/fn_expr sibling (chunk 414)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "8b2f115c",
       "subject": "chore(dashboard): chunk 409 snapshot @ HEAD — parser.rs -367 LOC (parse_type_ann + parse_fn_type_ann extracted; regex-017-sticky flaky single-hit, 3/3 standalone rerun pass)"
-    },
-    {
-      "hash": "36ba593d",
-      "subject": "refactor(torajs-core): extract parse_type_ann + parse_fn_type_ann into parser/type_ann sibling (chunk 409)"
-    },
-    {
-      "hash": "23a6b60e",
-      "subject": "chore(dashboard): chunk 408 snapshot @ HEAD — parser.rs -391 LOC (expr precedence ladder extracted)"
     }
   ],
-  "headSha": "3ce15657",
+  "headSha": "f6c409f5",
   "autorun": {
     "total": 307,
     "baselineTarget": 10,
