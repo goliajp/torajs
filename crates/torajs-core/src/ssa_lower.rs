@@ -109,125 +109,6 @@ pub(crate) type CallRetargets = HashMap<ExprId, String>;
 /// V3-18 m2.b — per-namespace known-own-property table for the
 /// hasOwnProperty / propertyIsEnumerable subset stub. Only literal-
 /// string keys land in this lookup; runtime keys default to `false`.
-/// P9.5-A1.1 — count capture groups in a regex literal pattern. Used at
-/// ssa-lower time by the `s.replace(re, fn)` dispatch to determine the
-/// callback's expected arity (one match arg + N capture args). Mirrors
-/// the runtime parser's group counter but operates on the raw source-
-/// level pattern string (Expr::Regex.pattern) before tora's regex
-/// compiler runs.
-///
-/// Counting rules per ES spec §22.2.1:
-///   - `(` opens a capture group → +1
-///   - `(?:` `(?=` `(?!` `(?<=` `(?<!` open non-capturing constructs → 0
-///   - `(?<name>` is a named capture → +1 (rule for `<` not followed by `=`/`!`)
-///   - `\(` is a literal paren → 0
-///   - `[...]` char class: parens inside don't count
-///   - `\\` followed by any char escapes that char
-pub(crate) fn count_capture_groups(pattern: &str) -> usize {
-    let bytes = pattern.as_bytes();
-    let mut n = 0usize;
-    let mut in_class = false;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'\\' {
-            i += 2;
-            continue;
-        }
-        if in_class {
-            if b == b']' {
-                in_class = false;
-            }
-            i += 1;
-            continue;
-        }
-        if b == b'[' {
-            in_class = true;
-            i += 1;
-            continue;
-        }
-        if b == b'(' {
-            // (?:, (?=, (?!, (?<=, (?<! → non-capturing
-            // (?<name> → capturing named group
-            if i + 2 < bytes.len() && bytes[i + 1] == b'?' {
-                let c = bytes[i + 2];
-                if c == b':' || c == b'=' || c == b'!' {
-                    i += 3;
-                    continue;
-                }
-                if c == b'<' && i + 3 < bytes.len() {
-                    let d = bytes[i + 3];
-                    if d == b'=' || d == b'!' {
-                        i += 4;
-                        continue;
-                    }
-                    // (?<name>... — capturing named group, fall through to +1
-                }
-            }
-            n += 1;
-        }
-        i += 1;
-    }
-    n
-}
-
-#[cfg(test)]
-mod count_capture_groups_tests {
-    use super::count_capture_groups;
-    #[test]
-    fn plain() {
-        assert_eq!(count_capture_groups("foo"), 0);
-        assert_eq!(count_capture_groups(""), 0);
-    }
-    #[test]
-    fn one_group() {
-        assert_eq!(count_capture_groups("(a)"), 1);
-    }
-    #[test]
-    fn nested_groups() {
-        assert_eq!(count_capture_groups("(a(b))"), 2);
-        assert_eq!(count_capture_groups("((a))"), 2);
-    }
-    #[test]
-    fn non_capturing() {
-        assert_eq!(count_capture_groups("(?:a)"), 0);
-        assert_eq!(count_capture_groups("(?=a)b"), 0);
-        assert_eq!(count_capture_groups("(?!a)b"), 0);
-        assert_eq!(count_capture_groups("(?<=a)b"), 0);
-        assert_eq!(count_capture_groups("(?<!a)b"), 0);
-    }
-    #[test]
-    fn named_capture() {
-        assert_eq!(count_capture_groups("(?<n>a)"), 1);
-        assert_eq!(count_capture_groups("(?<first>\\w+) (?<last>\\w+)"), 2);
-    }
-    #[test]
-    fn mixed() {
-        assert_eq!(count_capture_groups("(a)(?:b)(c)"), 2);
-        assert_eq!(count_capture_groups("(\\w+) (\\w+)"), 2);
-        assert_eq!(count_capture_groups("(a)(b)(c)"), 3);
-    }
-    #[test]
-    fn char_class_parens() {
-        assert_eq!(count_capture_groups("[(]"), 0);
-        assert_eq!(count_capture_groups("[(ab)]"), 0);
-        assert_eq!(count_capture_groups("([(a)])"), 1);
-    }
-    #[test]
-    fn escaped_parens() {
-        assert_eq!(count_capture_groups("\\("), 0);
-        assert_eq!(count_capture_groups("\\(a\\)"), 0);
-        assert_eq!(count_capture_groups("(a)\\("), 1);
-    }
-    #[test]
-    fn complex() {
-        // The common bun idiom: (\w+) (\w+) — 2 groups.
-        assert_eq!(count_capture_groups("(\\w+) (\\w+)"), 2);
-        // Mix: 1 named + 1 positional + 1 non-capturing.
-        assert_eq!(count_capture_groups("(?<key>\\w+)(?:=)(\\w+)"), 2);
-    }
-}
-
 /// T-28 — lower with the per-Call arity-pad map. Pads missing trailing
 /// args with ANY_UNDEF Any-box operands at the call site for fns whose
 /// trailing missing params are Type::Any. ssa_lower's Expr::Call arm
@@ -806,17 +687,7 @@ pub(crate) struct LocalInfo {
     pub(crate) scope_depth: usize,
 }
 
-/// Decode the `__env(name1|name2|...)` annotation lift_arrow_fns put on
-/// a capturing closure's hidden first param. Returns the ordered capture
-/// names. Returns `None` for anything that doesn't match the form.
-pub(crate) fn decode_env_ann(ann: &str) -> Option<Vec<String>> {
-    let inner = ann.strip_prefix("__env(")?.strip_suffix(')')?;
-    if inner.is_empty() {
-        return Some(Vec::new());
-    }
-    Some(inner.split('|').map(|s| s.to_string()).collect())
-}
-
+pub(crate) use crate::ssa_lower_free_helpers::{count_capture_groups, decode_env_ann};
 pub(crate) use crate::ssa_lower_interners::{intern_arr_layout, intern_fn_sig};
 pub(crate) use crate::ssa_lower_parse_type::parse_type;
 
