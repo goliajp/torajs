@@ -50,6 +50,7 @@ mod parse_class_member_method;
 mod parse_fn;
 mod parse_postfix;
 mod parse_stmt;
+mod primary;
 mod primary_async;
 mod primary_atoms;
 mod primary_new_super;
@@ -455,186 +456,11 @@ impl Parser<'_> {
         Some(kw.to_string())
     }
 
-    fn parse_primary(&mut self) -> Result<ExprId, String> {
-        // Dynamic import / parenthesized-or-arrow — extracted to
-        // parser/primary_atoms.rs (chunk 422).
-        if matches!(self.peek(), Token::Import) {
-            return self.parse_primary_dyn_import();
-        }
-        if matches!(self.peek(), Token::LParen) {
-            return self.parse_primary_paren();
-        }
-        if matches!(self.peek(), Token::LBracket) {
-            return self.parse_array_literal();
-        }
-        if matches!(self.peek(), Token::LBrace) {
-            // `{` in expression position is an object literal. Block
-            // statements are caught by `parse_stmt`'s LBrace check before
-            // reaching here, so the only path that lands at LBrace in
-            // primary is an expression context (let-init, fn arg, return
-            // value, etc.).
-            return self.parse_object_literal();
-        }
-        // Function expression — `function (params): R { body }` or
-        // `function NAME(params): R { body }` in expression position.
-        // IIFE pattern `(function() { ... }())` is the dominant test262
-        // shape this unblocks. Treat it as an `Expr::ArrowFn`: lifted by
-        // `lift_arrow_fns` to a top-level FnDecl, same downstream
-        // pipeline as `() => { ... }`. The optional name is parsed
-        // (and ignored — fn-expr names are scoped only to the body, a
-        // niche we don't implement).
-        if matches!(self.peek(), Token::Function) {
-            return self.parse_fn_expr();
-        }
-        // Class expression (P8.5) — extracted to parser/primary_atoms.rs
-        // (chunk 422).
-        if matches!(self.peek(), Token::Class) {
-            return self.parse_primary_class_expr();
-        }
-        // Async expression forms (`async ... =>` arrow / `async function`)
-        // — extracted to parser/primary_async.rs (chunk 420).
-        if let Some(e) = self.try_parse_async_expr()? {
-            return Ok(e);
-        }
-        // Regex literal `/pattern/flags`. The lexer already
-        // disambiguated regex vs division by inspecting the previous
-        // token; the parser just unwraps the carried pattern + flags
-        // into the AST node. check.rs rejects the resulting Expr::Regex
-        // with a "regex literals not yet implemented" message — the
-        // matching engine is a follow-up phase. Parsing accept here
-        // unblocks the lex / parse error buckets ahead of that work.
-        if let Token::Regex { pattern, flags } = self.peek().clone() {
-            self.pos += 1;
-            return Ok(self.ast.add_expr(Expr::Regex { pattern, flags }));
-        }
-        let pos = self.pos;
-        // Single-param arrow `x => body` — extracted to
-        // parser/primary_atoms.rs (chunk 422).
-        if let Some(e) = self.try_parse_bare_arrow()? {
-            return Ok(e);
-        }
-        match &self.tokens[pos].token {
-            Token::Ident(n) => {
-                let n = n.clone();
-                self.pos += 1;
-                Ok(self.ast.add_expr(Expr::Ident(n)))
-            }
-            Token::String(s) => {
-                let s = s.clone();
-                self.pos += 1;
-                Ok(self.ast.add_expr(Expr::String(s)))
-            }
-            Token::Template { parts } => {
-                let parts = parts.clone();
-                self.pos += 1;
-                self.lower_template_parts(&parts)
-            }
-            Token::Number(n) => {
-                let n = *n;
-                self.pos += 1;
-                Ok(self.ast.add_expr(Expr::Number(n)))
-            }
-            Token::BigInt { digits, radix } => {
-                let digits = digits.clone();
-                let radix = *radix;
-                self.pos += 1;
-                Ok(self.ast.add_expr(Expr::BigInt { digits, radix }))
-            }
-            Token::True => {
-                self.pos += 1;
-                Ok(self.ast.add_expr(Expr::Bool(true)))
-            }
-            Token::False => {
-                self.pos += 1;
-                Ok(self.ast.add_expr(Expr::Bool(false)))
-            }
-            Token::Null => {
-                self.pos += 1;
-                Ok(self.ast.add_expr(Expr::Null))
-            }
-            Token::This => {
-                self.pos += 1;
-                Ok(self.ast.add_expr(Expr::This))
-            }
-            Token::Super => self.parse_primary_super(),
-            Token::New => self.parse_primary_new(),
-            t => Err(format!(
-                "expected expression, got {t:?} at {}",
-                self.tokens[pos].span.start
-            )),
-        }
-    }
-
     /// M5.1 — `class C { field: T; constructor(...) {...} method(...): R {...} }`.
     /// Single class, no inheritance / super / static / accessors. Lowered
     /// post-parse by `desugar_classes` into a `TypeDecl` + a series of
     /// `FnDecl`s. The parser only assembles the structure here.
     fn parse_class_decl(&mut self) -> Result<Stmt, String> {
         self.parse_class_decl_with_abstract(false, false, false)
-    }
-
-    fn parse_array_literal(&mut self) -> Result<ExprId, String> {
-        // assumes current token is `[`
-        self.pos += 1;
-        let mut elements = Vec::new();
-        // P-PARSE.1 — sparse array literal `[1, , 3]`. A comma in the
-        // element position is an elision; per ES spec §13.2.4 it
-        // contributes one slot whose value is `undefined`. Pre-fix
-        // tora's parser bailed at the comma with 'expected expression,
-        // got Comma'. Until P1 ships real Type::Undefined the elision
-        // synthesizes an `Expr::Null` placeholder — at the storage
-        // layer Nullable<T> is the closest existing shape, and
-        // test262 cases that hit sparse arrays mostly check `.length`
-        // which is unaffected by the elision-value choice.
-        let parse_elem_or_elision = |this: &mut Self| -> Result<ExprId, String> {
-            if matches!(this.peek(), Token::Comma | Token::RBracket) {
-                return Ok(this.ast.add_expr(Expr::Null));
-            }
-            this.parse_array_element()
-        };
-        if !matches!(self.peek(), Token::RBracket) {
-            elements.push(parse_elem_or_elision(self)?);
-            while matches!(self.peek(), Token::Comma) {
-                self.pos += 1;
-                if matches!(self.peek(), Token::RBracket) {
-                    break; // trailing comma allowed
-                }
-                elements.push(parse_elem_or_elision(self)?);
-            }
-        }
-        match self.peek() {
-            Token::RBracket => self.pos += 1,
-            t => {
-                return Err(format!(
-                    "expected `]` in array literal, got {t:?} at {}",
-                    self.at()
-                ));
-            }
-        }
-        Ok(self.ast.add_expr(Expr::Array(elements)))
-    }
-
-    /// One slot inside an array literal — either a spread `...src` or a
-    /// regular expression. Spread is wrapped in `Expr::Spread { expr }`
-    /// so ssa_lower's Array arm can fork into the pre-sized alloc path.
-    fn parse_array_element(&mut self) -> Result<ExprId, String> {
-        if matches!(self.peek(), Token::DotDotDot) {
-            self.pos += 1;
-            let inner = self.parse_expr()?;
-            return Ok(self.ast.add_expr(Expr::Spread { expr: inner }));
-        }
-        self.parse_expr()
-    }
-
-    /// One arg inside a Call expression — same shape as parse_array_element
-    /// so `f(...arr)` parses to `f(Expr::Spread { expr: arr })`. The
-    /// `apply_rest_args` AST pass handles the call-site lowering.
-    fn parse_call_arg(&mut self) -> Result<ExprId, String> {
-        if matches!(self.peek(), Token::DotDotDot) {
-            self.pos += 1;
-            let inner = self.parse_expr()?;
-            return Ok(self.ast.add_expr(Expr::Spread { expr: inner }));
-        }
-        self.parse_expr()
     }
 }
