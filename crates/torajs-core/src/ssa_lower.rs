@@ -817,37 +817,12 @@ pub(crate) fn decode_env_ann(ann: &str) -> Option<Vec<String>> {
     Some(inner.split('|').map(|s| s.to_string()).collect())
 }
 
+pub(crate) use crate::ssa_lower_interners::{intern_arr_layout, intern_fn_sig};
 pub(crate) use crate::ssa_lower_parse_type::parse_type;
-
-pub(crate) fn intern_arr_layout(arr_layouts: &mut Vec<Type>, elem: Type) -> ssa::ArrId {
-    for (i, ex) in arr_layouts.iter().enumerate() {
-        if *ex == elem {
-            return ssa::ArrId(i as u32);
-        }
-    }
-    let id = ssa::ArrId(arr_layouts.len() as u32);
-    arr_layouts.push(elem);
-    id
-}
 
 // P11.1-S2-a build-time encoding lives on `ssa::StringLiteral` as
 // `StringLiteral::encode_from_str` — see crates/torajs-core/src/
 // ssa/module_methods.rs.
-
-pub(crate) fn intern_fn_sig(
-    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    params: Vec<Type>,
-    ret: Type,
-) -> ssa::SigId {
-    for (i, ex) in fn_sigs.iter().enumerate() {
-        if ex.0 == params && ex.1 == ret {
-            return ssa::SigId(i as u32);
-        }
-    }
-    let id = ssa::SigId(fn_sigs.len() as u32);
-    fn_sigs.push((params, ret));
-    id
-}
 
 /// v0.6+1 perf checkpoint — per-array hoisted state for the push-loop
 /// pre-reserve fast-push. See `LowerCtx::push_unchecked_for`.
