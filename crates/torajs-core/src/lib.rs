@@ -364,6 +364,7 @@ pub(crate) mod ssa_lower_arr_from_set;
 pub(crate) mod ssa_lower_arr_layout;
 pub(crate) mod ssa_lower_arr_mutators;
 pub(crate) mod ssa_lower_array;
+pub(crate) mod ssa_lower_array_any_literal;
 pub(crate) mod ssa_lower_assign_ident;
 pub(crate) mod ssa_lower_assign_member;
 pub(crate) mod ssa_lower_binop;
