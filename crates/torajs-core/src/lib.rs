@@ -473,6 +473,7 @@ pub(crate) mod ssa_lower_inner;
 pub(crate) mod ssa_lower_instanceof;
 pub(crate) mod ssa_lower_int32_coerce;
 pub(crate) mod ssa_lower_interners;
+pub(crate) mod ssa_lower_intrinsics;
 pub(crate) mod ssa_lower_intrinsics_any_substrate;
 pub(crate) mod ssa_lower_intrinsics_arr;
 pub(crate) mod ssa_lower_intrinsics_arr_any;
