@@ -41,6 +41,10 @@ use std::path::PathBuf;
 /// ssa_lower edit. Paths are relative to this crate's manifest dir.
 const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower.rs",
+    "src/ssa_lower_str_arr_sort.rs",
+    "src/ssa_lower_intrinsics.rs",
+    "src/ssa_lower_intrinsics_arr.rs",
+    "src/ssa_lower_intrinsics_table.rs",
     "src/ssa_lower_parse_type.rs",
     "src/check_type_ann.rs",
     "src/ast_refs.rs",
@@ -49,6 +53,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/num_width/alias.rs",
     "src/num_width/container.rs",
     "src/num_width/container_lookup.rs",
+    "src/num_width/container_methods.rs",
     "src/num_width/container_walk.rs",
     "src/num_width/cycle.rs",
     "src/num_width/fnsig.rs",

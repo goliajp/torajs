@@ -55,6 +55,7 @@ pub(crate) fn build(
         arr_push_unchecked: init_a.arr.arr_push_unchecked,
         arr_extend_unchecked: init_a.arr.arr_extend_unchecked,
         arr_slice: init_a.arr.arr_slice,
+        arr_sort_cb: init_a.arr.arr_sort_cb,
         str_repeat: init_a.str_a.str_repeat,
         str_to_upper: init_a.str_a.str_to_upper,
         str_to_lower: init_a.str_a.str_to_lower,

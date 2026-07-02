@@ -39,6 +39,7 @@ pub(crate) struct ArrIds {
     pub arr_push_unchecked: FuncId,
     pub arr_extend_unchecked: FuncId,
     pub arr_slice: FuncId,
+    pub arr_sort_cb: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ArrIds {
@@ -119,6 +120,18 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_arr_slice",
             &[Type::Ptr, Type::I64, Type::I64],
             Type::Ptr,
+        ),
+        // Perf Round 5 attack #1 (RFC 20260703-perf-arr-sort-nlogn):
+        // stable O(n log n) merge sort with a user-comparator callback
+        // — (arr, cmp_fn_ptr, cmp_env_ptr, mode). `mode` selects the
+        // comparator's concrete C signature (elem f64 / ret f64 /
+        // has-env bits); see torajs-arr/src/sort.rs.
+        arr_sort_cb: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_sort_cb",
+            &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64],
+            Type::Void,
         ),
     }
 }

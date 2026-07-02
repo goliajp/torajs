@@ -406,6 +406,25 @@ impl<'a> Analysis<'a> {
                     self.nested_unions.push((ek.clone(), pk));
                 }
             }
+            "sort" | "toSorted" => {
+                // Perf Round 5 F64-cmp fix (RFC 20260703) — BOTH
+                // comparator params see the receiver's elems. Pre-fix
+                // sort was absent from this match, so an F64-elem
+                // array's comparator monoed to I64 params while the
+                // sort call site passed f64 values — the callee then
+                // read garbage from the integer registers (probe:
+                // cmp(3.5, -1.25) received 4307779648 / 16384).
+                if let Some(cb) = args.first().and_then(|a| self.callee_fn_name(*a)) {
+                    for p in self.user_params(&cb).iter().take(2).cloned() {
+                        let pk = SlotKey::Param(cb.clone(), p);
+                        self.c_edges
+                            .entry(ek.clone())
+                            .or_default()
+                            .push((pk.clone(), false));
+                        self.nested_unions.push((ek.clone(), pk));
+                    }
+                }
+            }
             "reduce" | "reduceRight" => {
                 if let Some(cb) = args.first().and_then(|a| self.callee_fn_name(*a)) {
                     let ps = self.user_params(&cb);

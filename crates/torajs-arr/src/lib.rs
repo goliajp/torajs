@@ -52,6 +52,7 @@ pub mod print_inline;
 mod print_props;
 pub mod props;
 pub mod slice;
+pub mod sort;
 pub mod str_bridge;
 pub mod sum_precise;
 pub mod throw_empty;
@@ -84,6 +85,7 @@ pub use print::{
     __torajs_arr_print_str, __torajs_arr_print_substr,
 };
 pub use slice::__torajs_arr_slice;
+pub use sort::__torajs_arr_sort_cb;
 pub use throw_empty::{__torajs_arr_throw_reduce_empty, __torajs_arr_throw_reduce_right_empty};
 pub use transform::{
     __torajs_arr_concat, __torajs_arr_copy_within, __torajs_arr_fill, __torajs_arr_flat,

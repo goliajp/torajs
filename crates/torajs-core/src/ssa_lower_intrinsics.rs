@@ -70,6 +70,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_push_unchecked: FuncId,
     pub(crate) arr_extend_unchecked: FuncId,
     pub(crate) arr_slice: FuncId,
+    pub(crate) arr_sort_cb: FuncId,
     pub(crate) str_repeat: FuncId,
     pub(crate) str_to_upper: FuncId,
     pub(crate) str_to_lower: FuncId,
