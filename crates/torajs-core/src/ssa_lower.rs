@@ -25,7 +25,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, BinOp as AstBinOp, Expr, ExprId, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::ssa::{self, FuncId, InstKind, Module, Operand, Terminator, Type, ValueId};
 pub(crate) use crate::ssa_lower_ctx_struct::LowerCtx;
 pub(crate) use crate::ssa_lower_deep_clone::deep_clone_stmt;
@@ -1131,66 +1131,6 @@ impl<'a> LowerCtx<'a> {
 
     fn lower_expr_inner(&mut self, eid: ExprId) -> Operand {
         crate::ssa_lower_expr_inner::lower(self, eid)
-    }
-
-    /// Type-aware BinOp lowering. Decision rule:
-    ///   - `/` always produces f64. Both operands coerced to f64. (Use `>>`
-    ///     or explicit conversion for integer division — see collatz.tora.ts
-    ///     for the convention.)
-    ///   - Otherwise: if either operand is f64, both coerced to f64 and
-    ///     a float-flavored op is emitted (FAdd/FSub/FMul, FCmp).
-    ///   - Bitwise ops + Mod stay integer-only; mixing them with f64 is a
-    ///     type error (caught at lower-time, not tolerated).
-    /// P1.5/P1.8 — peek a binop operand's source ExprId to see if its
-    /// frontend type is Type::Undefined. Set by callers that have
-    /// the AST in hand (currently the Eq/Neq path in lower_expr).
-    /// None means "no info — treat as null per old behavior". The
-    /// pair is `(left_id, right_id)`. Cleared after each lower_binop
-    /// call so it doesn't leak across unrelated dispatches.
-    fn lower_binop(&mut self, op: AstBinOp, a: Operand, b: Operand) -> Operand {
-        self.lower_binop_with_ids(op, a, b, None, None)
-    }
-
-    pub(crate) fn lower_binop_with_ids(
-        &mut self,
-        op: AstBinOp,
-        a: Operand,
-        b: Operand,
-        left_id: Option<ExprId>,
-        right_id: Option<ExprId>,
-    ) -> Operand {
-        let saved_left = self.binop_left_undef_id.take();
-        let saved_right = self.binop_right_undef_id.take();
-        let saved_square = self.binop_mul_square;
-        self.binop_mul_square = matches!(op, AstBinOp::Mul)
-            && matches!(
-                (
-                    left_id.map(|e| self.ast.get_expr(e)),
-                    right_id.map(|e| self.ast.get_expr(e)),
-                ),
-                (Some(Expr::Ident(l)), Some(Expr::Ident(r))) if l == r
-            );
-        self.binop_left_undef_id = left_id.filter(|eid| {
-            matches!(
-                self.expr_types.get(eid),
-                Some(crate::check::Type::Undefined)
-            )
-        });
-        self.binop_right_undef_id = right_id.filter(|eid| {
-            matches!(
-                self.expr_types.get(eid),
-                Some(crate::check::Type::Undefined)
-            )
-        });
-        let r = self.lower_binop_inner(op, a, b);
-        self.binop_left_undef_id = saved_left;
-        self.binop_right_undef_id = saved_right;
-        self.binop_mul_square = saved_square;
-        r
-    }
-
-    fn lower_binop_inner(&mut self, op: AstBinOp, a: Operand, b: Operand) -> Operand {
-        crate::ssa_lower_binop_inner::lower(self, op, a, b)
     }
 
     // (`lower_logical_and` / `lower_logical_or` live in
