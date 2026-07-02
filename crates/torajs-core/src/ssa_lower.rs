@@ -27,8 +27,8 @@ use std::collections::HashMap;
 
 use crate::ast::{Ast, BinOp as AstBinOp, Expr, ExprId, Stmt};
 use crate::ssa::{
-    self, BinOp as SsaBinOp, BlockId, FPred, FuncId, IPred, InstKind, Module, Operand, Terminator,
-    Type, ValueId,
+    self, BinOp as SsaBinOp, BlockId, FuncId, IPred, InstKind, Module, Operand, Terminator, Type,
+    ValueId,
 };
 pub(crate) use crate::ssa_lower_ctx_struct::LowerCtx;
 pub(crate) use crate::ssa_lower_deep_clone::deep_clone_stmt;
@@ -1965,26 +1965,6 @@ impl<'a> LowerCtx<'a> {
     /// Promote an i64 operand to f64. Constants are rewritten in place
     /// (cheaper than emitting a sitofp instruction LLVM would constant-fold
     /// anyway). Value operands emit an explicit InstKind::SiToFp.
-    /// W4 — raw-slot intrinsic argument: array slots are 8 raw bytes
-    /// and the `__torajs_arr_*` helpers take them as i64. An f64
-    /// value must cross as explicit bits — passing an FPR value to an
-    /// i64 param is codegen-ambiguous (the baseline tier reads the
-    /// wrong register class; LLVM IR type-mismatches).
-    pub(crate) fn raw_slot_arg(&mut self, val: Operand) -> Operand {
-        if self.operand_ty(&val) != Type::F64 {
-            return val;
-        }
-        match val {
-            Operand::ConstF64(x) => Operand::ConstI64(x.to_bits() as i64),
-            _ => Operand::Value(self.f.append_inst(
-                self.cur_block,
-                InstKind::BitCastF64ToI64(val),
-                Type::I64,
-                None,
-            )),
-        }
-    }
-
     pub(crate) fn coerce_to_f64(&mut self, op: Operand) -> Operand {
         match self.operand_ty(&op) {
             Type::F64 => op,
@@ -2371,27 +2351,6 @@ impl<'a> LowerCtx<'a> {
     // `ssa_lower_logical.rs`.)
 
     // (`coerce_to_bool` lives in `ssa_lower_logical.rs`.)
-
-    pub(crate) fn bin(&mut self, op: SsaBinOp, a: Operand, b: Operand, ty: Type) -> Operand {
-        let v = self
-            .f
-            .append_inst(self.cur_block, InstKind::BinOp(op, a, b), ty, None);
-        Operand::Value(v)
-    }
-
-    pub(crate) fn cmp(&mut self, pred: IPred, a: Operand, b: Operand) -> Operand {
-        let v = self
-            .f
-            .append_inst(self.cur_block, InstKind::ICmp(pred, a, b), Type::Bool, None);
-        Operand::Value(v)
-    }
-
-    pub(crate) fn fcmp(&mut self, pred: FPred, a: Operand, b: Operand) -> Operand {
-        let v = self
-            .f
-            .append_inst(self.cur_block, InstKind::FCmp(pred, a, b), Type::Bool, None);
-        Operand::Value(v)
-    }
 
     pub(crate) fn resolve_callee(&self, eid: ExprId) -> FuncId {
         match self.ast.get_expr(eid) {
