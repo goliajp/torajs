@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T02:49:38.839Z",
+  "generatedAt": "2026-07-02T03:06:06.965Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "816cc51e",
-    "commitSubject": "refactor(torajs-core): extract number-coerce pair into ssa_lower_number_coerce sibling (chunk 388)",
+    "commit": "0f0d2b53",
+    "commitSubject": "refactor(torajs-core): extract str-byte helpers pair into ssa_lower_str_byte_helpers sibling (chunk 389)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "0f0d2b53",
+      "subject": "refactor(torajs-core): extract str-byte helpers pair into ssa_lower_str_byte_helpers sibling (chunk 389)"
+    },
+    {
+      "hash": "11a5105a",
+      "subject": "chore(dashboard): chunk 388 snapshot @ 816cc51e"
+    },
+    {
       "hash": "816cc51e",
       "subject": "refactor(torajs-core): extract number-coerce pair into ssa_lower_number_coerce sibling (chunk 388)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "4759e48c",
       "subject": "refactor(torajs-core): extract 4 SSA-emit shorthand helpers into ssa_lower_emit_shorthand sibling (chunk 382)"
-    },
-    {
-      "hash": "e0f23449",
-      "subject": "refactor(torajs-core): extract materialize_arr_substr_to_str into ssa_lower_materialize_arr sibling (chunk 381)"
-    },
-    {
-      "hash": "59e3af03",
-      "subject": "refactor(torajs-core): extract 3 micro-helpers into ssa_lower_micro_helpers sibling (chunk 380)"
     }
   ],
-  "headSha": "816cc51e",
+  "headSha": "0f0d2b53",
   "autorun": {
     "total": 303,
     "baselineTarget": 10,
