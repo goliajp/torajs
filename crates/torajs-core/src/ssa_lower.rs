@@ -25,7 +25,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, Expr, ExprId};
+use crate::ast::{Ast, ExprId};
 use crate::ssa::{self, FuncId, Module, Operand, Type, ValueId};
 pub(crate) use crate::ssa_lower_ctx_struct::LowerCtx;
 pub(crate) use crate::ssa_lower_deep_clone::deep_clone_stmt;
@@ -716,25 +716,6 @@ impl<'a> LowerCtx<'a> {
     /// Coerce a value of any type to Type::Str. Used by multi-arg
     /// console.X to build a space-joined output line.
     /// `console.log` recognized as an Ident("console") + Member.name == "log".
-    fn is_console_log_member(&self, eid: ExprId) -> bool {
-        match self.ast.get_expr(eid) {
-            Expr::Member { obj, name } if name == "log" => {
-                matches!(self.ast.get_expr(*obj), Expr::Ident(s) if s == "console")
-            }
-            _ => false,
-        }
-    }
-
-    /// `JSON.stringify(value)` — type-aware serializer. Emits SSA for
-    /// the static type of `val_op` and returns a fresh Type::Str
-    /// operand containing the JSON encoding. Recursive: arrays loop +
-    /// dispatch on element type; structs unfold field-by-field at
-    /// compile time. Always single-pass — no second walk for length
-    /// pre-computation; fragments accumulate via str_concat.
-    pub(crate) fn lower_json_stringify(&mut self, val_op: Operand, ty: Type) -> Operand {
-        crate::ssa_lower_json_stringify::lower(self, val_op, ty)
-    }
-
     /// v0.3 #4 D-3 — outer wrapper that stamps every Inst emitted
     /// while lowering `eid` with `current_origin = Some(eid)` so
     /// debug-info emission can resolve the source span for DWARF.

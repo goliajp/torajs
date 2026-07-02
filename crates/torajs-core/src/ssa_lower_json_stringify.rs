@@ -249,7 +249,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
                 elem_ty,
                 None,
             );
-            let elem_str = ctx.lower_json_stringify(Operand::Value(elem), elem_ty);
+            let elem_str = lower(ctx, Operand::Value(elem), elem_ty);
             let acc_now2 = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Load(Type::Str, Operand::Value(acc), 0),
@@ -451,7 +451,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
                     *fty,
                     None,
                 );
-                let field_str = ctx.lower_json_stringify(Operand::Value(field_v), *fty);
+                let field_str = lower(ctx, Operand::Value(field_v), *fty);
                 let v3 = ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::Call(

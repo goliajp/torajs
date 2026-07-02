@@ -56,5 +56,5 @@ pub(crate) fn try_lower(
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
     }
-    Some(ctx.lower_json_stringify(arg_op, arg_ty))
+    Some(crate::ssa_lower_json_stringify::lower(ctx, arg_op, arg_ty))
 }
