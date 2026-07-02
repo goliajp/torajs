@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T05:07:36.601Z",
+  "generatedAt": "2026-07-02T05:27:01.453Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "e59d1a0d",
-    "commitSubject": "refactor(torajs-core): extract 2 module-level type interners into ssa_lower_interners sibling (chunk 395)",
+    "commit": "7bb24f1d",
+    "commitSubject": "refactor(torajs-core): extract 2 free-fn helpers into ssa_lower_free_helpers sibling (chunk 396)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "7bb24f1d",
+      "subject": "refactor(torajs-core): extract 2 free-fn helpers into ssa_lower_free_helpers sibling (chunk 396)"
+    },
+    {
+      "hash": "96862e87",
+      "subject": "chore(dashboard): chunk 395 snapshot @ e59d1a0d"
+    },
+    {
       "hash": "e59d1a0d",
       "subject": "refactor(torajs-core): extract 2 module-level type interners into ssa_lower_interners sibling (chunk 395)"
     },
@@ -655,35 +663,38 @@
     {
       "hash": "e41ca6c5",
       "subject": "chore(dashboard): pre-rotation snapshot @ 18757bb3"
-    },
-    {
-      "hash": "18757bb3",
-      "subject": "chore(dashboard): chunk 390 snapshot @ dda6e0a4"
-    },
-    {
-      "hash": "dda6e0a4",
-      "subject": "refactor(torajs-core): extract two Eq/Neq fast-paths into ssa_lower_eq_fastpath sibling (chunk 390)"
     }
   ],
-  "headSha": "e59d1a0d",
+  "headSha": "7bb24f1d",
   "autorun": {
-    "total": 304,
+    "total": 305,
     "baselineTarget": 10,
-    "bySelf": 299,
+    "bySelf": 300,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1782962827-5e62",
-      "at": "2026-07-02T03:27:07Z",
-      "ts": 1782962827,
+      "rotationId": "r-1782968911-6fb0",
+      "at": "2026-07-02T05:08:31Z",
+      "ts": 1782968911,
       "trigger": "self",
-      "prevHead": "e41ca6c5",
-      "handoffSha": "sha256:2a2afc9f7b349785185d250ecc10e1cbe473d3b937a423698205622144481216",
-      "handoffAgeSec": 2,
+      "prevHead": "96862e87",
+      "handoffSha": "sha256:a39fb9db1d14051f2823143c9421b3618d237e1fa0216fb91dbeb131cb11b8a3",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1782968911-6fb0",
+        "at": "2026-07-02T05:08:31Z",
+        "ts": 1782968911,
+        "trigger": "self",
+        "prevHead": "96862e87",
+        "handoffSha": "sha256:a39fb9db1d14051f2823143c9421b3618d237e1fa0216fb91dbeb131cb11b8a3",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1782962827-5e62",
         "at": "2026-07-02T03:27:07Z",
@@ -780,17 +791,6 @@
         "prevHead": "d05413f7",
         "handoffSha": "sha256:c1ba19a6af237504c62f2579b24d3eaa86c5fbd3608e25efa8745476e2174355",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782858974-4f2b",
-        "at": "2026-06-30T22:36:14Z",
-        "ts": 1782858974,
-        "trigger": "self",
-        "prevHead": "00760294",
-        "handoffSha": "sha256:5fd8fa7a0879bfdcc5f1b7175730f0f57f60ae2e098ca644fe407af1ae5ca937",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
