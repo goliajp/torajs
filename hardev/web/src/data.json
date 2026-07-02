@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T10:49:20.203Z",
+  "generatedAt": "2026-07-02T11:03:55.795Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "f6c409f5",
-    "commitSubject": "refactor(torajs-core): extract type-declaration cluster into parser/type_decl sibling (chunk 415)",
+    "commit": "d71f463c",
+    "commitSubject": "refactor(torajs-core): extract parameter-list cluster into parser/param_list sibling (chunk 416)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "d71f463c",
+      "subject": "refactor(torajs-core): extract parameter-list cluster into parser/param_list sibling (chunk 416)"
+    },
+    {
+      "hash": "cfc402a0",
+      "subject": "chore(dashboard): chunk 415 snapshot @ HEAD — parser.rs -337 LOC (type-declaration cluster extracted)"
+    },
+    {
       "hash": "f6c409f5",
       "subject": "refactor(torajs-core): extract type-declaration cluster into parser/type_decl sibling (chunk 415)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "9caf240c",
       "subject": "chore(dashboard): chunk 410 snapshot @ HEAD — parser.rs -381 LOC (6 destr binding helpers extracted)"
-    },
-    {
-      "hash": "aa61f19a",
-      "subject": "refactor(torajs-core): extract 6 destructuring-binding helpers into parser/destr_helpers sibling (chunk 410)"
-    },
-    {
-      "hash": "8b2f115c",
-      "subject": "chore(dashboard): chunk 409 snapshot @ HEAD — parser.rs -367 LOC (parse_type_ann + parse_fn_type_ann extracted; regex-017-sticky flaky single-hit, 3/3 standalone rerun pass)"
     }
   ],
-  "headSha": "f6c409f5",
+  "headSha": "d71f463c",
   "autorun": {
     "total": 307,
     "baselineTarget": 10,
