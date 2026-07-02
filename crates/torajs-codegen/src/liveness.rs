@@ -336,7 +336,7 @@ fn extend_intervals_loop_aware(func: &Function, out: &mut HashMap<u32, Interval>
 /// Invoke `f` on every `ValueId` referenced as an operand of `kind`.
 /// Mirrors the InstKind dispatch in `compile::emit_inst` so adding a
 /// new variant there forces this match to be updated too.
-fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
+pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
     let mut visit = |op: &Operand| {
         if let Operand::Value(v) = op {
             f(*v);
@@ -402,7 +402,7 @@ fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
 }
 
 /// Invoke `f` on every `ValueId` referenced by a terminator's operands.
-fn visit_terminator_operands(term: &Terminator, mut f: impl FnMut(ValueId)) {
+pub(crate) fn visit_terminator_operands(term: &Terminator, mut f: impl FnMut(ValueId)) {
     let mut visit = |op: &Operand| {
         if let Operand::Value(v) = op {
             f(*v);

@@ -62,6 +62,7 @@ use torajs_core::ssa::{Function, Type};
 use crate::liveness::{Interval, compute_intervals};
 use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 use crate::regalloc::{Assignment, alloca_slot_size, collect_ret_value_ids, inst_emits_bl};
+use crate::spill_weight::compute_spill_weights;
 
 /// `true` iff some call site falls strictly inside `[start, end]` —
 /// the value is defined before a `BL` and still used after it, so a
@@ -97,10 +98,16 @@ struct Sweep {
     /// actually handed out — the frame saves/restores exactly these.
     used_callee_gpr_mask: u32,
     used_callee_fpr_mask: u32,
+    /// Round 5 popcount attack #1 — loop-aware spill weights
+    /// (`spill_weight::compute_spill_weights`). The victim scan
+    /// prefers the LOWEST weight so a loop-carried hot value never
+    /// loses its register to a cold prelude ref with a merely-longer
+    /// interval.
+    weights: HashMap<u32, u32>,
 }
 
 impl Sweep {
-    fn new(spill_base: u32) -> Self {
+    fn new(spill_base: u32, weights: HashMap<u32, u32>) -> Self {
         Sweep {
             by_value: HashMap::new(),
             active: Vec::new(),
@@ -111,6 +118,7 @@ impl Sweep {
             next_spill_offset: spill_base,
             used_callee_gpr_mask: 0,
             used_callee_fpr_mask: 0,
+            weights,
         }
     }
 
@@ -175,19 +183,21 @@ impl Sweep {
     /// Allocate for a value whose interval crosses a call: callee-
     /// saved only (caller-saved would be clobbered by the BL). Spills
     /// when the callee pool is exhausted.
-    fn alloc_crossing(&mut self, interval: Interval, is_fp: bool) -> Reg {
+    fn alloc_crossing(&mut self, vid: u32, interval: Interval, is_fp: bool) -> Reg {
         let reg = if is_fp {
             self.take_callee_fpr().map(Reg::Fpr)
         } else {
             self.take_callee_gpr().map(Reg::Gpr)
         };
-        reg.unwrap_or_else(|| self.spill_at_active(interval, is_fp, /*callee_only=*/ true))
+        reg.unwrap_or_else(|| {
+            self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ true)
+        })
     }
 
     /// Allocate for a value that never crosses a call: prefer caller-
     /// saved (free to clobber), fall back to callee-saved (then it
     /// must be saved/restored), spill last.
-    fn alloc_noncrossing(&mut self, interval: Interval, is_fp: bool) -> Reg {
+    fn alloc_noncrossing(&mut self, vid: u32, interval: Interval, is_fp: bool) -> Reg {
         if is_fp {
             if let Some(f) = self.free_caller_fpr.pop_front() {
                 return Reg::Fpr(f);
@@ -203,7 +213,7 @@ impl Sweep {
                 return Reg::Gpr(g);
             }
         }
-        self.spill_at_active(interval, is_fp, /*callee_only=*/ false)
+        self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ false)
     }
 
     /// Poletto & Sarkar 1999 "spill at active" with pool-class
@@ -217,9 +227,22 @@ impl Sweep {
     /// chosen, its `by_value` + `active` entry are rewritten to the
     /// spill slot in place and the new arrival inherits its register
     /// (already in the used-mask if it was callee-saved).
-    fn spill_at_active(&mut self, new_interval: Interval, is_fp: bool, callee_only: bool) -> Reg {
+    fn spill_at_active(
+        &mut self,
+        new_vid: u32,
+        new_interval: Interval,
+        is_fp: bool,
+        callee_only: bool,
+    ) -> Reg {
+        // Round 5 popcount attack #1 — victim ranking is (lowest
+        // spill weight, then furthest end). Weight-flat functions
+        // degrade to the original Poletto & Sarkar furthest-end
+        // choice; a loop-carried accumulator (weight ≫ cold refs)
+        // keeps its register even when its interval end reaches
+        // function exit.
+        let weight_of = |w: &HashMap<u32, u32>, v: u32| w.get(&v).copied().unwrap_or(0);
         let mut victim_idx: Option<usize> = None;
-        let mut victim_end: i64 = -1;
+        let mut victim_key: (u32, i64) = (u32::MAX, -1); // (weight asc, end desc)
         for (i, e) in self.active.iter().enumerate() {
             let (is_callee_reg, class_ok) = match e.2 {
                 Reg::Gpr(g) => (aapcs64::CALLEE_SAVED_SCRATCH.contains(&g), !is_fp),
@@ -230,15 +253,25 @@ impl Sweep {
             if !class_ok || (callee_only && !is_callee_reg) {
                 continue;
             }
-            if (e.1.end as i64) > victim_end {
-                victim_end = e.1.end as i64;
+            let key = (weight_of(&self.weights, e.0), e.1.end as i64);
+            let better = key.0 < victim_key.0 || (key.0 == victim_key.0 && key.1 > victim_key.1);
+            if better {
+                victim_key = key;
                 victim_idx = Some(i);
             }
         }
 
+        // Spill the victim only when the new arrival outranks it:
+        // strictly heavier, or equal weight with the shorter
+        // remaining range (the original furthest-end rule).
+        let new_weight = weight_of(&self.weights, new_vid);
         let spill_off = self.alloc_spill_slot();
         match victim_idx {
-            Some(i) if (self.active[i].1.end as i64) > new_interval.end as i64 => {
+            Some(i)
+                if victim_key.0 < new_weight
+                    || (victim_key.0 == new_weight
+                        && (self.active[i].1.end as i64) > new_interval.end as i64) =>
+            {
                 let (victim_vid, _vi, victim_reg) = self.active[i];
                 let spilled = if is_fp {
                     Reg::SpillFpr(spill_off)
@@ -315,7 +348,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         param_arg_reg.insert(param.0, reg);
     }
 
-    let mut sweep = Sweep::new(next_alloca_offset);
+    let mut sweep = Sweep::new(next_alloca_offset, compute_spill_weights(func));
 
     // Sweep every interval (params + inst/alloca results) by start;
     // ties broken by ValueId to keep the sweep deterministic.
@@ -361,7 +394,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
             // clobbered. Relocate to a callee-saved reg (or spill);
             // entry moves are derived from final `by_value` after the
             // sweep so a later `spill_at_active` eviction stays sound.
-            let dst = sweep.alloc_crossing(interval, is_fp);
+            let dst = sweep.alloc_crossing(vid, interval, is_fp);
             sweep.by_value.insert(vid, dst);
             sweep.active.push((vid, interval, dst));
             continue;
@@ -381,7 +414,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         // idempotent `if src != X0/V0 { mov }` covers this).
         if ret_vids.contains(&vid) {
             if crossing {
-                let dst = sweep.alloc_crossing(interval, is_fp);
+                let dst = sweep.alloc_crossing(vid, interval, is_fp);
                 sweep.by_value.insert(vid, dst);
                 sweep.active.push((vid, interval, dst));
                 continue;
@@ -396,9 +429,9 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         }
 
         let reg = if crossing {
-            sweep.alloc_crossing(interval, is_fp)
+            sweep.alloc_crossing(vid, interval, is_fp)
         } else {
-            sweep.alloc_noncrossing(interval, is_fp)
+            sweep.alloc_noncrossing(vid, interval, is_fp)
         };
         sweep.by_value.insert(vid, reg);
         sweep.active.push((vid, interval, reg));

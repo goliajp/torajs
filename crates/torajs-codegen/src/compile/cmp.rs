@@ -7,7 +7,7 @@ use super::{
     FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, OP_SCRATCH_RHS,
     OP_SCRATCH_TMP, write_def_spill_gpr, write_u32,
 };
-use crate::enc::{cmp_reg, cmp_w_reg, cond, cset_cond, fcmp_d, orr_reg};
+use crate::enc::{cmp_imm, cmp_reg, cmp_w_reg, cond, cset_cond, fcmp_d, orr_reg};
 use crate::regalloc::Assignment;
 
 pub fn emit_icmp(
@@ -21,6 +21,18 @@ pub fn emit_icmp(
     let result_vid = inst.result.expect("ICmp must have a result");
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let rn = materialize_operand_gpr(bytes, lhs, OP_SCRATCH_LHS, alloc);
+    // Round 5 popcount branch/const attack — `icmp x, #imm12` uses
+    // the CMP-immediate alias, skipping the MOVZ rematerialization
+    // of the constant into a scratch register on every compare
+    // (loop headers pay this once per iteration).
+    if let Operand::ConstI64(c) = rhs
+        && (0..4096).contains(c)
+    {
+        write_u32(bytes, cmp_imm(rn, *c as u16));
+        write_u32(bytes, cset_cond(dst, ipred_to_cond(pred)));
+        write_def_spill_gpr(bytes, spill_off, dst);
+        return;
+    }
     let rm = materialize_operand_gpr(bytes, rhs, OP_SCRATCH_RHS, alloc);
     // I32-typed ICmp (e.g. refcount equality in emit_rc_dec_inline's
     // `ICmp(Eq, rc_new: I32, ConstI32(0))`) must compare only the
@@ -130,19 +142,40 @@ mod tests {
     use crate::enc;
     use crate::reg::{Fpr, Gpr};
 
+    /// Small-const RHS ICmps take the CMP-immediate form (Round 5
+    /// popcount branch/const attack) — the constant never touches a
+    /// scratch register.
     fn assert_icmp_4word(name: &str, pred: IPred, lhs: i64, rhs: i64, expected_cond: u8) {
         let func = build_icmp_const(name, pred, lhs, rhs);
         let compiled = compile_function(&func);
         let expected = words_to_le_bytes(&[
             enc::movz_imm(Gpr::X9, lhs as u16, 0),
-            enc::movz_imm(Gpr::X10, rhs as u16, 0),
-            enc::cmp_reg(Gpr::X9, Gpr::X10),
+            enc::cmp_imm(Gpr::X9, rhs as u16),
             enc::cset_cond(Gpr::X0, expected_cond),
             enc::ret(Gpr::X30),
         ]);
         assert_eq!(
             compiled.bytes, expected,
             "{name}: expected {expected:02X?}, got {:02X?}",
+            compiled.bytes
+        );
+    }
+
+    /// A >= 4096 const RHS keeps the register CMP form.
+    #[test]
+    fn icmp_large_const_keeps_reg_form() {
+        let func = build_icmp_const("icmp_eq_5_5000", IPred::Eq, 5, 5000);
+        let compiled = compile_function(&func);
+        let expected = words_to_le_bytes(&[
+            enc::movz_imm(Gpr::X9, 5, 0),
+            enc::movz_imm(Gpr::X10, 5000, 0),
+            enc::cmp_reg(Gpr::X9, Gpr::X10),
+            enc::cset_cond(Gpr::X0, cond::EQ),
+            enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(
+            compiled.bytes, expected,
+            "icmp-large-const: expected {expected:02X?}, got {:02X?}",
             compiled.bytes
         );
     }

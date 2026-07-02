@@ -8,8 +8,8 @@ use super::{
     OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_reg, and_reg, asrv_reg, bl_imm26, eor_reg, fadd_d, fdiv_d, fmov_d_to_d, fmul_d, fsub_d,
-    lslv_reg, lsrv_reg, msub_reg, mul_reg, orr_reg, sdiv_reg, sub_reg,
+    add_imm, add_reg, and_reg, asrv_reg, bl_imm26, eor_reg, fadd_d, fdiv_d, fmov_d_to_d, fmul_d,
+    fsub_d, lslv_reg, lsrv_reg, msub_reg, mul_reg, orr_reg, sdiv_reg, sub_imm, sub_reg,
 };
 use crate::reg::aapcs64;
 use crate::regalloc::Assignment;
@@ -52,6 +52,21 @@ pub fn emit_binop(
             let result_vid = inst.result.expect("int BinOp must have a result ValueId");
             let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
             let rn = materialize_operand_gpr(bytes, lhs, OP_SCRATCH_LHS, alloc);
+            // Round 5 popcount branch/const attack — ADD/SUB with a
+            // small constant RHS use the imm12 form, skipping the
+            // MOVZ rematerialization per op (`i + 1` / `n - 1` loop
+            // steps pay this every iteration).
+            if let (BinOp::Add | BinOp::Sub, Operand::ConstI64(c)) = (op, rhs)
+                && (0..4096).contains(c)
+            {
+                match op {
+                    BinOp::Add => write_u32(bytes, add_imm(dst, rn, *c as u16)),
+                    BinOp::Sub => write_u32(bytes, sub_imm(dst, rn, *c as u16)),
+                    _ => unreachable!(),
+                }
+                write_def_spill_gpr(bytes, spill_off, dst);
+                return;
+            }
             let rm = materialize_operand_gpr(bytes, rhs, OP_SCRATCH_RHS, alloc);
             match op {
                 BinOp::Add => write_u32(bytes, add_reg(dst, rn, rm)),
@@ -165,13 +180,33 @@ mod tests {
         );
     }
 
+    /// SUB with a small-const RHS takes the imm12 form (Round 5
+    /// popcount branch/const attack): the constant is never
+    /// materialized into a scratch register.
     #[test]
-    fn five_minus_three() {
+    fn five_minus_three_uses_imm12_form() {
+        let func = build_binop_const("sub", BinOp::Sub, 5, 3);
+        let compiled = compile_function(&func);
+        let expected = words_to_le_bytes(&[
+            enc::movz_imm(Gpr::X9, 5, 0),
+            enc::sub_imm(Gpr::X0, Gpr::X9, 3),
+            enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(
+            compiled.bytes, expected,
+            "sub-imm: mismatch — expected {expected:02X?}, got {:02X?}",
+            compiled.bytes
+        );
+    }
+
+    /// SUB with a large (>= 4096) const RHS keeps the register form.
+    #[test]
+    fn sub_large_const_keeps_reg_form() {
         assert_binop_4word(
             "sub",
             BinOp::Sub,
             5,
-            3,
+            5000,
             enc::sub_reg(Gpr::X0, Gpr::X9, Gpr::X10),
         );
     }

@@ -98,6 +98,15 @@ pub fn cmp_reg(rn: Gpr, rm: Gpr) -> u32 {
     0xEB00_0000 | (rm.idx() << 16) | (rn.idx() << 5) | 31
 }
 
+/// CMP Xn, #imm12 — alias for SUBS XZR, Xn, #imm12. Sets NZCV based
+/// on `Xn - imm`; result discarded. ARM ARM C6.2.48 / C6.2.375.
+/// Round 5 popcount branch/const attack — lets `icmp x, #small-const`
+/// skip the `MOVZ scratch, #c` rematerialization per compare.
+pub fn cmp_imm(rn: Gpr, imm12: u16) -> u32 {
+    debug_assert!(imm12 < 4096, "imm12 must fit in 12 bits");
+    0xF100_0000 | ((imm12 as u32) << 10) | (rn.idx() << 5) | 31
+}
+
 /// CMP Wn, Wm — 32-bit form, alias for SUBS WZR, Wn, Wm. Sets NZCV
 /// based on `Wn - Wm` (low 32 bits only); high 32 ignored. Needed
 /// for I32-typed ICmp where the source 64-bit register slot has
@@ -228,6 +237,12 @@ mod tests {
     #[test]
     fn lsrv_x0_x1_x2_matches_arm_arm() {
         assert_eq!(lsrv_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0x9AC2_2420);
+    }
+
+    #[test]
+    fn cmp_x9_imm5_matches_arm_arm() {
+        // CMP X9, #5 = SUBS XZR, X9, #5
+        assert_eq!(cmp_imm(Gpr::X9, 5), 0xF100_153F);
     }
 
     #[test]

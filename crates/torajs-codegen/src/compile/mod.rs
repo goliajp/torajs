@@ -410,12 +410,13 @@ mod tests {
     use test_fixtures::{build_one_plus_two, words_to_le_bytes};
 
     /// S1 acceptance — `fn one_plus_two() -> i64 { 1 + 2 }` shape
-    /// compiles end-to-end to the hand-encoded 16-byte reference:
+    /// compiles end-to-end to the hand-encoded 12-byte reference
+    /// (Round 5 popcount branch/const attack: the const RHS takes
+    /// the ADD-imm12 form instead of a MOVZ + register ADD):
     ///
     /// ```text
     ///   MOVZ x9, #1       0xD2800029
-    ///   MOVZ x10, #2      0xD280004A
-    ///   ADD x0, x9, x10   0x8B0A0120
+    ///   ADD x0, x9, #2    0x91000920
     ///   RET               0xD65F03C0
     /// ```
     #[test]
@@ -423,7 +424,7 @@ mod tests {
         let func = build_one_plus_two();
         let compiled = compile_function(&func);
 
-        let expected = words_to_le_bytes(&[0xD280_0029, 0xD280_004A, 0x8B0A_0120, 0xD65F_03C0]);
+        let expected = words_to_le_bytes(&[0xD280_0029, 0x9100_0920, 0xD65F_03C0]);
         assert_eq!(
             compiled.bytes, expected,
             "byte stream mismatch — expected {expected:02X?}, got {:02X?}",
@@ -438,10 +439,10 @@ mod tests {
     }
 
     #[test]
-    fn one_plus_two_emits_exactly_16_bytes() {
+    fn one_plus_two_emits_exactly_12_bytes() {
         let func = build_one_plus_two();
         let compiled = compile_function(&func);
-        assert_eq!(compiled.bytes.len(), 16, "4 instructions × 4 bytes");
+        assert_eq!(compiled.bytes.len(), 12, "3 instructions × 4 bytes");
     }
 
     // --- S5: terminator + multi-block branch layout ---
@@ -758,7 +759,8 @@ mod tests {
     fn ls3_does_not_regress_trivial_byte_stream() {
         let func = build_one_plus_two();
         let compiled = compile_function(&func);
-        let expected = words_to_le_bytes(&[0xD280_0029, 0xD280_004A, 0x8B0A_0120, 0xD65F_03C0]);
+        // Round 5 imm12 form — see one_plus_two_byte_equal_reference.
+        let expected = words_to_le_bytes(&[0xD280_0029, 0x9100_0920, 0xD65F_03C0]);
         assert_eq!(compiled.bytes, expected);
     }
 }
