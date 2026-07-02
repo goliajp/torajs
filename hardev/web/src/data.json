@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T05:41:10.034Z",
+  "generatedAt": "2026-07-02T05:48:11.858Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "4f1b8fc0",
-    "commitSubject": "refactor(torajs-core): extract 5-method call-fn-value dispatch pack into ssa_lower_call_fn_value sibling (chunk 398)",
+    "commit": "4ce384c4",
+    "commitSubject": "refactor(torajs-core): pack 3 FuncId lookup helpers into ssa_lower_fn_meta sibling (chunk 399)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "4ce384c4",
+      "subject": "refactor(torajs-core): pack 3 FuncId lookup helpers into ssa_lower_fn_meta sibling (chunk 399)"
+    },
+    {
+      "hash": "db9b59de",
+      "subject": "chore(dashboard): chunk 398 snapshot @ HEAD"
+    },
+    {
       "hash": "4f1b8fc0",
       "subject": "refactor(torajs-core): extract 5-method call-fn-value dispatch pack into ssa_lower_call_fn_value sibling (chunk 398)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "2bb90e29",
       "subject": "chore(dashboard): chunk 393 snapshot @ 6c8a9eaa"
-    },
-    {
-      "hash": "6c8a9eaa",
-      "subject": "refactor(torajs-core): extract emit_throw_check into ssa_lower_emit_throw_check sibling (chunk 393)"
-    },
-    {
-      "hash": "2d3c1b53",
-      "subject": "chore(dashboard): chunk 392 snapshot @ 0c01c293"
     }
   ],
-  "headSha": "4f1b8fc0",
+  "headSha": "4ce384c4",
   "autorun": {
     "total": 305,
     "baselineTarget": 10,
