@@ -496,6 +496,7 @@ pub(crate) mod ssa_lower_json_parse;
 pub(crate) mod ssa_lower_json_stringify;
 pub(crate) mod ssa_lower_lit;
 pub(crate) mod ssa_lower_logical;
+pub(crate) mod ssa_lower_lowering_probes;
 pub mod ssa_lower_main_exit;
 pub(crate) mod ssa_lower_materialize_arr;
 pub(crate) mod ssa_lower_math_recognize;
