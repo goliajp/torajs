@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T11:03:55.795Z",
+  "generatedAt": "2026-07-02T11:18:48.715Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "d71f463c",
-    "commitSubject": "refactor(torajs-core): extract parameter-list cluster into parser/param_list sibling (chunk 416)",
+    "commit": "6bc52df2",
+    "commitSubject": "refactor(torajs-core): extract loop/switch statement cluster into parser/loops sibling + re-attach drifted for doc (chunk 417)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "6bc52df2",
+      "subject": "refactor(torajs-core): extract loop/switch statement cluster into parser/loops sibling + re-attach drifted for doc (chunk 417)"
+    },
+    {
+      "hash": "e45ffa8e",
+      "subject": "chore(dashboard): chunk 416 snapshot @ HEAD — parser.rs -329 LOC (parameter-list cluster extracted)"
+    },
+    {
       "hash": "d71f463c",
       "subject": "refactor(torajs-core): extract parameter-list cluster into parser/param_list sibling (chunk 416)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "3a045fa9",
       "subject": "chore(dashboard): chunk 411 snapshot @ HEAD — parser.rs -424 LOC (4 destr drivers + orphan for-of doc drop)"
-    },
-    {
-      "hash": "2c0dd6a8",
-      "subject": "refactor(torajs-core): extract 4 destructuring drivers into parser/destr_drivers sibling + drop orphan for-of docstring (chunk 411)"
-    },
-    {
-      "hash": "9caf240c",
-      "subject": "chore(dashboard): chunk 410 snapshot @ HEAD — parser.rs -381 LOC (6 destr binding helpers extracted)"
     }
   ],
-  "headSha": "d71f463c",
+  "headSha": "6bc52df2",
   "autorun": {
     "total": 307,
     "baselineTarget": 10,
