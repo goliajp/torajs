@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T04:18:14.869Z",
+  "generatedAt": "2026-07-02T04:34:05.763Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "0c01c293",
-    "commitSubject": "refactor(torajs-core): extract resolve_callee into ssa_lower_resolve_callee sibling (chunk 392)",
+    "commit": "6c8a9eaa",
+    "commitSubject": "refactor(torajs-core): extract emit_throw_check into ssa_lower_emit_throw_check sibling (chunk 393)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "6c8a9eaa",
+      "subject": "refactor(torajs-core): extract emit_throw_check into ssa_lower_emit_throw_check sibling (chunk 393)"
+    },
+    {
+      "hash": "2d3c1b53",
+      "subject": "chore(dashboard): chunk 392 snapshot @ 0c01c293"
+    },
+    {
       "hash": "0c01c293",
       "subject": "refactor(torajs-core): extract resolve_callee into ssa_lower_resolve_callee sibling (chunk 392)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "816cc51e",
       "subject": "refactor(torajs-core): extract number-coerce pair into ssa_lower_number_coerce sibling (chunk 388)"
-    },
-    {
-      "hash": "05636434",
-      "subject": "chore(dashboard): chunk 387 snapshot @ df319909"
-    },
-    {
-      "hash": "df319909",
-      "subject": "refactor(torajs-core): extract 6-fn int32-coerce family into ssa_lower_int32_coerce sibling (chunk 387)"
     }
   ],
-  "headSha": "0c01c293",
+  "headSha": "6c8a9eaa",
   "autorun": {
     "total": 304,
     "baselineTarget": 10,
