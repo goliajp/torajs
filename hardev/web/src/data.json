@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T05:48:11.858Z",
+  "generatedAt": "2026-07-02T05:55:28.166Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "4ce384c4",
-    "commitSubject": "refactor(torajs-core): pack 3 FuncId lookup helpers into ssa_lower_fn_meta sibling (chunk 399)",
+    "commit": "667566b5",
+    "commitSubject": "refactor(torajs-core): extract lower_top_stmt into ssa_lower_top_stmt sibling (chunk 400)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "667566b5",
+      "subject": "refactor(torajs-core): extract lower_top_stmt into ssa_lower_top_stmt sibling (chunk 400)"
+    },
+    {
+      "hash": "b6bac420",
+      "subject": "chore(dashboard): chunk 399 snapshot @ HEAD"
+    },
+    {
       "hash": "4ce384c4",
       "subject": "refactor(torajs-core): pack 3 FuncId lookup helpers into ssa_lower_fn_meta sibling (chunk 399)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "3098df97",
       "subject": "chore(dashboard): chunk 394 snapshot @ 0eda83d8"
-    },
-    {
-      "hash": "0eda83d8",
-      "subject": "refactor(torajs-core): drop 3 for-of thin wrappers, inline callers direct into sibling fns (chunk 394)"
-    },
-    {
-      "hash": "2bb90e29",
-      "subject": "chore(dashboard): chunk 393 snapshot @ 6c8a9eaa"
     }
   ],
-  "headSha": "4ce384c4",
+  "headSha": "667566b5",
   "autorun": {
     "total": 305,
     "baselineTarget": 10,
