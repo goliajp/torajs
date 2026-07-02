@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T04:51:04.493Z",
+  "generatedAt": "2026-07-02T05:07:36.601Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "0eda83d8",
-    "commitSubject": "refactor(torajs-core): drop 3 for-of thin wrappers, inline callers direct into sibling fns (chunk 394)",
+    "commit": "e59d1a0d",
+    "commitSubject": "refactor(torajs-core): extract 2 module-level type interners into ssa_lower_interners sibling (chunk 395)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "e59d1a0d",
+      "subject": "refactor(torajs-core): extract 2 module-level type interners into ssa_lower_interners sibling (chunk 395)"
+    },
+    {
+      "hash": "3098df97",
+      "subject": "chore(dashboard): chunk 394 snapshot @ 0eda83d8"
+    },
+    {
       "hash": "0eda83d8",
       "subject": "refactor(torajs-core): drop 3 for-of thin wrappers, inline callers direct into sibling fns (chunk 394)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "dda6e0a4",
       "subject": "refactor(torajs-core): extract two Eq/Neq fast-paths into ssa_lower_eq_fastpath sibling (chunk 390)"
-    },
-    {
-      "hash": "d85f5913",
-      "subject": "chore(dashboard): chunk 389 snapshot @ 0f0d2b53"
-    },
-    {
-      "hash": "0f0d2b53",
-      "subject": "refactor(torajs-core): extract str-byte helpers pair into ssa_lower_str_byte_helpers sibling (chunk 389)"
     }
   ],
-  "headSha": "0eda83d8",
+  "headSha": "e59d1a0d",
   "autorun": {
     "total": 304,
     "baselineTarget": 10,
