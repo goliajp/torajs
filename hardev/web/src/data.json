@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T07:39:40.335Z",
+  "generatedAt": "2026-07-02T07:55:28.961Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "36ba593d",
-    "commitSubject": "refactor(torajs-core): extract parse_type_ann + parse_fn_type_ann into parser/type_ann sibling (chunk 409)",
+    "commit": "aa61f19a",
+    "commitSubject": "refactor(torajs-core): extract 6 destructuring-binding helpers into parser/destr_helpers sibling (chunk 410)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "aa61f19a",
+      "subject": "refactor(torajs-core): extract 6 destructuring-binding helpers into parser/destr_helpers sibling (chunk 410)"
+    },
+    {
+      "hash": "8b2f115c",
+      "subject": "chore(dashboard): chunk 409 snapshot @ HEAD — parser.rs -367 LOC (parse_type_ann + parse_fn_type_ann extracted; regex-017-sticky flaky single-hit, 3/3 standalone rerun pass)"
+    },
+    {
       "hash": "36ba593d",
       "subject": "refactor(torajs-core): extract parse_type_ann + parse_fn_type_ann into parser/type_ann sibling (chunk 409)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "4cb8017f",
       "subject": "refactor(torajs-core): drop dead is_console_log_member + inline lower_json_stringify wrapper (chunk 405)"
-    },
-    {
-      "hash": "ccfe8d5e",
-      "subject": "chore(dashboard): chunk 404 snapshot @ HEAD"
-    },
-    {
-      "hash": "af673be0",
-      "subject": "refactor(torajs-core): drop dead compute_descendant_tags method (chunk 404)"
     }
   ],
-  "headSha": "36ba593d",
+  "headSha": "aa61f19a",
   "autorun": {
     "total": 306,
     "baselineTarget": 10,
