@@ -39,8 +39,7 @@
 //!   enqueue time, then returns `UNHANDLED_REJECTION_OCCURRED`.
 
 use core::ffi::c_void;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicI32, AtomicPtr, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicPtr, AtomicU8, AtomicUsize, Ordering};
 
 use crate::layout::{HeapHeader, Promise, STATE_REJECTED, as_promise};
 
@@ -52,6 +51,12 @@ unsafe extern "C" {
     /// plus a trailing newline to stderr. Defined in torajs-str
     /// (`crates/torajs-str/src/print.rs`).
     fn __torajs_str_print_err(s: *const u8);
+    /// torajs-mmalloc libc-compat realloc / sized free — same
+    /// externs `torajs_microtask::mt_grow` and `pool.rs` use.
+    #[link_name = "__torajs_realloc"]
+    fn tr_realloc(p: *mut c_void, old_size: usize, new_size: usize) -> *mut c_void;
+    #[link_name = "__torajs_free"]
+    fn tr_free(p: *mut c_void, size: usize);
 }
 
 /// Simple-fn `(reason: AnyValue) -> void` cb shape registered
@@ -89,12 +94,27 @@ fn reason_is_cell_like(v: i64) -> bool {
     u != 0 && (u & TOP_16_MASK) == 0 && (u & TAG_BIT_TYPE_OTHER) == 0
 }
 
-/// Pending-unhandled list. Every rejected Promise pushes its raw
-/// pointer here at reject time; the sweep at `main` exit reads it.
-/// Single-threaded runtime today; `Mutex` keeps the API sound for
-/// the future multi-threaded story (matches the AtomicPtr / Mutex
-/// pattern already used across torajs-promise / torajs-mutex).
-static UNHANDLED_LIST: Mutex<Vec<i64>> = Mutex::new(Vec::new());
+/// Pending-unhandled list backing array. NULL until first push;
+/// grown by doubling through mmalloc's `__torajs_realloc` — the
+/// same AtomicPtr + AtomicUsize shape as `torajs_microtask::
+/// MT_QUEUE` (single-threaded runtime today, Relaxed ordering;
+/// pre-pays the multi-threaded story per the §6.2 policy).
+///
+/// SIGBUS fix (2026-07-03) — this was `static Mutex<Vec<i64>>`.
+/// std's pthread Mutex lazy-allocates its inner pthread_mutex_t
+/// via libc malloc on first `lock()`, which made the `main`-exit
+/// sweep the ONLY libc-malloc call in the whole AOT binary
+/// (everything else is mmalloc). Under parallel conformance-gate
+/// VM layouts, libsystem_malloc's mfm allocator intermittently
+/// faulted on its own guard page inside that one alloc
+/// (KERN_PROTECTION_FAILURE / exit 138 — the regex-017-sticky
+/// flaky family; 6 crash reports share the identical stack:
+/// mfm_alloc ← OnceBox<Mutex>::initialize ←
+/// __torajs_main_exit_code). The atomic + mmalloc shape removes
+/// the libc-malloc dependency from the exit path entirely.
+static UNHANDLED_PTR: AtomicPtr<i64> = AtomicPtr::new(core::ptr::null_mut());
+static UNHANDLED_LEN: AtomicUsize = AtomicUsize::new(0);
+static UNHANDLED_CAP: AtomicUsize = AtomicUsize::new(0);
 
 /// Process-global "has the reporter fired at least once?" flag.
 /// Set by [`fire_unhandled_reporter`]; read by
@@ -199,10 +219,22 @@ pub(crate) unsafe fn enqueue_hprt_check(p: *mut c_void) {
         return;
     }
     unsafe { __torajs_rc_inc(p) };
-    UNHANDLED_LIST
-        .lock()
-        .expect("UNHANDLED_LIST poisoned")
-        .push(p as i64);
+    let len = UNHANDLED_LEN.load(Ordering::Relaxed);
+    let cap = UNHANDLED_CAP.load(Ordering::Relaxed);
+    if len == cap {
+        let new_cap = if cap == 0 { 8 } else { cap * 2 };
+        let elem = core::mem::size_of::<i64>();
+        let cur = UNHANDLED_PTR.load(Ordering::Relaxed);
+        let new_buf =
+            unsafe { tr_realloc(cur as *mut c_void, cap * elem, new_cap * elem) } as *mut i64;
+        UNHANDLED_PTR.store(new_buf, Ordering::Relaxed);
+        UNHANDLED_CAP.store(new_cap, Ordering::Relaxed);
+    }
+    let buf = UNHANDLED_PTR.load(Ordering::Relaxed);
+    unsafe {
+        *buf.add(len) = p as i64;
+    }
+    UNHANDLED_LEN.store(len + 1, Ordering::Relaxed);
 }
 
 /// Walk the pending-unhandled list once. For every entry whose
@@ -212,12 +244,17 @@ pub(crate) unsafe fn enqueue_hprt_check(p: *mut c_void) {
 /// fire the default reporter. Always drops the rc inc'd at
 /// enqueue time. Drains the list to empty.
 unsafe fn sweep_unhandled_list() {
-    let pending: Vec<i64> = {
-        let mut guard = UNHANDLED_LIST.lock().expect("UNHANDLED_LIST poisoned");
-        core::mem::take(&mut *guard)
-    };
-    for ptr in pending {
-        let p = ptr as *mut c_void;
+    // Detach the whole backing array first (same semantics as the
+    // previous `mem::take` of the Vec): re-entrant enqueues from a
+    // user listener land in a fresh buffer, not the one being swept.
+    let buf = UNHANDLED_PTR.swap(core::ptr::null_mut(), Ordering::Relaxed);
+    let len = UNHANDLED_LEN.swap(0, Ordering::Relaxed);
+    let cap = UNHANDLED_CAP.swap(0, Ordering::Relaxed);
+    if buf.is_null() {
+        return;
+    }
+    for i in 0..len {
+        let p = unsafe { *buf.add(i) } as *mut c_void;
         let pp = as_promise(p);
         unsafe {
             if (*pp).state == STATE_REJECTED && (*pp).has_handler == 0 {
@@ -247,6 +284,7 @@ unsafe fn sweep_unhandled_list() {
             crate::pool::__torajs_promise_drop(p);
         }
     }
+    unsafe { tr_free(buf as *mut c_void, cap * core::mem::size_of::<i64>()) };
 }
 
 /// Default unhandled-rejection reporter. Writes `error: <reason>\n`
