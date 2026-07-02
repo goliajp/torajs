@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T04:00:51.213Z",
+  "generatedAt": "2026-07-02T04:18:14.869Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "6c012d1a",
-    "commitSubject": "refactor(torajs-core): extract lower_array_any_literal into ssa_lower_array_any_literal sibling (chunk 391)",
+    "commit": "0c01c293",
+    "commitSubject": "refactor(torajs-core): extract resolve_callee into ssa_lower_resolve_callee sibling (chunk 392)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "0c01c293",
+      "subject": "refactor(torajs-core): extract resolve_callee into ssa_lower_resolve_callee sibling (chunk 392)"
+    },
+    {
+      "hash": "18c6a7ad",
+      "subject": "chore(dashboard): chunk 391 snapshot @ 6c012d1a"
+    },
+    {
       "hash": "6c012d1a",
       "subject": "refactor(torajs-core): extract lower_array_any_literal into ssa_lower_array_any_literal sibling (chunk 391)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "df319909",
       "subject": "refactor(torajs-core): extract 6-fn int32-coerce family into ssa_lower_int32_coerce sibling (chunk 387)"
-    },
-    {
-      "hash": "8d1fe4e4",
-      "subject": "chore(dashboard): chunk 386 snapshot @ d961f656"
-    },
-    {
-      "hash": "d961f656",
-      "subject": "refactor(torajs-core): extract lower_dynobj_init into ssa_lower_dynobj_init sibling (chunk 386)"
     }
   ],
-  "headSha": "6c012d1a",
+  "headSha": "0c01c293",
   "autorun": {
     "total": 304,
     "baselineTarget": 10,
