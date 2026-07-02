@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T07:55:28.961Z",
+  "generatedAt": "2026-07-02T08:10:41.915Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "aa61f19a",
-    "commitSubject": "refactor(torajs-core): extract 6 destructuring-binding helpers into parser/destr_helpers sibling (chunk 410)",
+    "commit": "2c0dd6a8",
+    "commitSubject": "refactor(torajs-core): extract 4 destructuring drivers into parser/destr_drivers sibling + drop orphan for-of docstring (chunk 411)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "2c0dd6a8",
+      "subject": "refactor(torajs-core): extract 4 destructuring drivers into parser/destr_drivers sibling + drop orphan for-of docstring (chunk 411)"
+    },
+    {
+      "hash": "9caf240c",
+      "subject": "chore(dashboard): chunk 410 snapshot @ HEAD — parser.rs -381 LOC (6 destr binding helpers extracted)"
+    },
+    {
       "hash": "aa61f19a",
       "subject": "refactor(torajs-core): extract 6 destructuring-binding helpers into parser/destr_helpers sibling (chunk 410)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "09defd02",
       "subject": "refactor(torajs-core): fold lower_expr + drop lower_expr_inner wrapper into ssa_lower_expr_inner sibling (chunk 406)"
-    },
-    {
-      "hash": "e9580800",
-      "subject": "chore(dashboard): chunk 405 snapshot @ HEAD"
-    },
-    {
-      "hash": "4cb8017f",
-      "subject": "refactor(torajs-core): drop dead is_console_log_member + inline lower_json_stringify wrapper (chunk 405)"
     }
   ],
-  "headSha": "aa61f19a",
+  "headSha": "2c0dd6a8",
   "autorun": {
     "total": 306,
     "baselineTarget": 10,
