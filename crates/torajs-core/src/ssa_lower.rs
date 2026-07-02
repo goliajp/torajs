@@ -26,7 +26,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId};
-use crate::ssa::{self, FuncId, InstKind, Module, Operand, Type, ValueId};
+use crate::ssa::{self, FuncId, Module, Operand, Type, ValueId};
 pub(crate) use crate::ssa_lower_ctx_struct::LowerCtx;
 pub(crate) use crate::ssa_lower_deep_clone::deep_clone_stmt;
 pub(crate) use crate::ssa_lower_env_drop_and_ret_ty::{effective_ret_ty, synthesize_env_drop};
@@ -733,25 +733,6 @@ impl<'a> LowerCtx<'a> {
     /// pre-computation; fragments accumulate via str_concat.
     pub(crate) fn lower_json_stringify(&mut self, val_op: Operand, ty: Type) -> Operand {
         crate::ssa_lower_json_stringify::lower(self, val_op, ty)
-    }
-
-    /// Intern a string literal and return a Type::Str SSA value pointing at
-    /// a fresh heap-allocated `{u64 len; u8 data[]}` copy. The static bytes
-    /// live as a `[N x i8]` global (no NUL, len is explicit); `__torajs_str_alloc`
-    /// copies them into a heap StrRepr at runtime. Every literal use does
-    /// one alloc — caller is responsible for emitting Drop at scope end
-    /// (P2.2.b.2 wires that up; this sub-step intentionally leaks one
-    /// alloc per literal use, which is fine for one-shot bench programs).
-    pub(crate) fn intern_string_literal(&mut self, s: &str) -> ValueId {
-        // Phase P-rpn — every string-literal expression resolves to a
-        // Str-shaped `StaticStrRef` global (rc_inc / rc_dec / free
-        // all no-op via the STATIC_LITERAL flag). Encoding decision
-        // happens in `StringLiteral::encode_from_str` (P11.1-S2-a).
-        let lit = ssa::StringLiteral::encode_from_str(s);
-        let sid = ssa::StringId((self.string_id_base + self.new_strings.len()) as u32);
-        self.new_strings.push(lit);
-        self.f
-            .append_inst(self.cur_block, InstKind::StaticStrRef(sid), Type::Str, None)
     }
 
     /// v0.3 #4 D-3 — outer wrapper that stamps every Inst emitted
