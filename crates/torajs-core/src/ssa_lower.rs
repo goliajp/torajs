@@ -26,7 +26,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, BinOp as AstBinOp, Expr, ExprId, Stmt};
-use crate::ssa::{self, FuncId, IPred, InstKind, Module, Operand, Terminator, Type, ValueId};
+use crate::ssa::{self, FuncId, InstKind, Module, Operand, Terminator, Type, ValueId};
 pub(crate) use crate::ssa_lower_ctx_struct::LowerCtx;
 pub(crate) use crate::ssa_lower_deep_clone::deep_clone_stmt;
 pub(crate) use crate::ssa_lower_env_drop_and_ret_ty::{effective_ret_ty, synthesize_env_drop};
@@ -1513,7 +1513,7 @@ impl<'a> LowerCtx<'a> {
     /// in the table size; used by `emit_throw_check` to consult the
     /// may_throw set (also keyed by name). Module fn count stays in the
     /// double-digits for our cases, so the linear scan is in the noise.
-    fn f_name_of(&self, fid: FuncId) -> String {
+    pub(crate) fn f_name_of(&self, fid: FuncId) -> String {
         self.fn_table
             .iter()
             .find(|(_, v)| **v == fid)
@@ -1525,7 +1525,7 @@ impl<'a> LowerCtx<'a> {
     /// of `lower()`. None of these throw, so M4's call-site throw-check
     /// can skip the cond_br after their calls (saves a runtime fn call
     /// per intrinsic invocation in the hot path).
-    fn is_intrinsic(&self, fid: FuncId) -> bool {
+    pub(crate) fn is_intrinsic(&self, fid: FuncId) -> bool {
         let i = &self.intrinsics;
         fid == i.print_i64
             || fid == i.print_f64
@@ -1653,91 +1653,6 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// M4 — emit the per-call-site throw check. After a user fn returns,
-    /// load the throw_active flag; if non-zero, branch to the innermost
-    /// active try-block's catch (via `try_stack`) or — if no try is
-    /// active in this fn — emit drops + ret a sentinel so the caller's
-    /// own throw_check picks it up. Skips entirely for runtime intrinsics
-    /// (they never throw).
-    pub(crate) fn emit_throw_check(&mut self, target: Option<FuncId>) {
-        if let Some(fid) = target {
-            if self.is_intrinsic(fid) {
-                return;
-            }
-            // M4.3.b — skip the check entirely if the callee is a
-            // verified-non-throwing user fn. fib40 / popcount / gcd /
-            // mandelbrot etc. all live here, so the M4.1 5% slowdown
-            // is gone for any program that doesn't use try/throw at
-            // all (or whose hot fns provably can't reach a throw).
-            let callee_name = self.f_name_of(fid);
-            if !self.may_throw_fns.contains(&callee_name) {
-                return;
-            }
-        }
-        let active = self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(self.intrinsics.throw_check, vec![]),
-            Type::I64,
-            None,
-        );
-        let cmp = self.f.append_inst(
-            self.cur_block,
-            InstKind::ICmp(IPred::Ne, Operand::Value(active), Operand::ConstI64(0)),
-            Type::Bool,
-            None,
-        );
-        let normal_blk = self.f.add_block();
-        let throw_blk = self.f.add_block();
-        let cb = self.cur_block;
-        self.f.set_term(
-            cb,
-            Terminator::CondBr {
-                cond: Operand::Value(cmp),
-                then_blk: throw_blk,
-                else_blk: normal_blk,
-            },
-        );
-        // throw_blk: route to innermost active try's catch, or
-        // propagate (drop owned locals + ret sentinel).
-        if let Some(catch) = self.try_stack.last().copied() {
-            self.f.set_term(throw_blk, Terminator::Br(catch));
-        } else if self.is_main_fn {
-            // bug-327 C2.5 — the throw escaped every user frame: this
-            // is an uncaught exception. Pre-fix main ret'd the I32
-            // sentinel 0, so a crashing program exited clean (bun:
-            // error report + exit 1). __torajs_uncaught_exit_code
-            // reports the pending throw to stderr and yields 1.
-            self.cur_block = throw_blk;
-            self.emit_drops_for_owned_locals();
-            let uncaught_fid = *self
-                .fn_table
-                .get("__torajs_uncaught_exit_code")
-                .expect("__torajs_uncaught_exit_code declared in module setup");
-            let code = self.f.append_inst(
-                self.cur_block,
-                InstKind::Call(uncaught_fid, vec![]),
-                Type::I32,
-                None,
-            );
-            let cb2 = self.cur_block;
-            self.f
-                .set_term(cb2, Terminator::Ret(Some(Operand::Value(code))));
-        } else {
-            self.cur_block = throw_blk;
-            self.emit_drops_for_owned_locals();
-            let cb2 = self.cur_block;
-            let ret_ty = self.f.ret;
-            let term = match ret_ty {
-                Type::Void => Terminator::Ret(None),
-                Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
-                Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
-                Type::Bool => Terminator::Ret(Some(Operand::ConstBool(false))),
-                _ => Terminator::Ret(Some(Operand::ConstI64(0))),
-            };
-            self.f.set_term(cb2, term);
-        }
-        self.cur_block = normal_blk;
-    }
-
     /// Look up the callee's return type from the signatures map populated
     /// in pass 1 of `lower`. Defaults to I64 for unknown FuncIds (intrinsics
     /// or forward refs we haven't catalogued yet — print_i64 returns void
