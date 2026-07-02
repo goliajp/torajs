@@ -2478,44 +2478,6 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
-    pub(crate) fn is_math_unary(&self, fid: FuncId) -> bool {
-        fid == self.intrinsics.math_sqrt
-            || fid == self.intrinsics.math_abs
-            || fid == self.intrinsics.math_floor
-            || fid == self.intrinsics.math_ceil
-            || fid == self.intrinsics.math_log
-            || fid == self.intrinsics.math_exp
-            || fid == self.intrinsics.math_sign
-            || fid == self.intrinsics.math_round
-            || fid == self.intrinsics.math_trunc
-            || fid == self.intrinsics.math_sin
-            || fid == self.intrinsics.math_cos
-            || fid == self.intrinsics.math_tan
-            || fid == self.intrinsics.math_asin
-            || fid == self.intrinsics.math_acos
-            || fid == self.intrinsics.math_atan
-            || fid == self.intrinsics.math_log2
-            || fid == self.intrinsics.math_log10
-            || fid == self.intrinsics.math_cbrt
-            || fid == self.intrinsics.math_sinh
-            || fid == self.intrinsics.math_cosh
-            || fid == self.intrinsics.math_tanh
-            || fid == self.intrinsics.math_asinh
-            || fid == self.intrinsics.math_acosh
-            || fid == self.intrinsics.math_atanh
-            || fid == self.intrinsics.math_expm1
-            || fid == self.intrinsics.math_log1p
-            || fid == self.intrinsics.math_fround
-            || fid == self.intrinsics.math_f16round
-    }
-
-    pub(crate) fn is_math_binary(&self, fid: FuncId) -> bool {
-        fid == self.intrinsics.math_pow
-            || fid == self.intrinsics.math_min
-            || fid == self.intrinsics.math_max
-            || fid == self.intrinsics.math_atan2
-    }
-
     /// M6.2 — call a Closure or FnSig value with a list of args. Used
     /// inside Array.map/filter/reduce/forEach loop bodies (and is the
     /// mirror of the existing inline call-via-Closure / call-via-FnSig
