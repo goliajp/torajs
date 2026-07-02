@@ -84,7 +84,11 @@ pub unsafe extern "C" fn __torajs_dynobj_attach_exec3(
         obj = unsafe { crate::alloc::__torajs_dynobj_alloc() };
         unsafe { *obj_slot = obj };
     }
-    debug_assert_eq!(unsafe { count(obj) }, 0, "attach_exec3 needs a fresh dynobj");
+    debug_assert_eq!(
+        unsafe { count(obj) },
+        0,
+        "attach_exec3 needs a fresh dynobj"
+    );
 
     // Hash slots from the const FNV values; mutual collisions resolve
     // by the same +1 linear step as `probe`. The whole cluster const-
