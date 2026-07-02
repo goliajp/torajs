@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T02:17:01.154Z",
+  "generatedAt": "2026-07-02T02:34:29.572Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "d961f656",
-    "commitSubject": "refactor(torajs-core): extract lower_dynobj_init into ssa_lower_dynobj_init sibling (chunk 386)",
+    "commit": "df319909",
+    "commitSubject": "refactor(torajs-core): extract 6-fn int32-coerce family into ssa_lower_int32_coerce sibling (chunk 387)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "df319909",
+      "subject": "refactor(torajs-core): extract 6-fn int32-coerce family into ssa_lower_int32_coerce sibling (chunk 387)"
+    },
+    {
+      "hash": "8d1fe4e4",
+      "subject": "chore(dashboard): chunk 386 snapshot @ d961f656"
+    },
+    {
       "hash": "d961f656",
       "subject": "refactor(torajs-core): extract lower_dynobj_init into ssa_lower_dynobj_init sibling (chunk 386)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "91d10823",
       "subject": "refactor(torajs-core): extract 2 relative-index helpers into ssa_lower_relative_index sibling (chunk 379)"
-    },
-    {
-      "hash": "8efc15b9",
-      "subject": "refactor(torajs-core): extract 4 rc-emit helpers into ssa_lower_rc_emit sibling (chunk 378)"
-    },
-    {
-      "hash": "e0dcd56e",
-      "subject": "refactor(torajs-core): extract 2 affine-consume helpers into ssa_lower_consume sibling (chunk 377)"
     }
   ],
-  "headSha": "d961f656",
+  "headSha": "df319909",
   "autorun": {
     "total": 303,
     "baselineTarget": 10,
