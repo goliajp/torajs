@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T05:34:11.372Z",
+  "generatedAt": "2026-07-02T05:41:10.034Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c85445c1",
-    "commitSubject": "refactor(torajs-core): pack binop dispatch layer + drop 1 dead fn + inline 1 wrapper (chunk 397)",
+    "commit": "4f1b8fc0",
+    "commitSubject": "refactor(torajs-core): extract 5-method call-fn-value dispatch pack into ssa_lower_call_fn_value sibling (chunk 398)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "4f1b8fc0",
+      "subject": "refactor(torajs-core): extract 5-method call-fn-value dispatch pack into ssa_lower_call_fn_value sibling (chunk 398)"
+    },
+    {
+      "hash": "a33b6716",
+      "subject": "chore(dashboard): chunk 397 snapshot @ c85445c1"
+    },
+    {
       "hash": "c85445c1",
       "subject": "refactor(torajs-core): pack binop dispatch layer + drop 1 dead fn + inline 1 wrapper (chunk 397)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "2d3c1b53",
       "subject": "chore(dashboard): chunk 392 snapshot @ 0c01c293"
-    },
-    {
-      "hash": "0c01c293",
-      "subject": "refactor(torajs-core): extract resolve_callee into ssa_lower_resolve_callee sibling (chunk 392)"
-    },
-    {
-      "hash": "18c6a7ad",
-      "subject": "chore(dashboard): chunk 391 snapshot @ 6c012d1a"
     }
   ],
-  "headSha": "c85445c1",
+  "headSha": "4f1b8fc0",
   "autorun": {
     "total": 305,
     "baselineTarget": 10,
