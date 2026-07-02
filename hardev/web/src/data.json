@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T03:25:13.507Z",
+  "generatedAt": "2026-07-02T03:25:40.508Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "dda6e0a4",
-    "commitSubject": "refactor(torajs-core): extract two Eq/Neq fast-paths into ssa_lower_eq_fastpath sibling (chunk 390)",
+    "commit": "18757bb3",
+    "commitSubject": "chore(dashboard): chunk 390 snapshot @ dda6e0a4",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,10 @@
   },
   "commits": [
     {
+      "hash": "18757bb3",
+      "subject": "chore(dashboard): chunk 390 snapshot @ dda6e0a4"
+    },
+    {
       "hash": "dda6e0a4",
       "subject": "refactor(torajs-core): extract two Eq/Neq fast-paths into ssa_lower_eq_fastpath sibling (chunk 390)"
     },
@@ -659,13 +663,9 @@
     {
       "hash": "33b82c50",
       "subject": "refactor(torajs-core): extract 3 lowering-strategy probes into ssa_lower_lowering_probes sibling (chunk 385)"
-    },
-    {
-      "hash": "8bff3127",
-      "subject": "refactor(torajs-core): extract 3 call-shape recognizers into ssa_lower_call_recognizers sibling (chunk 384)"
     }
   ],
-  "headSha": "dda6e0a4",
+  "headSha": "18757bb3",
   "autorun": {
     "total": 303,
     "baselineTarget": 10,
