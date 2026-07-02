@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T07:22:27.180Z",
+  "generatedAt": "2026-07-02T07:39:40.335Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "69de8c56",
-    "commitSubject": "refactor(torajs-core): extract 14-method expression precedence ladder into parser/expr_prec sibling (chunk 408)",
+    "commit": "36ba593d",
+    "commitSubject": "refactor(torajs-core): extract parse_type_ann + parse_fn_type_ann into parser/type_ann sibling (chunk 409)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -617,6 +617,14 @@
   },
   "commits": [
     {
+      "hash": "36ba593d",
+      "subject": "refactor(torajs-core): extract parse_type_ann + parse_fn_type_ann into parser/type_ann sibling (chunk 409)"
+    },
+    {
+      "hash": "23a6b60e",
+      "subject": "chore(dashboard): chunk 408 snapshot @ HEAD — parser.rs -391 LOC (expr precedence ladder extracted)"
+    },
+    {
       "hash": "69de8c56",
       "subject": "refactor(torajs-core): extract 14-method expression precedence ladder into parser/expr_prec sibling (chunk 408)"
     },
@@ -655,17 +663,9 @@
     {
       "hash": "af673be0",
       "subject": "refactor(torajs-core): drop dead compute_descendant_tags method (chunk 404)"
-    },
-    {
-      "hash": "348494f8",
-      "subject": "chore(dashboard): chunk 403 snapshot @ HEAD"
-    },
-    {
-      "hash": "c9d28b66",
-      "subject": "refactor(torajs-core): fold intern_string_literal into ssa_lower_interners sibling (chunk 403)"
     }
   ],
-  "headSha": "69de8c56",
+  "headSha": "36ba593d",
   "autorun": {
     "total": 306,
     "baselineTarget": 10,
