@@ -202,22 +202,26 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     lower_result.map_err(|_| ExitCode::from(3))
 }
 
-pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
-    // Compile each SSA function to aarch64 bytes + per-fn reloc table.
-    // The synthesized top-level wrapper ssa_lower emits as "main" needs
-    // to surface as the Apple Silicon `_main` entry — rename after
-    // compile so `LinkConfig.entry = "_main"` resolves.
-    //
-    // SSA's `funcs` includes ~370 extern declarations (runtime
-    // intrinsics with `is_declaration() == true`). Those have no body
-    // and `compile_function` would emit a stub prologue at a zero-byte
-    // vaddr, collapsing every extern call onto the same address. The
-    // orthodox fix is to leave them in the slot space (so caller FuncIds
-    // stay stable) but emit empty bytes AND rewrite any reloc targeting
-    // them from `CallTarget::Func(fid)` to `CallTarget::Extern("_name")`
-    // so the link layer resolves through the archive symbol table
-    // (`___torajs_*` with Apple's `_` prefix). Mirrors how LLVM/clang
-    // distinguishes external declarations from internal definitions.
+/// Compile each SSA function to aarch64 bytes + per-fn reloc table.
+///
+/// The synthesized top-level wrapper ssa_lower emits as "main" needs
+/// to surface as the Apple Silicon `_main` entry — renamed after
+/// compile (to `_main_user`; the `_main` entry sym goes to the
+/// argv-init wrapper synthesized at the tail so `process.argv` /
+/// `Bun.argv` see the kernel-supplied argc/argv before the user body
+/// runs).
+///
+/// SSA's `funcs` includes ~370 extern declarations (runtime
+/// intrinsics with `is_declaration() == true`). Those have no body
+/// and `compile_function` would emit a stub prologue at a zero-byte
+/// vaddr, collapsing every extern call onto the same address. The
+/// orthodox fix is to leave them in the slot space (so caller FuncIds
+/// stay stable) but emit empty bytes AND rewrite any reloc targeting
+/// them from `CallTarget::Func(fid)` to `CallTarget::Extern("_name")`
+/// so the link layer resolves through the archive symbol table
+/// (`___torajs_*` with Apple's `_` prefix). Mirrors how LLVM/clang
+/// distinguishes external declarations from internal definitions.
+fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
     // Per-FuncId param-type table. Indexes line up with the
     // `funcs` vec below (and with the FuncId space ssa_lower hands
     // out), so emit_call can read `fn_sigs[target_func.0]` to
@@ -257,22 +261,19 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
     rewrite_extern_relocs(&mut funcs, &ssa_module.funcs);
     funcs.push(synthesize_obj_drop_sized());
     funcs.push(synthesize_obj_alloc());
-    // Rename the SSA-synthesized top-level wrapper from "main" to the
-    // internal `_main_user` symbol; the `_main` entry sym goes to the
-    // argv-init wrapper synthesized below so `process.argv` /
-    // `Bun.argv` see the kernel-supplied argc/argv before the user
-    // body runs.
     for cf in funcs.iter_mut() {
         if cf.name == "main" {
             cf.name = USER_MAIN_SYM.to_string();
         }
     }
     funcs.push(synthesize_main_argv_wrapper());
+    funcs
+}
 
-    let mut strings = build_user_strings(ssa_module);
-    let class_names = build_class_names(ssa_module, &mut strings);
-
-    let data_globals: Vec<UserDataGlobalEntry> = ssa_module
+/// One `UserDataGlobalEntry` per SSA data global (sym + slot size /
+/// alignment from the SSA type).
+fn build_data_globals(ssa_module: &Module) -> Vec<UserDataGlobalEntry> {
+    ssa_module
         .data_globals
         .iter()
         .map(|dg| {
@@ -283,16 +284,19 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
                 align_log2,
             }
         })
-        .collect();
-    // SD-4c-prereq+e8 — materialize ssa::Module.class_layouts (T-26.C
-    // cycle collector metadata) into the proper in-house rodata path
-    // (`__torajs_class_layouts` outer table + per-class inner
-    // `.__class_offsets_<i>` globals + `__torajs_n_class_layouts`
-    // count). Pre-e8 reserved two zerofill slots in `data_globals`
-    // (now removed): the outer-ptr was NULL so the cycle collector
-    // short-circuited on class-bearing programs. e8 lands real bytes
-    // + dyld rebase via the e7b chained-fixups TextRebaseScope.
-    let class_layouts: Vec<UserClassLayoutEntry> = ssa_module
+        .collect()
+}
+
+/// SD-4c-prereq+e8 — materialize ssa::Module.class_layouts (T-26.C
+/// cycle collector metadata) into the proper in-house rodata path
+/// (`__torajs_class_layouts` outer table + per-class inner
+/// `.__class_offsets_<i>` globals + `__torajs_n_class_layouts`
+/// count). Pre-e8 reserved two zerofill slots in `data_globals`
+/// (now removed): the outer-ptr was NULL so the cycle collector
+/// short-circuited on class-bearing programs. e8 lands real bytes
+/// + dyld rebase via the e7b chained-fixups TextRebaseScope.
+fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLayoutEntry> {
+    ssa_module
         .class_layouts
         .iter()
         .map(|cl| UserClassLayoutEntry {
@@ -311,13 +315,15 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
                 })
                 .collect(),
         })
-        .collect();
+        .collect()
+}
 
-    // vtable slots resolve via `register_fn_addr_syms`'s `__torajs_fn_<i>`
-    // override (codegen's `FnAddr` convention) — see
-    // `archive_emit::link_to_exec_with_archives` and the
-    // `probe_vtable_link` reference.
-    let vtable_globals: Vec<UserVtableEntry> = ssa_module
+/// vtable slots resolve via `register_fn_addr_syms`'s
+/// `__torajs_fn_<i>` override (codegen's `FnAddr` convention) — see
+/// `archive_emit::link_to_exec_with_archives` and the
+/// `probe_vtable_link` reference.
+fn build_vtable_globals(ssa_module: &Module) -> Vec<UserVtableEntry> {
+    ssa_module
         .vtable_globals
         .iter()
         .map(|vt| UserVtableEntry {
@@ -328,7 +334,41 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
                 .map(|opt| opt.map(|fid: FuncId| format!("__torajs_fn_{}", fid.0)))
                 .collect(),
         })
-        .collect();
+        .collect()
+}
+
+/// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-5a — per-literal baked
+/// DFA entries. ssa_lower's Phase C-6 `Expr::Regex` arm pushes
+/// entries into `ssa_module.baked_regex_entries` when the literal is
+/// DFA-eligible; forwarded to the link layer's `UserBakedRegexEntry`
+/// schema (empty Vec = link layer skips emit).
+fn build_baked_regex_entries(ssa_module: &Module) -> Vec<torajs_link::exec::UserBakedRegexEntry> {
+    ssa_module
+        .baked_regex_entries
+        .iter()
+        .map(|e| torajs_link::exec::UserBakedRegexEntry {
+            index: e.index,
+            states_payload: e.states_payload.clone(),
+            states_len: e.states_len,
+            start: e.start,
+            start_mid: e.start_mid,
+            start_mid_word: e.start_mid_word,
+            start_mid_nonword: e.start_mid_nonword,
+            // Round 3 Phase B attack #R-E — propagate host-baked
+            // flag through the SSA → link bridge.
+            any_accept_before_byte: e.any_accept_before_byte,
+        })
+        .collect()
+}
+
+pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
+    let funcs = compile_module_funcs(ssa_module);
+
+    let mut strings = build_user_strings(ssa_module);
+    let class_names = build_class_names(ssa_module, &mut strings);
+    let data_globals = build_data_globals(ssa_module);
+    let class_layouts = build_class_layout_entries(ssa_module);
+    let vtable_globals = build_vtable_globals(ssa_module);
 
     let archives: Vec<Vec<u8>> = TORAJS_STATICLIBS
         .iter()
@@ -383,29 +423,7 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
         // statics unconditionally so `tr build` must emit the
         // zero-count global on class-name-free programs.
         force_emit_class_names_globals: true,
-        // V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-5a — per-literal
-        // baked DFA entries. ssa_lower's Phase C-6 `Expr::Regex`
-        // arm will push entries into `ssa_module.baked_regex_entries`
-        // when the literal is DFA-eligible; here we forward them to
-        // the link layer's `UserBakedRegexEntry` schema. Until
-        // Phase C-6 lands the SSA Vec stays empty so this map yields
-        // an empty Vec and the link layer skips emit.
-        baked_regex_entries: ssa_module
-            .baked_regex_entries
-            .iter()
-            .map(|e| torajs_link::exec::UserBakedRegexEntry {
-                index: e.index,
-                states_payload: e.states_payload.clone(),
-                states_len: e.states_len,
-                start: e.start,
-                start_mid: e.start_mid,
-                start_mid_word: e.start_mid_word,
-                start_mid_nonword: e.start_mid_nonword,
-                // Round 3 Phase B attack #R-E — propagate host-baked
-                // flag through the SSA → link bridge.
-                any_accept_before_byte: e.any_accept_before_byte,
-            })
-            .collect(),
+        baked_regex_entries: build_baked_regex_entries(ssa_module),
     }
 }
 
