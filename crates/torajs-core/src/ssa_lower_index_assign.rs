@@ -23,7 +23,7 @@
 //!    the silent corruption, not the spec behavior.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 /// Where the (possibly realloc'd) array pointer can be stored back.
@@ -75,102 +75,9 @@ impl<'a> LowerCtx<'a> {
         if matches!(elem_ty, Type::Any) {
             let v_raw = self.lower_expr(value);
             self.consume_if_ident(value);
-            // Pack the value into a (tag, value) pair using the same
-            // scheme as box_to_any but without the heap allocation.
             let v_ty = self.operand_ty(&v_raw);
-            let (tag_op, value_op): (Operand, Operand) = match v_ty {
-                Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw.clone()),
-                Type::F64 => {
-                    let bits = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::BitCastF64ToI64(v_raw.clone()),
-                        Type::I64,
-                        None,
-                    );
-                    (Operand::ConstI64(3), Operand::Value(bits))
-                }
-                Type::Bool => {
-                    let zext = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::ZExtBoolToI64(v_raw.clone()),
-                        Type::I64,
-                        None,
-                    );
-                    (Operand::ConstI64(1), Operand::Value(zext))
-                }
-                Type::Any => {
-                    // Already boxed — extract tag/value via the
-                    // NaN-box decoders (Step 7e-A).
-                    let tag_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
-                        Type::I64,
-                        None,
-                    );
-                    let val_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.any_unbox_value, vec![v_raw.clone()]),
-                        Type::I64,
-                        None,
-                    );
-                    (Operand::Value(tag_v), Operand::Value(val_v))
-                }
-                _ if v_ty.is_refcounted() => (Operand::ConstI64(4), v_raw.clone()),
-                Type::Ptr => {
-                    // Frontend `null` lowers to Type::Ptr
-                    // ConstPtrNull. Detect that constant shape and
-                    // emit ANY_NULL (tag=0); any other Ptr value is a
-                    // generic heap pointer (ANY_HEAP).
-                    if matches!(v_raw, Operand::ConstPtrNull) {
-                        (Operand::ConstI64(0), Operand::ConstI64(0))
-                    } else {
-                        (Operand::ConstI64(4), v_raw.clone())
-                    }
-                }
-                _ => panic!("ssa-lower: Array<Any>[i] = unsupported value type {v_ty:?}"),
-            };
-            match writeback {
-                Some(wb) => {
-                    let new_arr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_set_any_grow,
-                            vec![arr_val, idx_val, tag_op, value_op],
-                        ),
-                        arr_ty,
-                        None,
-                    );
-                    match wb {
-                        WriteBack::Local(slot) => {
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Store(Operand::Value(new_arr), Operand::Value(slot), 0),
-                            );
-                        }
-                        WriteBack::Global(name) => {
-                            let gref = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::GlobalRef(name),
-                                Type::Ptr,
-                                None,
-                            );
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Store(Operand::Value(new_arr), Operand::Value(gref), 0),
-                            );
-                        }
-                    }
-                }
-                None => {
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_set_any,
-                            vec![arr_val, idx_val, tag_op, value_op],
-                        ),
-                    );
-                }
-            }
+            let (tag_op, value_op) = self.pack_any_slot_value(&v_raw, v_ty);
+            self.emit_arr_set_any(writeback, arr_val, arr_ty, idx_val, tag_op, value_op);
             // Both entries can raise (dense-limit / temporary-receiver
             // RangeError) — propagate.
             self.emit_throw_check(None);
@@ -193,9 +100,150 @@ impl<'a> LowerCtx<'a> {
             ),
             _ => v,
         };
-        // bug-327 C3: guard the inline slot store with
-        // `0 <= idx && idx < len` (IPred has no unsigned compare, so
-        // the negative-index shape gets its own arm).
+        let join_blk = self.emit_index_bounds_guard(&arr_val, &idx_val);
+        // T-13.5: head-aware byte offset for indexed assign.
+        let offset = self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
+        // Drop old elem if non-Copy. M1.2 MVP only ships i64
+        // elements (Copy), so this branch currently never fires; lays
+        // groundwork for non-Copy element types in a follow-up.
+        if !elem_ty.is_copy() {
+            let old = self.f.append_inst(
+                self.cur_block,
+                InstKind::LoadDyn(elem_ty, arr_val.clone(), offset.clone()),
+                elem_ty,
+                None,
+            );
+            self.emit_drop_value(Operand::Value(old), elem_ty);
+        }
+        self.f.append_void(
+            self.cur_block,
+            InstKind::StoreDyn(v.clone(), arr_val, offset),
+        );
+        let wb = self.cur_block;
+        self.f.set_term(wb, Terminator::Br(join_blk));
+        self.cur_block = join_blk;
+        v
+    }
+
+    /// Pack the value into a (tag, value) operand pair using the same
+    /// scheme as box_to_any but without the heap allocation.
+    fn pack_any_slot_value(&mut self, v_raw: &Operand, v_ty: Type) -> (Operand, Operand) {
+        match v_ty {
+            Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw.clone()),
+            Type::F64 => {
+                let bits = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BitCastF64ToI64(v_raw.clone()),
+                    Type::I64,
+                    None,
+                );
+                (Operand::ConstI64(3), Operand::Value(bits))
+            }
+            Type::Bool => {
+                let zext = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ZExtBoolToI64(v_raw.clone()),
+                    Type::I64,
+                    None,
+                );
+                (Operand::ConstI64(1), Operand::Value(zext))
+            }
+            Type::Any => {
+                // Already boxed — extract tag/value via the
+                // NaN-box decoders (Step 7e-A).
+                let tag_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
+                    Type::I64,
+                    None,
+                );
+                let val_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_unbox_value, vec![v_raw.clone()]),
+                    Type::I64,
+                    None,
+                );
+                (Operand::Value(tag_v), Operand::Value(val_v))
+            }
+            _ if v_ty.is_refcounted() => (Operand::ConstI64(4), v_raw.clone()),
+            Type::Ptr => {
+                // Frontend `null` lowers to Type::Ptr
+                // ConstPtrNull. Detect that constant shape and
+                // emit ANY_NULL (tag=0); any other Ptr value is a
+                // generic heap pointer (ANY_HEAP).
+                if matches!(v_raw, Operand::ConstPtrNull) {
+                    (Operand::ConstI64(0), Operand::ConstI64(0))
+                } else {
+                    (Operand::ConstI64(4), v_raw.clone())
+                }
+            }
+            _ => panic!("ssa-lower: Array<Any>[i] = unsupported value type {v_ty:?}"),
+        }
+    }
+
+    /// Route the Any-slot write to the growable helper (write-back
+    /// receiver present — the realloc'd pointer is stored back to the
+    /// local slot / const-global) or the plain entry (loud RangeError
+    /// on OOB).
+    fn emit_arr_set_any(
+        &mut self,
+        writeback: Option<WriteBack>,
+        arr_val: Operand,
+        arr_ty: Type,
+        idx_val: Operand,
+        tag_op: Operand,
+        value_op: Operand,
+    ) {
+        match writeback {
+            Some(wb) => {
+                let new_arr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.arr_set_any_grow,
+                        vec![arr_val, idx_val, tag_op, value_op],
+                    ),
+                    arr_ty,
+                    None,
+                );
+                match wb {
+                    WriteBack::Local(slot) => {
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::Value(new_arr), Operand::Value(slot), 0),
+                        );
+                    }
+                    WriteBack::Global(name) => {
+                        let gref = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::GlobalRef(name),
+                            Type::Ptr,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::Value(new_arr), Operand::Value(gref), 0),
+                        );
+                    }
+                }
+            }
+            None => {
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.arr_set_any,
+                        vec![arr_val, idx_val, tag_op, value_op],
+                    ),
+                );
+            }
+        }
+    }
+
+    /// bug-327 C3: guard the inline slot store with
+    /// `0 <= idx && idx < len` (IPred has no unsigned compare, so
+    /// the negative-index shape gets its own arm). Emits the OOB
+    /// reject block; leaves `cur_block` on the in-bounds write block
+    /// and returns the join block both paths branch to.
+    fn emit_index_bounds_guard(&mut self, arr_val: &Operand, idx_val: &Operand) -> BlockId {
         let len = self.f.append_inst(
             self.cur_block,
             InstKind::Load(Type::I64, arr_val.clone(), ARR_LEN_OFF),
@@ -245,27 +293,6 @@ impl<'a> LowerCtx<'a> {
         let ob = self.cur_block;
         self.f.set_term(ob, Terminator::Br(join_blk));
         self.cur_block = write_blk;
-        // T-13.5: head-aware byte offset for indexed assign.
-        let offset = self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
-        // Drop old elem if non-Copy. M1.2 MVP only ships i64
-        // elements (Copy), so this branch currently never fires; lays
-        // groundwork for non-Copy element types in a follow-up.
-        if !elem_ty.is_copy() {
-            let old = self.f.append_inst(
-                self.cur_block,
-                InstKind::LoadDyn(elem_ty, arr_val.clone(), offset.clone()),
-                elem_ty,
-                None,
-            );
-            self.emit_drop_value(Operand::Value(old), elem_ty);
-        }
-        self.f.append_void(
-            self.cur_block,
-            InstKind::StoreDyn(v.clone(), arr_val, offset),
-        );
-        let wb = self.cur_block;
-        self.f.set_term(wb, Terminator::Br(join_blk));
-        self.cur_block = join_blk;
-        v
+        join_blk
     }
 }
