@@ -47,15 +47,27 @@ pub(crate) fn try_match(
     callee: &ExprId,
     args: &Vec<ExprId>,
 ) -> Option<Result<Type, String>> {
-    /* T-19.l (v0.5.0) — `Promise<T>.then(onOk, onRejected)`
-     * 2-arg form. Spec equivalent of `.then(onOk).catch
-     * (onRejected)`. Both cbs share the simple cb shape
-     * `(v: T) => T`. Routed here BEFORE the regular method
-     * table because the method table's static signature
-     * carries a fixed param count (1) and the generic arg-
-     * count check below would reject 2-arg calls. ssa_lower
-     * picks up the 2-arg shape and emits a then→catch
-     * chain at the call site. */
+    try_then_two_arg(checker, ast, callee, args)
+        .or_else(|| try_then_heterogeneous(checker, ast, callee, args))
+        .or_else(|| try_then_undefined(checker, ast, callee, args))
+        .or_else(|| try_then_array(checker, ast, callee, args))
+}
+
+/// T-19.l (v0.5.0) — `Promise<T>.then(onOk, onRejected)`
+/// 2-arg form. Spec equivalent of `.then(onOk).catch
+/// (onRejected)`. Both cbs share the simple cb shape
+/// `(v: T) => T`. Routed here BEFORE the regular method
+/// table because the method table's static signature
+/// carries a fixed param count (1) and the generic arg-
+/// count check below would reject 2-arg calls. ssa_lower
+/// picks up the 2-arg shape and emits a then→catch
+/// chain at the call site.
+fn try_then_two_arg(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Option<Result<Type, String>> {
     if let Expr::Member {
         obj: src_id,
         name: m_name,
@@ -87,18 +99,27 @@ pub(crate) fn try_match(
             return Some(Ok(Type::Promise(Box::new(inner_ty))));
         }
     }
-    /* T-19.o (v0.5.0) — generic `Promise<T>.then(cb)` /
-     * `.catch(cb)` where cb's return type U may differ
-     * from T (per ES2015). Routed here BEFORE the
-     * method-table because the table's static signature
-     * fixes T == U. We probe cb's actual signature: if
-     * its param matches T and its return is a primitive
-     * the runtime helper can pack through i64 (Number /
-     * String / Boolean), the result is Promise<U>.
-     *
-     * `.finally` is intentionally not handled here —
-     * its cb is `() => void` per spec and the table arm
-     * already covers that shape. */
+    None
+}
+
+/// T-19.o (v0.5.0) — generic `Promise<T>.then(cb)` /
+/// `.catch(cb)` where cb's return type U may differ
+/// from T (per ES2015). Routed here BEFORE the
+/// method-table because the table's static signature
+/// fixes T == U. We probe cb's actual signature: if
+/// its param matches T and its return is a primitive
+/// the runtime helper can pack through i64 (Number /
+/// String / Boolean), the result is Promise<U>.
+///
+/// `.finally` is intentionally not handled here —
+/// its cb is `() => void` per spec and the table arm
+/// already covers that shape.
+fn try_then_heterogeneous(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Option<Result<Type, String>> {
     if let Expr::Member {
         obj: src_id,
         name: m_name,
@@ -152,29 +173,38 @@ pub(crate) fn try_match(
             }
         }
     }
-    /* P10.2-A1.1 (resumed-session 2026-05-21) —
-     * `Promise<Undefined>.then(cb)` / `.catch(cb)`. The
-     * 0-arg ctor `Promise.resolve()` / `.reject()` (A1)
-     * produces inner T=Undefined, which the generic
-     * arm above rejects (it limits inner T to the i64-
-     * roundtrippable Number/String/Boolean primitives).
-     *
-     * cb sig is `() => U` — ergonomic surface for the
-     * 0-arg ctor (TS spec actually wants `(v: undefined)
-     * => U`, but bare-`() => U` is what real code looks
-     * like and what bun accepts as a structural sig).
-     * The helper still calls cb via SystemV `int64_t
-     * (*)(int64_t)`; cb just ignores its argument slot.
-     *
-     * cb return U: primitive (Number / String / Boolean)
-     * → Promise<U>; Void / Undefined → Promise<Undefined>.
-     *
-     * Both closure-typed and simple-fn-typed cb shapes
-     * are accepted at this layer; ssa_lower's existing
-     * cb_ty Closure/FnSig dispatch (line ~17220) routes
-     * to promise_then_closure / _simple correctly without
-     * any Promise<T> inner-T inspection (SSA Type::Promise
-     * is a unit variant). */
+    None
+}
+
+/// P10.2-A1.1 (resumed-session 2026-05-21) —
+/// `Promise<Undefined>.then(cb)` / `.catch(cb)`. The
+/// 0-arg ctor `Promise.resolve()` / `.reject()` (A1)
+/// produces inner T=Undefined, which the generic
+/// arm above rejects (it limits inner T to the i64-
+/// roundtrippable Number/String/Boolean primitives).
+///
+/// cb sig is `() => U` — ergonomic surface for the
+/// 0-arg ctor (TS spec actually wants `(v: undefined)
+/// => U`, but bare-`() => U` is what real code looks
+/// like and what bun accepts as a structural sig).
+/// The helper still calls cb via SystemV `int64_t
+/// (*)(int64_t)`; cb just ignores its argument slot.
+///
+/// cb return U: primitive (Number / String / Boolean)
+/// → Promise<U>; Void / Undefined → Promise<Undefined>.
+///
+/// Both closure-typed and simple-fn-typed cb shapes
+/// are accepted at this layer; ssa_lower's existing
+/// cb_ty Closure/FnSig dispatch (line ~17220) routes
+/// to promise_then_closure / _simple correctly without
+/// any Promise<T> inner-T inspection (SSA Type::Promise
+/// is a unit variant).
+fn try_then_undefined(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Option<Result<Type, String>> {
     if let Expr::Member {
         obj: src_id,
         name: m_name,
@@ -212,29 +242,38 @@ pub(crate) fn try_match(
             )));
         }
     }
-    /* P10.2-A4 (resumed-session 2026-05-22) —
-     * `Promise<Array<U>>.then(cb)` / `.catch(cb)`. The
-     * Promise.all<T>(promises) result has inner T=Array<U>,
-     * which the generic .then/.catch arm above rejects
-     * (it limits inner T to the i64-roundtrippable
-     * Number/String/Boolean primitives).
-     *
-     * cb sig is `(arr: Array<U>) => V` per spec (1-arg
-     * structural sig accepted; mirrors A1.1's 0-arg arm
-     * pattern for Promise<Undefined>). SystemV `int64_t
-     * (*)(int64_t)` already passes Array ptr in rdi; cb
-     * reads it directly. No runtime change.
-     *
-     * cb return V: primitive (Number / String / Boolean)
-     * → Promise<V>; Void / Undefined → Promise<Undefined>.
-     * Array<W> return is deferred (would need helper-side
-     * value_is_heap=true propagation for next Promise's
-     * heap value — separate sub-A).
-     *
-     * cb does NOT retain the array past invocation —
-     * source Promise still owns the Array ref for its
-     * lifetime; the cb only reads through the passed
-     * ptr. So no rc concern in either direction. */
+    None
+}
+
+/// P10.2-A4 (resumed-session 2026-05-22) —
+/// `Promise<Array<U>>.then(cb)` / `.catch(cb)`. The
+/// Promise.all<T>(promises) result has inner T=Array<U>,
+/// which the generic .then/.catch arm above rejects
+/// (it limits inner T to the i64-roundtrippable
+/// Number/String/Boolean primitives).
+///
+/// cb sig is `(arr: Array<U>) => V` per spec (1-arg
+/// structural sig accepted; mirrors A1.1's 0-arg arm
+/// pattern for Promise<Undefined>). SystemV `int64_t
+/// (*)(int64_t)` already passes Array ptr in rdi; cb
+/// reads it directly. No runtime change.
+///
+/// cb return V: primitive (Number / String / Boolean)
+/// → Promise<V>; Void / Undefined → Promise<Undefined>.
+/// Array<W> return is deferred (would need helper-side
+/// value_is_heap=true propagation for next Promise's
+/// heap value — separate sub-A).
+///
+/// cb does NOT retain the array past invocation —
+/// source Promise still owns the Array ref for its
+/// lifetime; the cb only reads through the passed
+/// ptr. So no rc concern in either direction.
+fn try_then_array(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Option<Result<Type, String>> {
     if let Expr::Member {
         obj: src_id,
         name: m_name,
