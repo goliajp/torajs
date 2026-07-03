@@ -26,6 +26,14 @@
 use crate::check::{Type, is_array_method_name};
 
 pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String>> {
+    let ty = try_match_base(obj_ty, name).or_else(|| try_match_iter(obj_ty, name))?;
+    Some(Ok(ty))
+}
+
+/// First half of the typed-Array method table — identity /
+/// stringify / mutation / slice / scan arms (valueOf → indexOf),
+/// verbatim order from the pre-split match.
+fn try_match_base(obj_ty: &Type, name: &str) -> Option<Type> {
     let ty = match (obj_ty, name) {
         // ES §23.1.3.34 — `arr.valueOf()` returns the
         // Array itchecker (identity). The default Object
@@ -211,6 +219,17 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Array(elem), "indexOf" | "lastIndexOf") => {
             Type::Function(vec![(**elem).clone()], Box::new(Type::Number))
         }
+        _ => return None,
+    };
+    Some(ty)
+}
+
+/// Second half — callback-iteration arms (map → some/every), the
+/// keys/values/entries ArrIter arms, and the T-29 Array-as-Object
+/// catch-all (must stay the LAST arm so it only fires after every
+/// typed-array dispatch above misses).
+fn try_match_iter(obj_ty: &Type, name: &str) -> Option<Type> {
+    let ty = match (obj_ty, name) {
         // M6.2 — `xs.map(fn)`: takes a `(T) => T` closure,
         // returns `T[]` (a fresh array). MVP keeps input
         // and output element types the same; non-uniform
@@ -332,5 +351,5 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Array(_), n) if n != "length" && !is_array_method_name(n) => Type::Any,
         _ => return None,
     };
-    Some(Ok(ty))
+    Some(ty)
 }
