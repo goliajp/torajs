@@ -36,20 +36,7 @@ impl<'a> Formatter<'a> {
             Expr::Bool(b) => self.write(if *b { "true" } else { "false" }),
             Expr::Null => self.write("null"),
             Expr::Uninit => {} // declared-but-uninit; handled by LetDecl
-            Expr::String(s) => {
-                self.write("'");
-                for c in s.chars() {
-                    match c {
-                        '\\' => self.write("\\\\"),
-                        '\'' => self.write("\\'"),
-                        '\n' => self.write("\\n"),
-                        '\t' => self.write("\\t"),
-                        '\r' => self.write("\\r"),
-                        c => self.out.push(c),
-                    }
-                }
-                self.write("'");
-            }
+            Expr::String(s) => self.fmt_string_lit(s),
             Expr::Regex { pattern, flags } => {
                 self.write("/");
                 self.write(pattern);
@@ -75,12 +62,7 @@ impl<'a> Formatter<'a> {
             Expr::Call { callee, args } => {
                 self.fmt_expr(*callee);
                 self.write("(");
-                for (i, a) in args.iter().enumerate() {
-                    if i > 0 {
-                        self.write(", ");
-                    }
-                    self.fmt_expr(*a);
-                }
+                self.fmt_comma_list(args);
                 self.write(")");
             }
             Expr::Assign { target, value } => {
@@ -90,37 +72,14 @@ impl<'a> Formatter<'a> {
             }
             Expr::Array(items) => {
                 self.write("[");
-                for (i, a) in items.iter().enumerate() {
-                    if i > 0 {
-                        self.write(", ");
-                    }
-                    self.fmt_expr(*a);
-                }
+                self.fmt_comma_list(items);
                 self.write("]");
             }
             Expr::Spread { expr } => {
                 self.write("...");
                 self.fmt_expr(*expr);
             }
-            Expr::ObjectLit { fields } => {
-                self.write("{ ");
-                for (i, (n, v)) in fields.iter().enumerate() {
-                    if i > 0 {
-                        self.write(", ");
-                    }
-                    // shorthand: `{ x }` if value is an ident with the same name
-                    if let Expr::Ident(vn) = self.ast.get_expr(*v)
-                        && vn == n
-                    {
-                        self.write(n);
-                    } else {
-                        self.write(n);
-                        self.write(": ");
-                        self.fmt_expr(*v);
-                    }
-                }
-                self.write(" }");
-            }
+            Expr::ObjectLit { fields } => self.fmt_object_lit(fields),
             Expr::ArrowFn {
                 params,
                 return_type,
@@ -137,54 +96,21 @@ impl<'a> Formatter<'a> {
                 {
                     self.fmt_expr(*eid);
                 } else {
-                    self.write("{");
-                    self.newline();
-                    self.indent += 1;
-                    for s in body {
-                        self.fmt_stmt(s);
-                        self.newline();
-                    }
-                    self.indent -= 1;
-                    self.write_indent();
-                    self.write("}");
+                    self.fmt_block_braces(body);
                 }
             }
-            Expr::Closure { fn_name, captures } => {
-                // Synthetic shape — only appears post-`lift_arrow_fns`.
-                // Pre-desugar `format()` shouldn't see this. Print
-                // recognizable but unparseable hint so users notice.
-                self.write("/*closure ");
-                self.write(fn_name);
-                self.write(" captures=[");
-                for (i, c) in captures.iter().enumerate() {
-                    if i > 0 {
-                        self.write(", ");
-                    }
-                    self.write(c);
-                }
-                self.write("]*/");
-            }
+            Expr::Closure { fn_name, captures } => self.fmt_closure_hint(fn_name, captures),
             Expr::This => self.write("this"),
             Expr::New { class_name, args } => {
                 self.write("new ");
                 self.write(class_name);
                 self.write("(");
-                for (i, a) in args.iter().enumerate() {
-                    if i > 0 {
-                        self.write(", ");
-                    }
-                    self.fmt_expr(*a);
-                }
+                self.fmt_comma_list(args);
                 self.write(")");
             }
             Expr::Super { args } => {
                 self.write("super(");
-                for (i, a) in args.iter().enumerate() {
-                    if i > 0 {
-                        self.write(", ");
-                    }
-                    self.fmt_expr(*a);
-                }
+                self.fmt_comma_list(args);
                 self.write(")");
             }
             Expr::Ternary {
@@ -228,48 +154,114 @@ impl<'a> Formatter<'a> {
                 self.fmt_expr(*right);
                 self.write(")");
             }
-            Expr::Unary { op, expr } => {
-                let s = match op {
-                    UnaryOp::Not => "!",
-                    UnaryOp::Neg => "-",
-                    UnaryOp::BitNot => "~",
-                    UnaryOp::Plus => "+",
-                };
-                self.write(s);
-                // Parenthesize complex operands defensively.
-                let needs_paren = matches!(
-                    self.ast.get_expr(*expr),
-                    Expr::BinOp { .. } | Expr::Ternary { .. } | Expr::Assign { .. }
-                );
-                if needs_paren {
-                    self.write("(");
-                }
-                self.fmt_expr(*expr);
-                if needs_paren {
-                    self.write(")");
-                }
+            Expr::Unary { op, expr } => self.fmt_unary(op, *expr),
+            Expr::BinOp { op, left, right } => self.fmt_binop(op, *left, *right),
+        }
+    }
+
+    /// Comma-separated expr list — the `(a, b, c)` / `[a, b, c]`
+    /// interior shared by Call / Array / New / Super.
+    fn fmt_comma_list(&mut self, items: &[ExprId]) {
+        for (i, a) in items.iter().enumerate() {
+            if i > 0 {
+                self.write(", ");
             }
-            Expr::BinOp { op, left, right } => {
-                let needs_paren =
-                    |child: ExprId| matches!(self.ast.get_expr(child), Expr::BinOp { .. });
-                if needs_paren(*left) {
-                    self.write("(");
-                    self.fmt_expr(*left);
-                    self.write(")");
-                } else {
-                    self.fmt_expr(*left);
-                }
-                self.write(" ");
-                self.write(binop_str(op));
-                self.write(" ");
-                if needs_paren(*right) {
-                    self.write("(");
-                    self.fmt_expr(*right);
-                    self.write(")");
-                } else {
-                    self.fmt_expr(*right);
-                }
+            self.fmt_expr(*a);
+        }
+    }
+
+    /// Single-quoted string literal with escape folding.
+    fn fmt_string_lit(&mut self, s: &str) {
+        self.write("'");
+        for c in s.chars() {
+            match c {
+                '\\' => self.write("\\\\"),
+                '\'' => self.write("\\'"),
+                '\n' => self.write("\\n"),
+                '\t' => self.write("\\t"),
+                '\r' => self.write("\\r"),
+                c => self.out.push(c),
             }
+        }
+        self.write("'");
+    }
+
+    fn fmt_object_lit(&mut self, fields: &[(String, ExprId)]) {
+        self.write("{ ");
+        for (i, (n, v)) in fields.iter().enumerate() {
+            if i > 0 {
+                self.write(", ");
+            }
+            // shorthand: `{ x }` if value is an ident with the same name
+            if let Expr::Ident(vn) = self.ast.get_expr(*v)
+                && vn == n
+            {
+                self.write(n);
+            } else {
+                self.write(n);
+                self.write(": ");
+                self.fmt_expr(*v);
+            }
+        }
+        self.write(" }");
+    }
+
+    /// Synthetic shape — only appears post-`lift_arrow_fns`.
+    /// Pre-desugar `format()` shouldn't see this. Print
+    /// recognizable but unparseable hint so users notice.
+    fn fmt_closure_hint(&mut self, fn_name: &str, captures: &[String]) {
+        self.write("/*closure ");
+        self.write(fn_name);
+        self.write(" captures=[");
+        for (i, c) in captures.iter().enumerate() {
+            if i > 0 {
+                self.write(", ");
+            }
+            self.write(c);
+        }
+        self.write("]*/");
+    }
+
+    fn fmt_unary(&mut self, op: &UnaryOp, expr: ExprId) {
+        let s = match op {
+            UnaryOp::Not => "!",
+            UnaryOp::Neg => "-",
+            UnaryOp::BitNot => "~",
+            UnaryOp::Plus => "+",
+        };
+        self.write(s);
+        // Parenthesize complex operands defensively.
+        let needs_paren = matches!(
+            self.ast.get_expr(expr),
+            Expr::BinOp { .. } | Expr::Ternary { .. } | Expr::Assign { .. }
+        );
+        if needs_paren {
+            self.write("(");
+        }
+        self.fmt_expr(expr);
+        if needs_paren {
+            self.write(")");
+        }
+    }
+
+    fn fmt_binop(&mut self, op: &BinOp, left: ExprId, right: ExprId) {
+        let needs_paren = |child: ExprId| matches!(self.ast.get_expr(child), Expr::BinOp { .. });
+        if needs_paren(left) {
+            self.write("(");
+            self.fmt_expr(left);
+            self.write(")");
+        } else {
+            self.fmt_expr(left);
+        }
+        self.write(" ");
+        self.write(binop_str(op));
+        self.write(" ");
+        if needs_paren(right) {
+            self.write("(");
+            self.fmt_expr(right);
+            self.write(")");
+        } else {
+            self.fmt_expr(right);
         }
     }
 }

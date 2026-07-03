@@ -304,9 +304,9 @@ impl<'a> Formatter<'a> {
 
     /// Emit `{` + newline, the stmt list one level deeper, then the
     /// closing `}` at the current indent — the brace-block shape
-    /// shared by the Block arm, try/catch/finally, braced bodies and
-    /// class-method bodies.
-    fn fmt_block_braces(&mut self, stmts: &[Stmt]) {
+    /// shared by the Block arm, try/catch/finally, braced bodies,
+    /// class-method bodies and the ArrowFn block body (fmt_expr).
+    pub(super) fn fmt_block_braces(&mut self, stmts: &[Stmt]) {
         self.write("{");
         self.newline();
         self.indent += 1;
