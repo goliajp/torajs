@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-03T06:02:07.619Z",
+  "generatedAt": "2026-07-03T08:32:49.689Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "44ddbd5e",
-    "commitSubject": "refactor: split index-search fromIndex normalize and elem load into fns",
+    "commit": "d6967e27",
+    "commitSubject": "refactor: split array member typecheck table into two cascade fns",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "d6967e27",
+      "subject": "refactor: split array member typecheck table into two cascade fns"
+    },
+    {
+      "hash": "191feed9",
+      "subject": "refactor: split import resolver helpers into submodule"
+    },
+    {
+      "hash": "7b5f4061",
+      "subject": "refactor: split unary any-arith, coercion and neg paths into methods"
+    },
+    {
+      "hash": "085edcb6",
+      "subject": "refactor: extract assign and sequence lowering from expr dispatch"
+    },
+    {
+      "hash": "a8059805",
+      "subject": "refactor: split fmt_stmt per-arm fns and share brace-block emission"
+    },
+    {
+      "hash": "2691b3c2",
+      "subject": "refactor: split member typecheck family dispatch chain into fn"
+    },
+    {
+      "hash": "66bbdacc",
+      "subject": "refactor: split arr-sort pred and helper gate into submodules"
+    },
+    {
+      "hash": "0e5fa59a",
+      "subject": "chore(dashboard): session snapshot @ 44ddbd5e — fn-debt decomp 5-chunk sweep (parser trio 421/419/413 / archive_layout 428 / lower_inner 411 / binop_inner 389 / index_search 371 all cleared + parse_type 201 residual)"
+    },
+    {
       "hash": "44ddbd5e",
       "subject": "refactor: split index-search fromIndex normalize and elem load into fns"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "f0d01f35",
       "subject": "refactor: split compute_archive_layout into three phase fns with carrier structs"
-    },
-    {
-      "hash": "f8b100ce",
-      "subject": "refactor: split parser trio god-fns and parse_type keyword tail into sub-fns"
-    },
-    {
-      "hash": "91f6d17d",
-      "subject": "chore(dashboard): session snapshot @ 3473f4e1 — fn-debt decomp 5-chunk sweep (check_type_of_call 1071 / tokenize 458 / type_ann 451 / json_stringify 446 / parse_type 429 all cleared)"
-    },
-    {
-      "hash": "3473f4e1",
-      "subject": "refactor: split parse_type generic and marker blocks into submodules"
-    },
-    {
-      "hash": "16aa5b3b",
-      "subject": "refactor: split json_stringify composite arms into submodule"
-    },
-    {
-      "hash": "424982c6",
-      "subject": "refactor: split resolve_type_ann_inner into generic and marker submodules"
-    },
-    {
-      "hash": "c8c23c75",
-      "subject": "refactor: extract tokenize big arms into lexer scan helpers"
-    },
-    {
-      "hash": "4a9ab32f",
-      "subject": "docs: carve-out marker on ssa_lower_intrinsics_table build fn"
-    },
-    {
-      "hash": "4b8cc737",
-      "subject": "refactor: split check_type_of_call cascade into 7 segment submodules"
     }
   ],
-  "headSha": "44ddbd5e",
+  "headSha": "d6967e27",
   "autorun": {
-    "total": 313,
+    "total": 314,
     "baselineTarget": 10,
-    "bySelf": 308,
+    "bySelf": 309,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783048627-18fc",
-      "at": "2026-07-03T03:17:07Z",
-      "ts": 1783048627,
+      "rotationId": "r-1783058599-5c40",
+      "at": "2026-07-03T06:03:19Z",
+      "ts": 1783058599,
       "trigger": "self",
-      "prevHead": "91f6d17d",
-      "handoffSha": "sha256:51cc4dd1b3c310214945f365c0b0d253f87ea719874fe87e1bd0fee2bb088de7",
-      "handoffAgeSec": 7,
+      "prevHead": "0e5fa59a",
+      "handoffSha": "sha256:ce37ae4721f9a979c14f22e97f2b52195c3afbbe32a88cd1c3b68fb0a4ea7746",
+      "handoffAgeSec": 21,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783058599-5c40",
+        "at": "2026-07-03T06:03:19Z",
+        "ts": 1783058599,
+        "trigger": "self",
+        "prevHead": "0e5fa59a",
+        "handoffSha": "sha256:ce37ae4721f9a979c14f22e97f2b52195c3afbbe32a88cd1c3b68fb0a4ea7746",
+        "handoffAgeSec": 21,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783048627-18fc",
         "at": "2026-07-03T03:17:07Z",
@@ -876,17 +887,6 @@
         "prevHead": "96862e87",
         "handoffSha": "sha256:a39fb9db1d14051f2823143c9421b3618d237e1fa0216fb91dbeb131cb11b8a3",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782962827-5e62",
-        "at": "2026-07-02T03:27:07Z",
-        "ts": 1782962827,
-        "trigger": "self",
-        "prevHead": "e41ca6c5",
-        "handoffSha": "sha256:2a2afc9f7b349785185d250ecc10e1cbe473d3b937a423698205622144481216",
-        "handoffAgeSec": 2,
         "conformanceBefore": null,
         "commitsInSession": null
       }
