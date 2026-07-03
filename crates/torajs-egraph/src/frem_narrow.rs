@@ -158,8 +158,25 @@ fn collect_trunc_tree(
 }
 
 fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
-    // def summaries for single-def values; multi-def values (post-φ
-    // Copy cells) are conservatively unknown.
+    let (defs, multi) = collect_defs(func);
+
+    // value → use count, across every inst operand and terminator.
+    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+    visit_func_uses(func, |v| {
+        *uses.entry(v).or_default() += 1;
+    });
+
+    let plan = plan_narrows(func, &defs, &multi, &uses, stats);
+    if plan.narrow.is_empty() {
+        return;
+    }
+    rewrite_blocks(func, &plan);
+    sweep_orphan_sitofps(func, stats);
+}
+
+/// Def summaries for single-def values; multi-def values (post-φ
+/// Copy cells) are conservatively unknown.
+fn collect_defs(func: &Function) -> (HashMap<ValueId, InstKind>, HashSet<ValueId>) {
     let mut defs: HashMap<ValueId, InstKind> = HashMap::new();
     let mut multi: HashSet<ValueId> = HashSet::new();
     for block in &func.blocks {
@@ -174,66 +191,83 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
     for v in &multi {
         defs.remove(v);
     }
+    (defs, multi)
+}
 
-    // value → use count, across every inst operand and terminator.
-    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+/// Every value use in the function — inst operands plus Ret /
+/// CondBr terminator operands (shared by the use count and the
+/// DCE liveness sweep).
+fn visit_func_uses(func: &Function, mut f: impl FnMut(ValueId)) {
     for block in &func.blocks {
         for inst in &block.insts {
-            visit_value_operands(&inst.kind, |v| {
-                *uses.entry(v).or_default() += 1;
-            });
+            visit_value_operands(&inst.kind, &mut f);
         }
         match &block.term {
-            Terminator::Ret(Some(Operand::Value(v))) => {
-                *uses.entry(*v).or_default() += 1;
-            }
+            Terminator::Ret(Some(Operand::Value(v))) => f(*v),
             Terminator::CondBr {
                 cond: Operand::Value(v),
                 ..
-            } => {
-                *uses.entry(*v).or_default() += 1;
-            }
+            } => f(*v),
             _ => {}
         }
     }
+}
 
-    // Compare sink — a single-use single-def frem whose operands peel
-    // to int form narrows under an fcmp (±0 compare equal, frem over
-    // integral operands is exact). fadd / fsub / fmul stay out of the
-    // fcmp shape: an fcmp would observe the f64 rounding past 2^53
-    // that the int form wraps instead.
-    //
-    // srem runtime-0 — a VARIABLE divisor narrows too, but with a
-    // fused zero guard (`Some(divisor)` in the result): frem(a, 0)
-    // is NaN and every ordered predicate answers false (Une: true),
-    // while srem-by-zero on aarch64 hands the dividend back — `0 % 0
-    // === 0` would wrongly take the branch. The guard is two ALU
-    // insts (icmp + and/or) against the multi-cycle frem the narrow
-    // saves: `n % i === 0` trial-division loops (prime_count
-    // +2640% under the reject-only fix) keep the int path. A
-    // compile-time zero never narrows (constant NaN shape).
-    let narrow_cmp = |v: &ValueId| -> Option<(BinOp, Operand, Operand, Option<Operand>)> {
-        if multi.contains(v) || uses.get(v).copied().unwrap_or(0) != 1 {
-            return None;
-        }
-        let InstKind::BinOp(BinOp::FRem, a, b) = defs.get(v)? else {
-            return None;
-        };
-        let ai = int_form(a, &defs)?;
-        let bi = int_form(b, &defs)?;
-        if matches!(bi, Operand::ConstI64(0)) {
-            return None;
-        }
-        let guard = if matches!(bi, Operand::ConstI64(_)) {
-            None
-        } else {
-            Some(bi)
-        };
-        Some((BinOp::SRem, ai, bi, guard))
+/// Compare sink — a single-use single-def frem whose operands peel
+/// to int form narrows under an fcmp (±0 compare equal, frem over
+/// integral operands is exact). fadd / fsub / fmul stay out of the
+/// fcmp shape: an fcmp would observe the f64 rounding past 2^53
+/// that the int form wraps instead.
+///
+/// srem runtime-0 — a VARIABLE divisor narrows too, but with a
+/// fused zero guard (`Some(divisor)` in the result): frem(a, 0)
+/// is NaN and every ordered predicate answers false (Une: true),
+/// while srem-by-zero on aarch64 hands the dividend back — `0 % 0
+/// === 0` would wrongly take the branch. The guard is two ALU
+/// insts (icmp + and/or) against the multi-cycle frem the narrow
+/// saves: `n % i === 0` trial-division loops (prime_count
+/// +2640% under the reject-only fix) keep the int path. A
+/// compile-time zero never narrows (constant NaN shape).
+fn narrow_cmp(
+    v: &ValueId,
+    defs: &HashMap<ValueId, InstKind>,
+    multi: &HashSet<ValueId>,
+    uses: &HashMap<ValueId, u32>,
+) -> Option<(BinOp, Operand, Operand, Option<Operand>)> {
+    if multi.contains(v) || uses.get(v).copied().unwrap_or(0) != 1 {
+        return None;
+    }
+    let InstKind::BinOp(BinOp::FRem, a, b) = defs.get(v)? else {
+        return None;
     };
+    let ai = int_form(a, defs)?;
+    let bi = int_form(b, defs)?;
+    if matches!(bi, Operand::ConstI64(0)) {
+        return None;
+    }
+    let guard = if matches!(bi, Operand::ConstI64(_)) {
+        None
+    } else {
+        Some(bi)
+    };
+    Some((BinOp::SRem, ai, bi, guard))
+}
 
-    // Decision pass — collect frem results to retype, keyed by the
-    // consuming inst shape.
+/// Decision-pass output: frem results to retype, keyed by the
+/// consuming inst shape.
+struct NarrowPlan {
+    narrow: HashMap<ValueId, (BinOp, Operand, Operand)>,
+    cmp_results: HashMap<ValueId, Option<Operand>>,
+    trunc_results: HashSet<ValueId>,
+}
+
+fn plan_narrows(
+    func: &Function,
+    defs: &HashMap<ValueId, InstKind>,
+    multi: &HashSet<ValueId>,
+    uses: &HashMap<ValueId, u32>,
+    stats: &mut FremNarrowStats,
+) -> NarrowPlan {
     let mut narrow: HashMap<ValueId, (BinOp, Operand, Operand)> = HashMap::new();
     let mut cmp_results: HashMap<ValueId, Option<Operand>> = HashMap::new();
     let mut trunc_results: HashSet<ValueId> = HashSet::new();
@@ -251,7 +285,7 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
                     if op_const_int(other).is_none() {
                         continue;
                     }
-                    if let Some((iop, ai, bi, guard)) = narrow_cmp(v) {
+                    if let Some((iop, ai, bi, guard)) = narrow_cmp(v, defs, multi, uses) {
                         narrow.insert(*v, (iop, ai, bi));
                         if guard.is_some() {
                             stats.cmps_guarded += 1;
@@ -262,7 +296,7 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
                 }
                 InstKind::FpToSi(Operand::Value(v)) => {
                     let mut tree: HashMap<ValueId, (BinOp, Operand, Operand)> = HashMap::new();
-                    if collect_trunc_tree(v, &defs, &multi, &uses, &mut tree) {
+                    if collect_trunc_tree(v, defs, multi, uses, &mut tree) {
                         stats.tree_interior_narrowed += (tree.len() as u32) - 1;
                         narrow.extend(tree);
                         trunc_results.insert(*v);
@@ -273,20 +307,25 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
             }
         }
     }
-    if narrow.is_empty() {
-        return;
+    NarrowPlan {
+        narrow,
+        cmp_results,
+        trunc_results,
     }
+}
 
-    // Mutation pass — retype each chosen frem to srem in place, then
-    // rewrite its single consumer. Guarded compares (variable
-    // divisor) splice two insts ahead of the consumer, so blocks
-    // rebuild instead of mutating in place.
-    for block in func.blocks.iter_mut() {
+/// Mutation pass — retype each chosen frem to srem in place, then
+/// rewrite its single consumer. Guarded compares (variable
+/// divisor) splice two insts ahead of the consumer, so blocks
+/// rebuild instead of mutating in place.
+fn rewrite_blocks(func: &mut Function, plan: &NarrowPlan) {
+    let Function { blocks, values, .. } = func;
+    for block in blocks.iter_mut() {
         let old_insts = std::mem::take(&mut block.insts);
         let mut new_insts = Vec::with_capacity(old_insts.len() + 2);
         for mut inst in old_insts {
             if let Some(r) = inst.result {
-                if let Some((iop, xi, yi)) = narrow.get(&r) {
+                if let Some((iop, xi, yi)) = plan.narrow.get(&r) {
                     if matches!(
                         inst.kind,
                         InstKind::BinOp(
@@ -296,80 +335,17 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
                         )
                     ) {
                         inst.kind = InstKind::BinOp(*iop, *xi, *yi);
-                        func.values[r.0 as usize].ty = Type::I64;
+                        values[r.0 as usize].ty = Type::I64;
                         new_insts.push(inst);
                         continue;
                     }
                 }
             }
             match &inst.kind {
-                InstKind::FCmp(p, a, b) => {
-                    let int_side = |op: &Operand| -> Option<Operand> {
-                        match op {
-                            Operand::Value(v) if cmp_results.contains_key(v) => Some(*op),
-                            Operand::Value(_) => None,
-                            o => op_const_int(o).map(|c| Operand::ConstI64(c as i64)),
-                        }
-                    };
-                    let guard_of = |op: &Operand| -> Option<Operand> {
-                        match op {
-                            Operand::Value(v) => cmp_results.get(v).copied().flatten(),
-                            _ => None,
-                        }
-                    };
-                    let frem_side = |op: &Operand| matches!(op, Operand::Value(v) if cmp_results.contains_key(v));
-                    if frem_side(a) || frem_side(b) {
-                        if let (Some(na), Some(nb)) = (int_side(a), int_side(b)) {
-                            let ipred = fpred_to_ipred(*p);
-                            match guard_of(a).or_else(|| guard_of(b)) {
-                                // srem runtime-0 — fuse the divisor
-                                // zero guard: frem(x, 0) is NaN, which
-                                // answers false under every ordered
-                                // predicate (Une: true), while the
-                                // srem hands the dividend back. Two
-                                // fresh bool values: the divisor
-                                // check and the relocated compare;
-                                // the original result id becomes the
-                                // and/or so consumers stay valid.
-                                Some(divisor) => {
-                                    let nan_true = matches!(p, torajs_core::ssa::FPred::Une);
-                                    let g = ValueId(func.values.len() as u32);
-                                    func.values.push(torajs_core::ssa::ValueInfo {
-                                        ty: Type::Bool,
-                                        name: None,
-                                    });
-                                    let c = ValueId(func.values.len() as u32);
-                                    func.values.push(torajs_core::ssa::ValueInfo {
-                                        ty: Type::Bool,
-                                        name: None,
-                                    });
-                                    let gpred = if nan_true {
-                                        torajs_core::ssa::IPred::Eq
-                                    } else {
-                                        torajs_core::ssa::IPred::Ne
-                                    };
-                                    new_insts.push(torajs_core::ssa::Inst {
-                                        result: Some(g),
-                                        kind: InstKind::ICmp(gpred, divisor, Operand::ConstI64(0)),
-                                        origin: inst.origin,
-                                    });
-                                    new_insts.push(torajs_core::ssa::Inst {
-                                        result: Some(c),
-                                        kind: InstKind::ICmp(ipred, na, nb),
-                                        origin: inst.origin,
-                                    });
-                                    let join = if nan_true { BinOp::Or } else { BinOp::And };
-                                    inst.kind =
-                                        InstKind::BinOp(join, Operand::Value(g), Operand::Value(c));
-                                }
-                                None => {
-                                    inst.kind = InstKind::ICmp(ipred, na, nb);
-                                }
-                            }
-                        }
-                    }
+                InstKind::FCmp(..) => {
+                    rewrite_fcmp(&mut inst, &plan.cmp_results, values, &mut new_insts);
                 }
-                InstKind::FpToSi(Operand::Value(v)) if trunc_results.contains(v) => {
+                InstKind::FpToSi(Operand::Value(v)) if plan.trunc_results.contains(v) => {
                     inst.kind = InstKind::Copy(Type::I64, Operand::Value(*v));
                 }
                 _ => {}
@@ -378,29 +354,96 @@ fn narrow_in_function(func: &mut Function, stats: &mut FremNarrowStats) {
         }
         block.insts = new_insts;
     }
+}
 
-    // DCE — sitofp insts orphaned by the operand peel.
+/// Rewrite an fcmp whose frem side narrowed: a plain icmp for a
+/// provably non-zero constant divisor, or the fused divisor zero
+/// guard for a variable one (two fresh bool insts spliced ahead of
+/// the compare).
+fn rewrite_fcmp(
+    inst: &mut torajs_core::ssa::Inst,
+    cmp_results: &HashMap<ValueId, Option<Operand>>,
+    values: &mut Vec<torajs_core::ssa::ValueInfo>,
+    new_insts: &mut Vec<torajs_core::ssa::Inst>,
+) {
+    let InstKind::FCmp(p, a, b) = &inst.kind else {
+        return;
+    };
+    let (p, a, b) = (*p, *a, *b);
+    let int_side = |op: &Operand| -> Option<Operand> {
+        match op {
+            Operand::Value(v) if cmp_results.contains_key(v) => Some(*op),
+            Operand::Value(_) => None,
+            o => op_const_int(o).map(|c| Operand::ConstI64(c as i64)),
+        }
+    };
+    let guard_of = |op: &Operand| -> Option<Operand> {
+        match op {
+            Operand::Value(v) => cmp_results.get(v).copied().flatten(),
+            _ => None,
+        }
+    };
+    let frem_side = |op: &Operand| matches!(op, Operand::Value(v) if cmp_results.contains_key(v));
+    if !(frem_side(&a) || frem_side(&b)) {
+        return;
+    }
+    let (Some(na), Some(nb)) = (int_side(&a), int_side(&b)) else {
+        return;
+    };
+    let ipred = fpred_to_ipred(p);
+    match guard_of(&a).or_else(|| guard_of(&b)) {
+        // srem runtime-0 — fuse the divisor
+        // zero guard: frem(x, 0) is NaN, which
+        // answers false under every ordered
+        // predicate (Une: true), while the
+        // srem hands the dividend back. Two
+        // fresh bool values: the divisor
+        // check and the relocated compare;
+        // the original result id becomes the
+        // and/or so consumers stay valid.
+        Some(divisor) => {
+            let nan_true = matches!(p, torajs_core::ssa::FPred::Une);
+            let g = ValueId(values.len() as u32);
+            values.push(torajs_core::ssa::ValueInfo {
+                ty: Type::Bool,
+                name: None,
+            });
+            let c = ValueId(values.len() as u32);
+            values.push(torajs_core::ssa::ValueInfo {
+                ty: Type::Bool,
+                name: None,
+            });
+            let gpred = if nan_true {
+                torajs_core::ssa::IPred::Eq
+            } else {
+                torajs_core::ssa::IPred::Ne
+            };
+            new_insts.push(torajs_core::ssa::Inst {
+                result: Some(g),
+                kind: InstKind::ICmp(gpred, divisor, Operand::ConstI64(0)),
+                origin: inst.origin,
+            });
+            new_insts.push(torajs_core::ssa::Inst {
+                result: Some(c),
+                kind: InstKind::ICmp(ipred, na, nb),
+                origin: inst.origin,
+            });
+            let join = if nan_true { BinOp::Or } else { BinOp::And };
+            inst.kind = InstKind::BinOp(join, Operand::Value(g), Operand::Value(c));
+        }
+        None => {
+            inst.kind = InstKind::ICmp(ipred, na, nb);
+        }
+    }
+}
+
+/// DCE — sitofp insts orphaned by the operand peel.
+fn sweep_orphan_sitofps(func: &mut Function, stats: &mut FremNarrowStats) {
     loop {
         let mut used: HashSet<ValueId> = HashSet::new();
-        for block in &func.blocks {
-            for inst in &block.insts {
-                visit_value_operands(&inst.kind, |v| {
-                    used.insert(v);
-                });
-            }
-            match &block.term {
-                Terminator::Ret(Some(Operand::Value(v))) => {
-                    used.insert(*v);
-                }
-                Terminator::CondBr {
-                    cond: Operand::Value(v),
-                    ..
-                } => {
-                    used.insert(*v);
-                }
-                _ => {}
-            }
-        }
+        visit_func_uses(func, |v| {
+            used.insert(v);
+        });
         let mut removed = 0u32;
         for block in func.blocks.iter_mut() {
             block.insts.retain(|inst| {
