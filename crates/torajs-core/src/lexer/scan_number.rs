@@ -8,6 +8,79 @@
 use super::util::{emit, peek};
 use super::{Spanned, Token};
 
+/// One digit of a base-2 / -8 / -16 literal body.
+fn is_radix_digit(c: u8, radix: u32) -> bool {
+    match radix {
+        2 => c == b'0' || c == b'1',
+        8 => (b'0'..=b'7').contains(&c),
+        _ => c.is_ascii_hexdigit(),
+    }
+}
+
+/// Shared body of the `0b` / `0o` / `0x` arms (chunk 476 — the three
+/// were byte-for-byte the same shape): skip the 2-byte prefix, scan
+/// radix digits (`_` separators allowed), strip separators, handle
+/// the `n` BigInt suffix, else parse as u64 → f64 per JS spec
+/// §12.8.3.
+///
+/// BigInt suffix shape differs by radix (pre-split behaviour kept):
+/// - binary / octal (P0.10) — pre-convert to decimal at lex time
+///   (`u64` parse + `to_string`, `radix: 10`; ssa_lower's
+///   `bigint_from_decimal` handles it).
+/// - hex (T-25) — digits pass through verbatim with `radix: 16`.
+fn scan_radix_literal(
+    bytes: &[u8],
+    i: &mut u32,
+    out: &mut Vec<Spanned>,
+    start: u32,
+    len: u32,
+    radix: u32,
+    name: &str,
+) -> Result<(), String> {
+    *i += 2; // skip "0b" / "0o" / "0x"
+    let dig_start = *i;
+    while *i < len && (is_radix_digit(bytes[*i as usize], radix) || bytes[*i as usize] == b'_') {
+        *i += 1;
+    }
+    if *i == dig_start {
+        return Err(format!("invalid {name} literal at {start}"));
+    }
+    let raw = std::str::from_utf8(&bytes[dig_start as usize..*i as usize])
+        .expect("ascii radix digits are valid utf-8");
+    let cleaned;
+    let s: &str = if raw.contains('_') {
+        cleaned = raw.replace('_', "");
+        &cleaned
+    } else {
+        raw
+    };
+    if peek(bytes, *i) == Some(b'n') {
+        if radix == 16 {
+            let digits = s.to_string();
+            *i += 1;
+            emit(out, Token::BigInt { digits, radix: 16 }, start, *i);
+        } else {
+            let n: u64 = u64::from_str_radix(s, radix)
+                .map_err(|_| format!("invalid {name} BigInt at {start}"))?;
+            *i += 1;
+            emit(
+                out,
+                Token::BigInt {
+                    digits: n.to_string(),
+                    radix: 10,
+                },
+                start,
+                *i,
+            );
+        }
+        return Ok(());
+    }
+    let n: u64 =
+        u64::from_str_radix(s, radix).map_err(|_| format!("invalid {name} number at {start}"))?;
+    emit(out, Token::Number(n as f64), start, *i);
+    Ok(())
+}
+
 pub(super) fn scan_number(
     bytes: &[u8],
     i: &mut u32,
@@ -16,128 +89,19 @@ pub(super) fn scan_number(
     len: u32,
     b: u8,
 ) -> Result<(), String> {
-    // V3-18 m1.h.55 — `0b...` binary and `0o...` octal
-    // literals per JS spec §12.8.3. Both lex as base-2 / -8
-    // u64, then cast to f64 (matching the existing 0x...
-    // path). Same `n` BigInt suffix support.
+    // V3-18 m1.h.55 — `0b...` binary and `0o...` octal literals per
+    // JS spec §12.8.3; 0x... hex is TS / JS standard (u64 parse then
+    // f64 cast — values up to 2^53 round-trip exactly, covering every
+    // realistic bitwise / mask use). All three share
+    // `scan_radix_literal` incl. the `n` BigInt suffix.
     if b == b'0' && peek(bytes, *i + 1).is_some_and(|c| c == b'b' || c == b'B') {
-        *i += 2;
-        let dig_start = *i;
-        while *i < len
-            && (bytes[*i as usize] == b'0'
-                || bytes[*i as usize] == b'1'
-                || bytes[*i as usize] == b'_')
-        {
-            *i += 1;
-        }
-        if *i == dig_start {
-            return Err(format!("invalid binary literal at {start}"));
-        }
-        let raw = std::str::from_utf8(&bytes[dig_start as usize..*i as usize])
-            .expect("ascii bin digits are valid utf-8");
-        let cleaned;
-        let s: &str = if raw.contains('_') {
-            cleaned = raw.replace('_', "");
-            &cleaned
-        } else {
-            raw
-        };
-        // P0.10 — binary BigInt `0b...n`. Pre-convert to decimal at
-        // lex time (ssa_lower's bigint_from_decimal handles it).
-        if peek(bytes, *i) == Some(b'n') {
-            let n: u64 = u64::from_str_radix(s, 2)
-                .map_err(|_| format!("invalid binary BigInt at {start}"))?;
-            *i += 1;
-            emit(
-                out,
-                Token::BigInt {
-                    digits: n.to_string(),
-                    radix: 10,
-                },
-                start,
-                *i,
-            );
-            return Ok(());
-        }
-        let n: u64 =
-            u64::from_str_radix(s, 2).map_err(|_| format!("invalid binary number at {start}"))?;
-        emit(out, Token::Number(n as f64), start, *i);
-        return Ok(());
+        return scan_radix_literal(bytes, i, out, start, len, 2, "binary");
     }
     if b == b'0' && peek(bytes, *i + 1).is_some_and(|c| c == b'o' || c == b'O') {
-        *i += 2;
-        let dig_start = *i;
-        while *i < len
-            && ((bytes[*i as usize] >= b'0' && bytes[*i as usize] <= b'7')
-                || bytes[*i as usize] == b'_')
-        {
-            *i += 1;
-        }
-        if *i == dig_start {
-            return Err(format!("invalid octal literal at {start}"));
-        }
-        let raw = std::str::from_utf8(&bytes[dig_start as usize..*i as usize])
-            .expect("ascii oct digits are valid utf-8");
-        let cleaned;
-        let s: &str = if raw.contains('_') {
-            cleaned = raw.replace('_', "");
-            &cleaned
-        } else {
-            raw
-        };
-        // P0.10 — octal BigInt `0o...n`. Same shape as binary BigInt.
-        if peek(bytes, *i) == Some(b'n') {
-            let n: u64 = u64::from_str_radix(s, 8)
-                .map_err(|_| format!("invalid octal BigInt at {start}"))?;
-            *i += 1;
-            emit(
-                out,
-                Token::BigInt {
-                    digits: n.to_string(),
-                    radix: 10,
-                },
-                start,
-                *i,
-            );
-            return Ok(());
-        }
-        let n: u64 =
-            u64::from_str_radix(s, 8).map_err(|_| format!("invalid octal number at {start}"))?;
-        emit(out, Token::Number(n as f64), start, *i);
-        return Ok(());
+        return scan_radix_literal(bytes, i, out, start, len, 8, "octal");
     }
-    // 0x... hex literal — TS / JS standard. Parse as u64 and
-    // cast to f64; values up to 2^53 round-trip exactly, which
-    // covers every realistic bitwise / mask use.
     if b == b'0' && peek(bytes, *i + 1).is_some_and(|c| c == b'x' || c == b'X') {
-        *i += 2; // skip "0x"
-        let hex_start = *i;
-        while *i < len && (bytes[*i as usize].is_ascii_hexdigit() || bytes[*i as usize] == b'_') {
-            *i += 1;
-        }
-        if *i == hex_start {
-            return Err(format!("invalid hex literal at {start}"));
-        }
-        let raw = std::str::from_utf8(&bytes[hex_start as usize..*i as usize])
-            .expect("ascii hex digits are valid utf-8");
-        let cleaned;
-        let s: &str = if raw.contains('_') {
-            cleaned = raw.replace('_', "");
-            &cleaned
-        } else {
-            raw
-        };
-        /* T-25 BigInt: `0x...n`. Hex-radix BigInt literal. */
-        if peek(bytes, *i) == Some(b'n') {
-            let digits = s.to_string();
-            *i += 1;
-            emit(out, Token::BigInt { digits, radix: 16 }, start, *i);
-            return Ok(());
-        }
-        let n: u64 =
-            u64::from_str_radix(s, 16).map_err(|_| format!("invalid hex number at {start}"))?;
-        emit(out, Token::Number(n as f64), start, *i);
-        return Ok(());
+        return scan_radix_literal(bytes, i, out, start, len, 16, "hex");
     }
     // V3-18 m1.h.55 — numeric separator `_` (per JS spec §12.8.3
     // NumericLiteralSeparator). Stripped before parsing. Allowed
