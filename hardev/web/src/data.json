@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-03T11:50:28.496Z",
+  "generatedAt": "2026-07-03T14:08:48.803Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "ad741238",
-    "commitSubject": "refactor: split emit_binary load-command and symtab halves into sibling",
+    "commit": "935d8e48",
+    "commitSubject": "refactor: split json_parse arr and obj shapes into per-shape fns",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "935d8e48",
+      "subject": "refactor: split json_parse arr and obj shapes into per-shape fns"
+    },
+    {
+      "hash": "a5db73bc",
+      "subject": "refactor: dedupe for-of scope binding and extract body-scope close"
+    },
+    {
+      "hash": "943882e3",
+      "subject": "refactor: split emit_drop_value structural arms and collapse helper-call table"
+    },
+    {
+      "hash": "14fa0a6b",
+      "subject": "refactor: split join_flat dispatch and dedupe shallow-clone emission"
+    },
+    {
+      "hash": "1f6c35f3",
+      "subject": "refactor: extract fmt_expr fat arms and dedupe comma-list emission"
+    },
+    {
+      "hash": "5e5aaae9",
+      "subject": "refactor: split frem_narrow pass into per-stage fns"
+    },
+    {
+      "hash": "46e2f27d",
+      "subject": "refactor: collapse intrinsics_object declares into macro table"
+    },
+    {
+      "hash": "61135609",
+      "subject": "chore(dashboard): session snapshot @ ad741238 — fn-debt 302-273 tier sweep (450-456: lower_fn 302 / let_decl 300 / date 300 / try_finally 292 / ast_printer 291 / desugar_classes 277 / emit_binary 273 all cleared)"
+    },
+    {
       "hash": "ad741238",
       "subject": "refactor: split emit_binary load-command and symtab halves into sibling"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "013e13d6",
       "subject": "refactor: split finally lowering into per-stage emit fns"
-    },
-    {
-      "hash": "18db880d",
-      "subject": "refactor: collapse date intrinsic declarations into shape helpers"
-    },
-    {
-      "hash": "f14af451",
-      "subject": "refactor: split let-decl global and fn-addr arms into try fns, dedupe capture box"
-    },
-    {
-      "hash": "bbc7e9c4",
-      "subject": "refactor: split lower_fn param materialize and env preamble into ctx methods"
-    },
-    {
-      "hash": "d29d0a83",
-      "subject": "chore(dashboard): session snapshot @ d6967e27 — fn-debt 300-tier sweep (443-449: sort 366 / member 359 / fmt_stmt 339 / expr_inner 333 / unary 317 / modules 313 / member_array 308 all cleared)"
-    },
-    {
-      "hash": "d6967e27",
-      "subject": "refactor: split array member typecheck table into two cascade fns"
-    },
-    {
-      "hash": "191feed9",
-      "subject": "refactor: split import resolver helpers into submodule"
-    },
-    {
-      "hash": "7b5f4061",
-      "subject": "refactor: split unary any-arith, coercion and neg paths into methods"
-    },
-    {
-      "hash": "085edcb6",
-      "subject": "refactor: extract assign and sequence lowering from expr dispatch"
     }
   ],
-  "headSha": "ad741238",
+  "headSha": "935d8e48",
   "autorun": {
-    "total": 315,
+    "total": 316,
     "baselineTarget": 10,
-    "bySelf": 310,
+    "bySelf": 311,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783067623-12fa",
-      "at": "2026-07-03T08:33:43Z",
-      "ts": 1783067623,
+      "rotationId": "r-1783079505-42bd",
+      "at": "2026-07-03T11:51:45Z",
+      "ts": 1783079505,
       "trigger": "self",
-      "prevHead": "d29d0a83",
-      "handoffSha": "sha256:abdf3407350424ae15b8a9ee73e1e1c678cf5cf8a6d2c28a2a913957503bc3e4",
-      "handoffAgeSec": 6,
+      "prevHead": "61135609",
+      "handoffSha": "sha256:7a1038d7405f5405b33e215023e67b4fb7e8cc14f6f06a0007e42f0487b5671f",
+      "handoffAgeSec": 23,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783079505-42bd",
+        "at": "2026-07-03T11:51:45Z",
+        "ts": 1783079505,
+        "trigger": "self",
+        "prevHead": "61135609",
+        "handoffSha": "sha256:7a1038d7405f5405b33e215023e67b4fb7e8cc14f6f06a0007e42f0487b5671f",
+        "handoffAgeSec": 23,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783067623-12fa",
         "at": "2026-07-03T08:33:43Z",
@@ -876,17 +887,6 @@
         "prevHead": "6e55e0b0",
         "handoffSha": "sha256:522abef61d16994331028f9fc30ab4938f25a57f8df90b14efae8cb2c8dafe33",
         "handoffAgeSec": 6102,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782974524-307f",
-        "at": "2026-07-02T06:42:04Z",
-        "ts": 1782974524,
-        "trigger": "self",
-        "prevHead": "a4f99367",
-        "handoffSha": "sha256:2e5038302653548536c284b379fabd554bbeac6d3ad002de4f219fcbc3d89573",
-        "handoffAgeSec": 2703,
         "conformanceBefore": null,
         "commitsInSession": null
       }
