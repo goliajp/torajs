@@ -38,22 +38,7 @@ pub(super) fn splice_body(
     let continuation_block_id = BlockId(base + callee.blocks.len() as u32);
     let callee_entry_remapped = block_map[&callee.blocks[0].id];
 
-    // ---- 3. Operand mapping: params → args, non-param values → fresh.
-    let mut value_map: HashMap<ValueId, Operand> = HashMap::new();
-    for (i, param_id) in callee.params.iter().enumerate() {
-        value_map.insert(*param_id, args[i].clone());
-    }
-    let param_set: std::collections::HashSet<u32> = callee.params.iter().map(|v| v.0).collect();
-    for cv in 0..callee.values.len() as u32 {
-        if param_set.contains(&cv) {
-            continue;
-        }
-        let mut info = callee.values[cv as usize].clone();
-        info.name = None;
-        caller.values.push(info);
-        let fresh = ValueId((caller.values.len() - 1) as u32);
-        value_map.insert(ValueId(cv), Operand::Value(fresh));
-    }
+    let value_map = map_callee_values(caller, callee, args);
 
     // ---- 4. Split caller block. Post-call insts + original
     // terminator move to the continuation block; the caller block
@@ -66,123 +51,16 @@ pub(super) fn splice_body(
         Terminator::Br(callee_entry_remapped),
     );
 
-    // ---- 4b. Multi-ret join slot. With ≥ 2 value-bearing rets and no
-    // phi nodes in the SSA, the returned value joins through a stack
-    // slot: alloca'd at the end of the (split) caller block, stored by
-    // every cloned `Ret(Some(_))`, loaded once at the continuation
-    // head. codegen's per-function alloca scan assigns it a frame slot
-    // like any user-written local, so a call site inside a loop reuses
-    // the same slot every iteration.
-    let ret_slot: Option<ValueId> = if value_ret_count > 1 {
-        caller.values.push(ValueInfo {
-            ty: Type::Ptr,
-            name: None,
-        });
-        let slot = ValueId((caller.values.len() - 1) as u32);
-        caller.blocks[caller_blk_idx].insts.push(Inst {
-            result: Some(slot),
-            kind: InstKind::Alloca(callee.ret.clone()),
-            origin: None,
-        });
-        Some(slot)
-    } else {
-        None
-    };
+    let ret_slot = alloc_ret_slot(caller, caller_blk_idx, callee, value_ret_count);
 
-    // ---- 5. Clone each callee block + the continuation into a
-    // staging Vec. We INSERT them immediately after `caller_blk_idx`
-    // (not push to the end of `caller.blocks`) so the new blocks'
-    // physical position matches control-flow order.
-    //
-    // Why this matters — codegen liveness invariant:
-    // `liveness::compute_intervals` walks `func.blocks` in physical
-    // order and numbers every inst with a monotonically increasing
-    // `idx`. A value's interval `[start, end]` is derived from these
-    // indices and `Sweep` uses `Interval::overlaps` (which assumes
-    // `start <= end`) to decide whether two values may share a
-    // register.
-    //
-    // If the cloned callee blocks + continuation are pushed to the
-    // end of `caller.blocks`, but the caller's original successor
-    // blocks (e.g. `bb1` holding refcount-dec for an object whose
-    // pointer is defined in the continuation block) stay at their
-    // pre-splice early physical positions, the value defined in the
-    // continuation block ends up with `start > end` (interval
-    // reversed). `overlaps` then misjudges its lifetime against any
-    // value defined in `bb1` and the linear-scan allocator hands
-    // both the same register — clobbering the object pointer with the
-    // decremented refcount and SIGSEGV'ing on the next `str rc,
-    // [obj_ptr]` (observed on parser-optional-param-implicit-null-001
-    // when Phase 2.0b lifted `AllocaInBody` and the inliner started
-    // firing on multi-block callees like `function f(x?: number)`).
-    //
-    // Inserting in-place keeps the relationship "def block precedes
-    // use block in physical order" intact, matching LLVM
-    // `Transforms/Utils/InlineFunction.cpp` and Go `cmd/compile/
-    // internal/inline/inl.go` which both clone into the caller right
-    // at the call site rather than at the function's end.
-    let mut new_blocks: Vec<Block> = Vec::with_capacity(callee.blocks.len() + 1);
-    for blk in &callee.blocks {
-        let new_id = block_map[&blk.id];
-        let mut new_insts: Vec<Inst> = Vec::with_capacity(blk.insts.len() + 1);
-        for inst in &blk.insts {
-            let new_kind = rewrite_inst_kind(&inst.kind, &value_map);
-            let new_result = inst.result.map(|r| match value_map.get(&r) {
-                Some(Operand::Value(v)) => *v,
-                _ => unreachable!(
-                    "non-param callee Inst result must map to a fresh caller ValueId; \
-                     value_map invariant broken"
-                ),
-            });
-            new_insts.push(Inst {
-                result: new_result,
-                kind: new_kind,
-                origin: inst.origin,
-            });
-        }
-        let new_term = match &blk.term {
-            Terminator::Br(target) => Terminator::Br(block_map[target]),
-            Terminator::CondBr {
-                cond,
-                then_blk,
-                else_blk,
-            } => Terminator::CondBr {
-                cond: rewrite_operand(cond, &value_map),
-                then_blk: block_map[then_blk],
-                else_blk: block_map[else_blk],
-            },
-            Terminator::Ret(opt) => {
-                if let (Some(ret_op), Some(r)) = (opt.as_ref(), result_value) {
-                    match ret_slot {
-                        // multi-ret: store into the join slot; the
-                        // continuation head loads it into `r`
-                        Some(slot) => new_insts.push(Inst {
-                            result: None,
-                            kind: InstKind::Store(
-                                rewrite_operand(ret_op, &value_map),
-                                Operand::Value(slot),
-                                0,
-                            ),
-                            origin: new_insts.last().and_then(|i| i.origin),
-                        }),
-                        // single ret: zero-cost Identity binding
-                        None => new_insts.push(Inst {
-                            result: Some(r),
-                            kind: InstKind::Identity(rewrite_operand(ret_op, &value_map)),
-                            origin: new_insts.last().and_then(|i| i.origin),
-                        }),
-                    }
-                }
-                Terminator::Br(continuation_block_id)
-            }
-            Terminator::Unreachable => Terminator::Unreachable,
-        };
-        new_blocks.push(Block {
-            id: new_id,
-            insts: new_insts,
-            term: new_term,
-        });
-    }
+    let mut new_blocks = clone_callee_blocks(
+        callee,
+        &block_map,
+        &value_map,
+        ret_slot,
+        result_value,
+        continuation_block_id,
+    );
 
     // ---- 6. Continuation block holding post-call insts + the
     // caller's original terminator. Appended to the staging Vec so it
@@ -210,18 +88,181 @@ pub(super) fn splice_body(
     let insert_at = caller_blk_idx + 1;
     caller.blocks.splice(insert_at..insert_at, new_blocks);
 
-    // ---- 7. Renumber every block's `BlockId.0` so it equals its
-    // physical position in `caller.blocks` (== Vec index), then
-    // rewrite every terminator's BlockId references through the
-    // resulting remap. The rest of the egraph/codegen pipeline
-    // (`elaborate.rs`, `dominator.rs`, `egraph.rs::available_block`,
-    // `optimize.rs`) indexes `func.blocks` directly by `BlockId.0
-    // as usize` — `bid.0 as usize` and `func.blocks[bid.0 as usize]`
-    // are scattered across every downstream pass. The inliner
-    // therefore MUST re-establish the `BlockId.0 == position`
-    // invariant after splicing; otherwise the dominator tree visits
-    // wrong blocks and the elaborator skips Identity nodes that
-    // codegen liveness then rejects with `unreachable!()`.
+    renumber_blocks(caller);
+}
+
+/// ---- 3. Operand mapping: params → args, non-param values → fresh.
+fn map_callee_values(
+    caller: &mut Function,
+    callee: &Function,
+    args: &[Operand],
+) -> HashMap<ValueId, Operand> {
+    let mut value_map: HashMap<ValueId, Operand> = HashMap::new();
+    for (i, param_id) in callee.params.iter().enumerate() {
+        value_map.insert(*param_id, args[i].clone());
+    }
+    let param_set: std::collections::HashSet<u32> = callee.params.iter().map(|v| v.0).collect();
+    for cv in 0..callee.values.len() as u32 {
+        if param_set.contains(&cv) {
+            continue;
+        }
+        let mut info = callee.values[cv as usize].clone();
+        info.name = None;
+        caller.values.push(info);
+        let fresh = ValueId((caller.values.len() - 1) as u32);
+        value_map.insert(ValueId(cv), Operand::Value(fresh));
+    }
+    value_map
+}
+
+/// ---- 4b. Multi-ret join slot. With ≥ 2 value-bearing rets and no
+/// phi nodes in the SSA, the returned value joins through a stack
+/// slot: alloca'd at the end of the (split) caller block, stored by
+/// every cloned `Ret(Some(_))`, loaded once at the continuation
+/// head. codegen's per-function alloca scan assigns it a frame slot
+/// like any user-written local, so a call site inside a loop reuses
+/// the same slot every iteration.
+fn alloc_ret_slot(
+    caller: &mut Function,
+    caller_blk_idx: usize,
+    callee: &Function,
+    value_ret_count: u32,
+) -> Option<ValueId> {
+    if value_ret_count > 1 {
+        caller.values.push(ValueInfo {
+            ty: Type::Ptr,
+            name: None,
+        });
+        let slot = ValueId((caller.values.len() - 1) as u32);
+        caller.blocks[caller_blk_idx].insts.push(Inst {
+            result: Some(slot),
+            kind: InstKind::Alloca(callee.ret.clone()),
+            origin: None,
+        });
+        Some(slot)
+    } else {
+        None
+    }
+}
+
+/// ---- 5. Clone each callee block into a staging Vec. The caller
+/// INSERTS them immediately after `caller_blk_idx` (not push to the
+/// end of `caller.blocks`) so the new blocks' physical position
+/// matches control-flow order.
+///
+/// Why this matters — codegen liveness invariant:
+/// `liveness::compute_intervals` walks `func.blocks` in physical
+/// order and numbers every inst with a monotonically increasing
+/// `idx`. A value's interval `[start, end]` is derived from these
+/// indices and `Sweep` uses `Interval::overlaps` (which assumes
+/// `start <= end`) to decide whether two values may share a
+/// register.
+///
+/// If the cloned callee blocks + continuation are pushed to the
+/// end of `caller.blocks`, but the caller's original successor
+/// blocks (e.g. `bb1` holding refcount-dec for an object whose
+/// pointer is defined in the continuation block) stay at their
+/// pre-splice early physical positions, the value defined in the
+/// continuation block ends up with `start > end` (interval
+/// reversed). `overlaps` then misjudges its lifetime against any
+/// value defined in `bb1` and the linear-scan allocator hands
+/// both the same register — clobbering the object pointer with the
+/// decremented refcount and SIGSEGV'ing on the next `str rc,
+/// [obj_ptr]` (observed on parser-optional-param-implicit-null-001
+/// when Phase 2.0b lifted `AllocaInBody` and the inliner started
+/// firing on multi-block callees like `function f(x?: number)`).
+///
+/// Inserting in-place keeps the relationship "def block precedes
+/// use block in physical order" intact, matching LLVM
+/// `Transforms/Utils/InlineFunction.cpp` and Go `cmd/compile/
+/// internal/inline/inl.go` which both clone into the caller right
+/// at the call site rather than at the function's end.
+fn clone_callee_blocks(
+    callee: &Function,
+    block_map: &HashMap<BlockId, BlockId>,
+    value_map: &HashMap<ValueId, Operand>,
+    ret_slot: Option<ValueId>,
+    result_value: Option<ValueId>,
+    continuation_block_id: BlockId,
+) -> Vec<Block> {
+    let mut new_blocks: Vec<Block> = Vec::with_capacity(callee.blocks.len() + 1);
+    for blk in &callee.blocks {
+        let new_id = block_map[&blk.id];
+        let mut new_insts: Vec<Inst> = Vec::with_capacity(blk.insts.len() + 1);
+        for inst in &blk.insts {
+            let new_kind = rewrite_inst_kind(&inst.kind, value_map);
+            let new_result = inst.result.map(|r| match value_map.get(&r) {
+                Some(Operand::Value(v)) => *v,
+                _ => unreachable!(
+                    "non-param callee Inst result must map to a fresh caller ValueId; \
+                     value_map invariant broken"
+                ),
+            });
+            new_insts.push(Inst {
+                result: new_result,
+                kind: new_kind,
+                origin: inst.origin,
+            });
+        }
+        let new_term = match &blk.term {
+            Terminator::Br(target) => Terminator::Br(block_map[target]),
+            Terminator::CondBr {
+                cond,
+                then_blk,
+                else_blk,
+            } => Terminator::CondBr {
+                cond: rewrite_operand(cond, value_map),
+                then_blk: block_map[then_blk],
+                else_blk: block_map[else_blk],
+            },
+            Terminator::Ret(opt) => {
+                if let (Some(ret_op), Some(r)) = (opt.as_ref(), result_value) {
+                    match ret_slot {
+                        // multi-ret: store into the join slot; the
+                        // continuation head loads it into `r`
+                        Some(slot) => new_insts.push(Inst {
+                            result: None,
+                            kind: InstKind::Store(
+                                rewrite_operand(ret_op, value_map),
+                                Operand::Value(slot),
+                                0,
+                            ),
+                            origin: new_insts.last().and_then(|i| i.origin),
+                        }),
+                        // single ret: zero-cost Identity binding
+                        None => new_insts.push(Inst {
+                            result: Some(r),
+                            kind: InstKind::Identity(rewrite_operand(ret_op, value_map)),
+                            origin: new_insts.last().and_then(|i| i.origin),
+                        }),
+                    }
+                }
+                Terminator::Br(continuation_block_id)
+            }
+            Terminator::Unreachable => Terminator::Unreachable,
+        };
+        new_blocks.push(Block {
+            id: new_id,
+            insts: new_insts,
+            term: new_term,
+        });
+    }
+    new_blocks
+}
+
+/// ---- 7. Renumber every block's `BlockId.0` so it equals its
+/// physical position in `caller.blocks` (== Vec index), then
+/// rewrite every terminator's BlockId references through the
+/// resulting remap. The rest of the egraph/codegen pipeline
+/// (`elaborate.rs`, `dominator.rs`, `egraph.rs::available_block`,
+/// `optimize.rs`) indexes `func.blocks` directly by `BlockId.0
+/// as usize` — `bid.0 as usize` and `func.blocks[bid.0 as usize]`
+/// are scattered across every downstream pass. The inliner
+/// therefore MUST re-establish the `BlockId.0 == position`
+/// invariant after splicing; otherwise the dominator tree visits
+/// wrong blocks and the elaborator skips Identity nodes that
+/// codegen liveness then rejects with `unreachable!()`.
+fn renumber_blocks(caller: &mut Function) {
     let n = caller.blocks.len();
     let mut block_remap: HashMap<BlockId, BlockId> = HashMap::with_capacity(n);
     for (pos, blk) in caller.blocks.iter().enumerate() {
