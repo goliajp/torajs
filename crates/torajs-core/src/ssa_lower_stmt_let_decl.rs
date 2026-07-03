@@ -65,94 +65,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
         return;
     }
     // K.3 / K.4 — top-level data global.
-    if ctx.is_main_fn
-        && let Some(slot_ty) = ctx.globals.get(name).copied()
-    {
-        let init_val = if let Expr::Array(els) = ctx.ast.get_expr(init)
-            && els.is_empty()
-            && matches!(slot_ty, Type::Arr(_))
-        {
-            let alloc_fn = if let Type::Arr(arr_id) = slot_ty
-                && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
-            {
-                ctx.intrinsics.arr_alloc_any
-            } else {
-                ctx.intrinsics.arr_alloc
-            };
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(alloc_fn, vec![Operand::ConstI64(0)]),
-                slot_ty,
-                None,
-            );
-            Operand::Value(v)
-        } else if let Expr::Array(els) = ctx.ast.get_expr(init)
-            && let Type::Arr(arr_id) = slot_ty
-            && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
-        {
-            let ids: Vec<ExprId> = els.clone();
-            ctx.lower_array_any_literal(&ids)
-        } else {
-            ctx.lower_expr(init)
-        };
-        if slot_ty.is_refcounted() {
-            let init_is_borrow = matches!(
-                ctx.ast.get_expr(init),
-                Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-            );
-            if init_is_borrow {
-                panic!(
-                    "ssa-lower: K.4 refcount global `{name}` requires fresh-heap init (function-call / concat / new); borrow-shaped init not yet supported"
-                );
-            }
-        }
-        let coerced = if slot_ty == Type::F64 && ctx.operand_ty(&init_val) == Type::I64 {
-            ctx.coerce_to_f64(init_val)
-        } else {
-            init_val
-        };
-        let ptr = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::GlobalRef(name.to_string()),
-            Type::Ptr,
-            None,
-        );
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(coerced, Operand::Value(ptr), 0),
-        );
-        let _ = type_ann;
-        let _ = slot_ty;
+    if try_lower_global_let(ctx, name, init) {
         return;
     }
     // M2 Phase B Stage 4 — `let f = global_fn`.
-    if let Expr::Ident(src_name) = ctx.ast.get_expr(init)
-        && ctx.locals.get(src_name).is_none()
-        && let Some(fid) = ctx.fn_table.get(src_name).copied()
-        && let Some(sig_id) = ctx.fn_sig_ids.get(&fid).copied()
-    {
-        let ty = Type::FnSig(sig_id);
-        let slot = ctx.binding_slot_alloca(ty, name);
-        let v = ctx
-            .f
-            .append_inst(ctx.cur_block, InstKind::FnAddr(fid), ty, None);
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
-        );
-        let cur_depth = ctx.scope_stack.len() - 1;
-        ctx.locals.insert(
-            name.to_string(),
-            LocalInfo {
-                slot,
-                ty,
-                moved: false,
-                borrowed: false,
-                scope_depth: cur_depth,
-            },
-        );
-        let top = ctx.scope_stack.last_mut().expect("scope frame");
-        top.push(name.to_string());
+    if try_lower_fn_addr_let(ctx, name, init) {
         return;
     }
     // General path.
@@ -207,47 +124,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     if stack_alloc_hinted {
         ctx.let_stack_alloc_hint = Some(name.to_string());
     }
-    let init_val = if let Expr::Array(els) = ctx.ast.get_expr(init)
-        && els.is_empty()
-    {
-        if !matches!(ty, Type::Arr(_)) {
-            panic!("ssa-lower: empty `[]` literal needs an array type annotation; got {ty:?}");
-        }
-        let alloc_fn = if let Type::Arr(arr_id) = ty
-            && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
-        {
-            ctx.intrinsics.arr_alloc_any
-        } else {
-            ctx.intrinsics.arr_alloc
-        };
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(alloc_fn, vec![Operand::ConstI64(0)]),
-            ty,
-            None,
-        );
-        Operand::Value(v)
-    } else if let Expr::Array(els) = ctx.ast.get_expr(init)
-        && let Type::Arr(arr_id) = ty
-        && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
-    {
-        let _ = els;
-        let ids: Vec<ExprId> = if let Expr::Array(els2) = ctx.ast.get_expr(init) {
-            els2.clone()
-        } else {
-            unreachable!()
-        };
-        ctx.lower_array_any_literal(&ids)
-    } else if ty == Type::Any && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. }) {
-        ctx.lower_dynobj_init(init)
-    } else if ty == Type::Any
-        && let Expr::Array(els) = ctx.ast.get_expr(init)
-    {
-        let ids: Vec<ExprId> = els.clone();
-        ctx.lower_array_any_literal(&ids)
-    } else {
-        ctx.lower_expr(init)
-    };
+    let init_val = lower_let_init_val(ctx, ty, init);
     ctx.let_stack_alloc_hint = None;
     if !is_alias_init {
         let pre_ty = ctx.operand_ty(&init_val);
@@ -300,31 +177,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     }
     let escape_captured = ty.is_copy() && ctx.escape_captured_lets.contains(name);
     let slot = if escape_captured {
-        let init_i64 = if matches!(ty, Type::F64) {
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BitCastF64ToI64(init_val.clone()),
-                Type::I64,
-                None,
-            );
-            Operand::Value(v)
-        } else if matches!(ty, Type::Bool) {
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::ZExtBoolToI64(init_val.clone()),
-                Type::I64,
-                None,
-            );
-            Operand::Value(v)
-        } else {
-            init_val.clone()
-        };
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.capture_box_alloc, vec![init_i64]),
-            Type::Ptr,
-            None,
-        )
+        ctx.emit_capture_boxed(ty, init_val)
     } else {
         let slot = ctx.binding_slot_alloca(ty, name);
         ctx.f.append_void(
@@ -351,4 +204,152 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     );
     let top = ctx.scope_stack.last_mut().expect("scope frame");
     top.push(name.to_string());
+}
+
+/// K.3 / K.4 — top-level data global: main fn + name in `globals` emits
+/// GlobalRef + Store (K.6 empty-array fast path; refcount slots require
+/// fresh-heap init). Returns false when `name` is not a module global.
+fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId) -> bool {
+    if !ctx.is_main_fn {
+        return false;
+    }
+    let Some(slot_ty) = ctx.globals.get(name).copied() else {
+        return false;
+    };
+    let init_val = if let Expr::Array(els) = ctx.ast.get_expr(init)
+        && els.is_empty()
+        && matches!(slot_ty, Type::Arr(_))
+    {
+        let alloc_fn = if let Type::Arr(arr_id) = slot_ty
+            && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
+        {
+            ctx.intrinsics.arr_alloc_any
+        } else {
+            ctx.intrinsics.arr_alloc
+        };
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(alloc_fn, vec![Operand::ConstI64(0)]),
+            slot_ty,
+            None,
+        );
+        Operand::Value(v)
+    } else if let Expr::Array(els) = ctx.ast.get_expr(init)
+        && let Type::Arr(arr_id) = slot_ty
+        && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
+    {
+        let ids: Vec<ExprId> = els.clone();
+        ctx.lower_array_any_literal(&ids)
+    } else {
+        ctx.lower_expr(init)
+    };
+    if slot_ty.is_refcounted() {
+        let init_is_borrow = matches!(
+            ctx.ast.get_expr(init),
+            Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+        );
+        if init_is_borrow {
+            panic!(
+                "ssa-lower: K.4 refcount global `{name}` requires fresh-heap init (function-call / concat / new); borrow-shaped init not yet supported"
+            );
+        }
+    }
+    let coerced = if slot_ty == Type::F64 && ctx.operand_ty(&init_val) == Type::I64 {
+        ctx.coerce_to_f64(init_val)
+    } else {
+        init_val
+    };
+    let ptr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::GlobalRef(name.to_string()),
+        Type::Ptr,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(coerced, Operand::Value(ptr), 0),
+    );
+    true
+}
+
+/// M2 Phase B Stage 4 — `let f = global_fn`: FnSig slot with FnAddr
+/// store. Returns false when init is not a bare global-fn ident.
+fn try_lower_fn_addr_let(ctx: &mut LowerCtx, name: &str, init: ExprId) -> bool {
+    let Expr::Ident(src_name) = ctx.ast.get_expr(init) else {
+        return false;
+    };
+    if ctx.locals.get(src_name).is_some() {
+        return false;
+    }
+    let Some(fid) = ctx.fn_table.get(src_name).copied() else {
+        return false;
+    };
+    let Some(sig_id) = ctx.fn_sig_ids.get(&fid).copied() else {
+        return false;
+    };
+    let ty = Type::FnSig(sig_id);
+    let slot = ctx.binding_slot_alloca(ty, name);
+    let v = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::FnAddr(fid), ty, None);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
+    );
+    let cur_depth = ctx.scope_stack.len() - 1;
+    ctx.locals.insert(
+        name.to_string(),
+        LocalInfo {
+            slot,
+            ty,
+            moved: false,
+            borrowed: false,
+            scope_depth: cur_depth,
+        },
+    );
+    let top = ctx.scope_stack.last_mut().expect("scope frame");
+    top.push(name.to_string());
+    true
+}
+
+/// general-path init-value dispatch: empty `[]` alloc (needs an array
+/// annotation), Arr<Any> literal, P3.2 `any`-annotated ObjectLit → dynobj
+/// / Array → any-literal, else plain `lower_expr`
+fn lower_let_init_val(ctx: &mut LowerCtx, ty: Type, init: ExprId) -> Operand {
+    if let Expr::Array(els) = ctx.ast.get_expr(init)
+        && els.is_empty()
+    {
+        if !matches!(ty, Type::Arr(_)) {
+            panic!("ssa-lower: empty `[]` literal needs an array type annotation; got {ty:?}");
+        }
+        let alloc_fn = if let Type::Arr(arr_id) = ty
+            && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
+        {
+            ctx.intrinsics.arr_alloc_any
+        } else {
+            ctx.intrinsics.arr_alloc
+        };
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(alloc_fn, vec![Operand::ConstI64(0)]),
+            ty,
+            None,
+        );
+        Operand::Value(v)
+    } else if let Expr::Array(els) = ctx.ast.get_expr(init)
+        && let Type::Arr(arr_id) = ty
+        && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
+    {
+        let ids: Vec<ExprId> = els.clone();
+        ctx.lower_array_any_literal(&ids)
+    } else if ty == Type::Any && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. }) {
+        ctx.lower_dynobj_init(init)
+    } else if ty == Type::Any
+        && let Expr::Array(els) = ctx.ast.get_expr(init)
+    {
+        let ids: Vec<ExprId> = els.clone();
+        ctx.lower_array_any_literal(&ids)
+    } else {
+        ctx.lower_expr(init)
+    }
 }

@@ -237,6 +237,35 @@ fn promote_and_widen(
 }
 
 impl<'a> LowerCtx<'a> {
+    /// T-15.g.5 escape-captured Copy binding: box the value on the heap
+    /// (16B = rc + value) via `capture_box_alloc`, bit-casting F64 / zero-
+    /// extending Bool into the i64 payload slot. Shared by fn-param
+    /// materialization here and the let-decl general path.
+    pub(crate) fn emit_capture_boxed(&mut self, ty: Type, v: Operand) -> ValueId {
+        let init_i64 = if matches!(ty, Type::F64) {
+            let b = self.f.append_inst(
+                self.cur_block,
+                InstKind::BitCastF64ToI64(v),
+                Type::I64,
+                None,
+            );
+            Operand::Value(b)
+        } else if matches!(ty, Type::Bool) {
+            let b = self
+                .f
+                .append_inst(self.cur_block, InstKind::ZExtBoolToI64(v), Type::I64, None);
+            Operand::Value(b)
+        } else {
+            v
+        };
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.capture_box_alloc, vec![init_i64]),
+            Type::Ptr,
+            None,
+        )
+    }
+
     /// step 4 of `lower_fn`: materialize each param as an alloca-backed
     /// local (refcounted capture box for escape-captured Copy params;
     /// `__env` / `__cm_*` `__this` marked moved+borrowed — caller owns)
@@ -244,31 +273,7 @@ impl<'a> LowerCtx<'a> {
         for (pname, pid, ty) in param_setup {
             let escape_captured = ty.is_copy() && self.escape_captured_lets.contains(&pname);
             let slot = if escape_captured {
-                let init_i64 = if matches!(ty, Type::F64) {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::BitCastF64ToI64(Operand::Value(pid)),
-                        Type::I64,
-                        None,
-                    );
-                    Operand::Value(v)
-                } else if matches!(ty, Type::Bool) {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::ZExtBoolToI64(Operand::Value(pid)),
-                        Type::I64,
-                        None,
-                    );
-                    Operand::Value(v)
-                } else {
-                    Operand::Value(pid)
-                };
-                self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.capture_box_alloc, vec![init_i64]),
-                    Type::Ptr,
-                    None,
-                )
+                self.emit_capture_boxed(ty, Operand::Value(pid))
             } else {
                 let s = self.alloca(ty, Some(&pname));
                 self.f.append_void(
