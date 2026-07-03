@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-03T03:16:09.165Z",
+  "generatedAt": "2026-07-03T06:02:07.619Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "3473f4e1",
-    "commitSubject": "refactor: split parse_type generic and marker blocks into submodules",
+    "commit": "44ddbd5e",
+    "commitSubject": "refactor: split index-search fromIndex normalize and elem load into fns",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "44ddbd5e",
+      "subject": "refactor: split index-search fromIndex normalize and elem load into fns"
+    },
+    {
+      "hash": "03e32d7a",
+      "subject": "refactor: split binop add-string family into try_lower submodule"
+    },
+    {
+      "hash": "01b48cc4",
+      "subject": "refactor: split lower_inner body passes and pipeline sub-steps"
+    },
+    {
+      "hash": "f0d01f35",
+      "subject": "refactor: split compute_archive_layout into three phase fns with carrier structs"
+    },
+    {
+      "hash": "f8b100ce",
+      "subject": "refactor: split parser trio god-fns and parse_type keyword tail into sub-fns"
+    },
+    {
+      "hash": "91f6d17d",
+      "subject": "chore(dashboard): session snapshot @ 3473f4e1 — fn-debt decomp 5-chunk sweep (check_type_of_call 1071 / tokenize 458 / type_ann 451 / json_stringify 446 / parse_type 429 all cleared)"
+    },
+    {
       "hash": "3473f4e1",
       "subject": "refactor: split parse_type generic and marker blocks into submodules"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "4b8cc737",
       "subject": "refactor: split check_type_of_call cascade into 7 segment submodules"
-    },
-    {
-      "hash": "18a9cd41",
-      "subject": "chore(dashboard): session snapshot @ d58438ba — ctpop idiom pass + regex re-decomp chunks 1-3 (popcount 7x, regex 3-shape sweep to 0.61x/0.82x/0.88x)"
-    },
-    {
-      "hash": "d58438ba",
-      "subject": "chore: rustfmt attach_exec debug_assert (fmt-clean sync with mini)"
-    },
-    {
-      "hash": "fdb6b9a6",
-      "subject": "perf(torajs-dynobj): initial-cap pool + batch exec-props attach fast path"
-    },
-    {
-      "hash": "b287d3cf",
-      "subject": "perf(torajs-regex): pre-sized match arrays + boxed saves shrinking MatchResult 536B to 24B"
-    },
-    {
-      "hash": "ff43097e",
-      "subject": "perf(torajs-regex): lazy workspace — sink materialisation into vm_match_at call sites"
-    },
-    {
-      "hash": "aa846b85",
-      "subject": "perf(torajs-egraph): ctpop loop-idiom pass — kernighan popcount loop to single ctpop"
     }
   ],
-  "headSha": "3473f4e1",
+  "headSha": "44ddbd5e",
   "autorun": {
-    "total": 312,
+    "total": 313,
     "baselineTarget": 10,
-    "bySelf": 307,
+    "bySelf": 308,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783025976-55ae",
-      "at": "2026-07-02T20:59:36Z",
-      "ts": 1783025976,
+      "rotationId": "r-1783048627-18fc",
+      "at": "2026-07-03T03:17:07Z",
+      "ts": 1783048627,
       "trigger": "self",
-      "prevHead": "18a9cd41",
-      "handoffSha": "sha256:cd818caaed05af14974bd0f244ddbc4b8bee67bd19f0f345ac932f03780b4868",
-      "handoffAgeSec": 6,
+      "prevHead": "91f6d17d",
+      "handoffSha": "sha256:51cc4dd1b3c310214945f365c0b0d253f87ea719874fe87e1bd0fee2bb088de7",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783048627-18fc",
+        "at": "2026-07-03T03:17:07Z",
+        "ts": 1783048627,
+        "trigger": "self",
+        "prevHead": "91f6d17d",
+        "handoffSha": "sha256:51cc4dd1b3c310214945f365c0b0d253f87ea719874fe87e1bd0fee2bb088de7",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783025976-55ae",
         "at": "2026-07-02T20:59:36Z",
@@ -876,17 +887,6 @@
         "prevHead": "e41ca6c5",
         "handoffSha": "sha256:2a2afc9f7b349785185d250ecc10e1cbe473d3b937a423698205622144481216",
         "handoffAgeSec": 2,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782954090-5aa7",
-        "at": "2026-07-02T01:01:30Z",
-        "ts": 1782954090,
-        "trigger": "self",
-        "prevHead": "3dcc81c1",
-        "handoffSha": "sha256:5dc5e761c332c92671d93f379815969fedab679ffe9ac5d4e9faa7058de22bac",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
