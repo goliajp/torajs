@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T20:58:23.976Z",
+  "generatedAt": "2026-07-03T03:16:09.165Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "d58438ba",
-    "commitSubject": "chore: rustfmt attach_exec debug_assert (fmt-clean sync with mini)",
+    "commit": "3473f4e1",
+    "commitSubject": "refactor: split parse_type generic and marker blocks into submodules",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "3473f4e1",
+      "subject": "refactor: split parse_type generic and marker blocks into submodules"
+    },
+    {
+      "hash": "16aa5b3b",
+      "subject": "refactor: split json_stringify composite arms into submodule"
+    },
+    {
+      "hash": "424982c6",
+      "subject": "refactor: split resolve_type_ann_inner into generic and marker submodules"
+    },
+    {
+      "hash": "c8c23c75",
+      "subject": "refactor: extract tokenize big arms into lexer scan helpers"
+    },
+    {
+      "hash": "4a9ab32f",
+      "subject": "docs: carve-out marker on ssa_lower_intrinsics_table build fn"
+    },
+    {
+      "hash": "4b8cc737",
+      "subject": "refactor: split check_type_of_call cascade into 7 segment submodules"
+    },
+    {
+      "hash": "18a9cd41",
+      "subject": "chore(dashboard): session snapshot @ d58438ba — ctpop idiom pass + regex re-decomp chunks 1-3 (popcount 7x, regex 3-shape sweep to 0.61x/0.82x/0.88x)"
+    },
+    {
       "hash": "d58438ba",
       "subject": "chore: rustfmt attach_exec debug_assert (fmt-clean sync with mini)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "aa846b85",
       "subject": "perf(torajs-egraph): ctpop loop-idiom pass — kernighan popcount loop to single ctpop"
-    },
-    {
-      "hash": "5da5b7a6",
-      "subject": "chore(dashboard): session snapshot @ c79f98b5 — perf round 5 attacks 1-3 shipped (sort 3.24x->0.37x, replace 3.08x->0.74x, codegen spill+imm quality)"
-    },
-    {
-      "hash": "c79f98b5",
-      "subject": "perf(torajs-codegen): loop-aware spill weights + ADD/SUB/CMP imm12 forms"
-    },
-    {
-      "hash": "dc7d26ec",
-      "subject": "perf(torajs-regex): dollarless replace fast path + ASCII borrow + output buffer reuse"
-    },
-    {
-      "hash": "87bf6a47",
-      "subject": "perf(torajs-arr): stable O(n log n) merge-sort helper for arr.sort(cmp)"
-    },
-    {
-      "hash": "6af4693c",
-      "subject": "test(bench): perf round 5 baseline — 44 cases x 3 runs @ 4c1f22a4, top losers array-sort-100k 3.24x / str-replace-100k 3.08x / popcount 2.01x vs bun-aot"
-    },
-    {
-      "hash": "821f32b7",
-      "subject": "test(bench): archive stray 2026-06-21/22 result files from prior sessions"
-    },
-    {
-      "hash": "4c1f22a4",
-      "subject": "chore(dashboard): session snapshot @ 4b239b21 — check.rs 460 + ast.rs 317 closed, regex-017 SIGBUS root-caused"
     }
   ],
-  "headSha": "d58438ba",
+  "headSha": "3473f4e1",
   "autorun": {
-    "total": 311,
+    "total": 312,
     "baselineTarget": 10,
-    "bySelf": 306,
+    "bySelf": 307,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783018084-21ae",
-      "at": "2026-07-02T18:48:04Z",
-      "ts": 1783018084,
+      "rotationId": "r-1783025976-55ae",
+      "at": "2026-07-02T20:59:36Z",
+      "ts": 1783025976,
       "trigger": "self",
-      "prevHead": "5da5b7a6",
-      "handoffSha": "sha256:c74169372c7d5fec3e5e73cdf9d70cc511d23940690c509f4c1ebe7020b49a54",
-      "handoffAgeSec": 10,
+      "prevHead": "18a9cd41",
+      "handoffSha": "sha256:cd818caaed05af14974bd0f244ddbc4b8bee67bd19f0f345ac932f03780b4868",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783025976-55ae",
+        "at": "2026-07-02T20:59:36Z",
+        "ts": 1783025976,
+        "trigger": "self",
+        "prevHead": "18a9cd41",
+        "handoffSha": "sha256:cd818caaed05af14974bd0f244ddbc4b8bee67bd19f0f345ac932f03780b4868",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783018084-21ae",
         "at": "2026-07-02T18:48:04Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "3dcc81c1",
         "handoffSha": "sha256:5dc5e761c332c92671d93f379815969fedab679ffe9ac5d4e9faa7058de22bac",
-        "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782947214-25ff",
-        "at": "2026-07-01T23:06:54Z",
-        "ts": 1782947214,
-        "trigger": "self",
-        "prevHead": "0ccc8db7",
-        "handoffSha": "sha256:129c46d2d8080deed5e21c894dc69557fdac0d0b6fedd41c3f94c7e60bd587ea",
         "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
