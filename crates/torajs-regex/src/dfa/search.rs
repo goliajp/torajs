@@ -212,6 +212,111 @@ pub fn dfa_search_mid_nonword(
     dfa_search_from(dfa, prog, hay, dfa.start_mid_nonword)
 }
 
+/// Round 3 Phase B sub-batch 6 attack #R-G — monotone-accept inner
+/// tight loop. When `state.monotone_accept` is set, every
+/// `transitions[b]` either self-loops (still an accepting state by
+/// `compute_monotone_accept` invariant) or exits via a non-self
+/// target (eventually dead). Skip the per-byte
+/// `last_accept = Some(cursor)` store + the `is_accept` check inside
+/// the run — the exit boundary writes `last_accept` once with the
+/// same value. For `/\p{L}+/u` against `'  Hello42 word  '`, this
+/// collapses the 5-byte letter-run's hot path from (load tx + cmp +
+/// cond store last_accept) per byte to (load tx + cmp) per byte,
+/// saving ~2-8 ns/iter.
+///
+/// Returns the cursor where the self-loop run ended — either the
+/// first byte whose transition leaves `state` (caller's outer loop
+/// re-dispatches it from the same cursor) or `hay.len()`. Both exits
+/// are accepting positions (`monotone_accept` implies `is_accept`),
+/// so the caller unconditionally records `last_accept` at the
+/// returned cursor.
+#[inline]
+fn run_monotone_accept(dfa: &DfaProgram, hay: &[u8], state: u32, mut cursor: usize) -> usize {
+    while cursor < hay.len() {
+        let b = hay[cursor];
+        let nxt = dfa.states[state as usize].transitions[b as usize];
+        if nxt != state {
+            break;
+        }
+        cursor += 1;
+    }
+    cursor
+}
+
+/// Round 3 Phase B sub-batch 4 attack #R-J v2 + v4 fallback — one
+/// K-PROPERTY pending-class step: decode one UTF-8 cp at `cursor`
+/// (1-4 bytes), call `prog.classes[class_idx].test_cp(cp)`, and
+/// route to `yes_target` (matched, advance by utf8_len) or
+/// `no_target` (not matched / invalid UTF-8, advance by 1 byte).
+///
+/// Returns `(next_state, new_cursor, at_end)`. `at_end == true` =
+/// the sequence was truncated at the haystack end — the caller
+/// breaks its loop with `alive = next_state != 0` (matching the
+/// pre-split control flow where `cursor` is never read after that
+/// break).
+fn pending_class_step(
+    prog: &crate::program::Program,
+    pc: super::PendingClass,
+    hay: &[u8],
+    cursor: usize,
+    byte: u8,
+) -> (u32, usize, bool) {
+    // Step 1: lead-byte → utf8_len classification.
+    let utf8_len: usize = if byte < 0x80 {
+        1
+    } else {
+        match byte {
+            0xC2..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF4 => 4,
+            _ => {
+                // Invalid lead (0x80..0xC1 / 0xF5..0xFF): treat as
+                // cp-miss, route to no_target, advance 1 byte so the
+                // search loop can retry / exit.
+                return (pc.no_target, cursor + 1, false);
+            }
+        }
+    };
+    // Step 2: truncated tail — abort sequence to no_target.
+    if cursor + utf8_len > hay.len() {
+        return (pc.no_target, cursor, true);
+    }
+    // Step 3: continuation-byte validity.
+    for i in 1..utf8_len {
+        if (hay[cursor + i] & 0xC0) != 0x80 {
+            return (pc.no_target, cursor + 1, false);
+        }
+    }
+    // Step 4: decode cp via the standard UTF-8 shift-OR pattern.
+    let cp: i32 = match utf8_len {
+        1 => byte as i32,
+        2 => (((byte & 0x1F) as i32) << 6) | ((hay[cursor + 1] & 0x3F) as i32),
+        3 => {
+            (((byte & 0x0F) as i32) << 12)
+                | (((hay[cursor + 1] & 0x3F) as i32) << 6)
+                | ((hay[cursor + 2] & 0x3F) as i32)
+        }
+        4 => {
+            (((byte & 0x07) as i32) << 18)
+                | (((hay[cursor + 1] & 0x3F) as i32) << 12)
+                | (((hay[cursor + 2] & 0x3F) as i32) << 6)
+                | ((hay[cursor + 3] & 0x3F) as i32)
+        }
+        _ => byte as i32, // unreachable — utf8_len ∈ {1,2,3,4}
+    };
+    // Step 5: cc.test_cp(cp) decides yes/no.
+    let cls_idx = pc.class_idx as usize;
+    let matched = if cls_idx < prog.classes.len() {
+        prog.classes[cls_idx].test_cp(cp)
+    } else {
+        // Defensive: class_idx out of range = no match. Should
+        // not happen in well-formed BFS output.
+        false
+    };
+    let next = if matched { pc.yes_target } else { pc.no_target };
+    (next, cursor + utf8_len, false)
+}
+
 fn dfa_search_from(
     dfa: &DfaProgram,
     prog: &crate::program::Program,
@@ -266,45 +371,9 @@ fn dfa_search_from(
             if dfa.states[state as usize].is_accept {
                 last_accept = Some(cursor);
             }
-            // Round 3 Phase B sub-batch 6 attack #R-G — monotone-
-            // accept inner tight loop. When `state.monotone_accept`
-            // is set, every `transitions[b]` either self-loops
-            // (still an accepting state by `compute_monotone_accept`
-            // invariant) or exits via a non-self target (eventually
-            // dead). Skip the per-byte `last_accept = Some(cursor)`
-            // store + the `is_accept` check inside the run — the
-            // exit boundary writes `last_accept` once with the same
-            // value. For `/\p{L}+/u` against
-            // `'  Hello42 word  '`, this collapses the 5-byte
-            // letter-run's hot path from
-            // (load tx + cmp + cond store last_accept) per byte
-            // to (load tx + cmp) per byte, saving ~2-8 ns/iter.
             if dfa.states[state as usize].monotone_accept {
-                while cursor < hay.len() {
-                    let b = hay[cursor];
-                    let nxt = dfa.states[state as usize].transitions[b as usize];
-                    if nxt != state {
-                        // Self-loop broken. Record `last_accept` at
-                        // the current cursor (we're still in an
-                        // accepting state since `monotone_accept`
-                        // implies `is_accept`), then fall back to
-                        // the outer loop iteration at the same
-                        // cursor — it handles the transition (which
-                        // may itself land on another monotone-
-                        // accept state, the dead state, or the
-                        // pending fallback).
-                        last_accept = Some(cursor);
-                        break;
-                    }
-                    cursor += 1;
-                }
-                if cursor == hay.len() {
-                    // Walked to haystack end inside the monotone
-                    // run. `last_accept = Some(hay.len())` is the
-                    // correct exit value; the outer `while
-                    // cursor < hay.len()` guard then terminates.
-                    last_accept = Some(cursor);
-                }
+                cursor = run_monotone_accept(dfa, hay, state, cursor);
+                last_accept = Some(cursor);
             }
             continue;
         }
@@ -329,88 +398,17 @@ fn dfa_search_from(
             alive = false;
             break;
         }
-        // Step 1: lead-byte → utf8_len classification.
-        let utf8_len: usize = if byte < 0x80 {
-            1
-        } else {
-            match byte {
-                0xC2..=0xDF => 2,
-                0xE0..=0xEF => 3,
-                0xF0..=0xF4 => 4,
-                _ => {
-                    // Invalid lead (0x80..0xC1 / 0xF5..0xFF): treat
-                    // as cp-miss, route to no_target, advance 1
-                    // byte so the search loop can retry / exit.
-                    state = pc.no_target;
-                    cursor += 1;
-                    if state == 0 {
-                        alive = false;
-                        break;
-                    }
-                    if dfa.states[state as usize].is_accept {
-                        last_accept = Some(cursor);
-                    }
-                    continue;
-                }
-            }
-        };
-        // Step 2: truncated tail — abort sequence to no_target,
-        // exit the loop. `cursor` is never read after the break;
-        // the post-walk `is_accept_at_end` check skips when
-        // `alive == false` (no_target == 0 = dead state).
-        if cursor + utf8_len > hay.len() {
-            state = pc.no_target;
+        let (next_state, new_cursor, at_end) = pending_class_step(prog, pc, hay, cursor, byte);
+        state = next_state;
+        cursor = new_cursor;
+        if at_end {
+            // Truncated tail at the haystack end. `cursor` is never
+            // read after the break; the post-walk `is_accept_at_end`
+            // check skips when `alive == false` (no_target == 0 =
+            // dead state).
             alive = state != 0;
             break;
         }
-        // Step 3: continuation-byte validity.
-        let mut valid_cont = true;
-        for i in 1..utf8_len {
-            if (hay[cursor + i] & 0xC0) != 0x80 {
-                valid_cont = false;
-                break;
-            }
-        }
-        if !valid_cont {
-            state = pc.no_target;
-            cursor += 1;
-            if state == 0 {
-                alive = false;
-                break;
-            }
-            if dfa.states[state as usize].is_accept {
-                last_accept = Some(cursor);
-            }
-            continue;
-        }
-        // Step 4: decode cp via the standard UTF-8 shift-OR pattern.
-        let cp: i32 = match utf8_len {
-            1 => byte as i32,
-            2 => (((byte & 0x1F) as i32) << 6) | ((hay[cursor + 1] & 0x3F) as i32),
-            3 => {
-                (((byte & 0x0F) as i32) << 12)
-                    | (((hay[cursor + 1] & 0x3F) as i32) << 6)
-                    | ((hay[cursor + 2] & 0x3F) as i32)
-            }
-            4 => {
-                (((byte & 0x07) as i32) << 18)
-                    | (((hay[cursor + 1] & 0x3F) as i32) << 12)
-                    | (((hay[cursor + 2] & 0x3F) as i32) << 6)
-                    | ((hay[cursor + 3] & 0x3F) as i32)
-            }
-            _ => byte as i32, // unreachable — utf8_len ∈ {1,2,3,4}
-        };
-        // Step 5: cc.test_cp(cp) decides yes/no.
-        let cls_idx = pc.class_idx as usize;
-        let matched = if cls_idx < prog.classes.len() {
-            prog.classes[cls_idx].test_cp(cp)
-        } else {
-            // Defensive: class_idx out of range = no match. Should
-            // not happen in well-formed BFS output.
-            false
-        };
-        state = if matched { pc.yes_target } else { pc.no_target };
-        cursor += utf8_len;
         if state == 0 {
             alive = false;
             break;
