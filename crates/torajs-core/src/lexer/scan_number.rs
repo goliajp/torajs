@@ -226,3 +226,63 @@ pub(super) fn scan_number(
     emit(out, Token::Number(n), start, *i);
     Ok(())
 }
+
+/// `.` dispatch — `...` spread, leading-dot numeric literal
+/// (`.5` / `.123e2` per ES §12.9.3), or bare member-access `.`.
+/// Extracted verbatim from `tokenize`'s `b'.'` match arm
+/// (2026-07-03, fn-debt decomp; only change is `i` threading
+/// through `&mut u32`).
+pub(super) fn scan_dot(bytes: &[u8], i: &mut u32, out: &mut Vec<Spanned>, start: u32) {
+    // `...` (spread/rest) emits a single DotDotDot token.
+    // Bare `.` stays Dot for member access.
+    if peek(bytes, *i + 1) == Some(b'.') && peek(bytes, *i + 2) == Some(b'.') {
+        *i += 3;
+        emit(out, Token::DotDotDot, start, *i);
+    } else if peek(bytes, *i + 1).is_some_and(|c| c.is_ascii_digit()) {
+        // P0.10 — leading-dot numeric literal: `.5`,
+        // `.123`, `.5e2` per ES spec §12.9.3 NumericLiteral.
+        // Pre-fix tora's lexer always emitted Token::Dot
+        // here, leaving the parser to bail with 'expected
+        // expression, got Dot'. Now consume the fractional
+        // tail (and optional exponent) inline as part of
+        // the numeric value, mirroring what the post-Int
+        // path does.
+        *i += 1; // consume `.`
+        let mut digits = String::from("0.");
+        while let Some(c) = peek(bytes, *i) {
+            if c.is_ascii_digit() || c == b'_' {
+                if c != b'_' {
+                    digits.push(c as char);
+                }
+                *i += 1;
+            } else {
+                break;
+            }
+        }
+        // Optional exponent: `[eE][+-]?DIGITS`
+        if let Some(c) = peek(bytes, *i)
+            && (c == b'e' || c == b'E')
+        {
+            digits.push(c as char);
+            *i += 1;
+            if let Some(s) = peek(bytes, *i)
+                && (s == b'+' || s == b'-')
+            {
+                digits.push(s as char);
+                *i += 1;
+            }
+            while let Some(c) = peek(bytes, *i) {
+                if c.is_ascii_digit() {
+                    digits.push(c as char);
+                    *i += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+        let n: f64 = digits.parse().unwrap_or(0.0);
+        emit(out, Token::Number(n), start, *i);
+    } else {
+        emit(out, Token::Dot, start, super::util::advance(i));
+    }
+}

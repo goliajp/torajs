@@ -231,3 +231,24 @@ pub(super) fn scan_ident_or_keyword(
     };
     emit(out, token, start, *i);
 }
+
+/// `#name` PrivateIdentifier scanner (P8.1). Extracted verbatim
+/// from `tokenize`'s `b'#'` match arm (2026-07-03, fn-debt decomp;
+/// the `is_ident_start` guard stays at the call site so a bare `#`
+/// still falls through to the unexpected-byte error).
+pub(super) fn scan_private_ident(
+    bytes: &[u8],
+    i: &mut u32,
+    out: &mut Vec<Spanned>,
+    start: u32,
+    len: u32,
+) {
+    *i += 1;
+    let ident_start = *i;
+    while *i < len && is_ident_cont(bytes[*i as usize]) {
+        *i += 1;
+    }
+    let name = std::str::from_utf8(&bytes[ident_start as usize..*i as usize])
+        .expect("ascii ident slice is valid utf-8");
+    emit(out, Token::PrivateIdent(name.to_string()), start, *i);
+}

@@ -6,12 +6,14 @@
 
 mod scan;
 mod scan_number;
+mod scan_slash;
+mod scan_template;
 mod types;
 mod util;
 
 pub use types::{Span, Spanned, TemplatePart, Token};
 
-use util::{advance, emit, is_ident_cont, is_ident_start, peek, regex_context};
+use util::{advance, emit, is_ident_start, peek};
 
 pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
     let bytes = src.as_bytes();
@@ -27,60 +29,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 i += 1;
                 continue;
             }
-            b'.' => {
-                // `...` (spread/rest) emits a single DotDotDot token.
-                // Bare `.` stays Dot for member access.
-                if peek(bytes, i + 1) == Some(b'.') && peek(bytes, i + 2) == Some(b'.') {
-                    i += 3;
-                    emit(&mut out, Token::DotDotDot, start, i);
-                } else if peek(bytes, i + 1).is_some_and(|c| c.is_ascii_digit()) {
-                    // P0.10 — leading-dot numeric literal: `.5`,
-                    // `.123`, `.5e2` per ES spec §12.9.3 NumericLiteral.
-                    // Pre-fix tora's lexer always emitted Token::Dot
-                    // here, leaving the parser to bail with 'expected
-                    // expression, got Dot'. Now consume the fractional
-                    // tail (and optional exponent) inline as part of
-                    // the numeric value, mirroring what the post-Int
-                    // path does.
-                    i += 1; // consume `.`
-                    let mut digits = String::from("0.");
-                    while let Some(c) = peek(bytes, i) {
-                        if c.is_ascii_digit() || c == b'_' {
-                            if c != b'_' {
-                                digits.push(c as char);
-                            }
-                            i += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    // Optional exponent: `[eE][+-]?DIGITS`
-                    if let Some(c) = peek(bytes, i)
-                        && (c == b'e' || c == b'E')
-                    {
-                        digits.push(c as char);
-                        i += 1;
-                        if let Some(s) = peek(bytes, i)
-                            && (s == b'+' || s == b'-')
-                        {
-                            digits.push(s as char);
-                            i += 1;
-                        }
-                        while let Some(c) = peek(bytes, i) {
-                            if c.is_ascii_digit() {
-                                digits.push(c as char);
-                                i += 1;
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                    let n: f64 = digits.parse().unwrap_or(0.0);
-                    emit(&mut out, Token::Number(n), start, i);
-                } else {
-                    emit(&mut out, Token::Dot, start, advance(&mut i));
-                }
-            }
+            b'.' => scan_number::scan_dot(bytes, &mut i, &mut out, start),
             b',' => emit(&mut out, Token::Comma, start, advance(&mut i)),
             b':' => emit(&mut out, Token::Colon, start, advance(&mut i)),
             b';' => emit(&mut out, Token::Semi, start, advance(&mut i)),
@@ -149,100 +98,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     emit(&mut out, Token::Question, start, advance(&mut i));
                 }
             }
-            b'/' => {
-                // `//` line comment, `/* */` block comment, regex
-                // literal, or division. Disambiguation between regex
-                // and division uses the previous token: regex when prev
-                // is None / a punctuator / a keyword that can start an
-                // expression on its right.
-                match peek(bytes, i + 1) {
-                    Some(b'/') => {
-                        // Line comment — consume to end-of-line / EOF.
-                        i += 2;
-                        while i < len && bytes[i as usize] != b'\n' {
-                            i += 1;
-                        }
-                        // Don't consume the newline itself — outer loop's
-                        // whitespace branch handles it (and any trailing
-                        // \r\n line ending).
-                    }
-                    Some(b'*') => {
-                        // Block comment — consume to first `*/`. Nested
-                        // block comments are NOT supported (TS doesn't
-                        // support them either; matches `tsc` / `bun`).
-                        i += 2;
-                        let comment_start = start;
-                        loop {
-                            if i + 1 >= len {
-                                return Err(format!(
-                                    "unterminated block comment starting at {comment_start}"
-                                ));
-                            }
-                            if bytes[i as usize] == b'*' && bytes[(i + 1) as usize] == b'/' {
-                                i += 2;
-                                break;
-                            }
-                            i += 1;
-                        }
-                    }
-                    _ if regex_context(out.last().map(|s| &s.token)) => {
-                        // Scan a regex literal: `/pattern/flags`.
-                        // Pattern body: read until an unescaped `/`,
-                        // honoring `\\.` escapes and `[...]` character
-                        // classes (where `/` is allowed bare).
-                        let body_start = (i + 1) as usize;
-                        let mut p = body_start;
-                        let mut in_class = false;
-                        loop {
-                            if p >= len as usize {
-                                return Err(format!(
-                                    "unterminated regex literal starting at {start}"
-                                ));
-                            }
-                            let c = bytes[p];
-                            if c == b'\n' {
-                                return Err(format!(
-                                    "unterminated regex literal at {start} (line break before closing `/`)"
-                                ));
-                            }
-                            if c == b'\\' {
-                                // Skip the escape sequence's next byte.
-                                p += 2;
-                                continue;
-                            }
-                            if c == b'[' {
-                                in_class = true;
-                                p += 1;
-                                continue;
-                            }
-                            if c == b']' && in_class {
-                                in_class = false;
-                                p += 1;
-                                continue;
-                            }
-                            if c == b'/' && !in_class {
-                                break;
-                            }
-                            p += 1;
-                        }
-                        let pattern = String::from_utf8_lossy(&bytes[body_start..p]).into_owned();
-                        // Flags: any trailing ASCII letters.
-                        let flags_start = p + 1;
-                        let mut q = flags_start;
-                        while q < len as usize && bytes[q].is_ascii_alphabetic() {
-                            q += 1;
-                        }
-                        let flags = String::from_utf8_lossy(&bytes[flags_start..q]).into_owned();
-                        i = q as u32;
-                        emit(&mut out, Token::Regex { pattern, flags }, start, i);
-                    }
-                    Some(b'=') => {
-                        i += 2;
-                        emit(&mut out, Token::SlashEq, start, i);
-                    }
-                    _ => emit(&mut out, Token::Slash, start, advance(&mut i)),
-                }
-            }
+            b'/' => scan_slash::scan_slash(bytes, &mut i, &mut out, start, len)?,
             b'%' => {
                 i += 1;
                 if peek(bytes, i) == Some(b'=') {
@@ -338,127 +194,12 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 }
             }
             b'"' | b'\'' => scan::scan_string(bytes, &mut i, &mut out, start, len)?,
-            b'`' => {
-                // Template literal. Read alternating literal segments
-                // and `${...}` interpolations until the closing
-                // backtick. Each interpolation's source slice is
-                // recursively tokenized so the parser can drop a
-                // sub-Parser into it without re-doing lex.
-                //
-                // Limitation: interpolations track only `{` `}` depth,
-                // not strings or backticks inside the expression. So
-                // `${ "}" }` (a literal `}` inside a string) and
-                // nested templates `${\`...\`}` aren't supported. The
-                // common arithmetic / member-access shapes work fine.
-                i += 1; // consume opening backtick
-                let mut parts: Vec<TemplatePart> = Vec::new();
-                let mut buf: Vec<u8> = Vec::new();
-                loop {
-                    if i >= len {
-                        return Err(format!("unterminated template literal starting at {start}"));
-                    }
-                    let b = bytes[i as usize];
-                    if b == b'`' {
-                        if !buf.is_empty() || parts.is_empty() {
-                            let s = std::str::from_utf8(&buf)
-                                .map_err(|_| format!("invalid utf-8 in template at {start}"))?
-                                .to_string();
-                            parts.push(TemplatePart::Lit(s));
-                        }
-                        i += 1; // consume closing backtick
-                        break;
-                    }
-                    // S156 — interpret escape sequences in literal
-                    // segments per ES §12.8.6.2 (TV(TemplateCharacter)).
-                    // Same set as `"..."` / `'...'` string literals
-                    // handles: n/t/r/0/v/f/b → control bytes, `/$/{ →
-                    // self, \\ → backslash, \" \' → quote, \` → ` (the
-                    // backtick wouldn't otherwise be reachable inside
-                    // the template). Unknown escapes pass through as
-                    // the escaped char (lenient — mirrors v8/bun).
-                    if b == b'\\' && i + 1 < len {
-                        let esc = bytes[(i + 1) as usize];
-                        let mapped: u8 = match esc {
-                            b'n' => b'\n',
-                            b't' => b'\t',
-                            b'r' => b'\r',
-                            b'0' => 0,
-                            b'v' => 0x0B,
-                            b'f' => 0x0C,
-                            b'b' => 0x08,
-                            b'\\' => b'\\',
-                            b'`' => b'`',
-                            b'$' => b'$',
-                            b'\'' => b'\'',
-                            b'"' => b'"',
-                            other => other,
-                        };
-                        buf.push(mapped);
-                        i += 2;
-                        continue;
-                    }
-                    if b == b'$' && peek(bytes, i + 1) == Some(b'{') {
-                        // Flush literal segment (even if empty — we
-                        // need the alternation).
-                        let s = std::str::from_utf8(&buf)
-                            .map_err(|_| format!("invalid utf-8 in template at {start}"))?
-                            .to_string();
-                        parts.push(TemplatePart::Lit(s));
-                        buf.clear();
-                        i += 2; // consume `${`
-                        let expr_start = i;
-                        let mut depth: i32 = 1;
-                        while i < len && depth > 0 {
-                            match bytes[i as usize] {
-                                b'{' => depth += 1,
-                                b'}' => depth -= 1,
-                                _ => {}
-                            }
-                            if depth == 0 {
-                                break;
-                            }
-                            i += 1;
-                        }
-                        if i >= len {
-                            return Err(format!(
-                                "unterminated template `${{...}}` interpolation at {start}"
-                            ));
-                        }
-                        let expr_end = i;
-                        i += 1; // consume `}`
-                        let expr_src =
-                            std::str::from_utf8(&bytes[expr_start as usize..expr_end as usize])
-                                .map_err(|_| {
-                                    format!("invalid utf-8 in template interp at {start}")
-                                })?;
-                        let inner = tokenize(expr_src)?;
-                        // Keep the trailing Eof so the sub-Parser's
-                        // peek() never falls off the end (its expr
-                        // parsers rely on the Eof guard).
-                        parts.push(TemplatePart::Expr(inner));
-                        continue;
-                    }
-                    buf.push(b);
-                    i += 1;
-                }
-                emit(&mut out, Token::Template { parts }, start, i);
-            }
+            b'`' => scan_template::scan_template(bytes, &mut i, &mut out, start, len)?,
             b'#' if peek(bytes, i + 1).is_some_and(is_ident_start) => {
-                // P8.1 — `#name` PrivateIdentifier. Consume `#`, then
-                // lex the identifier body like a normal `Ident` but
-                // emit `Token::PrivateIdent(name)` carrying just the
-                // name (no `#`). A bare `#` not followed by an ident
-                // start falls through to the unexpected-byte error
-                // below — narrow-surface (no use for `#` outside
-                // PrivateIdentifier yet).
-                i += 1;
-                let ident_start = i;
-                while i < len && is_ident_cont(bytes[i as usize]) {
-                    i += 1;
-                }
-                let name = std::str::from_utf8(&bytes[ident_start as usize..i as usize])
-                    .expect("ascii ident slice is valid utf-8");
-                emit(&mut out, Token::PrivateIdent(name.to_string()), start, i);
+                // P8.1 — `#name` PrivateIdentifier; a bare `#` not
+                // followed by an ident start falls through to the
+                // unexpected-byte error below.
+                scan::scan_private_ident(bytes, &mut i, &mut out, start, len)
             }
             b if is_ident_start(b) => {
                 scan::scan_ident_or_keyword(bytes, &mut i, &mut out, start, len)
