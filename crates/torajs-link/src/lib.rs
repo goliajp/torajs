@@ -89,6 +89,7 @@ pub mod sha256;
 pub mod sign;
 pub mod stubs;
 pub mod tlv_descriptor_layout;
+pub mod tlv_sym_overrides;
 pub mod tlv_thunk_emit;
 pub mod user_class_layouts_layout;
 pub mod user_data_globals_layout;
