@@ -81,17 +81,14 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             cond,
             then_branch,
             else_branch,
-        } => {
-            println!("{pad}If");
-            println!("{pad}  cond:");
-            print_expr(ast, *cond, indent + 2);
-            println!("{pad}  then:");
-            print_stmt(ast, then_branch, indent + 2);
-            if let Some(eb) = else_branch {
-                println!("{pad}  else:");
-                print_stmt(ast, eb, indent + 2);
-            }
-        }
+        } => print_if(
+            ast,
+            &pad,
+            *cond,
+            then_branch,
+            else_branch.as_deref(),
+            indent,
+        ),
         Stmt::While { cond, body } => {
             println!("{pad}While");
             println!("{pad}  cond:");
@@ -185,17 +182,16 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             return_type,
             body,
             is_generator: _,
-        } => {
-            let ret = return_type.clone().unwrap_or_else(|| "void".into());
-            println!(
-                "{pad}FnDecl {name}{}({}): {ret}",
-                fmt_type_params(type_params),
-                fmt_params(params)
-            );
-            for s in body {
-                print_stmt(ast, s, indent + 1);
-            }
-        }
+        } => print_fn_decl(
+            ast,
+            &pad,
+            name,
+            type_params,
+            params,
+            return_type,
+            body,
+            indent,
+        ),
         Stmt::TypeDecl {
             name,
             type_params,
@@ -244,6 +240,27 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
                 print_stmt(ast, inner, indent + 1);
             }
         }
+    }
+}
+
+/// `Stmt::If` arm — cond / then / optional else, each one indent
+/// deeper.
+fn print_if(
+    ast: &Ast,
+    pad: &str,
+    cond: ExprId,
+    then_branch: &Stmt,
+    else_branch: Option<&Stmt>,
+    indent: usize,
+) {
+    println!("{pad}If");
+    println!("{pad}  cond:");
+    print_expr(ast, cond, indent + 2);
+    println!("{pad}  then:");
+    print_stmt(ast, then_branch, indent + 2);
+    if let Some(eb) = else_branch {
+        println!("{pad}  else:");
+        print_stmt(ast, eb, indent + 2);
     }
 }
 
@@ -357,6 +374,30 @@ fn print_try(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// `Stmt::FnDecl` arm — header line (name + type params + params +
+/// return type) then the body stmts one indent deeper.
+#[allow(clippy::too_many_arguments)]
+fn print_fn_decl(
+    ast: &Ast,
+    pad: &str,
+    name: &str,
+    type_params: &[String],
+    params: &[Param],
+    return_type: &Option<String>,
+    body: &[Stmt],
+    indent: usize,
+) {
+    let ret = return_type.clone().unwrap_or_else(|| "void".into());
+    println!(
+        "{pad}FnDecl {name}{}({}): {ret}",
+        fmt_type_params(type_params),
+        fmt_params(params)
+    );
+    for s in body {
+        print_stmt(ast, s, indent + 1);
+    }
+}
+
 fn print_class_decl(
     ast: &Ast,
     pad: &str,

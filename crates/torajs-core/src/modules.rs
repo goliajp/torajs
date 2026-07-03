@@ -82,6 +82,46 @@ type WorkItem = (
     Option<String>,
 );
 
+/// One statement of a side-effect-only (`import "./x"`) lib walk —
+/// the lib's ImportDecls still queue (so transitive loads happen),
+/// but every other top-level statement (including bare expressions,
+/// console.log, top-level `let`s, classes, and `export`-wrapped
+/// decls) injects in source order. Bare named export (`export
+/// { a }`, the P13-S4 re-export surface) is still rejected at the
+/// side-effect boundary (K.2).
+fn inject_side_effect_stmt(
+    work: &mut VecDeque<WorkItem>,
+    target_dir: &Path,
+    injections: &mut Vec<Stmt>,
+    s: Stmt,
+    target_path: &Path,
+) -> Result<(), String> {
+    if let Stmt::ImportDecl {
+        source,
+        named,
+        default,
+        namespace,
+    } = s
+    {
+        queue_nested_import(work, target_dir, &source, named, default, namespace)?;
+        return Ok(());
+    }
+    if let Stmt::ExportDecl {
+        inner: Some(boxed), ..
+    } = s
+    {
+        injections.push(*boxed);
+    } else if let Stmt::ExportDecl { inner: None, .. } = s {
+        return Err(format!(
+            "bare named export not supported in K.2 ({})",
+            target_path.display()
+        ));
+    } else {
+        injections.push(s);
+    }
+    Ok(())
+}
+
 /// Resolve every `import` in `ast` by reading + parsing the target file
 /// and injecting its requested named exports as top-level declarations
 /// at the front of `ast.stmts`. Single-file mode (no `ImportDecl`s) is
@@ -169,45 +209,9 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         let mut namespace_fields: Vec<String> = Vec::new();
 
         for s in lib_section {
-            // Side-effect-only import: lib's ImportDecls still need to walk
-            // so transitive lib loads happen, but every other top-level
-            // statement (including bare expressions, console.log, top-level
-            // `let`s, classes, and `export`-wrapped decls) injects in
-            // source order.
+            // Side-effect-only import — see [`inject_side_effect_stmt`].
             if side_effect_only {
-                if let Stmt::ImportDecl {
-                    source,
-                    named,
-                    default,
-                    namespace,
-                } = s
-                {
-                    queue_nested_import(
-                        &mut work,
-                        &target_dir,
-                        &source,
-                        named,
-                        default,
-                        namespace,
-                    )?;
-                    continue;
-                }
-                if let Stmt::ExportDecl {
-                    inner: Some(boxed), ..
-                } = s
-                {
-                    injections.push(*boxed);
-                } else if let Stmt::ExportDecl { inner: None, .. } = s {
-                    // Bare named export (`export { a }`) is the P13-S4
-                    // re-export surface — still rejected at side-effect
-                    // boundary here.
-                    return Err(format!(
-                        "bare named export not supported in K.2 ({})",
-                        target_path.display()
-                    ));
-                } else {
-                    injections.push(s);
-                }
+                inject_side_effect_stmt(&mut work, &target_dir, &mut injections, s, &target_path)?;
                 continue;
             }
             match s {
