@@ -20,7 +20,7 @@ use torajs_obj::{
 use crate::archive::ArMember;
 use crate::data_section_layout::DataSectionLayout;
 use crate::member_reloc::{MemberRelocEntry, MemberRelocError, parse_member_text_relocs};
-use crate::member_resolve::resolve_local_nsect;
+use crate::member_resolve::{MemberSymtab, resolve_local_nsect};
 use crate::member_symtab::{parse_member_symtab, read_nlist_name};
 use crate::non_text_layout::NonTextSectionLayout;
 use crate::patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
@@ -171,64 +171,24 @@ pub fn apply_member_relocs(
             // r_symbolnum is a 24-bit signed value per
             // <mach-o/arm64/reloc.h>. Sign-extend to i64.
             let raw = r.r_symbolnum & 0x00FF_FFFF;
-            let sign_extended = if raw & 0x0080_0000 != 0 {
+            pending_addend = if raw & 0x0080_0000 != 0 {
                 (raw | 0xFF00_0000) as i32 as i64
             } else {
                 raw as i64
             };
-            pending_addend = sign_extended;
             continue;
         }
 
-        // SD-4c-prereq-b3 — dispatch r_extern=0 (section-keyed)
-        // relocs through `classify_section_reloc` + lookup in
-        // `non_text_sections`. The named-sym path stays unchanged
-        // for r_extern=1.
-        let sym_vaddr = if let Some(PatchKind::SectionRef {
-            section_index,
-            addend,
-        }) = classify_section_reloc(r, pending_addend)
-        {
-            let layout = non_text_sections
-                .iter()
-                .find(|s| s.section_index == section_index)
-                .ok_or(MemberRelocApplyError::SectionNotInMember { section_index })?;
-            // Replace pending_addend with the classified addend so
-            // the shared post-dispatch arithmetic still applies it
-            // exactly once.
-            pending_addend = addend;
-            layout.final_vaddr
-        } else if r.r_extern == 0 {
-            // classify returned None for an r_extern=0 entry — only
-            // possible when r_symbolnum > 255 (per
-            // classify_section_reloc's strict-validation deferral).
-            return Err(MemberRelocApplyError::InvalidSectionIndex {
-                r_symbolnum: r.r_symbolnum,
-                nsects: non_text_sections.len(),
-            });
-        } else {
-            if r.r_symbolnum >= symtab.nsyms {
-                return Err(MemberRelocApplyError::SymbolnumOutOfRange {
-                    r_symbolnum: r.r_symbolnum,
-                    nsyms: symtab.nsyms,
-                });
-            }
-            let name = read_nlist_name(member, &symtab, r.r_symbolnum)?;
-            if let Some(&v) = sym_table.get(&name) {
-                v
-            } else if let Some(v) = resolve_local_nsect(
-                member,
-                &symtab,
-                r.r_symbolnum,
-                member_vaddr,
-                non_text_sections,
-                data_non_text_sections,
-            ) {
-                v
-            } else {
-                return Err(MemberRelocApplyError::UnresolvedSymbol { name: name.clone() });
-            }
-        };
+        let sym_vaddr = resolve_reloc_target(
+            r,
+            &mut pending_addend,
+            member,
+            &symtab,
+            member_vaddr,
+            sym_table,
+            non_text_sections,
+            data_non_text_sections,
+        )?;
         // Apply (then clear) the pending addend from any preceding
         // ARM64_RELOC_ADDEND. Sign-extension is preserved through
         // the wrapping add — Mach-O addends commonly point past
@@ -256,95 +216,173 @@ pub fn apply_member_relocs(
         }
 
         let site_vaddr = member_vaddr + u64::from(r.r_address);
-        match r.r_type {
-            ARM64_RELOC_BRANCH26 => {
-                let displacement = (target_vaddr as i64) - (site_vaddr as i64);
-                let displacement_i32 = i32::try_from(displacement).map_err(|_| {
-                    MemberRelocApplyError::BranchDisplacementOverflow {
-                        site_vaddr,
-                        target_vaddr,
-                        displacement,
-                    }
-                })?;
-                let insn = read_u32_le(bytes, off);
-                let patched = patch_branch26(insn, displacement_i32);
-                write_u32_le(bytes, off, patched);
-            }
-            // GOT_LOAD_PAGE21 patches identically to PAGE21 — both
-            // emit an ADRP that points at the target's page. The
-            // ld64 "GOT optimization" replaces the GOT-indirected
-            // pair with a direct PC-relative pair when the target
-            // is inside the binary's ±4 GiB range, which our
-            // single-image binaries always satisfy.
-            //
-            // TLVP_LOAD_PAGE21 (SD-4c-prereq+a) also patches the
-            // ADRP imm21, but the target is the TLV descriptor's
-            // `__DATA,__thread_vars` page. No "TLV relaxation"
-            // exists — dyld binds the descriptor's thunk slot, so
-            // the indirection through the descriptor stays. The
-            // PAGE21 patch math is the same; only the target
-            // source differs (prereq+b/c feeds the descriptor
-            // vaddr through the same sym_table path the named-sym
-            // branch already uses).
-            ARM64_RELOC_PAGE21 | ARM64_RELOC_GOT_LOAD_PAGE21 | ARM64_RELOC_TLVP_LOAD_PAGE21 => {
-                let target_page = (target_vaddr & !0xFFF) as i64;
-                let site_page = (site_vaddr & !0xFFF) as i64;
-                let displacement = target_page - site_page;
-                let insn = read_u32_le(bytes, off);
-                let patched = patch_page21(insn, displacement);
-                write_u32_le(bytes, off, patched);
-            }
-            // PAGEOFF12 patches the imm12 field (bits 21:10) of an
-            // ADD or LDR instruction — the same bit slot regardless
-            // of opcode, so a single patch covers both.
-            //
-            // TLVP_LOAD_PAGEOFF12 (SD-4c-prereq+a) likewise patches
-            // imm12, but unlike GOT_LOAD_PAGEOFF12 there is *no*
-            // LDR→ADD opcode rewrite: dyld must bind the TLV
-            // descriptor's thunk slot at process start, so the LDR-
-            // through-descriptor indirection is preserved.
-            ARM64_RELOC_PAGEOFF12 | ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => {
-                let offset12 = (target_vaddr & 0xFFF) as u32;
-                let insn = read_u32_le(bytes, off);
-                let patched = patch_pageoff12(insn, offset12);
-                write_u32_le(bytes, off, patched);
-            }
-            // GOT_LOAD_PAGEOFF12 lives on an LDR instruction (load
-            // the GOT slot, which itself holds the target's vaddr).
-            // The textbook ld64 relaxation rewrites the LDR opcode
-            // in place to an ADD opcode and then patches the imm12
-            // with the symbol's own page-offset — turning
-            // `ADRP+LDR (via GOT)` into `ADRP+ADD (direct)`. Bits
-            // 30/29/27/22 differ between LDR (immediate, 64-bit
-            // unsigned offset, 0xF940_0000 | …) and ADD (immediate,
-            // 64-bit, shift=0, 0x9100_0000 | …); zeroing those
-            // four bits in the instruction word performs the
-            // rewrite without touching the Rn/Rt fields. Verified
-            // bit-for-bit against ARMv8-A C6.2.184 + C6.2.4.
-            ARM64_RELOC_GOT_LOAD_PAGEOFF12 => {
-                let insn_ldr = read_u32_le(bytes, off);
-                debug_assert_eq!(
-                    insn_ldr & 0xFFC0_0000,
-                    0xF940_0000,
-                    "GOT_LOAD_PAGEOFF12 expects an LDR (imm12) at the patch site, got 0x{insn_ldr:08x}",
-                );
-                let insn_add = insn_ldr & !0x6840_0000;
-                let offset12 = (target_vaddr & 0xFFF) as u32;
-                let patched = patch_pageoff12(insn_add, offset12);
-                write_u32_le(bytes, off, patched);
-            }
-            ARM64_RELOC_UNSIGNED => {
-                let slot: &mut [u8; 8] = (&mut bytes[off..off + 8])
-                    .try_into()
-                    .expect("PatchSiteOutOfRange guard already enforced 8-byte slot");
-                write_unsigned64(slot, target_vaddr);
-            }
-            other => {
-                return Err(MemberRelocApplyError::UnknownRelocType {
-                    r_type: other,
-                    r_address: r.r_address,
-                });
-            }
+        patch_reloc_site(bytes, r, off, site_vaddr, target_vaddr)?;
+    }
+    Ok(())
+}
+
+/// Resolve one non-ADDEND reloc's raw symbol vaddr.
+///
+/// SD-4c-prereq-b3 — dispatch r_extern=0 (section-keyed) relocs
+/// through `classify_section_reloc` + lookup in `non_text_sections`;
+/// on that path `pending_addend` is replaced with the classified
+/// addend so the caller's shared post-dispatch arithmetic still
+/// applies it exactly once. The named-sym path (r_extern=1) walks
+/// the member's `LC_SYMTAB` for the name, then `sym_table` with a
+/// `resolve_local_nsect` fallback.
+#[allow(clippy::too_many_arguments)]
+fn resolve_reloc_target(
+    r: &MemberRelocEntry,
+    pending_addend: &mut i64,
+    member: &ArMember<'_>,
+    symtab: &MemberSymtab,
+    member_vaddr: u64,
+    sym_table: &SymTable,
+    non_text_sections: &[NonTextSectionLayout],
+    data_non_text_sections: &[DataSectionLayout],
+) -> Result<u64, MemberRelocApplyError> {
+    if let Some(PatchKind::SectionRef {
+        section_index,
+        addend,
+    }) = classify_section_reloc(r, *pending_addend)
+    {
+        let layout = non_text_sections
+            .iter()
+            .find(|s| s.section_index == section_index)
+            .ok_or(MemberRelocApplyError::SectionNotInMember { section_index })?;
+        *pending_addend = addend;
+        Ok(layout.final_vaddr)
+    } else if r.r_extern == 0 {
+        // classify returned None for an r_extern=0 entry — only
+        // possible when r_symbolnum > 255 (per
+        // classify_section_reloc's strict-validation deferral).
+        Err(MemberRelocApplyError::InvalidSectionIndex {
+            r_symbolnum: r.r_symbolnum,
+            nsects: non_text_sections.len(),
+        })
+    } else {
+        if r.r_symbolnum >= symtab.nsyms {
+            return Err(MemberRelocApplyError::SymbolnumOutOfRange {
+                r_symbolnum: r.r_symbolnum,
+                nsyms: symtab.nsyms,
+            });
+        }
+        let name = read_nlist_name(member, symtab, r.r_symbolnum)?;
+        if let Some(&v) = sym_table.get(&name) {
+            Ok(v)
+        } else if let Some(v) = resolve_local_nsect(
+            member,
+            symtab,
+            r.r_symbolnum,
+            member_vaddr,
+            non_text_sections,
+            data_non_text_sections,
+        ) {
+            Ok(v)
+        } else {
+            Err(MemberRelocApplyError::UnresolvedSymbol { name: name.clone() })
+        }
+    }
+}
+
+/// Patch one reloc site in the member's `__text` copy — per-r_type
+/// instruction-word / 8-byte-slot rewrite. The caller has already
+/// bounds-checked `off + length_bytes <= bytes.len()`.
+fn patch_reloc_site(
+    bytes: &mut [u8],
+    r: &MemberRelocEntry,
+    off: usize,
+    site_vaddr: u64,
+    target_vaddr: u64,
+) -> Result<(), MemberRelocApplyError> {
+    match r.r_type {
+        ARM64_RELOC_BRANCH26 => {
+            let displacement = (target_vaddr as i64) - (site_vaddr as i64);
+            let displacement_i32 = i32::try_from(displacement).map_err(|_| {
+                MemberRelocApplyError::BranchDisplacementOverflow {
+                    site_vaddr,
+                    target_vaddr,
+                    displacement,
+                }
+            })?;
+            let insn = read_u32_le(bytes, off);
+            let patched = patch_branch26(insn, displacement_i32);
+            write_u32_le(bytes, off, patched);
+        }
+        // GOT_LOAD_PAGE21 patches identically to PAGE21 — both
+        // emit an ADRP that points at the target's page. The
+        // ld64 "GOT optimization" replaces the GOT-indirected
+        // pair with a direct PC-relative pair when the target
+        // is inside the binary's ±4 GiB range, which our
+        // single-image binaries always satisfy.
+        //
+        // TLVP_LOAD_PAGE21 (SD-4c-prereq+a) also patches the
+        // ADRP imm21, but the target is the TLV descriptor's
+        // `__DATA,__thread_vars` page. No "TLV relaxation"
+        // exists — dyld binds the descriptor's thunk slot, so
+        // the indirection through the descriptor stays. The
+        // PAGE21 patch math is the same; only the target
+        // source differs (prereq+b/c feeds the descriptor
+        // vaddr through the same sym_table path the named-sym
+        // branch already uses).
+        ARM64_RELOC_PAGE21 | ARM64_RELOC_GOT_LOAD_PAGE21 | ARM64_RELOC_TLVP_LOAD_PAGE21 => {
+            let target_page = (target_vaddr & !0xFFF) as i64;
+            let site_page = (site_vaddr & !0xFFF) as i64;
+            let displacement = target_page - site_page;
+            let insn = read_u32_le(bytes, off);
+            let patched = patch_page21(insn, displacement);
+            write_u32_le(bytes, off, patched);
+        }
+        // PAGEOFF12 patches the imm12 field (bits 21:10) of an
+        // ADD or LDR instruction — the same bit slot regardless
+        // of opcode, so a single patch covers both.
+        //
+        // TLVP_LOAD_PAGEOFF12 (SD-4c-prereq+a) likewise patches
+        // imm12, but unlike GOT_LOAD_PAGEOFF12 there is *no*
+        // LDR→ADD opcode rewrite: dyld must bind the TLV
+        // descriptor's thunk slot at process start, so the LDR-
+        // through-descriptor indirection is preserved.
+        ARM64_RELOC_PAGEOFF12 | ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => {
+            let offset12 = (target_vaddr & 0xFFF) as u32;
+            let insn = read_u32_le(bytes, off);
+            let patched = patch_pageoff12(insn, offset12);
+            write_u32_le(bytes, off, patched);
+        }
+        // GOT_LOAD_PAGEOFF12 lives on an LDR instruction (load
+        // the GOT slot, which itself holds the target's vaddr).
+        // The textbook ld64 relaxation rewrites the LDR opcode
+        // in place to an ADD opcode and then patches the imm12
+        // with the symbol's own page-offset — turning
+        // `ADRP+LDR (via GOT)` into `ADRP+ADD (direct)`. Bits
+        // 30/29/27/22 differ between LDR (immediate, 64-bit
+        // unsigned offset, 0xF940_0000 | …) and ADD (immediate,
+        // 64-bit, shift=0, 0x9100_0000 | …); zeroing those
+        // four bits in the instruction word performs the
+        // rewrite without touching the Rn/Rt fields. Verified
+        // bit-for-bit against ARMv8-A C6.2.184 + C6.2.4.
+        ARM64_RELOC_GOT_LOAD_PAGEOFF12 => {
+            let insn_ldr = read_u32_le(bytes, off);
+            debug_assert_eq!(
+                insn_ldr & 0xFFC0_0000,
+                0xF940_0000,
+                "GOT_LOAD_PAGEOFF12 expects an LDR (imm12) at the patch site, got 0x{insn_ldr:08x}",
+            );
+            let insn_add = insn_ldr & !0x6840_0000;
+            let offset12 = (target_vaddr & 0xFFF) as u32;
+            let patched = patch_pageoff12(insn_add, offset12);
+            write_u32_le(bytes, off, patched);
+        }
+        ARM64_RELOC_UNSIGNED => {
+            let slot: &mut [u8; 8] = (&mut bytes[off..off + 8])
+                .try_into()
+                .expect("PatchSiteOutOfRange guard already enforced 8-byte slot");
+            write_unsigned64(slot, target_vaddr);
+        }
+        other => {
+            return Err(MemberRelocApplyError::UnknownRelocType {
+                r_type: other,
+                r_address: r.r_address,
+            });
         }
     }
     Ok(())
