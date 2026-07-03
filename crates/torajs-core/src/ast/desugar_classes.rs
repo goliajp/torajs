@@ -47,52 +47,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // in source order.
     let mut static_field_inits: Vec<Stmt> = Vec::new();
 
-    // Snapshot the class metadata first (cloned out so we can mutate
-    // ast.stmts in-place without aliasing). M5.2 adds `parent` to the
-    // tuple — for inheritance flattening + super(args) rewriting.
-    // M-OO.4 adds the static-fields / static-methods slices for the
-    // post-collect emission of `__sf_<C>__<n>` LetDecls and
-    // `__sm_<C>__<m>` FnDecls.
-    let class_index: Vec<(
-        usize,
-        String,
-        Vec<String>, // type_params
-        Option<String>,
-        Vec<(String, String)>,
-        Vec<StaticInit>, // static_init (Field | Block, source-ordered)
-        Option<ClassCtor>,
-        Vec<ClassMethod>,
-        Vec<ClassMethod>, // static_methods
-    )> = ast
-        .stmts
-        .iter()
-        .enumerate()
-        .filter_map(|(i, s)| match s {
-            Stmt::ClassDecl {
-                name,
-                type_params,
-                parent,
-                is_abstract: _,
-                fields,
-                static_init,
-                ctor,
-                methods,
-                static_methods,
-            } => Some((
-                i,
-                name.clone(),
-                type_params.clone(),
-                parent.clone(),
-                fields.clone(),
-                static_init.clone(),
-                ctor.clone(),
-                methods.clone(),
-                static_methods.clone(),
-            )),
-            _ => None,
-        })
-        .collect();
-
+    let class_index = snapshot_class_index(ast);
     if class_index.is_empty() {
         return;
     }
@@ -216,66 +171,122 @@ pub fn desugar_classes(ast: &mut Ast) {
         ast.stmts = new_stmts;
     }
 
-    // M-OO.4 — rewrite `<ClassName>.<member>` accesses to flat
-    // `__sf_<C>__<member>` / `__sm_<C>__<member>` Idents wherever
-    // they appear in the program (top-level + every fn body / arrow
-    // body / nested struct field initializer — all live in
-    // `ast.exprs` since exprs are arena-allocated). This walks the
-    // arena once; the rewrite is in-place and shape-preserving (a
-    // Member is one ExprId; the new Ident is the same ExprId with a
-    // new variant). Downstream passes (lift_arrow_fns, check.rs,
-    // ssa_lower) see plain Idents and resolve them through the
-    // top-level fn / globals tables already populated above.
-    if !static_member_rewrites.is_empty() {
-        for i in 0..ast.exprs.len() {
-            let replacement = match &ast.exprs[i] {
-                Expr::Member { obj, name } => {
-                    if let Expr::Ident(class_name) = &ast.exprs[obj.0 as usize] {
-                        let key = (class_name.clone(), name.clone());
-                        static_member_rewrites.get(&key).cloned()
-                    } else {
-                        None
-                    }
+    rewrite_static_member_accesses(ast, &static_member_rewrites);
+    reject_abstract_new(ast, &abstract_classes);
+    finalize_side_tables(
+        ast,
+        method_owners,
+        &chain_methods,
+        accessor_getter_records,
+        accessor_setter_records,
+    );
+}
+
+/// Snapshot the class metadata (cloned out so `ast.stmts` can be
+/// mutated in-place without aliasing). M5.2 adds `parent` to the
+/// tuple — for inheritance flattening + super(args) rewriting;
+/// M-OO.4 adds the static-init / static-methods slices.
+fn snapshot_class_index(ast: &Ast) -> Vec<super::desugar_classes_super::ClassIndexEntry> {
+    ast.stmts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| match s {
+            Stmt::ClassDecl {
+                name,
+                type_params,
+                parent,
+                is_abstract: _,
+                fields,
+                static_init,
+                ctor,
+                methods,
+                static_methods,
+            } => Some((
+                i,
+                name.clone(),
+                type_params.clone(),
+                parent.clone(),
+                fields.clone(),
+                static_init.clone(),
+                ctor.clone(),
+                methods.clone(),
+                static_methods.clone(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// M-OO.4 — rewrite `<ClassName>.<member>` accesses to flat
+/// `__sf_<C>__<member>` / `__sm_<C>__<member>` Idents wherever they
+/// appear (all bodies live in the arena-allocated `ast.exprs`, so one
+/// arena walk covers every site). In-place and shape-preserving — the
+/// Member's ExprId is reused for the new Ident, so downstream passes
+/// (lift_arrow_fns, check.rs, ssa_lower) see plain Idents resolved
+/// through the top-level fn / globals tables.
+fn rewrite_static_member_accesses(
+    ast: &mut Ast,
+    static_member_rewrites: &std::collections::HashMap<(String, String), String>,
+) {
+    if static_member_rewrites.is_empty() {
+        return;
+    }
+    for i in 0..ast.exprs.len() {
+        let replacement = match &ast.exprs[i] {
+            Expr::Member { obj, name } => {
+                if let Expr::Ident(class_name) = &ast.exprs[obj.0 as usize] {
+                    let key = (class_name.clone(), name.clone());
+                    static_member_rewrites.get(&key).cloned()
+                } else {
+                    None
                 }
-                _ => None,
-            };
-            if let Some(new_name) = replacement {
-                ast.exprs[i] = Expr::Ident(new_name);
             }
+            _ => None,
+        };
+        if let Some(new_name) = replacement {
+            ast.exprs[i] = Expr::Ident(new_name);
         }
     }
+}
 
-    // M-OO.6 — reject `new AbstractClass()` after the desugar walk
-    // (abstract metadata is local to this pass; the SSA layer never
-    // sees it). Walking ast.exprs catches every construction site
-    // regardless of where in the tree it lives.
-    if !abstract_classes.is_empty() {
-        for expr in &ast.exprs {
-            if let Expr::New { class_name, .. } = expr
-                && abstract_classes.contains(class_name)
-            {
-                panic!(
-                    "M-OO.6: cannot instantiate abstract class `{class_name}` — use a concrete subclass"
-                );
-            }
+/// M-OO.6 — reject `new AbstractClass()` after the desugar walk
+/// (abstract metadata is local to this pass; the SSA layer never sees
+/// it). Walking ast.exprs catches every construction site regardless
+/// of where in the tree it lives.
+fn reject_abstract_new(ast: &Ast, abstract_classes: &std::collections::HashSet<String>) {
+    if abstract_classes.is_empty() {
+        return;
+    }
+    for expr in &ast.exprs {
+        if let Expr::New { class_name, .. } = expr
+            && abstract_classes.contains(class_name)
+        {
+            panic!(
+                "M-OO.6: cannot instantiate abstract class `{class_name}` — use a concrete subclass"
+            );
         }
     }
+}
 
-    // Hand multi-owner method_owners to ssa_lower for the
-    // `__dispatch_<M>` runtime-tag dispatch. Single-owner entries are
-    // dropped since they don't need runtime resolution (already
-    // statically rewritten unless the builtin-name guard skipped them,
-    // in which case ssa_lower's sibling-class path picks them up via
-    // the Type::Obj match — see the (Expr::Member ...) Call arm in
-    // lower_expr).
+/// Tail side-table population: multi-owner `method_owners` for the
+/// `__dispatch_<M>` runtime-tag dispatch (single-owner entries are
+/// statically rewritten already), T-24 name-sorted stable vtable slots
+/// in `method_index`, and the P8.2 accessor-record drain (done last so
+/// the maps are complete before any check / lower pass runs; duplicate
+/// (class, prop) entries are overwritten — the FnDecl-level
+/// redeclaration error halts the pipeline before they're consulted).
+fn finalize_side_tables(
+    ast: &mut Ast,
+    method_owners: std::collections::HashMap<String, Vec<String>>,
+    chain_methods: &std::collections::HashSet<String>,
+    accessor_getter_records: Vec<(String, String, String)>,
+    accessor_setter_records: Vec<(String, String, String)>,
+) {
     ast.method_owners = method_owners
         .into_iter()
         .filter(|(_, owners)| owners.len() > 1)
         .collect();
 
-    /* T-24 — assign each chain method a stable vtable slot. Sorted
-     * by name so codegen stays deterministic; the index becomes the
-     * per-class vtable's `[N x ptr]` slot offset (in u64 units). */
     let mut chain_methods_sorted: Vec<&String> = chain_methods.iter().collect();
     chain_methods_sorted.sort();
     ast.method_index = chain_methods_sorted
@@ -284,15 +295,6 @@ pub fn desugar_classes(ast: &mut Ast) {
         .map(|(i, n)| (n.clone(), i as u32))
         .collect();
 
-    // P8.2 — drain the accessor records into Ast's side-channel maps.
-    // Done at the tail so the map is complete before any check / lower
-    // pass runs. Duplicate entries (same (class, prop) declared twice
-    // as a getter, etc.) are silently overwritten — the parser already
-    // would have produced two ClassMethod entries that desugar emits
-    // with the same FnDecl name, which the existing dedup at the
-    // FnDecl level catches as "redeclaration". The maps just point
-    // at the final winner, which is fine since the FnDecl-level
-    // error halts the pipeline before any of this is consulted.
     for (cname, prop, fn_name) in accessor_getter_records {
         ast.accessor_getters.insert((cname, prop), fn_name);
     }
