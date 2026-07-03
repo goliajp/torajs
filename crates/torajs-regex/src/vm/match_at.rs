@@ -113,87 +113,8 @@ pub fn vm_match_at(
                         );
                     }
                 }
-                Op::AnyChar => {
-                    if pos < slen && (flags & RE_FLAG_S != 0 || s[pos as usize] != b'\n') {
-                        // Under u flag `.` consumes 1 code point;
-                        // schedule the destination thread(s) with
-                        // u_skip = adv-1 so they sit (adv-1) outer
-                        // steps before dispatching pc+1.
-                        let mut adv: i64 = 1;
-                        if flags & RE_FLAG_U != 0 {
-                            let ul = utf8_len_for(s[pos as usize]) as i64;
-                            if ul >= 1 && pos + ul <= slen {
-                                adv = ul;
-                            }
-                        }
-                        let n_before = ws.nxt.list.len();
-                        add_thread(
-                            &mut ws.nxt,
-                            &mut ws.vn,
-                            &mut ws.arena,
-                            (t_pc + 1) as i32,
-                            prog,
-                            s,
-                            pos + adv,
-                            flags,
-                            t_saves_id,
-                        );
-                        if adv > 1 {
-                            let skip = (adv - 1) as i32;
-                            for th in &mut ws.nxt.list[n_before..] {
-                                th.u_skip = skip;
-                            }
-                        }
-                    }
-                }
-                Op::Class => {
-                    if pos < slen {
-                        let cc = &prog.classes[ins.a as usize];
-                        let mut adv: i64 = 1;
-                        let matched;
-                        // chunk 10d — byte-only leaf classes (emitted
-                        // by `utf8_class_expand` when rewriting a
-                        // u-flag unsafe class into a byte-level
-                        // Alt-of-Concat) step a single haystack byte
-                        // regardless of `u`. The cp-aware path stays
-                        // for hand-written classes whose semantics
-                        // expect "decode one cp at the cursor".
-                        if cc.byte_only {
-                            matched = cc.test(s[pos as usize]);
-                        } else if flags & RE_FLAG_U != 0 {
-                            let ul = utf8_len_for(s[pos as usize]) as i64;
-                            if ul >= 1 && pos + ul <= slen {
-                                let (cp, dec_len) = utf8_decode_cp(&s[pos as usize..]);
-                                adv = if dec_len > 0 { dec_len as i64 } else { ul };
-                                matched = cc.test_cp(cp);
-                            } else {
-                                matched = cc.test(s[pos as usize]);
-                            }
-                        } else {
-                            matched = cc.test(s[pos as usize]);
-                        }
-                        if matched {
-                            let n_before = ws.nxt.list.len();
-                            add_thread(
-                                &mut ws.nxt,
-                                &mut ws.vn,
-                                &mut ws.arena,
-                                (t_pc + 1) as i32,
-                                prog,
-                                s,
-                                pos + adv,
-                                flags,
-                                t_saves_id,
-                            );
-                            if adv > 1 {
-                                let skip = (adv - 1) as i32;
-                                for th in &mut ws.nxt.list[n_before..] {
-                                    th.u_skip = skip;
-                                }
-                            }
-                        }
-                    }
-                }
+                Op::AnyChar => dispatch_anychar(ws, prog, s, pos, flags, t_pc, t_saves_id),
+                Op::Class => dispatch_class(ws, prog, s, pos, flags, t_pc, t_saves_id),
                 Op::Backref => {
                     // BACKREF needs scalar Thread fields + saves_id;
                     // handle_backref reads saves via the arena and may
@@ -238,8 +159,141 @@ pub fn vm_match_at(
         pos += 1;
     }
 
-    // End-of-input: any thread sitting on MATCH after the loop is
-    // also an acceptance.
+    if let Some(e) = match_at_eoi(prog, ws, slen, end_target, out_saves) {
+        end_pos = e;
+    }
+    end_pos
+}
+
+/// Schedule `pc` at `pos_next` into `ws.nxt`, marking the scheduled
+/// thread(s) with `u_skip = adv - 1` when the consumed unit was a
+/// multi-byte code point (u-flag cp step) — they sit (adv-1) outer
+/// steps before dispatching.
+#[allow(clippy::too_many_arguments)]
+fn add_thread_adv(
+    ws: &mut Workspace,
+    pc: i32,
+    prog: &Program,
+    s: &[u8],
+    pos_next: i64,
+    flags: u8,
+    saves_id: u32,
+    adv: i64,
+) {
+    let n_before = ws.nxt.list.len();
+    add_thread(
+        &mut ws.nxt,
+        &mut ws.vn,
+        &mut ws.arena,
+        pc,
+        prog,
+        s,
+        pos_next,
+        flags,
+        saves_id,
+    );
+    if adv > 1 {
+        let skip = (adv - 1) as i32;
+        for th in &mut ws.nxt.list[n_before..] {
+            th.u_skip = skip;
+        }
+    }
+}
+
+/// OP_ANYCHAR consume. Under u flag `.` consumes 1 code point;
+/// schedule the destination thread(s) with u_skip = adv-1 so they
+/// sit (adv-1) outer steps before dispatching pc+1.
+fn dispatch_anychar(
+    ws: &mut Workspace,
+    prog: &Program,
+    s: &[u8],
+    pos: i64,
+    flags: u8,
+    t_pc: usize,
+    t_saves_id: u32,
+) {
+    let slen = s.len() as i64;
+    if pos < slen && (flags & RE_FLAG_S != 0 || s[pos as usize] != b'\n') {
+        let mut adv: i64 = 1;
+        if flags & RE_FLAG_U != 0 {
+            let ul = utf8_len_for(s[pos as usize]) as i64;
+            if ul >= 1 && pos + ul <= slen {
+                adv = ul;
+            }
+        }
+        add_thread_adv(
+            ws,
+            (t_pc + 1) as i32,
+            prog,
+            s,
+            pos + adv,
+            flags,
+            t_saves_id,
+            adv,
+        );
+    }
+}
+
+/// OP_CLASS consume. chunk 10d — byte-only leaf classes (emitted by
+/// `utf8_class_expand` when rewriting a u-flag unsafe class into a
+/// byte-level Alt-of-Concat) step a single haystack byte regardless
+/// of `u`. The cp-aware path stays for hand-written classes whose
+/// semantics expect "decode one cp at the cursor".
+fn dispatch_class(
+    ws: &mut Workspace,
+    prog: &Program,
+    s: &[u8],
+    pos: i64,
+    flags: u8,
+    t_pc: usize,
+    t_saves_id: u32,
+) {
+    let slen = s.len() as i64;
+    if pos >= slen {
+        return;
+    }
+    let ins = prog.insts[t_pc];
+    let cc = &prog.classes[ins.a as usize];
+    let mut adv: i64 = 1;
+    let matched;
+    if cc.byte_only {
+        matched = cc.test(s[pos as usize]);
+    } else if flags & RE_FLAG_U != 0 {
+        let ul = utf8_len_for(s[pos as usize]) as i64;
+        if ul >= 1 && pos + ul <= slen {
+            let (cp, dec_len) = utf8_decode_cp(&s[pos as usize..]);
+            adv = if dec_len > 0 { dec_len as i64 } else { ul };
+            matched = cc.test_cp(cp);
+        } else {
+            matched = cc.test(s[pos as usize]);
+        }
+    } else {
+        matched = cc.test(s[pos as usize]);
+    }
+    if matched {
+        add_thread_adv(
+            ws,
+            (t_pc + 1) as i32,
+            prog,
+            s,
+            pos + adv,
+            flags,
+            t_saves_id,
+            adv,
+        );
+    }
+}
+
+/// End-of-input acceptance — any thread sitting on MATCH after the
+/// outer loop (with no pending u_skip) also accepts. Writes the
+/// winning thread's saves into `out_saves` like the in-loop arm.
+fn match_at_eoi(
+    prog: &Program,
+    ws: &Workspace,
+    slen: i64,
+    end_target: i64,
+    mut out_saves: Option<&mut [i64; REGEX_SAVE_SLOTS]>,
+) -> Option<i64> {
     for ti in 0..ws.cur.list.len() {
         let t_pc = ws.cur.list[ti].pc;
         let t_u_skip = ws.cur.list[ti].u_skip;
@@ -248,15 +302,14 @@ pub fn vm_match_at(
             && t_u_skip == 0
             && (end_target < 0 || slen == end_target)
         {
-            end_pos = slen;
             if let Some(ref mut o) = out_saves {
                 let row = ws.arena.get(t_saves_id);
                 (*o)[..row.len()].copy_from_slice(row);
             }
-            break;
+            return Some(slen);
         }
     }
-    end_pos
+    None
 }
 
 /// OP_BACKREF dispatch — extracted because the body is hairy enough
