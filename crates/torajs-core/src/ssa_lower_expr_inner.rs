@@ -19,6 +19,10 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::Operand;
 use crate::ssa_lower::LowerCtx;
 
+// CARVE-OUT: dispatch table — match-arm-per-Expr-variant thin
+// delegation to per-shape sibling modules (1-6 lines each); length
+// comes from variant count × per-arm doc comments, not logic.
+// Splitting the match would destroy dispatch locality.
 pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
     let e = ctx.ast.get_expr(eid);
     match e {
@@ -164,33 +168,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             crate::ssa_lower_ident::lower(ctx, name)
         }
         Expr::Assign { target, value } => {
-            match ctx.ast.get_expr(*target).clone() {
-                Expr::Ident(name) => {
-                    // K.3 module-level data global + local-binding
-                    // assign (4-layer coercion: F64←I64 / Any←val
-                    // box_to_any / num←Any coerce / Str←Any
-                    // coerce_to_str). See
-                    // [`crate::ssa_lower_assign_ident::lower`].
-                    return crate::ssa_lower_assign_ident::lower(ctx, name, *value);
-                }
-                Expr::Member { obj, name: field } => {
-                    // M1.4 — `obj.field = value`. 7-way dispatch
-                    // (Type::Any dynobj / Closure props / FnSig
-                    // fnprops / Arr length setter / Arr arrprops /
-                    // RegExp lastIndex / struct field store with
-                    // setter accessor + frozen guard). See
-                    // [`crate::ssa_lower_assign_member::lower`].
-                    return crate::ssa_lower_assign_member::lower(ctx, obj, field, *value);
-                }
-                Expr::Index { obj, index } => {
-                    // bug-327 C3 — moved to ssa_lower_index_assign.rs
-                    // (bounds-honoring write: Array<Any> grows via
-                    // __torajs_arr_set_any_grow + write-back, typed
-                    // tier guards the inline store).
-                    ctx.lower_index_assign(obj, index, *value)
-                }
-                other => panic!("ssa-lower: unsupported assign target: {other:?}"),
-            }
+            // Ident / Member / Index target dispatch — see
+            // [`lower_assign`] below.
+            return lower_assign(ctx, *target, *value);
         }
         Expr::BinOp { op, left, right } => {
             // M1.5 — `&&` / `||` short-circuit + AST-level fold
@@ -329,20 +309,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             let (inner, ann) = (*expr, ty_ann.clone());
             ctx.lower_as_cast(inner, &ann)
         }
-        // V3-18 m1.h.6 — comma operator: lower left for side
-        // effects, drop the result if non-Copy heap, then return
-        // the right operand's value. Drop emission keeps the
-        // refcount math sane on heap-typed left expressions.
-        Expr::Sequence { left, right } => {
-            let lid = *left;
-            let rid = *right;
-            let l = ctx.lower_expr(lid);
-            let l_ty = ctx.operand_ty(&l);
-            if !l_ty.is_copy() {
-                ctx.emit_drop_value(l, l_ty);
-            }
-            ctx.lower_expr(rid)
-        }
+        // V3-18 m1.h.6 — comma operator; see [`lower_sequence`].
+        Expr::Sequence { left, right } => lower_sequence(ctx, *left, *right),
         // P-PARSE.8 — `let x;` placeholder reaches here when
         // desugar_uninit_let couldn't find a follow-up assignment
         // to splice in. Emit the same shape as Expr::Null (the
@@ -352,6 +320,51 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         Expr::Uninit => Operand::ConstPtrNull,
         other => panic!("ssa-lower: unsupported expr: {other:?}"),
     }
+}
+
+/// `Expr::Assign` target dispatch — Ident / Member / Index shapes
+/// route to their per-shape sibling lowerers.
+fn lower_assign(ctx: &mut LowerCtx, target: ExprId, value: ExprId) -> Operand {
+    match ctx.ast.get_expr(target).clone() {
+        Expr::Ident(name) => {
+            // K.3 module-level data global + local-binding
+            // assign (4-layer coercion: F64←I64 / Any←val
+            // box_to_any / num←Any coerce / Str←Any
+            // coerce_to_str). See
+            // [`crate::ssa_lower_assign_ident::lower`].
+            crate::ssa_lower_assign_ident::lower(ctx, name, value)
+        }
+        Expr::Member { obj, name: field } => {
+            // M1.4 — `obj.field = value`. 7-way dispatch
+            // (Type::Any dynobj / Closure props / FnSig
+            // fnprops / Arr length setter / Arr arrprops /
+            // RegExp lastIndex / struct field store with
+            // setter accessor + frozen guard). See
+            // [`crate::ssa_lower_assign_member::lower`].
+            crate::ssa_lower_assign_member::lower(ctx, obj, field, value)
+        }
+        Expr::Index { obj, index } => {
+            // bug-327 C3 — moved to ssa_lower_index_assign.rs
+            // (bounds-honoring write: Array<Any> grows via
+            // __torajs_arr_set_any_grow + write-back, typed
+            // tier guards the inline store).
+            ctx.lower_index_assign(obj, index, value)
+        }
+        other => panic!("ssa-lower: unsupported assign target: {other:?}"),
+    }
+}
+
+/// V3-18 m1.h.6 — comma operator: lower left for side effects, drop
+/// the result if non-Copy heap, then return the right operand's
+/// value. Drop emission keeps the refcount math sane on heap-typed
+/// left expressions.
+fn lower_sequence(ctx: &mut LowerCtx, left: ExprId, right: ExprId) -> Operand {
+    let l = ctx.lower_expr(left);
+    let l_ty = ctx.operand_ty(&l);
+    if !l_ty.is_copy() {
+        ctx.emit_drop_value(l, l_ty);
+    }
+    ctx.lower_expr(right)
 }
 
 impl<'a> LowerCtx<'a> {
