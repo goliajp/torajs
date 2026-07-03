@@ -1,14 +1,10 @@
 //! `Parser::parse_postfix` extracted from `parser.rs` (chunk 164).
 //!
-//! Pre-extract this method was 235 LOC inside `impl Parser` block.
-//! Body verbatim moves here as impl-block sibling (same pattern as
-//! chunks 162/163's parse_stmt + try_parse_for_of extractions).
-//!
 //! `parse_postfix` handles JS postfix operators applied to a
 //! primary expression: member access (`.`), index access (`[`),
 //! call (`(`), postfix `++` / `--`, optional chaining (`?.`),
-//! template tagged calls, and non-null assertion (`!`). Body
-//! unchanged.
+//! template tagged calls, and non-null assertion (`!`). The loop
+//! dispatches per token; fat arms live in per-arm helpers below.
 
 use super::*;
 
@@ -20,115 +16,21 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Token::Dot => {
                     self.pos += 1;
-                    let name = match self.member_name_after_dot() {
-                        Some(n) => n,
-                        None => {
-                            let t = self.peek();
-                            return Err(format!(
-                                "expected identifier after `.`, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    };
+                    let name = self.expect_member_name(".")?;
                     node = self.add_expr_at(start_pos, Expr::Member { obj: node, name });
                 }
                 Token::QuestionDot => {
                     self.pos += 1;
-                    let name = match self.member_name_after_dot() {
-                        Some(n) => n,
-                        None => {
-                            let t = self.peek();
-                            return Err(format!(
-                                "expected identifier after `?.`, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    };
+                    let name = self.expect_member_name("?.")?;
                     node = self.add_expr_at(start_pos, Expr::OptChain { obj: node, name });
                 }
                 Token::LParen => {
                     self.pos += 1;
-                    let mut args = Vec::new();
-                    if !matches!(self.peek(), Token::RParen) {
-                        args.push(self.parse_call_arg()?);
-                        while matches!(self.peek(), Token::Comma) {
-                            self.pos += 1;
-                            // V3-18 wedge — trailing comma in call args
-                            // (per JS spec §13.3.6 / ES2017): `f(a, b,)`.
-                            if matches!(self.peek(), Token::RParen) {
-                                break;
-                            }
-                            args.push(self.parse_call_arg()?);
-                        }
-                    }
-                    match self.peek() {
-                        Token::RParen => self.pos += 1,
-                        t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
-                    }
-                    // P5.5 — static `f(...[a, b, c])` literal-array
-                    // spread desugars to `f(a, b, c)` here so the
-                    // fixed-arity arity check downstream doesn't
-                    // see the spread as a single arg. Dynamic spread
-                    // (`f(...someVar)`) only works with rest-param
-                    // sigs — fixed-arity dynamic spread requires
-                    // runtime length checking out of scope for the
-                    // typed subset.
-                    let needs_spread_fold = args.iter().any(|a| {
-                        matches!(self.ast.get_expr(*a), Expr::Spread { expr }
-                            if matches!(self.ast.get_expr(*expr), Expr::Array(_)))
-                    });
-                    if needs_spread_fold {
-                        let mut folded: Vec<ExprId> = Vec::with_capacity(args.len());
-                        for a in &args {
-                            if let Expr::Spread { expr } = self.ast.get_expr(*a)
-                                && let Expr::Array(els) = self.ast.get_expr(*expr)
-                            {
-                                for e in els.clone() {
-                                    folded.push(e);
-                                }
-                            } else {
-                                folded.push(*a);
-                            }
-                        }
-                        args = folded;
-                    }
+                    let args = self.parse_call_args()?;
                     node = self.add_expr_at(start_pos, Expr::Call { callee: node, args });
                 }
                 Token::LBracket => {
-                    self.pos += 1;
-                    let index = self.parse_expr()?;
-                    match self.peek() {
-                        Token::RBracket => self.pos += 1,
-                        t => return Err(format!("expected `]`, got {t:?} at {}", self.at())),
-                    }
-                    // V3-18 wedge — `obj["x"]` ≡ `obj.x` per JS
-                    // spec §13.3.2 when "x" parses as a valid
-                    // identifier. Folding here (vs at typecheck)
-                    // keeps the entire downstream pipeline
-                    // (typecheck / lower / drop / write-side
-                    // assign) unchanged: the synthetic Member
-                    // routes through every existing field-resolve
-                    // path, including struct layouts, refcount on
-                    // owned fields, and Member-call dispatch.
-                    // Only fires for compile-time string literals
-                    // whose content is a syntactic IdentifierName;
-                    // dynamic / numeric / non-identifier indices
-                    // stay as Index and hit the existing Array /
-                    // String paths.
-                    let folded = if let Expr::String(name) = self.ast.get_expr(index) {
-                        if is_identifier_name(name) {
-                            Some(name.clone())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-                    node = if let Some(name) = folded {
-                        self.add_expr_at(start_pos, Expr::Member { obj: node, name })
-                    } else {
-                        self.add_expr_at(start_pos, Expr::Index { obj: node, index })
-                    };
+                    node = self.parse_postfix_index(node, start_pos)?;
                 }
                 Token::PlusPlus | Token::MinusMinus => {
                     // Post-increment / post-decrement: `x++` / `x--`.
@@ -185,45 +87,9 @@ impl<'a> Parser<'a> {
                 // type-side; runtime no-op. Detect only when the `!`
                 // is followed by something that would be valid after
                 // a postfix (not the start of another expression like
-                // `!x` prefix). Conservative test: peek for tokens
-                // that can NOT start an expression — terminators,
-                // operators, statement boundaries.
+                // `!x` prefix).
                 Token::Bang => {
-                    let next = self.tokens.get(self.pos + 1).map(|s| &s.token);
-                    let postfix_ok = matches!(
-                        next,
-                        Some(Token::Semi)
-                            | Some(Token::Comma)
-                            | Some(Token::RParen)
-                            | Some(Token::RBracket)
-                            | Some(Token::RBrace)
-                            | Some(Token::Dot)
-                            | Some(Token::Eq)
-                            | Some(Token::Colon)
-                            | Some(Token::QuestionDot)
-                            | Some(Token::EqEq)
-                            | Some(Token::EqEqEq)
-                            | Some(Token::BangEq)
-                            | Some(Token::BangEqEq)
-                            | Some(Token::Plus)
-                            | Some(Token::Minus)
-                            | Some(Token::Star)
-                            | Some(Token::Slash)
-                            | Some(Token::Percent)
-                            | Some(Token::Amp)
-                            | Some(Token::Pipe)
-                            | Some(Token::Lt)
-                            | Some(Token::Gt)
-                            | Some(Token::AmpAmp)
-                            | Some(Token::PipePipe)
-                            | Some(Token::Question)
-                            | Some(Token::FatArrow)
-                            | Some(Token::LParen)
-                            | Some(Token::LBracket)
-                            | Some(Token::Eof)
-                            | None
-                    );
-                    if !postfix_ok {
+                    if !self.bang_is_postfix() {
                         return Ok(node);
                     }
                     self.pos += 1;
@@ -248,5 +114,147 @@ impl<'a> Parser<'a> {
                 _ => return Ok(node),
             }
         }
+    }
+
+    /// Member name after a just-consumed `.` / `?.`, or the shared
+    /// "expected identifier" parse error (`after` names the operator
+    /// in the message).
+    fn expect_member_name(&mut self, after: &str) -> Result<String, String> {
+        match self.member_name_after_dot() {
+            Some(n) => Ok(n),
+            None => {
+                let t = self.peek();
+                Err(format!(
+                    "expected identifier after `{after}`, got {t:?} at {}",
+                    self.at()
+                ))
+            }
+        }
+    }
+
+    /// Call argument list after a just-consumed `(`: comma-separated
+    /// `parse_call_arg`s with the V3-18 trailing-comma wedge (per JS
+    /// spec §13.3.6 / ES2017: `f(a, b,)`), through the closing `)`,
+    /// then the P5.5 static-spread fold.
+    fn parse_call_args(&mut self) -> Result<Vec<ExprId>, String> {
+        let mut args = Vec::new();
+        if !matches!(self.peek(), Token::RParen) {
+            args.push(self.parse_call_arg()?);
+            while matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+                if matches!(self.peek(), Token::RParen) {
+                    break;
+                }
+                args.push(self.parse_call_arg()?);
+            }
+        }
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+        }
+        Ok(self.fold_static_spread(args))
+    }
+
+    /// P5.5 — static `f(...[a, b, c])` literal-array spread desugars
+    /// to `f(a, b, c)` here so the fixed-arity arity check downstream
+    /// doesn't see the spread as a single arg. Dynamic spread
+    /// (`f(...someVar)`) only works with rest-param sigs — fixed-arity
+    /// dynamic spread requires runtime length checking out of scope
+    /// for the typed subset.
+    fn fold_static_spread(&mut self, args: Vec<ExprId>) -> Vec<ExprId> {
+        let needs_spread_fold = args.iter().any(|a| {
+            matches!(self.ast.get_expr(*a), Expr::Spread { expr }
+                if matches!(self.ast.get_expr(*expr), Expr::Array(_)))
+        });
+        if !needs_spread_fold {
+            return args;
+        }
+        let mut folded: Vec<ExprId> = Vec::with_capacity(args.len());
+        for a in &args {
+            if let Expr::Spread { expr } = self.ast.get_expr(*a)
+                && let Expr::Array(els) = self.ast.get_expr(*expr)
+            {
+                for e in els.clone() {
+                    folded.push(e);
+                }
+            } else {
+                folded.push(*a);
+            }
+        }
+        folded
+    }
+
+    /// Index access `obj[index]` including the V3-18 wedge:
+    /// `obj["x"]` ≡ `obj.x` per JS spec §13.3.2 when "x" parses as a
+    /// valid identifier. Folding here (vs at typecheck) keeps the
+    /// entire downstream pipeline (typecheck / lower / drop /
+    /// write-side assign) unchanged: the synthetic Member routes
+    /// through every existing field-resolve path, including struct
+    /// layouts, refcount on owned fields, and Member-call dispatch.
+    /// Only fires for compile-time string literals whose content is a
+    /// syntactic IdentifierName; dynamic / numeric / non-identifier
+    /// indices stay as Index and hit the existing Array / String paths.
+    fn parse_postfix_index(&mut self, node: ExprId, start_pos: usize) -> Result<ExprId, String> {
+        self.pos += 1;
+        let index = self.parse_expr()?;
+        match self.peek() {
+            Token::RBracket => self.pos += 1,
+            t => return Err(format!("expected `]`, got {t:?} at {}", self.at())),
+        }
+        let folded = if let Expr::String(name) = self.ast.get_expr(index) {
+            if is_identifier_name(name) {
+                Some(name.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        Ok(if let Some(name) = folded {
+            self.add_expr_at(start_pos, Expr::Member { obj: node, name })
+        } else {
+            self.add_expr_at(start_pos, Expr::Index { obj: node, index })
+        })
+    }
+
+    /// Is the current `!` a TS non-null assertion (vs the start of a
+    /// prefix `!expr`)? Conservative test: peek for tokens that can
+    /// NOT start an expression — terminators, operators, statement
+    /// boundaries.
+    fn bang_is_postfix(&self) -> bool {
+        let next = self.tokens.get(self.pos + 1).map(|s| &s.token);
+        matches!(
+            next,
+            Some(Token::Semi)
+                | Some(Token::Comma)
+                | Some(Token::RParen)
+                | Some(Token::RBracket)
+                | Some(Token::RBrace)
+                | Some(Token::Dot)
+                | Some(Token::Eq)
+                | Some(Token::Colon)
+                | Some(Token::QuestionDot)
+                | Some(Token::EqEq)
+                | Some(Token::EqEqEq)
+                | Some(Token::BangEq)
+                | Some(Token::BangEqEq)
+                | Some(Token::Plus)
+                | Some(Token::Minus)
+                | Some(Token::Star)
+                | Some(Token::Slash)
+                | Some(Token::Percent)
+                | Some(Token::Amp)
+                | Some(Token::Pipe)
+                | Some(Token::Lt)
+                | Some(Token::Gt)
+                | Some(Token::AmpAmp)
+                | Some(Token::PipePipe)
+                | Some(Token::Question)
+                | Some(Token::FatArrow)
+                | Some(Token::LParen)
+                | Some(Token::LBracket)
+                | Some(Token::Eof)
+                | None
+        )
     }
 }
