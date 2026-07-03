@@ -8,6 +8,12 @@
 //! but verbatim moves preserve byte-equal codegen output and
 //! that's the safety bar for this rotation.
 //!
+//! Chunk 450 decomposed the body under the 200-line fn limit:
+//! param materialization (step 4) and the M2 closure-env preamble
+//! (step 5) moved verbatim into `LowerCtx` methods below; the twice-
+//! repeated W1 f64-slot-promote + container-widen tail on ret/param
+//! type resolution deduped into `promote_and_widen`.
+//!
 //! Builds a `ssa::Function` for a single user FnDecl body:
 //! 1. Compute effective ret type (W1 num_width + container widen).
 //! 2. Build param SSA values, allocaing + storing each one into a
@@ -70,27 +76,20 @@ pub(crate) fn lower_fn(
     num_f64_slots: &crate::num_width::WidthTable,
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
-    let mut ret_ty = effective_ret_ty(
-        parse_type(
-            return_type,
-            aliases,
-            arr_layouts,
-            fn_sigs,
-            generic_struct_decls,
-            struct_layouts,
-            inst_memo,
+    let ret_ty = promote_and_widen(
+        effective_ret_ty(
+            parse_type(
+                return_type,
+                aliases,
+                arr_layouts,
+                fn_sigs,
+                generic_struct_decls,
+                struct_layouts,
+                inst_memo,
+            ),
+            ast,
+            body,
         ),
-        ast,
-        body,
-    );
-    if ret_ty == Type::I64
-        && return_type == Some("number")
-        && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Ret(name.to_string()))
-    {
-        ret_ty = Type::F64;
-    }
-    ret_ty = crate::ssa_lower_container_width::widen_container_ty(
-        ret_ty,
         return_type,
         &crate::num_width::SlotKey::Ret(name.to_string()),
         num_f64_slots,
@@ -102,26 +101,16 @@ pub(crate) fn lower_fn(
 
     let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
     for p in params {
-        let mut pty = parse_type(
-            p.type_ann.as_deref(),
-            aliases,
-            arr_layouts,
-            fn_sigs,
-            generic_struct_decls,
-            struct_layouts,
-            inst_memo,
-        );
-        if pty == Type::I64
-            && p.type_ann.as_deref() == Some("number")
-            && num_f64_slots.slot_is_f64(&crate::num_width::SlotKey::Param(
-                name.to_string(),
-                p.name.clone(),
-            ))
-        {
-            pty = Type::F64;
-        }
-        pty = crate::ssa_lower_container_width::widen_container_ty(
-            pty,
+        let pty = promote_and_widen(
+            parse_type(
+                p.type_ann.as_deref(),
+                aliases,
+                arr_layouts,
+                fn_sigs,
+                generic_struct_decls,
+                struct_layouts,
+                inst_memo,
+            ),
             p.type_ann.as_deref(),
             &crate::num_width::SlotKey::Param(name.to_string(), p.name.clone()),
             num_f64_slots,
@@ -199,132 +188,8 @@ pub(crate) fn lower_fn(
         collect_escape_obj_let_names_in_stmt(ctx.ast, s, &mut ctx.escape_obj_lets);
     }
 
-    for (pname, pid, ty) in param_setup {
-        let escape_captured = ty.is_copy() && ctx.escape_captured_lets.contains(&pname);
-        let slot = if escape_captured {
-            let init_i64 = if matches!(ty, Type::F64) {
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::BitCastF64ToI64(Operand::Value(pid)),
-                    Type::I64,
-                    None,
-                );
-                Operand::Value(v)
-            } else if matches!(ty, Type::Bool) {
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::ZExtBoolToI64(Operand::Value(pid)),
-                    Type::I64,
-                    None,
-                );
-                Operand::Value(v)
-            } else {
-                Operand::Value(pid)
-            };
-            ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.capture_box_alloc, vec![init_i64]),
-                Type::Ptr,
-                None,
-            )
-        } else {
-            let s = ctx.alloca(ty, Some(&pname));
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(pid), Operand::Value(s), 0),
-            );
-            s
-        };
-        let is_env_param = pname == "__env";
-        let is_class_self = name.starts_with("__cm_") && pname == "__this";
-        let borrows_caller = is_env_param || is_class_self || !ty.is_copy() || escape_captured;
-        ctx.locals.insert(
-            pname.clone(),
-            LocalInfo {
-                slot,
-                ty,
-                moved: borrows_caller,
-                borrowed: borrows_caller,
-                scope_depth: 0,
-            },
-        );
-        ctx.scope_stack[0].push(pname);
-    }
-
-    if let Some(first) = params.first()
-        && first.name == "__env"
-        && let Some(ann) = &first.type_ann
-        && let Some(cap_names) = decode_env_ann(ann)
-        && !cap_names.is_empty()
-    {
-        let cap_meta: Vec<(Type, bool)> =
-            ctx.closure_captures.get(name).cloned().unwrap_or_else(|| {
-                panic!(
-                    "ssa-lower: lifted closure `{name}` has no capture types — \
-                     construction site must run before body lowering"
-                )
-            });
-        if cap_meta.len() != cap_names.len() {
-            panic!(
-                "ssa-lower: closure `{name}` capture-name count {} != type count {}",
-                cap_names.len(),
-                cap_meta.len()
-            );
-        }
-        let env_slot = ctx
-            .locals
-            .get("__env")
-            .copied()
-            .expect("__env param materialized as local")
-            .slot;
-        for (i, (cap_name, (cap_ty, is_byref))) in cap_names.iter().zip(cap_meta.iter()).enumerate()
-        {
-            let cap_ty = *cap_ty;
-            let is_byref = *is_byref;
-            let env_ptr = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
-                Type::Ptr,
-                None,
-            );
-            let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
-            let cap_slot = if cap_ty.is_copy() && is_byref {
-                ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Load(Type::Ptr, Operand::Value(env_ptr), offset),
-                    Type::Ptr,
-                    None,
-                )
-            } else {
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Load(cap_ty, Operand::Value(env_ptr), offset),
-                    cap_ty,
-                    None,
-                );
-                let local = ctx.alloca(cap_ty, Some(cap_name));
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
-                );
-                if matches!(cap_ty, Type::Arr(_)) {
-                    ctx.captured_arr_writeback.insert(local, (env_slot, offset));
-                }
-                local
-            };
-            ctx.locals.insert(
-                cap_name.clone(),
-                LocalInfo {
-                    slot: cap_slot,
-                    ty: cap_ty,
-                    moved: true,
-                    borrowed: true,
-                    scope_depth: 0,
-                },
-            );
-            ctx.scope_stack[0].push(cap_name.clone());
-        }
-    }
+    ctx.materialize_fn_params(name, param_setup);
+    ctx.emit_closure_env_preamble(name, params);
 
     let mut prev: Option<&Stmt> = None;
     for s in body {
@@ -343,4 +208,179 @@ pub(crate) fn lower_fn(
     }
 
     (f, new_strings)
+}
+
+/// shared tail of ret/param slot type resolution: W1 f64-slot promotion
+/// (`number`-annotated I64 slots unified into the f64 width class) then
+/// container widen against the same slot key
+fn promote_and_widen(
+    mut ty: Type,
+    type_ann: Option<&str>,
+    slot_key: &crate::num_width::SlotKey,
+    num_f64_slots: &crate::num_width::WidthTable,
+    arr_layouts: &mut Vec<Type>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+) -> Type {
+    if ty == Type::I64 && type_ann == Some("number") && num_f64_slots.slot_is_f64(slot_key) {
+        ty = Type::F64;
+    }
+    crate::ssa_lower_container_width::widen_container_ty(
+        ty,
+        type_ann,
+        slot_key,
+        num_f64_slots,
+        arr_layouts,
+        struct_layouts,
+        fn_sigs,
+    )
+}
+
+impl<'a> LowerCtx<'a> {
+    /// step 4 of `lower_fn`: materialize each param as an alloca-backed
+    /// local (refcounted capture box for escape-captured Copy params;
+    /// `__env` / `__cm_*` `__this` marked moved+borrowed — caller owns)
+    fn materialize_fn_params(&mut self, fn_name: &str, param_setup: Vec<(String, ValueId, Type)>) {
+        for (pname, pid, ty) in param_setup {
+            let escape_captured = ty.is_copy() && self.escape_captured_lets.contains(&pname);
+            let slot = if escape_captured {
+                let init_i64 = if matches!(ty, Type::F64) {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BitCastF64ToI64(Operand::Value(pid)),
+                        Type::I64,
+                        None,
+                    );
+                    Operand::Value(v)
+                } else if matches!(ty, Type::Bool) {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ZExtBoolToI64(Operand::Value(pid)),
+                        Type::I64,
+                        None,
+                    );
+                    Operand::Value(v)
+                } else {
+                    Operand::Value(pid)
+                };
+                self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.capture_box_alloc, vec![init_i64]),
+                    Type::Ptr,
+                    None,
+                )
+            } else {
+                let s = self.alloca(ty, Some(&pname));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(pid), Operand::Value(s), 0),
+                );
+                s
+            };
+            let is_env_param = pname == "__env";
+            let is_class_self = fn_name.starts_with("__cm_") && pname == "__this";
+            let borrows_caller = is_env_param || is_class_self || !ty.is_copy() || escape_captured;
+            self.locals.insert(
+                pname.clone(),
+                LocalInfo {
+                    slot,
+                    ty,
+                    moved: borrows_caller,
+                    borrowed: borrows_caller,
+                    scope_depth: 0,
+                },
+            );
+            self.scope_stack[0].push(pname);
+        }
+    }
+
+    /// step 5 of `lower_fn` — M2 closure-body env preamble: for a
+    /// first-param `__env`, decode the `__env(c1|c2|...)` annotation and
+    /// env-load each capture at offset 8/16/... per the construction-site
+    /// `closure_captures` side channel, binding under the capture's name
+    /// as moved+borrowed (the env owns the canonical pointer)
+    fn emit_closure_env_preamble(&mut self, fn_name: &str, params: &[ast::Param]) {
+        let Some(first) = params.first() else { return };
+        if first.name != "__env" {
+            return;
+        }
+        let Some(ann) = &first.type_ann else { return };
+        let Some(cap_names) = decode_env_ann(ann) else {
+            return;
+        };
+        if cap_names.is_empty() {
+            return;
+        }
+        let cap_meta: Vec<(Type, bool)> = self
+            .closure_captures
+            .get(fn_name)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "ssa-lower: lifted closure `{fn_name}` has no capture types — \
+                     construction site must run before body lowering"
+                )
+            });
+        if cap_meta.len() != cap_names.len() {
+            panic!(
+                "ssa-lower: closure `{fn_name}` capture-name count {} != type count {}",
+                cap_names.len(),
+                cap_meta.len()
+            );
+        }
+        let env_slot = self
+            .locals
+            .get("__env")
+            .copied()
+            .expect("__env param materialized as local")
+            .slot;
+        for (i, (cap_name, (cap_ty, is_byref))) in cap_names.iter().zip(cap_meta.iter()).enumerate()
+        {
+            let cap_ty = *cap_ty;
+            let is_byref = *is_byref;
+            let env_ptr = self.f.append_inst(
+                self.cur_block,
+                InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
+                Type::Ptr,
+                None,
+            );
+            let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
+            let cap_slot = if cap_ty.is_copy() && is_byref {
+                self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Ptr, Operand::Value(env_ptr), offset),
+                    Type::Ptr,
+                    None,
+                )
+            } else {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(cap_ty, Operand::Value(env_ptr), offset),
+                    cap_ty,
+                    None,
+                );
+                let local = self.alloca(cap_ty, Some(cap_name));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
+                );
+                if matches!(cap_ty, Type::Arr(_)) {
+                    self.captured_arr_writeback
+                        .insert(local, (env_slot, offset));
+                }
+                local
+            };
+            self.locals.insert(
+                cap_name.clone(),
+                LocalInfo {
+                    slot: cap_slot,
+                    ty: cap_ty,
+                    moved: true,
+                    borrowed: true,
+                    scope_depth: 0,
+                },
+            );
+            self.scope_stack[0].push(cap_name.clone());
+        }
+    }
 }
