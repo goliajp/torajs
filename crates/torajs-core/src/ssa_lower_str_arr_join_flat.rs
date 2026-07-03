@@ -24,6 +24,19 @@ pub(crate) fn try_dispatch(
     recv_op: Operand,
     recv_ty: Type,
 ) -> Option<Operand> {
+    try_join(ctx, method, args, recv_op, recv_ty)
+        .or_else(|| try_flat(ctx, method, args, recv_op, recv_ty))
+}
+
+/// `<Arr>.join(sep)` / `toString()` / `toLocaleString()` — the
+/// element-typed `arr_join_*` intrinsic family.
+fn try_join(
+    ctx: &mut LowerCtx<'_>,
+    method: &str,
+    args: &[ExprId],
+    recv_op: Operand,
+    recv_ty: Type,
+) -> Option<Operand> {
     // Array<string>.join(sep) — receiver is Type::Arr,
     // method == "join". The check.rs guard ensures
     // element type is String, so we don't re-validate
@@ -113,12 +126,22 @@ pub(crate) fn try_dispatch(
         );
         return Some(Operand::Value(v));
     }
-    // `arr.flat()` / `arr.flat(N)` — N-level deep flatten.
-    // Default depth = 1. Literal depth N is statically
-    // unrolled into N calls to the depth-1 runtime
-    // helper, peeling one Array<> layer per iter and
-    // stopping early if a layer is non-Array. depth=0 is
-    // a shallow clone via arr_slice.
+    None
+}
+
+/// `arr.flat()` / `arr.flat(N)` — N-level deep flatten.
+/// Default depth = 1. Literal depth N is statically
+/// unrolled into N calls to the depth-1 runtime
+/// helper, peeling one Array<> layer per iter and
+/// stopping early if a layer is non-Array. depth=0 is
+/// a shallow clone via arr_slice.
+fn try_flat(
+    ctx: &mut LowerCtx<'_>,
+    method: &str,
+    args: &[ExprId],
+    recv_op: Operand,
+    recv_ty: Type,
+) -> Option<Operand> {
     if let Type::Arr(_) = recv_ty
         && method == "flat"
     {
@@ -157,40 +180,7 @@ pub(crate) fn try_dispatch(
             panic!("ssa-lower: flat depth must be a number literal");
         };
         if depth == 0 {
-            // Shallow clone: arr_slice(recv, 0, len) +
-            // per-element rc_inc on refcounted layouts.
-            let len = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                Type::I64,
-                None,
-            );
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.arr_slice,
-                    vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
-                ),
-                recv_ty,
-                None,
-            );
-            if let Type::Arr(arr_id) = recv_ty {
-                let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-                if elem_ty.is_refcounted() {
-                    let len2 = ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
-                        Type::I64,
-                        None,
-                    );
-                    ctx.emit_arr_rc_inc_range(
-                        Operand::Value(v),
-                        Operand::ConstI64(0),
-                        Operand::Value(len2),
-                    );
-                }
-            }
-            return Some(Operand::Value(v));
+            return Some(emit_shallow_clone(ctx, recv_op, recv_ty));
         }
         let mut cur = recv_op;
         let mut cur_ty = recv_ty;
@@ -221,38 +211,7 @@ pub(crate) fn try_dispatch(
                 // "flat" at this depth, but flat() must still return a
                 // fresh array. Emit a shallow clone (arr_slice + rc_inc
                 // range on refcounted elem) — same shape as depth=0.
-                let len = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Load(Type::I64, cur, ARR_LEN_OFF),
-                    Type::I64,
-                    None,
-                );
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.arr_slice,
-                        vec![cur, Operand::ConstI64(0), Operand::Value(len)],
-                    ),
-                    cur_ty,
-                    None,
-                );
-                if let Type::Arr(arr_id) = cur_ty {
-                    let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-                    if elem_ty.is_refcounted() {
-                        let len2 = ctx.f.append_inst(
-                            ctx.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
-                            Type::I64,
-                            None,
-                        );
-                        ctx.emit_arr_rc_inc_range(
-                            Operand::Value(v),
-                            Operand::ConstI64(0),
-                            Operand::Value(len2),
-                        );
-                    }
-                }
-                cur = Operand::Value(v);
+                cur = emit_shallow_clone(ctx, cur, cur_ty);
                 break;
             };
             let v = ctx.f.append_inst(
@@ -267,4 +226,42 @@ pub(crate) fn try_dispatch(
         return Some(cur);
     }
     None
+}
+
+/// Shallow clone of one array layer — `arr_slice(op, 0, len)` plus a
+/// per-element rc_inc range on refcounted layouts. Shared by the
+/// `flat(0)` fold and the non-Array-slot early stop.
+fn emit_shallow_clone(ctx: &mut LowerCtx<'_>, op: Operand, ty: Type) -> Operand {
+    let len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, op, ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_slice,
+            vec![op, Operand::ConstI64(0), Operand::Value(len)],
+        ),
+        ty,
+        None,
+    );
+    if let Type::Arr(arr_id) = ty {
+        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        if elem_ty.is_refcounted() {
+            let len2 = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
+                Type::I64,
+                None,
+            );
+            ctx.emit_arr_rc_inc_range(
+                Operand::Value(v),
+                Operand::ConstI64(0),
+                Operand::Value(len2),
+            );
+        }
+    }
+    Operand::Value(v)
 }
