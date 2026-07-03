@@ -52,7 +52,7 @@
 //!     itself looks up `foo`, which is no longer in scope. This is a
 //!     known K.2 corner; revisit if it bites a real use case.
 
-use crate::ast::{Ast, Expr, Stmt};
+use crate::ast::{Ast, Stmt};
 use crate::lexer;
 use crate::parser;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -112,23 +112,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             namespace,
         } = s
         {
-            /* Built-in modules (`fs`, `node:fs`, ...) skip filesystem
-             * resolution — `desugar_builtin_imports` rewrites their
-             * imported names into namespace-method calls before
-             * downstream passes run. */
-            if is_builtin_module_source(source) {
-                continue;
-            }
-            check_k2_form(source, default, namespace, named)?;
-            let path = resolve_path(base_dir, source)?;
-            let side_effect_only = named.is_empty() && default.is_none() && namespace.is_none();
-            work.push_back((
-                path,
+            queue_nested_import(
+                &mut work,
+                base_dir,
+                source,
                 named.clone(),
                 default.clone(),
-                side_effect_only,
                 namespace.clone(),
-            ));
+            )?;
         }
     }
 
@@ -137,46 +128,18 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     while let Some((target_path, named, default_alias, side_effect_only, namespace_alias)) =
         work.pop_front()
     {
-        // Filter the request against per-path injected state. The same
-        // path may legitimately appear multiple times in the queue
-        // (e.g., transitive re-export bringing a new name from a lib
-        // we already loaded for a different name).
+        // Filter the request against per-path injected state — see
+        // [`filter_request`].
         let entry = injected_names.entry(target_path.clone()).or_default();
-        let mut effective_named: Vec<NamedImport> = Vec::new();
-        for (orig, alias) in &named {
-            let visible = alias.as_deref().unwrap_or(orig);
-            if !entry.contains(visible) {
-                effective_named.push((orig.clone(), alias.clone()));
-            }
-        }
-        let want_default = default_alias.is_some() && !entry.contains("__default");
-        let want_namespace = namespace_alias.is_some() && !entry.contains("__namespace");
-        let want_se = side_effect_only && !entry.contains("__se");
-        if effective_named.is_empty() && !want_default && !want_namespace && !want_se {
+        let Some((named, default_alias, namespace_alias, side_effect_only)) = filter_request(
+            entry,
+            named,
+            default_alias,
+            namespace_alias,
+            side_effect_only,
+        ) else {
             continue;
-        }
-        // Reserve the names we're about to inject so a sibling queue
-        // entry for the same path skips them.
-        for (orig, alias) in &effective_named {
-            entry.insert(alias.as_deref().unwrap_or(orig).to_string());
-        }
-        if want_default {
-            entry.insert("__default".into());
-        }
-        if want_namespace {
-            entry.insert("__namespace".into());
-        }
-        if want_se {
-            entry.insert("__se".into());
-        }
-        let named = effective_named;
-        let default_alias = if want_default { default_alias } else { None };
-        let namespace_alias = if want_namespace {
-            namespace_alias
-        } else {
-            None
         };
-        let side_effect_only = want_se;
 
         let src_text = std::fs::read_to_string(&target_path)
             .map_err(|e| format!("import {}: {e}", target_path.display()))?;
@@ -219,13 +182,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                     namespace,
                 } = s
                 {
-                    if is_builtin_module_source(&source) {
-                        continue;
-                    }
-                    check_k2_form(&source, &default, &namespace, &named)?;
-                    let path = resolve_path(&target_dir, &source)?;
-                    let nested_se = named.is_empty() && default.is_none() && namespace.is_none();
-                    work.push_back((path, named, default, nested_se, namespace));
+                    queue_nested_import(
+                        &mut work,
+                        &target_dir,
+                        &source,
+                        named,
+                        default,
+                        namespace,
+                    )?;
                     continue;
                 }
                 if let Stmt::ExportDecl {
@@ -253,13 +217,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                     default,
                     namespace,
                 } => {
-                    if is_builtin_module_source(&source) {
-                        continue;
-                    }
-                    check_k2_form(&source, &default, &namespace, &named)?;
-                    let path = resolve_path(&target_dir, &source)?;
-                    let nested_se = named.is_empty() && default.is_none() && namespace.is_none();
-                    work.push_back((path, named, default, nested_se, namespace));
+                    queue_nested_import(
+                        &mut work,
+                        &target_dir,
+                        &source,
+                        named,
+                        default,
+                        namespace,
+                    )?;
                 }
                 Stmt::ExportDecl {
                     inner: None,
@@ -285,36 +250,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                 Stmt::ExportDecl {
                     inner: Some(boxed), ..
                 } => {
-                    let mut inner = *boxed;
-                    // Type decls always inject — TS doesn't require type
-                    // names in the value-import list, and downstream
-                    // check.rs needs them to resolve fn return-type
-                    // annotations on imported value decls.
-                    let always_inject = matches!(inner, Stmt::TypeDecl { .. });
-                    if always_inject {
-                        injections.push(inner);
-                        continue;
-                    }
-                    // P13-S2 namespace import path: inject every value
-                    // decl with its original name (no `want` filter, no
-                    // alias rename) so the synthetic namespace object
-                    // can reference them. The struct literal builds
-                    // below after the walk finishes.
-                    if namespace_alias.is_some()
-                        && let Some(name) = decl_name(&inner)
-                    {
-                        namespace_fields.push(name);
-                        injections.push(inner);
-                        continue;
-                    }
-                    if let Some(name) = decl_name(&inner)
-                        && want.contains(name.as_str())
-                    {
-                        if let Some(alias) = rename.get(name.as_str()) {
-                            rename_decl(&mut inner, (*alias).to_string());
-                        }
-                        injections.push(inner);
-                    }
+                    inject_export_inner(
+                        &mut injections,
+                        *boxed,
+                        &want,
+                        &rename,
+                        namespace_alias.is_some(),
+                        &mut namespace_fields,
+                    );
                 }
                 Stmt::ExportDecl {
                     inner: None,
@@ -322,46 +265,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                     source: Some(lib_source),
                     ..
                 } => {
-                    // P13-S4 — `export { a, b as c } from "./other"`
-                    // re-export. Translate into a transitive BFS load of
-                    // `./other` with the lib's selected names, BUT swap
-                    // each name's importer-visible alias so the caller
-                    // (one level up) sees the same names it requested.
-                    if is_builtin_module_source(&lib_source) {
-                        continue;
-                    }
-                    let path = resolve_path(&target_dir, &lib_source)?;
-                    // For each (orig, alias) in the lib's re-export
-                    // clause, the lib exposes `alias` (or `orig` if no
-                    // alias). We only need to actually load the names
-                    // the caller asked for via `want`.
-                    let mut nested_named: Vec<NamedImport> = Vec::new();
-                    for (orig, alias) in &lib_named {
-                        let lib_visible = alias.as_deref().unwrap_or(orig);
-                        if want.contains(lib_visible) {
-                            // Final caller-visible name: the importer's
-                            // own alias (`import { x as y }`) if any,
-                            // otherwise the lib-visible name.
-                            let final_name = rename
-                                .get(lib_visible)
-                                .map(|s| (*s).to_string())
-                                .unwrap_or_else(|| lib_visible.to_string());
-                            // Re-export's nested load fetches `orig` from
-                            // the source file. The transitive rename
-                            // alias is `Some(final_name)` when the final
-                            // name differs from the source-side `orig`;
-                            // the lib walk's rename map will pick it up.
-                            let nested_alias = if final_name == *orig {
-                                None
-                            } else {
-                                Some(final_name)
-                            };
-                            nested_named.push((orig.clone(), nested_alias));
-                        }
-                    }
-                    if !nested_named.is_empty() {
-                        work.push_back((path, nested_named, None, false, None));
-                    }
+                    queue_reexport(
+                        &mut work,
+                        &target_dir,
+                        &lib_named,
+                        &lib_source,
+                        &want,
+                        &rename,
+                    )?;
                 }
                 Stmt::ExportDecl { inner: None, .. } => {
                     return Err(format!(
@@ -375,26 +286,8 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             }
         }
 
-        // P13-S2 — materialize the namespace alias as a synthetic
-        // `let <alias> = { name1: name1, name2: name2, ... }`. Each
-        // field's value is an `Ident(name)` referencing the just-
-        // injected lib decl, so member access (`<alias>.<name>`)
-        // resolves through the struct's field type.
         if let Some(ns_name) = namespace_alias {
-            let mut fields: Vec<(String, crate::ast::ExprId)> =
-                Vec::with_capacity(namespace_fields.len());
-            for name in &namespace_fields {
-                let id = ast.add_expr(Expr::Ident(name.clone()));
-                fields.push((name.clone(), id));
-            }
-            let obj_id = ast.add_expr(Expr::ObjectLit { fields });
-            injections.push(Stmt::LetDecl {
-                mutable: false,
-                name: ns_name,
-                type_ann: None,
-                init: obj_id,
-                is_var: false,
-            });
+            materialize_namespace(ast, &mut injections, ns_name, &namespace_fields);
         }
     }
 
@@ -405,6 +298,11 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     }
     Ok(closure_files)
 }
+
+mod resolve_helpers;
+use resolve_helpers::{
+    filter_request, inject_export_inner, materialize_namespace, queue_nested_import, queue_reexport,
+};
 
 fn check_k2_form(
     _source: &str,
