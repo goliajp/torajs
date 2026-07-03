@@ -215,7 +215,7 @@ fn resolve_index_eid(ctx: &LowerCtx, elem_expr: crate::ast::ExprId) -> crate::as
 /// Register `name` in the innermost scope frame, shadow-saving any
 /// outer binding of the same name — the for-of `i` and element
 /// bindings share this shape; only ty / moved / borrowed differ.
-fn bind_scoped_local(
+pub(crate) fn bind_scoped_local(
     ctx: &mut LowerCtx,
     name: &str,
     slot: crate::ssa::ValueId,
@@ -251,7 +251,11 @@ fn bind_scoped_local(
 /// Pop the body scope frame — drop-walk still-owned locals and
 /// branch to the step block when the body fell through open, then
 /// restore shadowed bindings.
-fn close_body_scope(ctx: &mut LowerCtx, step_blk: crate::ssa::BlockId, body_open_at_end: bool) {
+pub(crate) fn close_body_scope(
+    ctx: &mut LowerCtx,
+    step_blk: crate::ssa::BlockId,
+    body_open_at_end: bool,
+) {
     let body_frame = ctx.scope_stack.pop().expect("for-of body scope");
     let body_shadows = ctx.shadow_stack.pop().expect("shadow frame");
     if body_open_at_end {

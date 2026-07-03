@@ -36,22 +36,21 @@
 
 use crate::ast::Stmt;
 use crate::ssa::{FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId};
-use crate::ssa_lower::{LocalInfo, LowerCtx, intern_arr_layout};
+use crate::ssa_lower::{LowerCtx, intern_arr_layout};
+use crate::ssa_lower_stmt_for_of::{bind_scoped_local, close_body_scope};
 
-pub(crate) fn lower_for_of_map_like(
+/// Step 1 — get / create the iterator and decide the loop shape:
+/// `(iter_op, should_drop_iter, var_ty, iter_ty, step_fid)`. Map
+/// mints a fresh `entries()` MapIter (spec §23.1.4; loop var =
+/// `Arr<Any>`), Set mints `keys()` (§24.2.5.1; loop var = `Any`);
+/// MapIter / ArrIter reuse the caller's iter without a mint (no
+/// drop at `after_blk`), loop var = `Any`.
+fn resolve_map_like_iter(
     ctx: &mut LowerCtx,
     src_op: Operand,
     src_ty: Type,
-    var_name: &str,
-    body: &Stmt,
-) {
-    let (iter_op, should_drop_iter, var_ty, iter_ty, step_fid): (
-        Operand,
-        bool,
-        Type,
-        Type,
-        FuncId,
-    ) = match src_ty {
+) -> (Operand, bool, Type, Type, FuncId) {
+    match src_ty {
         Type::Map => {
             let v = ctx.f.append_inst(
                 ctx.cur_block,
@@ -98,7 +97,63 @@ pub(crate) fn lower_for_of_map_like(
             ctx.intrinsics.arr_iter_step,
         ),
         _ => unreachable!("lower_for_of_map_like: src_ty must be Map | Set | MapIter | ArrIter"),
-    };
+    }
+}
+
+/// Step 5 (value) — Load the per-iteration loop value at the top of
+/// the body block. Map re-loads the val_slot directly as `Arr<Any>`
+/// (the i64 happens to be the entries-array ptr); Set / MapIter /
+/// ArrIter box the `(tag, payload)` out-pair via `any_box`.
+fn load_loop_value(
+    ctx: &mut LowerCtx,
+    src_ty: Type,
+    var_ty: Type,
+    tag_slot: ValueId,
+    val_slot: ValueId,
+) -> ValueId {
+    match src_ty {
+        Type::Map => ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(var_ty, Operand::Value(val_slot), 0),
+            var_ty,
+            None,
+        ),
+        Type::Set | Type::MapIter | Type::ArrIter => {
+            let tag_v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),
+                Type::I64,
+                None,
+            );
+            let pv = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::I64, Operand::Value(val_slot), 0),
+                Type::I64,
+                None,
+            );
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::Value(tag_v), Operand::Value(pv)],
+                ),
+                Type::Any,
+                None,
+            )
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) fn lower_for_of_map_like(
+    ctx: &mut LowerCtx,
+    src_op: Operand,
+    src_ty: Type,
+    var_name: &str,
+    body: &Stmt,
+) {
+    let (iter_op, should_drop_iter, var_ty, iter_ty, step_fid) =
+        resolve_map_like_iter(ctx, src_op, src_ty);
 
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
@@ -154,99 +209,18 @@ pub(crate) fn lower_for_of_map_like(
     ctx.cur_block = body_blk;
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
-    let v_val: ValueId = match src_ty {
-        Type::Map => ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(var_ty, Operand::Value(val_slot), 0),
-            var_ty,
-            None,
-        ),
-        Type::Set | Type::MapIter | Type::ArrIter => {
-            let tag_v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),
-                Type::I64,
-                None,
-            );
-            let pv = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, Operand::Value(val_slot), 0),
-                Type::I64,
-                None,
-            );
-            ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::Value(tag_v), Operand::Value(pv)],
-                ),
-                Type::Any,
-                None,
-            )
-        }
-        _ => unreachable!(),
-    };
+    let v_val = load_loop_value(ctx, src_ty, var_ty, tag_slot, val_slot);
     let v_slot = ctx.alloca(var_ty, Some(var_name));
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(Operand::Value(v_val), Operand::Value(v_slot), 0),
     );
-    {
-        let cur_depth = ctx.scope_stack.len() - 1;
-        if let Some(prev) = ctx.locals.get(var_name).copied()
-            && prev.scope_depth < cur_depth
-        {
-            ctx.shadow_stack
-                .last_mut()
-                .expect("shadow frame")
-                .push((var_name.to_string(), prev));
-        }
-        ctx.locals.insert(
-            var_name.to_string(),
-            LocalInfo {
-                slot: v_slot,
-                ty: var_ty,
-                moved: false,
-                borrowed: false,
-                scope_depth: cur_depth,
-            },
-        );
-        ctx.scope_stack
-            .last_mut()
-            .expect("scope frame")
-            .push(var_name.to_string());
-    }
+    bind_scoped_local(ctx, var_name, v_slot, var_ty, false, false);
     ctx.loop_stack.push((header, after));
     ctx.lower_stmt(body);
     let body_open = ctx.cur_open();
     ctx.loop_stack.pop();
-    let body_frame = ctx.scope_stack.pop().expect("for-of-map body scope");
-    let body_shadows = ctx.shadow_stack.pop().expect("shadow frame");
-    if body_open {
-        for name in &body_frame {
-            let info = match ctx.locals.get(name) {
-                Some(i) => *i,
-                None => continue,
-            };
-            if info.moved || info.ty.is_copy() || ctx.stack_alloced_locals.contains(name) {
-                continue;
-            }
-            let val = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                info.ty,
-                None,
-            );
-            ctx.emit_drop_value(Operand::Value(val), info.ty);
-        }
-        ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
-    }
-    for n in &body_frame {
-        ctx.locals.remove(n);
-    }
-    for (n, prev) in body_shadows {
-        ctx.locals.insert(n, prev);
-    }
+    close_body_scope(ctx, header, body_open);
 
     ctx.cur_block = after;
     if should_drop_iter {
