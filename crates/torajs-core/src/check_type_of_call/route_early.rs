@@ -1,0 +1,131 @@
+//! Cascade segment 1/6 of [`crate::check_type_of_call::check`]'s
+//! early-route chain. Wedge order preserved verbatim from the
+//! pre-split cascade; segment boundaries are mechanical
+//! (consecutive), NOT semantic regroupings — relative order of
+//! every arm is unchanged.
+//!
+//! Covers: cm_demote / in_op / promise_then / global_ctors / number_parse /
+//! promise_static / process_on / promise_all / object_static / arr_flat /
+//! array_from / date_utc / reduce_1arg
+
+use crate::ast::{Ast, ExprId};
+use crate::check::{Checker, Type};
+
+pub(crate) fn try_route(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Option<Result<Type, String>> {
+    // Name-based class-method rewrite vs builtin-container
+    // receiver — decision + alt typecheck live in cm_demote.rs.
+    if let Some(demoted) = checker.try_demote_cm_rewrite(ast, eid, args) {
+        return Some(demoted);
+    }
+    // T-45 — synthetic call from parser for binary `in`
+    // operator: `__torajs_in_op(key, obj)`. Wedge extracted to
+    // [`crate::check_type_of_call_in_op`] (chunk 296).
+    if let Some(r) = crate::check_type_of_call_in_op::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
+    // Promise<T>.then / .catch early-route arms (T-19.l 2-arg
+    // shape, T-19.o heterogeneous T→U + P10.7 Promise<Any>,
+    // P10.2-A1.1 Promise<Undefined>, P10.2-A4 Promise<Array<U>>)
+    // — see [`crate::check_type_of_call_promise_then`] (chunk
+    // 207 — first sub-batch of check_type_of_call.rs per-shape
+    // decomposition). All 4 patterns must run BEFORE the
+    // regular method-table dispatch because the table's
+    // static signature fixes arg count and inner-T constraint.
+    // `.finally` is intentionally not handled — its cb is
+    // `() => void` and the table arm already covers it.
+    if let Some(r) = crate::check_type_of_call_promise_then::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
+    // Global bare-Ident ctor / coercion call shapes
+    // (`fetch(url)` / `Number|String|Boolean(x)` callable
+    // coercion / `BigInt(value)` ctor / `Symbol(desc?)`) —
+    // see [`crate::check_type_of_call_global_ctors`] (chunk
+    // 208 — second sub-batch of check_type_of_call.rs per-
+    // shape decomposition). All 4 are early-route Ident
+    // callee shapes that must run BEFORE the regular
+    // method-table / general-call dispatch.
+    if let Some(r) = crate::check_type_of_call_global_ctors::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
+    // Number.parseInt + Number.parseFloat early-route arms —
+    // see [`crate::check_type_of_call_number_parse`] (chunk
+    // 209 — third sub-batch). Both need early-route handling
+    // because the regular static-method table fixes arity in
+    // ways the spec ignores (parseInt 1-arg, parseFloat 0-arg
+    // both had to circumvent the unified arity gate).
+    if let Some(r) = crate::check_type_of_call_number_parse::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
+    // T-15.g.5 / T-19.b/d/f — `Promise.resolve(v)` /
+    // `Promise.reject(v)` with arg-type-driven return
+    // inference. Extracted to `check/promise_static.rs`
+    // (2026-06-03, P10.5-A2 prereq).
+    if let Some(r) = checker.check_promise_resolve_reject_static(ast, *callee, args) {
+        return Some(r);
+    }
+    // P10.5-A4 — `process.on('unhandledRejection', cb)`.
+    // Extracted to `check/process_on.rs`.
+    if let Some(r) = checker.check_process_on(ast, *callee, args) {
+        return Some(r);
+    }
+    // Promise.all / .race / .any / .allSettled fan-in static
+    // methods — see [`crate::check_type_of_call_promise_all`]
+    // (chunk 210 — fourth sub-batch). Input is
+    // Array<Promise<T>>; result varies per method
+    // (.all → Promise<T[]> / .race | .any → Promise<T> /
+    // .allSettled → Promise<{status,value}[]>).
+    if let Some(r) = crate::check_type_of_call_promise_all::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
+    // Object.assign / Object.values static-method early-route
+    // arms — see [`crate::check_type_of_call_object_static`]
+    // (chunk 211 — fifth sub-batch). Object.assign requires
+    // target+sources identical struct types in this subset;
+    // Object.values is polymorphic over Array / String / Any /
+    // struct receivers.
+    if let Some(r) = crate::check_type_of_call_object_static::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
+    // `arr.flat(N)` literal-depth early-route arm — see
+    // [`crate::check_type_of_call_arr_flat`] (chunk 212 —
+    // sixth sub-batch). Peels `Array<>` layers from the
+    // receiver's element type when the depth arg is a
+    // Number / `Infinity` / `undefined` literal. The 0-arg
+    // `xs.flat()` shape uses the regular method-table arm.
+    if let Some(r) = crate::check_type_of_call_arr_flat::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
+    // Array.from(iter, mapFn?) polymorphic early-route arm —
+    // see [`crate::check_type_of_call_array_from`] (chunk 213
+    // — seventh sub-batch). 1-arg receiver-polymorphic over
+    // String / Array / Set; 2+ arg `Array.from(iter, mapFn,
+    // thisArg?)` result is Array<mapFn ret>.
+    if let Some(r) = crate::check_type_of_call_array_from::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
+    // S153 — `Date.UTC(...)` 1-6 arg overload early-route arm —
+    // see [`crate::check_type_of_call_date_utc`] (chunk 214 —
+    // eighth sub-batch). Per ES §21.4.2.21 trailing-defaults
+    // overloads; the 7-arg form keeps using the static-sig path
+    // unchanged.
+    if let Some(r) = crate::check_type_of_call_date_utc::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
+    // `xs.reduce(cb)` / `xs.reduceRight(cb)` 1-arg overload
+    // early-route arm — see
+    // [`crate::check_type_of_call_reduce_1arg`] (chunk 215 —
+    // ninth sub-batch). ES §23.1.3.24 / §23.1.3.25 init-value-
+    // defaulting form; the 2-arg form is covered by the
+    // static-sig arm.
+    if let Some(r) = crate::check_type_of_call_reduce_1arg::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
+    None
+}

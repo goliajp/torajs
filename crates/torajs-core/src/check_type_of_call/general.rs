@@ -1,0 +1,189 @@
+//! General fn-call typing tail of
+//! [`crate::check_type_of_call::check`] — runs after every
+//! early-route segment declines. Body verbatim from the
+//! pre-split cascade: Type::Function destructure, p1_thisarg /
+//! t28_pad / date_setter_narrow / splice narrows / at narrow /
+//! search_0arg / math_date_trailing wedges, arity gate, per-arg
+//! subtype loop + consume bitmap.
+
+use crate::ast::{Ast, ExprId};
+use crate::check::{Checker, Type};
+
+pub(crate) fn general_call(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Result<Type, String> {
+    let callee_ty = checker.type_of(ast, *callee)?;
+    let Type::Function(mut params, ret) = callee_ty else {
+        return Err(format!("not callable: type {callee_ty:?}"));
+    };
+    // P1 wedge — Array.prototype callback methods accept
+    // an optional trailing thisArg per ES spec §23.1.3.X
+    // (map/filter/every/some/forEach/find/findIndex/
+    // findLast/findLastIndex/reduce/reduceRight/flatMap).
+    // tora's callbacks don't have `this` semantics
+    // (closures don't bind a receiver), so the thisArg
+    // is silently dropped — tests that don't rely on
+    // `this` inside the callback now typecheck (~70+
+    // cases unblocked across the broader sample). Tests
+    // that DO use `this` were already blocked on the
+    // missing-this substrate; the silent drop doesn't
+    // make those worse.
+    let mut effective_args = args.clone();
+    // P1 / S270 — Array.prototype callback methods trailing
+    // thisArg drop wedge extracted to
+    // [`crate::check_type_of_call_p1_thisarg`] (chunk 297).
+    crate::check_type_of_call_p1_thisarg::apply(
+        checker,
+        ast,
+        callee,
+        params.len(),
+        &mut effective_args,
+    )?;
+    // T-28 — Default param missing → undefined widen wedge
+    // extracted to [`crate::check_type_of_call_t28_pad`]
+    // (chunk 298).
+    if let Some(r) = crate::check_type_of_call_t28_pad::try_pad(
+        checker,
+        ast,
+        eid,
+        &params,
+        &effective_args,
+        &ret,
+    ) {
+        return r;
+    }
+    // Date per-field setter arity narrow wedge extracted to
+    // [`crate::check_type_of_call_date_setter_narrow`]
+    // (chunk 299).
+    crate::check_type_of_call_date_setter_narrow::apply(
+        checker,
+        ast,
+        callee,
+        &effective_args,
+        &mut params,
+    )?;
+    // `arr.splice` / `arr.toSpliced` arity narrow wedge
+    // extracted to
+    // [`crate::check_type_of_call_array_splice_narrow`]
+    // (chunk 300).
+    crate::check_type_of_call_array_splice_narrow::apply(
+        checker,
+        ast,
+        callee,
+        &effective_args,
+        &mut params,
+    )?;
+    // S237 splice/toSpliced 2-arg-undef arity narrow wedge
+    // extracted to
+    // [`crate::check_type_of_call_array_splice_2arg_undef`]
+    // (chunk 301).
+    crate::check_type_of_call_array_splice_2arg_undef::apply(
+        checker,
+        ast,
+        callee,
+        &mut effective_args,
+        &mut params,
+    )?;
+    // `arr.at` / `s.at` 0-arg arity narrow wedge extracted
+    // to [`crate::check_type_of_call_array_at_narrow`]
+    // (chunk 302).
+    crate::check_type_of_call_array_at_narrow::apply(
+        checker,
+        ast,
+        callee,
+        &effective_args,
+        &mut params,
+    )?;
+    // Array/String search-method 0-arg arity narrow wedge
+    // extracted to
+    // [`crate::check_type_of_call_search_0arg`]
+    // (chunk 303).
+    crate::check_type_of_call_search_0arg::apply(
+        checker,
+        ast,
+        callee,
+        &effective_args,
+        &mut params,
+    )?;
+    // S243 / S250 — Math.* / Date.<static> trailing-arg
+    // ignore wedge extracted to
+    // [`crate::check_type_of_call_math_date_trailing_ignore`]
+    // (chunk 304).
+    crate::check_type_of_call_math_date_trailing_ignore::apply(
+        checker,
+        ast,
+        callee,
+        &mut effective_args,
+        &params,
+    )?;
+    if params.len() != effective_args.len() {
+        return Err(format!(
+            "expected {} argument(s), got {}",
+            params.len(),
+            effective_args.len()
+        ));
+    }
+    let args = &effective_args;
+    // M5.1 class-method dispatch flag derived in
+    // [`crate::check_type_of_call_dispatch_flags`] (chunk 306;
+    // M6.1 String borrow flag pruned in chunk 311).
+    let is_class_method = crate::check_type_of_call_dispatch_flags::derive(ast, callee);
+    // Per-call-site consume bitmap derivation extracted to
+    // [`crate::check_type_of_call_consume_bitmap`]
+    // (chunk 305).
+    let consume_bitmap: Vec<bool> =
+        crate::check_type_of_call_consume_bitmap::derive(ast, callee, args.len());
+    for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
+        let arg_ty = checker.type_of(ast, *arg_id)?;
+        // M5.2 class-method receiver subclass prefix-subtype check extracted
+        // to [`crate::check_type_of_call_class_method_subtype`] (chunk 309).
+        let skip_type_check = crate::check_type_of_call_class_method_subtype::skip(
+            is_class_method,
+            i,
+            &arg_ty,
+            param_ty,
+        );
+        // V3-18 Nullable<T> match wedge extracted to
+        // [`crate::check_type_of_call_nullable_match`]
+        // (chunk 308).
+        let nullable_match = crate::check_type_of_call_nullable_match::matches(param_ty, &arg_ty);
+        // S133 callback Function subtype carve-out extracted
+        // to [`crate::check_type_of_call_callback_subtype`]
+        // (chunk 307).
+        let callback_subtype =
+            crate::check_type_of_call_callback_subtype::matches(param_ty, &arg_ty);
+        if !skip_type_check
+            && !nullable_match
+            && !callback_subtype
+            && param_ty != &Type::Any
+            && &arg_ty != param_ty
+        {
+            return Err(format!(
+                "argument {i}: expected {param_ty:?}, got {arg_ty:?}"
+            ));
+        }
+        // TS-shape: function parameters borrow non-Copy args
+        // by default. Calling `f(x)` does not mark `x` as
+        // moved — the caller keeps owning the heap and can
+        // pass the same binding to another function later.
+        // Matches JS pass-by-reference semantics. Caveat: a
+        // function that stores its arg into long-lived heap
+        // (e.g. a global, or a returned struct field) would
+        // create a dangling pointer once the caller drops
+        // the original — there's no GC to keep it alive. For
+        // the cases we ship today this is fine; the ts-subset
+        // doc calls out the constraint.
+        if consume_bitmap.get(i).copied().unwrap_or(false)
+            && !arg_ty.is_copy()
+            && !checker.consumed_calls.contains(&eid)
+        {
+            checker.consume(ast, *arg_id);
+        }
+    }
+    checker.consumed_calls.insert(eid);
+    Ok(*ret)
+}
