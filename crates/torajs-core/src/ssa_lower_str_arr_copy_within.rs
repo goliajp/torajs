@@ -15,6 +15,67 @@
 use crate::ast::ExprId;
 use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+use crate::ssa_lower_str_arr_fill::normalize_range_bound;
+
+/// Phase B refcount discipline for non-Copy elements — the dst range
+/// gets aliased ptrs from the src range, so the sequence MUST be
+/// `inc(src) → drop(dst)` before arr_copy_within's memmove (an
+/// overlapping element could otherwise be freed before its inc =
+/// use-after-free). Replicates arr_copy_within's clamp: lo =
+/// clamp(start), hi = clamp(end), to = clamp(target), count =
+/// min(hi-lo, len-to); then incs src [lo, lo+count) and drops dst
+/// [to, to+count).
+fn emit_copy_within_rc_ranges(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    elem_ty: Type,
+    target: Operand,
+    start: Operand,
+    end: Operand,
+) {
+    let len_v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let len_op = Operand::Value(len_v);
+    let lo = ctx.clamp_i64_to_range(start, Operand::ConstI64(0), len_op);
+    let hi = ctx.clamp_i64_to_range(end, Operand::ConstI64(0), len_op);
+    let to = ctx.clamp_i64_to_range(target, Operand::ConstI64(0), len_op);
+    // raw_count = max(0, hi - lo)
+    let diff = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(SsaBinOp::Sub, hi, lo),
+        Type::I64,
+        None,
+    );
+    let raw_count = ctx.clamp_i64_to_range(Operand::Value(diff), Operand::ConstI64(0), len_op);
+    // capacity left at dst = len - to
+    let cap_left = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(SsaBinOp::Sub, len_op, to),
+        Type::I64,
+        None,
+    );
+    // count = min(raw_count, cap_left), clamped >= 0
+    let count = ctx.clamp_i64_to_range(raw_count, Operand::ConstI64(0), Operand::Value(cap_left));
+    // src_end = lo + count, dst_end = to + count
+    let src_end = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(SsaBinOp::Add, lo, count),
+        Type::I64,
+        None,
+    );
+    let dst_end = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(SsaBinOp::Add, to, count),
+        Type::I64,
+        None,
+    );
+    ctx.emit_arr_rc_inc_range(recv_op, lo, Operand::Value(src_end));
+    ctx.emit_arr_rc_drop_range(recv_op, elem_ty, to, Operand::Value(dst_end));
+}
 
 /// Try to lower `<Arr>.copyWithin(target, start?, end?)`. Returns
 /// `Some(value)` when handled; `None` otherwise.
@@ -72,136 +133,15 @@ pub(crate) fn try_dispatch(
             Type::I64,
             None,
         );
-        // S219 — Array.copyWithin(target [, start [, end ]]) per ES
-        // §23.1.3.4: target/start go through ToIntegerOrInfinity
-        // (undef → 0); end===undefined takes the omitted default (len).
-        // Short-circuit each undef slot before relative_to_len so the
-        // helper isn't called on a ConstPtrNull undef sentinel.
-        // S335 — Any args for copyWithin: decode each Any arg via
-        // anyv_to_number → coerce_to_i64 before relative_to_len so
-        // the helper sees a clean i64. Sister to S334.
-        let arg0_undef = matches!(
-            ctx.expr_types.get(&args[0]),
-            Some(crate::check::Type::Undefined)
-        );
-        let arg0_any = matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any));
-        let target = if arg0_undef {
-            Operand::ConstI64(0)
-        } else if arg0_any {
-            let raw = ctx.lower_expr(args[0]);
-            let f = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-                Type::F64,
-                None,
-            );
-            let i = ctx.coerce_to_i64(Operand::Value(f));
-            ctx.relative_to_len(i, Operand::Value(len_for_norm))
-        } else {
-            let raw_target = ctx.lower_expr(args[0]);
-            ctx.relative_to_len(raw_target, Operand::Value(len_for_norm))
-        };
-        let start = if args.len() >= 2 {
-            let arg1_undef = matches!(
-                ctx.expr_types.get(&args[1]),
-                Some(crate::check::Type::Undefined)
-            );
-            let arg1_any = matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Any));
-            if arg1_undef {
-                Operand::ConstI64(0)
-            } else if arg1_any {
-                let raw = ctx.lower_expr(args[1]);
-                let f = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-                    Type::F64,
-                    None,
-                );
-                let i = ctx.coerce_to_i64(Operand::Value(f));
-                ctx.relative_to_len(i, Operand::Value(len_for_norm))
-            } else {
-                let raw = ctx.lower_expr(args[1]);
-                ctx.relative_to_len(raw, Operand::Value(len_for_norm))
-            }
-        } else {
-            Operand::ConstI64(0)
-        };
-        let end = if args.len() >= 3 {
-            let arg2_undef = matches!(
-                ctx.expr_types.get(&args[2]),
-                Some(crate::check::Type::Undefined)
-            );
-            let arg2_any = matches!(ctx.expr_types.get(&args[2]), Some(crate::check::Type::Any));
-            if arg2_undef {
-                Operand::Value(len_for_norm)
-            } else if arg2_any {
-                let raw = ctx.lower_expr(args[2]);
-                let f = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-                    Type::F64,
-                    None,
-                );
-                let i = ctx.coerce_to_i64(Operand::Value(f));
-                ctx.relative_to_len(i, Operand::Value(len_for_norm))
-            } else {
-                let raw = ctx.lower_expr(args[2]);
-                ctx.relative_to_len(raw, Operand::Value(len_for_norm))
-            }
-        } else {
-            // end = recv.length
-            Operand::Value(len_for_norm)
-        };
+        // S219 / S335 — see `normalize_range_bound` doc (fill's
+        // sibling, chunk 480 reuse): target/start default 0,
+        // end===undefined takes the omitted default (len).
+        let target = normalize_range_bound(ctx, args, 0, Operand::ConstI64(0), len_for_norm);
+        let start = normalize_range_bound(ctx, args, 1, Operand::ConstI64(0), len_for_norm);
+        let end = normalize_range_bound(ctx, args, 2, Operand::Value(len_for_norm), len_for_norm);
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         if elem_ty.is_refcounted() {
-            // Replicate arr_copy_within's clamp: lo = clamp(start),
-            // hi = clamp(end), to = clamp(target), count = min(hi-lo,
-            // len-to). Then inc src [lo, lo+count) and drop dst
-            // [to, to+count) before the memmove.
-            let len_v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                Type::I64,
-                None,
-            );
-            let len_op = Operand::Value(len_v);
-            let lo = ctx.clamp_i64_to_range(start, Operand::ConstI64(0), len_op);
-            let hi = ctx.clamp_i64_to_range(end, Operand::ConstI64(0), len_op);
-            let to = ctx.clamp_i64_to_range(target, Operand::ConstI64(0), len_op);
-            // raw_count = max(0, hi - lo)
-            let diff = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BinOp(SsaBinOp::Sub, hi, lo),
-                Type::I64,
-                None,
-            );
-            let raw_count =
-                ctx.clamp_i64_to_range(Operand::Value(diff), Operand::ConstI64(0), len_op);
-            // capacity left at dst = len - to
-            let cap_left = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BinOp(SsaBinOp::Sub, len_op, to),
-                Type::I64,
-                None,
-            );
-            // count = min(raw_count, cap_left), clamped >= 0
-            let count =
-                ctx.clamp_i64_to_range(raw_count, Operand::ConstI64(0), Operand::Value(cap_left));
-            // src_end = lo + count, dst_end = to + count
-            let src_end = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BinOp(SsaBinOp::Add, lo, count),
-                Type::I64,
-                None,
-            );
-            let dst_end = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BinOp(SsaBinOp::Add, to, count),
-                Type::I64,
-                None,
-            );
-            ctx.emit_arr_rc_inc_range(recv_op, lo, Operand::Value(src_end));
-            ctx.emit_arr_rc_drop_range(recv_op, elem_ty, to, Operand::Value(dst_end));
+            emit_copy_within_rc_ranges(ctx, recv_op, elem_ty, target, start, end);
         }
         // S298 — lower-and-drop trailing args past the 3 useful
         // (target, start, end) slots per ES §23.1.3.4 trailing-arg
