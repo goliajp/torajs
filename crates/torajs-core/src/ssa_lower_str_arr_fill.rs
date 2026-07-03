@@ -11,8 +11,142 @@
 //! case so the caller can keep trying the remaining branches.
 
 use crate::ast::ExprId;
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+
+/// Normalise one length-relative range bound (`args[idx]`) to a
+/// canonical [0, len] index. Chunk 479 — fill's start / end arms
+/// were the same shape; only the omitted / undef default differs
+/// (`0` for start, `len` for end — both carried in `default_op`).
+/// Chunk 480 reuses it for copyWithin's target / start / end (same
+/// S219/S335 shape).
+///
+/// - S218 — undef slot per ES §23.1.3.7 step 5/9 short-circuits to
+///   the omitted default before lower so `relative_to_len` isn't
+///   invoked on a ConstPtrNull/I64 undef sentinel.
+/// - S335 — Any slot decodes via `any_to_number → coerce_to_i64`
+///   before `relative_to_len` (ToIntegerOrInfinity accepts
+///   arbitrary-typed input; sister to S334).
+/// - V3-18 wedge — negatives count from the end via
+///   `relative_to_len` (max(len + n, 0) for n < 0, len for
+///   n >= len); the arr_fill C runtime only does plain min/max
+///   clamp, so both Copy and non-Copy paths see canonical indices.
+pub(crate) fn normalize_range_bound(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    idx: usize,
+    default_op: Operand,
+    len_for_norm: ValueId,
+) -> Operand {
+    if args.len() <= idx {
+        return default_op;
+    }
+    let is_undef = matches!(
+        ctx.expr_types.get(&args[idx]),
+        Some(crate::check::Type::Undefined)
+    );
+    let is_any = matches!(
+        ctx.expr_types.get(&args[idx]),
+        Some(crate::check::Type::Any)
+    );
+    if is_undef {
+        default_op
+    } else if is_any {
+        let raw = ctx.lower_expr(args[idx]);
+        let f = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+            Type::F64,
+            None,
+        );
+        let i = ctx.coerce_to_i64(Operand::Value(f));
+        ctx.relative_to_len(i, Operand::Value(len_for_norm))
+    } else {
+        let raw = ctx.lower_expr(args[idx]);
+        ctx.relative_to_len(raw, Operand::Value(len_for_norm))
+    }
+}
+
+/// Non-Copy fill: per-slot drop-old + store-new + inc-new SSA loop
+/// so the refcount discipline stays balanced after the overwrite.
+/// Clamps [start, end) to [0, len] inline (matches arr_fill C
+/// semantics). Leaves `ctx.cur_block` at the after-block and
+/// returns the receiver.
+fn emit_fill_rc_loop(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    value: Operand,
+    start: Operand,
+    end: Operand,
+    elem_ty: Type,
+) -> Operand {
+    let len_v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, recv_op.clone(), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let lo = ctx.clamp_i64_to_range(start, Operand::ConstI64(0), Operand::Value(len_v));
+    let hi = ctx.clamp_i64_to_range(end, Operand::ConstI64(0), Operand::Value(len_v));
+    let i_slot = ctx.alloca_in_entry(Type::I64, Some("__fill_i"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(lo, Operand::Value(i_slot), 0),
+    );
+    let header = ctx.f.add_block();
+    let body = ctx.f.add_block();
+    let after = ctx.f.add_block();
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
+    ctx.cur_block = header;
+    let i_now = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+        Type::I64,
+        None,
+    );
+    let cond = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Slt, Operand::Value(i_now), hi),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(cond),
+            then_blk: body,
+            else_blk: after,
+        },
+    );
+    ctx.cur_block = body;
+    // T-13.5: head-aware offset for arr.fill loop.
+    let off = ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(i_now), 3, false);
+    let old = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::LoadDyn(elem_ty, recv_op.clone(), off.clone()),
+        elem_ty,
+        None,
+    );
+    ctx.emit_drop_value(Operand::Value(old), elem_ty);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::StoreDyn(value.clone(), recv_op.clone(), off),
+    );
+    ctx.emit_rc_inc(value);
+    let i_next = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
+    ctx.cur_block = after;
+    recv_op
+}
 
 /// Try to lower `<Arr>.fill(v, start?, end?)`. Returns
 /// `Some(value)` when handled; `None` otherwise.
@@ -76,65 +210,11 @@ pub(crate) fn try_dispatch(
             Type::I64,
             None,
         );
-        // S218 — Array.fill(v, undefined [, undefined]) per ES
-        // §23.1.3.7 step 5/9: start=undef → 0 (omitted default),
-        // end=undef → len (omitted default). Short-circuit each undef
-        // slot before lower so relative_to_len isn't invoked on a
-        // ConstPtrNull/I64 undef sentinel.
-        // S335 — Array.fill(v, Any [, Any]) per ES §23.1.3.7 step
-        // 5/9: ToIntegerOrInfinity accepts arbitrary-typed input.
-        // Decode Any via anyv_to_number → coerce_to_i64 before
-        // relative_to_len. Sister to S334.
-        let start = if args.len() >= 2 {
-            let arg1_undef = matches!(
-                ctx.expr_types.get(&args[1]),
-                Some(crate::check::Type::Undefined)
-            );
-            let arg1_any = matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Any));
-            if arg1_undef {
-                Operand::ConstI64(0)
-            } else if arg1_any {
-                let raw = ctx.lower_expr(args[1]);
-                let f = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-                    Type::F64,
-                    None,
-                );
-                let i = ctx.coerce_to_i64(Operand::Value(f));
-                ctx.relative_to_len(i, Operand::Value(len_for_norm))
-            } else {
-                let raw = ctx.lower_expr(args[1]);
-                ctx.relative_to_len(raw, Operand::Value(len_for_norm))
-            }
-        } else {
-            Operand::ConstI64(0)
-        };
-        let end = if args.len() >= 3 {
-            let arg2_undef = matches!(
-                ctx.expr_types.get(&args[2]),
-                Some(crate::check::Type::Undefined)
-            );
-            let arg2_any = matches!(ctx.expr_types.get(&args[2]), Some(crate::check::Type::Any));
-            if arg2_undef {
-                Operand::Value(len_for_norm)
-            } else if arg2_any {
-                let raw = ctx.lower_expr(args[2]);
-                let f = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-                    Type::F64,
-                    None,
-                );
-                let i = ctx.coerce_to_i64(Operand::Value(f));
-                ctx.relative_to_len(i, Operand::Value(len_for_norm))
-            } else {
-                let raw = ctx.lower_expr(args[2]);
-                ctx.relative_to_len(raw, Operand::Value(len_for_norm))
-            }
-        } else {
-            Operand::Value(len_for_norm)
-        };
+        // S218 / S335 / V3-18 — see `normalize_fill_bound` doc:
+        // start defaults to 0, end defaults to arr.length per JS
+        // spec §22.1.3.6.
+        let start = normalize_range_bound(ctx, args, 1, Operand::ConstI64(0), len_for_norm);
+        let end = normalize_range_bound(ctx, args, 2, Operand::Value(len_for_norm), len_for_norm);
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         // S298 — lower-and-drop trailing args past the 3 useful
         // (value, start, end) slots per ES §23.1.3.7 trailing-arg
@@ -153,72 +233,7 @@ pub(crate) fn try_dispatch(
             );
             return Some(Operand::Value(v));
         }
-        // Non-Copy fill: per-slot drop-old + store-new + inc-new.
-        // Clamp [start, end) to [0, len] inline (matches arr_fill C semantics).
-        let len_v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-            Type::I64,
-            None,
-        );
-        let lo = ctx.clamp_i64_to_range(start, Operand::ConstI64(0), Operand::Value(len_v));
-        let hi = ctx.clamp_i64_to_range(end, Operand::ConstI64(0), Operand::Value(len_v));
-        let i_slot = ctx.alloca_in_entry(Type::I64, Some("__fill_i"));
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(lo, Operand::Value(i_slot), 0),
-        );
-        let header = ctx.f.add_block();
-        let body = ctx.f.add_block();
-        let after = ctx.f.add_block();
-        ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
-        ctx.cur_block = header;
-        let i_now = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
-            Type::I64,
-            None,
-        );
-        let cond = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), hi),
-            Type::Bool,
-            None,
-        );
-        ctx.f.set_term(
-            ctx.cur_block,
-            Terminator::CondBr {
-                cond: Operand::Value(cond),
-                then_blk: body,
-                else_blk: after,
-            },
-        );
-        ctx.cur_block = body;
-        // T-13.5: head-aware offset for arr.fill loop.
-        let off = ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(i_now), 3, false);
-        let old = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::LoadDyn(elem_ty, recv_op.clone(), off.clone()),
-            elem_ty,
-            None,
-        );
-        ctx.emit_drop_value(Operand::Value(old), elem_ty);
-        ctx.f
-            .append_void(ctx.cur_block, InstKind::StoreDyn(value, recv_op, off));
-        ctx.emit_rc_inc(value);
-        let i_next = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
-            Type::I64,
-            None,
-        );
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
-        );
-        ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
-        ctx.cur_block = after;
-        return Some(recv_op);
+        return Some(emit_fill_rc_loop(ctx, recv_op, value, start, end, elem_ty));
     }
     None
 }
