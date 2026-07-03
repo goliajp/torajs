@@ -2,37 +2,21 @@
 //! Mach-O byte stream including user fns + member text/data
 //! payloads + chained-fixups + ad-hoc codesign blob.
 
-use torajs_obj::{
-    CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MachHeader64, Nlist64,
-    S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE,
-    SYMTAB_COMMAND_SIZE, Section64, SegmentCommand64, StringTable, SymtabCommand, VM_PROT_EXECUTE,
-    VM_PROT_READ,
-};
-
-use crate::archive_emit_lc_meta::{EmitLcMeta, compute_emit_lc_meta};
+use crate::archive_emit_lc_meta::compute_emit_lc_meta;
+use crate::archive_emit_lcs::{write_header_and_load_commands, write_symtab_and_strtab};
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError, compute_archive_layout};
 use crate::archives_merge::merge_archive_indexes;
 use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
 use crate::class_name_table_layout::{
     apply_class_name_table_overrides, build_class_name_table_payload,
 };
-use crate::data_section_emit::{
-    build_data_non_text_section_64_entries, write_data_non_text_file_payloads,
-};
+use crate::data_section_emit::write_data_non_text_file_payloads;
 use crate::data_section_layout::DataSectionLayout;
 use crate::defined_extern_resolve::section_vaddr_for_sym;
-use crate::dyld_emit::{
-    build_data_segment, build_stubs_section, write_la_ptr_section, write_stubs_section,
-};
+use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
 use crate::fn_addr_syms::register_fn_addr_syms;
 use crate::fn_name_table_layout::{apply_fn_name_table_overrides, build_fn_name_table_payload};
-use crate::lc::{
-    BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE, LOAD_DYLINKER_CMDSIZE,
-    MAIN_CMDSIZE, MH_EXECUTE, PAGEZERO_VMSIZE, write_build_version, write_code_signature,
-    write_dyld_chained_fixups, write_dysymtab, write_lc_main, write_load_dylib_libcurl,
-    write_load_dylib_libsystem, write_load_dylinker,
-};
 use crate::member_apply::apply_member_relocs;
 use crate::member_data_apply::collect_member_data_payloads;
 use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
@@ -209,153 +193,9 @@ fn emit_binary(
     class_name_table_payload: &[u8],
     user_regex_baked_payload: &[u8],
 ) -> Vec<u8> {
-    let EmitLcMeta {
-        has_dyld,
-        has_chained_fixups,
-        has_libcurl_lc,
-        has_libsystem_lc,
-        extra_lc_count,
-        extra_lc_size,
-        mh_flags,
-    } = compute_emit_lc_meta(layout);
-
-    let header = MachHeader64 {
-        magic: MH_MAGIC_64,
-        cputype: CPU_TYPE_ARM64,
-        cpusubtype: CPU_SUBTYPE_ARM64_ALL,
-        filetype: MH_EXECUTE,
-        ncmds: 9 + extra_lc_count,
-        sizeofcmds: SEGMENT_COMMAND_64_SIZE * 3
-            + SECTION_64_SIZE
-            + LOAD_DYLINKER_CMDSIZE
-            + extra_lc_size
-            + BUILD_VERSION_CMDSIZE
-            + MAIN_CMDSIZE
-            + SYMTAB_COMMAND_SIZE
-            + DYSYMTAB_CMDSIZE
-            + LINKEDIT_DATA_CMDSIZE,
-        flags: mh_flags,
-        reserved: 0,
-    };
-
-    let pagezero = SegmentCommand64 {
-        segname: "__PAGEZERO".into(),
-        vmaddr: 0,
-        vmsize: PAGEZERO_VMSIZE,
-        fileoff: 0,
-        filesize: 0,
-        maxprot: 0,
-        initprot: 0,
-        flags: 0,
-        sections: Vec::new(),
-    };
-
-    let text_section = Section64 {
-        sectname: "__text".into(),
-        segname: "__TEXT".into(),
-        addr: layout.text_vmaddr + u64::from(layout.text_file_offset),
-        size: u64::from(layout.text_size),
-        offset: layout.text_file_offset,
-        align_log2: 2,
-        reloff: 0,
-        nreloc: 0,
-        flags: S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS,
-        reserved1: 0,
-        reserved2: 0,
-        reserved3: 0,
-    };
-    // SD-2a: add __stubs section to __TEXT when has_libsystem.
-    let text_sections = if has_dyld {
-        vec![text_section, build_stubs_section(layout)]
-    } else {
-        vec![text_section]
-    };
-    let text_segment = SegmentCommand64 {
-        segname: "__TEXT".into(),
-        vmaddr: layout.text_vmaddr,
-        vmsize: layout.text_vmsize,
-        fileoff: 0,
-        filesize: layout.text_vmsize,
-        maxprot: VM_PROT_READ | VM_PROT_EXECUTE,
-        initprot: VM_PROT_READ | VM_PROT_EXECUTE,
-        flags: 0,
-        sections: text_sections,
-    };
-
-    // __DATA (has_dyld): `__la_symbol_ptr` first, then member `__DATA,*`.
-    let data_segment_opt = has_dyld.then(|| {
-        let mut extra_sections = build_data_non_text_section_64_entries(layout);
-        if layout.user_data_globals_layout.total_vmsize > 0 {
-            extra_sections.push(crate::dyld_emit::build_user_bss_section(layout));
-        }
-        build_data_segment(layout, extra_sections)
-    });
-
-    // SD-4c-prereq+e8: __DATA_CONST seg between __TEXT and __DATA.
-    let data_const_segment_opt =
-        crate::data_const_layout::build_data_const_segment(&layout.data_const_layout);
-
-    // __LINKEDIT covers chain blob + 8-byte pad past codesign end.
-    let linkedit_data_size = u64::from(layout.codesign_dataoff + layout.codesign_datasize)
-        - u64::from(layout.linkedit_file_offset);
-    let linkedit_segment = SegmentCommand64 {
-        segname: "__LINKEDIT".into(),
-        vmaddr: layout.linkedit_vmaddr,
-        vmsize: layout.linkedit_vmsize,
-        fileoff: u64::from(layout.linkedit_file_offset),
-        filesize: linkedit_data_size,
-        maxprot: VM_PROT_READ,
-        initprot: VM_PROT_READ,
-        flags: 0,
-        sections: Vec::new(),
-    };
-
-    let symtab_cmd = SymtabCommand {
-        symoff: layout.symoff,
-        nsyms: layout.nsyms,
-        stroff: layout.stroff,
-        strsize: layout.strsize,
-    };
-
+    let meta = compute_emit_lc_meta(layout);
     let mut buf: Vec<u8> = Vec::with_capacity(layout.total_size as usize);
-
-    header.write_to(&mut buf);
-    pagezero.write_to(&mut buf);
-    text_segment.write_to(&mut buf);
-    // e8: __DATA_CONST → __DATA → __LINKEDIT in segment-vmaddr order.
-    if let Some(ref s) = data_const_segment_opt {
-        s.write_to(&mut buf);
-    }
-    if let Some(ref data_segment) = data_segment_opt {
-        data_segment.write_to(&mut buf);
-    }
-    linkedit_segment.write_to(&mut buf);
-    write_load_dylinker(&mut buf);
-    // LC_LOAD_DYLIB: libSystem ord 1, libcurl ord 2 (matches chain enc).
-    if has_libsystem_lc {
-        write_load_dylib_libsystem(&mut buf);
-    }
-    if has_libcurl_lc {
-        write_load_dylib_libcurl(&mut buf);
-    }
-    write_build_version(&mut buf);
-    write_lc_main(&mut buf, u64::from(layout.entry_file_offset));
-    symtab_cmd.write_to(&mut buf);
-    write_dysymtab(&mut buf, layout.nsyms);
-    if has_chained_fixups {
-        write_dyld_chained_fixups(
-            &mut buf,
-            layout.chained_fixups_dataoff,
-            layout.chained_fixups_datasize,
-        );
-    }
-    write_code_signature(&mut buf, layout.codesign_dataoff, layout.codesign_datasize);
-
-    debug_assert_eq!(
-        (buf.len() as u32) - (MachHeader64::SIZE as u32),
-        header.sizeofcmds,
-        "load command size mismatch",
-    );
+    write_header_and_load_commands(&mut buf, layout);
 
     pad_to(&mut buf, layout.text_file_offset as usize);
 
@@ -384,7 +224,7 @@ fn emit_binary(
     buf.extend_from_slice(&layout.user_strings_payload);
 
     // e8: __TEXT __stubs → __DATA_CONST (vtable) → __DATA la_ptr.
-    if has_dyld {
+    if meta.has_dyld {
         // chunk 3 — pad to `stubs_file_offset` past per-section align.
         pad_to(&mut buf, layout.stubs_file_offset as usize);
         write_stubs_section(&mut buf, layout);
@@ -398,7 +238,7 @@ fn emit_binary(
         class_name_table_payload,
         user_regex_baked_payload,
     );
-    if has_dyld {
+    if meta.has_dyld {
         write_la_ptr_section(&mut buf, layout);
         write_data_non_text_file_payloads(&mut buf, layout, data_non_text_payloads);
         crate::tlv_thunk_emit::patch_tlv_thunk_slots(&mut buf, layout);
@@ -406,45 +246,11 @@ fn emit_binary(
 
     pad_to(&mut buf, layout.linkedit_file_offset as usize);
 
-    // nlist + strtab: user fns first, then every member's
-    // defined externs in member_layouts order.
-    let mut strtab = StringTable::new();
-    let mut user_strx: Vec<u32> = Vec::with_capacity(cfg.funcs.len());
-    for f in &cfg.funcs {
-        user_strx.push(strtab.add(&f.name));
-    }
-    let mut member_strx: Vec<Vec<u32>> = Vec::with_capacity(layout.member_layouts.len());
-    for m in &layout.member_layouts {
-        let mut row: Vec<u32> = Vec::with_capacity(m.defined_syms.len());
-        for (name, _, _) in &m.defined_syms {
-            row.push(strtab.add(name));
-        }
-        member_strx.push(row);
-    }
-    // Emit nlist entries in the same order strings were added.
-    for (i, _f) in cfg.funcs.iter().enumerate() {
-        let nlist = Nlist64::defined_extern(user_strx[i], 1, layout.fn_vaddrs[i]);
-        nlist.write_to(&mut buf);
-    }
-    for (mi, m) in layout.member_layouts.iter().enumerate() {
-        let data_layouts = member_data_layouts(&layout, mi);
-        for (si, (_name, n_value, n_sect)) in m.defined_syms.iter().enumerate() {
-            let vaddr = section_vaddr_for_sym(
-                *n_sect,
-                *n_value,
-                m.vaddr,
-                &m.non_text_sections,
-                data_layouts,
-            );
-            let nlist = Nlist64::defined_extern(member_strx[mi][si], 1, vaddr);
-            nlist.write_to(&mut buf);
-        }
-    }
-    buf.extend_from_slice(strtab.as_bytes());
+    write_symtab_and_strtab(&mut buf, cfg, layout);
 
     // SD-3 + e8: chained-fixups blob lands after strtab (8-byte
     // aligned — dyld rejects unaligned chains) and before codesign.
-    if has_chained_fixups {
+    if meta.has_chained_fixups {
         pad_to(&mut buf, layout.chained_fixups_dataoff as usize);
         debug_assert_eq!(buf.len() as u32, layout.chained_fixups_dataoff);
         buf.extend_from_slice(&layout.chained_fixups_blob);
@@ -473,7 +279,7 @@ fn emit_binary(
 
 /// Per-member `__DATA,*` placement slice (empty when the member has
 /// no data sections — pre-2e behaviour).
-fn member_data_layouts(layout: &ArchiveLayout, m_idx: usize) -> &[DataSectionLayout] {
+pub(crate) fn member_data_layouts(layout: &ArchiveLayout, m_idx: usize) -> &[DataSectionLayout] {
     layout
         .data_non_text_layouts
         .get(m_idx)

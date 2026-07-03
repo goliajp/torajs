@@ -49,6 +49,7 @@
 pub mod archive;
 pub mod archive_emit;
 pub mod archive_emit_lc_meta;
+pub(crate) mod archive_emit_lcs;
 pub(crate) mod archive_layout_data;
 pub(crate) mod archive_layout_linkedit;
 pub(crate) mod archive_layout_text;
