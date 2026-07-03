@@ -7,8 +7,11 @@
 
 use std::collections::HashMap;
 
+mod generic;
+mod markers;
+
 use crate::ssa::{self, Type};
-use crate::ssa_lower::{intern_arr_layout, intern_fn_sig, substitute_in_ann};
+use crate::ssa_lower::intern_arr_layout;
 
 pub(crate) fn parse_type(
     ann: Option<&str>,
@@ -92,55 +95,15 @@ pub(crate) fn parse_type(
         && s.ends_with(')')
     {
         let inner = &rest[..rest.len() - 1];
-        let mut fields: Vec<(String, Type)> = Vec::new();
-        let mut depth: i32 = 0;
-        let mut last = 0usize;
-        let bytes = inner.as_bytes();
-        for (i, &b) in bytes.iter().enumerate() {
-            match b {
-                b'(' | b'<' => depth += 1,
-                b')' | b'>' => depth -= 1,
-                b'|' if depth == 0 => {
-                    let part = &inner[last..i];
-                    let (n, t) = part.split_once(':').unwrap_or((part, ""));
-                    let fty = parse_type(
-                        Some(t),
-                        aliases,
-                        arr_layouts,
-                        fn_sigs,
-                        generic_struct_decls,
-                        struct_layouts,
-                        inst_memo,
-                    );
-                    fields.push((n.to_string(), fty));
-                    last = i + 1;
-                }
-                _ => {}
-            }
-        }
-        if !inner.is_empty() {
-            let part = &inner[last..];
-            let (n, t) = part.split_once(':').unwrap_or((part, ""));
-            let fty = parse_type(
-                Some(t),
-                aliases,
-                arr_layouts,
-                fn_sigs,
-                generic_struct_decls,
-                struct_layouts,
-                inst_memo,
-            );
-            fields.push((n.to_string(), fty));
-        }
-        // Intern by structural equality.
-        for (i, ex) in struct_layouts.iter().enumerate() {
-            if *ex == fields {
-                return Type::Obj(ssa::StructId(i as u32));
-            }
-        }
-        let id = ssa::StructId(struct_layouts.len() as u32);
-        struct_layouts.push(fields);
-        return Type::Obj(id);
+        return markers::parse_struct(
+            inner,
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        );
     }
     // M2 Phase B Stage 2 — fn type `__fn(P1|P2|...)->R` decoder lives
     // in the sibling `ssa_lower_parse_fn_type` module.
@@ -169,64 +132,9 @@ pub(crate) fn parse_type(
     // Type::FnSig, preserving direct (non-env-first) dispatch on the
     // hot fn-as-callback path (`reduce(xs, add1)` etc.).
     if let Some(rest) = s.strip_prefix("__cls(") {
-        let bytes = rest.as_bytes();
-        let mut depth: i32 = 1;
-        let mut close_idx = None;
-        for (i, &b) in bytes.iter().enumerate() {
-            match b {
-                b'(' => depth += 1,
-                b')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close_idx = Some(i);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let close = close_idx.unwrap_or_else(|| panic!("ssa-lower: malformed cls-type `{s}`"));
-        let params_str = &rest[..close];
-        let after = &rest[close + 1..];
-        let ret_str = after
-            .strip_prefix("->")
-            .unwrap_or_else(|| panic!("ssa-lower: malformed cls-type ret `{s}`"));
-        let mut params: Vec<Type> = Vec::new();
-        let mut depth2: i32 = 0;
-        let mut last = 0usize;
-        let pb = params_str.as_bytes();
-        for (i, &b) in pb.iter().enumerate() {
-            match b {
-                b'(' => depth2 += 1,
-                b')' => depth2 -= 1,
-                b'|' if depth2 == 0 => {
-                    params.push(parse_type(
-                        Some(&params_str[last..i]),
-                        aliases,
-                        arr_layouts,
-                        fn_sigs,
-                        generic_struct_decls,
-                        struct_layouts,
-                        inst_memo,
-                    ));
-                    last = i + 1;
-                }
-                _ => {}
-            }
-        }
-        if !params_str.is_empty() {
-            params.push(parse_type(
-                Some(&params_str[last..]),
-                aliases,
-                arr_layouts,
-                fn_sigs,
-                generic_struct_decls,
-                struct_layouts,
-                inst_memo,
-            ));
-        }
-        let ret = parse_type(
-            Some(ret_str),
+        return markers::parse_cls(
+            s,
+            rest,
             aliases,
             arr_layouts,
             fn_sigs,
@@ -234,8 +142,6 @@ pub(crate) fn parse_type(
             struct_layouts,
             inst_memo,
         );
-        let id = intern_fn_sig(fn_sigs, params, ret);
-        return Type::Closure(id);
     }
     // M3.4 — generic struct instantiation `Foo<arg1|arg2|...>`. Same
     // depth-aware split as `__fn(...)`. Substitute type-params into each
@@ -244,149 +150,18 @@ pub(crate) fn parse_type(
     // module.struct_layouts.
     if let Some(open_idx) = s.find('<')
         && s.ends_with('>')
+        && let Some(t) = generic::parse_generic(
+            s,
+            open_idx,
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        )
     {
-        let head = &s[..open_idx];
-        if let Some((tp_names, fields)) = generic_struct_decls.get(head).cloned() {
-            let inner = &s[open_idx + 1..s.len() - 1];
-            let mut args: Vec<&str> = Vec::new();
-            let mut depth: i32 = 0;
-            let mut last = 0usize;
-            for (i, &b) in inner.as_bytes().iter().enumerate() {
-                match b {
-                    b'<' | b'(' => depth += 1,
-                    b'>' | b')' => depth -= 1,
-                    b'|' if depth == 0 => {
-                        args.push(&inner[last..i]);
-                        last = i + 1;
-                    }
-                    _ => {}
-                }
-            }
-            if !inner.is_empty() {
-                args.push(&inner[last..]);
-            }
-            if args.len() != tp_names.len() {
-                panic!(
-                    "ssa-lower: generic struct `{head}` expects {} type args, got {}",
-                    tp_names.len(),
-                    args.len()
-                );
-            }
-            let subst: Vec<(String, String)> = tp_names
-                .iter()
-                .cloned()
-                .zip(args.iter().map(|a| a.to_string()))
-                .collect();
-            // V3-18 wedge — generic bare alias (`type Pair<T> = T[]`)
-            // uses single-field "__alias__" sentinel; resolve to the
-            // substituted underlying type instead of synthesizing a
-            // struct.
-            if fields.len() == 1 && fields[0].0 == "__alias__" {
-                let substituted = substitute_in_ann(&fields[0].1, &subst);
-                return parse_type(
-                    Some(&substituted),
-                    aliases,
-                    arr_layouts,
-                    fn_sigs,
-                    generic_struct_decls,
-                    struct_layouts,
-                    inst_memo,
-                );
-            }
-            // Reserve-first with a persistent memo (mirror of the
-            // non-generic V3-05 phase-1 reserved-sid scheme, and of
-            // the checker's in-flight ClassRef back-edge). A recursive
-            // alias (`type Rec<T> = { next: Rec<T> | null }`) mentions
-            // its own key while its fields are being parsed — the memo
-            // hit closes that back-edge on the reserved sid instead of
-            // recursing forever. The memo lives for the whole lower()
-            // so every mention of one key shares one nominal sid
-            // (instantiations are no longer structurally interned —
-            // nominal identity per key, rustc-style).
-            if let Some(sid) = inst_memo.get(s) {
-                return Type::Obj(*sid);
-            }
-            let id = ssa::StructId(struct_layouts.len() as u32);
-            struct_layouts.push(Vec::new());
-            inst_memo.insert(s.to_string(), id);
-            let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
-            for (fname, fann) in &fields {
-                let substituted = substitute_in_ann(fann, &subst);
-                let fty = parse_type(
-                    Some(&substituted),
-                    aliases,
-                    arr_layouts,
-                    fn_sigs,
-                    generic_struct_decls,
-                    struct_layouts,
-                    inst_memo,
-                );
-                layout.push((fname.clone(), fty));
-            }
-            struct_layouts[id.0 as usize] = layout;
-            return Type::Obj(id);
-        }
-        // T-15.f.2 — `Promise<T>` builtin generic. Inner T type-erased
-        // at SSA (mirror of `check.rs::resolve_type_ann_full`).
-        if head == "Promise" {
-            return Type::Promise;
-        }
-        // V3-18 wedge — `Array<T>` / `ReadonlyArray<T>` / `Iterable<T>`
-        // generic shorthand for `T[]`. Mirror of the resolver in
-        // check.rs::resolve_type_ann_full so SSA + check agree.
-        if matches!(head, "Array" | "ReadonlyArray" | "Iterable") {
-            let inner = &s[open_idx + 1..s.len() - 1];
-            if !inner.contains('|') {
-                let elem_str = format!("{inner}[]");
-                return parse_type(
-                    Some(&elem_str),
-                    aliases,
-                    arr_layouts,
-                    fn_sigs,
-                    generic_struct_decls,
-                    struct_layouts,
-                    inst_memo,
-                );
-            }
-        }
-        // P5.1 — `IteratorResult<T>` → `{ value: T, done: boolean }`
-        // struct (layout reuses `__step_<gen>` generator shape).
-        if head == "IteratorResult" {
-            let inner = &s[open_idx + 1..s.len() - 1];
-            if !inner.contains('|') {
-                let inlobj = format!("__inlobj(value:{inner}|done:boolean)");
-                return parse_type(
-                    Some(&inlobj),
-                    aliases,
-                    arr_layouts,
-                    fn_sigs,
-                    generic_struct_decls,
-                    struct_layouts,
-                    inst_memo,
-                );
-            }
-        }
-        // P5.1 — `Iterator<T>` / `IterableIterator<T>` opaque at SSA
-        // (Any-tier slot; P5.3 Phase B dispatches via class runtime).
-        if matches!(head, "Iterator" | "IterableIterator") {
-            return Type::Any;
-        }
-        // `Map<K,V>` / `Set<T>` / `WeakMap<K,V>` / `WeakSet<T>` — K/V
-        // erased at SSA (mirror of `check_type_ann.rs`).
-        if let Some(t) = match head {
-            "Map" | "ReadonlyMap" => Some(Type::Map),
-            "Set" | "ReadonlySet" => Some(Type::Set),
-            "WeakMap" => Some(Type::WeakMap),
-            "WeakSet" => Some(Type::WeakSet),
-            // P6.4b/c generic-ann form `MapIter<T>` / `ArrIter<T>` —
-            // the type-arg is erased at SSA the same way Map/Set
-            // generics erase to Type::Map / Type::Set above.
-            "MapIter" | "mapiter" => Some(Type::MapIter),
-            "ArrIter" | "arriter" => Some(Type::ArrIter),
-            _ => None,
-        } {
-            return t;
-        }
+        return t;
     }
     match s {
         // `number` defaults to i64 — best for the integer-heavy cases

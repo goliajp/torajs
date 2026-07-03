@@ -1,0 +1,156 @@
+//! `__struct(...)` / `__cls(...)->R` marker decoders of
+//! [`super::parse_type`], split out 2026-07-03 (fn-debt decomp).
+//! Bodies verbatim; recursion goes back through `super::parse_type`.
+
+use std::collections::HashMap;
+
+use crate::ssa::{self, Type};
+use crate::ssa_lower::intern_fn_sig;
+
+use super::parse_type;
+
+/// `__struct(name:T|...)` — parse each field ann, dedup against the
+/// existing struct_layouts pool, intern. `inner` is the annotation
+/// between `__struct(` and the trailing `)`.
+pub(super) fn parse_struct(
+    inner: &str,
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    inst_memo: &mut HashMap<String, ssa::StructId>,
+) -> Type {
+    let mut fields: Vec<(String, Type)> = Vec::new();
+    let mut depth: i32 = 0;
+    let mut last = 0usize;
+    let bytes = inner.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'(' | b'<' => depth += 1,
+            b')' | b'>' => depth -= 1,
+            b'|' if depth == 0 => {
+                let part = &inner[last..i];
+                let (n, t) = part.split_once(':').unwrap_or((part, ""));
+                let fty = parse_type(
+                    Some(t),
+                    aliases,
+                    arr_layouts,
+                    fn_sigs,
+                    generic_struct_decls,
+                    struct_layouts,
+                    inst_memo,
+                );
+                fields.push((n.to_string(), fty));
+                last = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if !inner.is_empty() {
+        let part = &inner[last..];
+        let (n, t) = part.split_once(':').unwrap_or((part, ""));
+        let fty = parse_type(
+            Some(t),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        );
+        fields.push((n.to_string(), fty));
+    }
+    // Intern by structural equality.
+    for (i, ex) in struct_layouts.iter().enumerate() {
+        if *ex == fields {
+            return Type::Obj(ssa::StructId(i as u32));
+        }
+    }
+    let id = ssa::StructId(struct_layouts.len() as u32);
+    struct_layouts.push(fields);
+    Type::Obj(id)
+}
+
+/// `__cls(P1|...)->R` — struct-field closure slot; same parse shape
+/// as `__fn` but interns as `Type::Closure` (env-first dispatch).
+/// `rest` is the annotation past the `__cls(` prefix; `s` feeds panics.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn parse_cls(
+    s: &str,
+    rest: &str,
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    inst_memo: &mut HashMap<String, ssa::StructId>,
+) -> Type {
+    let bytes = rest.as_bytes();
+    let mut depth: i32 = 1;
+    let mut close_idx = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    close_idx = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close = close_idx.unwrap_or_else(|| panic!("ssa-lower: malformed cls-type `{s}`"));
+    let params_str = &rest[..close];
+    let after = &rest[close + 1..];
+    let ret_str = after
+        .strip_prefix("->")
+        .unwrap_or_else(|| panic!("ssa-lower: malformed cls-type ret `{s}`"));
+    let mut params: Vec<Type> = Vec::new();
+    let mut depth2: i32 = 0;
+    let mut last = 0usize;
+    let pb = params_str.as_bytes();
+    for (i, &b) in pb.iter().enumerate() {
+        match b {
+            b'(' => depth2 += 1,
+            b')' => depth2 -= 1,
+            b'|' if depth2 == 0 => {
+                params.push(parse_type(
+                    Some(&params_str[last..i]),
+                    aliases,
+                    arr_layouts,
+                    fn_sigs,
+                    generic_struct_decls,
+                    struct_layouts,
+                    inst_memo,
+                ));
+                last = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if !params_str.is_empty() {
+        params.push(parse_type(
+            Some(&params_str[last..]),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        ));
+    }
+    let ret = parse_type(
+        Some(ret_str),
+        aliases,
+        arr_layouts,
+        fn_sigs,
+        generic_struct_decls,
+        struct_layouts,
+        inst_memo,
+    );
+    let id = intern_fn_sig(fn_sigs, params, ret);
+    return Type::Closure(id);
+}
