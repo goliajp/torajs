@@ -6,7 +6,7 @@
 //! known-debt).
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{
     CLOSURE_CAP_BASE_OFF, CLOSURE_DROP_FN_OFF, CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF,
     intern_fn_sig,
@@ -197,43 +197,18 @@ impl crate::ssa_lower::LowerCtx<'_> {
         Operand::Value(env_v)
     }
 
-    /* T-15.g.3 (v0.5.0) — `p.then(cb)` for built-in Promise.
-     * MVP: cb is `(v: number) => number`. Lowers to a
-     * runtime helper that:
-     *   1. allocates a fresh result Promise (pending)
-     *   2. heap-allocates a {source, cb, result} struct
-     *   3. attaches the dispatcher to source's callbacks
-     *   4. returns result Promise
-     * The dispatcher reads source's resolved value via
-     * __torajs_promise_get_value, calls cb, resolves
-     * result. T-15.g.4 generalizes to non-i64 types and
-     * Type::Closure (env-carrying) cb. */
-    /// Returns None when the receiver is not a provably built-in
-    /// Promise (user-class `.then` keeps the regular Member-call
-    /// path). Extracted from lower_expr's Call arm (file-size
-    /// known-debt).
-    pub(crate) fn try_lower_promise_chain_call(
-        &mut self,
-        callee: ExprId,
-        args: &[ExprId],
-    ) -> Option<Operand> {
-        let Expr::Member {
-            obj: src_id,
-            name: m_name,
-        } = self.ast.get_expr(callee)
-        else {
-            return None;
-        };
-        if !((m_name == "then" || m_name == "catch" || m_name == "finally")
-            && (args.len() == 1 || (m_name == "then" && args.len() == 2)))
-        {
-            return None;
-        }
-        // Static-type check (no eager lower) — same pattern
-        // as the await Member dispatch. Only fire when src
-        // is provably built-in Promise so user-class .then
-        // keeps working through the regular Member-call path.
-        let src_is_builtin_promise = match self.ast.get_expr(*src_id) {
+    /// Static-type check (no eager lower) — same pattern as the
+    /// await Member dispatch. `true` iff `src_id` is provably a
+    /// built-in Promise so user-class `.then` keeps working through
+    /// the regular Member-call path. Recognised source shapes:
+    /// Promise-typed local Ident; Promise namespace statics
+    /// (resolve/reject per T-15.g.5, all/race/any/allSettled per
+    /// P10.2-A2); chained `.then`/`.catch`/`.finally` result; user
+    /// fn declared `-> Promise` (async desugar / annotation);
+    /// fs/promises async fns + `Bun.file(...).text/.exists`
+    /// (T-19.g, mirrors the `await p.value` source detection).
+    fn src_is_builtin_promise(&self, src_id: ExprId) -> bool {
+        match self.ast.get_expr(src_id) {
             Expr::Ident(n) => self
                 .locals
                 .get(n)
@@ -242,13 +217,6 @@ impl crate::ssa_lower::LowerCtx<'_> {
             Expr::Call {
                 callee: src_callee, ..
             } => {
-                // Built-in Promise namespace statics. resolve/reject (T-15.g.5)
-                // were the original entries; P10.2-A2 extends to all/race/any/
-                // allSettled (T-17.a/b/c) so chained `.then`/`.catch`/`.finally`
-                // on their results lowers through the runtime helpers instead
-                // of the user-class fallback. check.rs already returns
-                // Type::Promise for each, so all that's missing here is the
-                // source-callee shape recognition.
                 let static_ctor = matches!(
                     self.ast.get_expr(*src_callee),
                     Expr::Member { obj: ns_id, name: src_m }
@@ -268,9 +236,6 @@ impl crate::ssa_lower::LowerCtx<'_> {
                     Expr::Member { name: src_m, .. }
                         if src_m == "then" || src_m == "catch" || src_m == "finally"
                 );
-                // User fn whose declared return type is
-                // Type::Promise (async desugar / Promise<T>
-                // return annotation).
                 let fn_returns_promise =
                     if let Expr::Ident(fn_name) = self.ast.get_expr(*src_callee) {
                         self.fn_table
@@ -282,13 +247,6 @@ impl crate::ssa_lower::LowerCtx<'_> {
                     } else {
                         false
                     };
-                // T-19.g — fs/promises async returns +
-                // Bun.file(...).text/.exists also produce
-                // built-in Promise. Mirrors the
-                // `await p.value` site's source detection
-                // so `Bun.file(p).text().then(cb)` lowers
-                // through the runtime helper instead of
-                // bouncing off the user-class fallback.
                 let fs_async = matches!(
                     self.ast.get_expr(*src_callee),
                     Expr::Member { obj: ns_id, name: m_name }
@@ -322,85 +280,125 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 static_ctor || then_chain || fn_returns_promise || fs_async || bun_file_text
             }
             _ => false,
+        }
+    }
+
+    /// T-19.l — 2-arg `.then(onOk, onErr)` form is spec equivalent
+    /// of `.then(onOk).catch(onErr)`. Lower as a chained pair of
+    /// helper calls; the intermediate Promise is the bridge between
+    /// the two stages and gets dropped after the catch attaches
+    /// (`.catch` inc's its source's rc, so the drop balances the
+    /// chain's natural ref).
+    fn lower_then_two_arg(&mut self, src_op: Operand, args: &[ExprId]) -> ValueId {
+        let on_ok = self.lower_expr(args[0]);
+        let on_ok = self.maybe_wrap_promise_cb(on_ok);
+        let on_err = self.lower_expr(args[1]);
+        let on_err = self.maybe_wrap_promise_cb(on_err);
+        let on_ok_ty = self.operand_ty(&on_ok);
+        let then_fid = if matches!(on_ok_ty, Type::Closure(_)) {
+            self.intrinsics.promise_then_closure
+        } else {
+            self.intrinsics.promise_then_simple
         };
-        if !src_is_builtin_promise {
+        let mid = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(then_fid, vec![src_op.clone(), on_ok]),
+            Type::Promise,
+            None,
+        );
+        // ②.6b — pick the catch dispatcher by the (possibly
+        // wrapped) handler's shape.
+        let catch_fid = if matches!(self.operand_ty(&on_err), Type::Closure(_)) {
+            self.intrinsics.promise_catch_closure
+        } else {
+            self.intrinsics.promise_catch_simple
+        };
+        let v = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(catch_fid, vec![Operand::Value(mid), on_err]),
+            Type::Promise,
+            None,
+        );
+        self.emit_drop_value(Operand::Value(mid), Type::Promise);
+        v
+    }
+
+    /// 1-arg `.then` / `.catch` / `.finally` — pick the right
+    /// runtime helper (T-15.g.5 / T-19.k / T-19.n). All three
+    /// method names support both simple-fn and closure cb shapes —
+    /// selection by cb's static type (Type::Closure → env-pointer
+    /// dispatcher, else → raw fn-pointer dispatcher). ②.6b —
+    /// f64-faced then/catch handlers get the bits-ABI adapter
+    /// (finally takes no value, nothing to adapt).
+    fn lower_chain_one_arg(&mut self, m_name: &str, src_op: Operand, args: &[ExprId]) -> ValueId {
+        let cb_op = self.lower_expr(args[0]);
+        let cb_op = if m_name == "finally" {
+            cb_op
+        } else {
+            self.maybe_wrap_promise_cb(cb_op)
+        };
+        let cb_ty = self.operand_ty(&cb_op);
+        let is_closure = matches!(cb_ty, Type::Closure(_));
+        let then_intrinsic = match (m_name, is_closure) {
+            ("then", true) => self.intrinsics.promise_then_closure,
+            ("then", false) => self.intrinsics.promise_then_simple,
+            ("catch", true) => self.intrinsics.promise_catch_closure,
+            ("catch", false) => self.intrinsics.promise_catch_simple,
+            ("finally", true) => self.intrinsics.promise_finally_closure,
+            ("finally", false) => self.intrinsics.promise_finally,
+            _ => unreachable!(),
+        };
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(then_intrinsic, vec![src_op.clone(), cb_op]),
+            Type::Promise,
+            None,
+        )
+    }
+
+    /* T-15.g.3 (v0.5.0) — `p.then(cb)` for built-in Promise.
+     * MVP: cb is `(v: number) => number`. Lowers to a
+     * runtime helper that:
+     *   1. allocates a fresh result Promise (pending)
+     *   2. heap-allocates a {source, cb, result} struct
+     *   3. attaches the dispatcher to source's callbacks
+     *   4. returns result Promise
+     * The dispatcher reads source's resolved value via
+     * __torajs_promise_get_value, calls cb, resolves
+     * result. T-15.g.4 generalizes to non-i64 types and
+     * Type::Closure (env-carrying) cb. */
+    /// Returns None when the receiver is not a provably built-in
+    /// Promise (user-class `.then` keeps the regular Member-call
+    /// path). Extracted from lower_expr's Call arm (file-size
+    /// known-debt).
+    pub(crate) fn try_lower_promise_chain_call(
+        &mut self,
+        callee: ExprId,
+        args: &[ExprId],
+    ) -> Option<Operand> {
+        let Expr::Member {
+            obj: src_id,
+            name: m_name,
+        } = self.ast.get_expr(callee)
+        else {
+            return None;
+        };
+        if !((m_name == "then" || m_name == "catch" || m_name == "finally")
+            && (args.len() == 1 || (m_name == "then" && args.len() == 2)))
+        {
+            return None;
+        }
+        if !self.src_is_builtin_promise(*src_id) {
             return None;
         }
         let src_op = self.lower_expr(*src_id);
-        // T-19.l — 2-arg `.then(onOk, onErr)` form is
-        // spec equivalent of `.then(onOk).catch(onErr)`.
-        // Lower as a chained pair of helper calls; the
-        // intermediate Promise is the bridge between
-        // the two stages and gets dropped after the
-        // catch attaches. Only fires for `.then` —
-        // `.catch` / `.finally` are 1-arg only.
+        // 2-arg form only fires for `.then` — `.catch` / `.finally`
+        // are 1-arg only.
         let v = if m_name == "then" && args.len() == 2 {
-            let on_ok = self.lower_expr(args[0]);
-            let on_ok = self.maybe_wrap_promise_cb(on_ok);
-            let on_err = self.lower_expr(args[1]);
-            let on_err = self.maybe_wrap_promise_cb(on_err);
-            let on_ok_ty = self.operand_ty(&on_ok);
-            let then_fid = if matches!(on_ok_ty, Type::Closure(_)) {
-                self.intrinsics.promise_then_closure
-            } else {
-                self.intrinsics.promise_then_simple
-            };
-            let mid = self.f.append_inst(
-                self.cur_block,
-                InstKind::Call(then_fid, vec![src_op.clone(), on_ok]),
-                Type::Promise,
-                None,
-            );
-            // ②.6b — pick the catch dispatcher by the (possibly
-            // wrapped) handler's shape.
-            let catch_fid = if matches!(self.operand_ty(&on_err), Type::Closure(_)) {
-                self.intrinsics.promise_catch_closure
-            } else {
-                self.intrinsics.promise_catch_simple
-            };
-            let v = self.f.append_inst(
-                self.cur_block,
-                InstKind::Call(catch_fid, vec![Operand::Value(mid), on_err]),
-                Type::Promise,
-                None,
-            );
-            // The `mid` Promise is consumed by .catch
-            // (which inc's its source's rc); drop the
-            // chain's natural ref so the count balances.
-            self.emit_drop_value(Operand::Value(mid), Type::Promise);
-            v
+            self.lower_then_two_arg(src_op.clone(), args)
         } else {
-            let cb_op = self.lower_expr(args[0]);
-            // ②.6b — f64-faced then/catch handlers get the bits-ABI
-            // adapter (finally takes no value, nothing to adapt).
-            let cb_op = if m_name == "finally" {
-                cb_op
-            } else {
-                self.maybe_wrap_promise_cb(cb_op)
-            };
-            // T-15.g.5 / T-19.k / T-19.n — pick the
-            // right runtime helper. All three method
-            // names support both simple-fn and closure
-            // cb shapes — selection by cb's static type
-            // (Type::Closure → env-pointer dispatcher,
-            // else → raw fn-pointer dispatcher).
-            let cb_ty = self.operand_ty(&cb_op);
-            let is_closure = matches!(cb_ty, Type::Closure(_));
-            let then_intrinsic = match (m_name.as_str(), is_closure) {
-                ("then", true) => self.intrinsics.promise_then_closure,
-                ("then", false) => self.intrinsics.promise_then_simple,
-                ("catch", true) => self.intrinsics.promise_catch_closure,
-                ("catch", false) => self.intrinsics.promise_catch_simple,
-                ("finally", true) => self.intrinsics.promise_finally_closure,
-                ("finally", false) => self.intrinsics.promise_finally,
-                _ => unreachable!(),
-            };
-            self.f.append_inst(
-                self.cur_block,
-                InstKind::Call(then_intrinsic, vec![src_op.clone(), cb_op]),
-                Type::Promise,
-                None,
-            )
+            let m_name = m_name.as_str();
+            self.lower_chain_one_arg(m_name, src_op.clone(), args)
         };
         // T-15.g.7 — drop fresh source after .then.
         // Now that promise_drop is rc-aware AND
