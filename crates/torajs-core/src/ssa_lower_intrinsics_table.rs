@@ -20,6 +20,11 @@ use crate::ssa_lower_intrinsics_init_b::InitB;
 use crate::ssa_lower_intrinsics_init_c::InitC;
 use crate::ssa_lower_intrinsics_init_d::InitD;
 
+// CARVE-OUT: dispatch table — single 470-field `Intrinsics { .. }`
+// struct literal (data-driven, zero logic branches); refactor blocked
+// by Rust struct literals being non-composable — splitting requires
+// nesting Intrinsics into sub-structs, an architectural change across
+// every `intrinsics.field` read site for audit-only benefit.
 pub(crate) fn build(
     env_drop_trivial: (FuncId, ssa::SigId),
     init_a: &InitA,
