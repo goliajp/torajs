@@ -251,52 +251,21 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
 
     let needs_attr_split = prog_uses_word_boundary(prog);
 
-    // chunk 8.6b — use `closure_with_ctx` (WBound terminal) for
-    // initial states, not `closure_full(.., None)`. See the
-    // closure-API role split note at the top of dfa/mod.rs.
-    let initial_anchored =
-        epsilon_closure_with_ctx(prog, &[0], ctx_for(LeftByteAttr::TextStart, mflag));
-    let start = intern_state(
-        prog,
-        initial_anchored,
-        empty_def.clone(),
-        LeftByteAttr::TextStart,
-        mflag,
-        needs_attr_split,
-        flags,
-        &mut states,
-        &mut set_to_idx,
-        &mut work,
-    );
-
-    let initial_mid_word = epsilon_closure_with_ctx(prog, &[0], ctx_for(LeftByteAttr::Word, mflag));
-    let start_mid_word = intern_state(
-        prog,
-        initial_mid_word,
-        empty_def.clone(),
-        LeftByteAttr::Word,
-        mflag,
-        needs_attr_split,
-        flags,
-        &mut states,
-        &mut set_to_idx,
-        &mut work,
-    );
-
-    let initial_mid_nonword =
-        epsilon_closure_with_ctx(prog, &[0], ctx_for(LeftByteAttr::NonWord, mflag));
-    let start_mid_nonword = intern_state(
-        prog,
-        initial_mid_nonword,
-        empty_def.clone(),
-        LeftByteAttr::NonWord,
-        mflag,
-        needs_attr_split,
-        flags,
-        &mut states,
-        &mut set_to_idx,
-        &mut work,
-    );
+    let mut seed = |attr: LeftByteAttr| {
+        seed_start(
+            prog,
+            attr,
+            mflag,
+            needs_attr_split,
+            flags,
+            &mut states,
+            &mut set_to_idx,
+            &mut work,
+        )
+    };
+    let start = seed(LeftByteAttr::TextStart);
+    let start_mid_word = seed(LeftByteAttr::Word);
+    let start_mid_nonword = seed(LeftByteAttr::NonWord);
 
     let mut cur_seeds: Vec<usize> = Vec::new();
     let mut merged_seeds: Vec<usize> = Vec::new();
@@ -340,55 +309,18 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
             if pc_set_is_accept(prog, &closed_with_right) {
                 mask_set(&mut accept_before_byte, byte);
             }
-            let (ready_from_step, mut deferred_from_step) =
+            let (ready_from_step, deferred_from_step) =
                 byte_step_full(prog, &closed_with_right, byte, flags);
-            // chunk 10b — current deferred PCs transition based on the
-            // byte's UTF-8 role. Continuation byte 0x80..0xBF
-            // decrements every active u_skip by 1 (so u_skip=1 entries
-            // promote into the next ready seed); any other byte breaks
-            // an in-flight multi-byte sequence and kills the deferred
-            // PCs (matches the NFA: an incomplete UTF-8 sequence never
-            // commits).
-            let is_continuation = (0x80..=0xBF).contains(&byte);
-            let (promoted, mut next_deferred): (BTreeSet<usize>, [BTreeSet<usize>; 3]) =
-                if is_continuation {
-                    let [d0, d1, d2] = cur_deferred.clone();
-                    (d0, [d1, d2, BTreeSet::new()])
-                } else {
-                    (BTreeSet::new(), Default::default())
-                };
-            // Merge the byte-step's fresh deferred PCs into the carry-
-            // forward array.
-            for i in 0..3 {
-                if !deferred_from_step[i].is_empty() {
-                    let extra = core::mem::take(&mut deferred_from_step[i]);
-                    next_deferred[i].extend(extra);
-                }
-            }
-            // chunk 7.7 v2 step 12 polish — reuse hoisted merged_seeds
-            // buffer; .clear() drops length to 0 without freeing capacity
-            // so subsequent extend reuses the existing allocation.
-            merged_seeds.clear();
-            merged_seeds.extend(ready_from_step.iter().copied());
-            merged_seeds.extend(promoted.iter().copied());
+            let (next_ready, next_deferred) = advance_deferred(
+                prog,
+                byte,
+                mflag,
+                &cur_deferred,
+                ready_from_step,
+                deferred_from_step,
+                &mut merged_seeds,
+            );
             let next_attr = attr_of_byte(byte);
-            let next_ready = if merged_seeds.is_empty() {
-                BTreeSet::new()
-            } else {
-                // Post-step ctx (cursor k+1): left = the byte we just
-                // consumed. Under mflag this lets mid-pattern AnchorB
-                // re-fire when byte == `\n`. WBound stays unresolved
-                // here — `closure_with_ctx` leaves it terminal so the
-                // next BFS step can resolve it under the upcoming
-                // right_byte.
-                let ctx_after = PositionCtx {
-                    left_byte: Some(byte),
-                    is_text_start: false,
-                    is_text_end: false,
-                    mflag,
-                };
-                epsilon_closure_with_ctx(prog, &merged_seeds, ctx_after)
-            };
             let next_idx = intern_state(
                 prog,
                 next_ready,
@@ -407,6 +339,105 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         states[cur_idx as usize].accept_before_byte = accept_before_byte;
     }
 
+    finish_dfa(states, start, start_mid_word, start_mid_nonword)
+}
+
+/// Seed one BFS start state: ε-close PC 0 under `attr`'s cursor ctx
+/// (chunk 8.6b — `closure_with_ctx`, WBound terminal, not
+/// `closure_full(.., None)`; see the closure-API role split note at
+/// the top of dfa/mod.rs) and intern. The three start entries
+/// (text-start / mid-word / mid-nonword) differ only in attr.
+#[allow(clippy::too_many_arguments)]
+fn seed_start(
+    prog: &Program,
+    attr: LeftByteAttr,
+    mflag: bool,
+    needs_attr_split: bool,
+    flags: u8,
+    states: &mut Vec<DfaState>,
+    set_to_idx: &mut BTreeMap<StateKey, u32>,
+    work: &mut Vec<WorkItem>,
+) -> u32 {
+    let initial = epsilon_closure_with_ctx(prog, &[0], ctx_for(attr, mflag));
+    intern_state(
+        prog,
+        initial,
+        Default::default(),
+        attr,
+        mflag,
+        needs_attr_split,
+        flags,
+        states,
+        set_to_idx,
+        work,
+    )
+}
+
+/// chunk 10b — current deferred PCs transition based on the byte's
+/// UTF-8 role. Continuation byte 0x80..0xBF decrements every active
+/// u_skip by 1 (so u_skip=1 entries promote into the next ready
+/// seed); any other byte breaks an in-flight multi-byte sequence and
+/// kills the deferred PCs (matches the NFA: an incomplete UTF-8
+/// sequence never commits). The promoted PCs merge with the byte-
+/// step's fresh ready set (through the hoisted `merged_seeds` buffer
+/// — chunk 7.7 v2 step 12 polish: `.clear()` drops length to 0
+/// without freeing capacity) and ε-close under the post-consume ctx.
+fn advance_deferred(
+    prog: &Program,
+    byte: u8,
+    mflag: bool,
+    cur_deferred: &[BTreeSet<usize>; 3],
+    ready_from_step: BTreeSet<usize>,
+    mut deferred_from_step: [BTreeSet<usize>; 3],
+    merged_seeds: &mut Vec<usize>,
+) -> (BTreeSet<usize>, [BTreeSet<usize>; 3]) {
+    let is_continuation = (0x80..=0xBF).contains(&byte);
+    let (promoted, mut next_deferred): (BTreeSet<usize>, [BTreeSet<usize>; 3]) = if is_continuation
+    {
+        let [d0, d1, d2] = cur_deferred.clone();
+        (d0, [d1, d2, BTreeSet::new()])
+    } else {
+        (BTreeSet::new(), Default::default())
+    };
+    // Merge the byte-step's fresh deferred PCs into the carry-
+    // forward array.
+    for i in 0..3 {
+        if !deferred_from_step[i].is_empty() {
+            let extra = core::mem::take(&mut deferred_from_step[i]);
+            next_deferred[i].extend(extra);
+        }
+    }
+    merged_seeds.clear();
+    merged_seeds.extend(ready_from_step.iter().copied());
+    merged_seeds.extend(promoted.iter().copied());
+    let next_ready = if merged_seeds.is_empty() {
+        BTreeSet::new()
+    } else {
+        // Post-step ctx (cursor k+1): left = the byte we just
+        // consumed. Under mflag this lets mid-pattern AnchorB
+        // re-fire when byte == `\n`. WBound stays unresolved
+        // here — `closure_with_ctx` leaves it terminal so the
+        // next BFS step can resolve it under the upcoming
+        // right_byte.
+        let ctx_after = PositionCtx {
+            left_byte: Some(byte),
+            is_text_start: false,
+            is_text_end: false,
+            mflag,
+        };
+        epsilon_closure_with_ctx(prog, merged_seeds, ctx_after)
+    };
+    (next_ready, next_deferred)
+}
+
+/// Derive the post-BFS whole-DFA flags and assemble the
+/// [`DfaProgram`].
+fn finish_dfa(
+    mut states: Vec<DfaState>,
+    start: u32,
+    start_mid_word: u32,
+    start_mid_nonword: u32,
+) -> DfaProgram {
     // Round 3 Phase B attack #R-A2 — derive `all_starts_equal` from the
     // four BFS-interned start indices. `needs_attr_split == false` (no
     // `^` / `\b` / `\B` / multiline-`^` in pattern) already collapses
