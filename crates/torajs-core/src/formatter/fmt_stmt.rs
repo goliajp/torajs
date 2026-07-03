@@ -1,16 +1,14 @@
 //! `Formatter::fmt_stmt` — per-Stmt emission walker for `tr fmt`.
-//!
-//! CARVE-OUT (file-size.md §Carve-out #2 dispatch table): this file
-//! is a data-driven match-arm-per-Stmt-variant dispatcher. Each arm
-//! emits source text for one Stmt kind via the surrounding
-//! `Formatter`'s write / write_indent / fmt_expr / fmt_stmt
-//! (recursive) primitives. Length comes from variant count × arm
-//! body, not from logic complexity. Sub-split per variant is a
-//! follow-up batch when individual arms grow further.
+//! Each match arm emits source text for one Stmt kind via the
+//! surrounding `Formatter`'s write / write_indent / fmt_expr /
+//! fmt_stmt (recursive) primitives; the larger arms (If / For /
+//! ForOfSplitIter / Try / Switch / LetDecl) delegate to per-arm
+//! sibling fns below, and the shared `{ ... }` brace-block shape
+//! lives in [`Formatter::fmt_block_braces`].
 //!
 //! Extracted from `formatter.rs` (2026-05-25, god-file decomp batch 18).
 
-use crate::ast::{ClassMethod, Expr, Param, Stmt, Visibility};
+use crate::ast::{ClassMethod, Expr, ExprId, Param, Stmt, SwitchCase, Visibility};
 
 use super::Formatter;
 
@@ -29,24 +27,7 @@ impl<'a> Formatter<'a> {
                 is_var,
             } => {
                 self.write_indent();
-                // `var` must format as `var` — emitting let/const here
-                // silently rewrote `var x` decls (zero-warn surfaced it).
-                self.write(if *is_var {
-                    "var "
-                } else if *mutable {
-                    "let "
-                } else {
-                    "const "
-                });
-                self.write(name);
-                if let Some(ann) = type_ann {
-                    self.write(": ");
-                    self.write(ann);
-                }
-                if !matches!(self.ast.get_expr(*init), Expr::Uninit) {
-                    self.write(" = ");
-                    self.fmt_expr(*init);
-                }
+                self.fmt_let_decl_body(*mutable, name, type_ann.as_deref(), *init, *is_var);
             }
             Stmt::Return(opt) => {
                 self.write_indent();
@@ -91,16 +72,7 @@ impl<'a> Formatter<'a> {
             }
             Stmt::Block(stmts) => {
                 self.write_indent();
-                self.write("{");
-                self.newline();
-                self.indent += 1;
-                for s in stmts {
-                    self.fmt_stmt(s);
-                    self.newline();
-                }
-                self.indent -= 1;
-                self.write_indent();
-                self.write("}");
+                self.fmt_block_braces(stmts);
             }
             Stmt::Multi(stmts) => {
                 // Compiler-synthesized; flatten to back-to-back stmts
@@ -117,22 +89,7 @@ impl<'a> Formatter<'a> {
                 cond,
                 then_branch,
                 else_branch,
-            } => {
-                self.write_indent();
-                self.write("if (");
-                self.fmt_expr(*cond);
-                self.write(") ");
-                self.fmt_braced_or_inline(then_branch);
-                if let Some(eb) = else_branch {
-                    self.write(" else ");
-                    if matches!(eb.as_ref(), Stmt::If { .. }) {
-                        // `else if` chain: emit the nested If inline.
-                        self.fmt_stmt_inline(eb);
-                    } else {
-                        self.fmt_braced_or_inline(eb);
-                    }
-                }
-            }
+            } => self.fmt_if(*cond, then_branch, else_branch.as_deref()),
             Stmt::While { cond, body } => {
                 self.write_indent();
                 self.write("while (");
@@ -153,41 +110,13 @@ impl<'a> Formatter<'a> {
                 cond,
                 step,
                 body,
-            } => {
-                self.write_indent();
-                self.write("for (");
-                if let Some(i) = init {
-                    self.fmt_for_init(i);
-                }
-                self.write("; ");
-                if let Some(c) = cond {
-                    self.fmt_expr(*c);
-                }
-                self.write("; ");
-                if let Some(st) = step {
-                    self.fmt_expr(*st);
-                }
-                self.write(") ");
-                self.fmt_braced_or_inline(body);
-            }
+            } => self.fmt_for(init.as_deref(), *cond, *step, body),
             Stmt::ForOfSplitIter {
                 var_name,
                 parent,
                 sep,
                 body,
-            } => {
-                // Format back to source-level `for (let v of x.split(s)) body`
-                // since that's what the user wrote pre-parser-rewrite.
-                self.write_indent();
-                self.write("for (let ");
-                self.write(var_name);
-                self.write(" of ");
-                self.fmt_expr(*parent);
-                self.write(".split(");
-                self.fmt_expr(*sep);
-                self.write(")) ");
-                self.fmt_braced_or_inline(body);
-            }
+            } => self.fmt_for_of_split_iter(var_name, *parent, *sep, body),
             Stmt::ForOf {
                 var_name,
                 var_type_ann,
@@ -214,92 +143,19 @@ impl<'a> Formatter<'a> {
                 catch_type,
                 catch_body,
                 finally_body,
-            } => {
-                self.write_indent();
-                self.write("try {");
-                self.newline();
-                self.indent += 1;
-                for s in body {
-                    self.fmt_stmt(s);
-                    self.newline();
-                }
-                self.indent -= 1;
-                self.write_indent();
-                self.write("}");
-                if *had_catch {
-                    self.write(" catch");
-                    if let Some(p) = catch_param {
-                        self.write(" (");
-                        self.write(p);
-                        if let Some(ty) = catch_type {
-                            self.write(": ");
-                            self.write(ty);
-                        }
-                        self.write(")");
-                    }
-                    self.write(" {");
-                    self.newline();
-                    self.indent += 1;
-                    for s in catch_body {
-                        self.fmt_stmt(s);
-                        self.newline();
-                    }
-                    self.indent -= 1;
-                    self.write_indent();
-                    self.write("}");
-                }
-                if let Some(fb) = finally_body {
-                    self.write(" finally {");
-                    self.newline();
-                    self.indent += 1;
-                    for s in fb {
-                        self.fmt_stmt(s);
-                        self.newline();
-                    }
-                    self.indent -= 1;
-                    self.write_indent();
-                    self.write("}");
-                }
-            }
+            } => self.fmt_try(
+                body,
+                *had_catch,
+                catch_param.as_deref(),
+                catch_type.as_deref(),
+                catch_body,
+                finally_body.as_deref(),
+            ),
             Stmt::Switch {
                 scrutinee,
                 cases,
                 default,
-            } => {
-                self.write_indent();
-                self.write("switch (");
-                self.fmt_expr(*scrutinee);
-                self.write(") {");
-                self.newline();
-                self.indent += 1;
-                for case in cases {
-                    self.write_indent();
-                    self.write("case ");
-                    self.fmt_expr(case.value);
-                    self.write(":");
-                    self.newline();
-                    self.indent += 1;
-                    for s in &case.body {
-                        self.fmt_stmt(s);
-                        self.newline();
-                    }
-                    self.indent -= 1;
-                }
-                if let Some(d) = default {
-                    self.write_indent();
-                    self.write("default:");
-                    self.newline();
-                    self.indent += 1;
-                    for s in d {
-                        self.fmt_stmt(s);
-                        self.newline();
-                    }
-                    self.indent -= 1;
-                }
-                self.indent -= 1;
-                self.write_indent();
-                self.write("}");
-            }
+            } => self.fmt_switch(*scrutinee, cases, default.as_deref()),
             Stmt::FnDecl {
                 name,
                 type_params,
@@ -356,6 +212,185 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// `Stmt::If` arm body — `if (c) { ... }` with `else if` chains
+    /// emitted inline.
+    fn fmt_if(&mut self, cond: ExprId, then_branch: &Stmt, else_branch: Option<&Stmt>) {
+        self.write_indent();
+        self.write("if (");
+        self.fmt_expr(cond);
+        self.write(") ");
+        self.fmt_braced_or_inline(then_branch);
+        if let Some(eb) = else_branch {
+            self.write(" else ");
+            if matches!(eb, Stmt::If { .. }) {
+                // `else if` chain: emit the nested If inline.
+                self.fmt_stmt_inline(eb);
+            } else {
+                self.fmt_braced_or_inline(eb);
+            }
+        }
+    }
+
+    /// `Stmt::For` arm body — classic three-slot `for (init; cond;
+    /// step) body`, each slot optional.
+    fn fmt_for(
+        &mut self,
+        init: Option<&Stmt>,
+        cond: Option<ExprId>,
+        step: Option<ExprId>,
+        body: &Stmt,
+    ) {
+        self.write_indent();
+        self.write("for (");
+        if let Some(i) = init {
+            self.fmt_for_init(i);
+        }
+        self.write("; ");
+        if let Some(c) = cond {
+            self.fmt_expr(c);
+        }
+        self.write("; ");
+        if let Some(st) = step {
+            self.fmt_expr(st);
+        }
+        self.write(") ");
+        self.fmt_braced_or_inline(body);
+    }
+
+    /// `Stmt::ForOfSplitIter` arm body — format back to source-level
+    /// `for (let v of x.split(s)) body` since that's what the user
+    /// wrote pre-parser-rewrite.
+    fn fmt_for_of_split_iter(&mut self, var_name: &str, parent: ExprId, sep: ExprId, body: &Stmt) {
+        self.write_indent();
+        self.write("for (let ");
+        self.write(var_name);
+        self.write(" of ");
+        self.fmt_expr(parent);
+        self.write(".split(");
+        self.fmt_expr(sep);
+        self.write(")) ");
+        self.fmt_braced_or_inline(body);
+    }
+
+    /// Shared LetDecl emission body (no leading indent) — used by the
+    /// `Stmt::LetDecl` arm and [`Self::fmt_for_init`].
+    /// `var` must format as `var` — emitting let/const here silently
+    /// rewrote `var x` decls (zero-warn surfaced it).
+    fn fmt_let_decl_body(
+        &mut self,
+        mutable: bool,
+        name: &str,
+        type_ann: Option<&str>,
+        init: ExprId,
+        is_var: bool,
+    ) {
+        self.write(if is_var {
+            "var "
+        } else if mutable {
+            "let "
+        } else {
+            "const "
+        });
+        self.write(name);
+        if let Some(ann) = type_ann {
+            self.write(": ");
+            self.write(ann);
+        }
+        if !matches!(self.ast.get_expr(init), Expr::Uninit) {
+            self.write(" = ");
+            self.fmt_expr(init);
+        }
+    }
+
+    /// Emit `{` + newline, the stmt list one level deeper, then the
+    /// closing `}` at the current indent — the brace-block shape
+    /// shared by the Block arm, try/catch/finally, braced bodies and
+    /// class-method bodies.
+    fn fmt_block_braces(&mut self, stmts: &[Stmt]) {
+        self.write("{");
+        self.newline();
+        self.indent += 1;
+        for s in stmts {
+            self.fmt_stmt(s);
+            self.newline();
+        }
+        self.indent -= 1;
+        self.write_indent();
+        self.write("}");
+    }
+
+    /// `Stmt::Try` arm body — `try { ... } catch (p: T) { ... }
+    /// finally { ... }` with catch/finally sections optional.
+    fn fmt_try(
+        &mut self,
+        body: &[Stmt],
+        had_catch: bool,
+        catch_param: Option<&str>,
+        catch_type: Option<&str>,
+        catch_body: &[Stmt],
+        finally_body: Option<&[Stmt]>,
+    ) {
+        self.write_indent();
+        self.write("try ");
+        self.fmt_block_braces(body);
+        if had_catch {
+            self.write(" catch");
+            if let Some(p) = catch_param {
+                self.write(" (");
+                self.write(p);
+                if let Some(ty) = catch_type {
+                    self.write(": ");
+                    self.write(ty);
+                }
+                self.write(")");
+            }
+            self.write(" ");
+            self.fmt_block_braces(catch_body);
+        }
+        if let Some(fb) = finally_body {
+            self.write(" finally ");
+            self.fmt_block_braces(fb);
+        }
+    }
+
+    /// `Stmt::Switch` arm body — case bodies are indented one level
+    /// under their `case x:` label, no braces.
+    fn fmt_switch(&mut self, scrutinee: ExprId, cases: &[SwitchCase], default: Option<&[Stmt]>) {
+        self.write_indent();
+        self.write("switch (");
+        self.fmt_expr(scrutinee);
+        self.write(") {");
+        self.newline();
+        self.indent += 1;
+        for case in cases {
+            self.write_indent();
+            self.write("case ");
+            self.fmt_expr(case.value);
+            self.write(":");
+            self.newline();
+            self.indent += 1;
+            for s in &case.body {
+                self.fmt_stmt(s);
+                self.newline();
+            }
+            self.indent -= 1;
+        }
+        if let Some(d) = default {
+            self.write_indent();
+            self.write("default:");
+            self.newline();
+            self.indent += 1;
+            for s in d {
+                self.fmt_stmt(s);
+                self.newline();
+            }
+            self.indent -= 1;
+        }
+        self.indent -= 1;
+        self.write_indent();
+        self.write("}");
+    }
+
     fn fmt_for_init(&mut self, s: &Stmt) {
         // `for (init; ...)` accepts a LetDecl or an ExprStmt as init.
         // Reuse the regular Stmt formatter but with indent suppressed.
@@ -366,26 +401,7 @@ impl<'a> Formatter<'a> {
                 type_ann,
                 init,
                 is_var,
-            } => {
-                // `var` must format as `var` (zero-warn surfaced this
-                // arm silently rewriting `var` → let/const).
-                self.write(if *is_var {
-                    "var "
-                } else if *mutable {
-                    "let "
-                } else {
-                    "const "
-                });
-                self.write(name);
-                if let Some(ann) = type_ann {
-                    self.write(": ");
-                    self.write(ann);
-                }
-                if !matches!(self.ast.get_expr(*init), Expr::Uninit) {
-                    self.write(" = ");
-                    self.fmt_expr(*init);
-                }
-            }
+            } => self.fmt_let_decl_body(*mutable, name, type_ann.as_deref(), *init, *is_var),
             Stmt::Expr(eid) => self.fmt_expr(*eid),
             other => panic!("not yet supported: fmt(for-init {other:?})"),
         }
@@ -397,16 +413,7 @@ impl<'a> Formatter<'a> {
         // wrapped in braces (tr-fmt's opinionated choice — no
         // single-stmt-no-braces shape, matches prettier).
         if let Stmt::Block(stmts) = s {
-            self.write("{");
-            self.newline();
-            self.indent += 1;
-            for s in stmts {
-                self.fmt_stmt(s);
-                self.newline();
-            }
-            self.indent -= 1;
-            self.write_indent();
-            self.write("}");
+            self.fmt_block_braces(stmts);
         } else {
             self.write("{");
             self.newline();
@@ -450,16 +457,8 @@ impl<'a> Formatter<'a> {
             // No body for abstract methods — written as `abstract m(): T`
             return;
         }
-        self.write(" {");
-        self.newline();
-        self.indent += 1;
-        for s in &m.body {
-            self.fmt_stmt(s);
-            self.newline();
-        }
-        self.indent -= 1;
-        self.write_indent();
-        self.write("}");
+        self.write(" ");
+        self.fmt_block_braces(&m.body);
     }
 
     pub(super) fn fmt_type_params(&mut self, tp: &[String]) {
