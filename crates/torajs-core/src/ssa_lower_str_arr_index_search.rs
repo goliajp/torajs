@@ -18,30 +18,19 @@
 //! Returns `None` for non-Arr receivers, non-matching methods, or the
 //! zero-arg case so the caller can keep trying the remaining branches.
 //!
-//! ## CARVE-OUT — exceeds 500-LOC hard cap
-//!
-//! This file ships at ~530 LOC, over the file-size HARD RULE 500-LOC
-//! cap. Reason: the inline scan loop is a single SSA emitter with
-//! tightly-coupled fromIndex normalization (S217 undef / S331 Any
-//! decode / +len wrap / clamp), bidirectional start/end derivation
-//! (forward vs lastIndexOf reverse-as-forward), and the per-elem-ty
-//! compare dispatch. A second-pass split along three axes is planned:
-//!
-//! - `needle_coerce.rs` — V3-18 needle ↔ elem-ty coerce (Type::I64/F64
-//!   cross-pair, fractional / NaN const-fold short-circuit).
-//! - `from_normalize.rs` — fromIndex normalize (raw → +len wrap →
-//!   clamp; undef / Any decode; lastIndexOf end+1 upper-clamp).
-//! - `compare_dispatch.rs` — per-elem-ty eq (F64 SameValueZero widen,
-//!   Str / Any tag-recovery dispatch).
-//!
-//! Until then the file is carve-out tagged and its line count can
-//! only shrink per [`common/file-size.md`] known-debt rule — no new
-//! arms may be added.
+//! 2026-07-03 fn-debt decomp: the fromIndex-normalize block (the
+//! `from_normalize` axis planned in the original carve-out doc)
+//! splits to the file-local [`normalize_from_index`] fn and the
+//! per-element load to [`emit_elem_load`]; `try_dispatch` keeps the
+//! scan-loop skeleton. (The former over-500 carve-out note is
+//! obsolete — the coerce / eq axes already live in the
+//! `_index_coerce` / `_index_eq` siblings and the file is back
+//! under the cap.)
 
 #![allow(clippy::too_many_lines)]
 
 use crate::ast::ExprId;
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 /// Try to lower `<Arr>.indexOf(needle, from?)` /
@@ -110,161 +99,7 @@ pub(crate) fn try_dispatch(
             ctx.cur_block,
             InstKind::Store(Operand::Value(len_v), Operand::Value(end_slot), 0),
         );
-        if args.len() >= 2 {
-            // S217 — Array.{indexOf,lastIndexOf,includes}(needle,
-            // undefined) per ES §22.1.3.{13,14,16}:
-            // ToIntegerOrInfinity(undefined)=0. (Note: Array.lastIndexOf
-            // differs from String.lastIndexOf — the *omitted* default is
-            // len-1 but *explicit-undefined* still goes through
-            // ToIntegerOrInfinity → 0; bun matches.) Short-circuit
-            // arg[1]=undefined to ConstI64(0); the pos-path branch
-            // below stores raw_i=0 into eff_slot, giving effective
-            // fromIndex=0 across all three methods.
-            let arg1_undef = matches!(
-                ctx.expr_types.get(&args[1]),
-                Some(crate::check::Type::Undefined)
-            );
-            let arg1_any = matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Any));
-            let raw = if arg1_undef {
-                Operand::ConstI64(0)
-            } else if arg1_any {
-                // S331 — `Array.{indexOf,lastIndexOf,includes}(needle,
-                // Any fromIndex)` per ES §23.1.3.{14,17,18} step 4.
-                // Decode Any via anyv_to_number → coerce_to_i64 below
-                // (raw_i coerce sees F64 -> i64 fast path). Mirrors
-                // S327 parseInt-Any-radix dispatch.
-                let v = ctx.lower_expr(args[1]);
-                let f = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.any_to_number, vec![v]),
-                    Type::F64,
-                    None,
-                );
-                Operand::Value(f)
-            } else {
-                ctx.lower_expr(args[1])
-            };
-            let raw_i = ctx.coerce_to_i64(raw);
-            let neg = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::ICmp(IPred::Slt, raw_i, Operand::ConstI64(0)),
-                Type::Bool,
-                None,
-            );
-            let neg_blk = ctx.f.add_block();
-            let pos_blk = ctx.f.add_block();
-            let join_blk = ctx.f.add_block();
-            ctx.f.set_term(
-                ctx.cur_block,
-                Terminator::CondBr {
-                    cond: Operand::Value(neg),
-                    then_blk: neg_blk,
-                    else_blk: pos_blk,
-                },
-            );
-            // neg path: effective = raw + len
-            ctx.cur_block = neg_blk;
-            let plus_len = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BinOp(SsaBinOp::Add, raw_i, Operand::Value(len_v)),
-                Type::I64,
-                None,
-            );
-            let pl_neg = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::ICmp(IPred::Slt, Operand::Value(plus_len), Operand::ConstI64(0)),
-                Type::Bool,
-                None,
-            );
-            // For indexOf/includes: clamp negative effective to 0 (start).
-            // For lastIndexOf:     clamp negative effective to -1 (so end=0).
-            let neg_floor = if want_last { -1 } else { 0 };
-            let zero_blk = ctx.f.add_block();
-            let plus_blk = ctx.f.add_block();
-            ctx.f.set_term(
-                ctx.cur_block,
-                Terminator::CondBr {
-                    cond: Operand::Value(pl_neg),
-                    then_blk: zero_blk,
-                    else_blk: plus_blk,
-                },
-            );
-            let eff_slot = ctx.alloca_in_entry(Type::I64, Some("__eff"));
-            ctx.f.append_void(
-                zero_blk,
-                InstKind::Store(Operand::ConstI64(neg_floor), Operand::Value(eff_slot), 0),
-            );
-            ctx.f.set_term(zero_blk, Terminator::Br(join_blk));
-            ctx.f.append_void(
-                plus_blk,
-                InstKind::Store(Operand::Value(plus_len), Operand::Value(eff_slot), 0),
-            );
-            ctx.f.set_term(plus_blk, Terminator::Br(join_blk));
-            // pos path: effective = raw_i
-            ctx.f
-                .append_void(pos_blk, InstKind::Store(raw_i, Operand::Value(eff_slot), 0));
-            ctx.f.set_term(pos_blk, Terminator::Br(join_blk));
-            ctx.cur_block = join_blk;
-            let eff = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, Operand::Value(eff_slot), 0),
-                Type::I64,
-                None,
-            );
-            if want_last {
-                // end_slot = clamp(eff + 1, 0, len)
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
-                );
-                let end_raw = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::BinOp(SsaBinOp::Add, Operand::Value(eff), Operand::ConstI64(1)),
-                    Type::I64,
-                    None,
-                );
-                // upper-clamp to len
-                let over = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::ICmp(IPred::Sgt, Operand::Value(end_raw), Operand::Value(len_v)),
-                    Type::Bool,
-                    None,
-                );
-                let over_blk = ctx.f.add_block();
-                let ok_blk = ctx.f.add_block();
-                let join2 = ctx.f.add_block();
-                ctx.f.set_term(
-                    ctx.cur_block,
-                    Terminator::CondBr {
-                        cond: Operand::Value(over),
-                        then_blk: over_blk,
-                        else_blk: ok_blk,
-                    },
-                );
-                ctx.f.append_void(
-                    over_blk,
-                    InstKind::Store(Operand::Value(len_v), Operand::Value(end_slot), 0),
-                );
-                ctx.f.set_term(over_blk, Terminator::Br(join2));
-                ctx.f.append_void(
-                    ok_blk,
-                    InstKind::Store(Operand::Value(end_raw), Operand::Value(end_slot), 0),
-                );
-                ctx.f.set_term(ok_blk, Terminator::Br(join2));
-                ctx.cur_block = join2;
-            } else {
-                // indexOf/includes: start = eff (already ≥ 0)
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Store(Operand::Value(eff), Operand::Value(i_slot), 0),
-                );
-            }
-        } else {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
-            );
-        }
+        normalize_from_index(ctx, args, want_last, len_v, i_slot, end_slot);
         // S278 — Array.{indexOf,lastIndexOf,includes}(needle, fromIndex,
         // ...trailing) trailing-arg ignore per ES §23.1.3.{14,16,17}.
         // The scan helper only reads needle + fromIndex; lower-and-drop
@@ -308,54 +143,7 @@ pub(crate) fn try_dispatch(
             },
         );
         ctx.cur_block = body;
-        // T-13.5: head-aware offset for indexOf-style scan.
-        // T-48 — Array<Any> slots are 16-byte tagged
-        // (tag,value) pairs. The 8-byte-stride LoadDyn
-        // path below only matches I64/F64/Str arrays; for
-        // Any we go through the same arr_get_any_tag /
-        // _value / any_box dance the regular `xs[i]` read
-        // uses (P1.4). This per-iteration alloc is the
-        // same trade-off Index read accepts — performance
-        // can come later via a fused includes helper if
-        // it shows up in profiles.
-        let elem = if elem_ty == Type::Any {
-            let tag = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.arr_get_any_tag,
-                    vec![recv_op.clone(), Operand::Value(i_cur)],
-                ),
-                Type::I64,
-                None,
-            );
-            let value = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.arr_get_any_value,
-                    vec![recv_op.clone(), Operand::Value(i_cur)],
-                ),
-                Type::I64,
-                None,
-            );
-            ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::Value(tag), Operand::Value(value)],
-                ),
-                Type::Any,
-                None,
-            )
-        } else {
-            let off =
-                ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(i_cur), 3, false);
-            ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::LoadDyn(elem_ty, recv_op, off),
-                elem_ty,
-                None,
-            )
-        };
+        let elem = emit_elem_load(ctx, elem_ty, recv_op, i_cur);
         let eq = crate::ssa_lower_str_arr_index_eq::emit_compare(
             ctx, elem, elem_ty, needle, needle_ty, want_bool, args[0],
         );
@@ -418,4 +206,233 @@ pub(crate) fn try_dispatch(
         return Some(Operand::Value(r));
     }
     None
+}
+
+/// fromIndex normalization — S217 explicit-undefined → 0, S331 Any
+/// decode via any_to_number, negative `+len` wrap with per-method
+/// floor, and the lastIndexOf `end = clamp(eff+1, 0, len)` derivation
+/// (split 2026-07-03, fn-debt decomp; body verbatim). Writes the
+/// scan bounds into `i_slot` / `end_slot`.
+fn normalize_from_index(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    want_last: bool,
+    len_v: ValueId,
+    i_slot: ValueId,
+    end_slot: ValueId,
+) {
+    if args.len() >= 2 {
+        // S217 — Array.{indexOf,lastIndexOf,includes}(needle,
+        // undefined) per ES §22.1.3.{13,14,16}:
+        // ToIntegerOrInfinity(undefined)=0. (Note: Array.lastIndexOf
+        // differs from String.lastIndexOf — the *omitted* default is
+        // len-1 but *explicit-undefined* still goes through
+        // ToIntegerOrInfinity → 0; bun matches.) Short-circuit
+        // arg[1]=undefined to ConstI64(0); the pos-path branch
+        // below stores raw_i=0 into eff_slot, giving effective
+        // fromIndex=0 across all three methods.
+        let arg1_undef = matches!(
+            ctx.expr_types.get(&args[1]),
+            Some(crate::check::Type::Undefined)
+        );
+        let arg1_any = matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Any));
+        let raw = if arg1_undef {
+            Operand::ConstI64(0)
+        } else if arg1_any {
+            // S331 — `Array.{indexOf,lastIndexOf,includes}(needle,
+            // Any fromIndex)` per ES §23.1.3.{14,17,18} step 4.
+            // Decode Any via anyv_to_number → coerce_to_i64 below
+            // (raw_i coerce sees F64 -> i64 fast path). Mirrors
+            // S327 parseInt-Any-radix dispatch.
+            let v = ctx.lower_expr(args[1]);
+            let f = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_to_number, vec![v]),
+                Type::F64,
+                None,
+            );
+            Operand::Value(f)
+        } else {
+            ctx.lower_expr(args[1])
+        };
+        let raw_i = ctx.coerce_to_i64(raw);
+        let neg = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Slt, raw_i, Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        let neg_blk = ctx.f.add_block();
+        let pos_blk = ctx.f.add_block();
+        let join_blk = ctx.f.add_block();
+        ctx.f.set_term(
+            ctx.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(neg),
+                then_blk: neg_blk,
+                else_blk: pos_blk,
+            },
+        );
+        // neg path: effective = raw + len
+        ctx.cur_block = neg_blk;
+        let plus_len = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BinOp(SsaBinOp::Add, raw_i, Operand::Value(len_v)),
+            Type::I64,
+            None,
+        );
+        let pl_neg = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Slt, Operand::Value(plus_len), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        // For indexOf/includes: clamp negative effective to 0 (start).
+        // For lastIndexOf:     clamp negative effective to -1 (so end=0).
+        let neg_floor = if want_last { -1 } else { 0 };
+        let zero_blk = ctx.f.add_block();
+        let plus_blk = ctx.f.add_block();
+        ctx.f.set_term(
+            ctx.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(pl_neg),
+                then_blk: zero_blk,
+                else_blk: plus_blk,
+            },
+        );
+        let eff_slot = ctx.alloca_in_entry(Type::I64, Some("__eff"));
+        ctx.f.append_void(
+            zero_blk,
+            InstKind::Store(Operand::ConstI64(neg_floor), Operand::Value(eff_slot), 0),
+        );
+        ctx.f.set_term(zero_blk, Terminator::Br(join_blk));
+        ctx.f.append_void(
+            plus_blk,
+            InstKind::Store(Operand::Value(plus_len), Operand::Value(eff_slot), 0),
+        );
+        ctx.f.set_term(plus_blk, Terminator::Br(join_blk));
+        // pos path: effective = raw_i
+        ctx.f
+            .append_void(pos_blk, InstKind::Store(raw_i, Operand::Value(eff_slot), 0));
+        ctx.f.set_term(pos_blk, Terminator::Br(join_blk));
+        ctx.cur_block = join_blk;
+        let eff = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(eff_slot), 0),
+            Type::I64,
+            None,
+        );
+        if want_last {
+            // end_slot = clamp(eff + 1, 0, len)
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+            );
+            let end_raw = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::BinOp(SsaBinOp::Add, Operand::Value(eff), Operand::ConstI64(1)),
+                Type::I64,
+                None,
+            );
+            // upper-clamp to len
+            let over = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ICmp(IPred::Sgt, Operand::Value(end_raw), Operand::Value(len_v)),
+                Type::Bool,
+                None,
+            );
+            let over_blk = ctx.f.add_block();
+            let ok_blk = ctx.f.add_block();
+            let join2 = ctx.f.add_block();
+            ctx.f.set_term(
+                ctx.cur_block,
+                Terminator::CondBr {
+                    cond: Operand::Value(over),
+                    then_blk: over_blk,
+                    else_blk: ok_blk,
+                },
+            );
+            ctx.f.append_void(
+                over_blk,
+                InstKind::Store(Operand::Value(len_v), Operand::Value(end_slot), 0),
+            );
+            ctx.f.set_term(over_blk, Terminator::Br(join2));
+            ctx.f.append_void(
+                ok_blk,
+                InstKind::Store(Operand::Value(end_raw), Operand::Value(end_slot), 0),
+            );
+            ctx.f.set_term(ok_blk, Terminator::Br(join2));
+            ctx.cur_block = join2;
+        } else {
+            // indexOf/includes: start = eff (already ≥ 0)
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::Value(eff), Operand::Value(i_slot), 0),
+            );
+        }
+    } else {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+        );
+    }
+}
+
+/// One `xs[i]` element load for the scan loop — Any-tagged slots go
+/// through the arr_get_any_tag / _value / any_box dance, everything
+/// else through the 8-byte-stride LoadDyn (split 2026-07-03,
+/// fn-debt decomp; body verbatim incl. the T-13.5 / T-48 comment).
+fn emit_elem_load(
+    ctx: &mut LowerCtx<'_>,
+    elem_ty: Type,
+    recv_op: Operand,
+    i_cur: ValueId,
+) -> ValueId {
+    // T-13.5: head-aware offset for indexOf-style scan.
+    // T-48 — Array<Any> slots are 16-byte tagged
+    // (tag,value) pairs. The 8-byte-stride LoadDyn
+    // path below only matches I64/F64/Str arrays; for
+    // Any we go through the same arr_get_any_tag /
+    // _value / any_box dance the regular `xs[i]` read
+    // uses (P1.4). This per-iteration alloc is the
+    // same trade-off Index read accepts — performance
+    // can come later via a fused includes helper if
+    // it shows up in profiles.
+    if elem_ty == Type::Any {
+        let tag = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_get_any_tag,
+                vec![recv_op.clone(), Operand::Value(i_cur)],
+            ),
+            Type::I64,
+            None,
+        );
+        let value = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_get_any_value,
+                vec![recv_op.clone(), Operand::Value(i_cur)],
+            ),
+            Type::I64,
+            None,
+        );
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::Value(tag), Operand::Value(value)],
+            ),
+            Type::Any,
+            None,
+        )
+    } else {
+        let off = ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(i_cur), 3, false);
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::LoadDyn(elem_ty, recv_op, off),
+            elem_ty,
+            None,
+        )
+    }
 }
