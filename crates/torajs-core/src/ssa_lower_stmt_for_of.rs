@@ -41,23 +41,7 @@ pub(crate) fn lower(
     elem_expr: crate::ast::ExprId,
     body: &Stmt,
 ) {
-    let index_eid = match ctx.ast.get_expr(elem_expr) {
-        Expr::Index { .. } => elem_expr,
-        Expr::Member { obj, name } if name == "value" => {
-            if matches!(ctx.ast.get_expr(*obj), Expr::Index { .. }) {
-                *obj
-            } else {
-                panic!(
-                    "for-of: for-await wrapper expects Member.value over Index, got {:?}",
-                    ctx.ast.get_expr(*obj)
-                );
-            }
-        }
-        other => panic!(
-            "for-of: elem_expr must be Expr::Index or for-await Member.value-over-Index wrapper, got {:?}",
-            other
-        ),
-    };
+    let index_eid = resolve_index_eid(ctx, elem_expr);
     let src_ref_eid = if let Expr::Index { obj, .. } = ctx.ast.get_expr(index_eid) {
         *obj
     } else {
@@ -117,31 +101,7 @@ pub(crate) fn lower(
         ctx.cur_block,
         InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
     );
-    {
-        let cur_depth = ctx.scope_stack.len() - 1;
-        if let Some(prev) = ctx.locals.get(i_ident).copied()
-            && prev.scope_depth < cur_depth
-        {
-            ctx.shadow_stack
-                .last_mut()
-                .expect("shadow frame")
-                .push((i_ident.to_string(), prev));
-        }
-        ctx.locals.insert(
-            i_ident.to_string(),
-            LocalInfo {
-                slot: i_slot,
-                ty: Type::I64,
-                moved: false,
-                borrowed: false,
-                scope_depth: cur_depth,
-            },
-        );
-        ctx.scope_stack
-            .last_mut()
-            .expect("scope frame")
-            .push(i_ident.to_string());
-    }
+    bind_scoped_local(ctx, i_ident, i_slot, Type::I64, false, false);
 
     let src_ptr = match src_ptr_op {
         Operand::Value(v) => v,
@@ -192,63 +152,13 @@ pub(crate) fn lower(
         ctx.cur_block,
         InstKind::Store(v_val, Operand::Value(v_slot), 0),
     );
-    {
-        let cur_depth = ctx.scope_stack.len() - 1;
-        if let Some(prev) = ctx.locals.get(var_name).copied()
-            && prev.scope_depth < cur_depth
-        {
-            ctx.shadow_stack
-                .last_mut()
-                .expect("shadow frame")
-                .push((var_name.to_string(), prev));
-        }
-        ctx.locals.insert(
-            var_name.to_string(),
-            LocalInfo {
-                slot: v_slot,
-                ty: v_ty,
-                moved: true,
-                borrowed: true,
-                scope_depth: cur_depth,
-            },
-        );
-        ctx.scope_stack
-            .last_mut()
-            .expect("scope frame")
-            .push(var_name.to_string());
-    }
+    bind_scoped_local(ctx, var_name, v_slot, v_ty, true, true);
     ctx.loop_stack.push((step_blk, after));
     ctx.lower_stmt(body);
     let body_open_at_end = ctx.cur_open();
     ctx.loop_stack.pop();
 
-    let body_frame = ctx.scope_stack.pop().expect("for-of body scope");
-    let body_shadows = ctx.shadow_stack.pop().expect("shadow frame");
-    if body_open_at_end {
-        for name in &body_frame {
-            let info = match ctx.locals.get(name) {
-                Some(i) => *i,
-                None => continue,
-            };
-            if info.moved || info.ty.is_copy() || ctx.stack_alloced_locals.contains(name) {
-                continue;
-            }
-            let val = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                info.ty,
-                None,
-            );
-            ctx.emit_drop_value(Operand::Value(val), info.ty);
-        }
-        ctx.f.set_term(ctx.cur_block, Terminator::Br(step_blk));
-    }
-    for n in &body_frame {
-        ctx.locals.remove(n);
-    }
-    for (n, prev) in body_shadows {
-        ctx.locals.insert(n, prev);
-    }
+    close_body_scope(ctx, step_blk, body_open_at_end);
 
     ctx.cur_block = step_blk;
     let i_cur = ctx.f.append_inst(
@@ -276,6 +186,97 @@ pub(crate) fn lower(
         ctx.locals.remove(n);
     }
     for (n, prev) in i_shadows {
+        ctx.locals.insert(n, prev);
+    }
+}
+
+/// Peel the for-await `.value` Member wrapper (P10.3-A1) to the
+/// underlying `Expr::Index` used for src resolution.
+fn resolve_index_eid(ctx: &LowerCtx, elem_expr: crate::ast::ExprId) -> crate::ast::ExprId {
+    match ctx.ast.get_expr(elem_expr) {
+        Expr::Index { .. } => elem_expr,
+        Expr::Member { obj, name } if name == "value" => {
+            if matches!(ctx.ast.get_expr(*obj), Expr::Index { .. }) {
+                *obj
+            } else {
+                panic!(
+                    "for-of: for-await wrapper expects Member.value over Index, got {:?}",
+                    ctx.ast.get_expr(*obj)
+                );
+            }
+        }
+        other => panic!(
+            "for-of: elem_expr must be Expr::Index or for-await Member.value-over-Index wrapper, got {:?}",
+            other
+        ),
+    }
+}
+
+/// Register `name` in the innermost scope frame, shadow-saving any
+/// outer binding of the same name — the for-of `i` and element
+/// bindings share this shape; only ty / moved / borrowed differ.
+fn bind_scoped_local(
+    ctx: &mut LowerCtx,
+    name: &str,
+    slot: crate::ssa::ValueId,
+    ty: Type,
+    moved: bool,
+    borrowed: bool,
+) {
+    let cur_depth = ctx.scope_stack.len() - 1;
+    if let Some(prev) = ctx.locals.get(name).copied()
+        && prev.scope_depth < cur_depth
+    {
+        ctx.shadow_stack
+            .last_mut()
+            .expect("shadow frame")
+            .push((name.to_string(), prev));
+    }
+    ctx.locals.insert(
+        name.to_string(),
+        LocalInfo {
+            slot,
+            ty,
+            moved,
+            borrowed,
+            scope_depth: cur_depth,
+        },
+    );
+    ctx.scope_stack
+        .last_mut()
+        .expect("scope frame")
+        .push(name.to_string());
+}
+
+/// Pop the body scope frame — drop-walk still-owned locals and
+/// branch to the step block when the body fell through open, then
+/// restore shadowed bindings.
+fn close_body_scope(ctx: &mut LowerCtx, step_blk: crate::ssa::BlockId, body_open_at_end: bool) {
+    let body_frame = ctx.scope_stack.pop().expect("for-of body scope");
+    let body_shadows = ctx.shadow_stack.pop().expect("shadow frame");
+    if body_open_at_end {
+        for name in &body_frame {
+            let info = match ctx.locals.get(name) {
+                Some(i) => *i,
+                None => continue,
+            };
+            if info.moved || info.ty.is_copy() || ctx.stack_alloced_locals.contains(name) {
+                continue;
+            }
+            let val = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                info.ty,
+                None,
+            );
+            ctx.emit_drop_value(Operand::Value(val), info.ty);
+        }
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(step_blk));
+    }
+    for n in &body_frame {
+        ctx.locals.remove(n);
+    }
+    for (n, prev) in body_shadows {
         ctx.locals.insert(n, prev);
     }
 }
