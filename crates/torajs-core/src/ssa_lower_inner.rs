@@ -26,12 +26,19 @@
 //! Called through `crate::ssa_lower::lower_with_arity` — the sibling only
 //! exposes `pub(crate) fn lower_inner`; downstream ordering knobs stay
 //! private to this module.
+//!
+//! 2026-07-03 fn-debt decomp: Passes 2 / 3 / 2B / 2.5 →
+//! [`body_passes`] (dir submodule); mono+num-width / intrinsic
+//! batches / env-drop+promise+signatures / top-level globals /
+//! module finalize become file-local sub-fns below.
+
+mod body_passes;
 
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Stmt};
 use crate::check::GenericCallSites;
-use crate::ssa::{self, FnNameEntry, FuncId, Module, Type};
+use crate::ssa::{self, FuncId, Module, Type};
 use crate::ssa_lower::monomorphize_generics;
 
 pub(crate) fn lower_inner(
@@ -41,60 +48,14 @@ pub(crate) fn lower_inner(
     arity_pad_count: &HashMap<crate::ast::ExprId, usize>,
     demoted_cm_rewrites: &HashMap<crate::ast::ExprId, crate::ast::ExprId>,
 ) -> Module {
-    // M3 — produce monomorphized FnDecls from each generic call site,
-    // and a per-call-site `ExprId → mono_name` retarget map. We clone
-    // the AST so the appended mono FnDecls don't mutate the caller's
-    // copy (cheap: the AST is a few thousand exprs at most). The
-    // monomorphizer needs a `&mut Ast` so it can fabricate new Ident
-    // expressions when transitively-rewriting inner generic-call
-    // callees in cloned bodies (class methods calling each other with
-    // shared type params).
-    let mut owned_ast: Ast = ast.clone();
-    // Restore the member-call shape at demoted speculative rewrites
-    // BEFORE monomorphization, so cloned generic bodies and num_width
-    // see the builtin dispatch shape (mechanism: cm_demote.rs).
-    for (&call_eid, &alt_eid) in demoted_cm_rewrites {
-        owned_ast.exprs[call_eid.0 as usize] = owned_ast.exprs[alt_eid.0 as usize].clone();
-    }
-    let (mono_decls, call_retargets, generic_fn_names) =
-        monomorphize_generics(&mut owned_ast, generic_call_sites);
-    owned_ast.stmts.extend(mono_decls);
+    let (owned_ast, call_retargets, generic_fn_names, num_f64_slots) =
+        monomorphize_and_analyze(ast, generic_call_sites, demoted_cm_rewrites);
     let ast: &Ast = &owned_ast;
-
-    // W1 (ann-width RFC) — module-wide number-slot width inference.
-    // Single ground truth for every `: number` (or un-annotated
-    // number) slot's I64-vs-F64 representation; consumers below gate
-    // on the annotation and the `__` synthetic-fn exclusion.
-    let num_f64_slots = crate::num_width::analyze(ast, &call_retargets, demoted_cm_rewrites);
 
     let mut module = Module::default();
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();
 
-    // Pass 0 batch A — print / obj_capture / arr / str_a / num / str_b
-    // (6 sub-systems, 76 FuncIds) declare via aggregator in
-    // [`crate::ssa_lower_intrinsics_init_a`] (chunk-323 of the
-    // ssa_lower.rs god-file + lower_inner god-fn decomp). The
-    // `init_a.<group>.<field>` references appear directly in the
-    // `Intrinsics { ... }` literal below; no local *_id vars are
-    // needed because nothing between here and the literal reads them.
-    let init_a = crate::ssa_lower_intrinsics_init_a::declare(&mut module, &mut fn_table);
-    // Pass 0 batch B — regex / date / fs / process / arr_any / object
-    // (6 sub-systems, 121 FuncIds) declare via aggregator in
-    // [`crate::ssa_lower_intrinsics_init_b`] (chunk-324 RFC continuation).
-    let init_b = crate::ssa_lower_intrinsics_init_b::declare(&mut module, &mut fn_table);
-    // Pass 0 batch C — any_substrate / print_freeze / bigint / weak /
-    // map_set / runtime_misc (6 sub-systems, 123 FuncIds) declare via
-    // aggregator in [`crate::ssa_lower_intrinsics_init_c`] (chunk-325
-    // RFC continuation). Sibling also folds in the `gc` alias insert
-    // and the `main_exit` / `process_on` declares that immediately
-    // followed runtime_misc in the original Pass 0.
-    let init_c = crate::ssa_lower_intrinsics_init_c::declare(&mut module, &mut fn_table);
-    // Pass 0 batch D — promise / substr / substr_trim_into /
-    // arr_str_etc / str_extra / math / json_misc / throw (8
-    // sub-systems, 170 FuncIds) declare via aggregator in
-    // [`crate::ssa_lower_intrinsics_init_d`] (chunk-326 RFC final
-    // batch). After this Pass 0 is fully drained from `lower_inner`.
-    let init_d = crate::ssa_lower_intrinsics_init_d::declare(&mut module, &mut fn_table);
+    let (init_a, init_b, init_c, init_d) = declare_intrinsic_batches(&mut module, &mut fn_table);
 
     // Pass 0.5: type-alias registration + V3-05 two-phase TypeDecl
     // resolution + Phase H.1.b class tag table + may-throw fixed-point
@@ -161,42 +122,15 @@ pub(crate) fn lower_inner(
     closure_decls.reverse();
     let decl_indices: Vec<_> = user_decls;
 
-    // Env-drop fn infrastructure (per-closure pre-allocate + trivial
-    // wrapper) — see [`crate::ssa_lower_env_drop_setup`].
-    let env_drop_setup = crate::ssa_lower_env_drop_setup::run(
+    let (env_drop_fids, env_drop_trivial_fid, promise_thunks, signatures) = setup_callable_infra(
         ast,
         &mut module,
         &mut fn_table,
         &mut fn_sigs,
         &mut fn_sig_ids,
         &init_a,
-    );
-    let env_drop_fids = env_drop_setup.env_drop_fids;
-    let env_drop_trivial_fid = env_drop_setup.env_drop_trivial_fid;
-
-    // ②.6b — promise callback ABI thunks (bits-adapters for f64-faced
-    // `.then` / `.catch` handlers). Synthesized here because the fn
-    // list freezes at the signatures snapshot below; modules without
-    // a promise chain synthesize nothing.
-    let promise_thunks = crate::ssa_lower_promise_thunk::synthesize_promise_thunks(
-        ast,
         &num_f64_slots,
-        &mut module,
-        &mut fn_table,
-        &mut fn_sigs,
-        &mut fn_sig_ids,
-        init_a.obj_capture.obj_drop_sized,
-        init_a.obj_capture.value_drop_heap,
     );
-
-    // Snapshot every callable's return type — used inside lower_fn to type
-    // call-site results correctly.
-    let signatures: HashMap<FuncId, Type> = module
-        .funcs
-        .iter()
-        .enumerate()
-        .map(|(i, f)| (FuncId(i as u32), f.ret))
-        .collect();
 
     let intrinsics = crate::ssa_lower_intrinsics_table::build(
         env_drop_trivial_fid,
@@ -218,11 +152,7 @@ pub(crate) fn lower_inner(
     // first, lifted `__closure_N` decls are appended to the end.
     let mut closure_captures: HashMap<String, Vec<(Type, bool)>> = HashMap::new();
 
-    // Pass 1.5 (K.3) — register top-level data globals. Promotion
-    // policy (annotation parsing, the K.3b ast_refs gate, and the
-    // localize gate that keeps main-only primitive bindings out of
-    // the global space) lives in ssa_lower_toplevel_globals.
-    let globals = crate::ssa_lower_toplevel_globals::collect_toplevel_globals(
+    let globals = register_toplevel_globals(
         ast,
         &aliases,
         &mut arr_layouts,
@@ -231,16 +161,8 @@ pub(crate) fn lower_inner(
         &mut struct_layouts,
         &mut inst_memo,
         &num_f64_slots,
+        &mut module,
     );
-    let mut data_globals_out: Vec<ssa::DataGlobal> = globals
-        .iter()
-        .map(|(name, ty)| ssa::DataGlobal {
-            name: name.clone(),
-            ty: *ty,
-        })
-        .collect();
-    data_globals_out.sort_by(|a, b| a.name.cmp(&b.name));
-    module.data_globals = data_globals_out;
 
     /* W-J Phase A1 (RFC 20260614-w-j-struct-reflect §3) — anon_sid_to_tag
      * snapshot for ObjectLit alloc stamping. Build at Pass 1.5 boundary
@@ -266,123 +188,10 @@ pub(crate) fn lower_inner(
         &struct_layouts,
     );
 
-    // Pass 2: lower user FnDecl bodies. Each call returns the lowered
-    // function plus any string literals interned during its body; we
-    // append those into module.strings before the next call so the
-    // StringId counter stays in lockstep with module.strings.len().
-    for (stmt_idx, fid) in decl_indices {
-        if let Stmt::FnDecl {
-            name,
-            params,
-            return_type,
-            body,
-            ..
-        } = &ast.stmts[stmt_idx]
-        {
-            let string_id_base = module.strings.len();
-            let (f, new_strings) = crate::ssa_lower_fn::lower_fn(
-                name,
-                params,
-                return_type.as_deref(),
-                body,
-                ast,
-                &fn_table,
-                &signatures,
-                &fn_sig_ids,
-                &intrinsics,
-                &aliases,
-                &mut arr_layouts,
-                &mut baked_regex_buf,
-                &mut fn_sigs,
-                &mut struct_layouts,
-                &mut inst_memo,
-                &generic_struct_decls,
-                string_id_base,
-                &mut closure_captures,
-                &call_retargets,
-                &may_throw,
-                &class_name_to_tag,
-                &anon_stamp_pool,
-                &globals,
-                expr_types,
-                arity_pad_count,
-                &num_f64_slots,
-                &promise_thunks,
-            );
-            module.funcs[fid.0 as usize] = f;
-            for s in new_strings {
-                module.strings.push(s);
-            }
-            // Fn-name registry Step 2 — record the (FuncId, name,
-            // name_sid) triple for the link-time __torajs_fn_name_table
-            // emit (Step 3) + the runtime __torajs_fn_print_inline
-            // binary search (Step 4). Skip the desugared class-method
-            // mangled forms (`__cm_<C>__<m>`, `__dispatch_<m>`,
-            // `__new_<C>`) — bun reports the user-visible method
-            // name on those, not the mangled name, and we get
-            // there in Step 5's wire by stripping the prefix when
-            // emitting. Skip generic-mono specialized names too
-            // (`<fn>__<typeargs>__<idx>`) — they share the source
-            // fn's user-visible name; the entry already exists for
-            // the generic form. Closure-lifted bodies
-            // (`__closure_*`) are anonymous from the user's point
-            // of view; runtime falls back to
-            // `[Function (anonymous)]` if no entry is found.
-            if !name.starts_with("__cm_")
-                && !name.starts_with("__dispatch_")
-                && !name.starts_with("__new_")
-                && !name.starts_with("__closure_")
-                && !name.contains("__mono_")
-            {
-                // Intern the name as a Module-level string literal so
-                // the link layer can resolve `__user_string_<sid>` to
-                // the rodata cstring entry. encode_from_str picks
-                // Latin-1 / UTF-16 to match the upstream string-literal
-                // encoding contract (TS allows non-ASCII fn names).
-                let lit = ssa::StringLiteral::encode_from_str(name);
-                let name_sid = ssa::StringId(module.strings.len() as u32);
-                module.strings.push(lit);
-                module.fn_name_globals.push(FnNameEntry {
-                    fn_id: fid,
-                    name: name.clone(),
-                    name_sid,
-                });
-            }
-        }
-    }
-
-    // Pass 3: synthesize `main` from top-level non-FnDecl statements.
-    // Delegated to [`crate::ssa_lower_pass_3::run`].
-    crate::ssa_lower_pass_3::run(
-        ast,
-        &mut module,
-        &fn_table,
-        &signatures,
-        &fn_sig_ids,
-        &intrinsics,
-        &aliases,
-        &mut arr_layouts,
-        &mut baked_regex_buf,
-        &mut fn_sigs,
-        &mut struct_layouts,
-        &mut inst_memo,
-        &generic_struct_decls,
-        &mut closure_captures,
-        &call_retargets,
-        &may_throw,
-        &class_name_to_tag,
-        &anon_stamp_pool,
-        &globals,
-        expr_types,
-        arity_pad_count,
-        &num_f64_slots,
-        &promise_thunks,
-    );
-
-    // Pass 2B (T-15.g.5): lower lifted-closure bodies. Delegated to
-    // [`crate::ssa_lower_pass_2b::run`].
-    crate::ssa_lower_pass_2b::run(
+    body_passes::run(
+        decl_indices,
         closure_decls,
+        &env_drop_fids,
         ast,
         &mut module,
         &fn_table,
@@ -408,18 +217,212 @@ pub(crate) fn lower_inner(
         &promise_thunks,
     );
 
-    // Pass 2.5: synthesize each pre-registered env-drop fn body now
-    // that closure_captures is populated. Delegated to
-    // [`crate::ssa_lower_pass_2_5::populate_env_drop_bodies`].
-    crate::ssa_lower_pass_2_5::populate_env_drop_bodies(
-        &env_drop_fids,
-        &closure_captures,
-        &intrinsics,
-        &arr_layouts,
-        &struct_layouts,
+    finalize_module(
         &mut module,
+        ast,
+        &fn_table,
+        arr_layouts,
+        fn_sigs,
+        struct_layouts,
+        baked_regex_buf,
+        &class_name_to_tag,
+        &aliases,
+        &anon_stamp_pool,
     );
 
+    module
+}
+
+/// M3 monomorphization + W1 num-width analysis — the AST-owning
+/// front half of `lower_inner` (split 2026-07-03, fn-debt decomp;
+/// body verbatim, the final `analyze` call reads `&owned_ast`
+/// directly instead of the caller-side `ast` rebind).
+fn monomorphize_and_analyze(
+    ast: &Ast,
+    generic_call_sites: &GenericCallSites,
+    demoted_cm_rewrites: &HashMap<crate::ast::ExprId, crate::ast::ExprId>,
+) -> (
+    Ast,
+    HashMap<crate::ast::ExprId, String>,
+    std::collections::HashSet<String>,
+    crate::num_width::WidthTable,
+) {
+    // M3 — produce monomorphized FnDecls from each generic call site,
+    // and a per-call-site `ExprId → mono_name` retarget map. We clone
+    // the AST so the appended mono FnDecls don't mutate the caller's
+    // copy (cheap: the AST is a few thousand exprs at most). The
+    // monomorphizer needs a `&mut Ast` so it can fabricate new Ident
+    // expressions when transitively-rewriting inner generic-call
+    // callees in cloned bodies (class methods calling each other with
+    // shared type params).
+    let mut owned_ast: Ast = ast.clone();
+    // Restore the member-call shape at demoted speculative rewrites
+    // BEFORE monomorphization, so cloned generic bodies and num_width
+    // see the builtin dispatch shape (mechanism: cm_demote.rs).
+    for (&call_eid, &alt_eid) in demoted_cm_rewrites {
+        owned_ast.exprs[call_eid.0 as usize] = owned_ast.exprs[alt_eid.0 as usize].clone();
+    }
+    let (mono_decls, call_retargets, generic_fn_names) =
+        monomorphize_generics(&mut owned_ast, generic_call_sites);
+    owned_ast.stmts.extend(mono_decls);
+    // W1 (ann-width RFC) — module-wide number-slot width inference.
+    // Single ground truth for every `: number` (or un-annotated
+    // number) slot's I64-vs-F64 representation; consumers below gate
+    // on the annotation and the `__` synthetic-fn exclusion.
+    let num_f64_slots = crate::num_width::analyze(&owned_ast, &call_retargets, demoted_cm_rewrites);
+    (owned_ast, call_retargets, generic_fn_names, num_f64_slots)
+}
+
+/// Pass 0 — the four intrinsic-declare batches (A/B/C/D aggregator
+/// siblings). Split 2026-07-03 (fn-debt decomp); bodies verbatim.
+fn declare_intrinsic_batches(
+    module: &mut Module,
+    fn_table: &mut HashMap<String, FuncId>,
+) -> (
+    crate::ssa_lower_intrinsics_init_a::InitA,
+    crate::ssa_lower_intrinsics_init_b::InitB,
+    crate::ssa_lower_intrinsics_init_c::InitC,
+    crate::ssa_lower_intrinsics_init_d::InitD,
+) {
+    // Pass 0 batch A — print / obj_capture / arr / str_a / num / str_b
+    // (6 sub-systems, 76 FuncIds) declare via aggregator in
+    // [`crate::ssa_lower_intrinsics_init_a`] (chunk-323 of the
+    // ssa_lower.rs god-file + lower_inner god-fn decomp). The
+    // `init_a.<group>.<field>` references appear directly in the
+    // `Intrinsics { ... }` literal below; no local *_id vars are
+    // needed because nothing between here and the literal reads them.
+    let init_a = crate::ssa_lower_intrinsics_init_a::declare(module, fn_table);
+    // Pass 0 batch B — regex / date / fs / process / arr_any / object
+    // (6 sub-systems, 121 FuncIds) declare via aggregator in
+    // [`crate::ssa_lower_intrinsics_init_b`] (chunk-324 RFC continuation).
+    let init_b = crate::ssa_lower_intrinsics_init_b::declare(module, fn_table);
+    // Pass 0 batch C — any_substrate / print_freeze / bigint / weak /
+    // map_set / runtime_misc (6 sub-systems, 123 FuncIds) declare via
+    // aggregator in [`crate::ssa_lower_intrinsics_init_c`] (chunk-325
+    // RFC continuation). Sibling also folds in the `gc` alias insert
+    // and the `main_exit` / `process_on` declares that immediately
+    // followed runtime_misc in the original Pass 0.
+    let init_c = crate::ssa_lower_intrinsics_init_c::declare(module, fn_table);
+    // Pass 0 batch D — promise / substr / substr_trim_into /
+    // arr_str_etc / str_extra / math / json_misc / throw (8
+    // sub-systems, 170 FuncIds) declare via aggregator in
+    // [`crate::ssa_lower_intrinsics_init_d`] (chunk-326 RFC final
+    // batch). After this Pass 0 is fully drained from `lower_inner`.
+    let init_d = crate::ssa_lower_intrinsics_init_d::declare(module, fn_table);
+    (init_a, init_b, init_c, init_d)
+}
+
+/// Env-drop fn infrastructure + promise-callback ABI thunks + the
+/// callables return-type snapshot. Split 2026-07-03 (fn-debt
+/// decomp); bodies verbatim.
+#[allow(clippy::too_many_arguments)]
+fn setup_callable_infra(
+    ast: &Ast,
+    module: &mut Module,
+    fn_table: &mut HashMap<String, FuncId>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
+    init_a: &crate::ssa_lower_intrinsics_init_a::InitA,
+    num_f64_slots: &crate::num_width::WidthTable,
+) -> (
+    Vec<(String, FuncId, ssa::SigId)>,
+    (FuncId, ssa::SigId),
+    crate::ssa_lower_promise_thunk::PromiseThunks,
+    HashMap<FuncId, Type>,
+) {
+    // Env-drop fn infrastructure (per-closure pre-allocate + trivial
+    // wrapper) — see [`crate::ssa_lower_env_drop_setup`].
+    let env_drop_setup =
+        crate::ssa_lower_env_drop_setup::run(ast, module, fn_table, fn_sigs, fn_sig_ids, init_a);
+    let env_drop_fids = env_drop_setup.env_drop_fids;
+    let env_drop_trivial_fid = env_drop_setup.env_drop_trivial_fid;
+
+    // ②.6b — promise callback ABI thunks (bits-adapters for f64-faced
+    // `.then` / `.catch` handlers). Synthesized here because the fn
+    // list freezes at the signatures snapshot below; modules without
+    // a promise chain synthesize nothing.
+    let promise_thunks = crate::ssa_lower_promise_thunk::synthesize_promise_thunks(
+        ast,
+        num_f64_slots,
+        module,
+        fn_table,
+        fn_sigs,
+        fn_sig_ids,
+        init_a.obj_capture.obj_drop_sized,
+        init_a.obj_capture.value_drop_heap,
+    );
+
+    // Snapshot every callable's return type — used inside lower_fn to type
+    // call-site results correctly.
+    let signatures: HashMap<FuncId, Type> = module
+        .funcs
+        .iter()
+        .enumerate()
+        .map(|(i, f)| (FuncId(i as u32), f.ret))
+        .collect();
+    (
+        env_drop_fids,
+        env_drop_trivial_fid,
+        promise_thunks,
+        signatures,
+    )
+}
+
+/// Pass 1.5 (K.3) — collect + register top-level data globals.
+/// Split 2026-07-03 (fn-debt decomp); body verbatim.
+#[allow(clippy::too_many_arguments)]
+fn register_toplevel_globals(
+    ast: &Ast,
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    inst_memo: &mut HashMap<String, ssa::StructId>,
+    num_f64_slots: &crate::num_width::WidthTable,
+    module: &mut Module,
+) -> HashMap<String, Type> {
+    // Pass 1.5 (K.3) — register top-level data globals. Promotion
+    // policy (annotation parsing, the K.3b ast_refs gate, and the
+    // localize gate that keeps main-only primitive bindings out of
+    // the global space) lives in ssa_lower_toplevel_globals.
+    let globals = crate::ssa_lower_toplevel_globals::collect_toplevel_globals(
+        ast,
+        aliases,
+        arr_layouts,
+        fn_sigs,
+        generic_struct_decls,
+        struct_layouts,
+        inst_memo,
+        num_f64_slots,
+    );
+    let mut data_globals_out: Vec<ssa::DataGlobal> = globals
+        .iter()
+        .map(|(name, ty)| ssa::DataGlobal {
+            name: name.clone(),
+            ty: *ty,
+        })
+        .collect();
+    data_globals_out.sort_by(|a, b| a.name.cmp(&b.name));
+    module.data_globals = data_globals_out;
+    globals
+}
+
+/// Interner write-backs + vtable / ClassLayoutMeta emit. Split
+/// 2026-07-03 (fn-debt decomp); body verbatim.
+#[allow(clippy::too_many_arguments)]
+fn finalize_module(
+    module: &mut Module,
+    ast: &Ast,
+    fn_table: &HashMap<String, FuncId>,
+    arr_layouts: Vec<Type>,
+    fn_sigs: Vec<(Vec<Type>, Type)>,
+    struct_layouts: Vec<Vec<(String, Type)>>,
+    baked_regex_buf: Vec<ssa::BakedRegexEntry>,
+    class_name_to_tag: &HashMap<String, u32>,
+    aliases: &HashMap<String, Type>,
+    anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
+) {
     module.arr_layouts = arr_layouts;
     module.signatures = fn_sigs;
     module.struct_layouts = struct_layouts;
@@ -429,20 +432,14 @@ pub(crate) fn lower_inner(
     // ClassLayoutMeta + W-J Phase A0 anonymous-struct ClassLayoutMeta
     // — see [`crate::ssa_lower_module_metadata`] for the consolidated
     // builder docs.
-    crate::ssa_lower_module_metadata::populate_vtables(ast, &fn_table, &mut module);
-    crate::ssa_lower_module_metadata::populate_class_layouts(
-        &class_name_to_tag,
-        &aliases,
-        &mut module,
-    );
+    crate::ssa_lower_module_metadata::populate_vtables(ast, fn_table, module);
+    crate::ssa_lower_module_metadata::populate_class_layouts(class_name_to_tag, aliases, module);
 
     // W-J Phase A1 follow-up — append `ClassLayoutMeta` rows for
     // each Pass 2 fresh sid recorded in `anon_stamp_pool`.
     crate::ssa_lower_anon_stamp::append_fresh_class_layouts(
-        &anon_stamp_pool,
+        anon_stamp_pool,
         &module.struct_layouts.clone(),
         &mut module.class_layouts,
     );
-
-    module
 }
