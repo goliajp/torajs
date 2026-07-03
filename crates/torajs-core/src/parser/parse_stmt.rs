@@ -14,6 +14,11 @@
 //! parse_try / parse_switch / parse_break / parse_continue /
 //! parse_let / parse_var / parse_type_decl / parse_expr_stmt).
 //! Body unchanged.
+//!
+//! 2026-07-03 fn-debt decomp: the `yield` statement body and the
+//! `let`/`var`/`const` declaration body split into sub-fns
+//! `parse_yield_stmt` / `parse_let_decl_stmt` below (bodies
+//! verbatim, dedented one level).
 
 use super::*;
 
@@ -122,116 +127,7 @@ impl<'a> Parser<'a> {
             return self.parse_try();
         }
         if matches!(self.peek(), Token::Yield) {
-            // `yield e ;` — Phase J. Parser-level only; the surrounding
-            // function must be `function*` or `desugar_generators` will
-            // surface this as a typecheck error. Single-arg form only —
-            // tr's subset doesn't accept the `yield;` (undefined value)
-            // shape.
-            self.pos += 1;
-            // J.3 — `yield * gen(args);` delegates to an inner generator.
-            // Parse-time desugar: same iterator-protocol shape as for-of
-            // over a known generator factory, with `yield __step.value`
-            // as the loop body.
-            if matches!(self.peek(), Token::Star) {
-                self.pos += 1;
-                let src = self.parse_expr()?;
-                if matches!(self.peek(), Token::Semi) {
-                    self.pos += 1;
-                }
-                let (callee_name, yield_ty) = match self.ast.get_expr(src) {
-                    Expr::Call { callee, .. } => match self.ast.get_expr(*callee) {
-                        Expr::Ident(n) => match self.generator_fns.get(n).cloned() {
-                            Some(yt) => (n.clone(), yt),
-                            None => {
-                                return Err(format!(
-                                    "yield* `{n}(...)` — `{n}` is not a known function* \
-                                     declaration (J.3 MVP only handles direct generator \
-                                     factory calls) at {}",
-                                    self.at()
-                                ));
-                            }
-                        },
-                        _ => {
-                            return Err(format!(
-                                "yield* requires a direct call to a function* declaration \
-                                 (got non-ident callee) at {}",
-                                self.at()
-                            ));
-                        }
-                    },
-                    _ => {
-                        return Err(format!(
-                            "yield* requires a direct call to a function* declaration \
-                             (got non-call expr) at {}",
-                            self.at()
-                        ));
-                    }
-                };
-                let gen_class = format!("__Gen_{callee_name}");
-                let step_ty = format!("__step_{callee_name}");
-                let id = self.mint_desugar_id();
-                let it_name = format!("__yieldstar_it_{id}");
-                let step_name = format!("__yieldstar_step_{id}");
-
-                let mut stmts: Vec<Stmt> = Vec::new();
-                stmts.push(Stmt::LetDecl {
-                    mutable: false,
-                    name: it_name.clone(),
-                    type_ann: Some(gen_class),
-                    init: src,
-                    is_var: false,
-                });
-
-                let it_ref = self.ast.add_expr(Expr::Ident(it_name));
-                let next_member = self.ast.add_expr(Expr::Member {
-                    obj: it_ref,
-                    name: "next".into(),
-                });
-                let next_call = self.ast.add_expr(Expr::Call {
-                    callee: next_member,
-                    args: Vec::new(),
-                });
-                let step_decl = Stmt::LetDecl {
-                    mutable: false,
-                    name: step_name.clone(),
-                    type_ann: Some(step_ty),
-                    init: next_call,
-                    is_var: false,
-                };
-
-                let step_ref_done = self.ast.add_expr(Expr::Ident(step_name.clone()));
-                let done_member = self.ast.add_expr(Expr::Member {
-                    obj: step_ref_done,
-                    name: "done".into(),
-                });
-                let done_check = Stmt::If {
-                    cond: done_member,
-                    then_branch: Box::new(Stmt::Break),
-                    else_branch: None,
-                };
-
-                let step_ref_value = self.ast.add_expr(Expr::Ident(step_name));
-                let value_member = self.ast.add_expr(Expr::Member {
-                    obj: step_ref_value,
-                    name: "value".into(),
-                });
-                let _ = yield_ty; // type ann implicit via yield expr
-                let yield_stmt = Stmt::Yield(value_member);
-
-                let loop_body = Stmt::Block(vec![step_decl, done_check, yield_stmt]);
-                let true_lit = self.ast.add_expr(Expr::Bool(true));
-                let while_loop = Stmt::While {
-                    cond: true_lit,
-                    body: Box::new(loop_body),
-                };
-                stmts.push(while_loop);
-                return Ok(Stmt::Block(stmts));
-            }
-            let v = self.parse_expr()?;
-            if matches!(self.peek(), Token::Semi) {
-                self.pos += 1;
-            }
-            return Ok(Stmt::Yield(v));
+            return self.parse_yield_stmt();
         }
         // P2.1 — `var` is parsed identically to `let` here; the
         // difference is the `is_var: true` flag we'll thread into
@@ -246,168 +142,7 @@ impl<'a> Parser<'a> {
             _ => (None, false),
         };
         if let Some(mutable) = mutable {
-            let kw = if is_var {
-                "var"
-            } else if mutable {
-                "let"
-            } else {
-                "const"
-            };
-            self.pos += 1;
-            // Destructuring: `let [a, b] = src` or `let { x, y } = src`.
-            // Parsed inline so it shares the let-decl's lookahead. Both
-            // forms desugar to `let __t = src; let <field>...; ...` so the
-            // backend never sees a destructuring pattern.
-            if matches!(self.peek(), Token::LBracket) {
-                return self.parse_array_destructuring(mutable);
-            }
-            if matches!(self.peek(), Token::LBrace) {
-                return self.parse_object_destructuring(mutable);
-            }
-            // V3-18 m1.h.5 — multi-decl `let a, b = 1, c` per spec
-            // §14.3.1. Each binding can have its own type ann and
-            // optional init; commas separate; final semi closes.
-            // Decls are emitted as a Stmt::Multi so subsequent
-            // passes see them as a flat statement sequence.
-            let mut decls: Vec<Stmt> = Vec::new();
-            loop {
-                let name = match self.peek() {
-                    Token::Ident(n) => n.clone(),
-                    t => {
-                        return Err(format!(
-                            "expected identifier after `{kw}`, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
-                };
-                self.pos += 1;
-                let type_ann = if matches!(self.peek(), Token::Colon) {
-                    self.pos += 1;
-                    Some(self.parse_type_ann()?)
-                } else {
-                    None
-                };
-                // No-init shape: `let x` / `let x: T` (followed by
-                // `,` or `;` or — per JS ASI — a known statement-
-                // start token on the next line). Const requires an
-                // init by spec. T-37-followup-asi: accept Switch /
-                // If / For / While / Try / Function / Class / Let /
-                // Const / Var / Return / Throw / Break / Continue /
-                // Do / RBrace as ASI-implied terminators so test262
-                // patterns like `let x\nswitch (x) {...}` parse.
-                let next_is_stmt_start = matches!(
-                    self.peek(),
-                    Token::Switch
-                        | Token::If
-                        | Token::For
-                        | Token::While
-                        | Token::Try
-                        | Token::Function
-                        | Token::Class
-                        | Token::Let
-                        | Token::Const
-                        | Token::Var
-                        | Token::Return
-                        | Token::Throw
-                        | Token::Break
-                        | Token::Continue
-                        | Token::Do
-                        | Token::RBrace
-                );
-                if matches!(self.peek(), Token::Semi | Token::Comma) || next_is_stmt_start {
-                    if !mutable {
-                        return Err(format!(
-                            "`const {name}` requires an initializer at {}",
-                            self.at()
-                        ));
-                    }
-                    let init = self.ast.add_expr(Expr::Uninit);
-                    decls.push(Stmt::LetDecl {
-                        mutable,
-                        name,
-                        type_ann,
-                        init,
-                        is_var,
-                    });
-                    if matches!(self.peek(), Token::Comma) {
-                        self.pos += 1;
-                        continue;
-                    }
-                    // Only consume Semi as terminator; for ASI-style
-                    // stmt-start, leave the token for the outer parse.
-                    if matches!(self.peek(), Token::Semi) {
-                        self.pos += 1;
-                    }
-                    break;
-                }
-                match self.peek() {
-                    Token::Eq => self.pos += 1,
-                    t => return Err(format!("expected `=`, got {t:?} at {}", self.at())),
-                }
-                // J.4 — `let name(:T)? = yield <expr>;` shape. Only
-                // valid as a single-decl for-loop init or assignment;
-                // not allowed in the middle of a multi-decl. If the
-                // user writes `let x = yield e, y = ...` we fall
-                // through to parse_expr which won't accept yield —
-                // matches the v0.5 generator semantics.
-                if decls.is_empty() && matches!(self.peek(), Token::Yield) {
-                    self.pos += 1;
-                    let value = self.parse_expr()?;
-                    if matches!(self.peek(), Token::Semi) {
-                        self.pos += 1;
-                    }
-                    return Ok(Stmt::YieldInto {
-                        var: name,
-                        type_ann,
-                        value,
-                    });
-                }
-                let init = self.parse_expr()?;
-                // P8.5 — narrow-surface class-value alias registration.
-                // For const-bindings only, peek the init expr:
-                //   (i) `const F = class { ... }` → init is the synth
-                //       Ident emitted by parse_primary's Class branch
-                //       (`__ClassExpr_<id>`). Register F → that name.
-                //   (ii) `const G = F` where F is already an alias →
-                //        propagate so G also maps to the underlying
-                //        synth class.
-                // The map is read by parse_new to rewrite `new F()` /
-                // `new G()` into a static factory call against the
-                // synth name. let/var bindings and reassignment are
-                // intentionally skipped (those need real dynamic-ctor
-                // dispatch, parked as L3b).
-                if !mutable && !is_var {
-                    if let Expr::Ident(init_name) = self.ast.get_expr(init) {
-                        if init_name.starts_with("__ClassExpr_") {
-                            self.class_value_aliases
-                                .insert(name.clone(), init_name.clone());
-                        } else if let Some(target) = self.class_value_aliases.get(init_name) {
-                            let target = target.clone();
-                            self.class_value_aliases.insert(name.clone(), target);
-                        }
-                    }
-                }
-                decls.push(Stmt::LetDecl {
-                    mutable,
-                    name,
-                    type_ann,
-                    init,
-                    is_var,
-                });
-                if matches!(self.peek(), Token::Comma) {
-                    self.pos += 1;
-                    continue;
-                }
-                if matches!(self.peek(), Token::Semi) {
-                    self.pos += 1;
-                }
-                break;
-            }
-            return Ok(if decls.len() == 1 {
-                decls.into_iter().next().unwrap()
-            } else {
-                Stmt::Multi(decls)
-            });
+            return self.parse_let_decl_stmt(mutable, is_var);
         }
         // T-46 — labeled statement (`label: stmt`). JS spec §13.13.
         // tora doesn't track labels for `break label` / `continue label`
@@ -431,5 +166,294 @@ impl<'a> Parser<'a> {
             self.pos += 1;
         }
         Ok(Stmt::Expr(expr))
+    }
+
+    /// `yield e ;` / `yield * gen(args) ;` statement — split from
+    /// `parse_stmt` (2026-07-03, fn-debt decomp). Caller has peeked
+    /// `Token::Yield`; body verbatim, dedented one level.
+    pub(super) fn parse_yield_stmt(&mut self) -> Result<Stmt, String> {
+        // `yield e ;` — Phase J. Parser-level only; the surrounding
+        // function must be `function*` or `desugar_generators` will
+        // surface this as a typecheck error. Single-arg form only —
+        // tr's subset doesn't accept the `yield;` (undefined value)
+        // shape.
+        self.pos += 1;
+        // J.3 — `yield * gen(args);` delegates to an inner generator.
+        // Parse-time desugar: same iterator-protocol shape as for-of
+        // over a known generator factory, with `yield __step.value`
+        // as the loop body.
+        if matches!(self.peek(), Token::Star) {
+            self.pos += 1;
+            let src = self.parse_expr()?;
+            if matches!(self.peek(), Token::Semi) {
+                self.pos += 1;
+            }
+            let (callee_name, yield_ty) = match self.ast.get_expr(src) {
+                Expr::Call { callee, .. } => match self.ast.get_expr(*callee) {
+                    Expr::Ident(n) => match self.generator_fns.get(n).cloned() {
+                        Some(yt) => (n.clone(), yt),
+                        None => {
+                            return Err(format!(
+                                "yield* `{n}(...)` — `{n}` is not a known function* \
+                                 declaration (J.3 MVP only handles direct generator \
+                                 factory calls) at {}",
+                                self.at()
+                            ));
+                        }
+                    },
+                    _ => {
+                        return Err(format!(
+                            "yield* requires a direct call to a function* declaration \
+                             (got non-ident callee) at {}",
+                            self.at()
+                        ));
+                    }
+                },
+                _ => {
+                    return Err(format!(
+                        "yield* requires a direct call to a function* declaration \
+                         (got non-call expr) at {}",
+                        self.at()
+                    ));
+                }
+            };
+            let gen_class = format!("__Gen_{callee_name}");
+            let step_ty = format!("__step_{callee_name}");
+            let id = self.mint_desugar_id();
+            let it_name = format!("__yieldstar_it_{id}");
+            let step_name = format!("__yieldstar_step_{id}");
+
+            let mut stmts: Vec<Stmt> = Vec::new();
+            stmts.push(Stmt::LetDecl {
+                mutable: false,
+                name: it_name.clone(),
+                type_ann: Some(gen_class),
+                init: src,
+                is_var: false,
+            });
+
+            let it_ref = self.ast.add_expr(Expr::Ident(it_name));
+            let next_member = self.ast.add_expr(Expr::Member {
+                obj: it_ref,
+                name: "next".into(),
+            });
+            let next_call = self.ast.add_expr(Expr::Call {
+                callee: next_member,
+                args: Vec::new(),
+            });
+            let step_decl = Stmt::LetDecl {
+                mutable: false,
+                name: step_name.clone(),
+                type_ann: Some(step_ty),
+                init: next_call,
+                is_var: false,
+            };
+
+            let step_ref_done = self.ast.add_expr(Expr::Ident(step_name.clone()));
+            let done_member = self.ast.add_expr(Expr::Member {
+                obj: step_ref_done,
+                name: "done".into(),
+            });
+            let done_check = Stmt::If {
+                cond: done_member,
+                then_branch: Box::new(Stmt::Break),
+                else_branch: None,
+            };
+
+            let step_ref_value = self.ast.add_expr(Expr::Ident(step_name));
+            let value_member = self.ast.add_expr(Expr::Member {
+                obj: step_ref_value,
+                name: "value".into(),
+            });
+            let _ = yield_ty; // type ann implicit via yield expr
+            let yield_stmt = Stmt::Yield(value_member);
+
+            let loop_body = Stmt::Block(vec![step_decl, done_check, yield_stmt]);
+            let true_lit = self.ast.add_expr(Expr::Bool(true));
+            let while_loop = Stmt::While {
+                cond: true_lit,
+                body: Box::new(loop_body),
+            };
+            stmts.push(while_loop);
+            return Ok(Stmt::Block(stmts));
+        }
+        let v = self.parse_expr()?;
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        return Ok(Stmt::Yield(v));
+    }
+
+    /// `let` / `var` / `const` declaration statement (multi-decl,
+    /// destructuring dispatch, `= yield` J.4 shape) — split from
+    /// `parse_stmt` (2026-07-03, fn-debt decomp). Body verbatim,
+    /// dedented one level.
+    pub(super) fn parse_let_decl_stmt(
+        &mut self,
+        mutable: bool,
+        is_var: bool,
+    ) -> Result<Stmt, String> {
+        let kw = if is_var {
+            "var"
+        } else if mutable {
+            "let"
+        } else {
+            "const"
+        };
+        self.pos += 1;
+        // Destructuring: `let [a, b] = src` or `let { x, y } = src`.
+        // Parsed inline so it shares the let-decl's lookahead. Both
+        // forms desugar to `let __t = src; let <field>...; ...` so the
+        // backend never sees a destructuring pattern.
+        if matches!(self.peek(), Token::LBracket) {
+            return self.parse_array_destructuring(mutable);
+        }
+        if matches!(self.peek(), Token::LBrace) {
+            return self.parse_object_destructuring(mutable);
+        }
+        // V3-18 m1.h.5 — multi-decl `let a, b = 1, c` per spec
+        // §14.3.1. Each binding can have its own type ann and
+        // optional init; commas separate; final semi closes.
+        // Decls are emitted as a Stmt::Multi so subsequent
+        // passes see them as a flat statement sequence.
+        let mut decls: Vec<Stmt> = Vec::new();
+        loop {
+            let name = match self.peek() {
+                Token::Ident(n) => n.clone(),
+                t => {
+                    return Err(format!(
+                        "expected identifier after `{kw}`, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            };
+            self.pos += 1;
+            let type_ann = if matches!(self.peek(), Token::Colon) {
+                self.pos += 1;
+                Some(self.parse_type_ann()?)
+            } else {
+                None
+            };
+            // No-init shape: `let x` / `let x: T` (followed by
+            // `,` or `;` or — per JS ASI — a known statement-
+            // start token on the next line). Const requires an
+            // init by spec. T-37-followup-asi: accept Switch /
+            // If / For / While / Try / Function / Class / Let /
+            // Const / Var / Return / Throw / Break / Continue /
+            // Do / RBrace as ASI-implied terminators so test262
+            // patterns like `let x\nswitch (x) {...}` parse.
+            let next_is_stmt_start = matches!(
+                self.peek(),
+                Token::Switch
+                    | Token::If
+                    | Token::For
+                    | Token::While
+                    | Token::Try
+                    | Token::Function
+                    | Token::Class
+                    | Token::Let
+                    | Token::Const
+                    | Token::Var
+                    | Token::Return
+                    | Token::Throw
+                    | Token::Break
+                    | Token::Continue
+                    | Token::Do
+                    | Token::RBrace
+            );
+            if matches!(self.peek(), Token::Semi | Token::Comma) || next_is_stmt_start {
+                if !mutable {
+                    return Err(format!(
+                        "`const {name}` requires an initializer at {}",
+                        self.at()
+                    ));
+                }
+                let init = self.ast.add_expr(Expr::Uninit);
+                decls.push(Stmt::LetDecl {
+                    mutable,
+                    name,
+                    type_ann,
+                    init,
+                    is_var,
+                });
+                if matches!(self.peek(), Token::Comma) {
+                    self.pos += 1;
+                    continue;
+                }
+                // Only consume Semi as terminator; for ASI-style
+                // stmt-start, leave the token for the outer parse.
+                if matches!(self.peek(), Token::Semi) {
+                    self.pos += 1;
+                }
+                break;
+            }
+            match self.peek() {
+                Token::Eq => self.pos += 1,
+                t => return Err(format!("expected `=`, got {t:?} at {}", self.at())),
+            }
+            // J.4 — `let name(:T)? = yield <expr>;` shape. Only
+            // valid as a single-decl for-loop init or assignment;
+            // not allowed in the middle of a multi-decl. If the
+            // user writes `let x = yield e, y = ...` we fall
+            // through to parse_expr which won't accept yield —
+            // matches the v0.5 generator semantics.
+            if decls.is_empty() && matches!(self.peek(), Token::Yield) {
+                self.pos += 1;
+                let value = self.parse_expr()?;
+                if matches!(self.peek(), Token::Semi) {
+                    self.pos += 1;
+                }
+                return Ok(Stmt::YieldInto {
+                    var: name,
+                    type_ann,
+                    value,
+                });
+            }
+            let init = self.parse_expr()?;
+            // P8.5 — narrow-surface class-value alias registration.
+            // For const-bindings only, peek the init expr:
+            //   (i) `const F = class { ... }` → init is the synth
+            //       Ident emitted by parse_primary's Class branch
+            //       (`__ClassExpr_<id>`). Register F → that name.
+            //   (ii) `const G = F` where F is already an alias →
+            //        propagate so G also maps to the underlying
+            //        synth class.
+            // The map is read by parse_new to rewrite `new F()` /
+            // `new G()` into a static factory call against the
+            // synth name. let/var bindings and reassignment are
+            // intentionally skipped (those need real dynamic-ctor
+            // dispatch, parked as L3b).
+            if !mutable && !is_var {
+                if let Expr::Ident(init_name) = self.ast.get_expr(init) {
+                    if init_name.starts_with("__ClassExpr_") {
+                        self.class_value_aliases
+                            .insert(name.clone(), init_name.clone());
+                    } else if let Some(target) = self.class_value_aliases.get(init_name) {
+                        let target = target.clone();
+                        self.class_value_aliases.insert(name.clone(), target);
+                    }
+                }
+            }
+            decls.push(Stmt::LetDecl {
+                mutable,
+                name,
+                type_ann,
+                init,
+                is_var,
+            });
+            if matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+                continue;
+            }
+            if matches!(self.peek(), Token::Semi) {
+                self.pos += 1;
+            }
+            break;
+        }
+        return Ok(if decls.len() == 1 {
+            decls.into_iter().next().unwrap()
+        } else {
+            Stmt::Multi(decls)
+        });
     }
 }

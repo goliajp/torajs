@@ -163,6 +163,14 @@ pub(crate) fn parse_type(
     {
         return t;
     }
+    parse_keyword(s, aliases)
+}
+
+/// Flat scalar / keyword annotation tail (`number` / `string` / `Map`
+/// / ... plus the alias fallback) — split from `parse_type`
+/// (2026-07-03: the chunk-437 split left the fn at 201 LOC, one over
+/// the 200 hard limit; match body verbatim).
+fn parse_keyword(s: &str, aliases: &HashMap<String, Type>) -> Type {
     match s {
         // `number` defaults to i64 — best for the integer-heavy cases
         // (popcount/fib40/gcd1m). f64 is opt-in via explicit annotation;

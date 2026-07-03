@@ -1,0 +1,146 @@
+//! Class-decl header parsing (name / generic type params / heritage
+//! clauses + class-body-opening `{`), split from
+//! `parse_class_decl.rs::parse_class_decl_with_abstract` (2026-07-03,
+//! fn-debt decomp). Bodies verbatim; mechanical rewrite: each
+//! segment tail gains its `Ok(..)` return.
+
+use super::*;
+
+impl<'a> Parser<'a> {
+    /// Class name position: user ident, force-synth discard (P8.5
+    /// class-expression inner name), or anonymous synth mint.
+    pub(super) fn parse_class_name(
+        &mut self,
+        allow_anon: bool,
+        force_synth: bool,
+    ) -> Result<String, String> {
+        let name = match self.peek() {
+            // P8.5 — `force_synth`: even when a class-expression-position
+            // class carries an inner name (`class Inner { ... }`),
+            // consume-and-discard it so the synth name controls all
+            // downstream resolution. Inner self-binding (Inner referring
+            // to the class inside its own body) is an L3b follow-up.
+            Token::Ident(_) if force_synth => {
+                self.pos += 1;
+                let id = self.mint_desugar_id();
+                format!("__ClassExpr_{id}")
+            }
+            Token::Ident(n) => {
+                let n = n.clone();
+                self.pos += 1;
+                n
+            }
+            // P8.5 — anonymous class expression (`const F = class { ... }`,
+            // `new (class { ... })()`). Mint a unique synth name that
+            // `synthesize_class_globals` will expose as
+            // `__class___ClassExpr_<id>`. Source-side anonymous → user
+            // code never references this name directly; only the
+            // parser-emitted Ident at the original use site does.
+            _ if allow_anon => {
+                let id = self.mint_desugar_id();
+                format!("__ClassExpr_{id}")
+            }
+            t => {
+                return Err(format!("expected class name, got {t:?} at {}", self.at()));
+            }
+        };
+        Ok(name)
+    }
+
+    /// Optional `class C<T, ...>` generic type-param list.
+    pub(super) fn parse_class_type_params(&mut self) -> Result<Vec<String>, String> {
+        let mut type_params: Vec<String> = Vec::new();
+        if matches!(self.peek(), Token::Lt) {
+            self.pos += 1;
+            if !matches!(self.peek(), Token::Gt) {
+                loop {
+                    match self.peek() {
+                        Token::Ident(n) => {
+                            type_params.push(n.clone());
+                            self.pos += 1;
+                        }
+                        t => {
+                            return Err(format!(
+                                "expected type-param name in class<...>, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    match self.peek() {
+                        Token::Comma => self.pos += 1,
+                        Token::Gt => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `>` in class type params, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
+            }
+            match self.peek() {
+                Token::Gt => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `>` to close class type params, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+        }
+        Ok(type_params)
+    }
+
+    /// Optional `extends P` clause + `implements I, ...` clause
+    /// (V3-18: consumed and discarded per TS spec §3.7); also
+    /// consumes the class-body-opening `{`.
+    pub(super) fn parse_class_heritage(&mut self) -> Result<Option<String>, String> {
+        // M5.2 — optional `extends BaseName` clause.
+        let parent: Option<String> = if matches!(self.peek(), Token::Extends) {
+            self.pos += 1;
+            match self.peek() {
+                Token::Ident(n) => {
+                    let n = n.clone();
+                    self.pos += 1;
+                    Some(n)
+                }
+                t => {
+                    return Err(format!(
+                        "expected parent class name after `extends`, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+        } else {
+            None
+        };
+        // V3-18 wedge — `implements Foo, Bar` clause on class.
+        // Per TS spec §3.7, `implements` declares structural-typing
+        // intent without runtime effect. Subset consumes and
+        // discards the list — the structural check is provided by
+        // existing field-by-field typecheck on assignment.
+        if let Token::Ident(s) = self.peek()
+            && s == "implements"
+        {
+            self.pos += 1;
+            loop {
+                let _iface = self.parse_type_ann()?;
+                if matches!(self.peek(), Token::Comma) {
+                    self.pos += 1;
+                    continue;
+                }
+                break;
+            }
+        }
+        match self.peek() {
+            Token::LBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `{{` to begin class body, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        Ok(parent)
+    }
+}

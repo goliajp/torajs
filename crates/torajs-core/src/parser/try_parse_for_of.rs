@@ -8,8 +8,14 @@
 //! tokens to detect the of-of-form vs the C-style `for (init; cond;
 //! step)`. Returns `Ok(None)` on non-for-of shape so `parse_stmt`
 //! can fall through to `parse_for`. Body unchanged.
+//!
+//! 2026-07-03 fn-debt decomp: destructuring scans + body wrapper →
+//! `forof_destr.rs`; generator desugar + default ForOf tail split
+//! into sub-fns below (bodies verbatim, dedented one level).
 
 use super::*;
+
+use super::forof_destr::ForOfPatScan;
 
 impl<'a> Parser<'a> {
     pub(super) fn try_parse_for_of(&mut self, is_async: bool) -> Result<Option<Stmt>, String> {
@@ -21,50 +27,13 @@ impl<'a> Parser<'a> {
         // V3-18 wedge — for-of with array-destructuring pattern:
         // `for (let [a, b] of pairs) { ... }`. Common shape for
         // iterating tuple arrays.
-        let destruct_names: Option<Vec<String>> = if matches!(self.peek(), Token::LBracket) {
-            let start = self.pos;
-            self.pos += 1;
-            let mut names: Vec<String> = Vec::new();
-            let ok = loop {
-                match self.peek() {
-                    Token::Ident(n) => {
-                        names.push(n.clone());
-                        self.pos += 1;
-                    }
-                    _ => break false,
-                }
-                match self.peek() {
-                    Token::Comma => {
-                        self.pos += 1;
-                        if matches!(self.peek(), Token::RBracket) {
-                            break true;
-                        }
-                    }
-                    Token::RBracket => break true,
-                    _ => break false,
-                }
-            };
-            if !ok {
+        let destruct_names: Option<Vec<String>> = match self.scan_forof_destr_array() {
+            ForOfPatScan::Bail => {
                 self.pos = saved;
                 return Ok(None);
             }
-            self.pos += 1; // consume `]`
-            // Optional `: T[]` annotation on the pattern — discarded.
-            if matches!(self.peek(), Token::Colon) {
-                self.pos += 1;
-                let _ = self.parse_type_ann();
-            }
-            let is_of = matches!(self.peek(), Token::Ident(n) if n == "of");
-            if !is_of {
-                // Not for-of after destructuring; surrender — likely
-                // a let-destructuring statement which won't reach here.
-                self.pos = start;
-                self.pos = saved;
-                return Ok(None);
-            }
-            Some(names)
-        } else {
-            None
+            ForOfPatScan::NotPattern => None,
+            ForOfPatScan::Pat(names) => Some(names),
         };
         // V3-18 wedge — for-of with object-destructuring pattern:
         // `for (let { x, y } of pts) { ... }`. Mirror of the array
@@ -75,70 +44,18 @@ impl<'a> Parser<'a> {
         // Bound binding name still required to be an Ident
         // (reserved-word fields require explicit `field: name`
         // rename — same rule as parse_object_destructuring).
-        let destruct_obj: Option<Vec<(String, String)>> =
-            if destruct_names.is_none() && matches!(self.peek(), Token::LBrace) {
-                let start = self.pos;
-                self.pos += 1; // consume `{`
-                let mut entries: Vec<(String, String)> = Vec::new();
-                let ok = loop {
-                    let (field, field_is_kw) = match self.peek() {
-                        Token::Ident(n) => (n.clone(), false),
-                        t if Self::keyword_property_name(t).is_some() => {
-                            (Self::keyword_property_name(t).unwrap().to_string(), true)
-                        }
-                        _ => break false,
-                    };
-                    self.pos += 1;
-                    let bound = if matches!(self.peek(), Token::Colon) {
-                        self.pos += 1;
-                        match self.peek() {
-                            Token::Ident(n) => {
-                                let nn = n.clone();
-                                self.pos += 1;
-                                nn
-                            }
-                            _ => break false,
-                        }
-                    } else {
-                        if field_is_kw {
-                            // Same diagnostic as parse_object_destructuring:
-                            // can't use a reserved word as a binding name.
-                            break false;
-                        }
-                        field.clone()
-                    };
-                    entries.push((field, bound));
-                    match self.peek() {
-                        Token::Comma => {
-                            self.pos += 1;
-                            if matches!(self.peek(), Token::RBrace) {
-                                break true;
-                            }
-                        }
-                        Token::RBrace => break true,
-                        _ => break false,
-                    }
-                };
-                if !ok {
+        let destruct_obj: Option<Vec<(String, String)>> = if destruct_names.is_none() {
+            match self.scan_forof_destr_obj() {
+                ForOfPatScan::Bail => {
                     self.pos = saved;
                     return Ok(None);
                 }
-                self.pos += 1; // consume `}`
-                // Optional `: T` annotation on the pattern — discarded.
-                if matches!(self.peek(), Token::Colon) {
-                    self.pos += 1;
-                    let _ = self.parse_type_ann();
-                }
-                let is_of = matches!(self.peek(), Token::Ident(n) if n == "of");
-                if !is_of {
-                    self.pos = start;
-                    self.pos = saved;
-                    return Ok(None);
-                }
-                Some(entries)
-            } else {
-                None
-            };
+                ForOfPatScan::NotPattern => None,
+                ForOfPatScan::Pat(entries) => Some(entries),
+            }
+        } else {
+            None
+        };
         let var_name = if destruct_names.is_some() || destruct_obj.is_some() {
             let id = self.mint_desugar_id();
             format!("__forof_destr_{id}")
@@ -205,48 +122,11 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        let mut body = self.parse_stmt()?;
+        let body = self.parse_stmt()?;
         // V3-18 wedge — prepend per-element / per-field destructuring
         // lets when the loop var was a pattern. The original `body` is
         // wrapped in a block so block-close drops still fire normally.
-        if let Some(names) = &destruct_names {
-            let mut pre: Vec<Stmt> = Vec::new();
-            for (i, n) in names.iter().enumerate() {
-                let src_ref = self.ast.add_expr(Expr::Ident(var_name.clone()));
-                let idx = self.ast.add_expr(Expr::Number(i as f64));
-                let elem = self.ast.add_expr(Expr::Index {
-                    obj: src_ref,
-                    index: idx,
-                });
-                pre.push(Stmt::LetDecl {
-                    mutable: false,
-                    name: n.clone(),
-                    type_ann: None,
-                    init: elem,
-                    is_var: false,
-                });
-            }
-            pre.push(body);
-            body = Stmt::Block(pre);
-        } else if let Some(entries) = &destruct_obj {
-            let mut pre: Vec<Stmt> = Vec::new();
-            for (field, bound) in entries {
-                let src_ref = self.ast.add_expr(Expr::Ident(var_name.clone()));
-                let elem = self.ast.add_expr(Expr::Member {
-                    obj: src_ref,
-                    name: field.clone(),
-                });
-                pre.push(Stmt::LetDecl {
-                    mutable: false,
-                    name: bound.clone(),
-                    type_ann: None,
-                    init: elem,
-                    is_var: false,
-                });
-            }
-            pre.push(body);
-            body = Stmt::Block(pre);
-        }
+        let body = self.wrap_forof_destr_body(&destruct_names, &destruct_obj, &var_name, body);
 
         // P-iter — `for (let v of <expr>.split(<literal_sep>))` →
         // emit Stmt::ForOfSplitIter. ssa_lower handles via stack
@@ -296,76 +176,14 @@ impl<'a> Parser<'a> {
             && let Expr::Ident(callee_name) = self.ast.get_expr(*callee)
             && let Some(yield_ty) = self.generator_fns.get(callee_name).cloned()
         {
-            let gen_class = format!("__Gen_{callee_name}");
-            let step_ty = format!("__step_{callee_name}");
-            let id = self.mint_desugar_id();
-            let it_name = format!("__forof_it_{id}");
-            let step_name = format!("__forof_step_{id}");
-
-            let mut stmts: Vec<Stmt> = Vec::new();
-            // let __it: __Gen_<callee> = <gen-call>
-            stmts.push(Stmt::LetDecl {
-                mutable: false,
-                name: it_name.clone(),
-                type_ann: Some(gen_class),
-                init: src,
-                is_var: false,
-            });
-
-            // Inside while(true):
-            //   let __step: __step_<callee> = __it.next();
-            //   if (__step.done) { break; }
-            //   let v: <yield_ty> = __step.value;
-            //   <body>
-            let it_ref = self.ast.add_expr(Expr::Ident(it_name.clone()));
-            let next_member = self.ast.add_expr(Expr::Member {
-                obj: it_ref,
-                name: "next".into(),
-            });
-            let next_call = self.ast.add_expr(Expr::Call {
-                callee: next_member,
-                args: Vec::new(),
-            });
-            let step_decl = Stmt::LetDecl {
-                mutable: false,
-                name: step_name.clone(),
-                type_ann: Some(step_ty),
-                init: next_call,
-                is_var: false,
-            };
-
-            let step_ref_done = self.ast.add_expr(Expr::Ident(step_name.clone()));
-            let done_member = self.ast.add_expr(Expr::Member {
-                obj: step_ref_done,
-                name: "done".into(),
-            });
-            let done_check = Stmt::If {
-                cond: done_member,
-                then_branch: Box::new(Stmt::Break),
-                else_branch: None,
-            };
-
-            let step_ref_value = self.ast.add_expr(Expr::Ident(step_name.clone()));
-            let value_member = self.ast.add_expr(Expr::Member {
-                obj: step_ref_value,
-                name: "value".into(),
-            });
-            let var_decl = Stmt::LetDecl {
-                mutable: false,
-                name: var_name,
-                type_ann: Some(yield_ty),
-                init: value_member,
-                is_var: false,
-            };
-
-            let loop_body = Stmt::Block(vec![step_decl, done_check, var_decl, body]);
-            let true_lit = self.ast.add_expr(Expr::Bool(true));
-            let while_loop = Stmt::While {
-                cond: true_lit,
-                body: Box::new(loop_body),
-            };
-            stmts.push(while_loop);
-            return Ok(Some(Stmt::Block(stmts)));
+            let callee_name = callee_name.clone();
+            return Ok(Some(self.desugar_forof_generator(
+                &callee_name,
+                yield_ty,
+                src,
+                var_name,
+                body,
+            )));
         }
 
         // P5.3 — default for-of emits Stmt::ForOf wrapped in a
@@ -375,7 +193,112 @@ impl<'a> Parser<'a> {
         // protocol. The pre-allocated `elem_expr = src_ident[i_ident]`
         // routes element loads through Expr::Index lowering — handles
         // Type::Any / Substr / typed-Array uniformly.
-        let _ = have_type_ann;
+        Ok(Some(self.emit_forof_default(
+            var_name,
+            var_type_ann,
+            src,
+            body,
+            is_async,
+        )))
+    }
+
+    /// Generator-factory for-of desugar (I.2) — split from
+    /// `try_parse_for_of` (2026-07-03, fn-debt decomp). Builds the
+    /// iterator-protocol next-loop; body verbatim, dedented one
+    /// level; tail `return Ok(Some(Stmt::Block(..)))` becomes the
+    /// plain `Stmt::Block` return value.
+    fn desugar_forof_generator(
+        &mut self,
+        callee_name: &str,
+        yield_ty: String,
+        src: ExprId,
+        var_name: String,
+        body: Stmt,
+    ) -> Stmt {
+        let gen_class = format!("__Gen_{callee_name}");
+        let step_ty = format!("__step_{callee_name}");
+        let id = self.mint_desugar_id();
+        let it_name = format!("__forof_it_{id}");
+        let step_name = format!("__forof_step_{id}");
+
+        let mut stmts: Vec<Stmt> = Vec::new();
+        // let __it: __Gen_<callee> = <gen-call>
+        stmts.push(Stmt::LetDecl {
+            mutable: false,
+            name: it_name.clone(),
+            type_ann: Some(gen_class),
+            init: src,
+            is_var: false,
+        });
+
+        // Inside while(true):
+        //   let __step: __step_<callee> = __it.next();
+        //   if (__step.done) { break; }
+        //   let v: <yield_ty> = __step.value;
+        //   <body>
+        let it_ref = self.ast.add_expr(Expr::Ident(it_name.clone()));
+        let next_member = self.ast.add_expr(Expr::Member {
+            obj: it_ref,
+            name: "next".into(),
+        });
+        let next_call = self.ast.add_expr(Expr::Call {
+            callee: next_member,
+            args: Vec::new(),
+        });
+        let step_decl = Stmt::LetDecl {
+            mutable: false,
+            name: step_name.clone(),
+            type_ann: Some(step_ty),
+            init: next_call,
+            is_var: false,
+        };
+
+        let step_ref_done = self.ast.add_expr(Expr::Ident(step_name.clone()));
+        let done_member = self.ast.add_expr(Expr::Member {
+            obj: step_ref_done,
+            name: "done".into(),
+        });
+        let done_check = Stmt::If {
+            cond: done_member,
+            then_branch: Box::new(Stmt::Break),
+            else_branch: None,
+        };
+
+        let step_ref_value = self.ast.add_expr(Expr::Ident(step_name.clone()));
+        let value_member = self.ast.add_expr(Expr::Member {
+            obj: step_ref_value,
+            name: "value".into(),
+        });
+        let var_decl = Stmt::LetDecl {
+            mutable: false,
+            name: var_name,
+            type_ann: Some(yield_ty),
+            init: value_member,
+            is_var: false,
+        };
+
+        let loop_body = Stmt::Block(vec![step_decl, done_check, var_decl, body]);
+        let true_lit = self.ast.add_expr(Expr::Bool(true));
+        let while_loop = Stmt::While {
+            cond: true_lit,
+            body: Box::new(loop_body),
+        };
+        stmts.push(while_loop);
+        Stmt::Block(stmts)
+    }
+
+    /// Default for-of tail (P5.3 `Stmt::ForOf` emission incl. the
+    /// `for await` `.value` wrap) — split from `try_parse_for_of`
+    /// (2026-07-03, fn-debt decomp). Body verbatim; the two
+    /// `Ok(Some(..))` tails become plain `Stmt`s.
+    fn emit_forof_default(
+        &mut self,
+        var_name: String,
+        var_type_ann: Option<String>,
+        src: ExprId,
+        body: Stmt,
+        is_async: bool,
+    ) -> Stmt {
         let id = self.mint_desugar_id();
         let i_name = format!("__forof_i_{id}");
         // src reuse rule: if src is already an Ident, no temp needed —
@@ -421,7 +344,7 @@ impl<'a> Parser<'a> {
             body: Box::new(body),
         };
         if src_is_ident {
-            Ok(Some(forof_stmt))
+            forof_stmt
         } else {
             // Hoist src into a fresh let, then ForOf reads it by name.
             let let_src = Stmt::LetDecl {
@@ -431,7 +354,7 @@ impl<'a> Parser<'a> {
                 init: src,
                 is_var: false,
             };
-            Ok(Some(Stmt::Block(vec![let_src, forof_stmt])))
+            Stmt::Block(vec![let_src, forof_stmt])
         }
     }
 }

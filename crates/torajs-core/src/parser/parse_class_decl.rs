@@ -15,6 +15,11 @@
 //! AccessorKind).
 //!
 //! Body unchanged.
+//!
+//! 2026-07-03 fn-debt decomp: header trio (name / type params /
+//! heritage + body-open) → `parse_class_decl_header.rs`; static
+//! block / member-name / untyped-field / field-init finalize →
+//! `parse_class_decl_member.rs`.
 
 use super::*;
 
@@ -26,36 +31,7 @@ impl<'a> Parser<'a> {
         force_synth: bool,
     ) -> Result<Stmt, String> {
         self.pos += 1; // consume `class`
-        let name = match self.peek() {
-            // P8.5 — `force_synth`: even when a class-expression-position
-            // class carries an inner name (`class Inner { ... }`),
-            // consume-and-discard it so the synth name controls all
-            // downstream resolution. Inner self-binding (Inner referring
-            // to the class inside its own body) is an L3b follow-up.
-            Token::Ident(_) if force_synth => {
-                self.pos += 1;
-                let id = self.mint_desugar_id();
-                format!("__ClassExpr_{id}")
-            }
-            Token::Ident(n) => {
-                let n = n.clone();
-                self.pos += 1;
-                n
-            }
-            // P8.5 — anonymous class expression (`const F = class { ... }`,
-            // `new (class { ... })()`). Mint a unique synth name that
-            // `synthesize_class_globals` will expose as
-            // `__class___ClassExpr_<id>`. Source-side anonymous → user
-            // code never references this name directly; only the
-            // parser-emitted Ident at the original use site does.
-            _ if allow_anon => {
-                let id = self.mint_desugar_id();
-                format!("__ClassExpr_{id}")
-            }
-            t => {
-                return Err(format!("expected class name, got {t:?} at {}", self.at()));
-            }
-        };
+        let name = self.parse_class_name(allow_anon, force_synth)?;
         // P8.1 — set `current_class` so private-member parsing inside
         // this class body can mangle `this.#x` to `__priv_<class>__x`.
         // Saved/restored at every successful return path; on `return
@@ -65,91 +41,8 @@ impl<'a> Parser<'a> {
         let saved_class = self.current_class.take();
         self.current_class = Some(name.clone());
         // Optional generic type params: `class Map<K, V> { ... }`.
-        let mut type_params: Vec<String> = Vec::new();
-        if matches!(self.peek(), Token::Lt) {
-            self.pos += 1;
-            if !matches!(self.peek(), Token::Gt) {
-                loop {
-                    match self.peek() {
-                        Token::Ident(n) => {
-                            type_params.push(n.clone());
-                            self.pos += 1;
-                        }
-                        t => {
-                            return Err(format!(
-                                "expected type-param name in class<...>, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                    match self.peek() {
-                        Token::Comma => self.pos += 1,
-                        Token::Gt => break,
-                        t => {
-                            return Err(format!(
-                                "expected `,` or `>` in class type params, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                }
-            }
-            match self.peek() {
-                Token::Gt => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `>` to close class type params, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-        }
-        // M5.2 — optional `extends BaseName` clause.
-        let parent: Option<String> = if matches!(self.peek(), Token::Extends) {
-            self.pos += 1;
-            match self.peek() {
-                Token::Ident(n) => {
-                    let n = n.clone();
-                    self.pos += 1;
-                    Some(n)
-                }
-                t => {
-                    return Err(format!(
-                        "expected parent class name after `extends`, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-        } else {
-            None
-        };
-        // V3-18 wedge — `implements Foo, Bar` clause on class.
-        // Per TS spec §3.7, `implements` declares structural-typing
-        // intent without runtime effect. Subset consumes and
-        // discards the list — the structural check is provided by
-        // existing field-by-field typecheck on assignment.
-        if let Token::Ident(s) = self.peek()
-            && s == "implements"
-        {
-            self.pos += 1;
-            loop {
-                let _iface = self.parse_type_ann()?;
-                if matches!(self.peek(), Token::Comma) {
-                    self.pos += 1;
-                    continue;
-                }
-                break;
-            }
-        }
-        match self.peek() {
-            Token::LBrace => self.pos += 1,
-            t => {
-                return Err(format!(
-                    "expected `{{` to begin class body, got {t:?} at {}",
-                    self.at()
-                ));
-            }
-        }
+        let type_params = self.parse_class_type_params()?;
+        let parent = self.parse_class_heritage()?;
         let mut fields: Vec<(String, String)> = Vec::new();
         let mut static_init: Vec<StaticInit> = Vec::new();
         let mut ctor: Option<ClassCtor> = None;
@@ -189,20 +82,7 @@ impl<'a> Parser<'a> {
                     Some(Token::LBrace)
                 )
             {
-                self.pos += 2; // consume `static` + `{`
-                let mut block_stmts: Vec<Stmt> = Vec::new();
-                while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-                    let s = self.parse_stmt()?;
-                    block_stmts.push(s);
-                }
-                if !matches!(self.peek(), Token::RBrace) {
-                    return Err(format!(
-                        "expected `}}` to close static-block in class `{name}` at {}",
-                        self.at()
-                    ));
-                }
-                self.pos += 1; // consume `}`
-                static_init.push(StaticInit::Block(block_stmts));
+                self.parse_class_static_block(&name, &mut static_init)?;
                 continue;
             }
 
@@ -215,110 +95,10 @@ impl<'a> Parser<'a> {
                 accessor_kind,
                 is_async,
             } = self.parse_class_member_modifier_prefix(&name, is_abstract)?;
-            // P5.2 — computed-key class member `[Symbol.iterator]() {
-            // ... }`. Mirrors the object-literal computed-key handling
-            // (parse_object_field) so the same `__sym_Symbol_iterator__`
-            // synthetic name flows through into the class layout. Only
-            // member-name shape `[<Ident>(. <Ident>)*]` is accepted —
-            // string-literal keys (`["foo"]`) and arbitrary exprs are
-            // out of scope for the class-method computed-key surface.
-            // Body parsing falls through to the normal method branch
-            // by emitting a synthetic name + advancing past `]`.
-            let mut consumed_computed_name = false;
-            let member_name = if matches!(self.peek(), Token::LBracket) {
-                self.pos += 1;
-                let key = match self.peek() {
-                    Token::Ident(_) => {
-                        let mut parts: Vec<String> = Vec::new();
-                        loop {
-                            if let Token::Ident(n) = self.peek() {
-                                parts.push(n.clone());
-                                self.pos += 1;
-                            } else {
-                                break;
-                            }
-                            if matches!(self.peek(), Token::Dot) {
-                                self.pos += 1;
-                            } else {
-                                break;
-                            }
-                        }
-                        format!("__sym_{}__", parts.join("_"))
-                    }
-                    Token::String(s) => {
-                        let k = s.clone();
-                        self.pos += 1;
-                        k
-                    }
-                    t => {
-                        return Err(format!(
-                            "expected `Symbol.iterator`-style key inside `[...]` for class `{name}` member, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
-                };
-                if !matches!(self.peek(), Token::RBracket) {
-                    let t = self.peek().clone();
-                    return Err(format!(
-                        "expected `]` to close computed class member key for `{name}`, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-                self.pos += 1; // consume `]`
-                consumed_computed_name = true;
-                key
-            } else {
-                match self.peek() {
-                    Token::Ident(n) => n.clone(),
-                    // P8.1 — `#name` PrivateIdentifier as a class member
-                    // name. Two effects: (a) mangle the name to
-                    // `__priv_<ClassName>__<name>` so the existing
-                    // public-field machinery (struct_layouts, member
-                    // resolution, codegen) handles it uniformly without
-                    // a parallel data path; (b) force visibility to
-                    // Private regardless of any earlier `public`/
-                    // `protected` modifier — `#` is the spec marker
-                    // for hard-private (exact-class-only access),
-                    // distinct from the TS-modifier `private` which
-                    // also allows Protected-style subclass access.
-                    // Cross-class enforcement happens at typecheck
-                    // (check.rs P8.1-A4); ssa_lower sees a regular
-                    // String name (P8.1-A5 validates round-trip).
-                    //
-                    // `static #x` is out of P8.1 scope — reject here
-                    // with a targeted error rather than silently
-                    // synthesizing a static mangled name we can't yet
-                    // lower correctly. The `is_static` lookahead above
-                    // recognizes `static <PrivateIdent>` so we land in
-                    // this arm.
-                    Token::PrivateIdent(n) => {
-                        if is_static {
-                            return Err(format!(
-                                "static private fields (`static #{n}`) not yet supported in class `{name}` — defer P8.x followup (at {})",
-                                self.at()
-                            ));
-                        }
-                        let priv_name = n.clone();
-                        explicit_visibility = Some(ast::Visibility::Private);
-                        format!("__priv_{name}__{priv_name}")
-                    }
-                    // V3-18 wedge — accept the full reserved-word list
-                    // as class member names per ES spec §12.7.6
-                    // (PropertyName allows IdentifierName which includes
-                    // reserved words). Routed through the centralized
-                    // keyword_property_name helper so all four
-                    // property-name positions stay in sync.
-                    t if Self::keyword_property_name(t).is_some() => {
-                        Self::keyword_property_name(t).unwrap().to_string()
-                    }
-                    t => {
-                        return Err(format!(
-                            "expected class member name, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
-                }
-            };
+            // Computed / private / reserved-word member-name parsing
+            // — split to `parse_class_decl_member.rs`.
+            let (member_name, consumed_computed_name) =
+                self.parse_class_member_name(&name, is_static, &mut explicit_visibility)?;
             let next_tok = if consumed_computed_name {
                 // We already consumed name + `]`, so the next token is
                 // the one driving the member-shape decision (LParen
@@ -367,61 +147,20 @@ impl<'a> Parser<'a> {
                     )?;
                 }
                 Some(Token::Eq) => {
-                    // V3-18 wedge — class field with no explicit type
-                    // ann (`name = init` / `static name = init`). Per
-                    // TS spec the type is inferred from the init
-                    // expression; subset infers from literal-shape
-                    // (Number / String / Boolean / Array of literal /
-                    // ObjectLit). Other init shapes fall back to
-                    // requiring an explicit ann.
-                    if is_abstract_method {
-                        return Err(format!(
-                            "`abstract` modifier is only valid on methods, not on field `{member_name}` in class `{name}` at {}",
-                            self.at()
-                        ));
-                    }
-                    if consumed_computed_name {
-                        self.pos += 1; // consume `=` only
-                    } else {
-                        self.pos += 2; // consume name + `=`
-                    }
-                    let init = self.parse_assign()?;
-                    let inferred = match self.ast.get_expr(init) {
-                        Expr::Number(_) => "number",
-                        Expr::String(_) => "string",
-                        Expr::Bool(_) => "boolean",
-                        _ => {
-                            return Err(format!(
-                                "untyped class field `{member_name}` requires a literal initializer (number / string / boolean) for type inference at {}",
-                                self.at()
-                            ));
-                        }
-                    };
-                    let ty = inferred.to_string();
-                    if matches!(self.peek(), Token::Semi) {
-                        self.pos += 1;
-                    }
-                    let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
-                    if visibility != ast::Visibility::Public {
-                        self.ast
-                            .member_visibility
-                            .insert((name.clone(), member_name.clone()), visibility);
-                    }
-                    if is_readonly {
-                        self.ast
-                            .readonly_fields
-                            .insert((name.clone(), member_name.clone()));
-                    }
-                    if is_static {
-                        static_init.push(StaticInit::Field(ast::StaticField {
-                            name: member_name,
-                            type_ann: ty,
-                            init,
-                        }));
-                    } else {
-                        field_inits.push((member_name.clone(), init));
-                        fields.push((member_name, ty));
-                    }
+                    // Untyped field with initializer (`name = init`)
+                    // — split to `parse_class_decl_member.rs`.
+                    self.parse_class_member_field_untyped(
+                        &name,
+                        member_name,
+                        consumed_computed_name,
+                        explicit_visibility,
+                        is_readonly,
+                        is_abstract_method,
+                        is_static,
+                        &mut fields,
+                        &mut static_init,
+                        &mut field_inits,
+                    )?;
                 }
                 t => {
                     return Err(format!(
@@ -446,35 +185,7 @@ impl<'a> Parser<'a> {
         // V3-18 wedge — prepend `this.<n> = <init>` stmts for each
         // collected field initializer. Synthesize an empty ctor if
         // one wasn't declared so the inits still run on `new C(...)`.
-        if !field_inits.is_empty() {
-            let mut prefix: Vec<Stmt> = Vec::new();
-            for (fname, init_expr) in &field_inits {
-                let this_ref = self.ast.add_expr(Expr::This);
-                let lhs = self.ast.add_expr(Expr::Member {
-                    obj: this_ref,
-                    name: fname.clone(),
-                });
-                let assign = self.ast.add_expr(Expr::Assign {
-                    target: lhs,
-                    value: *init_expr,
-                });
-                prefix.push(Stmt::Expr(assign));
-            }
-            ctor = Some(match ctor {
-                Some(c) => {
-                    let mut body = prefix;
-                    body.extend(c.body);
-                    ClassCtor {
-                        params: c.params,
-                        body,
-                    }
-                }
-                None => ClassCtor {
-                    params: Vec::new(),
-                    body: prefix,
-                },
-            });
-        }
+        let ctor = self.finalize_class_field_inits(field_inits, ctor);
         // P8.1 — restore the outer class context (parse-error paths
         // skip this; the parser is in an error state and the value
         // is moot).
