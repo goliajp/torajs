@@ -7,9 +7,10 @@
 //! [`emit_define_one`] is the shared single-property core: a literal
 //! `ObjectLit` descriptor is extracted at compile time and routed to
 //! `dynobj_define` (Any obj) / `arr_set_length_validate` +
-//! `arrprops_set` (Array obj) per spec §10.1.6.3; a runtime descriptor
-//! expression (RFC C1) is routed to `dynobj_define_from_desc`, which
-//! reads the fields off the `desc` dynobj at runtime.
+//! `arrprops_set` (Array obj) per spec §10.1.6.3 (see the [`literal`]
+//! submodule); a runtime descriptor expression (RFC C1) is routed to
+//! `dynobj_define_from_desc`, which reads the fields off the `desc`
+//! dynobj at runtime.
 //!
 //! - [`try_lower_define_property`] — `Object.defineProperty(obj, key,
 //!   desc)`: one `emit_define_one` over `(args[0], args[1], args[2])`.
@@ -20,6 +21,8 @@
 //!   readable as dynobjs (their fields don't round-trip through dynamic
 //!   member access), so a runtime `props` variable can't be walked —
 //!   that shape falls through to the prior no-op.
+
+mod literal;
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
@@ -136,204 +139,34 @@ fn emit_define_one(ctx: &mut LowerCtx, obj_eid: ExprId, key: DefineKey, desc_eid
 
     let is_length = key_is_length(ctx, &key);
 
-    // Tag-pack helper — same table the BinOp Any===concrete arm uses for
-    // runtime tag values.
-    let pack = |this: &mut LowerCtx, v_raw: Operand, v_ty: Type| -> (i64, Operand) {
-        match v_ty {
-            Type::I64 | Type::I32 => (2, v_raw),
-            Type::F64 => {
-                let bits = this.f.append_inst(
-                    this.cur_block,
-                    InstKind::BitCastF64ToI64(v_raw),
-                    Type::I64,
-                    None,
-                );
-                (3, Operand::Value(bits))
-            }
-            Type::Bool => {
-                let zext = this.f.append_inst(
-                    this.cur_block,
-                    InstKind::ZExtBoolToI64(v_raw),
-                    Type::I64,
-                    None,
-                );
-                (1, Operand::Value(zext))
-            }
-            _ if v_ty.is_refcounted() => {
-                this.f.append_void(
-                    this.cur_block,
-                    InstKind::Call(this.intrinsics.rc_inc, vec![v_raw.clone()]),
-                );
-                (4, v_raw)
-            }
-            Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
-            _ => (0, Operand::ConstI64(0)),
-        }
-    };
-
     // Compile-time literal descriptor — extract value + the three data
     // flags from the ObjectLit at compile time.
     if matches!(ctx.ast.get_expr(desc_eid), Expr::ObjectLit { .. }) {
-        let value_eid = match ctx.ast.get_expr(desc_eid) {
-            Expr::ObjectLit { fields } => {
-                fields.iter().find(|(n, _)| n == "value").map(|(_, e)| *e)
-            }
-            _ => None,
-        };
-        // Each flag is `Bool(true)` / `Bool(false)` when present; absent
-        // (or non-literal, treated as absent) fields stay `None`.
-        let lookup_bool_field = |field_name: &str| -> Option<bool> {
-            if let Expr::ObjectLit { fields } = ctx.ast.get_expr(desc_eid) {
-                for (n, e) in fields {
-                    if n == field_name {
-                        if let Expr::Bool(b) = ctx.ast.get_expr(*e) {
-                            return Some(*b);
-                        }
-                        return None;
-                    }
-                }
-            }
-            None
-        };
-
-        // RFC C3 — accessor (get/set) descriptor. Per spec §6.2.5 an
-        // accessor descriptor is mutually exclusive with a data
-        // `value`; when the literal carries a `get` and/or `set`
-        // function, store an `AccessorPair` cell instead of a data
-        // value. Only dynobj-backed Any objects carry accessor storage
-        // (typed Struct / Array accessors stay the prior no-op).
-        let (get_eid, set_eid) = match ctx.ast.get_expr(desc_eid) {
-            Expr::ObjectLit { fields } => (
-                fields.iter().find(|(n, _)| n == "get").map(|(_, e)| *e),
-                fields.iter().find(|(n, _)| n == "set").map(|(_, e)| *e),
-            ),
-            _ => (None, None),
-        };
-        if (get_eid.is_some() || set_eid.is_some()) && matches!(obj_ty, Type::Any) {
-            let acc_enum = lookup_bool_field("enumerable");
-            let acc_config = lookup_bool_field("configurable");
-            return crate::ssa_lower_accessor::emit_accessor_define(
-                ctx,
-                obj_op,
-                &key,
-                &receiver_ident,
-                get_eid,
-                set_eid,
-                acc_enum,
-                acc_config,
-            );
-        }
-
-        let mut flags_byte: i64 = 0;
-        if let Some(b) = lookup_bool_field("writable") {
-            flags_byte |= 1 << 3; // present
-            if b {
-                flags_byte |= 1 << 0;
-            }
-        }
-        if let Some(b) = lookup_bool_field("enumerable") {
-            flags_byte |= 1 << 4;
-            if b {
-                flags_byte |= 1 << 1;
-            }
-        }
-        if let Some(b) = lookup_bool_field("configurable") {
-            flags_byte |= 1 << 5;
-            if b {
-                flags_byte |= 1 << 2;
-            }
-        }
-        if value_eid.is_some() {
-            flags_byte |= 1 << 6; // value present
-        }
-
-        // T-29.b — Array length setter via defineProperty. Spec §9.4.2.4:
-        // ToUint32(v) must equal ToNumber(v), else throw RangeError. tora
-        // can't yet resize Array storage to a new length, so on valid
-        // value we silently no-op; on invalid we throw via the runtime
-        // validator (sufficient for the assert.throws assertion shape).
-        if matches!(obj_ty, Type::Arr(_)) && is_length {
-            if let Some(val_eid) = value_eid {
-                let v_raw = ctx.lower_expr(val_eid);
-                let v_ty = ctx.operand_ty(&v_raw);
-                let (tag, val_op) = pack(ctx, v_raw, v_ty);
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.arr_set_length_validate,
-                        vec![Operand::ConstI64(tag), val_op],
-                    ),
-                );
-                ctx.emit_throw_check(None);
-            }
-            return true;
-        }
-
-        // Array obj (non-"length" key) — legacy arrprops_set side table
-        // when the descriptor has a .value. Without .value (accessor
-        // descriptor), Array attribute tracking is a follow-up — silent
-        // no-op (T-29.b tolerance).
-        if matches!(obj_ty, Type::Arr(_)) {
-            if let Some(val_eid) = value_eid {
-                let key_op = lower_key(ctx, &key);
-                let v_raw = ctx.lower_expr(val_eid);
-                let v_ty = ctx.operand_ty(&v_raw);
-                let (tag, val_op) = pack(ctx, v_raw, v_ty);
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.arrprops_set,
-                        vec![obj_op, key_op, Operand::ConstI64(tag), val_op],
-                    ),
-                );
-            }
-            return true;
-        }
-
-        // Non-Any/non-Arr obj (typed Struct etc.) — no dynobj backing
-        // store, attribute tracking is N/A. Handled (no-op).
-        if !matches!(obj_ty, Type::Any) {
-            return true;
-        }
-
-        // Dynobj-backed Any obj — route through dynobj_define so spec
-        // §10.1.6.3 validates the transitions.
-        let key_op = lower_key(ctx, &key);
-        let (tag, val_op) = if let Some(val_eid) = value_eid {
-            let v_raw = ctx.lower_expr(val_eid);
-            let v_ty = ctx.operand_ty(&v_raw);
-            pack(ctx, v_raw, v_ty)
-        } else {
-            (0, Operand::ConstI64(0))
-        };
-        let dynobj = ctx.any_unbox_value_as_ptr(obj_op.clone());
-        let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+        return literal::emit_define_literal(
+            ctx,
+            obj_op,
+            obj_ty,
+            &key,
+            &receiver_ident,
+            desc_eid,
+            is_length,
         );
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.dynobj_define,
-                vec![
-                    Operand::Value(slot),
-                    key_op,
-                    Operand::ConstI64(tag),
-                    val_op,
-                    Operand::ConstI64(flags_byte),
-                ],
-            ),
-        );
-        ctx.emit_throw_check(None);
-        ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
-        return true;
     }
+    emit_define_runtime_desc(ctx, obj_op, obj_ty, &key, &receiver_ident, desc_eid)
+}
 
-    // Runtime descriptor (RFC C1) — gated on both obj and desc being Any
-    // (dynobj-backed). Key is lowered before desc to preserve obj → key
-    // → desc evaluation order.
-    let key_op = lower_key(ctx, &key);
+/// Runtime descriptor (RFC C1) — gated on both obj and desc being Any
+/// (dynobj-backed). Key is lowered before desc to preserve obj → key
+/// → desc evaluation order.
+fn emit_define_runtime_desc(
+    ctx: &mut LowerCtx,
+    obj_op: Operand,
+    obj_ty: Type,
+    key: &DefineKey,
+    receiver_ident: &Option<String>,
+    desc_eid: ExprId,
+) -> bool {
+    let key_op = lower_key(ctx, key);
     let desc_op = ctx.lower_expr(desc_eid);
     let desc_ty = ctx.operand_ty(&desc_op);
     if matches!(obj_ty, Type::Any) && matches!(desc_ty, Type::Any) {
@@ -352,7 +185,7 @@ fn emit_define_one(ctx: &mut LowerCtx, obj_eid: ExprId, key: DefineKey, desc_eid
             ),
         );
         ctx.emit_throw_check(None);
-        ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
+        ctx.emit_any_dynobj_writeback(receiver_ident, slot);
         return true;
     }
     false
