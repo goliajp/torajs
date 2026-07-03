@@ -11,10 +11,15 @@
 //! dispatch (active throw → propagate via try_stack or fn-ret-
 //! sentinel; pending_return → outer-finally or fn-ret-load;
 //! pending_break / pending_continue → outer-finally-in-same-loop
-//! or loop break/continue target with flag-clear). Body unchanged.
+//! or loop break/continue target with flag-clear).
+//!
+//! Chunk 453 split the 292-line body into per-stage emit fns below
+//! (suspend / restore / throw-propagate / pending-return / pending-
+//! loop-flag); the near-identical break and continue tails deduped
+//! into `emit_pending_loop_flag` picking the loop target by side.
 
 use crate::ast::Stmt;
-use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx, fb: BlockId, fbody: &[Stmt], after_blk: BlockId) {
@@ -24,6 +29,37 @@ pub(crate) fn lower(ctx: &mut LowerCtx, fb: BlockId, fbody: &[Stmt], after_blk: 
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
 
+    let (saved_active_slot, saved_tag_slot, saved_value_slot) = emit_o5_suspend(ctx);
+    for s in fbody {
+        ctx.lower_stmt(s);
+        if !ctx.cur_open() {
+            break;
+        }
+    }
+    if ctx.cur_open() {
+        emit_o5_restore(ctx, saved_active_slot, saved_tag_slot, saved_value_slot);
+        emit_throw_propagate(ctx);
+        emit_pending_return(ctx);
+        if let Some(flag) = ctx.pending_break_flag {
+            emit_pending_loop_flag(ctx, flag, true, after_blk);
+        }
+        if let Some(flag) = ctx.pending_continue_flag {
+            emit_pending_loop_flag(ctx, flag, false, after_blk);
+        }
+        let cb4 = ctx.cur_block;
+        ctx.f.set_term(cb4, Terminator::Br(after_blk));
+    }
+    ctx.scope_stack.pop();
+    let finally_shadows = ctx.shadow_stack.pop().unwrap_or_default();
+    for (name, prev) in finally_shadows {
+        ctx.locals.insert(name, prev);
+    }
+}
+
+/// O5 finally-entry suspend: snapshot the pending throw (active flag,
+/// tag, value) into entry allocas, clearing the TLS pending slot so
+/// the finally body runs throw-free
+fn emit_o5_suspend(ctx: &mut LowerCtx) -> (ValueId, ValueId, ValueId) {
     let saved_active_slot = ctx.alloca_in_entry(Type::I64, Some("__o5_saved_active"));
     let saved_tag_slot = ctx.alloca_in_entry(Type::I64, Some("__o5_saved_tag"));
     let saved_value_slot = ctx.alloca_in_entry(Type::I64, Some("__o5_saved_value"));
@@ -65,248 +101,222 @@ pub(crate) fn lower(ctx: &mut LowerCtx, fb: BlockId, fbody: &[Stmt], after_blk: 
             0,
         ),
     );
-    for s in fbody {
-        ctx.lower_stmt(s);
-        if !ctx.cur_open() {
-            break;
-        }
+    (saved_active_slot, saved_tag_slot, saved_value_slot)
+}
+
+/// O5 finally-exit probe: keep a throw raised by the finally body
+/// itself, else restore the suspended one via `throw_set`; falls
+/// through with `cur_block` on a fresh dispatch block
+fn emit_o5_restore(
+    ctx: &mut LowerCtx,
+    saved_active_slot: ValueId,
+    saved_tag_slot: ValueId,
+    saved_value_slot: ValueId,
+) {
+    let probe_active = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.throw_check, vec![]),
+        Type::I64,
+        None,
+    );
+    let probe_cmp = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(
+            IPred::Ne,
+            Operand::Value(probe_active),
+            Operand::ConstI64(0),
+        ),
+        Type::Bool,
+        None,
+    );
+    let dispatch_blk = ctx.f.add_block();
+    let check_saved_blk = ctx.f.add_block();
+    let cbr = ctx.cur_block;
+    ctx.f.set_term(
+        cbr,
+        Terminator::CondBr {
+            cond: Operand::Value(probe_cmp),
+            then_blk: dispatch_blk,
+            else_blk: check_saved_blk,
+        },
+    );
+    ctx.cur_block = check_saved_blk;
+    let sa = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(saved_active_slot), 0),
+        Type::I64,
+        None,
+    );
+    let sa_cmp = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(sa), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    let do_restore_blk = ctx.f.add_block();
+    let cbr2 = ctx.cur_block;
+    ctx.f.set_term(
+        cbr2,
+        Terminator::CondBr {
+            cond: Operand::Value(sa_cmp),
+            then_blk: do_restore_blk,
+            else_blk: dispatch_blk,
+        },
+    );
+    ctx.cur_block = do_restore_blk;
+    let st = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(saved_tag_slot), 0),
+        Type::I64,
+        None,
+    );
+    let sv = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(saved_value_slot), 0),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.throw_set,
+            vec![Operand::Value(st), Operand::Value(sv)],
+        ),
+    );
+    let cbr3 = ctx.cur_block;
+    ctx.f.set_term(cbr3, Terminator::Br(dispatch_blk));
+    ctx.cur_block = dispatch_blk;
+}
+
+/// 4-way tail #1 — active throw: branch to the enclosing handler,
+/// or emit drops + a zero-sentinel Ret at fn boundary; leaves
+/// `cur_block` on the no-throw continuation block
+fn emit_throw_propagate(ctx: &mut LowerCtx) {
+    let active = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.throw_check, vec![]),
+        Type::I64,
+        None,
+    );
+    let throw_cmp = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(active), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    let prop_blk = ctx.f.add_block();
+    let no_throw_blk = ctx.f.add_block();
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(throw_cmp),
+            then_blk: prop_blk,
+            else_blk: no_throw_blk,
+        },
+    );
+    ctx.cur_block = prop_blk;
+    if let Some(handler) = ctx.try_stack.last().copied() {
+        let cb2 = ctx.cur_block;
+        ctx.f.set_term(cb2, Terminator::Br(handler));
+    } else {
+        ctx.emit_drops_for_owned_locals();
+        let cb2 = ctx.cur_block;
+        let ret_ty = ctx.f.ret;
+        let prop_term = match ret_ty {
+            Type::Void => Terminator::Ret(None),
+            Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
+            Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
+            Type::Bool => Terminator::Ret(Some(Operand::ConstBool(false))),
+            _ => Terminator::Ret(Some(Operand::ConstI64(0))),
+        };
+        ctx.f.set_term(cb2, prop_term);
     }
-    if ctx.cur_open() {
-        let probe_active = ctx.f.append_inst(
+    ctx.cur_block = no_throw_blk;
+}
+
+/// 4-way tail #2 — pending return: branch to the outer finally when
+/// nested, else load the fn-ret slot, drop owned locals and Ret
+fn emit_pending_return(ctx: &mut LowerCtx) {
+    let (Some(slot), Some(flag)) = (ctx.pending_return_slot, ctx.pending_return_flag) else {
+        return;
+    };
+    let f = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Bool, Operand::Value(flag), 0),
+        Type::Bool,
+        None,
+    );
+    let ret_blk = ctx.f.add_block();
+    let no_ret_blk = ctx.f.add_block();
+    let cb3 = ctx.cur_block;
+    ctx.f.set_term(
+        cb3,
+        Terminator::CondBr {
+            cond: Operand::Value(f),
+            then_blk: ret_blk,
+            else_blk: no_ret_blk,
+        },
+    );
+    ctx.cur_block = ret_blk;
+    if let Some(outer_fb) = ctx.try_finally_stack.last().copied() {
+        let cb4 = ctx.cur_block;
+        ctx.f.set_term(cb4, Terminator::Br(outer_fb));
+    } else {
+        let fn_ret_ty = ctx.f.ret;
+        let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.throw_check, vec![]),
-            Type::I64,
+            InstKind::Load(fn_ret_ty, Operand::Value(slot), 0),
+            fn_ret_ty,
             None,
         );
-        let probe_cmp = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::ICmp(
-                IPred::Ne,
-                Operand::Value(probe_active),
-                Operand::ConstI64(0),
-            ),
-            Type::Bool,
-            None,
-        );
-        let dispatch_blk = ctx.f.add_block();
-        let check_saved_blk = ctx.f.add_block();
-        let cbr = ctx.cur_block;
-        ctx.f.set_term(
-            cbr,
-            Terminator::CondBr {
-                cond: Operand::Value(probe_cmp),
-                then_blk: dispatch_blk,
-                else_blk: check_saved_blk,
-            },
-        );
-        ctx.cur_block = check_saved_blk;
-        let sa = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(saved_active_slot), 0),
-            Type::I64,
-            None,
-        );
-        let sa_cmp = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::ICmp(IPred::Ne, Operand::Value(sa), Operand::ConstI64(0)),
-            Type::Bool,
-            None,
-        );
-        let do_restore_blk = ctx.f.add_block();
-        let cbr2 = ctx.cur_block;
-        ctx.f.set_term(
-            cbr2,
-            Terminator::CondBr {
-                cond: Operand::Value(sa_cmp),
-                then_blk: do_restore_blk,
-                else_blk: dispatch_blk,
-            },
-        );
-        ctx.cur_block = do_restore_blk;
-        let st = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(saved_tag_slot), 0),
-            Type::I64,
-            None,
-        );
-        let sv = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(saved_value_slot), 0),
-            Type::I64,
-            None,
-        );
+        ctx.emit_drops_for_owned_locals();
+        let cb4 = ctx.cur_block;
+        ctx.f
+            .set_term(cb4, Terminator::Ret(Some(Operand::Value(v))));
+    }
+    ctx.cur_block = no_ret_blk;
+}
+
+/// 4-way tails #3/#4 — pending break (`take_break`) / continue: to the
+/// outer finally when it sits in the same loop, else to the loop's
+/// break/continue target with the flag cleared, else `after_blk`
+/// (loop-less break inside switch-lowered code)
+fn emit_pending_loop_flag(ctx: &mut LowerCtx, flag: ValueId, take_break: bool, after_blk: BlockId) {
+    let f = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Bool, Operand::Value(flag), 0),
+        Type::Bool,
+        None,
+    );
+    let hit_blk = ctx.f.add_block();
+    let no_hit_blk = ctx.f.add_block();
+    let cb3 = ctx.cur_block;
+    ctx.f.set_term(
+        cb3,
+        Terminator::CondBr {
+            cond: Operand::Value(f),
+            then_blk: hit_blk,
+            else_blk: no_hit_blk,
+        },
+    );
+    ctx.cur_block = hit_blk;
+    let cur_loop_len = ctx.loop_stack.len();
+    let outer_in_same_loop = ctx.try_finally_loop_depth.last().copied() == Some(cur_loop_len);
+    if outer_in_same_loop && let Some(outer_fb) = ctx.try_finally_stack.last().copied() {
+        let cb4 = ctx.cur_block;
+        ctx.f.set_term(cb4, Terminator::Br(outer_fb));
+    } else if let Some((cont_target, brk_target)) = ctx.loop_stack.last().copied() {
+        let target = if take_break { brk_target } else { cont_target };
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.throw_set,
-                vec![Operand::Value(st), Operand::Value(sv)],
-            ),
+            InstKind::Store(Operand::ConstBool(false), Operand::Value(flag), 0),
         );
-        let cbr3 = ctx.cur_block;
-        ctx.f.set_term(cbr3, Terminator::Br(dispatch_blk));
-        ctx.cur_block = dispatch_blk;
-
-        let active = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.throw_check, vec![]),
-            Type::I64,
-            None,
-        );
-        let throw_cmp = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::ICmp(IPred::Ne, Operand::Value(active), Operand::ConstI64(0)),
-            Type::Bool,
-            None,
-        );
-        let prop_blk = ctx.f.add_block();
-        let no_throw_blk = ctx.f.add_block();
-        let cb = ctx.cur_block;
-        ctx.f.set_term(
-            cb,
-            Terminator::CondBr {
-                cond: Operand::Value(throw_cmp),
-                then_blk: prop_blk,
-                else_blk: no_throw_blk,
-            },
-        );
-        ctx.cur_block = prop_blk;
-        if let Some(handler) = ctx.try_stack.last().copied() {
-            let cb2 = ctx.cur_block;
-            ctx.f.set_term(cb2, Terminator::Br(handler));
-        } else {
-            ctx.emit_drops_for_owned_locals();
-            let cb2 = ctx.cur_block;
-            let ret_ty = ctx.f.ret;
-            let prop_term = match ret_ty {
-                Type::Void => Terminator::Ret(None),
-                Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
-                Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
-                Type::Bool => Terminator::Ret(Some(Operand::ConstBool(false))),
-                _ => Terminator::Ret(Some(Operand::ConstI64(0))),
-            };
-            ctx.f.set_term(cb2, prop_term);
-        }
-
-        ctx.cur_block = no_throw_blk;
-        if let (Some(slot), Some(flag)) = (ctx.pending_return_slot, ctx.pending_return_flag) {
-            let f = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::Bool, Operand::Value(flag), 0),
-                Type::Bool,
-                None,
-            );
-            let ret_blk = ctx.f.add_block();
-            let no_ret_blk = ctx.f.add_block();
-            let cb3 = ctx.cur_block;
-            ctx.f.set_term(
-                cb3,
-                Terminator::CondBr {
-                    cond: Operand::Value(f),
-                    then_blk: ret_blk,
-                    else_blk: no_ret_blk,
-                },
-            );
-            ctx.cur_block = ret_blk;
-            if let Some(outer_fb) = ctx.try_finally_stack.last().copied() {
-                let cb4 = ctx.cur_block;
-                ctx.f.set_term(cb4, Terminator::Br(outer_fb));
-            } else {
-                let fn_ret_ty = ctx.f.ret;
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Load(fn_ret_ty, Operand::Value(slot), 0),
-                    fn_ret_ty,
-                    None,
-                );
-                ctx.emit_drops_for_owned_locals();
-                let cb4 = ctx.cur_block;
-                ctx.f
-                    .set_term(cb4, Terminator::Ret(Some(Operand::Value(v))));
-            }
-            ctx.cur_block = no_ret_blk;
-        }
-        if let Some(flag) = ctx.pending_break_flag {
-            let f = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::Bool, Operand::Value(flag), 0),
-                Type::Bool,
-                None,
-            );
-            let brk_blk = ctx.f.add_block();
-            let no_brk_blk = ctx.f.add_block();
-            let cb3 = ctx.cur_block;
-            ctx.f.set_term(
-                cb3,
-                Terminator::CondBr {
-                    cond: Operand::Value(f),
-                    then_blk: brk_blk,
-                    else_blk: no_brk_blk,
-                },
-            );
-            ctx.cur_block = brk_blk;
-            let cur_loop_len = ctx.loop_stack.len();
-            let outer_in_same_loop =
-                ctx.try_finally_loop_depth.last().copied() == Some(cur_loop_len);
-            if outer_in_same_loop && let Some(outer_fb) = ctx.try_finally_stack.last().copied() {
-                let cb4 = ctx.cur_block;
-                ctx.f.set_term(cb4, Terminator::Br(outer_fb));
-            } else if let Some((_, brk_target)) = ctx.loop_stack.last().copied() {
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Store(Operand::ConstBool(false), Operand::Value(flag), 0),
-                );
-                let cb4 = ctx.cur_block;
-                ctx.f.set_term(cb4, Terminator::Br(brk_target));
-            } else {
-                let cb4 = ctx.cur_block;
-                ctx.f.set_term(cb4, Terminator::Br(after_blk));
-            }
-            ctx.cur_block = no_brk_blk;
-        }
-        if let Some(flag) = ctx.pending_continue_flag {
-            let f = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::Bool, Operand::Value(flag), 0),
-                Type::Bool,
-                None,
-            );
-            let cont_blk = ctx.f.add_block();
-            let no_cont_blk = ctx.f.add_block();
-            let cb3 = ctx.cur_block;
-            ctx.f.set_term(
-                cb3,
-                Terminator::CondBr {
-                    cond: Operand::Value(f),
-                    then_blk: cont_blk,
-                    else_blk: no_cont_blk,
-                },
-            );
-            ctx.cur_block = cont_blk;
-            let cur_loop_len = ctx.loop_stack.len();
-            let outer_in_same_loop =
-                ctx.try_finally_loop_depth.last().copied() == Some(cur_loop_len);
-            if outer_in_same_loop && let Some(outer_fb) = ctx.try_finally_stack.last().copied() {
-                let cb4 = ctx.cur_block;
-                ctx.f.set_term(cb4, Terminator::Br(outer_fb));
-            } else if let Some((cont_target, _)) = ctx.loop_stack.last().copied() {
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Store(Operand::ConstBool(false), Operand::Value(flag), 0),
-                );
-                let cb4 = ctx.cur_block;
-                ctx.f.set_term(cb4, Terminator::Br(cont_target));
-            } else {
-                let cb4 = ctx.cur_block;
-                ctx.f.set_term(cb4, Terminator::Br(after_blk));
-            }
-            ctx.cur_block = no_cont_blk;
-        }
+        let cb4 = ctx.cur_block;
+        ctx.f.set_term(cb4, Terminator::Br(target));
+    } else {
         let cb4 = ctx.cur_block;
         ctx.f.set_term(cb4, Terminator::Br(after_blk));
     }
-    ctx.scope_stack.pop();
-    let finally_shadows = ctx.shadow_stack.pop().unwrap_or_default();
-    for (name, prev) in finally_shadows {
-        ctx.locals.insert(name, prev);
-    }
+    ctx.cur_block = no_hit_blk;
 }
