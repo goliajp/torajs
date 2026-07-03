@@ -75,16 +75,31 @@ pub(crate) struct DateIds {
     pub date_parse_iso: FuncId,
 }
 
+/// `(Date) -> i64` getter shape — 21 of the 42 declarations
+fn d_i64(module: &mut Module, fn_table: &mut HashMap<String, FuncId>, name: &str) -> FuncId {
+    declare_intrinsic(module, fn_table, name, &[Type::Date], Type::I64)
+}
+
+/// `(Date) -> Str` rendering shape — the 6 to*String declarations
+fn d_str(module: &mut Module, fn_table: &mut HashMap<String, FuncId>, name: &str) -> FuncId {
+    declare_intrinsic(module, fn_table, name, &[Type::Date], Type::Str)
+}
+
+/// `(Date, i64 × n) -> i64` setter shape (n = value + optional
+/// cascading components, per the T-30 setter family)
+fn d_set(
+    module: &mut Module,
+    fn_table: &mut HashMap<String, FuncId>,
+    name: &str,
+    n: usize,
+) -> FuncId {
+    let mut params = vec![Type::Date];
+    params.extend(std::iter::repeat_n(Type::I64, n));
+    declare_intrinsic(module, fn_table, name, &params, Type::I64)
+}
+
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> DateIds {
-    let seven_i64 = &[
-        Type::I64,
-        Type::I64,
-        Type::I64,
-        Type::I64,
-        Type::I64,
-        Type::I64,
-        Type::I64,
-    ];
+    let seven_i64 = &[Type::I64; 7];
     DateIds {
         date_now: declare_intrinsic(module, fn_table, "__torajs_date_now", &[], Type::Date),
         date_from_ms: declare_intrinsic(
@@ -108,244 +123,40 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             &[],
             Type::I64,
         ),
-        date_get_time: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_time",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_to_iso_string: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_to_iso_string",
-            &[Type::Date],
-            Type::Str,
-        ),
-        date_set_time: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_set_time",
-            &[Type::Date, Type::I64],
-            Type::I64,
-        ),
-        date_get_year: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_year",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_set_year: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_set_year",
-            &[Type::Date, Type::I64],
-            Type::I64,
-        ),
-        date_to_gmt_string: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_to_gmt_string",
-            &[Type::Date],
-            Type::Str,
-        ),
-        date_to_date_string: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_to_date_string",
-            &[Type::Date],
-            Type::Str,
-        ),
-        date_to_locale_string: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_to_locale_string",
-            &[Type::Date],
-            Type::Str,
-        ),
-        date_to_locale_date_string: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_to_locale_date_string",
-            &[Type::Date],
-            Type::Str,
-        ),
-        date_to_locale_time_string: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_to_locale_time_string",
-            &[Type::Date],
-            Type::Str,
-        ),
-        date_set_full_year: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_set_full_year",
-            &[Type::Date, Type::I64, Type::I64, Type::I64],
-            Type::I64,
-        ),
-        date_set_month: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_set_month",
-            &[Type::Date, Type::I64, Type::I64],
-            Type::I64,
-        ),
-        date_set_date: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_set_date",
-            &[Type::Date, Type::I64],
-            Type::I64,
-        ),
-        date_set_hours: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_set_hours",
-            &[Type::Date, Type::I64, Type::I64, Type::I64, Type::I64],
-            Type::I64,
-        ),
-        date_set_minutes: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_set_minutes",
-            &[Type::Date, Type::I64, Type::I64, Type::I64],
-            Type::I64,
-        ),
-        date_set_seconds: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_set_seconds",
-            &[Type::Date, Type::I64, Type::I64],
-            Type::I64,
-        ),
-        date_set_milliseconds: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_set_milliseconds",
-            &[Type::Date, Type::I64],
-            Type::I64,
-        ),
-        date_get_full_year: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_full_year",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_month: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_month",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_date: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_date",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_hours: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_hours",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_minutes: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_minutes",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_seconds: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_seconds",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_milliseconds: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_milliseconds",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_day: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_day",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_timezone_offset: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_timezone_offset",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_utc_full_year: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_utc_full_year",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_utc_month: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_utc_month",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_utc_date: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_utc_date",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_utc_hours: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_utc_hours",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_utc_minutes: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_utc_minutes",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_utc_seconds: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_utc_seconds",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_utc_milliseconds: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_utc_milliseconds",
-            &[Type::Date],
-            Type::I64,
-        ),
-        date_get_utc_day: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_date_get_utc_day",
-            &[Type::Date],
-            Type::I64,
-        ),
+        date_get_time: d_i64(module, fn_table, "__torajs_date_get_time"),
+        date_to_iso_string: d_str(module, fn_table, "__torajs_date_to_iso_string"),
+        date_set_time: d_set(module, fn_table, "__torajs_date_set_time", 1),
+        date_get_year: d_i64(module, fn_table, "__torajs_date_get_year"),
+        date_set_year: d_set(module, fn_table, "__torajs_date_set_year", 1),
+        date_to_gmt_string: d_str(module, fn_table, "__torajs_date_to_gmt_string"),
+        date_to_date_string: d_str(module, fn_table, "__torajs_date_to_date_string"),
+        date_to_locale_string: d_str(module, fn_table, "__torajs_date_to_locale_string"),
+        date_to_locale_date_string: d_str(module, fn_table, "__torajs_date_to_locale_date_string"),
+        date_to_locale_time_string: d_str(module, fn_table, "__torajs_date_to_locale_time_string"),
+        date_set_full_year: d_set(module, fn_table, "__torajs_date_set_full_year", 3),
+        date_set_month: d_set(module, fn_table, "__torajs_date_set_month", 2),
+        date_set_date: d_set(module, fn_table, "__torajs_date_set_date", 1),
+        date_set_hours: d_set(module, fn_table, "__torajs_date_set_hours", 4),
+        date_set_minutes: d_set(module, fn_table, "__torajs_date_set_minutes", 3),
+        date_set_seconds: d_set(module, fn_table, "__torajs_date_set_seconds", 2),
+        date_set_milliseconds: d_set(module, fn_table, "__torajs_date_set_milliseconds", 1),
+        date_get_full_year: d_i64(module, fn_table, "__torajs_date_get_full_year"),
+        date_get_month: d_i64(module, fn_table, "__torajs_date_get_month"),
+        date_get_date: d_i64(module, fn_table, "__torajs_date_get_date"),
+        date_get_hours: d_i64(module, fn_table, "__torajs_date_get_hours"),
+        date_get_minutes: d_i64(module, fn_table, "__torajs_date_get_minutes"),
+        date_get_seconds: d_i64(module, fn_table, "__torajs_date_get_seconds"),
+        date_get_milliseconds: d_i64(module, fn_table, "__torajs_date_get_milliseconds"),
+        date_get_day: d_i64(module, fn_table, "__torajs_date_get_day"),
+        date_get_timezone_offset: d_i64(module, fn_table, "__torajs_date_get_timezone_offset"),
+        date_get_utc_full_year: d_i64(module, fn_table, "__torajs_date_get_utc_full_year"),
+        date_get_utc_month: d_i64(module, fn_table, "__torajs_date_get_utc_month"),
+        date_get_utc_date: d_i64(module, fn_table, "__torajs_date_get_utc_date"),
+        date_get_utc_hours: d_i64(module, fn_table, "__torajs_date_get_utc_hours"),
+        date_get_utc_minutes: d_i64(module, fn_table, "__torajs_date_get_utc_minutes"),
+        date_get_utc_seconds: d_i64(module, fn_table, "__torajs_date_get_utc_seconds"),
+        date_get_utc_milliseconds: d_i64(module, fn_table, "__torajs_date_get_utc_milliseconds"),
+        date_get_utc_day: d_i64(module, fn_table, "__torajs_date_get_utc_day"),
         date_from_components: declare_intrinsic(
             module,
             fn_table,
