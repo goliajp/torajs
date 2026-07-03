@@ -45,250 +45,194 @@ use crate::ssa_lower::{
 };
 
 pub(crate) fn emit(ctx: &mut LowerCtx, val: Operand, ty: Type) {
-    match ty {
-        Type::Str => {
-            let drop_fid = ctx.intrinsics.str_drop;
-            ctx.f
-                .append_void(ctx.cur_block, InstKind::Call(drop_fid, vec![val]));
-        }
-        Type::Substr => {
-            let drop_fid = ctx.intrinsics.substr_drop;
-            ctx.f
-                .append_void(ctx.cur_block, InstKind::Call(drop_fid, vec![val]));
-        }
-        Type::Obj(sid) => {
-            if ctx.drop_inline_stack.contains(&sid.0) {
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.value_drop_heap, vec![val]),
-                );
-                return;
-            }
-            ctx.drop_inline_stack.insert(sid.0);
-            let layout = ctx.struct_layouts[sid.0 as usize].clone();
-            let dec_blk = ctx.f.add_block();
-            let walk_blk = ctx.f.add_block();
-            let after = ctx.f.add_block();
-            let null_check = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::ICmp(IPred::Eq, val, Operand::ConstPtrNull),
-                Type::Bool,
-                None,
-            );
-            ctx.f.set_term(
-                ctx.cur_block,
-                Terminator::CondBr {
-                    cond: Operand::Value(null_check),
-                    then_blk: after,
-                    else_blk: dec_blk,
-                },
-            );
-            ctx.cur_block = dec_blk;
-            let rc_new = ctx.emit_rc_dec_inline(val);
-            let is_zero = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::ICmp(IPred::Eq, rc_new, Operand::ConstI32(0)),
-                Type::Bool,
-                None,
-            );
-            let is_class_sid = ctx
-                .ast
-                .class_parents
-                .keys()
-                .any(|cn| matches!(ctx.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0));
-            let buffer_blk = if is_class_sid {
-                ctx.f.add_block()
-            } else {
-                after
-            };
-            ctx.f.set_term(
-                ctx.cur_block,
-                Terminator::CondBr {
-                    cond: Operand::Value(is_zero),
-                    then_blk: walk_blk,
-                    else_blk: buffer_blk,
-                },
-            );
-            if is_class_sid {
-                ctx.cur_block = buffer_blk;
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.cycle_buffer, vec![val]),
-                );
-                ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
-            }
-            ctx.cur_block = walk_blk;
-            if is_class_sid {
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.weakref_target_dying, vec![val]),
-                );
-            }
-            for (i, (_, fty)) in layout.iter().enumerate() {
-                if fty.is_copy() {
-                    continue;
-                }
-                let offset = OBJ_HEADER_SIZE + i as u64 * 8;
-                let field_val =
-                    ctx.f
-                        .append_inst(ctx.cur_block, InstKind::Load(*fty, val, offset), *fty, None);
-                ctx.emit_drop_value(Operand::Value(field_val), *fty);
-            }
-            if is_class_sid {
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.cycle_unbuffer, vec![val]),
-                );
-            }
-            let obj_block_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.obj_drop_sized,
-                    vec![val, Operand::ConstI64(obj_block_size as i64)],
-                ),
-            );
-            ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
-            ctx.cur_block = after;
-            ctx.drop_inline_stack.remove(&sid.0);
-        }
-        Type::Arr(arr_id) => {
-            let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-            let body_blk = ctx.f.add_block();
-            let after = ctx.f.add_block();
-            let null_check = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::ICmp(IPred::Eq, val.clone(), Operand::ConstPtrNull),
-                Type::Bool,
-                None,
-            );
-            ctx.f.set_term(
-                ctx.cur_block,
-                Terminator::CondBr {
-                    cond: Operand::Value(null_check),
-                    then_blk: after,
-                    else_blk: body_blk,
-                },
-            );
-            ctx.cur_block = body_blk;
-            if elem_ty == Type::Any {
-                let drop_fid = ctx.intrinsics.arr_drop_any;
-                ctx.f
-                    .append_void(ctx.cur_block, InstKind::Call(drop_fid, vec![val]));
-            } else {
-                if elem_ty.is_refcounted() {
-                    let len_v = ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::Load(Type::I64, val.clone(), ARR_LEN_OFF),
-                        Type::I64,
-                        None,
-                    );
-                    ctx.emit_arr_rc_drop_range(
-                        val.clone(),
-                        elem_ty,
-                        Operand::ConstI64(0),
-                        Operand::Value(len_v),
-                    );
-                }
-                let drop_fid = ctx.intrinsics.arr_drop;
-                ctx.f
-                    .append_void(ctx.cur_block, InstKind::Call(drop_fid, vec![val]));
-            }
-            ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
-            ctx.cur_block = after;
-        }
-        Type::Closure(_) => {
-            let drop_fn_ptr = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::Ptr, val, CLOSURE_DROP_FN_OFF),
-                Type::Ptr,
-                None,
-            );
-            let drop_void_sig = intern_fn_sig(ctx.fn_sigs, vec![Type::Ptr], Type::Void);
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::CallIndirect(drop_void_sig, Operand::Value(drop_fn_ptr), vec![val]),
-            );
-        }
-        Type::RegExp => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.regex_drop, vec![val]),
-            );
-        }
-        Type::Date => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.date_drop, vec![val]),
-            );
-        }
-        Type::Any => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_box_drop, vec![val]),
-            );
-        }
-        Type::Symbol => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.symbol_drop, vec![val]),
-            );
-        }
-        Type::Promise => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.promise_drop, vec![val]),
-            );
-        }
-        Type::BigInt => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.bigint_drop_rc, vec![val]),
-            );
-        }
-        Type::WeakRef => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.weakref_drop, vec![val]),
-            );
-        }
-        Type::WeakMap => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.weakmap_drop, vec![val]),
-            );
-        }
-        Type::WeakSet => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.weakset_drop, vec![val]),
-            );
-        }
-        Type::Map => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.map_drop, vec![val]),
-            );
-        }
-        Type::Set => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.map_drop, vec![val]),
-            );
-        }
-        Type::MapIter => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.map_iter_drop, vec![val]),
-            );
-        }
-        Type::ArrIter => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.arr_iter_drop, vec![val]),
-            );
-        }
-        other if other.is_copy() => {}
+    // three structural shapes get their own emit fn; everything else
+    // is a single type-specific `__torajs_*_drop` helper call.
+    let drop_fid = match ty {
+        Type::Obj(sid) => return emit_drop_obj(ctx, val, sid),
+        Type::Arr(arr_id) => return emit_drop_arr(ctx, val, arr_id),
+        Type::Closure(_) => return emit_drop_closure(ctx, val),
+        Type::Str => ctx.intrinsics.str_drop,
+        Type::Substr => ctx.intrinsics.substr_drop,
+        Type::RegExp => ctx.intrinsics.regex_drop,
+        Type::Date => ctx.intrinsics.date_drop,
+        Type::Any => ctx.intrinsics.any_box_drop,
+        Type::Symbol => ctx.intrinsics.symbol_drop,
+        Type::Promise => ctx.intrinsics.promise_drop,
+        Type::BigInt => ctx.intrinsics.bigint_drop_rc,
+        Type::WeakRef => ctx.intrinsics.weakref_drop,
+        Type::WeakMap => ctx.intrinsics.weakmap_drop,
+        Type::WeakSet => ctx.intrinsics.weakset_drop,
+        Type::Map | Type::Set => ctx.intrinsics.map_drop,
+        Type::MapIter => ctx.intrinsics.map_iter_drop,
+        Type::ArrIter => ctx.intrinsics.arr_iter_drop,
+        other if other.is_copy() => return,
         other => panic!("ssa-lower: no drop sequence for type {other:?}"),
+    };
+    ctx.f
+        .append_void(ctx.cur_block, InstKind::Call(drop_fid, vec![val]));
+}
+
+/// `Type::Obj(sid)` drop — inline `if (val != null) { if (--rc == 0)
+/// { walk_fields; free } }` with the V3-05 self-referential guard
+/// (recursive same-sid children route through `value_drop_heap`) and
+/// the T-26 cycle-collector hooks for class sids.
+fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::StructId) {
+    if ctx.drop_inline_stack.contains(&sid.0) {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.value_drop_heap, vec![val]),
+        );
+        return;
     }
+    ctx.drop_inline_stack.insert(sid.0);
+    let layout = ctx.struct_layouts[sid.0 as usize].clone();
+    let dec_blk = ctx.f.add_block();
+    let walk_blk = ctx.f.add_block();
+    let after = ctx.f.add_block();
+    let null_check = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, val, Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(null_check),
+            then_blk: after,
+            else_blk: dec_blk,
+        },
+    );
+    ctx.cur_block = dec_blk;
+    let rc_new = ctx.emit_rc_dec_inline(val);
+    let is_zero = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, rc_new, Operand::ConstI32(0)),
+        Type::Bool,
+        None,
+    );
+    let is_class_sid = ctx
+        .ast
+        .class_parents
+        .keys()
+        .any(|cn| matches!(ctx.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0));
+    let buffer_blk = if is_class_sid {
+        ctx.f.add_block()
+    } else {
+        after
+    };
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_zero),
+            then_blk: walk_blk,
+            else_blk: buffer_blk,
+        },
+    );
+    if is_class_sid {
+        ctx.cur_block = buffer_blk;
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.cycle_buffer, vec![val]),
+        );
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+    }
+    ctx.cur_block = walk_blk;
+    if is_class_sid {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.weakref_target_dying, vec![val]),
+        );
+    }
+    for (i, (_, fty)) in layout.iter().enumerate() {
+        if fty.is_copy() {
+            continue;
+        }
+        let offset = OBJ_HEADER_SIZE + i as u64 * 8;
+        let field_val =
+            ctx.f
+                .append_inst(ctx.cur_block, InstKind::Load(*fty, val, offset), *fty, None);
+        ctx.emit_drop_value(Operand::Value(field_val), *fty);
+    }
+    if is_class_sid {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.cycle_unbuffer, vec![val]),
+        );
+    }
+    let obj_block_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.obj_drop_sized,
+            vec![val, Operand::ConstI64(obj_block_size as i64)],
+        ),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+    ctx.cur_block = after;
+    ctx.drop_inline_stack.remove(&sid.0);
+}
+
+/// `Type::Arr` drop — NULL guard (regex/match no-match yields null),
+/// then Any-slot / refcounted-elem / plain paths.
+fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
+    let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+    let body_blk = ctx.f.add_block();
+    let after = ctx.f.add_block();
+    let null_check = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, val.clone(), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(null_check),
+            then_blk: after,
+            else_blk: body_blk,
+        },
+    );
+    ctx.cur_block = body_blk;
+    if elem_ty == Type::Any {
+        let drop_fid = ctx.intrinsics.arr_drop_any;
+        ctx.f
+            .append_void(ctx.cur_block, InstKind::Call(drop_fid, vec![val]));
+    } else {
+        if elem_ty.is_refcounted() {
+            let len_v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::I64, val.clone(), ARR_LEN_OFF),
+                Type::I64,
+                None,
+            );
+            ctx.emit_arr_rc_drop_range(
+                val.clone(),
+                elem_ty,
+                Operand::ConstI64(0),
+                Operand::Value(len_v),
+            );
+        }
+        let drop_fid = ctx.intrinsics.arr_drop;
+        ctx.f
+            .append_void(ctx.cur_block, InstKind::Call(drop_fid, vec![val]));
+    }
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+    ctx.cur_block = after;
+}
+
+/// `Type::Closure` drop — load the synthesized drop fn ptr from
+/// `CLOSURE_DROP_FN_OFF` and indirect-call it.
+fn emit_drop_closure(ctx: &mut LowerCtx, val: Operand) {
+    let drop_fn_ptr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Ptr, val, CLOSURE_DROP_FN_OFF),
+        Type::Ptr,
+        None,
+    );
+    let drop_void_sig = intern_fn_sig(ctx.fn_sigs, vec![Type::Ptr], Type::Void);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::CallIndirect(drop_void_sig, Operand::Value(drop_fn_ptr), vec![val]),
+    );
 }
