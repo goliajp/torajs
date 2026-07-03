@@ -183,22 +183,55 @@ pub(crate) fn check(
             }
         }
     }
+    if let Some(r) = try_family_dispatch(&obj_ty, name) {
+        return r;
+    }
+    // Every other `(obj_ty, name)` shape has already been
+    // matched by one of the per-type-family `try_match`
+    // siblings inside [`try_family_dispatch`] (chunks
+    // 191-206). Anything reaching this point is genuinely
+    // unknown for the obj_ty — emit a typecheck error.
+    Err(format!("no member `.{name}` on type {obj_ty:?}"))
+}
+
+/// Per-type-family `try_match` dispatch chain (chunks 191-206).
+/// Every sibling reads only `(obj_ty, name)` — no checker state.
+/// The full sibling dispatch table:
+///   191 Date / 192 Weak{Ref,Map,Set} / 193 Set ∪ Map ∪
+///   MapIter ∪ ArrIter / 194 Number ∪ Boolean ∪ BigInt ∪
+///   Symbol prim methods / 195 RegExp / 196 Array (incl.
+///   chunk-206 Array-as-Object catch-all) / 197 String /
+///   198 Promise / 199 Struct ∪ Function ∪ Any misc /
+///   200 Object("console" | "Math" | "Number" | "BigInt"
+///   | "JSON" | "Array" | "Promise" | "Symbol") +
+///   single-tag Object static / 201 Object("Date" | "Bun"
+///   | "BunFile" | "Response" | "process" | "env" |
+///   "process_stdout" | "process_stderr" | "fs" |
+///   "fs_promises" | "String") I/O namespaces / 202
+///   Object("Object") accessor / mutating / property-
+///   descriptor / 203 Object("Object") ∪ Object("Reflect")
+///   mixed (keys / hasOwn / Reflect.get) / 204 generic
+///   Object(_) catch-alls (hasOwnProperty / prototype /
+///   name / length / etc.) + Symbol singletons / 205
+///   prim ∪ Any unions (String|Array length, prim
+///   constructor, prim|Any hasOwnProperty).
+fn try_family_dispatch(obj_ty: &Type, name: &str) -> Option<Result<Type, String>> {
     // Date instance methods — see
     // [`crate::check_type_of_member_date`] (chunk 191 —
     // first sub-batch of check_type_of_member per-type-
     // family decomposition).
-    if matches!(&obj_ty, Type::Date)
+    if matches!(obj_ty, Type::Date)
         && let Some(r) = crate::check_type_of_member_date::try_match(name)
     {
-        return r;
+        return Some(r);
     }
     // Weak family (WeakRef / WeakMap / WeakSet) instance
     // methods — see [`crate::check_type_of_member_weak`]
     // (chunk 192 — second sub-batch).
-    if matches!(&obj_ty, Type::WeakRef | Type::WeakMap | Type::WeakSet)
-        && let Some(r) = crate::check_type_of_member_weak::try_match(&obj_ty, name)
+    if matches!(obj_ty, Type::WeakRef | Type::WeakMap | Type::WeakSet)
+        && let Some(r) = crate::check_type_of_member_weak::try_match(obj_ty, name)
     {
-        return r;
+        return Some(r);
     }
     // Set / Map / MapIter / ArrIter instance methods — see
     // [`crate::check_type_of_member_setmap`] (chunk 193 —
@@ -206,9 +239,9 @@ pub(crate) fn check(
     if matches!(
         &obj_ty,
         Type::Map | Type::Set | Type::MapIter | Type::ArrIter
-    ) && let Some(r) = crate::check_type_of_member_setmap::try_match(&obj_ty, name)
+    ) && let Some(r) = crate::check_type_of_member_setmap::try_match(obj_ty, name)
     {
-        return r;
+        return Some(r);
     }
     // Primitive wrappers (Number / Boolean / BigInt / Symbol)
     // single-type arms — see
@@ -220,17 +253,17 @@ pub(crate) fn check(
     if matches!(
         &obj_ty,
         Type::Number | Type::Boolean | Type::BigInt | Type::Symbol
-    ) && let Some(r) = crate::check_type_of_member_prim::try_match(&obj_ty, name)
+    ) && let Some(r) = crate::check_type_of_member_prim::try_match(obj_ty, name)
     {
-        return r;
+        return Some(r);
     }
     // RegExp instance methods + properties — see
     // [`crate::check_type_of_member_regex`] (chunk 195 —
     // fifth sub-batch).
-    if matches!(&obj_ty, Type::RegExp)
+    if matches!(obj_ty, Type::RegExp)
         && let Some(r) = crate::check_type_of_member_regex::try_match(name)
     {
-        return r;
+        return Some(r);
     }
     // `Type::Array` instance methods + the Array-as-Object
     // catch-all (`arr.x` for unknown `x` → Type::Any) — see
@@ -239,10 +272,10 @@ pub(crate) fn check(
     // the last sibling arm). The shared `(Type::String,
     // "length") | (Type::Array(_), "length")` arm stays in
     // the main match (handled by chunk 205 prim-union).
-    if matches!(&obj_ty, Type::Array(_))
-        && let Some(r) = crate::check_type_of_member_array::try_match(&obj_ty, name)
+    if matches!(obj_ty, Type::Array(_))
+        && let Some(r) = crate::check_type_of_member_array::try_match(obj_ty, name)
     {
-        return r;
+        return Some(r);
     }
     // `Type::String` instance methods — see
     // [`crate::check_type_of_member_string`] (chunk 197 —
@@ -250,21 +283,21 @@ pub(crate) fn check(
     // `length` arm, prim-union `constructor`, and
     // prim+Any union `hasOwnProperty` /
     // `propertyIsEnumerable`) stay in the main match.
-    if matches!(&obj_ty, Type::String)
-        && let Some(r) = crate::check_type_of_member_string::try_match(&obj_ty, name)
+    if matches!(obj_ty, Type::String)
+        && let Some(r) = crate::check_type_of_member_string::try_match(obj_ty, name)
     {
-        return r;
+        return Some(r);
     }
     // `Type::Promise` instance methods — see
     // [`crate::check_type_of_member_promise`] (chunk 198 —
     // eighth sub-batch). The pre-match structural getter
-    // forwarding (`if let Type::Promise(inner) = &obj_ty`)
+    // forwarding (`if let Type::Promise(inner) = obj_ty`)
     // stays in the main module; only the 3 method arms
     // (`then` / `catch` / `finally`) move.
-    if matches!(&obj_ty, Type::Promise(_))
-        && let Some(r) = crate::check_type_of_member_promise::try_match(&obj_ty, name)
+    if matches!(obj_ty, Type::Promise(_))
+        && let Some(r) = crate::check_type_of_member_promise::try_match(obj_ty, name)
     {
-        return r;
+        return Some(r);
     }
     // `Type::Struct` / `Type::Function` / `Type::Any`
     // single-type members + per-type catch-alls — see
@@ -273,10 +306,10 @@ pub(crate) fn check(
     // `hasOwnProperty` / `propertyIsEnumerable` arm and
     // the `Array(_), name` catch-all stay in the main
     // match (their patterns aren't single-type).
-    if matches!(&obj_ty, Type::Struct(_) | Type::Function(..) | Type::Any)
-        && let Some(r) = crate::check_type_of_member_misc::try_match(&obj_ty, name)
+    if matches!(obj_ty, Type::Struct(_) | Type::Function(..) | Type::Any)
+        && let Some(r) = crate::check_type_of_member_misc::try_match(obj_ty, name)
     {
-        return r;
+        return Some(r);
     }
     // `Type::Object("NAMESPACE")` static-namespace members
     // (console / Math / Number / BigInt / JSON / Array /
@@ -288,10 +321,10 @@ pub(crate) fn check(
     // accessor / property-descriptor methods) stay in the
     // main match because their patterns span more than one
     // namespace tag or carry richer dispatch.
-    if let Type::Object(_) = &obj_ty
-        && let Some(r) = crate::check_type_of_member_namespace::try_match(&obj_ty, name)
+    if let Type::Object(_) = obj_ty
+        && let Some(r) = crate::check_type_of_member_namespace::try_match(obj_ty, name)
     {
-        return r;
+        return Some(r);
     }
     // I/O-flavored namespaces — see
     // [`crate::check_type_of_member_namespace_io`] (chunk
@@ -299,10 +332,10 @@ pub(crate) fn check(
     // covers Date / Bun / BunFile / Response / process /
     // env / process_stdout-stderr / fs / fs_promises /
     // String static namespace tags.
-    if let Type::Object(_) = &obj_ty
-        && let Some(r) = crate::check_type_of_member_namespace_io::try_match(&obj_ty, name)
+    if let Type::Object(_) = obj_ty
+        && let Some(r) = crate::check_type_of_member_namespace_io::try_match(obj_ty, name)
     {
-        return r;
+        return Some(r);
     }
     // `Type::Object("Object")` accessor / mutating /
     // property-descriptor arms (getPrototypeOf /
@@ -313,10 +346,10 @@ pub(crate) fn check(
     // (chunk 202 — twelfth sub-batch). Mixed Object/Reflect
     // arms + generic `(Type::Object(_), …)` catch-alls stay
     // in the main match.
-    if matches!(&obj_ty, Type::Object("Object"))
+    if matches!(obj_ty, Type::Object("Object"))
         && let Some(r) = crate::check_type_of_member_object_meta::try_match(name)
     {
-        return r;
+        return Some(r);
     }
     // Mixed `Type::Object("Object")` ∪ `Type::Object("Reflect")`
     // arms (`keys` ∪ `getOwnPropertyNames` ∪ `ownKeys`,
@@ -327,10 +360,10 @@ pub(crate) fn check(
     // isPrototypeOf / toString / prototype / name / length)
     // stay in the main match — they fire for every namespace
     // tag, not just Object/Reflect.
-    if matches!(&obj_ty, Type::Object("Object") | Type::Object("Reflect"))
-        && let Some(r) = crate::check_type_of_member_reflect::try_match(&obj_ty, name)
+    if matches!(obj_ty, Type::Object("Object") | Type::Object("Reflect"))
+        && let Some(r) = crate::check_type_of_member_reflect::try_match(obj_ty, name)
     {
-        return r;
+        return Some(r);
     }
     // Generic `(Type::Object(_), …)` Object.prototype catch-alls
     // (V3-18 m2.b — hasOwnProperty / propertyIsEnumerable /
@@ -346,10 +379,10 @@ pub(crate) fn check(
     // 200 namespace / 201 namespace_io / 202 object_meta /
     // 203 reflect); the generic catch-alls fire last for any
     // namespace tag not picked up earlier.
-    if let Type::Object(_) = &obj_ty
-        && let Some(r) = crate::check_type_of_member_object_generic::try_match(&obj_ty, name)
+    if let Type::Object(_) = obj_ty
+        && let Some(r) = crate::check_type_of_member_object_generic::try_match(obj_ty, name)
     {
-        return r;
+        return Some(r);
     }
     // Mixed-primitive ∪ Any union arms (the cross-type-family
     // arms whose `|`-union spans more than one primitive
@@ -359,32 +392,5 @@ pub(crate) fn check(
     // [`crate::check_type_of_member_prim_union`] (chunk 205 —
     // fifteenth sub-batch). Cross-family `|`-union patterns
     // can't live in any single primitive's dedicated sibling.
-    if let Some(r) = crate::check_type_of_member_prim_union::try_match(&obj_ty, name) {
-        return r;
-    }
-    // Every other `(obj_ty, name)` shape has already been
-    // matched by one of the per-type-family `try_match`
-    // siblings above (chunks 191-206). The full sibling
-    // dispatch table:
-    //   191 Date / 192 Weak{Ref,Map,Set} / 193 Set ∪ Map ∪
-    //   MapIter ∪ ArrIter / 194 Number ∪ Boolean ∪ BigInt ∪
-    //   Symbol prim methods / 195 RegExp / 196 Array (incl.
-    //   chunk-206 Array-as-Object catch-all) / 197 String /
-    //   198 Promise / 199 Struct ∪ Function ∪ Any misc /
-    //   200 Object("console" | "Math" | "Number" | "BigInt"
-    //   | "JSON" | "Array" | "Promise" | "Symbol") +
-    //   single-tag Object static / 201 Object("Date" | "Bun"
-    //   | "BunFile" | "Response" | "process" | "env" |
-    //   "process_stdout" | "process_stderr" | "fs" |
-    //   "fs_promises" | "String") I/O namespaces / 202
-    //   Object("Object") accessor / mutating / property-
-    //   descriptor / 203 Object("Object") ∪ Object("Reflect")
-    //   mixed (keys / hasOwn / Reflect.get) / 204 generic
-    //   Object(_) catch-alls (hasOwnProperty / prototype /
-    //   name / length / etc.) + Symbol singletons / 205
-    //   prim ∪ Any unions (String|Array length, prim
-    //   constructor, prim|Any hasOwnProperty).
-    // Anything reaching this point is genuinely unknown for
-    // the obj_ty — emit a typecheck error.
-    Err(format!("no member `.{name}` on type {obj_ty:?}"))
+    crate::check_type_of_member_prim_union::try_match(obj_ty, name)
 }
