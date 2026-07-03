@@ -3,35 +3,27 @@
 //! concatenates after user fns + its defined externs flatten into
 //! LC_SYMTAB. Pipeline: `cfg.archives` → `merge_archive_indexes` →
 //! `compute_required_members` → per-member parse → [`ArchiveLayout`].
+//!
+//! 2026-07-03 fn-debt decomp: the 428-LOC `compute_archive_layout`
+//! body split into three phase fns — [`compute_text_region_plan`] /
+//! [`compute_data_region_plan`] / [`compute_linkedit_plan`] — with
+//! carrier structs; this fn keeps input scanning, per-fn/member
+//! vaddr pinning, symtab sizing, and the final assembly.
 
-use torajs_obj::{
-    MachHeader64, NLIST_64_SIZE, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE, SYMTAB_COMMAND_SIZE,
-};
+use torajs_obj::NLIST_64_SIZE;
 
+use crate::archive_layout_data::compute_data_region_plan;
+use crate::archive_layout_linkedit::compute_linkedit_plan;
+use crate::archive_layout_text::compute_text_region_plan;
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archive_link_member_scan::{MemberScanLayouts, scan_member_text_and_symbols};
-use crate::archive_link_rebase_assembly::{TextRebaseAssembly, assemble_text_rebase_targets};
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
-use crate::chained_fixups_call::{ChainedFixupsInputs, compute_chained_fixups_outputs};
-use crate::data_const_layout::compute_data_const_layout;
-use crate::data_section_layout::compute_data_section_layouts;
 use crate::exec::LinkConfig;
 pub use crate::layout_types::{ArchiveLayout, ArchiveLayoutError, MemberLayout};
-use crate::lc::{
-    APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
-    LOAD_DYLIB_LIBCURL_CMDSIZE, LOAD_DYLIB_LIBSYSTEM_CMDSIZE, LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE,
-    TEXT_VMADDR_BASE,
-};
+use crate::lc::TEXT_VMADDR_BASE;
 pub use crate::member_text::{MemberTextError, parse_member_text_section};
-use crate::non_text_layout::{NonTextLayoutError, compute_non_text_layouts};
-use crate::sign::adhoc_codesign_blob_size;
-use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
-use crate::tlv_descriptor_layout::compute_tlv_descriptor_layouts;
-use crate::user_data_globals_layout::build_user_data_globals_region;
-use crate::user_strings_layout::build_user_strings_region;
-use std::collections::BTreeMap;
 
-fn round_up_to(value: u64, align: u64) -> u64 {
+pub(crate) fn round_up_to(value: u64, align: u64) -> u64 {
     debug_assert!(align.is_power_of_two());
     (value + align - 1) & !(align - 1)
 }
@@ -64,248 +56,20 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
             entry: cfg.entry.clone(),
         })?;
 
-    // Phase 3: layout. has_dyld → __stubs/__la_symbol_ptr/chain LC
-    // (libSystem ord 1, libcurl ord 2). e8: __DATA_CONST hosts vtable
-    // + class_layouts; chain LC also turns on for __DATA_CONST rebases.
-    let has_dyld = !required.dyld_imports.is_empty();
-    let has_data_const_seg = !cfg.vtable_globals.is_empty()
-        || !cfg.class_layouts.is_empty()
-        || cfg.force_emit_class_layouts_globals
-        || !cfg.fn_name_globals.is_empty()
-        || cfg.force_emit_fn_name_globals;
-    let has_vtable_rebase = cfg
-        .vtable_globals
-        .iter()
-        .any(|v| v.slot_syms.iter().any(|s| s.is_some()));
-    let has_class_layouts_rebase = cfg
-        .class_layouts
-        .iter()
-        .any(|e| !e.child_offsets.is_empty());
-    // Step 3b.4 — each fn_name_table entry contributes 2 chain-fixup
-    // slots (fn_addr + name_ptr) so any non-empty fn_name_globals
-    // triggers the chain pipeline even on otherwise vtable-free
-    // programs (e.g. plain `function foo() {}` user TS).
-    let has_fn_name_table_rebase =
-        !cfg.fn_name_globals.is_empty() || cfg.force_emit_fn_name_globals;
-    let has_class_names_table_rebase =
-        !cfg.class_names.is_empty() || cfg.force_emit_class_names_globals;
-    let has_chained_fixups = has_dyld
-        || has_vtable_rebase
-        || has_class_layouts_rebase
-        || has_fn_name_table_rebase
-        || has_class_names_table_rebase;
-    let has_libcurl_lc = required.dyld_imports.values().any(|&o| o == 2);
-    let load_dylib_size = if has_dyld {
-        LOAD_DYLIB_LIBSYSTEM_CMDSIZE
-            + if has_libcurl_lc {
-                LOAD_DYLIB_LIBCURL_CMDSIZE
-            } else {
-                0
-            }
-    } else {
-        0
-    };
-    // segment_count = PAGEZERO + __TEXT + (__DATA_CONST?) + (__DATA?) +
-    // __LINKEDIT. section_count = __text + (__stubs? when has_dyld);
-    // __DATA_CONST = segment-only rodata blob (no section_64 entry).
-    let segment_count = 3 + u32::from(has_dyld) + u32::from(has_data_const_seg);
-    let section_count = 1 + if has_dyld { 2 } else { 0 };
-    let chained_fixups_lc_size = if has_chained_fixups {
-        LINKEDIT_DATA_CMDSIZE
-    } else {
-        0
-    };
-    let sizeofcmds = (SEGMENT_COMMAND_64_SIZE * segment_count)
-        + (SECTION_64_SIZE * section_count)
-        + LOAD_DYLINKER_CMDSIZE
-        + load_dylib_size
-        + BUILD_VERSION_CMDSIZE
-        + MAIN_CMDSIZE
-        + SYMTAB_COMMAND_SIZE
-        + DYSYMTAB_CMDSIZE
-        + chained_fixups_lc_size
-        + LINKEDIT_DATA_CMDSIZE;
-    let header_plus_lc = (MachHeader64::SIZE as u32) + sizeofcmds;
-    let text_file_offset = round_up_to(u64::from(header_plus_lc), APPLE_SILICON_PAGE_SIZE) as u32;
-
-    let user_text_size: u32 = cfg.funcs.iter().map(|f| f.bytes.len() as u32).sum();
-    let members_text_total: u32 = member_text_sizes.iter().copied().sum();
-
-    // Non-text region (member __cstring/__const) lands between member
-    // __texts and `__TEXT,__stubs`; folds into text_size auto-shift.
-    let non_text_region_file_offset = text_file_offset + user_text_size + members_text_total;
-    let non_text_result =
-        compute_non_text_layouts(&merged, &member_keys, non_text_region_file_offset).map_err(
-            |NonTextLayoutError {
-                 archive_idx,
-                 member_idx,
-                 err,
-             }| {
-                ArchiveLayoutError::MemberSections {
-                    archive_idx,
-                    member_idx,
-                    err,
-                }
-            },
-        )?;
-    let non_text_region_size = non_text_result.region_size;
-
-    // e1 — user strings in `__TEXT,__cstring` past member non-text.
-    let (user_strings_layout, user_strings_payload) = build_user_strings_region(
-        &cfg.strings,
-        TEXT_VMADDR_BASE,
-        non_text_region_file_offset + non_text_region_size,
-    );
-    let text_size =
-        user_text_size + members_text_total + non_text_region_size + user_strings_layout.total_size;
-
-    // __TEXT = __text + __stubs (has_dyld); vmsize page-aligned.
-    let dyld_count = required.dyld_imports.len() as u64;
-    let stubs_section_size = if has_dyld { dyld_count * STUB_SIZE } else { 0 };
-    let la_ptr_section_size = if has_dyld {
-        dyld_count * LA_PTR_SLOT_SIZE
-    } else {
-        0
-    };
-    // chunk 3 — 4-align `__stubs` (ARM instr) past non-text padding.
-    let stubs_file_offset = round_up_to(u64::from(text_file_offset + text_size), 4) as u32;
-    let text_segment_file_end = u64::from(stubs_file_offset) + stubs_section_size;
-    let text_vmsize = round_up_to(text_segment_file_end, APPLE_SILICON_PAGE_SIZE);
-
-    // e8 + W-J A3c __DATA_CONST — vtable + class_layouts +
-    // fn_name_table + class_name_table rodata.
-    let data_const_layout = compute_data_const_layout(
-        &cfg.vtable_globals,
-        &cfg.class_layouts,
-        cfg.force_emit_class_layouts_globals,
-        &cfg.fn_name_globals,
-        cfg.force_emit_fn_name_globals,
-        &cfg.class_names,
-        cfg.force_emit_class_names_globals,
-        &cfg.baked_regex_entries,
-        text_vmsize as u32,
-        TEXT_VMADDR_BASE + text_vmsize,
-    );
-    let has_data_const = data_const_layout.has_data_const;
-    let data_file_offset = if has_dyld {
-        data_const_layout.segment_file_offset + data_const_layout.segment_filesize as u32
-    } else {
-        0
-    };
-    let data_vmaddr = if has_dyld {
-        data_const_layout.segment_vmaddr + data_const_layout.segment_vmsize
-    } else {
-        0
-    };
-
-    // Section vaddrs follow directly from segment vmaddrs +
-    // section file offsets.
-    let stubs_section_vaddr = if has_dyld {
-        TEXT_VMADDR_BASE + u64::from(stubs_file_offset)
-    } else {
-        0
-    };
-    let la_ptr_section_vaddr = data_vmaddr;
-
-    // c-fix-c3/c4 — `__DATA,*` past `__la_symbol_ptr` (chain seg_off=0).
-    let (
-        data_non_text_layouts,
-        data_non_text_file_offset,
-        data_non_text_file_size,
-        data_non_text_zerofill_vmsize,
-    ) = if has_dyld {
-        let file_start = data_file_offset + la_ptr_section_size as u32;
-        let vaddr_start = data_vmaddr + la_ptr_section_size;
-        let res = compute_data_section_layouts(&merged, &member_keys, file_start, vaddr_start)
-            .map_err(
-                |NonTextLayoutError {
-                     archive_idx,
-                     member_idx,
-                     err,
-                 }| {
-                    ArchiveLayoutError::MemberSections {
-                        archive_idx,
-                        member_idx,
-                        err,
-                    }
-                },
-            )?;
-        (
-            res.per_member,
-            file_start,
-            res.file_region_size,
-            res.zerofill_vmsize,
-        )
-    } else {
-        (Vec::new(), 0u32, 0u32, 0u32)
-    };
-
-    // b1/c — member __DATA,__thread_vars TLV descriptors for chain
-    // per-thunk-slot binds. has_dyld=false → no __DATA → no TLVs.
-    let tlv_descriptors = if has_dyld {
-        compute_tlv_descriptor_layouts(&member_keys, &data_non_text_layouts)
-            .expect("TLV descriptor layout cannot fail when inputs are zipped from compute_data_section_layouts")
-            .descriptors
-    } else {
-        Vec::new()
-    };
-
-    // __DATA: data_filesize page-aligns for next-seg fileoff; vmsize
-    // extends with zerofill (member zerofill + e4 user-bss).
-    let data_total_file_size = if has_dyld {
-        la_ptr_section_size + u64::from(data_non_text_file_size)
-    } else {
-        0
-    };
-    let data_filesize = if has_dyld {
-        round_up_to(data_total_file_size, APPLE_SILICON_PAGE_SIZE)
-    } else {
-        0
-    };
-    // e4 — `__DATA,__bss` zerofill past member zerofill.
-    let user_data_globals_layout = build_user_data_globals_region(
-        &cfg.data_globals,
-        has_dyld,
-        data_vmaddr + data_total_file_size + u64::from(data_non_text_zerofill_vmsize),
-    )
-    .map_err(|count| ArchiveLayoutError::DataGlobalsWithoutDyld { count })?;
-    let data_vmsize = if has_dyld {
-        round_up_to(
-            data_total_file_size
-                + u64::from(data_non_text_zerofill_vmsize)
-                + u64::from(user_data_globals_layout.total_vmsize),
-            APPLE_SILICON_PAGE_SIZE,
-        )
-    } else {
-        0
-    };
-
-    // e8: __DATA_CONST seg sits between __TEXT and __DATA; account
-    // for its file + vm footprint when locating __LINKEDIT.
-    let linkedit_file_offset =
-        (text_vmsize + data_const_layout.segment_filesize + data_filesize) as u32;
-    let linkedit_vmaddr =
-        TEXT_VMADDR_BASE + text_vmsize + data_const_layout.segment_vmsize + data_vmsize;
-
-    // Per-import stub vaddr stride is STUB_SIZE. BTreeMap iter is
-    // sorted-by-name → stub_vaddrs key order is reproducible.
-    let mut stub_vaddrs: BTreeMap<String, u64> = BTreeMap::new();
-    if has_dyld {
-        for (i, name) in required.dyld_imports.keys().enumerate() {
-            stub_vaddrs.insert(name.clone(), stubs_section_vaddr + (i as u64) * STUB_SIZE);
-        }
-    }
+    let mut tp =
+        compute_text_region_plan(cfg, &required, &merged, &member_keys, &member_text_sizes)?;
+    let dp = compute_data_region_plan(cfg, &required, &merged, &member_keys, &tp)?;
 
     // Per-user-func vaddrs.
     let mut fn_vaddrs: Vec<u64> = Vec::with_capacity(cfg.funcs.len());
     let mut running: u32 = 0;
     for f in &cfg.funcs {
         debug_assert_eq!(f.bytes.len() % 4, 0, "user fn bytes must be 4-aligned");
-        fn_vaddrs.push(TEXT_VMADDR_BASE + u64::from(text_file_offset) + u64::from(running));
+        fn_vaddrs.push(TEXT_VMADDR_BASE + u64::from(tp.text_file_offset) + u64::from(running));
         running += f.bytes.len() as u32;
     }
-    let entry_file_offset = text_file_offset
-        + (fn_vaddrs[entry_idx] - TEXT_VMADDR_BASE - u64::from(text_file_offset)) as u32;
+    let entry_file_offset = tp.text_file_offset
+        + (fn_vaddrs[entry_idx] - TEXT_VMADDR_BASE - u64::from(tp.text_file_offset)) as u32;
 
     // Per-member __text pinning, cumulative past user funcs.
     let mut member_layouts: Vec<MemberLayout> = Vec::with_capacity(member_keys.len());
@@ -315,8 +79,8 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         member_layouts.push(MemberLayout {
             key,
             text_size: text_size_i,
-            file_offset: text_file_offset + cumulative,
-            vaddr: TEXT_VMADDR_BASE + u64::from(text_file_offset) + u64::from(cumulative),
+            file_offset: tp.text_file_offset + cumulative,
+            vaddr: TEXT_VMADDR_BASE + u64::from(tp.text_file_offset) + u64::from(cumulative),
             member_text_offset_in_member: member_text_offsets[i],
             defined_syms: std::mem::take(&mut member_defined_syms[i]),
             non_text_sections: Vec::new(),
@@ -328,7 +92,10 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     // pre-computed layout (the region size + offsets were folded into
     // text_size up top so stubs_file_offset / text_vmsize landed at
     // the right values automatically).
-    for (i, layouts) in non_text_result.per_member.into_iter().enumerate() {
+    for (i, layouts) in std::mem::take(&mut tp.non_text_per_member)
+        .into_iter()
+        .enumerate()
+    {
         member_layouts[i].non_text_sections = layouts;
     }
 
@@ -341,7 +108,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
     let nsyms = user_nsyms + member_nsyms;
 
     let nlist_size = nsyms * NLIST_64_SIZE;
-    let symoff = linkedit_file_offset;
+    let symoff = dp.linkedit_file_offset;
     let stroff = symoff + nlist_size;
 
     // strtab: "\0" + user fn names + member defined-sym names.
@@ -355,117 +122,61 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         }
     }
 
-    // SD-3 chain blob; +c binds each TLV thunk to `__tlv_bootstrap`.
-    let tlv_thunk_offsets: Vec<u64> = tlv_descriptors
-        .iter()
-        .map(|d| d.thunk_slot_vaddr - data_vmaddr)
-        .collect();
-    // Phase 3 — concat vtable | class_layouts | fn_name_table |
-    // class_name_table rebase in walk order so dyld + archive_emit
-    // can per-region split via the recorded counts.
-    let TextRebaseAssembly {
-        combined: combined_text_rebase_targets,
-        vtable_rebase_target_count,
-        fn_name_rebase_target_count,
-        class_name_rebase_target_count,
-        baked_regex_rebase_target_count,
-    } = assemble_text_rebase_targets(&data_const_layout, &fn_vaddrs, &user_strings_layout);
-
-    // e8: __DATA_CONST idx=2; __DATA shifts to idx 3 when has_data_const.
-    let data_seg_idx: u32 = if has_data_const { 3 } else { 2 };
-    let (
-        chained_fixups_blob,
-        la_ptr_slot_values,
-        tlv_thunk_link_values,
-        text_rebase_link_values,
-        _data_rebase_link_values,
-    ) = compute_chained_fixups_outputs(ChainedFixupsInputs {
-        dyld_imports: &required.dyld_imports,
-        data_seg_vmaddr_offset: data_vmaddr.saturating_sub(TEXT_VMADDR_BASE),
-        data_seg_vmsize: data_vmsize,
-        tlv_thunk_offsets: &tlv_thunk_offsets,
-        segment_count,
-        data_seg_idx,
-        data_const_layout: &data_const_layout,
-        vtable_rebase_targets: &combined_text_rebase_targets,
-        data_seg_rebase_targets: &[],
-    });
-    // +c: chain + CodeDir both need 8-aligned LINKEDIT offsets.
-    let chained_fixups_dataoff = if has_chained_fixups {
-        round_up_to(u64::from(stroff + strsize), 8) as u32
-    } else {
-        0
-    };
-    let chained_fixups_datasize = chained_fixups_blob.len() as u32;
-    let codesign_dataoff = if has_chained_fixups {
-        round_up_to(
-            u64::from(chained_fixups_dataoff + chained_fixups_datasize),
-            8,
-        ) as u32
-    } else {
-        stroff + strsize
-    };
-    let codesign_datasize = adhoc_codesign_blob_size(codesign_dataoff, &cfg.codesign_ident);
-    // __LINKEDIT filesize = codesign end - segment start (covers
-    // the alignment pads above).
-    let linkedit_data_size =
-        (codesign_dataoff + codesign_datasize).saturating_sub(linkedit_file_offset);
-    let linkedit_vmsize = round_up_to(u64::from(linkedit_data_size), APPLE_SILICON_PAGE_SIZE);
-    let total_size = linkedit_file_offset + linkedit_data_size;
+    let lp = compute_linkedit_plan(cfg, &required, &tp, &dp, &fn_vaddrs, stroff, strsize);
 
     Ok(ArchiveLayout {
-        text_file_offset,
-        text_size,
+        text_file_offset: tp.text_file_offset,
+        text_size: tp.text_size,
         text_vmaddr: TEXT_VMADDR_BASE,
-        text_vmsize,
-        linkedit_file_offset,
-        linkedit_vmaddr,
-        linkedit_vmsize,
+        text_vmsize: tp.text_vmsize,
+        linkedit_file_offset: dp.linkedit_file_offset,
+        linkedit_vmaddr: dp.linkedit_vmaddr,
+        linkedit_vmsize: lp.linkedit_vmsize,
         symoff,
         stroff,
-        total_size,
+        total_size: lp.total_size,
         nsyms,
         strsize,
         entry_file_offset,
         fn_vaddrs,
         member_layouts,
-        codesign_dataoff,
-        codesign_datasize,
+        codesign_dataoff: lp.codesign_dataoff,
+        codesign_datasize: lp.codesign_datasize,
         dyld_imports: required.dyld_imports,
-        stubs_section_vaddr,
-        stubs_section_size,
-        stubs_file_offset,
-        la_ptr_section_vaddr,
-        la_ptr_section_size,
-        la_ptr_file_offset: data_file_offset,
-        data_vmsize,
-        data_filesize,
-        data_vmaddr,
-        stub_vaddrs,
-        chained_fixups_blob,
-        chained_fixups_dataoff,
-        chained_fixups_datasize,
-        la_ptr_slot_values,
-        non_text_region_file_offset,
-        non_text_region_size,
-        data_non_text_layouts,
-        data_non_text_file_offset,
-        data_non_text_file_size,
-        data_non_text_zerofill_vmsize,
-        tlv_descriptors,
-        tlv_thunk_link_values,
-        user_strings_layout,
-        user_strings_payload,
-        user_data_globals_layout,
-        user_vtables_layout: data_const_layout.vtable_layout.clone(),
-        fn_name_table_layout: data_const_layout.fn_name_table_layout.clone(),
-        class_name_table_layout: data_const_layout.class_name_table_layout.clone(),
-        data_const_layout,
-        text_rebase_link_values,
-        vtable_rebase_target_count,
-        fn_name_rebase_target_count,
-        class_name_rebase_target_count,
-        baked_regex_rebase_target_count,
+        stubs_section_vaddr: dp.stubs_section_vaddr,
+        stubs_section_size: tp.stubs_section_size,
+        stubs_file_offset: tp.stubs_file_offset,
+        la_ptr_section_vaddr: dp.la_ptr_section_vaddr,
+        la_ptr_section_size: tp.la_ptr_section_size,
+        la_ptr_file_offset: dp.data_file_offset,
+        data_vmsize: dp.data_vmsize,
+        data_filesize: dp.data_filesize,
+        data_vmaddr: dp.data_vmaddr,
+        stub_vaddrs: dp.stub_vaddrs,
+        chained_fixups_blob: lp.chained_fixups_blob,
+        chained_fixups_dataoff: lp.chained_fixups_dataoff,
+        chained_fixups_datasize: lp.chained_fixups_datasize,
+        la_ptr_slot_values: lp.la_ptr_slot_values,
+        non_text_region_file_offset: tp.non_text_region_file_offset,
+        non_text_region_size: tp.non_text_region_size,
+        data_non_text_layouts: dp.data_non_text_layouts,
+        data_non_text_file_offset: dp.data_non_text_file_offset,
+        data_non_text_file_size: dp.data_non_text_file_size,
+        data_non_text_zerofill_vmsize: dp.data_non_text_zerofill_vmsize,
+        tlv_descriptors: dp.tlv_descriptors,
+        tlv_thunk_link_values: lp.tlv_thunk_link_values,
+        user_strings_layout: tp.user_strings_layout,
+        user_strings_payload: tp.user_strings_payload,
+        user_data_globals_layout: dp.user_data_globals_layout,
+        user_vtables_layout: dp.data_const_layout.vtable_layout.clone(),
+        fn_name_table_layout: dp.data_const_layout.fn_name_table_layout.clone(),
+        class_name_table_layout: dp.data_const_layout.class_name_table_layout.clone(),
+        data_const_layout: dp.data_const_layout,
+        text_rebase_link_values: lp.text_rebase_link_values,
+        vtable_rebase_target_count: lp.vtable_rebase_target_count,
+        fn_name_rebase_target_count: lp.fn_name_rebase_target_count,
+        class_name_rebase_target_count: lp.class_name_rebase_target_count,
+        baked_regex_rebase_target_count: lp.baked_regex_rebase_target_count,
     })
 }
 
@@ -474,7 +185,9 @@ mod tests {
     use super::*;
     use crate::archive::{AR_HEADER_SIZE, AR_MAGIC};
     use crate::archives_merge::ArchiveLinkError;
+    use crate::lc::APPLE_SILICON_PAGE_SIZE;
     use crate::resolve::SymTable;
+    use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
     use torajs_codegen::CompiledFunction;
     use torajs_codegen::frame::FrameLayout;
     use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};
@@ -624,8 +337,8 @@ mod tests {
 
         // Stubs section + slot section non-zero, sized to the
         // single import.
-        assert_eq!(layout.stubs_section_size, super::STUB_SIZE);
-        assert_eq!(layout.la_ptr_section_size, super::LA_PTR_SLOT_SIZE);
+        assert_eq!(layout.stubs_section_size, STUB_SIZE);
+        assert_eq!(layout.la_ptr_section_size, LA_PTR_SLOT_SIZE);
 
         // Stubs land right after the user __text.
         assert_eq!(
@@ -684,8 +397,8 @@ mod tests {
         };
         let layout = compute_archive_layout(&cfg).unwrap();
         assert_eq!(layout.dyld_imports.len(), 3);
-        assert_eq!(layout.stubs_section_size, 3 * super::STUB_SIZE);
-        assert_eq!(layout.la_ptr_section_size, 3 * super::LA_PTR_SLOT_SIZE);
+        assert_eq!(layout.stubs_section_size, 3 * STUB_SIZE);
+        assert_eq!(layout.la_ptr_section_size, 3 * LA_PTR_SLOT_SIZE);
         // BTreeSet iter is sorted-by-name → _free < _malloc < _pthread_create.
         let names: Vec<&String> = layout.stub_vaddrs.keys().collect();
         assert_eq!(names, vec!["_free", "_malloc", "_pthread_create"]);
@@ -693,8 +406,8 @@ mod tests {
         let stride_one = layout.stub_vaddrs["_malloc"];
         let stride_two = layout.stub_vaddrs["_pthread_create"];
         assert_eq!(stride_zero, layout.stubs_section_vaddr);
-        assert_eq!(stride_one, stride_zero + super::STUB_SIZE);
-        assert_eq!(stride_two, stride_zero + 2 * super::STUB_SIZE);
+        assert_eq!(stride_one, stride_zero + STUB_SIZE);
+        assert_eq!(stride_two, stride_zero + 2 * STUB_SIZE);
     }
 
     /// `_main` calls `_foo` extern; archive contains `_foo`.

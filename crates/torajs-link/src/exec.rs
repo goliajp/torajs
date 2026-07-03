@@ -540,10 +540,14 @@ mod tests {
         // Rounded up to 0x4000 page = 16384.
         assert_eq!(layout.text_file_offset, 0x4000);
 
-        // __text payload = 16 bytes.
-        assert_eq!(layout.text_size, 16);
+        // __text payload = the compiled `_main` body. Pinning a byte
+        // count here couples this layout test to codegen instruction
+        // selection (it broke when const-folding shortened `42 + 0`
+        // from 16 to 12 bytes) — pin the layout invariant instead.
+        assert_eq!(layout.text_size, cfg.funcs[0].bytes.len() as u32);
 
-        // __TEXT vmsize = round_up(0x4000 + 16, 0x4000) = 0x8000.
+        // __TEXT vmsize = round_up(0x4000 + text_size, 0x4000) = 0x8000
+        // (payload is a handful of instructions, far below one page).
         assert_eq!(layout.text_vmsize, 0x8000);
 
         // __LINKEDIT lands at the second page boundary.
@@ -652,9 +656,9 @@ mod tests {
             baked_regex_entries: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
-        // The first 16 bytes after the page boundary should match
-        // the compiled `_main` body.
-        assert_eq!(&bytes[0x4000..0x4000 + 16], &main.bytes[..]);
+        // The bytes right after the page boundary should match the
+        // compiled `_main` body (length follows codegen output).
+        assert_eq!(&bytes[0x4000..0x4000 + main.bytes.len()], &main.bytes[..]);
     }
 
     /// Host `otool -hlv` must accept the emitted binary and

@@ -49,6 +49,9 @@
 pub mod archive;
 pub mod archive_emit;
 pub mod archive_emit_lc_meta;
+pub(crate) mod archive_layout_data;
+pub(crate) mod archive_layout_linkedit;
+pub(crate) mod archive_layout_text;
 pub mod archive_link;
 pub mod archive_link_extra_syms;
 pub mod archive_link_member_scan;
