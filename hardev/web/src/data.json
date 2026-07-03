@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-03T16:07:02.940Z",
+  "generatedAt": "2026-07-03T19:50:29.084Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "3b903c52",
-    "commitSubject": "refactor: split build_dfa start seeding, deferred advance and finish stages",
+    "commit": "ea58d3ae",
+    "commitSubject": "refactor: move ssa Type enum into ssa/type_def.rs submodule",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
-      "hash": "3b903c52",
-      "subject": "refactor: split build_dfa start seeding, deferred advance and finish stages"
+      "hash": "ea58d3ae",
+      "subject": "refactor: move ssa Type enum into ssa/type_def.rs submodule"
     },
     {
-      "hash": "fbb1dbd0",
-      "subject": "refactor: split splice_body into per-stage fns"
+      "hash": "f316c18c",
+      "subject": "refactor: clear two fn-size audit stragglers in modules and ast_printer"
     },
     {
-      "hash": "03aa1132",
-      "subject": "refactor: split width_of binop and call arms into per-arm fns"
+      "hash": "d6eab509",
+      "subject": "refactor: split pass3 ctor synthesis and static-init walk into fns"
     },
     {
-      "hash": "37a5eaae",
-      "subject": "refactor: split index-assign any-pack, set-any dispatch and bounds guard"
+      "hash": "30ee6467",
+      "subject": "refactor: split build_link_config into per-field builder fns"
     },
     {
-      "hash": "84cf0831",
-      "subject": "refactor: split vm_match_at consume arms and dedupe u-skip scheduling"
+      "hash": "50483829",
+      "subject": "refactor: split promise chain call lowering into per-stage methods"
     },
     {
-      "hash": "5cc9a1a5",
-      "subject": "refactor: split promise then/catch early-route cascade into per-arm fns"
+      "hash": "0a025fdb",
+      "subject": "refactor: reuse normalize_range_bound in copyWithin and extract rc ranges"
     },
     {
-      "hash": "25df3b0b",
-      "subject": "refactor: split parse_postfix fat arms into per-arm helpers"
+      "hash": "97ab5b4a",
+      "subject": "refactor: dedupe fill bound normalization and extract rc fill loop"
     },
     {
-      "hash": "0aa4455a",
-      "subject": "refactor: split emit_define_one literal-descriptor arm into literal submodule"
+      "hash": "70542b4c",
+      "subject": "refactor: split apply_member_relocs target resolve and site patch stages"
     },
     {
-      "hash": "cf6e82b9",
-      "subject": "chore(dashboard): session snapshot @ 935d8e48 — fn-debt 263-242 tier sweep (457-463: intrinsics_object 263 / frem_narrow 262 / fmt_expr 261 / join_flat 250 / emit_drop_value 247 / for_of 244 / json_parse 242 all cleared)"
+      "hash": "27967d45",
+      "subject": "refactor: split probe_section_reloc into stats struct and per-stage fns"
     },
     {
-      "hash": "935d8e48",
-      "subject": "refactor: split json_parse arr and obj shapes into per-shape fns"
+      "hash": "3472792d",
+      "subject": "refactor: dedupe scan_number radix arms into scan_radix_literal"
     },
     {
-      "hash": "a5db73bc",
-      "subject": "refactor: dedupe for-of scope binding and extract body-scope close"
+      "hash": "43bd88ec",
+      "subject": "refactor: split dfa_search_from monotone run and pending-class step"
     },
     {
-      "hash": "943882e3",
-      "subject": "refactor: split emit_drop_value structural arms and collapse helper-call table"
+      "hash": "494ad0fa",
+      "subject": "refactor: split tlv sym-override walk into tlv_sym_overrides.rs sibling"
     }
   ],
-  "headSha": "3b903c52",
+  "headSha": "ea58d3ae",
   "autorun": {
-    "total": 317,
+    "total": 318,
     "baselineTarget": 10,
-    "bySelf": 312,
+    "bySelf": 313,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783087788-376e",
-      "at": "2026-07-03T14:09:48Z",
-      "ts": 1783087788,
+      "rotationId": "r-1783094891-49c6",
+      "at": "2026-07-03T16:08:11Z",
+      "ts": 1783094891,
       "trigger": "self",
-      "prevHead": "cf6e82b9",
-      "handoffSha": "sha256:f5f500d4533f6715573c97e65c2ea7d12c54d5eb81bff1744e1fa9f308a1b196",
-      "handoffAgeSec": 5,
+      "prevHead": "5d2ba469",
+      "handoffSha": "sha256:93b59331fcee8ab24741b0a91ae1f50e2b7db9431f8bf132310e62c45fc8ba08",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783094891-49c6",
+        "at": "2026-07-03T16:08:11Z",
+        "ts": 1783094891,
+        "trigger": "self",
+        "prevHead": "5d2ba469",
+        "handoffSha": "sha256:93b59331fcee8ab24741b0a91ae1f50e2b7db9431f8bf132310e62c45fc8ba08",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783087788-376e",
         "at": "2026-07-03T14:09:48Z",
@@ -876,17 +887,6 @@
         "prevHead": "789d4aa2",
         "handoffSha": "sha256:07078e5ca301ed01d89011270c36d69b2f40b448805ced8dcc7fdbcdd33ab8ab",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782992945-37c6",
-        "at": "2026-07-02T11:49:05Z",
-        "ts": 1782992945,
-        "trigger": "self",
-        "prevHead": "ead29e07",
-        "handoffSha": "sha256:ad2aa218234f78cfc38f1b140caaef9eabaa552d81690156a2ca24d0ef69f102",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
