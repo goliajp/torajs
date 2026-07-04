@@ -45,6 +45,14 @@ pub(crate) fn collect_fn_to_closure_store_sites(
                 targets,
                 rewrites,
             );
+            collect_any_let_fn_to_closure(
+                ast,
+                *init,
+                type_ann.as_deref(),
+                fn_sigs,
+                targets,
+                rewrites,
+            );
             collect_expr_fn_to_closure(ast, *init, fn_sigs, targets, rewrites);
         }
         Stmt::FnDecl { body, .. } => {
@@ -308,6 +316,34 @@ pub(crate) fn collect_expr_fn_to_closure(
             }
         }
         _ => {}
+    }
+}
+
+/// `const f: any = top_fn` — a bare top-FnDecl Ident crossing into an
+/// `any`-annotated binding (any-method-call RFC C4+ FnSig-into-any).
+/// Without the wrap the lowerer's fn-addr arm claims the binding as a
+/// raw FnSig slot (the annotation is never consulted there), and the
+/// bare any-call route then hands the raw fn address to
+/// `__torajs_any_call`, which rejects non-closure-cell callees with a
+/// TypeError. Rewriting to the `__forward_<name>` zero-capture closure
+/// routes the value through the closure construction site, which
+/// carries the boxed dual entry — `f(1)` dispatches uniformly.
+pub(crate) fn collect_any_let_fn_to_closure(
+    ast: &Ast,
+    init: ExprId,
+    type_ann: Option<&str>,
+    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
+    targets: &mut std::collections::HashSet<String>,
+    rewrites: &mut Vec<(ExprId, String)>,
+) {
+    if type_ann.is_none_or(|a| a.trim() != "any") {
+        return;
+    }
+    if let Expr::Ident(name) = ast.get_expr(init)
+        && fn_sigs.contains_key(name)
+    {
+        targets.insert(name.clone());
+        rewrites.push((init, name.clone()));
     }
 }
 
