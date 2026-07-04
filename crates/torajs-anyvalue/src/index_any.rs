@@ -340,11 +340,13 @@ fn utf16_units_of_utf8(payload: &[u8]) -> i64 {
     units
 }
 
-/// `for (x of recv)` length driver where recv is an `any` value
-/// (RFC 20260704 S5). Iterable receivers answer their element /
+/// Indexed-iteration bound where recv is an `any` value (RFC
+/// 20260704 S5). Iterable receivers answer their element /
 /// code-unit count; everything else raises a catchable TypeError
-/// (ES §7.4.2 GetIterator on a non-iterable) and answers 0 so the
-/// caller's loop body never runs after the throw check.
+/// (ES §7.4.2 GetIterator on a non-iterable) and answers 0. Since
+/// S5+ this is no longer emitted directly by ssa-lower — it serves
+/// as the per-step live bound inside `__torajs_any_iter_next`
+/// (sibling iter_any module).
 ///
 /// Strings iterate per UTF-16 code unit here (the element read is
 /// `recv[i]`) — astral code points split into surrogate halves,

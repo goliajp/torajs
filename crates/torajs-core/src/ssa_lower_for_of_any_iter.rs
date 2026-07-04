@@ -1,0 +1,95 @@
+//! `for (x of recv)` where `recv` lowers to `Type::Any` — the
+//! unified runtime iteration protocol (RFC 20260704 S5+).
+//!
+//! One `__torajs_any_iter_next(recv, idx_slot, out_slot)` call per
+//! iteration drives every runtime shape behind the erased type:
+//! indexed receivers (strings / arrays — the kernel keeps the
+//! cursor in `idx_slot` and re-reads the bound live) and the
+//! stateful iterator cells the C4+ any-method-call surface mints
+//! (`m.keys()` / `m.values()` / `m.entries()`, `arr.values()`).
+//! Non-iterable receivers raise a catchable TypeError inside the
+//! kernel — the per-step throw check propagates it before the live
+//! flag is consulted, so the body never runs.
+//!
+//! Replaces the S5 indexed two-phase shape (hoisted
+//! `__torajs_any_iter_len` + per-iter `recv[i]` runtime index
+//! dispatch), which could not carry cursor-bearing iterator cells.
+//!
+//! Loop shape mirrors `lower_for_of_map_like`: header calls the
+//! step kernel and exits on `live == 0`; the body loads the owned
+//! AnyValue out-slot and alloca-binds `var_name` as owned
+//! (`moved=false` — `close_body_scope`'s drop walk releases the
+//! element box each iteration, balancing the kernel's +1).
+
+use crate::ast::Stmt;
+use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_stmt_for_of::{bind_scoped_local, close_body_scope};
+
+pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &Stmt) {
+    ctx.scope_stack.push(Vec::new());
+    ctx.shadow_stack.push(Vec::new());
+
+    let idx_slot = ctx.alloca(Type::I64, Some("__forof_any_idx"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::ConstI64(0), Operand::Value(idx_slot), 0),
+    );
+    let out_slot = ctx.alloca(Type::Any, Some("__forof_any_out"));
+
+    let header = ctx.f.add_block();
+    let body_blk = ctx.f.add_block();
+    let after = ctx.f.add_block();
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
+
+    ctx.cur_block = header;
+    let live = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_iter_next,
+            vec![src_op, Operand::Value(idx_slot), Operand::Value(out_slot)],
+        ),
+        Type::I64,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    let done = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(live), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(done),
+            then_blk: after,
+            else_blk: body_blk,
+        },
+    );
+
+    ctx.cur_block = body_blk;
+    ctx.scope_stack.push(Vec::new());
+    ctx.shadow_stack.push(Vec::new());
+    let v_val = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Any, Operand::Value(out_slot), 0),
+        Type::Any,
+        None,
+    );
+    let v_slot = ctx.alloca(Type::Any, Some(var_name));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(v_val), Operand::Value(v_slot), 0),
+    );
+    bind_scoped_local(ctx, var_name, v_slot, Type::Any, false, false);
+    ctx.loop_stack.push((header, after));
+    ctx.lower_stmt(body);
+    let body_open = ctx.cur_open();
+    ctx.loop_stack.pop();
+    close_body_scope(ctx, header, body_open);
+
+    ctx.cur_block = after;
+    let _ = ctx.scope_stack.pop().expect("for-of-any iter scope");
+    let _ = ctx.shadow_stack.pop().expect("shadow frame");
+}

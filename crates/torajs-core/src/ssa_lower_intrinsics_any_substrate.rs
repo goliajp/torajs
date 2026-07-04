@@ -62,7 +62,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_length_get: FuncId,
     pub any_size_get: FuncId,
     pub any_regexp_prop: FuncId,
-    pub any_iter_len: FuncId,
+    pub any_iter_next: FuncId,
     pub any_method_call: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
@@ -279,13 +279,15 @@ pub(crate) fn declare(
             &[Type::Any, Type::I64, Type::Ptr],
             Type::Any,
         ),
-        // RFC 20260704 S5 — for-of length driver (throws on
-        // non-iterable receivers).
-        any_iter_len: declare_intrinsic(
+        // RFC 20260704 S5+ — unified for-of iteration protocol
+        // (indexed strings/arrays + stateful MapIter/ArrIter cells;
+        // throws on non-iterable receivers). (recv, idx-cursor slot,
+        // owned-AnyValue out slot) → live flag.
+        any_iter_next: declare_intrinsic(
             module,
             fn_table,
-            "__torajs_any_iter_len",
-            &[Type::Any],
+            "__torajs_any_iter_next",
+            &[Type::Any, Type::Ptr, Type::Ptr],
             Type::I64,
         ),
         // Any-method-call RFC 20260704 C1 — recv.name(args…) runtime

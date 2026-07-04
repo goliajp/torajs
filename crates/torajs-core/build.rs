@@ -83,6 +83,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_index_assign.rs",
     "src/ssa_lower_any_member.rs",
     "src/ssa_lower_stmt_for_of.rs",
+    "src/ssa_lower_for_of_any_iter.rs",
     "src/ssa_lower_container_width.rs",
     "src/ssa_lower_logical.rs",
     "src/ssa_lower_obj_escape.rs",

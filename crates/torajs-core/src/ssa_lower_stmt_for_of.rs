@@ -17,6 +17,10 @@
 //! 3. **String** (P11.4) → `lower_for_of_str` (still inline). Per-iter
 //!    code-point Substr views, advance 1 or 2 code units via
 //!    `__torajs_str_code_point_at` per ES §22.1.5.
+//! 3b. **Any** (RFC 20260704 S5+) → `lower_for_of_any_iter`
+//!    (sibling): unified runtime iteration protocol
+//!    (`__torajs_any_iter_next` tag-dispatch over strings / arrays /
+//!    MapIter / ArrIter cells).
 //! 4. **Array<T>** — the fast path. Hoist length read; build
 //!    header/body/step/after blocks; per-iter element load via
 //!    Expr::Index (lowers boxing for Type::Any correctly); bind
@@ -87,13 +91,21 @@ pub(crate) fn lower(
         crate::ssa_lower_for_of_str::lower(ctx, src_ptr_op, i_ident, var_name, body);
         return;
     }
-    // Any-dynamic-access RFC (20260704) S5 — `for (x of recv)` where
-    // recv is an `any` value reuses this whole i-loop verbatim: the
-    // element read below is `lower_expr(elem_expr)` = `recv[i]`,
-    // which the S3 Index-on-Any arm dispatches at runtime. Only the
-    // length source differs (`__torajs_any_iter_len`, which raises a
-    // catchable TypeError for non-iterable receivers).
-    if !matches!(src_ty, Type::Arr(_) | Type::Any) {
+    // Any-dynamic-access RFC (20260704) S5+ — `for (x of recv)` where
+    // recv is an `any` value routes through the unified runtime
+    // iteration protocol (`__torajs_any_iter_next` tag-dispatch over
+    // strings / arrays / MapIter / ArrIter; catchable TypeError for
+    // non-iterable receivers). See sibling ssa_lower_for_of_any_iter.
+    if src_ty == Type::Any {
+        if !matches!(ctx.ast.get_expr(elem_expr), Expr::Index { .. }) {
+            panic!(
+                "ssa-lower: for-await over an `any` source is not yet supported (the runtime iteration protocol has no promise_get_value hook — P10.3 follow-up)"
+            );
+        }
+        crate::ssa_lower_for_of_any_iter::lower(ctx, src_ptr_op, var_name, body);
+        return;
+    }
+    if !matches!(src_ty, Type::Arr(_)) {
         panic!(
             "ssa-lower: for-of source type {src_ty:?} not yet supported (P5.3 subset — Array<T> + user-class iterable only)"
         );
@@ -113,23 +125,12 @@ pub(crate) fn lower(
         Operand::Value(v) => v,
         _ => panic!("for-of: src ident must lower to a value operand"),
     };
-    let end_val = if src_ty == Type::Any {
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_iter_len, vec![Operand::Value(src_ptr)]),
-            Type::I64,
-            None,
-        );
-        ctx.emit_throw_check(None);
-        v
-    } else {
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(src_ptr), ARR_LEN_OFF),
-            Type::I64,
-            None,
-        )
-    };
+    let end_val = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(src_ptr), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
 
     let header = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
