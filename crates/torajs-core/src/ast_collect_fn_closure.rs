@@ -328,6 +328,13 @@ pub(crate) fn collect_expr_fn_to_closure(
 /// TypeError. Rewriting to the `__forward_<name>` zero-capture closure
 /// routes the value through the closure construction site, which
 /// carries the boxed dual entry — `f(1)` dispatches uniformly.
+///
+/// The same wrap covers `const o: any = { getFn: top_fn }` (and
+/// nested ObjectLit / Array positions under the any init): the
+/// dynobj-literal lowering has no arm for a raw FnSig field value
+/// ("dynobj init unsupported field type FnSig"), while a Closure
+/// field stores the cell whose boxed dual entry the dynamic
+/// dispatcher already consumes.
 pub(crate) fn collect_any_let_fn_to_closure(
     ast: &Ast,
     init: ExprId,
@@ -339,11 +346,35 @@ pub(crate) fn collect_any_let_fn_to_closure(
     if type_ann.is_none_or(|a| a.trim() != "any") {
         return;
     }
-    if let Expr::Ident(name) = ast.get_expr(init)
-        && fn_sigs.contains_key(name)
-    {
-        targets.insert(name.clone());
-        rewrites.push((init, name.clone()));
+    collect_any_init_fn_to_closure(ast, init, fn_sigs, targets, rewrites);
+}
+
+/// Recursive worker for [`collect_any_let_fn_to_closure`] — marks a
+/// bare top-FnDecl Ident at the value position itself or inside
+/// ObjectLit fields / Array elements of the `any`-destined init.
+fn collect_any_init_fn_to_closure(
+    ast: &Ast,
+    eid: ExprId,
+    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
+    targets: &mut std::collections::HashSet<String>,
+    rewrites: &mut Vec<(ExprId, String)>,
+) {
+    match ast.get_expr(eid) {
+        Expr::Ident(name) if fn_sigs.contains_key(name) => {
+            targets.insert(name.clone());
+            rewrites.push((eid, name.clone()));
+        }
+        Expr::ObjectLit { fields } => {
+            for (_, feid) in fields {
+                collect_any_init_fn_to_closure(ast, *feid, fn_sigs, targets, rewrites);
+            }
+        }
+        Expr::Array(els) => {
+            for e in els {
+                collect_any_init_fn_to_closure(ast, *e, fn_sigs, targets, rewrites);
+            }
+        }
+        _ => {}
     }
 }
 
