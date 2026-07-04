@@ -127,25 +127,28 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         }
     }
 
-    // Collect ExprId → target_name rewrites and the set of targets
-    // that need forwarders.
-    let mut targets: HashSet<String> = HashSet::new();
-    let mut rewrites: Vec<(ExprId, String)> = Vec::new();
+    // Binding names declared `any` anywhere — the assign-into-any
+    // axis matches `f = top_fn` against these (scope-approximate).
+    let mut any_bindings: HashSet<String> = HashSet::new();
+    crate::ast_collect_fn_closure::collect_any_bindings(&ast.stmts, &mut any_bindings);
 
     // Walk all top-level stmts (including FnDecl bodies recursively)
-    // looking for ObjectLit-field store-sites where the field is
-    // tagged Closure and the value is a bare top-FnDecl Ident.
+    // collecting the store-sites where a bare top-FnDecl Ident needs
+    // the forwarder wrap (see ast_collect_fn_closure module doc for
+    // the axis list).
     let stmts_snapshot = ast.stmts.clone();
+    let mut collector = crate::ast_collect_fn_closure::FnToClosureCollector {
+        ast,
+        fn_sigs: &fn_sigs,
+        struct_field_anns: &struct_field_anns,
+        any_bindings: &any_bindings,
+        targets: HashSet::new(),
+        rewrites: Vec::new(),
+    };
     for s in &stmts_snapshot {
-        crate::ast_collect_fn_closure::collect_fn_to_closure_store_sites(
-            ast,
-            s,
-            &fn_sigs,
-            &struct_field_anns,
-            &mut targets,
-            &mut rewrites,
-        );
+        collector.walk_stmt(s, false);
     }
+    let (targets, rewrites) = (collector.targets, collector.rewrites);
 
     if rewrites.is_empty() {
         return;
