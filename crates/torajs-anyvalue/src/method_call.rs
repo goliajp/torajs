@@ -102,6 +102,9 @@ unsafe extern "C" {
     fn __torajs_arr_any_includes(arr: *const c_void, needle: u64, from: i64) -> i64;
     /// torajs-arr — element-kind-dispatched join (fresh Str).
     fn __torajs_arr_any_join(arr: *const u8, sep: *const u8) -> u64;
+    /// torajs-arr — kind-aware slice for any receivers (C4+); the
+    /// returned array is fresh +1 rc, same slot layout as the source.
+    fn __torajs_arr_any_slice(arr: *const u8, start: i64, end: i64) -> *mut u8;
     /// torajs-arr — HO loops over the boxed dual-entry callback ABI.
     fn __torajs_arr_any_map(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
     fn __torajs_arr_any_filter(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
@@ -425,6 +428,14 @@ unsafe fn arr_method(
                 let out = __torajs_arr_any_join(arr as *const u8, sep as *const u8);
                 __torajs_str_drop(sep as *mut c_void);
                 out
+            }
+            m if m == ANY_METHOD_SLICE => {
+                // Missing end rides the kernel clamp (same idiom as
+                // the str arm's slice).
+                let start = to_index(arg_at(0), 0);
+                let end = to_index(arg_at(1), i64::MAX);
+                let p = __torajs_arr_any_slice(arr as *const u8, start, end);
+                __torajs_anyv_box_pointer(p as *mut c_void)
             }
             _ => method_not_a_function(),
         }
