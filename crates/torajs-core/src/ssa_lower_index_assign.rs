@@ -57,12 +57,34 @@ impl<'a> LowerCtx<'a> {
             self.consume_if_ident(value);
             let v_ty = self.operand_ty(&v_raw);
             let (tag_op, value_op) = self.pack_any_slot_value(&v_raw, v_ty);
+            // L3b #3 (chunk 527) — an Ident receiver rides its
+            // variable slot along so a dynobj store that resizes
+            // writes the fresh cell back (same two shapes as the
+            // member-set gate); other receivers pass NULL.
+            let recv_slot = if let Expr::Ident(n) = self.ast.get_expr(obj) {
+                if let Some(info) = self.locals.get(n) {
+                    Operand::Value(info.slot)
+                } else if self.globals.contains_key(n) {
+                    let name = n.clone();
+                    let gref = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::GlobalRef(name),
+                        Type::Ptr,
+                        None,
+                    );
+                    Operand::Value(gref)
+                } else {
+                    Operand::ConstPtrNull
+                }
+            } else {
+                Operand::ConstPtrNull
+            };
             let cur_block = self.cur_block;
             self.f.append_void(
                 cur_block,
                 InstKind::Call(
                     self.intrinsics.any_index_set,
-                    vec![arr_val, idx_val, tag_op, value_op],
+                    vec![arr_val, idx_val, tag_op, value_op, recv_slot],
                 ),
             );
             self.emit_throw_check(None);

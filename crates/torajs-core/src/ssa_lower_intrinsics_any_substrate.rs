@@ -254,7 +254,7 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_any_index_set",
-            &[Type::Any, Type::I64, Type::I64, Type::I64],
+            &[Type::Any, Type::I64, Type::I64, Type::I64, Type::Ptr],
             Type::Void,
         ),
         // RFC 20260704 S4 — recv.length runtime dispatch.

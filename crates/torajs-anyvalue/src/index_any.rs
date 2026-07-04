@@ -15,9 +15,10 @@
 //! - `Tag::Arr` cell → `__torajs_arr_index_get` (torajs-arr,
 //!   kind-aware: FLAG_ARR_ANY NaN-box slots or `ARR_KIND_*` raw
 //!   slots recorded at the boxing boundary).
-//! - `Tag::DynObj` → explicit TypeError — numeric-key property
-//!   lookup on plain objects is the RFC's S4 follow-up (a roadmap
-//!   boundary, never a silent wrong answer).
+//! - `Tag::DynObj` (L3b #3, chunk 527) → the numeric key stringifies
+//!   to its decimal form (`o[42]` ≡ `o["42"]` per ES §7.1.19
+//!   ToPropertyKey) and probes own properties; an accessor entry's
+//!   getter runs (getter-as-value). Absence answers `undefined`.
 //! - any other heap tag → `undefined` (no such own property).
 
 use core::ffi::c_void;
@@ -53,6 +54,13 @@ unsafe extern "C" {
     /// undefined by construction).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-dynobj — keyed store; resize relocates through the
+    /// slot (signature mirrors the crate's method_call_mapset
+    /// declaration).
+    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    /// torajs-dynobj — run an accessor entry's getter; the answer is
+    /// an owned AnyValue per the boxed-value convention.
+    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
     /// torajs-collections — live entry count (tombstones excluded);
     /// Set storage shares the Map runtime.
     fn __torajs_map_size(p: *const c_void) -> i64;
@@ -109,14 +117,56 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
         return unsafe { __torajs_arr_index_get(ptr, idx) };
     }
     if tag == Tag::DynObj as u16 {
-        unsafe {
-            __torajs_throw_type_error(
-                c"indexing a plain object through any is not yet implemented".as_ptr(),
-            );
-        }
-        return VALUE_UNDEFINED;
+        return unsafe { dynobj_index_get(ptr, idx) };
     }
     VALUE_UNDEFINED
+}
+
+/// Stack decimal formatter for the ToPropertyKey stringification
+/// (in-house — metal-level crates take no external deps). Fills the
+/// 20-byte buffer backward; answers `(start, len)` into it. 20 bytes
+/// covers i64::MIN (`-9223372036854775808`).
+fn i64_dec(buf: &mut [u8; 20], v: i64) -> (usize, usize) {
+    let neg = v < 0;
+    // Two's-complement magnitude — safe for i64::MIN.
+    let mut m = (v as i128).unsigned_abs() as u64;
+    let mut i = buf.len();
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (m % 10) as u8;
+        m /= 10;
+        if m == 0 {
+            break;
+        }
+    }
+    if neg {
+        i -= 1;
+        buf[i] = b'-';
+    }
+    (i, buf.len() - i)
+}
+
+/// `Tag::DynObj` get arm — decimal-stringify the key and probe own
+/// properties (same borrow-then-own shape as the `"length"` probe
+/// below); an accessor entry's getter answers its owned result.
+unsafe fn dynobj_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
+    let mut buf = [0u8; 20];
+    let (start, len) = i64_dec(&mut buf, idx);
+    unsafe {
+        let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
+        let dtag = __torajs_dynobj_get_tag(obj, key as *const c_void);
+        let dval = __torajs_dynobj_get_value(obj, key as *const c_void);
+        __torajs_str_drop(key as *mut c_void);
+        // Accessor sentinel (tag 6) — run the getter; its answer is
+        // owned per the boxed-value convention.
+        if dtag == INDEX_ANY_ACCESSOR_TAG {
+            return __torajs_accessor_invoke_getter(dval as *const c_void);
+        }
+        // The probe pair is a borrow — the returned box owns its own
+        // reference.
+        crate::payload_rc_inc(dtag as i64, dval as i64);
+        crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64)
+    }
 }
 
 /// Shared `Tag::Str` arm — `str_index_get` returns a fresh rc=1
@@ -146,15 +196,26 @@ unsafe fn index_str_cell(s: *mut u8, idx: i64) -> AnyValue {
 ///   either way).
 /// - `Tag::Arr` cell → `__torajs_arr_index_set` (kind-aware; OOB →
 ///   catchable RangeError, kind mismatch → catchable TypeError).
-/// - `Tag::DynObj` / any other heap tag → explicit TypeError (the
-///   numeric-key property write is the RFC's S4 follow-up).
+/// - `Tag::DynObj` (L3b #3, chunk 527) → the numeric key
+///   stringifies to its decimal form and stores through
+///   `__torajs_dynobj_set` (the pair transfers into the bucket); a
+///   resize-relocated block writes the fresh cell back through
+///   `recv_slot` (NULL for non-Ident receivers — same canonical-slot
+///   shape as the member-set gate).
+/// - any other heap tag → explicit TypeError.
 ///
 /// # Safety
 /// Cell receivers must be valid heap pointers matching their header
 /// tag layout; a `tag == 4` `value` must be 0 or a valid owned heap
 /// pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_any_index_set(recv: AnyValue, idx: i64, tag: u64, value: u64) {
+pub unsafe extern "C" fn __torajs_any_index_set(
+    recv: AnyValue,
+    idx: i64,
+    tag: u64,
+    value: u64,
+    recv_slot: *mut u64,
+) {
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             drop_transferred_pair(tag, value);
@@ -174,6 +235,23 @@ pub unsafe extern "C" fn __torajs_any_index_set(recv: AnyValue, idx: i64, tag: u
     }
     if hdr_tag == Tag::Str as u16 {
         unsafe { drop_transferred_pair(tag, value) };
+        return;
+    }
+    if hdr_tag == Tag::DynObj as u16 {
+        let mut buf = [0u8; 20];
+        let (start, len) = i64_dec(&mut buf, idx);
+        unsafe {
+            let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
+            let mut obj = ptr;
+            __torajs_dynobj_set(&mut obj, key as *mut c_void, tag, value);
+            __torajs_str_drop(key as *mut c_void);
+            if obj != ptr && !recv_slot.is_null() {
+                // Resize relocated the block — the NaN-box cell
+                // encoding is the pointer bits; transfer, no rc
+                // traffic (same identity, moved storage).
+                *recv_slot = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
+            }
+        }
         return;
     }
     unsafe {
@@ -197,6 +275,9 @@ unsafe fn drop_transferred_pair(tag: u64, value: u64) {
 // units) / torajs-str `SUBSTR_LEN_OFF` (u64 code units) /
 // `FLAG_SUBSTR_INLINE` (HeapHeader flags bit 0).
 const MIRROR_ARR_LEN_OFF: usize = 8;
+// Accessor-entry sentinel in the dynobj probe's tag channel — mirror
+// of torajs-core `ssa_lower_accessor.rs::ANY_ACCESSOR_TAG`.
+const INDEX_ANY_ACCESSOR_TAG: u64 = 6;
 const MIRROR_STR_LEN_OFF: usize = 8;
 const MIRROR_SUBSTR_LEN_OFF: usize = 8;
 const MIRROR_FLAG_SUBSTR_INLINE: u16 = 1 << 0;
