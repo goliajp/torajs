@@ -73,7 +73,7 @@ pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: 
     // empty class set, or class without this field), with the
     // RFC-20260704 S4 `.length` runtime dispatch layered in.
     if candidates.is_empty() {
-        return emit_member_fallback(ctx, &obj_val, dynobj, key_str, name);
+        return emit_member_fallback(ctx, &obj_val, key_str, name);
     }
 
     // Sort by class_tag for deterministic dispatch order.
@@ -192,7 +192,7 @@ pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: 
     // dynobj_blk: original tag/value-pair path (`.length` routes to
     // the S4 runtime dispatch — see `emit_member_fallback`).
     ctx.cur_block = dynobj_blk;
-    let box_v = emit_member_fallback(ctx, &obj_val, dynobj, key_str, name);
+    let box_v = emit_member_fallback(ctx, &obj_val, key_str, name);
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(box_v, Operand::Value(res_slot), 0),
@@ -221,7 +221,6 @@ pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: 
 fn emit_member_fallback(
     ctx: &mut LowerCtx,
     obj_val: &Operand,
-    dynobj: crate::ssa::ValueId,
     key_str: crate::ssa::ValueId,
     name: &str,
 ) -> Operand {
@@ -269,23 +268,26 @@ fn emit_member_fallback(
         ctx.emit_throw_check(None);
         return Operand::Value(v);
     }
-    emit_dynobj_only(ctx, dynobj, key_str)
+    emit_any_member_probe(ctx, obj_val, key_str)
 }
 
-/// Emit the pre-RFC dynobj-only path: `dynobj_get_tag` +
-/// `dynobj_get_value` paired through `emit_dynobj_get_result`. Both
-/// the no-candidate fast path and the post-dispatch fallback share
-/// this helper.
-fn emit_dynobj_only(
+/// Emit the arbitrary-name probe pair — RFC 20260704 C4+ tag-gated
+/// `__torajs_any_member_get_tag/_value` (was the raw
+/// `dynobj_get_tag/value` layout read; an Arr expando probe missed
+/// by accident, every non-DynObj tag was an out-of-layout read).
+/// The pair keeps the dynobj probe's borrow shape and accessor
+/// sentinel, so `emit_dynobj_get_result` consumes it unchanged; a
+/// null/undefined receiver records a catchable TypeError.
+fn emit_any_member_probe(
     ctx: &mut LowerCtx,
-    dynobj: crate::ssa::ValueId,
+    obj_val: &Operand,
     key_str: crate::ssa::ValueId,
 ) -> Operand {
     let tag = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
-            ctx.intrinsics.dynobj_get_tag,
-            vec![Operand::Value(dynobj), Operand::Value(key_str)],
+            ctx.intrinsics.any_member_get_tag,
+            vec![obj_val.clone(), Operand::Value(key_str)],
         ),
         Type::I64,
         None,
@@ -293,11 +295,12 @@ fn emit_dynobj_only(
     let value = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
-            ctx.intrinsics.dynobj_get_value,
-            vec![Operand::Value(dynobj), Operand::Value(key_str)],
+            ctx.intrinsics.any_member_get_value,
+            vec![obj_val.clone(), Operand::Value(key_str)],
         ),
         Type::I64,
         None,
     );
+    ctx.emit_throw_check(None);
     crate::ssa_lower_accessor::emit_dynobj_get_result(ctx, tag, value)
 }

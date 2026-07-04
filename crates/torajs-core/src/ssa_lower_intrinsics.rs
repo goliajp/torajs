@@ -310,6 +310,8 @@ pub(crate) struct Intrinsics {
     pub(crate) any_length_get: FuncId,
     pub(crate) any_size_get: FuncId,
     pub(crate) any_regexp_prop: FuncId,
+    pub(crate) any_member_get_tag: FuncId,
+    pub(crate) any_member_get_value: FuncId,
     pub(crate) any_member_set: FuncId,
     pub(crate) any_iter_next: FuncId,
     pub(crate) any_call: FuncId,

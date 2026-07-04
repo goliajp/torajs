@@ -62,6 +62,8 @@ pub(crate) struct AnySubstrateIds {
     pub any_length_get: FuncId,
     pub any_size_get: FuncId,
     pub any_regexp_prop: FuncId,
+    pub any_member_get_tag: FuncId,
+    pub any_member_get_value: FuncId,
     pub any_member_set: FuncId,
     pub any_iter_next: FuncId,
     pub any_call: FuncId,
@@ -280,6 +282,26 @@ pub(crate) fn declare(
             "__torajs_any_regexp_prop",
             &[Type::Any, Type::I64, Type::Ptr],
             Type::Any,
+        ),
+        // RFC 20260704 C4+ — tag-gated member read pair (read
+        // mirror of any_member_set): DynObj own-property probe
+        // (accessor sentinel included), Arr expando probe, definite
+        // (ANY_UNDEF, 0) for every other receiver instead of a
+        // dynobj-layout mis-read; null/undefined receivers record a
+        // catchable TypeError on the tag call.
+        any_member_get_tag: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_member_get_tag",
+            &[Type::Any, Type::Ptr],
+            Type::I64,
+        ),
+        any_member_get_value: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_member_get_value",
+            &[Type::Any, Type::Ptr],
+            Type::I64,
         ),
         // RFC 20260704 C4+ — tag-gated member write (recv AnyValue
         // slot, key Str, payload (tag, value) pair, compile-time
