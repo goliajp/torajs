@@ -35,12 +35,24 @@ unsafe extern "C" {
     /// torajs-arr — kind-aware `arr[idx]`; returns a balanced
     /// AnyValue (+1 for cells).
     fn __torajs_arr_index_get(arr: *const c_void, idx: i64) -> u64;
+    /// torajs-arr — kind-aware `arr[idx] = (tag, value)` (pair ABI,
+    /// tag 4 transfers one rc).
+    fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag: u64, value: u64);
+    /// Universal NaN-box-safe heap dropper (torajs-value-drop).
+    fn __torajs_value_drop_heap(p: *mut c_void);
     /// torajs-str — release a heap Str/Substr reference. Signature
     /// mirrors the crate-local test stub (`*mut c_void`).
     fn __torajs_str_drop(s: *mut c_void);
     /// torajs-throw — record a pending catchable TypeError; returns
     /// normally (caller's throw-check propagates).
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-str — heap Str constructor (rc=1), used to build the
+    /// literal "length" probe key for DynObj receivers.
+    fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
+    /// torajs-dynobj — own-property probe pair ((5, 0) = absent →
+    /// undefined by construction).
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
 }
 
 /// See module doc.
@@ -115,4 +127,166 @@ unsafe fn index_str_cell(s: *mut u8, idx: i64) -> AnyValue {
             box_void_ptr(sub as *mut c_void)
         }
     }
+}
+
+/// `recv[idx] = (tag, value)` where the receiver is an `any` value
+/// (RFC 20260704 S3-set). Pair ABI mirrors ssa-lower's
+/// `pack_any_slot_value` — for `tag == 4` the caller transfers
+/// ownership of one rc; every path that doesn't store the pair
+/// releases it.
+///
+/// - `null` / `undefined` receiver → catchable TypeError.
+/// - primitive receivers (numbers / bools / strings — including
+///   heap Str/Substr cells) → silent no-op, matching non-strict JS
+///   assignment-to-primitive-property semantics (§13.15.2 PutValue on
+///   a primitive base discards in sloppy mode; strings are immutable
+///   either way).
+/// - `Tag::Arr` cell → `__torajs_arr_index_set` (kind-aware; OOB →
+///   catchable RangeError, kind mismatch → catchable TypeError).
+/// - `Tag::DynObj` / any other heap tag → explicit TypeError (the
+///   numeric-key property write is the RFC's S4 follow-up).
+///
+/// # Safety
+/// Cell receivers must be valid heap pointers matching their header
+/// tag layout; a `tag == 4` `value` must be 0 or a valid owned heap
+/// pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_index_set(recv: AnyValue, idx: i64, tag: u64, value: u64) {
+    if is_null(recv) || is_undefined(recv) {
+        unsafe {
+            drop_transferred_pair(tag, value);
+            __torajs_throw_type_error(c"cannot set properties of null or undefined".as_ptr());
+        }
+        return;
+    }
+    if !is_cell(recv) {
+        unsafe { drop_transferred_pair(tag, value) };
+        return;
+    }
+    let ptr = as_void_ptr(recv);
+    let hdr_tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
+    if hdr_tag == Tag::Arr as u16 {
+        unsafe { __torajs_arr_index_set(ptr, idx, tag, value) };
+        return;
+    }
+    if hdr_tag == Tag::Str as u16 {
+        unsafe { drop_transferred_pair(tag, value) };
+        return;
+    }
+    unsafe {
+        drop_transferred_pair(tag, value);
+        __torajs_throw_type_error(
+            c"indexed write on this receiver through any is not yet implemented".as_ptr(),
+        );
+    }
+}
+
+/// Release a transferred `tag == 4` rc (no-op for immediates).
+unsafe fn drop_transferred_pair(tag: u64, value: u64) {
+    if tag == 4 {
+        unsafe { __torajs_value_drop_heap(value as *mut c_void) };
+    }
+}
+
+// Layout mirrors for the length fast paths (kept inline per the
+// one-constant-per-crate convention, same as torajs-arr's ANY_HEAP):
+// torajs-arr `ARR_LEN_OFF` / torajs-str `STR_LEN_OFF` (u32 code
+// units) / torajs-str `SUBSTR_LEN_OFF` (u64 code units) /
+// `FLAG_SUBSTR_INLINE` (HeapHeader flags bit 0).
+const MIRROR_ARR_LEN_OFF: usize = 8;
+const MIRROR_STR_LEN_OFF: usize = 8;
+const MIRROR_SUBSTR_LEN_OFF: usize = 8;
+const MIRROR_FLAG_SUBSTR_INLINE: u16 = 1 << 0;
+
+/// `recv.length` where the receiver is an `any` value
+/// (RFC 20260704 S4).
+///
+/// - `null` / `undefined` → catchable TypeError.
+/// - strings (ShortStr / Str / Substr) → UTF-16 code-unit count.
+/// - `Tag::Arr` → element count.
+/// - `Tag::DynObj` → own-property probe for the literal key
+///   `"length"` (a user `{ length: 5 }` answers 5; absence answers
+///   `undefined`).
+/// - other primitives / heap tags → `undefined` (no such property).
+///
+/// # Safety
+/// Cell receivers must be valid heap pointers matching their header
+/// tag layout.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
+    if is_null(recv) || is_undefined(recv) {
+        unsafe {
+            __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());
+        }
+        return VALUE_UNDEFINED;
+    }
+    if is_short_str(recv) {
+        let len = short_str_len(recv) as usize;
+        let bytes = short_str_bytes(recv);
+        let payload = &bytes[..len];
+        let units = if payload.iter().all(|b| *b < 0x80) {
+            len as i64
+        } else {
+            utf16_units_of_utf8(payload)
+        };
+        return crate::nanbox_encode::__torajs_anyv_box_i64(units);
+    }
+    if !is_cell(recv) {
+        return VALUE_UNDEFINED;
+    }
+    let ptr = as_void_ptr(recv);
+    unsafe {
+        let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
+        if tag == Tag::Arr as u16 {
+            let n = *(ptr.cast::<u8>().add(MIRROR_ARR_LEN_OFF) as *const u64);
+            return crate::nanbox_encode::__torajs_anyv_box_i64(n as i64);
+        }
+        if tag == Tag::Str as u16 {
+            let flags = (ptr.cast::<u8>().add(6) as *const u16).read();
+            let n = if flags & MIRROR_FLAG_SUBSTR_INLINE != 0 {
+                *(ptr.cast::<u8>().add(MIRROR_SUBSTR_LEN_OFF) as *const u64) as i64
+            } else {
+                *(ptr.cast::<u8>().add(MIRROR_STR_LEN_OFF) as *const u32) as i64
+            };
+            return crate::nanbox_encode::__torajs_anyv_box_i64(n);
+        }
+        if tag == Tag::DynObj as u16 {
+            // Own-property probe for the literal key "length" — a
+            // user `{ length: 5 }` through any answers its value;
+            // absence answers (5, 0) = undefined by construction.
+            let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
+            let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
+            let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
+            __torajs_str_drop(key as *mut c_void);
+            // The probe pair is a borrow — the returned box owns its
+            // own reference (same shape as the lower-side dynobj
+            // fallback's payload_rc_inc + any_box pairing).
+            crate::payload_rc_inc(dtag as i64, dval as i64);
+            return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
+        }
+    }
+    VALUE_UNDEFINED
+}
+
+/// Count UTF-16 code units of a UTF-8 byte payload (≤ 5 bytes for a
+/// ShortStr, so a simple lead-byte walk suffices; 4-byte sequences
+/// decode to astral cps = 2 units).
+fn utf16_units_of_utf8(payload: &[u8]) -> i64 {
+    let mut units = 0i64;
+    let mut i = 0usize;
+    while i < payload.len() {
+        let b = payload[i];
+        let (adv, u) = if b < 0x80 {
+            (1, 1)
+        } else if b < 0xE0 {
+            (2, 1)
+        } else if b < 0xF0 {
+            (3, 1)
+        } else {
+            (4, 2)
+        };
+        i += adv;
+        units += u;
+    }
+    units
 }

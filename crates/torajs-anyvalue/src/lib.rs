@@ -98,7 +98,7 @@ pub mod inspect;
 pub mod nanbox;
 pub use nanbox::*;
 
-mod nanbox_encode;
+pub(crate) mod nanbox_encode;
 
 // Step 8b-C — ShortStr materialize helpers carved out of
 // nanbox_ffi.rs to keep that file's prod LOC ≤ 500 hard limit.

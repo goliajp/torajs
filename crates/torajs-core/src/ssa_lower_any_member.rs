@@ -66,13 +66,14 @@ pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: 
         }
     }
 
-    let dynobj = ctx.any_unbox_value_as_ptr(obj_val);
+    let dynobj = ctx.any_unbox_value_as_ptr(obj_val.clone());
     let key_str = ctx.intern_string_literal(name);
 
     // No candidates → original dynobj-only path (plain ObjectLit,
-    // empty class set, or class without this field).
+    // empty class set, or class without this field), with the
+    // RFC-20260704 S4 `.length` runtime dispatch layered in.
     if candidates.is_empty() {
-        return emit_dynobj_only(ctx, dynobj, key_str);
+        return emit_member_fallback(ctx, &obj_val, dynobj, key_str, name);
     }
 
     // Sort by class_tag for deterministic dispatch order.
@@ -188,9 +189,10 @@ pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: 
     // ANY_UNDEF for a non-dynobj ptr.
     ctx.f.set_term(current, Terminator::Br(dynobj_blk));
 
-    // dynobj_blk: original tag/value-pair path.
+    // dynobj_blk: original tag/value-pair path (`.length` routes to
+    // the S4 runtime dispatch — see `emit_member_fallback`).
     ctx.cur_block = dynobj_blk;
-    let box_v = emit_dynobj_only(ctx, dynobj, key_str);
+    let box_v = emit_member_fallback(ctx, &obj_val, dynobj, key_str, name);
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(box_v, Operand::Value(res_slot), 0),
@@ -206,6 +208,34 @@ pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: 
         None,
     );
     Operand::Value(r)
+}
+
+/// Member-read fallback once class-candidate dispatch is exhausted
+/// (or absent). Any-dynamic-access RFC (20260704) S4 — `.length`
+/// routes to `__torajs_any_length_get`, whose tag dispatch answers
+/// strings (UTF-16 units), arrays (element count) and plain-object
+/// `{ length: .. }` probes, and raises a catchable TypeError for a
+/// null/undefined receiver (matching bun; the pre-RFC dynobj path
+/// answered silent `undefined`). Every other member name keeps the
+/// original dynobj-only path.
+fn emit_member_fallback(
+    ctx: &mut LowerCtx,
+    obj_val: &Operand,
+    dynobj: crate::ssa::ValueId,
+    key_str: crate::ssa::ValueId,
+    name: &str,
+) -> Operand {
+    if name == "length" {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_length_get, vec![obj_val.clone()]),
+            Type::Any,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return Operand::Value(v);
+    }
+    emit_dynobj_only(ctx, dynobj, key_str)
 }
 
 /// Emit the pre-RFC dynobj-only path: `dynobj_get_tag` +

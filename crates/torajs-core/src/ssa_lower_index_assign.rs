@@ -47,6 +47,27 @@ impl<'a> LowerCtx<'a> {
         let is_non_deque = self.arr_expr_is_non_deque(obj);
         let arr_val = self.lower_expr(obj);
         let arr_ty = self.operand_ty(&arr_val);
+        // Any-dynamic-access RFC (20260704) S3-set — `recv[i] = v`
+        // where recv is an `any` value: runtime kind-aware dispatch;
+        // OOB → catchable RangeError, elem-kind mismatch → catchable
+        // TypeError, so the throw check follows.
+        if arr_ty == Type::Any {
+            let idx_val = self.lower_index_operand(index);
+            let v_raw = self.lower_expr(value);
+            self.consume_if_ident(value);
+            let v_ty = self.operand_ty(&v_raw);
+            let (tag_op, value_op) = self.pack_any_slot_value(&v_raw, v_ty);
+            let cur_block = self.cur_block;
+            self.f.append_void(
+                cur_block,
+                InstKind::Call(
+                    self.intrinsics.any_index_set,
+                    vec![arr_val, idx_val, tag_op, value_op],
+                ),
+            );
+            self.emit_throw_check(None);
+            return v_raw;
+        }
         let elem_ty = match arr_ty {
             Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
             other => panic!("ssa-lower: index assign on non-array {other:?}"),

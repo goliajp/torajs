@@ -278,6 +278,8 @@ pub(crate) fn build(
         any_strict_eq: init_c.any_substrate.any_strict_eq,
         any_any_strict_eq: init_c.any_substrate.any_any_strict_eq,
         any_index_get: init_c.any_substrate.any_index_get,
+        any_index_set: init_c.any_substrate.any_index_set,
+        any_length_get: init_c.any_substrate.any_length_get,
         any_unbox_tag: init_c.any_substrate.any_unbox_tag,
         any_unbox_value: init_c.any_substrate.any_unbox_value,
         any_box_drop: init_c.any_substrate.any_box_drop,

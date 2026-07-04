@@ -58,6 +58,8 @@ pub(crate) struct AnySubstrateIds {
     pub class_get: FuncId,
     pub get_proto_of_any: FuncId,
     pub any_index_get: FuncId,
+    pub any_index_set: FuncId,
+    pub any_length_get: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
     pub any_box_drop: FuncId,
@@ -237,6 +239,22 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_any_index_get",
             &[Type::Any, Type::I64],
+            Type::Any,
+        ),
+        // RFC 20260704 S3-set — recv[idx] = (tag, value) pair write.
+        any_index_set: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_index_set",
+            &[Type::Any, Type::I64, Type::I64, Type::I64],
+            Type::Void,
+        ),
+        // RFC 20260704 S4 — recv.length runtime dispatch.
+        any_length_get: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_length_get",
+            &[Type::Any],
             Type::Any,
         ),
         any_unbox_tag: declare_intrinsic(

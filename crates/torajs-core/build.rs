@@ -76,6 +76,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_deque_escape.rs",
     "src/ssa_lower_arr_mutators.rs",
     "src/ssa_lower_index_assign.rs",
+    "src/ssa_lower_any_member.rs",
     "src/ssa_lower_container_width.rs",
     "src/ssa_lower_logical.rs",
     "src/ssa_lower_obj_escape.rs",

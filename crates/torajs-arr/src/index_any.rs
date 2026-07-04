@@ -33,9 +33,20 @@ unsafe extern "C" {
     /// Cross-tier — torajs-anyvalue NaN-box pack. Tag scheme:
     /// 0=Null, 1=Bool, 2=I64, 3=F64 (bits), 4=Heap, 5=Undef.
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    /// Cross-tier — torajs-anyvalue NaN-box unpack (same tag scheme;
+    /// ShortStr reports Heap and `unbox_value` materializes).
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
     /// Cross-tier — torajs-rc. NaN-box-safe refcount bump (no-ops
     /// for non-cell bit patterns and NULL).
     fn __torajs_rc_inc(p: *mut c_void);
+    /// Cross-tier — universal NaN-box-safe heap dropper.
+    fn __torajs_value_drop_heap(p: *mut c_void);
+    /// Cross-tier — torajs-throw catchable errors (record + return).
+    /// Signatures mirror the crate's prior declarations (`any.rs` /
+    /// `throw_empty.rs`).
+    fn __torajs_throw_range_error(msg: *const u8);
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 /// NaN-box `undefined` sentinel via the pair packer (tag 5).
@@ -91,5 +102,96 @@ pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) ->
                 undef()
             }
         }
+    }
+}
+
+/// Kind-aware `arr[idx] = (tag, value)` write for an array reached
+/// through an `any` receiver (RFC 20260704 S3-set). Pair ABI mirrors
+/// `__torajs_arr_set_any` / ssa-lower's `pack_any_slot_value` — for
+/// `tag == 4` the caller transfers ownership of one rc.
+///
+/// - `FLAG_ARR_ANY` — delegate to [`crate::any`]'s
+///   `__torajs_arr_set_any` (drop-old + box-store, native ledger).
+/// - raw-scalar kinds — store the matching raw repr; `number`
+///   semantics let an integral f64 land in an I64 slot and an int32
+///   widen into an F64 slot. A value whose repr can't be stored
+///   without changing the array's element kind raises a catchable
+///   TypeError — element-kind transitions (V8 style) are the RFC's
+///   S7+ follow-up, never a silent corruption.
+/// - `ARR_KIND_HEAP` — rejected (TypeError): the 3-bit kind can't
+///   verify the *static* element type, so a through-any heap-element
+///   store could corrupt the typed tier.
+/// - OOB / negative index — catchable RangeError (tr arrays don't
+///   sparse-grow on assignment; same contract as `arr_set_any`).
+///
+/// Rejection paths release a transferred `tag == 4` rc before
+/// raising, keeping the pair ledger balanced for catch-and-continue
+/// programs.
+///
+/// # Safety
+/// `arr` is either NULL or a valid `Tag::Arr` heap pointer; a
+/// `tag == 4` `value` must be 0 or a valid owned heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag: u64, value: u64) {
+    unsafe {
+        if arr.is_null() {
+            drop_pair(tag, value);
+            return;
+        }
+        let header = &*(arr as *const HeapHeader);
+        if header.flags & FLAG_ARR_ANY != 0 {
+            // Native Arr<Any> ledger (drop-old + box-store + OOB
+            // RangeError) — includes negative-index rejection via
+            // the u64 cast.
+            crate::any::__torajs_arr_set_any(arr, idx as u64, tag, value);
+            return;
+        }
+        let p = arr as *mut u8;
+        let len = *(p.add(ARR_LEN_OFF) as *const u64);
+        if idx < 0 || idx as u64 >= len {
+            drop_pair(tag, value);
+            __torajs_throw_range_error(
+                c"out-of-bounds index write through an any receiver".as_ptr() as *const u8,
+            );
+            return;
+        }
+        let head = *(p.add(ARR_HEAD_OFF) as *const u32) as u64;
+        let slot = p.add(ARR_SLOTS_OFF + ((head + idx as u64) as usize) * 8) as *mut u64;
+        let kind = header.arr_elem_kind();
+        let raw: u64 = match (kind, tag) {
+            // I64 slot: int direct; integral double narrows.
+            (ARR_KIND_I64, 2) => value,
+            (ARR_KIND_I64, 3) => {
+                let d = f64::from_bits(value);
+                if d.fract() != 0.0 || !d.is_finite() {
+                    return kind_mismatch(tag, value);
+                }
+                d as i64 as u64
+            }
+            // F64 slot: double bits direct; int widens.
+            (ARR_KIND_F64, 3) => value,
+            (ARR_KIND_F64, 2) => (value as i64 as f64).to_bits(),
+            (ARR_KIND_BOOL, 1) => value,
+            _ => return kind_mismatch(tag, value),
+        };
+        *slot = raw;
+    }
+}
+
+/// Release a transferred `tag == 4` rc (no-op for immediates).
+unsafe fn drop_pair(tag: u64, value: u64) {
+    if tag == 4 {
+        unsafe { __torajs_value_drop_heap(value as *mut c_void) };
+    }
+}
+
+/// Shared catchable-TypeError tail for element-kind-mismatch writes.
+unsafe fn kind_mismatch(tag: u64, value: u64) {
+    unsafe {
+        drop_pair(tag, value);
+        __torajs_throw_type_error(
+            c"assignment through an any array receiver would change the array's element kind"
+                .as_ptr(),
+        );
     }
 }

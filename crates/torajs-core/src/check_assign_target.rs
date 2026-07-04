@@ -193,6 +193,15 @@ pub(crate) fn check_index(
     if idx_ty != Type::Number {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
+    // Any-dynamic-access RFC (20260704) S3-set — TS `any` admits
+    // every index write; runtime dispatch (kind-aware Arr / silent
+    // primitive no-op / explicit roadmap TypeError) happens in
+    // `__torajs_any_index_set`. The value still typechecks for its
+    // own side effects / diagnostics.
+    if matches!(obj_ty, Type::Any) {
+        let _ = checker.type_of(ast, value)?;
+        return Ok(Type::Any);
+    }
     let Type::Array(elem) = &obj_ty else {
         return Err(format!(
             "index assignment target must be an array, got {obj_ty:?}"
