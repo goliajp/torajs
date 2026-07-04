@@ -16,7 +16,7 @@
 //!   with the matching `RE_FLAG_*` byte constant. Bit values
 //!   mirror `torajs-regex::parser`:
 //!   `RE_FLAG_I=0x01, _G=0x02, _M=0x04, _S=0x08, _U=0x10, _Y=0x20`.
-//! - **P9.4** — `re.lastIndex`. Reads the i64 field on the
+//! - **P9.4** — `re.lastIndex`. Reads the f64 field on the
 //!   RegExp heap object via `__torajs_regex_get_last_index`. Value
 //!   tracks across exec / match calls when the regex carries
 //!   `g` or `y`.
@@ -52,7 +52,7 @@ pub(crate) fn try_lower(
             let v = ctx.f.append_inst(
                 cur_block,
                 InstKind::Call(ctx.intrinsics.regex_get_last_index, vec![obj_val]),
-                Type::I64,
+                Type::F64,
                 None,
             );
             Some(Operand::Value(v))

@@ -10,7 +10,7 @@
 //! - `null` / `undefined` → catchable TypeError.
 //! - `Tag::RegExp` → the typed tier's accessor kernels
 //!   (`ssa_lower_member_regexp_props.rs` parity): source / flags
-//!   transfer a fresh +1 Str out, lastIndex boxes the i64 field,
+//!   transfer a fresh +1 Str out, lastIndex boxes the f64 field,
 //!   the six ES §22.2.6.5-10 booleans ride
 //!   `__torajs_regex_has_flag` with the matching `RE_FLAG_*` bit.
 //! - `Tag::DynObj` → own-property probe by the interned name (a
@@ -27,14 +27,14 @@ use torajs_rc::{
 };
 
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_null, is_undefined};
-use crate::nanbox_encode::{__torajs_anyv_box_from_pair, __torajs_anyv_box_i64};
+use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 
 unsafe extern "C" {
     /// torajs-regex — source / flags render fresh +1 Strs; the flag
     /// probe answers 0/1 for a `RE_FLAG_*` bit.
     fn __torajs_regex_get_source(re: *const c_void) -> *mut c_void;
     fn __torajs_regex_get_flags(re: *const c_void) -> *mut c_void;
-    fn __torajs_regex_get_last_index(re: *const c_void) -> i64;
+    fn __torajs_regex_get_last_index(re: *const c_void) -> f64;
     fn __torajs_regex_has_flag(re: *const c_void, bit: i64) -> i64;
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
@@ -84,7 +84,8 @@ pub unsafe extern "C" fn __torajs_any_regexp_prop(
                     __torajs_anyv_box_from_pair(4, __torajs_regex_get_flags(ptr) as i64)
                 }
                 p if p == ANY_RPROP_LAST_INDEX => {
-                    __torajs_anyv_box_i64(__torajs_regex_get_last_index(ptr))
+                    let li = __torajs_regex_get_last_index(ptr);
+                    __torajs_anyv_box_from_pair(3, li.to_bits() as i64)
                 }
                 p => {
                     let bit = match p {

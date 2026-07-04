@@ -41,7 +41,7 @@ unsafe extern "C" {
     /// props dynobj.
     fn __torajs_arrprops_set(arr_ptr: *mut c_void, key: *const c_void, tag: i64, value: i64);
     /// torajs-regex — `re.lastIndex` setter.
-    fn __torajs_regex_set_last_index(re: *mut c_void, idx: i64);
+    fn __torajs_regex_set_last_index(re: *mut c_void, idx: f64);
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
@@ -96,12 +96,15 @@ pub unsafe extern "C" fn __torajs_any_member_set(
         }
         if cell_tag == Tag::RegExp as u16 && hint == ANY_RPROP_LAST_INDEX {
             let idx = match tag {
-                2 => value as i64,
-                3 => f64::from_bits(value) as i64,
+                2 => value as i64 as f64,
+                // The f64 slot stores fractional values uncoerced
+                // (`r.lastIndex = 2.9` reads back 2.9); ToLength
+                // happens at the regex kernels' consumption sites.
+                3 => f64::from_bits(value),
                 _ => {
                     // Non-numeric lastIndex payloads are a recorded
                     // boundary (ES stores any value; the cell field
-                    // is i64) — loud, not a silent 0.
+                    // is f64) — loud, not a silent 0.
                     reject(tag, value);
                     return;
                 }

@@ -175,13 +175,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_regex_get_last_index",
             &[Type::RegExp],
-            Type::I64,
+            Type::F64,
         ),
         regex_set_last_index: declare_intrinsic(
             module,
             fn_table,
             "__torajs_regex_set_last_index",
-            &[Type::RegExp, Type::I64],
+            &[Type::RegExp, Type::F64],
             Type::Void,
         ),
     }

@@ -26,9 +26,10 @@
 //!    array's side-table `props_dynobj` (keyed by ptr) via
 //!    `arrprops_set`. `arr_drop` / `arr_drop_any` drop_entry hook
 //!    cleans the bucket at refcount == 0.
-//! 6. **Type::RegExp + field=="lastIndex"** (`P9.4`) — coerce RHS to i64
-//!    (ToInteger), call `regex_set_last_index`, return the coerced
-//!    value as the expression result (mirrors a struct field store).
+//! 6. **Type::RegExp + field=="lastIndex"** (`P9.4`) — coerce RHS to
+//!    f64 (uncoerced-store spec shape; ToLength happens where the
+//!    regex kernels consume it), call `regex_set_last_index`, return
+//!    the value as the expression result (mirrors a field store).
 //! 7. **Type::Obj** (struct receiver) — two sub-paths:
 //!    - **Accessor setter** (`P8.2`) — desugar_classes renamed the
 //!      setter to `__cm_<C>__<name>_set` and registered
@@ -339,16 +340,31 @@ fn lower_regex_last_index_assign(
 ) -> Operand {
     let v_raw = ctx.lower_expr(value);
     ctx.consume_if_ident(value);
-    let v_i64 = ctx.coerce_to_i64(v_raw);
+    // lastIndex is an ordinary data property — the store is
+    // uncoerced (`r.lastIndex = 2.9` reads back 2.9); ToLength
+    // happens at the regex kernels' consumption sites. An Any RHS
+    // goes through ToNumber for the f64 slot.
+    let v_f64 = if ctx.operand_ty(&v_raw) == Type::Any {
+        let cur_block = ctx.cur_block;
+        let f = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.any_to_number, vec![v_raw]),
+            Type::F64,
+            None,
+        );
+        Operand::Value(f)
+    } else {
+        ctx.coerce_to_f64(v_raw)
+    };
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.regex_set_last_index,
-            vec![obj_val, v_i64.clone()],
+            vec![obj_val, v_f64.clone()],
         ),
     );
-    v_i64
+    v_f64
 }
 
 fn lower_obj_assign(

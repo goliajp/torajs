@@ -296,7 +296,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
         let hit = if !global && sticky {
             // lastIndex is spec'd in UTF-16 code units; the engine
             // works in transcoded UTF-8 bytes — map on read + write.
-            let start = utf16_units_to_byte(&s, re.last_index.max(0), haystack_is_ascii);
+            let start = utf16_units_to_byte(&s, re.last_index.max(0.0) as i64, haystack_is_ascii);
             let h = if start > slen {
                 None
             } else {
@@ -304,8 +304,8 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             };
             re.last_index = h
                 .as_ref()
-                .map(|m| byte_to_utf16_units(&s, m.end, haystack_is_ascii))
-                .unwrap_or(0);
+                .map(|m| byte_to_utf16_units(&s, m.end, haystack_is_ascii) as f64)
+                .unwrap_or(0.0);
             h
         } else if sticky {
             // Global + sticky: sticky wins the search shape — each
@@ -382,7 +382,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
         // the exec loop, and the loop only terminates on an exec miss
         // which itself stores 0 — so the observable post-state is
         // always 0, even when the caller pre-set a nonzero value.
-        re.last_index = 0;
+        re.last_index = 0.0;
     }
     out
 }
@@ -428,7 +428,7 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     // map to a byte offset in the transcoded haystack. Out-of-range
     // maps to slen + 1 so the `start > slen` guard below fires.
     let start = if track {
-        utf16_units_to_byte(s, re.last_index.max(0), haystack_is_ascii)
+        utf16_units_to_byte(s, re.last_index.max(0.0) as i64, haystack_is_ascii)
     } else {
         0
     };
@@ -446,12 +446,12 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     };
     let Some(m) = m else {
         if track {
-            re.last_index = 0;
+            re.last_index = 0.0;
         }
         return core::ptr::null_mut();
     };
     if track {
-        re.last_index = byte_to_utf16_units(s, m.end, haystack_is_ascii);
+        re.last_index = byte_to_utf16_units(s, m.end, haystack_is_ascii) as f64;
     }
     // Round 5 attack #6 — pre-size to the exec shape (see match loop
     // above); the pushes below fill exactly 1 + n_cap_lim slots.

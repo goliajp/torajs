@@ -94,8 +94,11 @@ pub struct RegExp {
     pub n_named_captures: i32,
     /// `RegExp.prototype.lastIndex` per ES spec §22.2.6.9. Mutated
     /// by exec / test / match / replace under sticky / global. Init
-    /// 0 in `compile`.
-    pub last_index: i64,
+    /// 0 in `compile`. An f64 because lastIndex is an ordinary data
+    /// property — assignment stores the value uncoerced (`r.lastIndex
+    /// = 2.9` reads back 2.9); ToLength happens at the consumption
+    /// sites (`.max(0.0) as i64`, NaN → 0 via max).
+    pub last_index: f64,
     /// V0.2 P14-S8 — per-RegExp Pike VM workspace cache. The
     /// pre-S8 `__torajs_str_replace_regex` (and matchAll / split-
     /// regex / etc) called `Workspace::for_program(&prog)` on

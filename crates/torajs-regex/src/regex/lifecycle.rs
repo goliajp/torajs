@@ -65,9 +65,9 @@ pub unsafe extern "C" fn __torajs_regex_get_source(re_ptr: *const c_void) -> *mu
 ///
 /// `re_ptr` is null or a live `*RegExp`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_regex_get_last_index(re_ptr: *const c_void) -> i64 {
+pub unsafe extern "C" fn __torajs_regex_get_last_index(re_ptr: *const c_void) -> f64 {
     if re_ptr.is_null() {
-        return 0;
+        return 0.0;
     }
     unsafe { as_regex(re_ptr) }.last_index
 }
@@ -79,7 +79,7 @@ pub unsafe extern "C" fn __torajs_regex_get_last_index(re_ptr: *const c_void) ->
 ///
 /// `re_ptr` is null or a live `*RegExp`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_regex_set_last_index(re_ptr: *mut c_void, idx: i64) {
+pub unsafe extern "C" fn __torajs_regex_set_last_index(re_ptr: *mut c_void, idx: f64) {
     if re_ptr.is_null() {
         return;
     }
