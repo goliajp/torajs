@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-03T19:50:29.084Z",
+  "generatedAt": "2026-07-04T02:56:33.148Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "ea58d3ae",
-    "commitSubject": "refactor: move ssa Type enum into ssa/type_def.rs submodule",
+    "commit": "f2413747",
+    "commitSubject": "fix: attach index/input/groups to every matchall element",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "f2413747",
+      "subject": "fix: attach index/input/groups to every matchall element"
+    },
+    {
+      "hash": "b4fa441f",
+      "subject": "fix: anchor each match in global sticky string.match and reset lastIndex after global match"
+    },
+    {
+      "hash": "22f245dc",
+      "subject": "fix: reject 32nd regex capture group at parse time instead of aborting at match time"
+    },
+    {
+      "hash": "5a8fdf9b",
+      "subject": "fix: regex index/lastIndex/offset are utf-16 code units on non-ascii haystacks"
+    },
+    {
+      "hash": "ac73a175",
+      "subject": "refactor: move staticlib embed constants into staticlibs.rs submodule"
+    },
+    {
+      "hash": "d35580a7",
+      "subject": "chore(dashboard): session snapshot @ ea58d3ae — fn-debt sweep close (472-485: vm/search split, for_of_map_like, tlv_sym_overrides, dfa_search_from, scan_number, probe_section_reloc, member_apply, fill, copy_within, promise_chain, cmd_build, pass3, audit stragglers, ssa type_def — non-carve-out fn debt zero)"
+    },
+    {
       "hash": "ea58d3ae",
       "subject": "refactor: move ssa Type enum into ssa/type_def.rs submodule"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "0a025fdb",
       "subject": "refactor: reuse normalize_range_bound in copyWithin and extract rc ranges"
-    },
-    {
-      "hash": "97ab5b4a",
-      "subject": "refactor: dedupe fill bound normalization and extract rc fill loop"
-    },
-    {
-      "hash": "70542b4c",
-      "subject": "refactor: split apply_member_relocs target resolve and site patch stages"
-    },
-    {
-      "hash": "27967d45",
-      "subject": "refactor: split probe_section_reloc into stats struct and per-stage fns"
-    },
-    {
-      "hash": "3472792d",
-      "subject": "refactor: dedupe scan_number radix arms into scan_radix_literal"
-    },
-    {
-      "hash": "43bd88ec",
-      "subject": "refactor: split dfa_search_from monotone run and pending-class step"
-    },
-    {
-      "hash": "494ad0fa",
-      "subject": "refactor: split tlv sym-override walk into tlv_sym_overrides.rs sibling"
     }
   ],
-  "headSha": "ea58d3ae",
+  "headSha": "f2413747",
   "autorun": {
-    "total": 318,
+    "total": 319,
     "baselineTarget": 10,
-    "bySelf": 313,
+    "bySelf": 314,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783094891-49c6",
-      "at": "2026-07-03T16:08:11Z",
-      "ts": 1783094891,
+      "rotationId": "r-1783108293-70ab",
+      "at": "2026-07-03T19:51:33Z",
+      "ts": 1783108293,
       "trigger": "self",
-      "prevHead": "5d2ba469",
-      "handoffSha": "sha256:93b59331fcee8ab24741b0a91ae1f50e2b7db9431f8bf132310e62c45fc8ba08",
-      "handoffAgeSec": 7,
+      "prevHead": "d35580a7",
+      "handoffSha": "sha256:bfe69d60cad577a5b259973557c061ce07a97c78c31488a2c0b4e45857061555",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783108293-70ab",
+        "at": "2026-07-03T19:51:33Z",
+        "ts": 1783108293,
+        "trigger": "self",
+        "prevHead": "d35580a7",
+        "handoffSha": "sha256:bfe69d60cad577a5b259973557c061ce07a97c78c31488a2c0b4e45857061555",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783094891-49c6",
         "at": "2026-07-03T16:08:11Z",
@@ -876,17 +887,6 @@
         "prevHead": "4c1f22a4",
         "handoffSha": "sha256:fd5ebe1fb2abbf73cda019e17e1662e698a9b3c9dfc0c7f78c2e1bb733be3dc9",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1782998758-0ec6",
-        "at": "2026-07-02T13:25:58Z",
-        "ts": 1782998758,
-        "trigger": "self",
-        "prevHead": "789d4aa2",
-        "handoffSha": "sha256:07078e5ca301ed01d89011270c36d69b2f40b448805ced8dcc7fdbcdd33ab8ab",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
