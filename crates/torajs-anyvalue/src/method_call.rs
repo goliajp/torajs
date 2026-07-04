@@ -17,6 +17,12 @@
 //!   `method_any`; growth-relocating methods write the possibly-
 //!   moved receiver back through `recv_slot`) + indexOf / includes
 //!   / join (`method_any_search`).
+//! - `Tag::DynObj` cell (C3a-2) → probe the property by the interned
+//!   name Str the lowerer now passes; a closure-cell value with a
+//!   non-zero boxed dual entry (`+32`, synthesized per lifted body)
+//!   invokes through the uniform `(env, argv, argc) -> AnyValue`
+//!   ABI — argv rides in a fixed 8-slot undefined-filled buffer so
+//!   the adapter reads its param count unconditionally.
 //! - anything else (numeric immediates, other heap tags, unknown
 //!   method ids) → catchable TypeError — the RFC's C3+ tags land
 //!   here one arm at a time, never a silent wrong answer.
@@ -89,11 +95,23 @@ unsafe extern "C" {
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     /// torajs-str — release a heap Str/Substr reference.
     fn __torajs_str_drop(s: *mut c_void);
+    /// torajs-dynobj — property probe by Str key: the slot's ANY_TAG
+    /// (5 = absent) / per-tag payload.
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 const ANY_METHOD_THREW: u64 = u64::MAX;
+
+/// Closure-cell boxed dual-entry offset — mirror of torajs-core
+/// `ssa_lower.rs::CLOSURE_BOXED_ENTRY_OFF`.
+const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
+
+/// The boxed adapters read up to 8 param slots unconditionally —
+/// mirror of torajs-core `ssa_lower_boxed_entry::MAX_BOXED_PARAMS`.
+const MAX_BOXED_ARGS: usize = 8;
 
 /// `ToIntegerOrInfinity`-shaped argument decode: `undefined` (or a
 /// missing slot) answers `default`; NaN answers 0; otherwise the
@@ -116,7 +134,7 @@ unsafe fn to_index(av: AnyValue, default: i64) -> i64 {
 pub unsafe extern "C" fn __torajs_any_method_call(
     recv: AnyValue,
     mid: i64,
-    _name: *const u8,
+    name_str: *const u8,
     _name_len: i64,
     recv_slot: *mut u64,
     argv: *const u64,
@@ -147,11 +165,52 @@ pub unsafe extern "C" fn __torajs_any_method_call(
         if tag == Tag::Arr as u16 {
             return unsafe { arr_method(ptr, mid, recv_slot, argv, argc) };
         }
+        if tag == Tag::DynObj as u16 {
+            return unsafe { dynobj_method(ptr, name_str, argv, argc) };
+        }
     }
     unsafe {
         __torajs_throw_type_error(c"value is not a function on this any receiver".as_ptr());
     }
     VALUE_UNDEFINED
+}
+
+/// `Tag::DynObj` arm — probe the property by name; a closure-cell
+/// value invokes through its boxed dual entry. The property probe
+/// borrows (dynobj keeps its own value reference; the receiver
+/// outlives the call), and the adapter's return is caller-owned per
+/// the boxed-value convention.
+unsafe fn dynobj_method(
+    obj: *mut c_void,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        if !name_str.is_null() {
+            let key = name_str as *const c_void;
+            // ANY_HEAP = 4 (accessor entries surface a distinct
+            // sentinel and fall through to the TypeError — getter
+            // properties as callees are a C4+ arm).
+            if __torajs_dynobj_get_tag(obj, key) == 4 {
+                let cell = __torajs_dynobj_get_value(obj, key) as *const u8;
+                if !cell.is_null() && (cell.add(4) as *const u16).read() == Tag::Closure as u16 {
+                    let entry = *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
+                    if entry != 0 {
+                        let mut buf = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
+                        let n = (argc.max(0) as usize).min(MAX_BOXED_ARGS);
+                        for (i, slot) in buf.iter_mut().enumerate().take(n) {
+                            *slot = *argv.add(i);
+                        }
+                        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+                            core::mem::transmute(entry as usize);
+                        return call(cell as *mut c_void, buf.as_ptr(), argc);
+                    }
+                }
+            }
+        }
+        method_not_a_function()
+    }
 }
 
 /// `Tag::Str` arm — id-switch onto the torajs-str glue.

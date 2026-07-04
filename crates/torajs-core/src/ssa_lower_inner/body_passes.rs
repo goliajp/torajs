@@ -40,6 +40,7 @@ pub(crate) fn run(
     arity_pad_count: &HashMap<ExprId, usize>,
     num_f64_slots: &WidthTable,
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
+    boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) {
     // Pass 2: lower user FnDecl bodies. Each call returns the lowered
     // function plus any string literals interned during its body; we
@@ -83,6 +84,7 @@ pub(crate) fn run(
                 arity_pad_count,
                 num_f64_slots,
                 promise_thunks,
+                boxed_entries,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -152,6 +154,7 @@ pub(crate) fn run(
         arity_pad_count,
         num_f64_slots,
         promise_thunks,
+        boxed_entries,
     );
 
     // Pass 2B (T-15.g.5): lower lifted-closure bodies. Delegated to
@@ -181,6 +184,7 @@ pub(crate) fn run(
         arity_pad_count,
         num_f64_slots,
         promise_thunks,
+        boxed_entries,
     );
 
     // Pass 2.5: synthesize each pre-registered env-drop fn body now

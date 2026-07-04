@@ -57,6 +57,9 @@ pub(crate) struct LowerCtx<'a> {
     /// ②.6b — synthesized promise-callback ABI thunks (bits-adapters
     /// the `.then` / `.catch` lowering wraps f64-faced handlers in).
     pub(crate) promise_thunks: &'a crate::ssa_lower_promise_thunk::PromiseThunks,
+    /// C3a-2 — lifted-closure body fid → boxed dual-entry adapter
+    /// (fid, sig) for the construction site's boxed_entry store.
+    pub(crate) boxed_entries: &'a HashMap<FuncId, (FuncId, ssa::SigId)>,
     /// Mutable view of the lowering-phase Array element-type interner.
     /// Let-decl annotations encountered during body lowering may
     /// introduce new `T[]` instantiations; they intern lazily here.

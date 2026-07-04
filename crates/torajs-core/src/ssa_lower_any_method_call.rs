@@ -7,8 +7,9 @@
 //!
 //! - method NAME interns to an `ANY_METHOD_*` id at compile time
 //!   (torajs-rc `any_method_id`) — the runtime switches on an
-//!   integer; the name-bytes ABI slots ride as NULL/0 until a C2
-//!   chunk wires dynamic TypeError messages.
+//!   integer for the built-in Str/Arr arms; the name also rides as
+//!   an interned static Str (C3a-2) so the dynobj arm probes user
+//!   properties (`o.f(x)`) by key.
 //! - each argument boxes to a NaN-box AnyValue into a stack argv
 //!   (`AllocaBytes(argc*8)` in the entry block). Ledger per the
 //!   chunk-496 three-shape rule: `box_to_any` is TRANSFER, so a
@@ -45,6 +46,10 @@ pub(crate) fn try_lower(
     let obj = *obj;
     let name = name.clone();
     let mid = any_method_id(&name);
+    // C3a-2 — the method name rides along as an interned static Str
+    // (rc no-op) so the runtime's dynobj arm can probe user
+    // properties by key; built-in ids keep the integer fast path.
+    let name_str = ctx.intern_string_literal(&name);
 
     let recv = ctx.lower_expr(obj);
     // Ident receivers ride their variable slot along so
@@ -101,7 +106,7 @@ pub(crate) fn try_lower(
             vec![
                 recv,
                 Operand::ConstI64(mid),
-                Operand::ConstPtrNull,
+                Operand::Value(name_str),
                 Operand::ConstI64(0),
                 recv_slot,
                 Operand::Value(argv),

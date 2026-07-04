@@ -140,6 +140,27 @@ pub(crate) fn lower_inner(
         &init_d,
     );
 
+    // C3a-2 (RFC 20260704-any-method-call) — synthesize the boxed
+    // dual-entry adapter per lifted closure body. Same freeze-point
+    // constraint as the promise thunks: the module fn list must not
+    // grow once per-fn lowering starts. Adapters never appear as
+    // static call sites, so the `signatures` snapshot above staying
+    // adapter-free is fine (their FnAddr refs carry their own sig).
+    let boxed_entries = crate::ssa_lower_boxed_entry::synthesize_boxed_entries(
+        ast,
+        &mut module,
+        &mut fn_table,
+        &mut fn_sigs,
+        &mut fn_sig_ids,
+        &crate::ssa_lower_boxed_entry::BoxedEntryIntrinsics {
+            any_box: intrinsics.any_box,
+            any_to_number: intrinsics.any_to_number,
+            any_to_bool: intrinsics.any_to_bool,
+            any_unbox_value: intrinsics.any_unbox_value,
+            str_drop: intrinsics.str_drop,
+        },
+    );
+
     // (struct_layouts already detached from module at top of lower(),
     // see M3.4 block above; write-back happens at the end.)
 
@@ -215,6 +236,7 @@ pub(crate) fn lower_inner(
         arity_pad_count,
         &num_f64_slots,
         &promise_thunks,
+        &boxed_entries,
     );
 
     finalize_module(

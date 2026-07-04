@@ -61,6 +61,7 @@ pub(crate) fn synthesize_main(
     arity_pad_count: &HashMap<ExprId, usize>,
     num_f64_slots: &crate::num_width::WidthTable,
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
+    boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
@@ -78,6 +79,7 @@ pub(crate) fn synthesize_main(
             arity_pad_count,
             num_f64_slots,
             promise_thunks,
+            boxed_entries,
             arr_layouts,
             baked_regex_buf,
             fn_sigs,

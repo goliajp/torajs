@@ -137,13 +137,27 @@ fn init_env_header(
             CLOSURE_PROPS_OFF,
         ),
     );
-    // boxed_entry — 0 until the C3a-2 wrapper-synthesis pass wires
-    // the dual `(env, argv, argc) -> AnyValue` entry point.
+    // boxed_entry — the C3a-2 dual `(env, argv, argc) -> AnyValue`
+    // adapter's address; 0 when no adapter was synthesized (>8
+    // params / non-boxable face) so the dynamic dispatcher answers
+    // a catchable TypeError instead of a mis-ABI call.
+    let boxed_op = match ctx.boxed_entries.get(&fid) {
+        Some(&(bfid, bsig)) => {
+            let cur_block = ctx.cur_block;
+            Operand::Value(ctx.f.append_inst(
+                cur_block,
+                InstKind::FnAddr(bfid),
+                Type::FnSig(bsig),
+                None,
+            ))
+        }
+        None => Operand::ConstI64(0),
+    };
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
         InstKind::Store(
-            Operand::ConstI64(0),
+            boxed_op,
             Operand::Value(env_v),
             crate::ssa_lower::CLOSURE_BOXED_ENTRY_OFF,
         ),

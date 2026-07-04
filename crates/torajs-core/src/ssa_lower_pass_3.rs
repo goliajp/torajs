@@ -41,6 +41,7 @@ pub(crate) fn run(
     arity_pad_count: &HashMap<ExprId, usize>,
     num_f64_slots: &WidthTable,
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
+    boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) {
     let top_level: Vec<&Stmt> = ast
         .stmts
@@ -76,6 +77,7 @@ pub(crate) fn run(
         arity_pad_count,
         num_f64_slots,
         promise_thunks,
+        boxed_entries,
     );
     for s in new_strings {
         module.strings.push(s);

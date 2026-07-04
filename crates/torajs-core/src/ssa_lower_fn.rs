@@ -75,6 +75,7 @@ pub(crate) fn lower_fn(
     arity_pad_count: &HashMap<ExprId, usize>,
     num_f64_slots: &crate::num_width::WidthTable,
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
+    boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
     let ret_ty = promote_and_widen(
         effective_ret_ty(
@@ -136,6 +137,7 @@ pub(crate) fn lower_fn(
         arity_pad_count,
         num_f64_slots,
         promise_thunks,
+        boxed_entries,
         arr_layouts,
         baked_regex_buf,
         fn_sigs,

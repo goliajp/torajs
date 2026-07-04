@@ -43,6 +43,7 @@ pub(crate) fn run(
     arity_pad_count: &HashMap<ExprId, usize>,
     num_f64_slots: &WidthTable,
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
+    boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) {
     for (stmt_idx, fid) in closure_decls {
         if let Stmt::FnDecl {
@@ -82,6 +83,7 @@ pub(crate) fn run(
                 arity_pad_count,
                 num_f64_slots,
                 promise_thunks,
+                boxed_entries,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
