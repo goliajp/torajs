@@ -29,7 +29,11 @@
 //!   non-zero boxed dual entry (`+32`, synthesized per lifted body)
 //!   invokes through the uniform `(env, argv, argc) -> AnyValue`
 //!   ABI — argv rides in a fixed 8-slot undefined-filled buffer so
-//!   the adapter reads its param count unconditionally.
+//!   the adapter reads its param count unconditionally
+//!   (`method_call_dynobj`).
+//! - `Tag::Obj` cell (L3b #9) → static-layout field probe through
+//!   the class-layouts metadata; a `Closure` / closure-bearing `Any`
+//!   slot invokes the same uniform ABI (`method_call_dynobj`).
 //! - `Tag::Map` / `Tag::Set` cell (C4) → get / set / has / delete /
 //!   add / clear / forEach in `method_call_mapset` (pair-ABI kernels
 //!   + the C4-2 boxed-entry forEach walk) + the keys / values /
@@ -126,20 +130,9 @@ unsafe extern "C" {
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     /// torajs-str — release a heap Str/Substr reference.
     fn __torajs_str_drop(s: *mut c_void);
-    /// torajs-dynobj — property probe by Str key: the slot's ANY_TAG
-    /// (5 = absent) / per-tag payload.
-    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
-    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
-    /// torajs-dynobj — run an accessor entry's getter; the answer is
-    /// an owned AnyValue per the boxed-value convention.
-    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
-
-/// Accessor-entry sentinel in the dynobj probe's tag channel —
-/// mirror of torajs-core `ssa_lower_accessor.rs::ANY_ACCESSOR_TAG`.
-const ANY_ACCESSOR_TAG: u64 = 6;
 
 const ANY_METHOD_THREW: u64 = u64::MAX;
 
@@ -223,7 +216,12 @@ pub unsafe extern "C" fn __torajs_any_method_call(
             return unsafe { arr_method(ptr, mid, recv_slot, argv, argc) };
         }
         if tag == Tag::DynObj as u16 {
-            return unsafe { dynobj_method(ptr, name_str, argv, argc) };
+            return unsafe { crate::method_call_dynobj::dynobj_method(ptr, name_str, argv, argc) };
+        }
+        // L3b #9 (chunk 524) — static-layout struct receivers probe
+        // the class-layouts field metadata instead of a dynobj table.
+        if tag == Tag::Obj as u16 {
+            return unsafe { crate::method_call_dynobj::struct_method(ptr, name_str, argv, argc) };
         }
         if tag == Tag::Map as u16 || tag == Tag::Set as u16 {
             return unsafe {
@@ -259,9 +257,14 @@ pub(crate) unsafe fn closure_boxed_entry(av: AnyValue) -> Option<(*mut c_void, u
     if !is_cell(av) {
         return None;
     }
-    let ptr = as_void_ptr(av);
+    unsafe { closure_cell_entry(as_void_ptr(av)) }
+}
+
+/// Raw-pointer variant of [`closure_boxed_entry`] for slots that
+/// hold the env cell directly (a `Closure`-typed struct field).
+pub(crate) unsafe fn closure_cell_entry(ptr: *mut c_void) -> Option<(*mut c_void, u64)> {
     unsafe {
-        if (ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Closure as u16 {
+        if ptr.is_null() || (ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Closure as u16 {
             return None;
         }
         let entry = *(ptr.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
@@ -277,7 +280,12 @@ pub(crate) unsafe fn closure_boxed_entry(av: AnyValue) -> Option<(*mut c_void, u
 /// 8-slot undefined-filled buffer so the adapter reads its param
 /// count unconditionally; the return is caller-owned per the
 /// boxed-value convention.
-unsafe fn invoke_boxed(env: *mut c_void, entry: u64, argv: *const u64, argc: i64) -> AnyValue {
+pub(crate) unsafe fn invoke_boxed(
+    env: *mut c_void,
+    entry: u64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
     unsafe {
         let mut buf = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
         let n = (argc.max(0) as usize).min(MAX_BOXED_ARGS);
@@ -309,48 +317,6 @@ pub unsafe extern "C" fn __torajs_any_call(
     unsafe {
         if let Some((env, entry)) = closure_boxed_entry(recv) {
             return invoke_boxed(env, entry, argv, argc);
-        }
-        method_not_a_function()
-    }
-}
-
-/// `Tag::DynObj` arm — probe the property by name; a closure-cell
-/// value invokes through its boxed dual entry. The property probe
-/// borrows (dynobj keeps its own value reference; the receiver
-/// outlives the call), and the adapter's return is caller-owned per
-/// the boxed-value convention.
-unsafe fn dynobj_method(
-    obj: *mut c_void,
-    name_str: *const u8,
-    argv: *const u64,
-    argc: i64,
-) -> AnyValue {
-    unsafe {
-        if !name_str.is_null() {
-            let key = name_str as *const c_void;
-            let dtag = __torajs_dynobj_get_tag(obj, key);
-            // ANY_HEAP = 4 — a plain closure-cell property.
-            if dtag == 4 {
-                let cell = __torajs_dynobj_get_value(obj, key);
-                // The cell's NaN-box encoding is its pointer bits.
-                if let Some((env, entry)) = closure_boxed_entry(cell) {
-                    return invoke_boxed(env, entry, argv, argc);
-                }
-            }
-            // C4+ chunk 523 — getter-as-callee: an accessor entry's
-            // getter runs first, its (owned) answer dispatches as
-            // the callee, and the reference releases after the call
-            // (the invoke keeps the cell alive across it).
-            if dtag == ANY_ACCESSOR_TAG {
-                let pair = __torajs_dynobj_get_value(obj, key) as *const c_void;
-                let got = __torajs_accessor_invoke_getter(pair);
-                if let Some((env, entry)) = closure_boxed_entry(got) {
-                    let r = invoke_boxed(env, entry, argv, argc);
-                    crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
-                    return r;
-                }
-                crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
-            }
         }
         method_not_a_function()
     }

@@ -98,6 +98,7 @@ mod member_props_regexp;
 mod member_set;
 mod method_call;
 mod method_call_date;
+mod method_call_dynobj;
 mod method_call_mapset;
 mod method_call_num;
 mod method_call_regexp;
