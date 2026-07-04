@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T11:34:25.902Z",
+  "generatedAt": "2026-07-04T13:15:22.810Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "1fc3cb2c",
-    "commitSubject": "feat: regexp property reads on any receivers — source/flags/lastIndex/booleans",
+    "commit": "be9e94f5",
+    "commitSubject": "feat: map/set keys/values/entries + mapiter next on any receivers",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "be9e94f5",
+      "subject": "feat: map/set keys/values/entries + mapiter next on any receivers"
+    },
+    {
+      "hash": "91fa1fc8",
+      "subject": "fix: tolocalestring max-3-fraction rounding — string-level half-away-from-zero"
+    },
+    {
+      "hash": "3cfafb88",
+      "subject": "chore: rustfmt tz.rs + generated tz_names table, note fmt step in generator"
+    },
+    {
+      "hash": "f234f529",
+      "subject": "feat: tz env override for date — raw env lookup + zone alias fan-out"
+    },
+    {
+      "hash": "7e1ec9e8",
+      "subject": "feat: date tostring — cldr zone-name table + tzif dst + typed/any tiers"
+    },
+    {
+      "hash": "31a7823b",
+      "subject": "feat: generic tostring on any receivers — str identity + bool"
+    },
+    {
+      "hash": "c3332753",
+      "subject": "chore(dashboard): session snapshot @ 1fc3cb2c — rotation 14 (504-508: any-method-call c4-2/c4-3a/c4-3b/c4-3c; gate 1148 -> 1153)"
+    },
+    {
       "hash": "1fc3cb2c",
       "subject": "feat: regexp property reads on any receivers — source/flags/lastIndex/booleans"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "248cf232",
       "subject": "feat: .size member read + map/set foreach on any receivers"
-    },
-    {
-      "hash": "06614be0",
-      "subject": "chore(dashboard): session snapshot @ 4fe9c3e9 — rotation 13 (499-503: any-method-call c2/c3a/c3b/c4-1; gate 1143 -> 1148)"
-    },
-    {
-      "hash": "4fe9c3e9",
-      "subject": "feat: map/set methods on any receivers — get/set/has/delete/add/clear"
-    },
-    {
-      "hash": "3a6d12e8",
-      "subject": "feat: array higher-order methods on any receivers — map/filter/forEach"
-    },
-    {
-      "hash": "bfd34891",
-      "subject": "feat: dynobj closure property calls — boxed dual-entry synthesis + dispatch"
-    },
-    {
-      "hash": "600f6d3e",
-      "subject": "feat: closure cell boxed_entry slot — layout widening for dual-entry dynamic calls"
-    },
-    {
-      "hash": "ead1f68b",
-      "subject": "feat: any-receiver method calls c2 — str indexOf/includes/slice/split/trim, arr shift/unshift/indexOf/includes/join"
-    },
-    {
-      "hash": "28d98fb7",
-      "subject": "chore(dashboard): session snapshot @ e085958c — rotation 12 (496-498: any-drop ledger fix + nested-print + any-method-call c1; gate 1140 -> 1143)"
     }
   ],
-  "headSha": "1fc3cb2c",
+  "headSha": "be9e94f5",
   "autorun": {
-    "total": 323,
+    "total": 324,
     "baselineTarget": 10,
-    "bySelf": 318,
+    "bySelf": 319,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783158614-5e88",
-      "at": "2026-07-04T09:50:14Z",
-      "ts": 1783158614,
+      "rotationId": "r-1783164942-0620",
+      "at": "2026-07-04T11:35:42Z",
+      "ts": 1783164942,
       "trigger": "self",
-      "prevHead": "06614be0",
-      "handoffSha": "sha256:10bffff3758212a22ef23c32b04ab6ffe42b50343ac1381cd35eb08918b89e6e",
-      "handoffAgeSec": 6,
+      "prevHead": "c3332753",
+      "handoffSha": "sha256:4676d2662336e526916ba9b1012bc813b7daa5ec5503d365e79b532ad261ec6b",
+      "handoffAgeSec": 24,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783164942-0620",
+        "at": "2026-07-04T11:35:42Z",
+        "ts": 1783164942,
+        "trigger": "self",
+        "prevHead": "c3332753",
+        "handoffSha": "sha256:4676d2662336e526916ba9b1012bc813b7daa5ec5503d365e79b532ad261ec6b",
+        "handoffAgeSec": 24,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783158614-5e88",
         "at": "2026-07-04T09:50:14Z",
@@ -876,17 +887,6 @@
         "prevHead": "d29d0a83",
         "handoffSha": "sha256:abdf3407350424ae15b8a9ee73e1e1c678cf5cf8a6d2c28a2a913957503bc3e4",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783058599-5c40",
-        "at": "2026-07-03T06:03:19Z",
-        "ts": 1783058599,
-        "trigger": "self",
-        "prevHead": "0e5fa59a",
-        "handoffSha": "sha256:ce37ae4721f9a979c14f22e97f2b52195c3afbbe32a88cd1c3b68fb0a4ea7746",
-        "handoffAgeSec": 21,
         "conformanceBefore": null,
         "commitsInSession": null
       }
