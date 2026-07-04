@@ -1,5 +1,7 @@
-//! `any`-receiver Array method glue (Any-method-call RFC 20260704 C1)
-//! — `a.push(v)` / `a.pop()` where `a` crossed into the `any` world.
+//! `any`-receiver Array method glue (Any-method-call RFC 20260704 C1
+//! + C2) — `a.push(v)` / `a.pop()` / `a.shift()` / `a.unshift(v)`
+//! where `a` crossed into the `any` world. The read-only search /
+//! join family lives in [`crate::method_any_search`].
 //!
 //! Called by `__torajs_any_method_call`'s Tag::Arr arm
 //! (torajs-anyvalue) with already-unboxed receiver pointers; each
@@ -88,24 +90,10 @@ pub unsafe extern "C" fn __torajs_arr_any_push(
             } else {
                 // Typed tier — same kind-coercion table as the
                 // S3-set index write (`__torajs_arr_index_set`).
-                let kind = header.arr_elem_kind();
-                let raw: u64 = match (kind, tag) {
-                    (ARR_KIND_I64, 2) => value as u64,
-                    (ARR_KIND_I64, 3) => {
-                        let d = f64::from_bits(value as u64);
-                        if d.fract() != 0.0 || !d.is_finite() {
-                            return push_kind_mismatch();
-                        }
-                        d as i64 as u64
-                    }
-                    (ARR_KIND_F64, 3) => value as u64,
-                    (ARR_KIND_F64, 2) => (value as f64).to_bits(),
-                    (ARR_KIND_BOOL, 1) => value as u64,
-                    (ARR_KIND_HEAP, 4) => {
-                        __torajs_rc_inc(value as *mut c_void);
-                        value as u64
-                    }
-                    _ => return push_kind_mismatch(),
+                let Some(raw) = coerce_typed_slot(header.arr_elem_kind(), tag, value) else {
+                    return kind_mismatch_threw(
+                        c"push through an any array receiver would change the array's element kind",
+                    );
                 };
                 cur = crate::grow::__torajs_arr_push(cur, raw as i64);
             }
@@ -117,11 +105,36 @@ pub unsafe extern "C" fn __torajs_arr_any_push(
     }
 }
 
-unsafe fn push_kind_mismatch() -> u64 {
+/// Typed-tier `(kind, anyv tag) → raw slot repr` coercion — the
+/// S3-set table shared by push / unshift. `None` = the value can't
+/// store without changing the array's element kind (caller raises
+/// the TypeError). A `Some` for a HEAP slot has already inc'd the
+/// stored reference.
+unsafe fn coerce_typed_slot(kind: u16, tag: i64, value: i64) -> Option<u64> {
+    match (kind, tag) {
+        (ARR_KIND_I64, 2) => Some(value as u64),
+        (ARR_KIND_I64, 3) => {
+            let d = f64::from_bits(value as u64);
+            if d.fract() != 0.0 || !d.is_finite() {
+                return None;
+            }
+            Some(d as i64 as u64)
+        }
+        (ARR_KIND_F64, 3) => Some(value as u64),
+        (ARR_KIND_F64, 2) => Some((value as f64).to_bits()),
+        (ARR_KIND_BOOL, 1) => Some(value as u64),
+        (ARR_KIND_HEAP, 4) => {
+            unsafe { __torajs_rc_inc(value as *mut c_void) };
+            Some(value as u64)
+        }
+        _ => None,
+    }
+}
+
+/// Record the kind-mismatch TypeError and answer the throw sentinel.
+unsafe fn kind_mismatch_threw(msg: &core::ffi::CStr) -> u64 {
     unsafe {
-        __torajs_throw_type_error(
-            c"push through an any array receiver would change the array's element kind".as_ptr(),
-        );
+        __torajs_throw_type_error(msg.as_ptr());
     }
     ANY_METHOD_THREW
 }
@@ -158,5 +171,115 @@ pub unsafe extern "C" fn __torajs_arr_any_pop(arr: *mut c_void) -> u64 {
         }
         *(p.add(ARR_LEN_OFF) as *mut u64) = len - 1;
         out
+    }
+}
+
+/// `a.shift()` — boxed first element (cells +1, ownership to the
+/// caller), `undefined` for an empty array. Typed tier bumps the
+/// deque head ([`crate::grow::__torajs_arr_shift`]); Arr&lt;Any&gt;
+/// never deque-shifts (head stays 0 by layout contract), so its
+/// slots memmove forward. Either way the vacated slot's own
+/// reference releases first.
+///
+/// # Safety
+/// `arr` is a valid `Tag::Arr` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_shift(arr: *mut c_void) -> u64 {
+    unsafe {
+        let p = arr as *mut u8;
+        let len = *(p.add(ARR_LEN_OFF) as *const u64);
+        if len == 0 {
+            return __torajs_anyv_box_from_pair(5, 0);
+        }
+        // Kind-aware boxed read of slot 0 — balanced (+1 for cells).
+        let out = crate::index_any::__torajs_arr_index_get(arr, 0);
+        let header = &*(arr as *const HeapHeader);
+        if header.flags & FLAG_ARR_ANY != 0 {
+            let slot0 = *(p.add(ARR_SLOTS_OFF) as *const u64);
+            __torajs_value_drop_heap(slot0 as *mut c_void);
+            core::ptr::copy(
+                p.add(ARR_SLOTS_OFF + 8),
+                p.add(ARR_SLOTS_OFF),
+                ((len - 1) as usize) * 8,
+            );
+            *(p.add(ARR_LEN_OFF) as *mut u64) = len - 1;
+        } else {
+            if header.arr_elem_kind() == ARR_KIND_HEAP {
+                let head = *(p.add(ARR_HEAD_OFF) as *const u32) as u64;
+                let slot = *(p.add(ARR_SLOTS_OFF + (head as usize) * 8) as *const u64);
+                __torajs_value_drop_heap(slot as *mut c_void);
+            }
+            // Deque-head bump + len shrink (the raw return is the
+            // already-released slot value — ignore it).
+            crate::grow::__torajs_arr_shift(p);
+        }
+        out
+    }
+}
+
+/// `a.unshift(…args)` — ES-variadic prepend; `unshift(x, y)` yields
+/// `[x, y, …rest]`, which the reverse-order single-value loop
+/// reproduces. Returns the new length, or [`ANY_METHOD_THREW`] on a
+/// typed-tier kind mismatch (earlier prepends stay, matching the
+/// push arm's step-by-step semantics). Relocations write back
+/// through `recv_slot`.
+///
+/// # Safety
+/// `arr` is a valid `Tag::Arr` heap pointer; `argv` points at `argc`
+/// live AnyValue slots (borrowed — this fn incs what it stores);
+/// `recv_slot` is NULL or the receiver variable's live slot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_unshift(
+    arr: *mut c_void,
+    argv: *const u64,
+    argc: i64,
+    recv_slot: *mut u64,
+) -> u64 {
+    unsafe {
+        let mut cur = arr as *mut u8;
+        for i in (0..argc).rev() {
+            let av = *argv.add(i as usize);
+            let header = &*(cur as *const HeapHeader);
+            if header.flags & FLAG_ARR_ANY != 0 {
+                cur = any_unshift_one(cur, av);
+            } else {
+                let tag = __torajs_anyv_unbox_tag(av);
+                let value = __torajs_anyv_unbox_value(av);
+                let Some(raw) = coerce_typed_slot(header.arr_elem_kind(), tag, value) else {
+                    return kind_mismatch_threw(
+                        c"unshift through an any array receiver would change the array's element kind",
+                    );
+                };
+                cur = crate::transform::__torajs_arr_unshift(cur, raw as i64);
+            }
+            if !recv_slot.is_null() {
+                *recv_slot = cur as u64;
+            }
+        }
+        *(cur.add(ARR_LEN_OFF) as *const u64)
+    }
+}
+
+/// Prepend one NaN-box value to an Arr&lt;Any&gt; (no deque head by
+/// layout contract — reserve + memmove right + store). The stored
+/// copy takes its own reference for cells.
+unsafe fn any_unshift_one(p: *mut u8, av: u64) -> *mut u8 {
+    unsafe {
+        if __torajs_anyv_unbox_tag(av) == 4 {
+            let v = __torajs_anyv_unbox_value(av);
+            if v != 0 {
+                __torajs_rc_inc(v as *mut c_void);
+            }
+        }
+        let len = *(p.add(ARR_LEN_OFF) as *const u64);
+        let cur = crate::grow::__torajs_arr_reserve(p, (len + 1) as i64);
+        core::ptr::copy(
+            cur.add(ARR_SLOTS_OFF),
+            cur.add(ARR_SLOTS_OFF + 8),
+            (len as usize) * 8,
+        );
+        *(cur.add(ARR_SLOTS_OFF) as *mut u64) = av;
+        *(cur.add(ARR_LEN_OFF) as *mut u64) = len + 1;
+        cur
     }
 }
