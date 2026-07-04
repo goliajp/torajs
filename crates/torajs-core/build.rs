@@ -83,10 +83,10 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/lexer.rs",
     "src/ast.rs",
     "src/modules.rs",
-    // lib.rs's TORAJS_STATICLIBS list controls which sub-crate
+    // staticlibs.rs's TORAJS_STATICLIBS list controls which sub-crate
     // staticlibs the user binary links. Adding / removing entries
     // changes linkage; must invalidate cache.
-    "src/lib.rs",
+    "src/staticlibs.rs",
     // torajs-egraph mid-end (SSA → SSA between lower and codegen)
     "../torajs-egraph/src/lib.rs",
     "../torajs-egraph/src/cost.rs",
@@ -132,7 +132,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
 /// Enumerate every Layer-1+ Rust sub-crate that contributes
 /// `__torajs_*` symbols to the final `tr build` user binary. New
 /// sub-crates added during the architecture rewrite go in this
-/// list, with a matching one-line entry in `lib.rs`'s
+/// list, with a matching one-line entry in `staticlibs.rs`'s
 /// `TORAJS_STATICLIBS` array using `env!("TORAJS_<NAME>_STATICLIB
 /// _PATH")`.
 const STATICLIBS: &[&str] = &[
