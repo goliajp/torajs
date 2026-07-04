@@ -130,9 +130,16 @@ unsafe extern "C" {
     /// (5 = absent) / per-tag payload.
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-dynobj — run an accessor entry's getter; the answer is
+    /// an owned AnyValue per the boxed-value convention.
+    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
+
+/// Accessor-entry sentinel in the dynobj probe's tag channel —
+/// mirror of torajs-core `ssa_lower_accessor.rs::ANY_ACCESSOR_TAG`.
+const ANY_ACCESSOR_TAG: u64 = 6;
 
 const ANY_METHOD_THREW: u64 = u64::MAX;
 
@@ -321,15 +328,28 @@ unsafe fn dynobj_method(
     unsafe {
         if !name_str.is_null() {
             let key = name_str as *const c_void;
-            // ANY_HEAP = 4 (accessor entries surface a distinct
-            // sentinel and fall through to the TypeError — getter
-            // properties as callees are a C4+ arm).
-            if __torajs_dynobj_get_tag(obj, key) == 4 {
+            let dtag = __torajs_dynobj_get_tag(obj, key);
+            // ANY_HEAP = 4 — a plain closure-cell property.
+            if dtag == 4 {
                 let cell = __torajs_dynobj_get_value(obj, key);
                 // The cell's NaN-box encoding is its pointer bits.
                 if let Some((env, entry)) = closure_boxed_entry(cell) {
                     return invoke_boxed(env, entry, argv, argc);
                 }
+            }
+            // C4+ chunk 523 — getter-as-callee: an accessor entry's
+            // getter runs first, its (owned) answer dispatches as
+            // the callee, and the reference releases after the call
+            // (the invoke keeps the cell alive across it).
+            if dtag == ANY_ACCESSOR_TAG {
+                let pair = __torajs_dynobj_get_value(obj, key) as *const c_void;
+                let got = __torajs_accessor_invoke_getter(pair);
+                if let Some((env, entry)) = closure_boxed_entry(got) {
+                    let r = invoke_boxed(env, entry, argv, argc);
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+                    return r;
+                }
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
             }
         }
         method_not_a_function()
