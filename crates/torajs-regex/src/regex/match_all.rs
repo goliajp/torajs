@@ -8,9 +8,10 @@
 
 use core::ffi::c_void;
 
+use super::match_op::attach_exec_all;
 use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_throw_type_error, abort_unsupported, as_regex,
-    str_from_bytes, str_slice,
+    byte_to_utf16_units, str_from_bytes, str_slice,
 };
 use crate::node::{REGEX_MAX_CAPTURES, REGEX_SAVE_SLOTS};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -75,18 +76,21 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
             search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws, dfa_ref, false, true)
         };
         let Some(m) = hit else { break };
-        outer = unsafe { append_inner(outer, re, &s, m.saves(), m.start, m.end) };
+        outer = unsafe { append_inner(outer, re, &s, str_ptr, m.saves(), m.start, m.end) };
         pos = if m.end == m.start { m.end + 1 } else { m.end };
     }
     outer
 }
 
-/// Build the exec-shape inner array `[match, g1, g2, ...]` and
-/// push it onto `outer`.
+/// Build the exec-shape inner array `[match, g1, g2, ...]`, attach
+/// the exec triple (`index` / `input` / `groups` — spec §22.2.7.8
+/// gives every matchAll element the full exec shape), and push it
+/// onto `outer`.
 unsafe fn append_inner(
     outer: *mut c_void,
     re: &super::RegExp,
     s: &[u8],
+    str_ptr: *const c_void,
     saves: &[i64; REGEX_SAVE_SLOTS],
     st: i64,
     en: i64,
@@ -104,6 +108,19 @@ unsafe fn append_inner(
             let grp = unsafe { str_from_bytes(&s[gs as usize..ge as usize]) };
             inner = unsafe { __torajs_arr_push(inner, grp as i64) };
         }
+    }
+    // `.index` is spec'd in UTF-16 code units; `st` is a byte offset
+    // in the transcoded haystack (this path always owns a str_slice
+    // transcode, so no ascii-view discrimination is available).
+    unsafe {
+        attach_exec_all(
+            inner,
+            re,
+            s,
+            str_ptr,
+            byte_to_utf16_units(s, st, false),
+            saves,
+        );
     }
     unsafe { __torajs_arr_push(outer, inner as i64) }
 }
