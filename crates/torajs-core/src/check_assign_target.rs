@@ -190,7 +190,10 @@ pub(crate) fn check_index(
 ) -> Result<Type, String> {
     let obj_ty = checker.type_of(ast, obj)?;
     let idx_ty = checker.type_of(ast, index)?;
-    if idx_ty != Type::Number {
+    // L3b #13 — an `any` receiver admits string keys (ES
+    // ToPropertyKey); every other receiver keeps the number-only
+    // spec narrow.
+    if idx_ty != Type::Number && !(matches!(obj_ty, Type::Any) && idx_ty == Type::String) {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
     // Any-dynamic-access RFC (20260704) S3-set — TS `any` admits

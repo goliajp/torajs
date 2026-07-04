@@ -278,7 +278,7 @@ fn emit_member_fallback(
 /// The pair keeps the dynobj probe's borrow shape and accessor
 /// sentinel, so `emit_dynobj_get_result` consumes it unchanged; a
 /// null/undefined receiver records a catchable TypeError.
-fn emit_any_member_probe(
+pub(crate) fn emit_any_member_probe(
     ctx: &mut LowerCtx,
     obj_val: &Operand,
     key_str: crate::ssa::ValueId,

@@ -53,6 +53,20 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
     // receiver records a pending catchable TypeError, so the throw
     // check follows the call.
     if arr_ty == Type::Any {
+        // L3b #13 (chunk 528) — string keys probe properties per ES
+        // ToPropertyKey. A compile-time literal rides the full
+        // member-read path (`o["k"]` ≡ `o.k`: class IC / length /
+        // regexp props / probe fallback); a dynamic string key
+        // probes by its runtime Str cell (a dynamic key that names
+        // "length" lands the own-property probe — recorded
+        // boundary).
+        if let crate::ast::Expr::String(lit) = ctx.ast.get_expr(index) {
+            let lit = lit.clone();
+            return crate::ssa_lower_any_member::lower_any_member_read(ctx, arr_val, &lit);
+        }
+        if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::String)) {
+            return lower_any_index_str_key(ctx, arr_val, index);
+        }
         let idx_val = ctx.lower_index_operand(index);
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
@@ -149,4 +163,23 @@ fn lower_array_any_index(ctx: &mut LowerCtx<'_>, arr_val: Operand, idx_val: Oper
         None,
     );
     Operand::Value(box_v)
+}
+
+/// Dynamic string key on an `any` receiver — probe by the runtime
+/// Str cell (borrow); a Substr view materializes to an owned temp
+/// released after the probe.
+fn lower_any_index_str_key(ctx: &mut LowerCtx<'_>, obj_val: Operand, index: ExprId) -> Operand {
+    let k_raw = ctx.lower_expr(index);
+    let k_ty = ctx.operand_ty(&k_raw);
+    ctx.consume_if_ident(index);
+    let owned = k_ty == Type::Substr;
+    let key_op = ctx.coerce_to_str(k_raw, k_ty);
+    let Operand::Value(key_v) = key_op else {
+        panic!("ssa-lower: string index key lowered to a non-value operand");
+    };
+    let out = crate::ssa_lower_any_member::emit_any_member_probe(ctx, &obj_val, key_v);
+    if owned {
+        ctx.emit_drop_value(key_op, Type::Str);
+    }
+    out
 }

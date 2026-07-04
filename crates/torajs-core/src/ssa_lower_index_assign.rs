@@ -52,6 +52,34 @@ impl<'a> LowerCtx<'a> {
         // OOB → catchable RangeError, elem-kind mismatch → catchable
         // TypeError, so the throw check follows.
         if arr_ty == Type::Any {
+            // L3b #13 (chunk 528) — string keys store by property
+            // per ES ToPropertyKey. A compile-time literal rides
+            // the member-assign path (`o["k"] = v` ≡ `o.k = v`,
+            // lastIndex / length hints included); a dynamic string
+            // key rides the key-parameterized core (no hint —
+            // recorded boundary).
+            if let Expr::String(lit) = self.ast.get_expr(index) {
+                let lit = lit.clone();
+                let obj_ident = if let Expr::Ident(n) = self.ast.get_expr(obj) {
+                    Some(n.clone())
+                } else {
+                    None
+                };
+                let v_raw = self.lower_expr(value);
+                self.consume_if_ident(value);
+                let v_ty = self.operand_ty(&v_raw);
+                let (tag_op, value_op) = self.pack_any_slot_value(&v_raw, v_ty);
+                crate::ssa_lower_assign_member_any::emit_any_member_set(
+                    self, arr_val, &lit, tag_op, value_op, &obj_ident,
+                );
+                return v_raw;
+            }
+            if matches!(
+                self.expr_types.get(&index),
+                Some(crate::check::Type::String)
+            ) {
+                return self.lower_any_index_assign_str_key(obj, arr_val, index, value);
+            }
             let idx_val = self.lower_index_operand(index);
             let v_raw = self.lower_expr(value);
             self.consume_if_ident(value);
@@ -337,5 +365,44 @@ impl<'a> LowerCtx<'a> {
         self.f.set_term(ob, Terminator::Br(join_blk));
         self.cur_block = write_blk;
         join_blk
+    }
+}
+
+impl<'a> LowerCtx<'a> {
+    /// Dynamic string key on an `any` receiver — store through the
+    /// key-parameterized member-set core with the runtime Str cell
+    /// as the key (a Substr view materializes to an owned temp
+    /// released after the call).
+    fn lower_any_index_assign_str_key(
+        &mut self,
+        obj: ExprId,
+        obj_val: Operand,
+        index: ExprId,
+        value: ExprId,
+    ) -> Operand {
+        let obj_ident = if let Expr::Ident(n) = self.ast.get_expr(obj) {
+            Some(n.clone())
+        } else {
+            None
+        };
+        let k_raw = self.lower_expr(index);
+        let k_ty = self.operand_ty(&k_raw);
+        self.consume_if_ident(index);
+        let key_owned = k_ty == Type::Substr;
+        let key_op = self.coerce_to_str(k_raw, k_ty);
+        let Operand::Value(key_v) = key_op else {
+            panic!("ssa-lower: string index key lowered to a non-value operand");
+        };
+        let v_raw = self.lower_expr(value);
+        self.consume_if_ident(value);
+        let v_ty = self.operand_ty(&v_raw);
+        let (tag_op, value_op) = self.pack_any_slot_value(&v_raw, v_ty);
+        crate::ssa_lower_assign_member_any::emit_any_member_set_dyn(
+            self, obj_val, key_v, -1, tag_op, value_op, &obj_ident,
+        );
+        if key_owned {
+            self.emit_drop_value(key_op, Type::Str);
+        }
+        v_raw
     }
 }

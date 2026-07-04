@@ -5,7 +5,9 @@
 //! Rules:
 //! - Index expression `index` must typecheck to `Type::Number`
 //!   (V3-18 index-expression spec narrow; non-number index is a
-//!   typecheck error rather than a silent runtime coercion).
+//!   typecheck error rather than a silent runtime coercion) —
+//!   except a `Type::Any` receiver, which also admits string keys
+//!   (L3b #13; ES ToPropertyKey).
 //! - `Type::String` indexed → `Type::String` (1-char substring;
 //!   spec §6.1.4 string-indexed access returns a length-1 string).
 //! - `Type::Array(T)` indexed → element type `T`.
@@ -25,7 +27,10 @@ pub(crate) fn check(
 ) -> Result<Type, String> {
     let obj_ty = checker.type_of(ast, obj)?;
     let idx_ty = checker.type_of(ast, index)?;
-    if idx_ty != Type::Number {
+    // L3b #13 — an `any` receiver admits string keys (ES
+    // ToPropertyKey: `o["k"]` ≡ `o.k`); every other receiver keeps
+    // the number-only spec narrow.
+    if idx_ty != Type::Number && !(matches!(obj_ty, Type::Any) && idx_ty == Type::String) {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
     match obj_ty {

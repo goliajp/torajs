@@ -43,6 +43,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower.rs",
     "src/ssa_lower_any_box.rs",
     "src/ssa_lower_assign_member.rs",
+    "src/ssa_lower_assign_member_any.rs",
     "src/ssa_lower_index.rs",
     "src/ssa_lower_intrinsics_any_substrate.rs",
     "src/ssa_lower_intrinsics_regex.rs",
