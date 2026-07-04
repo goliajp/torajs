@@ -187,6 +187,16 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 CLOSURE_PROPS_OFF,
             ),
         );
+        // boxed_entry — the pthunk wrap is promise-internal, never
+        // reachable as an any-world callee; stays 0.
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(
+                Operand::ConstI64(0),
+                Operand::Value(env_v),
+                crate::ssa_lower::CLOSURE_BOXED_ENTRY_OFF,
+            ),
+        );
         // Capture 0: the real callback. Its natural ref moves into
         // the wrap (the wrap's drop releases it), so the wrap takes
         // the callback's exact ownership position at the call site.

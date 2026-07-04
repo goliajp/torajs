@@ -81,13 +81,18 @@ pub(crate) const ARR_DATA_OFF: u64 = 32;
 /// Phase 2C refcount: Closure env layout:
 ///
 ///   offset 0  — universal heap header (refcount u32 + type_tag u16 + flags u16)
-///   offset 8  — fn_addr (entry point)
+///   offset 8  — fn_addr (entry point, native env-first signature)
 ///   offset 16 — drop_fn  (per-closure cleanup, populated in Pass 2.5)
 ///   offset 24 — props_dynobj  (T-27 — Function as Object property bag,
 ///                              NULL until first `f.x = v` write; lazy-
 ///                              alloc'd dynobj per ECMAScript §10.2)
-///   offset 32 — cap0
-///   offset 40 — cap1
+///   offset 32 — boxed_entry  (Any-method-call RFC 20260704 C3 — the
+///                             synthesized `(env, argv, argc) -> AnyValue`
+///                             dual entry for dynamic any-world calls;
+///                             V8 JSFunction code-entry analogue. 0 =
+///                             not dynamically callable)
+///   offset 40 — cap0
+///   offset 48 — cap1
 ///   ...
 ///
 /// `__torajs_obj_alloc` stays the underlying allocator (plain malloc);
@@ -96,7 +101,8 @@ pub(crate) const ARR_DATA_OFF: u64 = 32;
 pub const CLOSURE_FN_ADDR_OFF: u64 = 8;
 pub const CLOSURE_DROP_FN_OFF: u64 = 16;
 pub(crate) const CLOSURE_PROPS_OFF: u64 = 24;
-pub(crate) const CLOSURE_CAP_BASE_OFF: u64 = 32;
+pub(crate) const CLOSURE_BOXED_ENTRY_OFF: u64 = 32;
+pub(crate) const CLOSURE_CAP_BASE_OFF: u64 = 40;
 
 /// M3 — generic call-site retargeting. For each `Expr::Call` whose ExprId
 /// is a generic call site, the typechecker has already inferred the

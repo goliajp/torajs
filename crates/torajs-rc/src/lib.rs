@@ -237,7 +237,9 @@ pub enum Tag {
     Obj = 1,
     /// `Arr<T>` — head-aware deque.
     Arr = 2,
-    /// `Closure` — `{ fn_ptr, env_ptr }` env-first ABI.
+    /// `Closure` — env-first ABI; the cell is the env:
+    /// `{ hdr | fn_ptr@8 | drop_fn@16 | props@24 | boxed_entry@32 |
+    /// caps@40+ }` (see torajs-core `ssa_lower.rs` CLOSURE_* offsets).
     Closure = 3,
     /// `RegExp` — compiled NFA + flags.
     RegExp = 4,

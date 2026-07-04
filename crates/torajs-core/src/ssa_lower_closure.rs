@@ -137,6 +137,17 @@ fn init_env_header(
             CLOSURE_PROPS_OFF,
         ),
     );
+    // boxed_entry — 0 until the C3a-2 wrapper-synthesis pass wires
+    // the dual `(env, argv, argc) -> AnyValue` entry point.
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Store(
+            Operand::ConstI64(0),
+            Operand::Value(env_v),
+            crate::ssa_lower::CLOSURE_BOXED_ENTRY_OFF,
+        ),
+    );
     let drop_fn_name = format!("__env_drop_{fn_name}");
     let drop_fid = *ctx.fn_table.get(&drop_fn_name).unwrap_or_else(|| {
         panic!(
