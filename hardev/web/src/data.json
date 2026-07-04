@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T09:49:19.599Z",
+  "generatedAt": "2026-07-04T11:34:25.902Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "4fe9c3e9",
-    "commitSubject": "feat: map/set methods on any receivers — get/set/has/delete/add/clear",
+    "commit": "1fc3cb2c",
+    "commitSubject": "feat: regexp property reads on any receivers — source/flags/lastIndex/booleans",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "1fc3cb2c",
+      "subject": "feat: regexp property reads on any receivers — source/flags/lastIndex/booleans"
+    },
+    {
+      "hash": "fb3e8351",
+      "subject": "feat: regexp methods on any receivers — test/exec/toString"
+    },
+    {
+      "hash": "a2c2a97d",
+      "subject": "feat: number methods on any receivers — toString/toFixed/toExp/toPrecision"
+    },
+    {
+      "hash": "e270b299",
+      "subject": "feat: date methods on any receivers — full typed-tier table"
+    },
+    {
+      "hash": "248cf232",
+      "subject": "feat: .size member read + map/set foreach on any receivers"
+    },
+    {
+      "hash": "06614be0",
+      "subject": "chore(dashboard): session snapshot @ 4fe9c3e9 — rotation 13 (499-503: any-method-call c2/c3a/c3b/c4-1; gate 1143 -> 1148)"
+    },
+    {
       "hash": "4fe9c3e9",
       "subject": "feat: map/set methods on any receivers — get/set/has/delete/add/clear"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "28d98fb7",
       "subject": "chore(dashboard): session snapshot @ e085958c — rotation 12 (496-498: any-drop ledger fix + nested-print + any-method-call c1; gate 1140 -> 1143)"
-    },
-    {
-      "hash": "e085958c",
-      "subject": "feat: method calls on any receivers — push/pop, charAt, case methods"
-    },
-    {
-      "hash": "3bc3aa84",
-      "subject": "fix: nested typed array console.log — kind wiring + all-array break shape"
-    },
-    {
-      "hash": "e6d9d00d",
-      "subject": "fix: rc-inc borrowed refcounted args in multi-arg console.log box path"
-    },
-    {
-      "hash": "ac4fa34e",
-      "subject": "feat: kind-aware drop for heap values released through any"
-    },
-    {
-      "hash": "55ff6c8f",
-      "subject": "chore(dashboard): session snapshot @ d9840d77 — rotation 11 (491-495: dfa accept-bit fold shipped, any-dynamic-access rfc s1-s5 shipped; gate 1136 -> 1140)"
-    },
-    {
-      "hash": "d9840d77",
-      "subject": "feat: for-of over any receivers"
     }
   ],
-  "headSha": "4fe9c3e9",
+  "headSha": "1fc3cb2c",
   "autorun": {
-    "total": 322,
+    "total": 323,
     "baselineTarget": 10,
-    "bySelf": 317,
+    "bySelf": 318,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783150476-64f6",
-      "at": "2026-07-04T07:34:36Z",
-      "ts": 1783150476,
+      "rotationId": "r-1783158614-5e88",
+      "at": "2026-07-04T09:50:14Z",
+      "ts": 1783158614,
       "trigger": "self",
-      "prevHead": "28d98fb7",
-      "handoffSha": "sha256:603c866f16a02f4bce29d6ed83bf7da97e8b91c21d499ea2a0fa8347ba7fdd67",
-      "handoffAgeSec": 10,
+      "prevHead": "06614be0",
+      "handoffSha": "sha256:10bffff3758212a22ef23c32b04ab6ffe42b50343ac1381cd35eb08918b89e6e",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783158614-5e88",
+        "at": "2026-07-04T09:50:14Z",
+        "ts": 1783158614,
+        "trigger": "self",
+        "prevHead": "06614be0",
+        "handoffSha": "sha256:10bffff3758212a22ef23c32b04ab6ffe42b50343ac1381cd35eb08918b89e6e",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783150476-64f6",
         "at": "2026-07-04T07:34:36Z",
@@ -876,17 +887,6 @@
         "prevHead": "0e5fa59a",
         "handoffSha": "sha256:ce37ae4721f9a979c14f22e97f2b52195c3afbbe32a88cd1c3b68fb0a4ea7746",
         "handoffAgeSec": 21,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783048627-18fc",
-        "at": "2026-07-03T03:17:07Z",
-        "ts": 1783048627,
-        "trigger": "self",
-        "prevHead": "91f6d17d",
-        "handoffSha": "sha256:51cc4dd1b3c310214945f365c0b0d253f87ea719874fe87e1bd0fee2bb088de7",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
