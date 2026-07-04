@@ -68,6 +68,33 @@ pub unsafe extern "C" fn __torajs_arr_print_any(arr: *const c_void) {
             put_bytes(b"null");
             return;
         }
+        // Any-dynamic-access RFC (20260704) S2 — a typed Array<T>
+        // boxed into `any` reaches this walker through the Tag::Arr
+        // print arms. Raw-scalar element kinds (recorded by
+        // `__torajs_arr_mark_kind` at the boxing boundary) must NOT
+        // be read as NaN-box AnyValues — dispatch to the typed
+        // inline printers instead. ARR_KIND_HEAP slots are heap cell
+        // pointers, which `__torajs_print_anyv_inline` already
+        // renders correctly (cell-like passthrough), so HEAP and
+        // UNSET both fall through to the AnyValue walk below.
+        let header = &*(p as *const torajs_rc::HeapHeader);
+        if header.flags & torajs_rc::FLAG_ARR_ANY == 0 {
+            match header.arr_elem_kind() {
+                torajs_rc::ARR_KIND_I64 => {
+                    crate::print_inline::__torajs_arr_print_i64_inline(arr);
+                    return;
+                }
+                torajs_rc::ARR_KIND_F64 => {
+                    crate::print_inline::__torajs_arr_print_f64_inline(arr);
+                    return;
+                }
+                torajs_rc::ARR_KIND_BOOL => {
+                    crate::print_inline::__torajs_arr_print_bool_inline(arr);
+                    return;
+                }
+                _ => {}
+            }
+        }
         let len = *(p.add(ARR_LEN_OFF) as *const u64);
         if len == 0 {
             put_bytes(b"[]");

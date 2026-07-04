@@ -44,6 +44,7 @@ pub mod iter;
 pub mod join;
 pub mod join_locale;
 pub mod layout;
+pub mod mark_kind;
 pub mod ops;
 pub mod pool;
 pub mod print;

@@ -193,11 +193,20 @@ pub const FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
 /// `HeapHeader.flags`.
 pub const FLAG_SEALED: u16 = 1 << 9;
 
+// Array element-kind field constants (Tag::Arr, flags bits 10-12 —
+// Any-dynamic-access RFC 20260704) live in `arr_kind.rs`;
+// re-exported at crate root just below, same shape as `color`.
+
 // Cycle-collector color enum + COLOR_SHIFT/COLOR_MASK constants
 // live in `color.rs`; re-exported at crate root just below so
 // downstream crates can keep writing `torajs_rc::Color` etc.
 
+pub mod arr_kind;
 pub mod color;
+pub use arr_kind::{
+    ARR_ELEM_KIND_MASK, ARR_ELEM_KIND_SHIFT, ARR_KIND_BOOL, ARR_KIND_F64, ARR_KIND_HEAP,
+    ARR_KIND_I64, ARR_KIND_UNSET,
+};
 pub use color::{COLOR_MASK, COLOR_SHIFT, Color};
 
 // ============================================================

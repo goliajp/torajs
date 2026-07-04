@@ -29,6 +29,7 @@ use crate::ssa_lower::declare_intrinsic;
 
 pub(crate) struct ArrIds {
     pub arr_alloc: FuncId,
+    pub arr_mark_kind: FuncId,
     pub arr_push: FuncId,
     pub arr_push_non_deque: FuncId,
     pub arr_shift: FuncId,
@@ -50,6 +51,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_arr_alloc",
             &[Type::I64],
             Type::Ptr,
+        ),
+        // Any-dynamic-access RFC (20260704) S1 — element-kind chain
+        // writer, emitted at the typed-arr→Any boxing boundary
+        // (box_to_tag_value / box_to_any).
+        arr_mark_kind: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_mark_kind",
+            &[Type::Ptr, Type::I64],
+            Type::Void,
         ),
         arr_push: declare_intrinsic(
             module,

@@ -60,6 +60,7 @@ pub(crate) struct Intrinsics {
     pub(crate) value_drop_heap: FuncId,
     pub(crate) cycle_unbuffer: FuncId,
     pub(crate) arr_alloc: FuncId,
+    pub(crate) arr_mark_kind: FuncId,
     pub(crate) arr_push: FuncId,
     pub(crate) arr_push_non_deque: FuncId,
     pub(crate) arr_shift: FuncId,

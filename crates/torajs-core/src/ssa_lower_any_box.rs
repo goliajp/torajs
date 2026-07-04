@@ -85,6 +85,53 @@ impl<'a> LowerCtx<'a> {
         self.box_to_tag_value(val)
     }
 
+    /// Any-dynamic-access RFC (20260704) S1 — when a typed
+    /// `Type::Arr(..)` value crosses into the `any` world, emit one
+    /// `__torajs_arr_mark_kind(arr, chain)` call so the heap block
+    /// becomes self-describing (the V8 ElementsKind shape). The
+    /// chain packs 3 bits per nesting level, little-endian; the
+    /// runtime helper recurses into nested `Tag::Arr` cells for
+    /// `ARR_KIND_HEAP` levels with a remaining chain. No-op emit for
+    /// non-array types and for `Arr<Any>` (FLAG_ARR_ANY blocks are
+    /// NaN-box self-describing → chain 0).
+    pub(crate) fn emit_arr_mark_kind(&mut self, val: &Operand, val_ty: &Type) {
+        let Type::Arr(id) = val_ty else { return };
+        let elem = self.arr_layouts[id.0 as usize].clone();
+        let chain = self.arr_kind_chain(&elem, 0);
+        if chain != 0 {
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Call(
+                    self.intrinsics.arr_mark_kind,
+                    vec![val.clone(), Operand::ConstI64(chain as i64)],
+                ),
+            );
+        }
+    }
+
+    /// Kind values mirror `torajs_rc::ARR_KIND_*` (1=I64 raw, 2=F64
+    /// raw, 3=Bool raw, 4=heap cell ptr; 0=UNSET/no-mark). Depth is
+    /// capped at 21 levels (u64 / 3 bits) — deeper nests leave the
+    /// tail UNSET, which consumers treat as the pre-RFC fallback.
+    fn arr_kind_chain(&self, elem: &Type, depth: u32) -> u64 {
+        if depth >= 21 {
+            return 0;
+        }
+        match elem {
+            Type::I64 | Type::I32 => 1,
+            Type::F64 => 2,
+            Type::Bool => 3,
+            // Arr<Any> carries FLAG_ARR_ANY — self-describing, no mark.
+            Type::Any => 0,
+            Type::Arr(id) => {
+                let inner = self.arr_layouts[id.0 as usize].clone();
+                4 | (self.arr_kind_chain(&inner, depth + 1) << 3)
+            }
+            t if t.is_refcounted() => 4,
+            _ => 0,
+        }
+    }
+
     /// Extract `(tag_op, value_op)` for a freshly-lowered value, matching
     /// `box_to_any`'s tag scheme. Used by sites that need the unboxed
     /// pair instead of an Any-box (e.g. dynobj_set / fn_props_set
@@ -145,6 +192,9 @@ impl<'a> LowerCtx<'a> {
             }
             _ if val_ty.is_refcounted() => {
                 self.emit_rc_inc(val.clone());
+                // RFC 20260704 S1 — typed arr crossing into `any`
+                // records its element kind on the heap header.
+                self.emit_arr_mark_kind(&val, &val_ty);
                 (Operand::ConstI64(4), val)
             }
             Type::Ptr if matches!(val, Operand::ConstPtrNull) => {
@@ -181,6 +231,9 @@ impl<'a> LowerCtx<'a> {
                 // helper bumps its refcount internally so the box's
                 // drop balances. ABI-compatible because ptr ↔ i64
                 // share the same machine word.
+                // RFC 20260704 S1 — typed arr crossing into `any`
+                // records its element kind on the heap header.
+                self.emit_arr_mark_kind(&val, &val_ty);
                 (4, val)
             }
             Type::Ptr => {

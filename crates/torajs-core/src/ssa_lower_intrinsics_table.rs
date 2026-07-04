@@ -50,6 +50,7 @@ pub(crate) fn build(
         value_drop_heap: init_a.obj_capture.value_drop_heap,
         cycle_unbuffer: init_a.obj_capture.cycle_unbuffer,
         arr_alloc: init_a.arr.arr_alloc,
+        arr_mark_kind: init_a.arr.arr_mark_kind,
         arr_push: init_a.arr.arr_push,
         arr_push_non_deque: init_a.arr.arr_push_non_deque,
         arr_shift: init_a.arr.arr_shift,
