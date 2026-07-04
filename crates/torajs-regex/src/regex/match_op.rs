@@ -307,6 +307,15 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
                 .map(|m| byte_to_utf16_units(&s, m.end, haystack_is_ascii))
                 .unwrap_or(0);
             h
+        } else if sticky {
+            // Global + sticky: sticky wins the search shape — each
+            // successive match must anchor exactly at `pos` (spec
+            // §22.1.3.12 loops RegExpExec, and §22.2.7.2 step 11.a
+            // fails a /y/ exec that doesn't match at lastIndex).
+            // Pre-fix this fell into the free-search arm below and
+            // collected non-contiguous matches / matched past a
+            // leading miss.
+            match_anchor(&re.prog, &s, pos, re.flags)
         } else {
             // Round 5 attack #1 — Workspace materialisation is sunk
             // into the vm's `vm_match_at` call sites: DFA-resident +
@@ -367,6 +376,13 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
         }
         // Empty match — bump pos by 1.
         pos = if m.end == m.start { m.end + 1 } else { m.end };
+    }
+    if global {
+        // Spec §22.1.3.12: global match resets lastIndex to 0 before
+        // the exec loop, and the loop only terminates on an exec miss
+        // which itself stores 0 — so the observable post-state is
+        // always 0, even when the caller pre-set a nonzero value.
+        re.last_index = 0;
     }
     out
 }
