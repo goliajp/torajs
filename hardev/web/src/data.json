@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T05:25:31.130Z",
+  "generatedAt": "2026-07-04T07:32:47.700Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "d9840d77",
-    "commitSubject": "feat: for-of over any receivers",
+    "commit": "e085958c",
+    "commitSubject": "feat: method calls on any receivers — push/pop, charAt, case methods",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "e085958c",
+      "subject": "feat: method calls on any receivers — push/pop, charAt, case methods"
+    },
+    {
+      "hash": "3bc3aa84",
+      "subject": "fix: nested typed array console.log — kind wiring + all-array break shape"
+    },
+    {
+      "hash": "e6d9d00d",
+      "subject": "fix: rc-inc borrowed refcounted args in multi-arg console.log box path"
+    },
+    {
+      "hash": "ac4fa34e",
+      "subject": "feat: kind-aware drop for heap values released through any"
+    },
+    {
+      "hash": "55ff6c8f",
+      "subject": "chore(dashboard): session snapshot @ d9840d77 — rotation 11 (491-495: dfa accept-bit fold shipped, any-dynamic-access rfc s1-s5 shipped; gate 1136 -> 1140)"
+    },
+    {
       "hash": "d9840d77",
       "subject": "feat: for-of over any receivers"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "f2413747",
       "subject": "fix: attach index/input/groups to every matchall element"
-    },
-    {
-      "hash": "b4fa441f",
-      "subject": "fix: anchor each match in global sticky string.match and reset lastIndex after global match"
-    },
-    {
-      "hash": "22f245dc",
-      "subject": "fix: reject 32nd regex capture group at parse time instead of aborting at match time"
-    },
-    {
-      "hash": "5a8fdf9b",
-      "subject": "fix: regex index/lastIndex/offset are utf-16 code units on non-ascii haystacks"
-    },
-    {
-      "hash": "ac73a175",
-      "subject": "refactor: move staticlib embed constants into staticlibs.rs submodule"
-    },
-    {
-      "hash": "d35580a7",
-      "subject": "chore(dashboard): session snapshot @ ea58d3ae — fn-debt sweep close (472-485: vm/search split, for_of_map_like, tlv_sym_overrides, dfa_search_from, scan_number, probe_section_reloc, member_apply, fill, copy_within, promise_chain, cmd_build, pass3, audit stragglers, ssa type_def — non-carve-out fn debt zero)"
     }
   ],
-  "headSha": "d9840d77",
+  "headSha": "e085958c",
   "autorun": {
-    "total": 320,
+    "total": 321,
     "baselineTarget": 10,
-    "bySelf": 315,
+    "bySelf": 316,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783133862-5c51",
-      "at": "2026-07-04T02:57:42Z",
-      "ts": 1783133862,
+      "rotationId": "r-1783142787-640c",
+      "at": "2026-07-04T05:26:27Z",
+      "ts": 1783142787,
       "trigger": "self",
-      "prevHead": "c99eea99",
-      "handoffSha": "sha256:cf554fc68cf5a3254fe5b42ee42963c68567837c18461f18ba597cd26c337b60",
+      "prevHead": "55ff6c8f",
+      "handoffSha": "sha256:80483ae10c086d119ecf1d043fe606119a215529af440c8c6c2beed9000093ae",
       "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783142787-640c",
+        "at": "2026-07-04T05:26:27Z",
+        "ts": 1783142787,
+        "trigger": "self",
+        "prevHead": "55ff6c8f",
+        "handoffSha": "sha256:80483ae10c086d119ecf1d043fe606119a215529af440c8c6c2beed9000093ae",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783133862-5c51",
         "at": "2026-07-04T02:57:42Z",
@@ -876,17 +887,6 @@
         "prevHead": "18a9cd41",
         "handoffSha": "sha256:cd818caaed05af14974bd0f244ddbc4b8bee67bd19f0f345ac932f03780b4868",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783018084-21ae",
-        "at": "2026-07-02T18:48:04Z",
-        "ts": 1783018084,
-        "trigger": "self",
-        "prevHead": "5da5b7a6",
-        "handoffSha": "sha256:c74169372c7d5fec3e5e73cdf9d70cc511d23940690c509f4c1ebe7020b49a54",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
