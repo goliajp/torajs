@@ -3,7 +3,7 @@
 
 use core::ffi::c_void;
 
-use super::{as_regex_mut, str_slice};
+use super::{as_regex_mut, byte_to_utf16_units, str_slice, utf16_units_to_byte};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{match_anchor, search_from};
 
@@ -26,10 +26,15 @@ pub unsafe extern "C" fn __torajs_regex_test(re_ptr: *const c_void, str_ptr: *co
     let sticky = re.flags & RE_FLAG_Y != 0;
     let global = re.flags & RE_FLAG_G != 0;
     let track = sticky || global;
-    let mut start = if track { re.last_index } else { 0 };
-    if start < 0 {
-        start = 0;
-    }
+    // lastIndex is spec'd in UTF-16 code units; the engine works in
+    // transcoded UTF-8 bytes — map on read (and on write below).
+    // `str_slice` owns the transcode; the walk is identity-valued on
+    // pure-ASCII bytes and dominated by that O(n) transcode.
+    let start = if track {
+        utf16_units_to_byte(&s, re.last_index.max(0), false)
+    } else {
+        0
+    };
 
     // Phase C-3 — `re.test(s)` is single-shot from `start`; bind the
     // AOT-baked DFA view if any so the search short-circuits the
@@ -56,7 +61,7 @@ pub unsafe extern "C" fn __torajs_regex_test(re_ptr: *const c_void, str_ptr: *co
         }
         Some(end) => {
             if track {
-                re.last_index = end;
+                re.last_index = byte_to_utf16_units(&s, end, false);
             }
             1
         }

@@ -25,6 +25,7 @@ pub mod compile_aot;
 pub mod lifecycle;
 pub mod match_all;
 pub mod match_op;
+pub mod offset_map;
 pub mod print;
 pub mod replace;
 pub mod replace_fn;
@@ -37,6 +38,8 @@ use core::ffi::c_void;
 use alloc::vec::Vec;
 
 use crate::program::Program;
+
+pub(crate) use offset_map::{byte_to_utf16_units, utf16_units_to_byte};
 
 /// Universal heap header (offset 0 of every refcounted heap object).
 /// Mirrors `__torajs_heap_header_t` in runtime_str.c; `#[repr(C)]`

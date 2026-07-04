@@ -9,7 +9,7 @@ use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_arrprops_attach_exec3, __torajs_arrprops_set,
     __torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_rc_inc,
     __torajs_str_drop, ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, abort_unsupported, as_regex_mut,
-    str_from_bytes, str_slice, str_slice_ascii_view,
+    byte_to_utf16_units, str_from_bytes, str_slice, str_slice_ascii_view, utf16_units_to_byte,
 };
 use crate::node::{REGEX_MAX_CAPTURES, REGEX_SAVE_SLOTS};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -294,13 +294,18 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     let mut pos: i64 = 0;
     while pos <= slen {
         let hit = if !global && sticky {
-            let start = re.last_index.max(0);
+            // lastIndex is spec'd in UTF-16 code units; the engine
+            // works in transcoded UTF-8 bytes — map on read + write.
+            let start = utf16_units_to_byte(&s, re.last_index.max(0), haystack_is_ascii);
             let h = if start > slen {
                 None
             } else {
                 match_anchor(&re.prog, &s, start, re.flags)
             };
-            re.last_index = h.as_ref().map(|m| m.end).unwrap_or(0);
+            re.last_index = h
+                .as_ref()
+                .map(|m| byte_to_utf16_units(&s, m.end, haystack_is_ascii))
+                .unwrap_or(0);
             h
         } else {
             // Round 5 attack #1 — Workspace materialisation is sunk
@@ -346,9 +351,17 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
                 }
             }
             // Non-global match = exec shape (spec §22.2.7.8):
-            // index / input / groups attach in print order.
+            // index / input / groups attach in print order. `.index`
+            // is spec'd in UTF-16 code units — map the byte offset.
             unsafe {
-                attach_exec_all(out, re, &s, str_ptr, m.start, m.saves());
+                attach_exec_all(
+                    out,
+                    re,
+                    &s,
+                    str_ptr,
+                    byte_to_utf16_units(&s, m.start, haystack_is_ascii),
+                    m.saves(),
+                );
             }
             break;
         }
@@ -383,11 +396,11 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     // chunk 7.7 v2 step 12 C2 Phase B-1 attack #A — zero-copy ASCII
     // Latin-1 view; mirrors `__torajs_str_match_regex` rationale.
     let _s_owned: Vec<u8>;
-    let s: &[u8] = match unsafe { str_slice_ascii_view(str_ptr) } {
-        Some(view) => view,
+    let (s, haystack_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(str_ptr) } {
+        Some(view) => (view, true),
         None => {
             _s_owned = unsafe { str_slice(str_ptr) };
-            &_s_owned
+            (&_s_owned, false)
         }
     };
     let slen = s.len() as i64;
@@ -395,7 +408,14 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     let sticky = re.flags & RE_FLAG_Y != 0;
     let global = re.flags & RE_FLAG_G != 0;
     let track = sticky || global;
-    let start = if track { re.last_index.max(0) } else { 0 };
+    // lastIndex is spec'd in UTF-16 code units (§22.2.7.2 step 4);
+    // map to a byte offset in the transcoded haystack. Out-of-range
+    // maps to slen + 1 so the `start > slen` guard below fires.
+    let start = if track {
+        utf16_units_to_byte(s, re.last_index.max(0), haystack_is_ascii)
+    } else {
+        0
+    };
 
     // Phase C-3 — single-shot exec hits the same baked-DFA short-circuit.
     // Round 3 Phase B sub-batch 7.2 — runtime-baked DFA fallback.
@@ -415,7 +435,7 @@ pub unsafe extern "C" fn __torajs_regex_exec(
         return core::ptr::null_mut();
     };
     if track {
-        re.last_index = m.end;
+        re.last_index = byte_to_utf16_units(s, m.end, haystack_is_ascii);
     }
     // Round 5 attack #6 — pre-size to the exec shape (see match loop
     // above); the pushes below fill exactly 1 + n_cap_lim slots.
@@ -434,7 +454,14 @@ pub unsafe extern "C" fn __torajs_regex_exec(
         }
     }
     unsafe {
-        attach_exec_all(out, re, &s, str_ptr, m.start, m.saves());
+        attach_exec_all(
+            out,
+            re,
+            s,
+            str_ptr,
+            byte_to_utf16_units(s, m.start, haystack_is_ascii),
+            m.saves(),
+        );
     }
     out
 }

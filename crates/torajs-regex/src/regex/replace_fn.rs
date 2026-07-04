@@ -12,7 +12,9 @@ use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::replace_fn_dispatch::invoke_replace_cb;
-use super::{__torajs_str_drop, abort_unsupported, as_regex, str_from_bytes, str_slice};
+use super::{
+    __torajs_str_drop, abort_unsupported, as_regex, byte_to_utf16_units, str_from_bytes, str_slice,
+};
 use crate::node::REGEX_SAVE_SLOTS;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{Workspace, match_anchor, search_from_with_ws};
@@ -100,7 +102,9 @@ unsafe fn replace_fn_inner(
                 fn_ptr,
                 match_str as *mut c_void,
                 &caps,
-                m.start,
+                // ES §22.1.3.18 — the cb offset arg is in UTF-16
+                // code units of the input, not transcoded bytes.
+                byte_to_utf16_units(&s, m.start, false),
                 str_ptr as *mut c_void,
             )
         };
