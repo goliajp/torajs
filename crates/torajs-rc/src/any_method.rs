@@ -51,6 +51,18 @@ pub const ANY_METHOD_MAP: i64 = 16;
 pub const ANY_METHOD_FILTER: i64 = 17;
 /// `Array.prototype.forEach`.
 pub const ANY_METHOD_FOR_EACH: i64 = 18;
+/// `Map.prototype.get`.
+pub const ANY_METHOD_GET: i64 = 19;
+/// `Map.prototype.set`.
+pub const ANY_METHOD_SET: i64 = 20;
+/// `Map.prototype.has` / `Set.prototype.has`.
+pub const ANY_METHOD_HAS: i64 = 21;
+/// `Map.prototype.delete` / `Set.prototype.delete`.
+pub const ANY_METHOD_DELETE: i64 = 22;
+/// `Set.prototype.add`.
+pub const ANY_METHOD_ADD: i64 = 23;
+/// `Map.prototype.clear` / `Set.prototype.clear`.
+pub const ANY_METHOD_CLEAR: i64 = 24;
 
 /// Compile-time name → id intern. `None`-shaped misses map to
 /// [`ANY_METHOD_UNKNOWN`] (the runtime throws with the name bytes).
@@ -74,6 +86,12 @@ pub fn any_method_id(name: &str) -> i64 {
         "map" => ANY_METHOD_MAP,
         "filter" => ANY_METHOD_FILTER,
         "forEach" => ANY_METHOD_FOR_EACH,
+        "get" => ANY_METHOD_GET,
+        "set" => ANY_METHOD_SET,
+        "has" => ANY_METHOD_HAS,
+        "delete" => ANY_METHOD_DELETE,
+        "add" => ANY_METHOD_ADD,
+        "clear" => ANY_METHOD_CLEAR,
         _ => ANY_METHOD_UNKNOWN,
     }
 }
