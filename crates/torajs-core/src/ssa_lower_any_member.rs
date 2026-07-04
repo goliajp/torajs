@@ -235,6 +235,19 @@ fn emit_member_fallback(
         ctx.emit_throw_check(None);
         return Operand::Value(v);
     }
+    if name == "size" {
+        // RFC 20260704 C4-2 — Map/Set `.size` (+ dynobj `{ size: .. }`
+        // probe) rides its own tag dispatch; `.length` stays
+        // length-only (a Map has no length, matching bun).
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_size_get, vec![obj_val.clone()]),
+            Type::Any,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return Operand::Value(v);
+    }
     emit_dynobj_only(ctx, dynobj, key_str)
 }
 

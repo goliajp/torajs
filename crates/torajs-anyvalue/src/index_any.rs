@@ -53,6 +53,9 @@ unsafe extern "C" {
     /// undefined by construction).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-collections — live entry count (tombstones excluded);
+    /// Set storage shares the Map runtime.
+    fn __torajs_map_size(p: *const c_void) -> i64;
 }
 
 /// See module doc.
@@ -261,6 +264,52 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             // The probe pair is a borrow — the returned box owns its
             // own reference (same shape as the lower-side dynobj
             // fallback's payload_rc_inc + any_box pairing).
+            crate::payload_rc_inc(dtag as i64, dval as i64);
+            return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
+        }
+    }
+    VALUE_UNDEFINED
+}
+
+/// `recv.size` where the receiver is an `any` value
+/// (Any-method-call RFC 20260704 C4-2).
+///
+/// - `null` / `undefined` → catchable TypeError.
+/// - `Tag::Map` / `Tag::Set` → live entry count (the ES §24.1.3.10 /
+///   §24.2.3.9 `size` accessors) via `__torajs_map_size`.
+/// - `Tag::DynObj` → own-property probe for the literal key `"size"`
+///   (a user `{ size: 42 }` answers 42; absence answers `undefined`).
+/// - everything else (strings, arrays, primitives, other heap tags)
+///   → `undefined` (no such property).
+///
+/// # Safety
+/// Cell receivers must be valid heap pointers matching their header
+/// tag layout.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_size_get(recv: AnyValue) -> AnyValue {
+    if is_null(recv) || is_undefined(recv) {
+        unsafe {
+            __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());
+        }
+        return VALUE_UNDEFINED;
+    }
+    if !is_cell(recv) {
+        return VALUE_UNDEFINED;
+    }
+    let ptr = as_void_ptr(recv);
+    unsafe {
+        let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
+        if tag == Tag::Map as u16 || tag == Tag::Set as u16 {
+            return crate::nanbox_encode::__torajs_anyv_box_i64(__torajs_map_size(ptr));
+        }
+        if tag == Tag::DynObj as u16 {
+            // Same probe shape as the `.length` DynObj arm above —
+            // the pair is a borrow, the returned box owns its own
+            // reference.
+            let key = __torajs_str_alloc(c"size".as_ptr() as *const u8, 4);
+            let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
+            let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
+            __torajs_str_drop(key as *mut c_void);
             crate::payload_rc_inc(dtag as i64, dval as i64);
             return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
         }

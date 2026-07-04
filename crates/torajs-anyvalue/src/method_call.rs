@@ -26,9 +26,8 @@
 //!   ABI — argv rides in a fixed 8-slot undefined-filled buffer so
 //!   the adapter reads its param count unconditionally.
 //! - `Tag::Map` / `Tag::Set` cell (C4) → get / set / has / delete /
-//!   add / clear straight onto the torajs-collections pair-ABI
-//!   kernels (heap keys/values pre-bump per the consume contract;
-//!   `set`/`add` return `this`).
+//!   add / clear / forEach in `method_call_mapset` (pair-ABI kernels
+//!   + the C4-2 boxed-entry forEach walk).
 //! - anything else (numeric immediates, other heap tags, unknown
 //!   method ids) → catchable TypeError — the RFC's C3+ tags land
 //!   here one arm at a time, never a silent wrong answer.
@@ -43,9 +42,8 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_ADD, ANY_METHOD_CHAR_AT, ANY_METHOD_CLEAR, ANY_METHOD_DELETE, ANY_METHOD_FILTER,
-    ANY_METHOD_FOR_EACH, ANY_METHOD_GET, ANY_METHOD_HAS, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF,
-    ANY_METHOD_JOIN, ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_SET,
+    ANY_METHOD_CHAR_AT, ANY_METHOD_FILTER, ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES,
+    ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH,
     ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_SPLIT, ANY_METHOD_TO_LOWER_CASE,
     ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START,
     ANY_METHOD_UNSHIFT, Tag,
@@ -107,29 +105,6 @@ unsafe extern "C" {
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     /// torajs-str — release a heap Str/Substr reference.
     fn __torajs_str_drop(s: *mut c_void);
-    /// torajs-collections — Map/Set kernels (pair ABI; heap keys /
-    /// values are consumed — the caller rc-bumps before the call).
-    fn __torajs_map_get(
-        p: *const c_void,
-        key_tag: i64,
-        key_payload: i64,
-        out_tag: *mut i64,
-        out_payload: *mut i64,
-    );
-    fn __torajs_map_set(
-        p: *mut c_void,
-        key_tag: i64,
-        key_payload: i64,
-        value_tag: i64,
-        value_payload: i64,
-    );
-    fn __torajs_map_has(p: *const c_void, key_tag: i64, key_payload: i64) -> i64;
-    fn __torajs_map_delete(p: *mut c_void, key_tag: i64, key_payload: i64) -> i64;
-    fn __torajs_map_clear(p: *mut c_void);
-    /// torajs-rc — NaN-box-safe refcount bump (the consume-contract
-    /// pre-inc for borrowed argv payloads + the `set`/`add` return
-    /// of `this`).
-    fn __torajs_rc_inc(p: *mut c_void);
     /// torajs-dynobj — property probe by Str key: the slot's ANY_TAG
     /// (5 = absent) / per-tag payload.
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
@@ -146,7 +121,7 @@ const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 
 /// The boxed adapters read up to 8 param slots unconditionally —
 /// mirror of torajs-core `ssa_lower_boxed_entry::MAX_BOXED_PARAMS`.
-const MAX_BOXED_ARGS: usize = 8;
+pub(crate) const MAX_BOXED_ARGS: usize = 8;
 
 /// `ToIntegerOrInfinity`-shaped argument decode: `undefined` (or a
 /// missing slot) answers `default`; NaN answers 0; otherwise the
@@ -204,7 +179,15 @@ pub unsafe extern "C" fn __torajs_any_method_call(
             return unsafe { dynobj_method(ptr, name_str, argv, argc) };
         }
         if tag == Tag::Map as u16 || tag == Tag::Set as u16 {
-            return unsafe { map_set_method(ptr, tag == Tag::Set as u16, mid, argv, argc) };
+            return unsafe {
+                crate::method_call_mapset::map_set_method(
+                    ptr,
+                    tag == Tag::Set as u16,
+                    mid,
+                    argv,
+                    argc,
+                )
+            };
         }
     }
     unsafe {
@@ -213,85 +196,10 @@ pub unsafe extern "C" fn __torajs_any_method_call(
     VALUE_UNDEFINED
 }
 
-/// `Tag::Map` / `Tag::Set` arm (C4) — id-switch straight onto the
-/// torajs-collections kernels; no per-crate glue needed because the
-/// kernels already speak the NaN-box pair ABI. Heap keys / values
-/// are CONSUMED by the kernels, so borrowed argv payloads rc-bump
-/// first. `set` / `add` return `this` (+1, boxed-value convention);
-/// methods of the other collection kind (`get` on a Set, `add` on a
-/// Map) fall through to the catchable TypeError like bun.
-unsafe fn map_set_method(
-    m: *mut c_void,
-    is_set: bool,
-    mid: i64,
-    argv: *const u64,
-    argc: i64,
-) -> AnyValue {
-    let arg_at = |i: i64| -> u64 {
-        if i < argc {
-            unsafe { *argv.add(i as usize) }
-        } else {
-            VALUE_UNDEFINED
-        }
-    };
-    // Decode a borrowed AnyValue into the kernels' (tag, payload)
-    // pair, pre-bumping heap payloads per the consume contract.
-    let pair_consumed = |av: u64| -> (i64, i64) {
-        unsafe {
-            let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(av);
-            let payload = crate::nanbox_encode::__torajs_anyv_unbox_value(av);
-            if tag == 4 && payload != 0 {
-                __torajs_rc_inc(payload as *mut c_void);
-            }
-            (tag, payload)
-        }
-    };
-    unsafe {
-        match mid {
-            m2 if m2 == ANY_METHOD_GET && !is_set => {
-                let (kt, kp) = pair_consumed(arg_at(0));
-                let (mut vt, mut vp): (i64, i64) = (5, 0);
-                __torajs_map_get(m, kt, kp, &mut vt, &mut vp);
-                // The kernel rc-bumped a heap value for us — the box
-                // transfers that ownership out.
-                __torajs_anyv_box_from_pair(vt, vp)
-            }
-            m2 if m2 == ANY_METHOD_SET && !is_set => {
-                let (kt, kp) = pair_consumed(arg_at(0));
-                let (vt, vp) = pair_consumed(arg_at(1));
-                __torajs_map_set(m, kt, kp, vt, vp);
-                // ES §24.1.3.9 — returns `this`.
-                __torajs_rc_inc(m);
-                m as u64
-            }
-            m2 if m2 == ANY_METHOD_ADD && is_set => {
-                let (kt, kp) = pair_consumed(arg_at(0));
-                __torajs_map_set(m, kt, kp, 5, 0);
-                // ES §24.2.3.1 — returns `this`.
-                __torajs_rc_inc(m);
-                m as u64
-            }
-            m2 if m2 == ANY_METHOD_HAS => {
-                let (kt, kp) = pair_consumed(arg_at(0));
-                __torajs_anyv_box_from_pair(1, __torajs_map_has(m, kt, kp))
-            }
-            m2 if m2 == ANY_METHOD_DELETE => {
-                let (kt, kp) = pair_consumed(arg_at(0));
-                __torajs_anyv_box_from_pair(1, __torajs_map_delete(m, kt, kp))
-            }
-            m2 if m2 == ANY_METHOD_CLEAR => {
-                __torajs_map_clear(m);
-                VALUE_UNDEFINED
-            }
-            _ => method_not_a_function(),
-        }
-    }
-}
-
 /// Resolve a callback-shaped AnyValue to its `(closure cell, boxed
 /// dual entry)` pair — `None` for anything that can't dispatch
 /// through the uniform ABI (non-cell, non-closure, entry 0).
-unsafe fn closure_boxed_entry(av: AnyValue) -> Option<(*mut c_void, u64)> {
+pub(crate) unsafe fn closure_boxed_entry(av: AnyValue) -> Option<(*mut c_void, u64)> {
     if !is_cell(av) {
         return None;
     }
@@ -464,7 +372,7 @@ unsafe fn arr_method(
     }
 }
 
-unsafe fn method_not_a_function() -> AnyValue {
+pub(crate) unsafe fn method_not_a_function() -> AnyValue {
     unsafe {
         __torajs_throw_type_error(c"value is not a function on this any receiver".as_ptr());
     }

@@ -60,6 +60,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_index_get: FuncId,
     pub any_index_set: FuncId,
     pub any_length_get: FuncId,
+    pub any_size_get: FuncId,
     pub any_iter_len: FuncId,
     pub any_method_call: FuncId,
     pub any_unbox_tag: FuncId,
@@ -256,6 +257,15 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_any_length_get",
+            &[Type::Any],
+            Type::Any,
+        ),
+        // RFC 20260704 C4-2 — recv.size runtime dispatch (Map/Set
+        // live count + dynobj probe).
+        any_size_get: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_size_get",
             &[Type::Any],
             Type::Any,
         ),
