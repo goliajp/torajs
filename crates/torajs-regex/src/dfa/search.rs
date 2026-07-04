@@ -14,6 +14,42 @@
 
 pub use super::state::DfaState;
 
+/// Round 5 attack #9 — accept-bit folding into the transition word.
+///
+/// `DfaState::transitions[b]` carries the destination state index in
+/// the low 30 bits plus two flag bits describing the *destination*
+/// state, folded in at build time by
+/// [`super::build_helpers::fold_accept_bits`]:
+///
+/// - bit 31 ([`TX_ACCEPT_BIT`]) — destination's `is_accept`
+/// - bit 30 ([`TX_MONOTONE_BIT`]) — destination's `monotone_accept`
+///
+/// The executor's per-byte hot loop then touches exactly one cache
+/// line per step (the transition row) instead of two (row + the
+/// destination state's flag bytes at offset 1024/1026, a different
+/// 1072-byte-strided line). State 0 (dead) never accepts, so a packed
+/// word of 0 still means "dead" and the `packed != 0` liveness test
+/// is unchanged.
+///
+/// `monotone_accept` implies `is_accept`
+/// ([`super::build_helpers::compute_monotone_accept`] condition 1),
+/// so a self-loop slot inside a monotone run always reads exactly
+/// `state | TX_ACCEPT_BIT | TX_MONOTONE_BIT` — [`run_monotone_accept`]
+/// compares against that precomputed constant, keeping its inner loop
+/// at one load + one compare per byte.
+///
+/// The `is_accept` / `monotone_accept` fields stay authoritative for
+/// every cold read (start-state probe, pending-class fallback,
+/// `fold_accept_bits` itself); the folded bits are a hot-path mirror.
+/// BFS state counts are bounded far below 2^30 (`fold_accept_bits`
+/// debug-asserts), so the two flag bits never collide with an index.
+pub const TX_ACCEPT_BIT: u32 = 1 << 31;
+/// See [`TX_ACCEPT_BIT`].
+pub const TX_MONOTONE_BIT: u32 = 1 << 30;
+/// Low-30-bit mask extracting the destination state index from a
+/// packed transition word.
+pub const TX_STATE_MASK: u32 = TX_MONOTONE_BIT - 1;
+
 /// Read bit `byte` of a 256-bit packed mask.
 #[inline]
 pub(super) fn mask_get(mask: &[u32; 8], byte: u8) -> bool {
@@ -232,10 +268,17 @@ pub fn dfa_search_mid_nonword(
 /// returned cursor.
 #[inline]
 fn run_monotone_accept(dfa: &DfaProgram, hay: &[u8], state: u32, mut cursor: usize) -> usize {
+    // Round 5 attack #9 — transitions are packed words. A self-loop
+    // slot on a monotone-accept state always reads exactly
+    // `state | TX_ACCEPT_BIT | TX_MONOTONE_BIT` (monotone implies
+    // accept, and the destination IS this state), so one compare
+    // against the precomputed constant keeps the inner loop at
+    // load + cmp per byte — same shape as the pre-#9 `nxt != state`.
+    let self_packed = state | TX_ACCEPT_BIT | TX_MONOTONE_BIT;
     while cursor < hay.len() {
         let b = hay[cursor];
         let nxt = dfa.states[state as usize].transitions[b as usize];
-        if nxt != state {
+        if nxt != self_packed {
             break;
         }
         cursor += 1;
@@ -364,16 +407,25 @@ fn dfa_search_from(
         // means byte_step already routed this byte (ASCII letters via
         // K-PROPERTY's ASCII bitmap, digits via a sibling non-K-
         // PROPERTY `Op::Class` in mixed-PC ready sets, etc.).
-        let next = dfa.states[state as usize].transitions[byte as usize];
-        if next != 0 {
-            state = next;
+        //
+        // Round 5 attack #9 — the transition word carries the
+        // destination's `is_accept` / `monotone_accept` flags in its
+        // top two bits (see `TX_ACCEPT_BIT`), so this hot path reads
+        // one cache line per byte instead of chasing the destination
+        // state's flag bytes on a second line. Dead is still 0
+        // (state 0 never accepts). The monotone probe nests inside
+        // the accept branch — monotone implies accept — so the
+        // non-accept step pays a single untaken branch.
+        let packed = dfa.states[state as usize].transitions[byte as usize];
+        if packed != 0 {
+            state = packed & TX_STATE_MASK;
             cursor += 1;
-            if dfa.states[state as usize].is_accept {
+            if packed & TX_ACCEPT_BIT != 0 {
                 last_accept = Some(cursor);
-            }
-            if dfa.states[state as usize].monotone_accept {
-                cursor = run_monotone_accept(dfa, hay, state, cursor);
-                last_accept = Some(cursor);
+                if packed & TX_MONOTONE_BIT != 0 {
+                    cursor = run_monotone_accept(dfa, hay, state, cursor);
+                    last_accept = Some(cursor);
+                }
             }
             continue;
         }
@@ -510,10 +562,14 @@ mod tests {
                 pending_class: PendingClass::INERT,
             },
             // start: byte 'a' moves to accept; everything else dies.
+            // Round 5 attack #9 — hand-built tables must fold the
+            // destination's accept flag into the transition word the
+            // way `fold_accept_bits` does (state 2 is accepting, not
+            // monotone).
             DfaState {
                 transitions: {
                     let mut t = [0u32; 256];
-                    t[b'a' as usize] = 2;
+                    t[b'a' as usize] = 2 | TX_ACCEPT_BIT;
                     t
                 },
                 is_accept: false,
@@ -550,7 +606,7 @@ mod tests {
         assert_eq!(dfa_search(&dfa, &prog, b"abc"), Some(1));
         assert_eq!(dfa_search(&dfa, &prog, b"xyz"), None);
         // sanity: states[i] auto-deref-and-index path active.
-        assert_eq!(dfa.states[1].transitions[b'a' as usize], 2);
+        assert_eq!(dfa.states[1].transitions[b'a' as usize], 2 | TX_ACCEPT_BIT);
         assert!(dfa.states[2].is_accept);
     }
 }

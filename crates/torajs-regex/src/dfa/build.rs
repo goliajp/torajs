@@ -472,6 +472,15 @@ fn finish_dfa(
     // `super::build_helpers::compute_monotone_accept` to keep build.rs
     // under the 500 LOC HARD limit.
     crate::dfa::build_helpers::compute_monotone_accept(&mut states);
+    // Round 5 attack #9 — fold each destination's `is_accept` /
+    // `monotone_accept` into the top two bits of every transition
+    // word, AFTER `compute_monotone_accept` (which reads transitions
+    // as plain indices). The executor's per-byte step then reads one
+    // cache line instead of two. Applies identically to the AOT bake
+    // path (`try_bake_regex_dfa` serialises this function's output
+    // byte-for-byte), so baked `.rodata` tables and the runtime
+    // executor always agree on the encoding.
+    crate::dfa::build_helpers::fold_accept_bits(&mut states);
     DfaProgram {
         // chunk 7.7 v2 step 12 C2 Phase B — wrap as DfaStates::Owned;
         // Phase C will emit DfaStates::Static(&'static [...]) from the

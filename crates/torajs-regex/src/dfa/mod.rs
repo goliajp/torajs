@@ -74,8 +74,8 @@ mod step;
 pub use build::build_dfa;
 pub use pending_class::PendingClass;
 pub use search::{
-    BakedDfaMeta, DfaProgram, DfaState, DfaStates, dfa_search, dfa_search_mid,
-    dfa_search_mid_nonword, dfa_search_mid_word,
+    BakedDfaMeta, DfaProgram, DfaState, DfaStates, TX_ACCEPT_BIT, TX_MONOTONE_BIT, TX_STATE_MASK,
+    dfa_search, dfa_search_mid, dfa_search_mid_nonword, dfa_search_mid_word,
 };
 pub use step::{byte_step, byte_step_full};
 
@@ -270,6 +270,13 @@ mod tests {
         let mut n = Node::new(NodeKind::Char);
         n.ch = b;
         n
+    }
+
+    /// Round 5 attack #9 — transitions are packed words (destination
+    /// index | folded accept/monotone bits); tests that dereference a
+    /// target as a state index strip the flag bits first.
+    fn tgt(packed: u32) -> usize {
+        (packed & TX_STATE_MASK) as usize
     }
 
     #[test]
@@ -760,7 +767,7 @@ mod tests {
         let dfa = build_dfa(&prog, 0);
         let start = dfa.start as usize;
         assert!(!dfa.states[start].monotone_accept);
-        let accept = dfa.states[start].transitions[b'a' as usize] as usize;
+        let accept = tgt(dfa.states[start].transitions[b'a' as usize]);
         assert!(dfa.states[accept].is_accept);
         assert!(dfa.states[accept].monotone_accept);
         // Dead state stays `false` — the `is_accept` short-circuit
@@ -787,19 +794,81 @@ mod tests {
         let start = dfa.start as usize;
         // The `a`-loop accept state is reached via a single `a` from
         // start; it self-loops on `a` and dies on any other byte.
-        let after_a = dfa.states[start].transitions[b'a' as usize] as usize;
+        let after_a = tgt(dfa.states[start].transitions[b'a' as usize]);
         assert!(dfa.states[after_a].is_accept);
         assert!(dfa.states[after_a].monotone_accept);
         // Self-loop on `a` is the only non-dead transition.
-        assert_eq!(
-            dfa.states[after_a].transitions[b'a' as usize] as usize,
-            after_a
-        );
+        assert_eq!(tgt(dfa.states[after_a].transitions[b'a' as usize]), after_a);
         for b in 0u16..=255 {
             if b == b'a' as u16 {
                 continue;
             }
             assert_eq!(dfa.states[after_a].transitions[b as usize], 0);
+        }
+    }
+
+    /// Round 5 attack #9 — every packed transition word's top two
+    /// bits must mirror the destination state's `is_accept` /
+    /// `monotone_accept` fields exactly, and the masked index must be
+    /// in bounds. Sweeps all 256 slots of every state across pattern
+    /// shapes that exercise accept self-loops (`a+`), plain literals,
+    /// and the mid-walk accept/non-accept alternation the dotall
+    /// executor path hits (`a.+c` under `s`).
+    #[test]
+    fn fold_accept_bits_mirrors_target_flags() {
+        let progs: [(&dyn Fn(&mut Program), u8); 3] = [
+            (
+                &|p: &mut Program| {
+                    // /a+/: CHAR a; SPLIT 0, 2; MATCH
+                    p.emit(Inst::char_lit(b'a'));
+                    p.emit(Inst::split(0, 2));
+                    p.emit(Inst::match_accept());
+                },
+                0,
+            ),
+            (
+                &|p: &mut Program| {
+                    // /abc/
+                    p.emit(Inst::char_lit(b'a'));
+                    p.emit(Inst::char_lit(b'b'));
+                    p.emit(Inst::char_lit(b'c'));
+                    p.emit(Inst::match_accept());
+                },
+                0,
+            ),
+            (
+                &|p: &mut Program| {
+                    // /a.+c/s: CHAR a; ANY; SPLIT 1, 4; CHAR c; MATCH
+                    p.emit(Inst::char_lit(b'a'));
+                    p.emit(Inst::simple(Op::AnyChar));
+                    p.emit(Inst::split(1, 4));
+                    p.emit(Inst::char_lit(b'c'));
+                    p.emit(Inst::match_accept());
+                },
+                crate::parser::RE_FLAG_S,
+            ),
+        ];
+        for (emit, flags) in progs {
+            let mut prog = Program::new();
+            emit(&mut prog);
+            let dfa = build_dfa(&prog, flags);
+            for (si, s) in dfa.states.iter().enumerate() {
+                for b in 0..256 {
+                    let packed = s.transitions[b];
+                    let idx = tgt(packed);
+                    assert!(idx < dfa.states.len(), "state {si} byte {b}: oob");
+                    assert_eq!(
+                        packed & TX_ACCEPT_BIT != 0,
+                        dfa.states[idx].is_accept,
+                        "state {si} byte {b}: accept bit != target field"
+                    );
+                    assert_eq!(
+                        packed & TX_MONOTONE_BIT != 0,
+                        dfa.states[idx].monotone_accept,
+                        "state {si} byte {b}: monotone bit != target field"
+                    );
+                }
+            }
         }
     }
 
@@ -814,9 +883,9 @@ mod tests {
         assert_eq!(dfa.states.len(), 3);
         assert_eq!(dfa.start, 1);
         assert!(!dfa.states[dfa.start as usize].is_accept);
-        let accept = dfa.states[dfa.start as usize].transitions[b'a' as usize];
+        let accept = tgt(dfa.states[dfa.start as usize].transitions[b'a' as usize]);
         assert_ne!(accept, 0);
-        assert!(dfa.states[accept as usize].is_accept);
+        assert!(dfa.states[accept].is_accept);
         assert_eq!(dfa.states[dfa.start as usize].transitions[b'b' as usize], 0);
     }
 
@@ -830,11 +899,11 @@ mod tests {
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, 0);
         let s1 = dfa.start as usize;
-        let s2 = dfa.states[s1].transitions[b'a' as usize] as usize;
+        let s2 = tgt(dfa.states[s1].transitions[b'a' as usize]);
         assert_ne!(s2, 0);
-        let s3 = dfa.states[s2].transitions[b'b' as usize] as usize;
+        let s3 = tgt(dfa.states[s2].transitions[b'b' as usize]);
         assert_ne!(s3, 0);
-        let s4 = dfa.states[s3].transitions[b'c' as usize] as usize;
+        let s4 = tgt(dfa.states[s3].transitions[b'c' as usize]);
         assert_ne!(s4, 0);
         assert!(dfa.states[s4].is_accept);
         assert!(!dfa.states[s2].is_accept);
@@ -855,7 +924,7 @@ mod tests {
         let start = dfa.start as usize;
         let target = dfa.states[start].transitions[0];
         assert_ne!(target, 0);
-        assert!(dfa.states[target as usize].is_accept);
+        assert!(dfa.states[tgt(target)].is_accept);
         for b in 0u16..=255 {
             assert_eq!(
                 dfa.states[start].transitions[b as usize], target,
@@ -872,9 +941,9 @@ mod tests {
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, 0);
         let start = dfa.start as usize;
-        let target = dfa.states[start].transitions[b'a' as usize];
+        let target = tgt(dfa.states[start].transitions[b'a' as usize]);
         assert_ne!(target, 0);
-        assert!(dfa.states[target as usize].is_accept);
+        assert!(dfa.states[target].is_accept);
         assert_eq!(dfa.states[start].transitions[b'\n' as usize], 0);
     }
 
@@ -891,7 +960,7 @@ mod tests {
         let start = dfa.start as usize;
         let target = dfa.states[start].transitions[b'a' as usize];
         assert_ne!(target, 0);
-        assert!(dfa.states[target as usize].is_accept);
+        assert!(dfa.states[tgt(target)].is_accept);
         // all in-range bytes route to the same accept state.
         assert_eq!(dfa.states[start].transitions[b'b' as usize], target);
         assert_eq!(dfa.states[start].transitions[b'c' as usize], target);
@@ -911,12 +980,12 @@ mod tests {
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, 0);
         let start = dfa.start as usize;
-        let via_a = dfa.states[start].transitions[b'a' as usize];
-        let via_b = dfa.states[start].transitions[b'b' as usize];
+        let via_a = tgt(dfa.states[start].transitions[b'a' as usize]);
+        let via_b = tgt(dfa.states[start].transitions[b'b' as usize]);
         assert_ne!(via_a, 0);
         assert_ne!(via_b, 0);
-        assert!(dfa.states[via_a as usize].is_accept);
-        assert!(dfa.states[via_b as usize].is_accept);
+        assert!(dfa.states[via_a].is_accept);
+        assert!(dfa.states[via_b].is_accept);
         // 'c' from start routes to dead.
         assert_eq!(dfa.states[start].transitions[b'c' as usize], 0);
     }
@@ -932,10 +1001,10 @@ mod tests {
         let dfa = build_dfa(&prog, 0);
         // ε-closure({0}) walks SPLIT to {1, 3}; 3 = MATCH → start accepts.
         assert!(dfa.states[dfa.start as usize].is_accept);
-        let via_a = dfa.states[dfa.start as usize].transitions[b'a' as usize];
+        let via_a = tgt(dfa.states[dfa.start as usize].transitions[b'a' as usize]);
         assert_ne!(via_a, 0);
         // After consuming 'a' we are back at an equivalent ε-closed set.
-        assert!(dfa.states[via_a as usize].is_accept);
+        assert!(dfa.states[via_a].is_accept);
         assert_eq!(dfa.states[dfa.start as usize].transitions[b'b' as usize], 0);
     }
 
@@ -949,13 +1018,13 @@ mod tests {
         let dfa = build_dfa(&prog, 0);
         // Start ε-closure = {0} — no MATCH yet, so start does NOT accept.
         assert!(!dfa.states[dfa.start as usize].is_accept);
-        let via_a = dfa.states[dfa.start as usize].transitions[b'a' as usize];
+        let via_a = tgt(dfa.states[dfa.start as usize].transitions[b'a' as usize]);
         assert_ne!(via_a, 0);
-        assert!(dfa.states[via_a as usize].is_accept);
+        assert!(dfa.states[via_a].is_accept);
         // Repeated 'a' from via_a must land on the same state (dedup).
-        let via_aa = dfa.states[via_a as usize].transitions[b'a' as usize];
+        let via_aa = tgt(dfa.states[via_a].transitions[b'a' as usize]);
         assert_eq!(via_aa, via_a, "kleene-plus loops back to itself");
-        assert_eq!(dfa.states[via_a as usize].transitions[b'b' as usize], 0);
+        assert_eq!(dfa.states[via_a].transitions[b'b' as usize], 0);
     }
 
     #[test]
@@ -972,11 +1041,11 @@ mod tests {
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, 0);
         let start = dfa.start as usize;
-        let after_a = dfa.states[start].transitions[b'a' as usize];
+        let after_a = tgt(dfa.states[start].transitions[b'a' as usize]);
         assert_ne!(after_a, 0);
-        let accept = dfa.states[after_a as usize].transitions[b'b' as usize];
+        let accept = tgt(dfa.states[after_a].transitions[b'b' as usize]);
         assert_ne!(accept, 0);
-        assert!(dfa.states[accept as usize].is_accept);
+        assert!(dfa.states[accept].is_accept);
         // dead + start + after_a + accept = 4 states (no duplicate after_a).
         assert_eq!(dfa.states.len(), 4);
     }
@@ -996,17 +1065,17 @@ mod tests {
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, 0);
         let start = dfa.start as usize;
-        let s1 = dfa.states[start].transitions[b'a' as usize];
+        let s1 = tgt(dfa.states[start].transitions[b'a' as usize]);
         assert_ne!(s1, 0);
-        let s2 = dfa.states[s1 as usize].transitions[b'5' as usize];
+        let s2 = tgt(dfa.states[s1].transitions[b'5' as usize]);
         assert_ne!(s2, 0);
-        assert!(dfa.states[s2 as usize].is_accept);
+        assert!(dfa.states[s2].is_accept);
         // Uppercase from start = dead.
         assert_eq!(dfa.states[start].transitions[b'A' as usize], 0);
         // Digit from start = dead (must consume lower first).
         assert_eq!(dfa.states[start].transitions[b'5' as usize], 0);
         // Letter from s1 = dead (need a digit, not another letter).
-        assert_eq!(dfa.states[s1 as usize].transitions[b'x' as usize], 0);
+        assert_eq!(dfa.states[s1].transitions[b'x' as usize], 0);
     }
 
     #[test]
@@ -1221,9 +1290,9 @@ mod tests {
         let dfa = build_dfa(&prog, 0);
         assert_ne!(dfa.start, dfa.start_mid);
         // From `start`, byte 'a' advances to an accepting state.
-        let via_a = dfa.states[dfa.start as usize].transitions[b'a' as usize];
+        let via_a = tgt(dfa.states[dfa.start as usize].transitions[b'a' as usize]);
         assert_ne!(via_a, 0);
-        assert!(dfa.states[via_a as usize].is_accept);
+        assert!(dfa.states[via_a].is_accept);
         // From `start_mid`, byte 'a' dead-ends — `^` blocked the closure.
         assert_eq!(
             dfa.states[dfa.start_mid as usize].transitions[b'a' as usize],
@@ -1581,9 +1650,9 @@ mod tests {
         prog.emit(Inst::match_accept());
         let dfa = build_dfa(&prog, RE_FLAG_M);
         // start (text_start=true closure) accepts 'a'.
-        let via_a = dfa.states[dfa.start as usize].transitions[b'a' as usize];
+        let via_a = tgt(dfa.states[dfa.start as usize].transitions[b'a' as usize]);
         assert!(
-            dfa.states[via_a as usize].is_accept,
+            dfa.states[via_a].is_accept,
             "start + 'a' must accept under mflag (text_start ctx)"
         );
         // start_mid (no left_byte) blocks AnchorB — all bytes dead.

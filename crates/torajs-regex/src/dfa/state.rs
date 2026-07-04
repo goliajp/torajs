@@ -12,7 +12,11 @@ use super::pending_class::PendingClass;
 
 /// One state of a [`super::search::DfaProgram`].
 ///
-/// `transitions[byte]` is the destination state index (0 = dead state).
+/// `transitions[byte]` is a packed word: destination state index in
+/// the low 30 bits (0 = dead state) plus the destination's
+/// `is_accept` / `monotone_accept` flags in bits 31/30, folded in at
+/// build time (Round 5 attack #9 — see
+/// [`super::search::TX_ACCEPT_BIT`]). Dead slots stay exactly 0.
 /// `is_accept` is true iff the PC set this state represents contains an
 /// [`crate::program::Op::Match`] PC (i.e. the NFA can accept at this
 /// byte position).

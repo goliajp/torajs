@@ -152,6 +152,35 @@ pub(super) fn prog_uses_word_boundary(prog: &Program) -> bool {
 /// state stays `false` even if the byte is practically
 /// unreachable from any start), keeping the analysis cheap and
 /// obviously correct.
+/// Round 5 attack #9 — fold each destination state's `is_accept` /
+/// `monotone_accept` flags into the top two bits of every
+/// `transitions[b]` word (see [`super::search::TX_ACCEPT_BIT`]).
+/// Called once by [`super::build::finish_dfa`], strictly AFTER
+/// [`compute_monotone_accept`] (which reads transitions as plain
+/// indices). The `is_accept` / `monotone_accept` fields stay
+/// authoritative for cold reads; the folded bits are the hot-path
+/// mirror the executor consumes so its per-byte step touches one
+/// cache line instead of two. State 0 (dead) has both flags false,
+/// so dead slots stay exactly 0 and the executor's `packed != 0`
+/// liveness test is unchanged.
+pub(super) fn fold_accept_bits(states: &mut [super::search::DfaState]) {
+    use super::search::{TX_ACCEPT_BIT, TX_MONOTONE_BIT, TX_STATE_MASK};
+    // BFS subset construction is bounded far below 2^30 states; the
+    // two flag bits must never collide with a real index.
+    debug_assert!(states.len() as u64 <= TX_STATE_MASK as u64);
+    let flags: alloc::vec::Vec<u32> = states
+        .iter()
+        .map(|s| {
+            ((s.is_accept as u32) * TX_ACCEPT_BIT) | ((s.monotone_accept as u32) * TX_MONOTONE_BIT)
+        })
+        .collect();
+    for s in states.iter_mut() {
+        for t in s.transitions.iter_mut() {
+            *t |= flags[*t as usize];
+        }
+    }
+}
+
 pub(super) fn compute_monotone_accept(states: &mut [super::search::DfaState]) {
     // Snapshot `is_accept` per state so the per-state loop below can
     // probe targets without re-borrowing `states[]` mutably.
