@@ -93,6 +93,40 @@ pub(crate) fn run(ast: &mut Ast) {
         }
     }
 
+    // RFC 20260704 C4+ (chunk 522) — pre-infer the lifted-closure
+    // signatures so a closure-typed local can bubble out of a fn as
+    // its return type. The main loop below visits stmts in source
+    // order and the lifted `__closure_*` decls sit at the tail, so a
+    // user fn returning a closure local (`const g = (x) => ...;
+    // return g`) was inferred BEFORE the closure's own return type
+    // existed — the Ident lookup missed and the fn stayed Void.
+    // Running the closure branches first (identical, idempotent
+    // logic) + publishing each closure's full `__fn(P|..)->R` ann
+    // under its reserved `__closure_*` name lets
+    // `infer_expr_ann_with`'s Expr::Closure arm answer fn-shaped
+    // anns; `parse_type` maps `__fn` to FnSig and `effective_ret_ty`
+    // upgrades to Closure where the body returns closure values.
+    preinfer_closure_sigs(stmts, ast_exprs_view, &outer_binds, &mut fn_sigs);
+    // Second pass over top-level lets — a `const h = <closure>`
+    // binding could not resolve before the closure sigs existed.
+    for s in stmts.iter() {
+        if let Stmt::LetDecl {
+            name,
+            type_ann: None,
+            init,
+            ..
+        } = s
+            && !outer_binds.contains_key(name)
+        {
+            let bs: Vec<Param> = binds_to_params(&outer_binds);
+            if let Some(ann) =
+                infer_expr_ann_with(ast_exprs_view, *init, &bs, &outer_binds, &fn_sigs)
+            {
+                outer_binds.insert(name.clone(), ann);
+            }
+        }
+    }
+
     for stmt in stmts.iter_mut() {
         let Stmt::FnDecl {
             name,
@@ -189,6 +223,88 @@ pub(crate) fn run(ast: &mut Ast) {
 
         if !new_type_params.is_empty() {
             type_params.extend(new_type_params);
+        }
+    }
+}
+
+/// Chunk 522 — run the `__closure_*` param-default + return-sniff
+/// branches ahead of the main loop (idempotent with it), then
+/// publish each closure's full fn-shaped ann into `fn_sigs` under
+/// its reserved name. Closures whose value returns resisted typing
+/// publish nothing (no fabricated ann); a body without value
+/// returns is `void`.
+fn preinfer_closure_sigs(
+    stmts: &mut [Stmt],
+    exprs: AstExprsView,
+    outer_binds: &std::collections::HashMap<String, String>,
+    fn_sigs: &mut std::collections::HashMap<String, String>,
+) {
+    for stmt in stmts.iter_mut() {
+        let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            body,
+            ..
+        } = stmt
+        else {
+            continue;
+        };
+        if !name.starts_with("__closure_") {
+            continue;
+        }
+        for p in params.iter_mut() {
+            if p.type_ann.is_none() && p.name != "__env" && p.name != "__this" {
+                p.type_ann = Some("any".to_string());
+            }
+        }
+        if return_type.is_none() && body_has_value_return(body) {
+            let has_env = params.first().is_some_and(|p| p.name == "__env");
+            let inferred = if has_env {
+                infer_return_ann_seeded(exprs, body, params, outer_binds, fn_sigs)
+            } else {
+                infer_return_ann(exprs, body, params, fn_sigs)
+            };
+            if let Some(ann) = inferred {
+                *return_type = Some(ann);
+            }
+        }
+    }
+    for stmt in stmts.iter() {
+        let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            body,
+            ..
+        } = stmt
+        else {
+            continue;
+        };
+        if !name.starts_with("__closure_") {
+            continue;
+        }
+        let ret = match return_type {
+            Some(rt) => rt.clone(),
+            None if !body_has_value_return(body) => "void".to_string(),
+            None => continue,
+        };
+        let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
+        let mut complete = true;
+        for p in params.iter().filter(|p| p.name != "__env") {
+            match &p.type_ann {
+                Some(a) => param_anns.push(a.clone()),
+                None => {
+                    complete = false;
+                    break;
+                }
+            }
+        }
+        if complete {
+            fn_sigs.insert(
+                name.clone(),
+                format!("__fn({})->{}", param_anns.join("|"), ret),
+            );
         }
     }
 }

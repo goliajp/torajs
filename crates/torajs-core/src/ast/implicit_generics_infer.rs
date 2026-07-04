@@ -334,6 +334,13 @@ pub(crate) fn infer_expr_ann_with(
             .find(|p| &p.name == name)
             .and_then(|p| p.type_ann.clone())
             .or_else(|| binds.get(name).cloned()),
+        // RFC 20260704 C4+ (chunk 522) — a lifted closure value
+        // carries the fn-shaped ann `preinfer_closure_sigs`
+        // published under its reserved `__closure_*` name (a full
+        // `__fn(P|..)->R`, unlike the bare return anns the map
+        // holds for user fns; the namespaces are disjoint — user
+        // code never references a `__closure_*` ident directly).
+        Expr::Closure { fn_name, .. } => fn_sigs.get(fn_name).cloned(),
         // Call: bare Ident → fn_sigs; Member+string/`T[]` receiver → method whitelist.
         // Omitted methods SIGSEGV/silent-wrong even with explicit annotation (L3b).
         Expr::Call { callee, .. } => {

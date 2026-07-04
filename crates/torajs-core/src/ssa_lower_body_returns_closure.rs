@@ -19,6 +19,22 @@ use crate::ast::{Ast, Expr, Stmt};
 
 pub(crate) fn body_returns_closure(ast: &Ast, body: &[Stmt]) -> bool {
     let mut closure_locals: HashSet<String> = HashSet::new();
+    // Chunk 522 — top-level closure bindings count too: a lifted
+    // arrow returning a CAPTURED closure local (`const g = (x) =>
+    // ...; const h = () => g;`) has no body-local `let g`, so the
+    // body-only collection missed it and the ret slot stayed FnSig
+    // for a Closure value (SIGBUS via the raw-fn dispatch). A
+    // body-local non-closure shadow re-inserting the name is
+    // harmless — the upgrade only fires when the parsed ret is
+    // already fn-shaped, and a FnSig-valued return under a Closure
+    // ret is forwarder-wrapped by the Return arm.
+    for s in &ast.stmts {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && matches!(ast.get_expr(*init), Expr::Closure { .. })
+        {
+            closure_locals.insert(name.clone());
+        }
+    }
     collect_closure_locals(ast, body, &mut closure_locals);
     body.iter()
         .any(|s| stmt_returns_closure(ast, s, &closure_locals))
