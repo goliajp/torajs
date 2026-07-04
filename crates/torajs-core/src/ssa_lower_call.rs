@@ -42,6 +42,11 @@ pub(crate) fn lower(
     if let Some(op) = crate::ssa_lower_any_method_call::try_lower(ctx, callee, args) {
         return op;
     }
+    // RFC C4+ — bare call on an `any`-typed callee (`f(1)` where f
+    // erased to any) routes to the runtime closure dispatch.
+    if let Some(op) = crate::ssa_lower_any_call::try_lower(ctx, callee, args) {
+        return op;
+    }
     if let Some(op) = try_dispatch_a(ctx, callee, args) {
         return op;
     }

@@ -63,6 +63,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_size_get: FuncId,
     pub any_regexp_prop: FuncId,
     pub any_iter_next: FuncId,
+    pub any_call: FuncId,
     pub any_method_call: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
@@ -289,6 +290,15 @@ pub(crate) fn declare(
             "__torajs_any_iter_next",
             &[Type::Any, Type::Ptr, Type::Ptr],
             Type::I64,
+        ),
+        // RFC C4+ — bare any-call `f(args…)`: (callee, argv, argc)
+        // → Any; non-closures raise a catchable TypeError.
+        any_call: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_call",
+            &[Type::Any, Type::Ptr, Type::I64],
+            Type::Any,
         ),
         // Any-method-call RFC 20260704 C1 — recv.name(args…) runtime
         // dispatch: (recv, method-id, name ptr/len for TypeError

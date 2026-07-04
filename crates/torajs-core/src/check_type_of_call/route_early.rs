@@ -40,6 +40,21 @@ pub(crate) fn try_route(
         }
         return Some(Ok(Type::Any));
     }
+    // RFC C4+ — a bare call whose callee itself types as `any`
+    // (`f(1)` on an any-held closure) is legal per TS and answers
+    // `any`; lowering routes it to the runtime closure dispatch.
+    // Member callees stay above / with the typed arms (getter-as-
+    // callee is a recorded C4+ boundary).
+    if !matches!(ast.get_expr(*callee), Expr::Member { .. })
+        && matches!(checker.type_of(ast, *callee), Ok(Type::Any))
+    {
+        for a in args {
+            if let Err(e) = checker.type_of(ast, *a) {
+                return Some(Err(e));
+            }
+        }
+        return Some(Ok(Type::Any));
+    }
     // T-45 — synthetic call from parser for binary `in`
     // operator: `__torajs_in_op(key, obj)`. Wedge extracted to
     // [`crate::check_type_of_call_in_op`] (chunk 296).

@@ -265,6 +265,48 @@ pub(crate) unsafe fn closure_boxed_entry(av: AnyValue) -> Option<(*mut c_void, u
     }
 }
 
+/// Invoke a boxed dual entry through the uniform
+/// `(env, argv, argc) -> AnyValue` ABI. argv rides in a fixed
+/// 8-slot undefined-filled buffer so the adapter reads its param
+/// count unconditionally; the return is caller-owned per the
+/// boxed-value convention.
+unsafe fn invoke_boxed(env: *mut c_void, entry: u64, argv: *const u64, argc: i64) -> AnyValue {
+    unsafe {
+        let mut buf = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
+        let n = (argc.max(0) as usize).min(MAX_BOXED_ARGS);
+        for (i, slot) in buf.iter_mut().enumerate().take(n) {
+            *slot = *argv.add(i);
+        }
+        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+            core::mem::transmute(entry as usize);
+        call(env, buf.as_ptr(), argc)
+    }
+}
+
+/// `f(args…)` where the callee itself is an `any` value (RFC C4+
+/// bare any-call). A `Tag::Closure` cell with a non-zero boxed dual
+/// entry invokes through the uniform ABI; every other shape —
+/// primitives, non-closure cells, closures without an adapter — is
+/// a catchable TypeError. argv slots are BORROWED (the lowerer
+/// rc-decs the boxes it made after the call).
+///
+/// # Safety
+/// `argv` points at `argc` AnyValue slots the caller keeps alive
+/// across the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_call(
+    recv: AnyValue,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        if let Some((env, entry)) = closure_boxed_entry(recv) {
+            return invoke_boxed(env, entry, argv, argc);
+        }
+        method_not_a_function()
+    }
+}
+
 /// `Tag::DynObj` arm — probe the property by name; a closure-cell
 /// value invokes through its boxed dual entry. The property probe
 /// borrows (dynobj keeps its own value reference; the receiver
@@ -286,14 +328,7 @@ unsafe fn dynobj_method(
                 let cell = __torajs_dynobj_get_value(obj, key);
                 // The cell's NaN-box encoding is its pointer bits.
                 if let Some((env, entry)) = closure_boxed_entry(cell) {
-                    let mut buf = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
-                    let n = (argc.max(0) as usize).min(MAX_BOXED_ARGS);
-                    for (i, slot) in buf.iter_mut().enumerate().take(n) {
-                        *slot = *argv.add(i);
-                    }
-                    let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
-                        core::mem::transmute(entry as usize);
-                    return call(env, buf.as_ptr(), argc);
+                    return invoke_boxed(env, entry, argv, argc);
                 }
             }
         }

@@ -72,32 +72,8 @@ pub(crate) fn try_lower(
         Operand::ConstPtrNull
     };
 
+    let (argv, boxed_slots) = pack_any_argv(ctx, args);
     let argc = args.len();
-    let argv = ctx.f.append_inst(
-        crate::ssa::BlockId(0),
-        InstKind::AllocaBytes((argc.max(1) * 8) as u64),
-        Type::Ptr,
-        Some("__amc_argv"),
-    );
-    let mut boxed_slots: Vec<Option<Operand>> = Vec::with_capacity(argc);
-    for (i, &aid) in args.iter().enumerate() {
-        let is_borrow = matches!(ctx.ast.get_expr(aid), Expr::Ident(_) | Expr::Member { .. });
-        let raw = ctx.lower_expr(aid);
-        let raw_ty = ctx.operand_ty(&raw);
-        let (slot_val, we_boxed) = if raw_ty == Type::Any {
-            (raw, false)
-        } else {
-            if is_borrow && raw_ty.is_refcounted() {
-                ctx.emit_rc_inc(raw.clone());
-            }
-            (ctx.box_to_any(raw), true)
-        };
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(slot_val.clone(), Operand::Value(argv), (i * 8) as u64),
-        );
-        boxed_slots.push(if we_boxed { Some(slot_val) } else { None });
-    }
 
     let result = ctx.f.append_inst(
         ctx.cur_block,
@@ -125,4 +101,42 @@ pub(crate) fn try_lower(
     }
     ctx.emit_throw_check(None);
     Some(Operand::Value(result))
+}
+
+/// Box the call arguments into a stack argv per the chunk-496
+/// three-shape ledger (see module doc) — shared by the method-call
+/// arm above and the bare any-call arm
+/// ([`crate::ssa_lower_any_call`]). Returns the argv alloca plus
+/// the slots WE boxed (the caller rc-decs each one after the call).
+pub(crate) fn pack_any_argv(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+) -> (crate::ssa::ValueId, Vec<Option<Operand>>) {
+    let argc = args.len();
+    let argv = ctx.f.append_inst(
+        crate::ssa::BlockId(0),
+        InstKind::AllocaBytes((argc.max(1) * 8) as u64),
+        Type::Ptr,
+        Some("__amc_argv"),
+    );
+    let mut boxed_slots: Vec<Option<Operand>> = Vec::with_capacity(argc);
+    for (i, &aid) in args.iter().enumerate() {
+        let is_borrow = matches!(ctx.ast.get_expr(aid), Expr::Ident(_) | Expr::Member { .. });
+        let raw = ctx.lower_expr(aid);
+        let raw_ty = ctx.operand_ty(&raw);
+        let (slot_val, we_boxed) = if raw_ty == Type::Any {
+            (raw, false)
+        } else {
+            if is_borrow && raw_ty.is_refcounted() {
+                ctx.emit_rc_inc(raw.clone());
+            }
+            (ctx.box_to_any(raw), true)
+        };
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(slot_val.clone(), Operand::Value(argv), (i * 8) as u64),
+        );
+        boxed_slots.push(if we_boxed { Some(slot_val) } else { None });
+    }
+    (argv, boxed_slots)
 }
