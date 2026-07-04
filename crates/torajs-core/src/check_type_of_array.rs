@@ -73,6 +73,9 @@ fn elem_value_ty(checker: &mut Checker, ast: &Ast, eid: ExprId) -> Result<Option
             Type::Array(inner) => Ok(Some(*inner)),
             Type::String => Ok(Some(Type::String)),
             Type::Set => Ok(Some(Type::Any)),
+            // RFC 20260704 S5+ — `[...anyval]` iterates at runtime
+            // through the unified protocol; elements are type-erased.
+            Type::Any => Ok(Some(Type::Any)),
             other => Err(format!(
                 "array spread source must be an array, got {other:?}"
             )),

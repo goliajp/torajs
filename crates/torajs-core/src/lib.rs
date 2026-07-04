@@ -199,6 +199,7 @@ pub(crate) mod ssa_lower_any_member;
 pub(crate) mod ssa_lower_any_method_call;
 pub(crate) mod ssa_lower_arr_any_fill;
 pub(crate) mod ssa_lower_arr_any_push;
+pub(crate) mod ssa_lower_arr_from_any;
 pub(crate) mod ssa_lower_arr_from_set;
 pub(crate) mod ssa_lower_arr_layout;
 pub(crate) mod ssa_lower_arr_mutators;

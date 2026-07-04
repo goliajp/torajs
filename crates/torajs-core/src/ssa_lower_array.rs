@@ -59,10 +59,15 @@ enum Item {
     Spread(Operand),
 }
 
-struct LoweredItem {
-    op: Operand,
-    src_eid: ExprId,
-    is_spread: bool,
+pub(crate) struct LoweredItem {
+    pub(crate) op: Operand,
+    pub(crate) src_eid: ExprId,
+    pub(crate) is_spread: bool,
+    /// Spread source lowered to `Type::Any` and was materialized into
+    /// an owned `Arr<Any>` temp (RFC 20260704 S5+) — the assembler
+    /// (`ssa_lower_arr_from_any::assemble_any_spread`) drops it after
+    /// the extend.
+    pub(crate) was_any: bool,
 }
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) -> Operand {
@@ -254,6 +259,13 @@ fn alloc_heap_arr(
 
 fn lower_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) -> Operand {
     let (lowered, elem_ty, literal_count) = lower_spread_elements(ctx, element_ids);
+    // Any element type assembles from the ALREADY-lowered operands —
+    // re-lowering the ExprIds (the pre-S5+ shape) would double-emit
+    // spread source side effects (e.g. `[...m.values()]` minting the
+    // iterator twice).
+    if matches!(elem_ty, Some(Type::Any)) {
+        return crate::ssa_lower_arr_from_any::assemble_any_spread(ctx, lowered, literal_count);
+    }
     let elem_is_refcounted = elem_ty.unwrap_or(Type::I64).is_refcounted();
     let items = build_items(ctx, &lowered, elem_is_refcounted);
     let mut elem_ty = elem_ty.unwrap_or(Type::I64);
@@ -263,9 +275,6 @@ fn lower_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) -> 
             .elem_is_f64(&crate::num_width::SlotKey::Anon(eid.0))
     {
         elem_ty = Type::F64;
-    }
-    if matches!(elem_ty, Type::Any) {
-        return ctx.lower_array_any_literal(element_ids);
     }
     let arr_id = intern_arr_layout(ctx.arr_layouts, elem_ty);
     let elem_is_refcounted = elem_ty.is_refcounted();
@@ -291,7 +300,12 @@ fn lower_spread_elements(
     for eid in element_ids {
         if let Expr::Spread { expr } = ctx.ast.get_expr(*eid) {
             let inner = *expr;
-            let (op, v_ty) = lower_spread_source(ctx, inner);
+            let (op, v_ty, was_any) = lower_spread_source(ctx, inner);
+            if was_any {
+                // Materialized Arr<Any> — force the Any assembly path
+                // regardless of what earlier items anchored.
+                elem_ty = Some(Type::Any);
+            }
             if let Type::Arr(arr_id) = v_ty
                 && elem_ty.is_none()
             {
@@ -301,6 +315,7 @@ fn lower_spread_elements(
                 op,
                 src_eid: inner,
                 is_spread: true,
+                was_any,
             });
         } else {
             let v = ctx.lower_expr(*eid);
@@ -313,13 +328,14 @@ fn lower_spread_elements(
                 op: v,
                 src_eid: *eid,
                 is_spread: false,
+                was_any: false,
             });
         }
     }
     (lowered, elem_ty, literal_count)
 }
 
-fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type) {
+fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type, bool) {
     let mut v = ctx.lower_expr(inner);
     let mut v_ty = ctx.operand_ty(&v);
     // S134 — string spread `[...str]` unfolds per code unit. Substr
@@ -354,7 +370,16 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type)
         v = crate::ssa_lower_arr_from_set::emit(ctx, v);
         v_ty = Type::Arr(arr_any_id);
     }
-    (v, v_ty)
+    // RFC 20260704 S5+ — `any` spread source: materialize through the
+    // unified runtime iteration protocol into an owned Arr<Any> temp
+    // (the assembler drops it after the extend).
+    if matches!(v_ty, Type::Any) {
+        let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
+        v = crate::ssa_lower_arr_from_any::emit(ctx, v);
+        v_ty = Type::Arr(arr_any_id);
+        return (v, v_ty, true);
+    }
+    (v, v_ty, false)
 }
 
 fn build_items(

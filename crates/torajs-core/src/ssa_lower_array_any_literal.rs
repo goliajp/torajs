@@ -65,6 +65,16 @@ impl<'a> LowerCtx<'a> {
                     src_op = crate::ssa_lower_arr_from_set::emit(self, src_op);
                     src_ty = self.operand_ty(&src_op);
                 }
+                // RFC 20260704 S5+ — `[...anyval]`: materialize the
+                // runtime-dispatched iterable through the unified
+                // iteration protocol. The result is an owned temp —
+                // extend copies + rc_incs the slots, so drop after.
+                let mut src_is_owned_temp = false;
+                if matches!(src_ty, Type::Any) {
+                    src_op = crate::ssa_lower_arr_from_any::emit(self, src_op);
+                    src_ty = self.operand_ty(&src_op);
+                    src_is_owned_temp = true;
+                }
                 let inner_is_any_arr = match src_ty {
                     Type::Arr(src_arr_id) => {
                         matches!(self.arr_layouts[src_arr_id.0 as usize], Type::Any)
@@ -80,11 +90,14 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Call(
                         self.intrinsics.arr_extend_any,
-                        vec![Operand::Value(arr), src_op],
+                        vec![Operand::Value(arr), src_op.clone()],
                     ),
                     Type::Arr(arr_id),
                     None,
                 );
+                if src_is_owned_temp {
+                    self.emit_drop_value(src_op, src_ty);
+                }
                 arr = new_arr;
                 continue;
             }
@@ -112,78 +125,119 @@ impl<'a> LowerCtx<'a> {
             }
             let val = self.lower_expr(eid);
             let val_ty = self.operand_ty(&val);
-            // ANY_NULL=0, ANY_BOOL=1, ANY_I64=2, ANY_F64=3, ANY_HEAP=4
-            // (matches __TORAJS_ANY_* in runtime_str.c).
-            let (tag, value_op): (i64, Operand) = match val_ty {
-                Type::I64 | Type::I32 => (2, val),
-                Type::F64 => {
-                    // T-10.d.ii — pun f64 bits to i64 so push_any
-                    // (i64 third param) carries them exactly.
-                    // print_any reverses the bitcast at decode time.
-                    let bits = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::BitCastF64ToI64(val),
-                        Type::I64,
-                        None,
-                    );
-                    (3, Operand::Value(bits))
-                }
-                Type::Bool => {
-                    let zext = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::ZExtBoolToI64(val),
-                        Type::I64,
-                        None,
-                    );
-                    (1, Operand::Value(zext))
-                }
-                _ if val_ty.is_refcounted() => {
-                    // Heap-typed value: rc_inc to hold an owning ref
-                    // for the array slot. push_any's third param is
-                    // i64 in the SSA decl; LLVM treats ptr ↔ i64 as
-                    // ABI-compatible (same machine word), so passing
-                    // the ptr operand directly works at the call site
-                    // without an explicit PtrToInt SSA op (which the
-                    // current InstKind enum doesn't expose). Drop
-                    // walks via __torajs_arr_drop_any when the array
-                    // dies.
-                    self.emit_rc_inc(val.clone());
-                    (4, val)
-                }
-                Type::Ptr => {
-                    // Ptr that's null (Type::Null lowers to ConstPtrNull
-                    // → Type::Ptr). Tag as ANY_NULL with value 0.
-                    // S127-1: `undefined` literal also lowers to
-                    // ConstPtrNull (Type::Ptr). Recover the original
-                    // AST shape so the slot tags ANY_UNDEF=5, else
-                    // `[undefined]` collapses to `[null]` and
-                    // strict-eq / .indexOf(undefined) mis-fires.
-                    // Same root as W-D narrow trunk's box_to_any
-                    // ConstPtrNull arm (S126-1/-3).
-                    if matches!(
-                        self.ast.get_expr(eid),
-                        Expr::Ident(n) if n == "undefined"
-                    ) {
-                        (5, Operand::ConstI64(0))
-                    } else {
-                        (0, Operand::ConstI64(0))
-                    }
-                }
-                other => panic!(
-                    "not yet supported: lower_array_any_literal element type {other:?} \
-                     (T-10.d will add F64 + boxed-primitive coverage)"
-                ),
-            };
+            let (tag_op, value_op) = self.pack_any_elem(val, val_ty, Some(eid));
             arr = self.f.append_inst(
                 self.cur_block,
                 InstKind::Call(
                     self.intrinsics.arr_push_any,
-                    vec![Operand::Value(arr), Operand::ConstI64(tag), value_op],
+                    vec![Operand::Value(arr), tag_op, value_op],
                 ),
                 Type::Arr(arr_id),
                 None,
             );
         }
         Operand::Value(arr)
+    }
+
+    /// Pack an already-lowered element into the `(tag, value)` pair
+    /// `arr_push_any` consumes. ANY_NULL=0, ANY_BOOL=1, ANY_I64=2,
+    /// ANY_F64=3, ANY_HEAP=4, ANY_UNDEF=5. Refcounted values rc_inc
+    /// (the slot takes an owning ref, the source keeps its own);
+    /// `Type::Any` values unbox to their runtime pair +
+    /// `any_payload_rc_inc` (the box stays a borrow of its owner).
+    /// `eid` recovers the `undefined`-vs-`null` AST shape for
+    /// ConstPtrNull operands (S127-1); `None` tags plain null.
+    pub(crate) fn pack_any_elem(
+        &mut self,
+        val: Operand,
+        val_ty: Type,
+        eid: Option<ExprId>,
+    ) -> (Operand, Operand) {
+        match val_ty {
+            Type::I64 | Type::I32 => (Operand::ConstI64(2), val),
+            Type::F64 => {
+                // T-10.d.ii — pun f64 bits to i64 so push_any
+                // (i64 third param) carries them exactly.
+                // print_any reverses the bitcast at decode time.
+                let bits = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BitCastF64ToI64(val),
+                    Type::I64,
+                    None,
+                );
+                (Operand::ConstI64(3), Operand::Value(bits))
+            }
+            Type::Bool => {
+                let zext = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ZExtBoolToI64(val),
+                    Type::I64,
+                    None,
+                );
+                (Operand::ConstI64(1), Operand::Value(zext))
+            }
+            Type::Any => {
+                // RFC 20260704 S5+ — an `any` element carries its own
+                // runtime tag: unbox the pair and rc-bump the heap
+                // payload (the box is a borrow of its owner; the slot
+                // needs an independent ref).
+                let tag_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![val.clone()]),
+                    Type::I64,
+                    None,
+                );
+                let val_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_unbox_value, vec![val]),
+                    Type::I64,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.any_payload_rc_inc,
+                        vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                    ),
+                );
+                (Operand::Value(tag_v), Operand::Value(val_v))
+            }
+            _ if val_ty.is_refcounted() => {
+                // Heap-typed value: rc_inc to hold an owning ref
+                // for the array slot. push_any's third param is
+                // i64 in the SSA decl; LLVM treats ptr ↔ i64 as
+                // ABI-compatible (same machine word), so passing
+                // the ptr operand directly works at the call site
+                // without an explicit PtrToInt SSA op (which the
+                // current InstKind enum doesn't expose). Drop
+                // walks via __torajs_arr_drop_any when the array
+                // dies.
+                self.emit_rc_inc(val.clone());
+                (Operand::ConstI64(4), val)
+            }
+            Type::Ptr => {
+                // Ptr that's null (Type::Null lowers to ConstPtrNull
+                // → Type::Ptr). Tag as ANY_NULL with value 0.
+                // S127-1: `undefined` literal also lowers to
+                // ConstPtrNull (Type::Ptr). Recover the original
+                // AST shape so the slot tags ANY_UNDEF=5, else
+                // `[undefined]` collapses to `[null]` and
+                // strict-eq / .indexOf(undefined) mis-fires.
+                // Same root as W-D narrow trunk's box_to_any
+                // ConstPtrNull arm (S126-1/-3).
+                if matches!(
+                    eid.map(|e| self.ast.get_expr(e)),
+                    Some(Expr::Ident(n)) if n == "undefined"
+                ) {
+                    (Operand::ConstI64(5), Operand::ConstI64(0))
+                } else {
+                    (Operand::ConstI64(0), Operand::ConstI64(0))
+                }
+            }
+            other => panic!(
+                "not yet supported: lower_array_any_literal element type {other:?} \
+                 (T-10.d will add F64 + boxed-primitive coverage)"
+            ),
+        }
     }
 }
