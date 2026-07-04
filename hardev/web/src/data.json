@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T02:56:33.148Z",
+  "generatedAt": "2026-07-04T05:25:31.130Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "f2413747",
-    "commitSubject": "fix: attach index/input/groups to every matchall element",
+    "commit": "d9840d77",
+    "commitSubject": "feat: for-of over any receivers",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "d9840d77",
+      "subject": "feat: for-of over any receivers"
+    },
+    {
+      "hash": "5ec4426e",
+      "subject": "feat: index write and .length on any receivers"
+    },
+    {
+      "hash": "2278365e",
+      "subject": "feat: index read on any receivers with kind-aware runtime dispatch"
+    },
+    {
+      "hash": "6db86804",
+      "subject": "feat: self-describing array element kind at the typed-to-any boundary"
+    },
+    {
+      "hash": "b0ddae00",
+      "subject": "perf: fold accept and monotone bits into dfa transition words"
+    },
+    {
+      "hash": "c99eea99",
+      "subject": "chore(dashboard): session snapshot @ f2413747 — rotation 10 (486-490: lib.rs file-debt zero, regex utf-16 offsets, 32-group cap, gy anchor, matchall exec shape; attacks 7/8 refuted-reverted)"
+    },
+    {
       "hash": "f2413747",
       "subject": "fix: attach index/input/groups to every matchall element"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "d35580a7",
       "subject": "chore(dashboard): session snapshot @ ea58d3ae — fn-debt sweep close (472-485: vm/search split, for_of_map_like, tlv_sym_overrides, dfa_search_from, scan_number, probe_section_reloc, member_apply, fill, copy_within, promise_chain, cmd_build, pass3, audit stragglers, ssa type_def — non-carve-out fn debt zero)"
-    },
-    {
-      "hash": "ea58d3ae",
-      "subject": "refactor: move ssa Type enum into ssa/type_def.rs submodule"
-    },
-    {
-      "hash": "f316c18c",
-      "subject": "refactor: clear two fn-size audit stragglers in modules and ast_printer"
-    },
-    {
-      "hash": "d6eab509",
-      "subject": "refactor: split pass3 ctor synthesis and static-init walk into fns"
-    },
-    {
-      "hash": "30ee6467",
-      "subject": "refactor: split build_link_config into per-field builder fns"
-    },
-    {
-      "hash": "50483829",
-      "subject": "refactor: split promise chain call lowering into per-stage methods"
-    },
-    {
-      "hash": "0a025fdb",
-      "subject": "refactor: reuse normalize_range_bound in copyWithin and extract rc ranges"
     }
   ],
-  "headSha": "f2413747",
+  "headSha": "d9840d77",
   "autorun": {
-    "total": 319,
+    "total": 320,
     "baselineTarget": 10,
-    "bySelf": 314,
+    "bySelf": 315,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783108293-70ab",
-      "at": "2026-07-03T19:51:33Z",
-      "ts": 1783108293,
+      "rotationId": "r-1783133862-5c51",
+      "at": "2026-07-04T02:57:42Z",
+      "ts": 1783133862,
       "trigger": "self",
-      "prevHead": "d35580a7",
-      "handoffSha": "sha256:bfe69d60cad577a5b259973557c061ce07a97c78c31488a2c0b4e45857061555",
-      "handoffAgeSec": 5,
+      "prevHead": "c99eea99",
+      "handoffSha": "sha256:cf554fc68cf5a3254fe5b42ee42963c68567837c18461f18ba597cd26c337b60",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783133862-5c51",
+        "at": "2026-07-04T02:57:42Z",
+        "ts": 1783133862,
+        "trigger": "self",
+        "prevHead": "c99eea99",
+        "handoffSha": "sha256:cf554fc68cf5a3254fe5b42ee42963c68567837c18461f18ba597cd26c337b60",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783108293-70ab",
         "at": "2026-07-03T19:51:33Z",
@@ -876,17 +887,6 @@
         "prevHead": "5da5b7a6",
         "handoffSha": "sha256:c74169372c7d5fec3e5e73cdf9d70cc511d23940690c509f4c1ebe7020b49a54",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783006662-4d18",
-        "at": "2026-07-02T15:37:42Z",
-        "ts": 1783006662,
-        "trigger": "self",
-        "prevHead": "4c1f22a4",
-        "handoffSha": "sha256:fd5ebe1fb2abbf73cda019e17e1662e698a9b3c9dfc0c7f78c2e1bb733be3dc9",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
