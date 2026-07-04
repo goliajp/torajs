@@ -115,6 +115,7 @@ pub mod case_table;
 pub mod code_point;
 pub mod concat;
 pub mod eq;
+pub mod index_any;
 pub mod json;
 pub mod json_builder;
 pub mod json_parse;

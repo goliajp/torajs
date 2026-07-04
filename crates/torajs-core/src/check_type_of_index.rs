@@ -9,6 +9,9 @@
 //! - `Type::String` indexed → `Type::String` (1-char substring;
 //!   spec §6.1.4 string-indexed access returns a length-1 string).
 //! - `Type::Array(T)` indexed → element type `T`.
+//! - `Type::Any` indexed → `Type::Any` (TS `any` admits every
+//!   member/index access; runtime dispatch via
+//!   `__torajs_any_index_get` — Any-dynamic-access RFC 20260704 S3).
 //! - Any other receiver type → error.
 
 use crate::ast::{Ast, ExprId};
@@ -28,6 +31,7 @@ pub(crate) fn check(
     match obj_ty {
         Type::String => Ok(Type::String),
         Type::Array(elem) => Ok(*elem),
+        Type::Any => Ok(Type::Any),
         other => Err(format!("can't index into {other:?}")),
     }
 }

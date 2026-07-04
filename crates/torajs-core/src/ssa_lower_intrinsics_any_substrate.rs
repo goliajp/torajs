@@ -57,6 +57,7 @@ pub(crate) struct AnySubstrateIds {
     pub class_register: FuncId,
     pub class_get: FuncId,
     pub get_proto_of_any: FuncId,
+    pub any_index_get: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
     pub any_box_drop: FuncId,
@@ -226,6 +227,16 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_anyv_get_proto_of_any",
             &[Type::Any],
+            Type::Any,
+        ),
+        // Any-dynamic-access RFC (20260704) S3 — recv[idx] where
+        // recv is an `any` value (Arr kind-aware / Str / primitive
+        // dispatch in torajs-anyvalue::index_any).
+        any_index_get: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_index_get",
+            &[Type::Any, Type::I64],
             Type::Any,
         ),
         any_unbox_tag: declare_intrinsic(

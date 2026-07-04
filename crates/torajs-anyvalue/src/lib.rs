@@ -91,6 +91,7 @@ use torajs_rc::{__torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
 mod arith;
 mod coerce;
 mod compare;
+mod index_any;
 
 pub mod inspect;
 

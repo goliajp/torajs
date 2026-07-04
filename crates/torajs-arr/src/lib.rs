@@ -40,6 +40,7 @@ pub mod any;
 pub mod drop;
 pub mod from_string;
 pub mod grow;
+pub mod index_any;
 pub mod iter;
 pub mod join;
 pub mod join_locale;

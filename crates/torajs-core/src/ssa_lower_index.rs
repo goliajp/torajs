@@ -47,6 +47,23 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
     if matches!(arr_ty, Type::Str | Type::Substr) {
         return lower_string_index(ctx, arr_val, arr_ty, index);
     }
+    // Any-dynamic-access RFC (20260704) S3 — `recv[i]` where recv is
+    // an `any` value: runtime dispatch (kind-aware Arr / Str /
+    // primitive) via `__torajs_any_index_get`. A null/undefined
+    // receiver records a pending catchable TypeError, so the throw
+    // check follows the call.
+    if arr_ty == Type::Any {
+        let idx_val = ctx.lower_index_operand(index);
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.any_index_get, vec![arr_val, idx_val]),
+            Type::Any,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return Operand::Value(v);
+    }
     let elem_ty = match arr_ty {
         Type::Arr(arr_id) => ctx.arr_layouts[arr_id.0 as usize],
         other => panic!("ssa-lower: index access on non-array type {other:?}"),
