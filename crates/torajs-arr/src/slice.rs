@@ -6,8 +6,8 @@
 //! - Negative indices: `start < 0 → max(len + start, 0)`; same for end.
 //!   Per ES spec §22.1.3.25. Empty range when `hi < lo`.
 //! - Element-type-agnostic — operates on the 8-byte-slot layout
-//!   (`Array<T>`); `Array<Any>` 16-byte-slot path is a separate
-//!   `arr_slice_any` if/when needed.
+//!   (`Array<T>`); any-receiver dispatch (Array<Any> NaN-box slots +
+//!   kind-aware typed slots) is `__torajs_arr_any_slice` below.
 //! - Single malloc + one memcpy. Returns a fresh `+1`-rc heap pointer.
 //! - T-13.5 deque-aware: source's head_offset is folded into the
 //!   memcpy source pointer via `data_ptr_at`.
@@ -116,7 +116,7 @@ fn clamp_range(ilen: i64, start: i64, end: i64) -> (i64, i64) {
 /// (any-method-call RFC C4+) — kind-aware over the block's own
 /// self-description:
 ///
-/// - `FLAG_ARR_ANY` (16-byte NaN-box slots) → per-slot copy +
+/// - `FLAG_ARR_ANY` (NaN-box u64 slots) → per-slot copy +
 ///   NaN-box-safe `rc_inc` (each new slot takes an independent ref,
 ///   the source keeps its own; same ledger as `arr_extend_any`).
 /// - typed 8-byte slots → single memcpy (deque head folded), then
