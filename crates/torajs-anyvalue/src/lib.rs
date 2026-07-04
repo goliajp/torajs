@@ -92,6 +92,7 @@ mod arith;
 mod coerce;
 mod compare;
 mod index_any;
+mod method_call;
 
 pub mod inspect;
 

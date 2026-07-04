@@ -201,8 +201,13 @@ pub const FLAG_SEALED: u16 = 1 << 9;
 // live in `color.rs`; re-exported at crate root just below so
 // downstream crates can keep writing `torajs_rc::Color` etc.
 
+pub mod any_method;
 pub mod arr_kind;
 pub mod color;
+pub use any_method::{
+    ANY_METHOD_CHAR_AT, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_TO_LOWER_CASE,
+    ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_UNKNOWN, any_method_id,
+};
 pub use arr_kind::{
     ARR_ELEM_KIND_MASK, ARR_ELEM_KIND_SHIFT, ARR_KIND_BOOL, ARR_KIND_F64, ARR_KIND_HEAP,
     ARR_KIND_I64, ARR_KIND_UNSET,

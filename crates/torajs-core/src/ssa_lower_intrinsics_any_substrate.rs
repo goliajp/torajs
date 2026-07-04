@@ -61,6 +61,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_index_set: FuncId,
     pub any_length_get: FuncId,
     pub any_iter_len: FuncId,
+    pub any_method_call: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
     pub any_box_drop: FuncId,
@@ -266,6 +267,24 @@ pub(crate) fn declare(
             "__torajs_any_iter_len",
             &[Type::Any],
             Type::I64,
+        ),
+        // Any-method-call RFC 20260704 C1 — recv.name(args…) runtime
+        // dispatch: (recv, method-id, name ptr/len for TypeError
+        // messages, receiver write-back slot, argv, argc) → Any.
+        any_method_call: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_method_call",
+            &[
+                Type::Any,
+                Type::I64,
+                Type::Ptr,
+                Type::I64,
+                Type::Ptr,
+                Type::Ptr,
+                Type::I64,
+            ],
+            Type::Any,
         ),
         any_unbox_tag: declare_intrinsic(
             module,

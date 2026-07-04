@@ -8,7 +8,7 @@
 //! promise_static / process_on / promise_all / object_static / arr_flat /
 //! array_from / date_utc / reduce_1arg
 
-use crate::ast::{Ast, ExprId};
+use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
 pub(crate) fn try_route(
@@ -22,6 +22,23 @@ pub(crate) fn try_route(
     // receiver — decision + alt typecheck live in cm_demote.rs.
     if let Some(demoted) = checker.try_demote_cm_rewrite(ast, eid, args) {
         return Some(demoted);
+    }
+    // Any-method-call RFC 20260704 — a method call whose receiver
+    // types as `any` is legal per TS (`any` absorbs every call)
+    // and answers `any`; lowering routes it to the runtime method
+    // dispatcher. Must run before every typed dispatch arm below —
+    // their name-based matches would otherwise claim the call and
+    // typecheck the receiver as a concrete type. (After cm_demote:
+    // class instances behind `any` keep their existing rewrite.)
+    if let Expr::Member { obj, .. } = ast.get_expr(*callee)
+        && matches!(checker.type_of(ast, *obj), Ok(Type::Any))
+    {
+        for a in args {
+            if let Err(e) = checker.type_of(ast, *a) {
+                return Some(Err(e));
+            }
+        }
+        return Some(Ok(Type::Any));
     }
     // T-45 — synthetic call from parser for binary `in`
     // operator: `__torajs_in_op(key, obj)`. Wedge extracted to

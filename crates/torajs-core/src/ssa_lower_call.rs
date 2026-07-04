@@ -36,6 +36,12 @@ pub(crate) fn lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Operand {
+    // Any-method-call RFC 20260704 — an `any`-typed receiver claims
+    // the call before every typed dispatcher (their name matches
+    // assume concrete receiver types).
+    if let Some(op) = crate::ssa_lower_any_method_call::try_lower(ctx, callee, args) {
+        return op;
+    }
     if let Some(op) = try_dispatch_a(ctx, callee, args) {
         return op;
     }
