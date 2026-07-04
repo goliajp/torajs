@@ -87,7 +87,13 @@ pub(crate) fn lower(
         crate::ssa_lower_for_of_str::lower(ctx, src_ptr_op, i_ident, var_name, body);
         return;
     }
-    if !matches!(src_ty, Type::Arr(_)) {
+    // Any-dynamic-access RFC (20260704) S5 — `for (x of recv)` where
+    // recv is an `any` value reuses this whole i-loop verbatim: the
+    // element read below is `lower_expr(elem_expr)` = `recv[i]`,
+    // which the S3 Index-on-Any arm dispatches at runtime. Only the
+    // length source differs (`__torajs_any_iter_len`, which raises a
+    // catchable TypeError for non-iterable receivers).
+    if !matches!(src_ty, Type::Arr(_) | Type::Any) {
         panic!(
             "ssa-lower: for-of source type {src_ty:?} not yet supported (P5.3 subset — Array<T> + user-class iterable only)"
         );
@@ -107,12 +113,23 @@ pub(crate) fn lower(
         Operand::Value(v) => v,
         _ => panic!("for-of: src ident must lower to a value operand"),
     };
-    let end_val = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, Operand::Value(src_ptr), ARR_LEN_OFF),
-        Type::I64,
-        None,
-    );
+    let end_val = if src_ty == Type::Any {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_iter_len, vec![Operand::Value(src_ptr)]),
+            Type::I64,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        v
+    } else {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(src_ptr), ARR_LEN_OFF),
+            Type::I64,
+            None,
+        )
+    };
 
     let header = ctx.f.add_block();
     let body_blk = ctx.f.add_block();

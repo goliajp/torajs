@@ -290,3 +290,52 @@ fn utf16_units_of_utf8(payload: &[u8]) -> i64 {
     }
     units
 }
+
+/// `for (x of recv)` length driver where recv is an `any` value
+/// (RFC 20260704 S5). Iterable receivers answer their element /
+/// code-unit count; everything else raises a catchable TypeError
+/// (ES §7.4.2 GetIterator on a non-iterable) and answers 0 so the
+/// caller's loop body never runs after the throw check.
+///
+/// Strings iterate per UTF-16 code unit here (the element read is
+/// `recv[i]`) — astral code points split into surrogate halves,
+/// a documented deviation from the spec's per-code-point string
+/// iteration tracked in the RFC (typed `for..of` over `string` has
+/// its own per-cp path; this is the `any`-erased fallback).
+///
+/// # Safety
+/// Cell receivers must be valid heap pointers matching their header
+/// tag layout.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_iter_len(recv: AnyValue) -> i64 {
+    if is_short_str(recv) {
+        let len = short_str_len(recv) as usize;
+        let bytes = short_str_bytes(recv);
+        let payload = &bytes[..len];
+        if payload.iter().all(|b| *b < 0x80) {
+            return len as i64;
+        }
+        return utf16_units_of_utf8(payload);
+    }
+    if is_cell(recv) {
+        let ptr = as_void_ptr(recv);
+        unsafe {
+            let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
+            if tag == Tag::Arr as u16 {
+                return *(ptr.cast::<u8>().add(MIRROR_ARR_LEN_OFF) as *const u64) as i64;
+            }
+            if tag == Tag::Str as u16 {
+                let flags = (ptr.cast::<u8>().add(6) as *const u16).read();
+                return if flags & MIRROR_FLAG_SUBSTR_INLINE != 0 {
+                    *(ptr.cast::<u8>().add(MIRROR_SUBSTR_LEN_OFF) as *const u64) as i64
+                } else {
+                    *(ptr.cast::<u8>().add(MIRROR_STR_LEN_OFF) as *const u32) as i64
+                };
+            }
+        }
+    }
+    unsafe {
+        __torajs_throw_type_error(c"value is not iterable".as_ptr());
+    }
+    0
+}

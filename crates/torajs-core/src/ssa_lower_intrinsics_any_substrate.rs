@@ -60,6 +60,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_index_get: FuncId,
     pub any_index_set: FuncId,
     pub any_length_get: FuncId,
+    pub any_iter_len: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
     pub any_box_drop: FuncId,
@@ -256,6 +257,15 @@ pub(crate) fn declare(
             "__torajs_any_length_get",
             &[Type::Any],
             Type::Any,
+        ),
+        // RFC 20260704 S5 — for-of length driver (throws on
+        // non-iterable receivers).
+        any_iter_len: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_iter_len",
+            &[Type::Any],
+            Type::I64,
         ),
         any_unbox_tag: declare_intrinsic(
             module,

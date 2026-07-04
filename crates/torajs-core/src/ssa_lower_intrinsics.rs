@@ -307,6 +307,7 @@ pub(crate) struct Intrinsics {
     pub(crate) any_index_get: FuncId,
     pub(crate) any_index_set: FuncId,
     pub(crate) any_length_get: FuncId,
+    pub(crate) any_iter_len: FuncId,
     pub(crate) any_unbox_tag: FuncId,
     pub(crate) any_unbox_value: FuncId,
     pub(crate) any_box_drop: FuncId,
