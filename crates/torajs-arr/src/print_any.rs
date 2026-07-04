@@ -62,6 +62,42 @@ unsafe extern "C" {
 /// re-interpreted as `AnyValue` for the inline printer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_any(arr: *const c_void) {
+    unsafe { print_any_at(arr, 0) }
+}
+
+/// True when `v`'s bit pattern is a heap cell pointer whose header
+/// tag is `Tag::Arr`. Mirrors `nan_box_is_cell_like` in torajs-rc /
+/// torajs-value-drop (top 16 bits zero + low TAG_BIT_TYPE_OTHER bit
+/// clear + non-zero).
+#[inline]
+unsafe fn slot_is_arr_cell(v: u64) -> bool {
+    const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
+    const TAG_BIT_TYPE_OTHER: u64 = 0x02;
+    if v == 0 || (v & TOP_16_MASK) != 0 || (v & TAG_BIT_TYPE_OTHER) != 0 {
+        return false;
+    }
+    let header = unsafe { &*(v as *const torajs_rc::HeapHeader) };
+    header.type_tag == torajs_rc::Tag::Arr as u16
+}
+
+/// Indent-aware body of [`__torajs_arr_print_any`].
+///
+/// Break rule (bun parity, probed 2026-07-04): an array whose
+/// elements are ALL arrays renders multi-line —
+/// `[\n<indent+2><e0>, <e1>\n<indent>]`, siblings joined by `", "`
+/// on the same line, two spaces of indent per nesting level. Any
+/// scalar element keeps the whole level single-line. (bun's wider
+/// inspect heuristics — leading-composite break, width-driven wrap,
+/// object elements — are a separate L3b trunk; those shapes keep
+/// tr's current single-line form.)
+///
+/// Array-cell slots recurse HERE (carrying indent) rather than
+/// through `__torajs_print_anyv_inline`'s Tag::Arr branch, which
+/// would reset indent to 0.
+///
+/// # Safety
+/// Same contract as [`__torajs_arr_print_any`].
+pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
     unsafe {
         let p = arr as *const u8;
         if p.is_null() {
@@ -101,19 +137,42 @@ pub unsafe extern "C" fn __torajs_arr_print_any(arr: *const c_void) {
             return;
         }
         let head = *(p.add(ARR_HEAD_OFF) as *const u32);
+        let slot_at = |i: u64| -> u64 {
+            *(p.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8) as *const u64)
+        };
+        let all_arr = (0..len).all(|i| slot_is_arr_cell(slot_at(i)));
+        if all_arr {
+            put_bytes(b"[\n");
+            put_indent(indent + 2);
+            for i in 0..len {
+                if i > 0 {
+                    put_bytes(b", ");
+                }
+                print_any_at(slot_at(i) as *const c_void, indent + 2);
+            }
+            put_byte(b'\n');
+            put_indent(indent);
+            put_byte(b']');
+            return;
+        }
         put_bytes(b"[ ");
         for i in 0..len {
             if i > 0 {
                 put_bytes(b", ");
             }
-            let slot_addr = p.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8);
-            let v = *(slot_addr as *const u64);
-            __torajs_print_anyv_inline(v);
+            __torajs_print_anyv_inline(slot_at(i));
         }
         // Trailing " ]" — bun emits a space before the closing
         // bracket only when the array is non-empty (the empty arm
         // above already short-circuited with `[]`).
         put_byte(b' ');
         put_byte(b']');
+    }
+}
+
+#[inline]
+unsafe fn put_indent(n: u32) {
+    for _ in 0..n {
+        unsafe { put_byte(b' ') };
     }
 }

@@ -128,8 +128,17 @@ impl<'a> LowerCtx<'a> {
             }
             let is_str = arg_ty == Type::Str;
             let target = self.console_print_target(method, arg_ty);
+            // RFC 20260704 L3b #5 — typed Arr with no dedicated typed
+            // printer routes through the tag-aware print_any; this
+            // direct path never crosses the boxing boundary, so mark
+            // the elem-kind chain here (same wiring as
+            // `lower_single_arg` — unmarked, the walker reads raw i64
+            // slots as NaN-box cell pointers and crashes).
+            if target == self.intrinsics.print_any && matches!(arg_ty, Type::Arr(_)) {
+                self.emit_arr_mark_kind(&arg, &arg_ty);
+            }
             self.f
-                .append_void(self.cur_block, InstKind::Call(target, vec![arg]));
+                .append_void(self.cur_block, InstKind::Call(target, vec![arg.clone()]));
             if is_str && !is_borrow {
                 self.emit_drop_value(arg, Type::Str);
             }

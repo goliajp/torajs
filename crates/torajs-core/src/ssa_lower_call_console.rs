@@ -73,6 +73,16 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     }
     let is_str = arg_ty == Type::Str;
     let target = ctx.console_print_target(method, arg_ty);
+    // RFC 20260704 L3b #5 — a typed Arr whose elem has no dedicated
+    // typed printer (Arr<Arr> / Arr<Obj> / …) routes through the
+    // tag-aware print_any, which reads the header's elem-kind field.
+    // This direct typed path never crosses the typed→Any boxing
+    // boundary, so mark the kind chain here; unmarked (UNSET) the
+    // walker reads raw i64 slots as NaN-box values and dereferences
+    // small ints as cell pointers (SIGSEGV).
+    if target == ctx.intrinsics.print_any && matches!(arg_ty, Type::Arr(_)) {
+        ctx.emit_arr_mark_kind(&arg, &arg_ty);
+    }
     ctx.f
         .append_void(cur_block, InstKind::Call(target, vec![arg.clone()]));
     if is_str && !is_borrow {
