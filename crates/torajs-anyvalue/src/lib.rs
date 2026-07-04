@@ -93,6 +93,7 @@ mod coerce;
 mod compare;
 mod index_any;
 mod method_call;
+mod method_call_date;
 mod method_call_mapset;
 
 pub mod inspect;

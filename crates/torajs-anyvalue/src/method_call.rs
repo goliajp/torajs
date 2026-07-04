@@ -28,6 +28,8 @@
 //! - `Tag::Map` / `Tag::Set` cell (C4) → get / set / has / delete /
 //!   add / clear / forEach in `method_call_mapset` (pair-ABI kernels
 //!   + the C4-2 boxed-entry forEach walk).
+//! - `Tag::Date` cell (C4-3a) → the full typed-tier method table
+//!   (getters / to*String / setters) in `method_call_date`.
 //! - anything else (numeric immediates, other heap tags, unknown
 //!   method ids) → catchable TypeError — the RFC's C3+ tags land
 //!   here one arm at a time, never a silent wrong answer.
@@ -188,6 +190,9 @@ pub unsafe extern "C" fn __torajs_any_method_call(
                     argc,
                 )
             };
+        }
+        if tag == Tag::Date as u16 {
+            return unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) };
         }
     }
     unsafe {
