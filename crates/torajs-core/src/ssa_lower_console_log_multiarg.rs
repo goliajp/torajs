@@ -80,6 +80,11 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
             ctx.emit_drop_value(boxed, Type::Any);
             continue;
         }
+        // Same borrow judgement as `lower_single_arg`: Ident / Member
+        // lower to a borrowed operand the local (or its container)
+        // still owns; everything else (literal / call / new) is a
+        // temp this statement owns.
+        let is_borrow = matches!(ctx.ast.get_expr(aid), Expr::Ident(_) | Expr::Member { .. });
         let arg = ctx.lower_expr(aid);
         let arg_ty = ctx.operand_ty(&arg);
 
@@ -105,10 +110,19 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
 
         // Everything else: box to Any (a Type::Any operand passes
         // through unchanged), print via the tag-aware no-\n entry,
-        // then drop the freshly-allocated box.
+        // then drop the box. `box_to_any` is TRANSFER for refcounted
+        // values (`anyv_box_from_pair` tag=4 takes ownership of an
+        // rc, no inc) — a borrowed operand must be inc'd first so
+        // the post-print drop releases the box's reference, not the
+        // owner's (RFC 20260704 S6: pre-fix this net-negative dec
+        // was masked by the anyv underflow leak; with hit-zero
+        // actually freeing, printing a live local freed it).
         let (any_op, drop_after) = if arg_ty == Type::Any {
             (arg, false)
         } else {
+            if is_borrow && arg_ty.is_refcounted() {
+                ctx.emit_rc_inc(arg.clone());
+            }
             (ctx.box_to_any(arg), true)
         };
         ctx.f.append_void(
