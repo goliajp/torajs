@@ -319,9 +319,9 @@ fn read_zone_id() -> Option<&'static str> {
                 path.push_str(dir);
                 path.push_str(id);
                 path.push('\0');
-                if let Ok(fd) = unsafe {
-                    torajs_syscall::open(path.as_ptr(), torajs_syscall::sysno::O_RDONLY)
-                } {
+                if let Ok(fd) =
+                    unsafe { torajs_syscall::open(path.as_ptr(), torajs_syscall::sysno::O_RDONLY) }
+                {
                     let _ = torajs_syscall::close(fd);
                     return Some(id);
                 }

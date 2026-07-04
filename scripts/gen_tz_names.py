@@ -11,8 +11,10 @@ Usage:
 
 Same host-side codegen pattern as scripts/ucd/gen_*_tables.py: the
 output tz_names.rs is checked in; a CLDR upgrade = re-run with fresh
-data and commit the diff. We do NOT pull CLDR at build time (0
-build-time deps; the generated table is plain Rust source).
+data, run `cargo fmt` (rustfmt wraps the long tuple rows — the
+checked-in file must stay fmt-clean), and commit the diff. We do NOT
+pull CLDR at build time (0 build-time deps; the generated table is
+plain Rust source).
 
 Mapping (what `Date.prototype.toString`'s "(Japan Standard Time)"
 suffix needs, mirroring what ICU hands V8/JSC):
