@@ -8,11 +8,16 @@
 //!
 //! - `null` / `undefined` receiver → catchable TypeError (ES
 //!   §13.3.2 RequireObjectCoercible).
-//! - ShortStr → materialize to a heap Str, reuse the Str arm, drop
-//!   the temp.
-//! - `Tag::Str` cell (Str or Substr view) → charAt / case / indexOf
-//!   / includes / slice / split / trim glue (torajs-str
-//!   `method_any`).
+//! - ShortStr → `toString` is identity (immediates have copy
+//!   semantics, so the bits return as-is — the materialize path
+//!   would hand back a dropped temp); everything else materializes
+//!   to a heap Str, reuses the Str arm, and drops the temp.
+//! - `true` / `false` immediates → `toString` ("true"/"false" per
+//!   ES §20.3.3.3); every other id is a TypeError.
+//! - `Tag::Str` cell (Str or Substr view) → `toString` is identity
+//!   (rc_inc the same cell, the caller owns the new +1); charAt /
+//!   case / indexOf / includes / slice / split / trim glue
+//!   (torajs-str `method_any`).
 //! - `Tag::Arr` cell → push / pop / shift / unshift (torajs-arr
 //!   `method_any`; growth-relocating methods write the possibly-
 //!   moved receiver back through `recv_slot`) + indexOf / includes
@@ -49,18 +54,20 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_CHAR_AT, ANY_METHOD_FILTER, ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES,
-    ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH,
-    ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_SPLIT, ANY_METHOD_TO_LOWER_CASE,
-    ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START,
-    ANY_METHOD_UNSHIFT, Tag,
+    __torajs_rc_inc, ANY_METHOD_CHAR_AT, ANY_METHOD_FILTER, ANY_METHOD_FOR_EACH,
+    ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_MAP, ANY_METHOD_POP,
+    ANY_METHOD_PUSH, ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_SPLIT,
+    ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_STRING, ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM,
+    ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START, ANY_METHOD_UNSHIFT, Tag,
 };
 
 use crate::nanbox::{
-    AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_double, is_int32, is_null, is_short_str,
-    is_undefined,
+    AnyValue, VALUE_UNDEFINED, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_null,
+    is_short_str, is_true, is_undefined,
 };
-use crate::nanbox_encode::{__torajs_anyv_box_from_pair, __torajs_anyv_box_i64};
+use crate::nanbox_encode::{
+    __torajs_anyv_box_from_pair, __torajs_anyv_box_i64, __torajs_anyv_box_pointer,
+};
 use crate::nanbox_ffi::{__torajs_anyv_to_number, __torajs_anyv_to_str};
 use crate::nanbox_ffi_materialize::materialize_short_str;
 
@@ -165,6 +172,13 @@ pub unsafe extern "C" fn __torajs_any_method_call(
         return VALUE_UNDEFINED;
     }
     if is_short_str(recv) {
+        // toString on a string is identity; a ShortStr is an
+        // immediate (copy semantics, no rc), so the bits return
+        // as-is — the materialize path below would hand back a
+        // temp this dispatcher is about to drop.
+        if mid == ANY_METHOD_TO_STRING {
+            return recv;
+        }
         // Materialize once, reuse the heap-Str arm, drop the temp
         // (results copy out of the temp's bytes, never alias it).
         unsafe {
@@ -174,6 +188,9 @@ pub unsafe extern "C" fn __torajs_any_method_call(
             return out;
         }
     }
+    if is_bool(recv) {
+        return unsafe { bool_method(recv, mid) };
+    }
     if is_int32(recv) || is_double(recv) {
         return unsafe { crate::method_call_num::number_method(recv, mid, argv, argc) };
     }
@@ -181,6 +198,12 @@ pub unsafe extern "C" fn __torajs_any_method_call(
         let ptr = as_void_ptr(recv);
         let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
         if tag == Tag::Str as u16 {
+            // toString is identity — hand the caller its own +1 on
+            // the same cell per the boxed-value convention.
+            if mid == ANY_METHOD_TO_STRING {
+                unsafe { __torajs_rc_inc(ptr) };
+                return recv;
+            }
             return unsafe { str_method(ptr as *mut u8, mid, argv, argc) };
         }
         if tag == Tag::Arr as u16 {
@@ -267,6 +290,19 @@ unsafe fn dynobj_method(
         }
         method_not_a_function()
     }
+}
+
+/// bool-immediate arm — `toString` answers a fresh "true"/"false"
+/// Str (ES §20.3.3.3); every other id is a TypeError.
+unsafe fn bool_method(recv: AnyValue, mid: i64) -> AnyValue {
+    if mid == ANY_METHOD_TO_STRING {
+        let bytes: &[u8] = if is_true(recv) { b"true" } else { b"false" };
+        unsafe {
+            let p = __torajs_str_alloc(bytes.as_ptr(), bytes.len() as i64);
+            return __torajs_anyv_box_pointer(p as *mut c_void);
+        }
+    }
+    unsafe { method_not_a_function() }
 }
 
 /// `Tag::Str` arm — id-switch onto the torajs-str glue.
