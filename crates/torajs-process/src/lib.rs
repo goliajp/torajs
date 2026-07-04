@@ -138,22 +138,18 @@ pub unsafe extern "C" fn __torajs_process_cwd() -> *mut u8 {
     unsafe { alloc_str(&buf[..nul]) }
 }
 
-/// `process.env.NAME` — owned Str or NULL. Scans the `envp` block the
-/// kernel passes to `main` (captured in `ENVP_STATE` by
-/// `__torajs_argv_init`), avoiding the libc `getenv` / `_NSGetEnviron`
-/// dyld dep. Each `envp[i]` is a NUL-terminated `"NAME=VALUE"`; we
-/// match by exact `NAME` length + byte compare, then alloc the value
-/// tail as a fresh Str.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_process_getenv(name_str: *const u8) -> *mut u8 {
-    let nlen = unsafe { str_len(name_str) } as usize;
-    if nlen == 0 {
-        return core::ptr::null_mut();
+/// Scan the captured `envp` block for `name` — `(value ptr, value
+/// len)` BORROWED from the kernel-supplied block (which outlives the
+/// process). `None` when absent or before `__torajs_argv_init` ran.
+/// Each `envp[i]` is a NUL-terminated `"NAME=VALUE"`; match is exact
+/// `NAME` length + byte compare.
+fn env_find(name: &[u8]) -> Option<(*const u8, usize)> {
+    if name.is_empty() {
+        return None;
     }
-    let name = unsafe { core::slice::from_raw_parts(str_data(name_str), nlen) };
     let envp_addr = ENVP_STATE.lock();
     if *envp_addr == 0 {
-        return core::ptr::null_mut();
+        return None;
     }
     let envp = *envp_addr as *const *const u8;
     drop(envp_addr);
@@ -161,7 +157,7 @@ pub unsafe extern "C" fn __torajs_process_getenv(name_str: *const u8) -> *mut u8
     loop {
         let entry: *const u8 = unsafe { *envp.add(i) };
         if entry.is_null() {
-            return core::ptr::null_mut();
+            return None;
         }
         // Find '=' within the entry; entry is guaranteed NUL-term.
         let mut eq = 0usize;
@@ -172,20 +168,67 @@ pub unsafe extern "C" fn __torajs_process_getenv(name_str: *const u8) -> *mut u8
             }
             eq += 1;
         }
-        if eq == nlen
+        if eq == name.len()
             && unsafe { *entry.add(eq) } == b'='
-            && unsafe { core::slice::from_raw_parts(entry, nlen) } == name
+            && unsafe { core::slice::from_raw_parts(entry, name.len()) } == name
         {
             // value starts after the '='
-            let val_start = unsafe { entry.add(nlen + 1) };
+            let val_start = unsafe { entry.add(name.len() + 1) };
             let mut vlen = 0usize;
             while unsafe { *val_start.add(vlen) } != 0 {
                 vlen += 1;
             }
-            let bytes = unsafe { core::slice::from_raw_parts(val_start, vlen) };
-            return unsafe { alloc_str(bytes) };
+            return Some((val_start, vlen));
         }
         i += 1;
+    }
+}
+
+/// `process.env.NAME` — owned Str or NULL. Scans the `envp` block the
+/// kernel passes to `main` (captured in `ENVP_STATE` by
+/// `__torajs_argv_init`), avoiding the libc `getenv` / `_NSGetEnviron`
+/// dyld dep.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_process_getenv(name_str: *const u8) -> *mut u8 {
+    let nlen = unsafe { str_len(name_str) } as usize;
+    if nlen == 0 {
+        return core::ptr::null_mut();
+    }
+    let name = unsafe { core::slice::from_raw_parts(str_data(name_str), nlen) };
+    match env_find(name) {
+        Some((ptr, len)) => {
+            let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
+            unsafe { alloc_str(bytes) }
+        }
+        None => core::ptr::null_mut(),
+    }
+}
+
+/// Runtime-internal raw env lookup (torajs-date's TZ probe): `name`
+/// is bare bytes, NOT a tr Str. Returns a BORROWED pointer into the
+/// envp block (lives for the process) and writes the value length
+/// through `out_len`; NULL when the variable is absent or
+/// `__torajs_argv_init` hasn't run.
+///
+/// # Safety
+/// `name` points at `name_len` readable bytes; `out_len` is a valid
+/// writable slot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_env_lookup_raw(
+    name: *const u8,
+    name_len: i64,
+    out_len: *mut i64,
+) -> *const u8 {
+    if name.is_null() || name_len <= 0 {
+        return core::ptr::null();
+    }
+    let name = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    match env_find(name) {
+        Some((ptr, len)) => {
+            unsafe { *out_len = len as i64 };
+            ptr
+        }
+        None => core::ptr::null(),
     }
 }
 

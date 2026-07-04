@@ -85,6 +85,19 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     panic!("torajs-date test stub: __torajs_str_alloc_pooled should not be called from cargo test");
 }
 
+// tz.rs's TZ probe (torajs-process at link time) — the cargo-test
+// stub answers "TZ unset" so the tests exercise the /etc/localtime
+// path exactly as before.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_env_lookup_raw(
+    _name: *const u8,
+    _name_len: i64,
+    _out_len: *mut i64,
+) -> *const u8 {
+    core::ptr::null()
+}
+
 /// Lift a `*const c_void` Date pointer to a `&Date`.
 ///
 /// # Safety

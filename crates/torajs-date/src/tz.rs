@@ -176,6 +176,12 @@ impl Tz {
     }
 }
 
+unsafe extern "C" {
+    // torajs-process — borrowed lookup in the kernel envp block
+    // (cargo test links the lib.rs stub instead).
+    fn __torajs_env_lookup_raw(name: *const u8, name_len: i64, out_len: *mut i64) -> *const u8;
+}
+
 // Single-threaded runtime (see feedback_mutex_contended_test_segv): a
 // plain static cache avoids re-reading + re-parsing /etc/localtime on
 // every Date getter. NOT `#[thread_local]` — 16-c-2 established that
@@ -184,20 +190,72 @@ impl Tz {
 static mut TZ_CACHE: Option<Tz> = None;
 static mut TZ_TRIED: bool = false;
 
+// TZ env override, probed once — bun/V8 honor TZ over the system
+// zone, and because every getter and formatter flows through
+// `cached()` / `zone_id()`, the override is uniform across the whole
+// Date surface (no getHours-vs-toString split).
+static mut TZ_ENV: Option<&'static str> = None;
+static mut TZ_ENV_TRIED: bool = false;
+
+/// The `TZ` environment variable as a leaked 'static ("Asia/Tokyo"),
+/// or `None` when unset / empty / not valid UTF-8.
+fn tz_env_zone() -> Option<&'static str> {
+    unsafe {
+        if !*(&raw const TZ_ENV_TRIED) {
+            *(&raw mut TZ_ENV_TRIED) = true;
+            *(&raw mut TZ_ENV) = read_tz_env();
+        }
+        *(&raw const TZ_ENV)
+    }
+}
+
+fn read_tz_env() -> Option<&'static str> {
+    let name = b"TZ";
+    let mut len: i64 = 0;
+    let ptr = unsafe { __torajs_env_lookup_raw(name.as_ptr(), name.len() as i64, &mut len) };
+    if ptr.is_null() || len <= 0 || len > 255 {
+        return None;
+    }
+    let bytes = unsafe { core::slice::from_raw_parts(ptr, len as usize) };
+    let id = core::str::from_utf8(bytes).ok()?;
+    Some(Box::leak(String::from(id).into_boxed_str()))
+}
+
 fn cached() -> Option<&'static Tz> {
     unsafe {
         if !*(&raw const TZ_TRIED) {
             *(&raw mut TZ_TRIED) = true;
-            let parsed = read_localtime().and_then(|buf| parse_tzif(&buf));
+            let parsed = read_zone_data().and_then(|buf| parse_tzif(&buf));
             *(&raw mut TZ_CACHE) = parsed;
         }
         (*(&raw const TZ_CACHE)).as_ref()
     }
 }
 
-/// Read `/etc/localtime` fully via syscalls (no libc `fopen`).
-fn read_localtime() -> Option<Vec<u8>> {
-    let path = b"/etc/localtime\0";
+/// The TZif bytes for the effective zone: a `TZ` env zone id resolves
+/// through the system zoneinfo directories (macOS then Linux layout),
+/// anything else — unset TZ, traversal-shaped ids, missing files —
+/// falls back to `/etc/localtime`.
+fn read_zone_data() -> Option<Vec<u8>> {
+    if let Some(id) = tz_env_zone() {
+        if !id.contains("..") && !id.starts_with('/') {
+            for dir in ["/var/db/timezone/zoneinfo/", "/usr/share/zoneinfo/"] {
+                let mut path = String::with_capacity(dir.len() + id.len() + 1);
+                path.push_str(dir);
+                path.push_str(id);
+                path.push('\0');
+                if let Some(buf) = read_file(path.as_bytes()) {
+                    return Some(buf);
+                }
+            }
+        }
+    }
+    read_file(b"/etc/localtime\0")
+}
+
+/// Read a file fully via syscalls (no libc `fopen`). `path` is a
+/// NUL-terminated byte string.
+fn read_file(path: &[u8]) -> Option<Vec<u8>> {
     let fd =
         unsafe { torajs_syscall::open(path.as_ptr(), torajs_syscall::sysno::O_RDONLY) }.ok()?;
     let mut buf = Vec::new();
@@ -251,6 +309,25 @@ pub fn zone_id() -> Option<&'static str> {
 }
 
 fn read_zone_id() -> Option<&'static str> {
+    // TZ env wins when it names a resolvable zone file — the same
+    // gate `read_zone_data` applies, so the display name can never
+    // disagree with the offsets in use.
+    if let Some(id) = tz_env_zone() {
+        if !id.contains("..") && !id.starts_with('/') {
+            for dir in ["/var/db/timezone/zoneinfo/", "/usr/share/zoneinfo/"] {
+                let mut path = String::with_capacity(dir.len() + id.len() + 1);
+                path.push_str(dir);
+                path.push_str(id);
+                path.push('\0');
+                if let Ok(fd) = unsafe {
+                    torajs_syscall::open(path.as_ptr(), torajs_syscall::sysno::O_RDONLY)
+                } {
+                    let _ = torajs_syscall::close(fd);
+                    return Some(id);
+                }
+            }
+        }
+    }
     let path = b"/etc/localtime\0";
     let mut buf = [0u8; 256];
     let n = unsafe { torajs_syscall::readlink(path.as_ptr(), &mut buf) }.ok()?;

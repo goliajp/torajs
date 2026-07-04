@@ -5,8 +5,9 @@ Usage:
     python3 gen_tz_names.py <cldr-dir> > crates/torajs-date/src/tz_names.rs
 
 `<cldr-dir>` is a directory containing:
-- metaZones.json      (cldr-json: cldr-core/supplemental/metaZones.json)
-- timeZoneNames.json  (cldr-json: cldr-dates-full/main/en/timeZoneNames.json)
+- metaZones.json       (cldr-json: cldr-core/supplemental/metaZones.json)
+- timeZoneNames.json   (cldr-json: cldr-dates-full/main/en/timeZoneNames.json)
+- bcp47-timezone.json  (cldr-json: cldr-bcp47/bcp47/timezone.json)
 
 Same host-side codegen pattern as scripts/ucd/gen_*_tables.py: the
 output tz_names.rs is checked in; a CLDR upgrade = re-run with fresh
@@ -24,6 +25,10 @@ suffix needs, mirroring what ICU hands V8/JSC):
   Etc/UTC → "Coordinated Universal Time") use that instead.
 - Zones with neither metazone nor override are omitted — the runtime
   falls back to the numeric "GMT+HHMM" form for those.
+- bcp47 `_alias` groups fan every CLDR canonical id out to its IANA
+  aliases ("Asia/Calcutta" is CLDR-canonical; the modern IANA id is
+  "Asia/Kolkata"; TZ=UTC resolves through the Etc/UTC group), so a
+  TZ value or /etc/localtime target hits the table under any spelling.
 
 Output: `TZ_LONG_NAMES: &[(&str, &str, &str)]` — (zone_id, standard,
 daylight), sorted by zone_id for binary search. A metazone with no
@@ -91,6 +96,18 @@ def main():
                 walk_overrides(child, path + [key])
 
     walk_overrides(tzn["zone"], [])
+
+    # fan each canonical id out to its IANA alias group (bcp47 _alias
+    # lists space-separated equivalent ids, first = CLDR canonical)
+    bcp47 = json.loads((cldr / "bcp47-timezone.json").read_text())
+    for entry in bcp47["keyword"]["u"]["tz"].values():
+        if not isinstance(entry, dict):
+            continue
+        ids = entry.get("_alias", "").split()
+        named = next((i for i in ids if i in rows), None)
+        if named:
+            for alias in ids:
+                rows.setdefault(alias, rows[named])
 
     print(
         "// CODEGEN: scripts/gen_tz_names.py — file-size audit carve-out (file-size.md #1)."
