@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T13:15:22.810Z",
+  "generatedAt": "2026-07-04T15:10:14.780Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "be9e94f5",
-    "commitSubject": "feat: map/set keys/values/entries + mapiter next on any receivers",
+    "commit": "cb867352",
+    "commitSubject": "chore: fmt — mod declaration ordering in lib.rs",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "cb867352",
+      "subject": "chore: fmt — mod declaration ordering in lib.rs"
+    },
+    {
+      "hash": "b64f9e04",
+      "subject": "feat: bare call on any-typed callees via the boxed dual entry"
+    },
+    {
+      "hash": "607013d0",
+      "subject": "docs: correct stale slot-stride wording in slice.rs"
+    },
+    {
+      "hash": "d5a0cf7e",
+      "subject": "feat: arr.slice on any receivers — kind-aware copy kernel"
+    },
+    {
+      "hash": "63c5642e",
+      "subject": "feat: array spread over any via the unified iteration protocol"
+    },
+    {
+      "hash": "026046b5",
+      "subject": "feat: for-of over any via unified runtime iteration protocol"
+    },
+    {
+      "hash": "e2b56b17",
+      "subject": "chore(dashboard): session snapshot @ be9e94f5 — rotation 15 (509-513: tostring str/bool + date tostring kernel + tz env + tolocale rounding + mapset iters; gate 1153 -> 1156)"
+    },
+    {
       "hash": "be9e94f5",
       "subject": "feat: map/set keys/values/entries + mapiter next on any receivers"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "7e1ec9e8",
       "subject": "feat: date tostring — cldr zone-name table + tzif dst + typed/any tiers"
-    },
-    {
-      "hash": "31a7823b",
-      "subject": "feat: generic tostring on any receivers — str identity + bool"
-    },
-    {
-      "hash": "c3332753",
-      "subject": "chore(dashboard): session snapshot @ 1fc3cb2c — rotation 14 (504-508: any-method-call c4-2/c4-3a/c4-3b/c4-3c; gate 1148 -> 1153)"
-    },
-    {
-      "hash": "1fc3cb2c",
-      "subject": "feat: regexp property reads on any receivers — source/flags/lastIndex/booleans"
-    },
-    {
-      "hash": "fb3e8351",
-      "subject": "feat: regexp methods on any receivers — test/exec/toString"
-    },
-    {
-      "hash": "a2c2a97d",
-      "subject": "feat: number methods on any receivers — toString/toFixed/toExp/toPrecision"
-    },
-    {
-      "hash": "e270b299",
-      "subject": "feat: date methods on any receivers — full typed-tier table"
-    },
-    {
-      "hash": "248cf232",
-      "subject": "feat: .size member read + map/set foreach on any receivers"
     }
   ],
-  "headSha": "be9e94f5",
+  "headSha": "cb867352",
   "autorun": {
-    "total": 324,
+    "total": 325,
     "baselineTarget": 10,
-    "bySelf": 319,
+    "bySelf": 320,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783164942-0620",
-      "at": "2026-07-04T11:35:42Z",
-      "ts": 1783164942,
+      "rotationId": "r-1783170991-05b1",
+      "at": "2026-07-04T13:16:31Z",
+      "ts": 1783170991,
       "trigger": "self",
-      "prevHead": "c3332753",
-      "handoffSha": "sha256:4676d2662336e526916ba9b1012bc813b7daa5ec5503d365e79b532ad261ec6b",
-      "handoffAgeSec": 24,
+      "prevHead": "e2b56b17",
+      "handoffSha": "sha256:e6aec7cebd5565f2c99115eeea91d734790d3915bbe4075e77c55577b0449515",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783170991-05b1",
+        "at": "2026-07-04T13:16:31Z",
+        "ts": 1783170991,
+        "trigger": "self",
+        "prevHead": "e2b56b17",
+        "handoffSha": "sha256:e6aec7cebd5565f2c99115eeea91d734790d3915bbe4075e77c55577b0449515",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783164942-0620",
         "at": "2026-07-04T11:35:42Z",
@@ -876,17 +887,6 @@
         "prevHead": "61135609",
         "handoffSha": "sha256:7a1038d7405f5405b33e215023e67b4fb7e8cc14f6f06a0007e42f0487b5671f",
         "handoffAgeSec": 23,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783067623-12fa",
-        "at": "2026-07-03T08:33:43Z",
-        "ts": 1783067623,
-        "trigger": "self",
-        "prevHead": "d29d0a83",
-        "handoffSha": "sha256:abdf3407350424ae15b8a9ee73e1e1c678cf5cf8a6d2c28a2a913957503bc3e4",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
