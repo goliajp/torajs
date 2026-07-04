@@ -89,9 +89,18 @@ pub(super) fn detect_stride(prog: &Program) -> usize {
             max_slot = inst.a;
         }
     }
-    if max_slot < 0 {
+    let stride = if max_slot < 0 {
         2
     } else {
         (max_slot as usize) + 1
-    }
+    };
+    // Invariant declared on `SavesArena::stride` and relied on by
+    // `vm_match_at`'s fixed-width `[i64; REGEX_SAVE_SLOTS]` writeback;
+    // the parser's capture cap (group index < REGEX_MAX_CAPTURES)
+    // guarantees it for every accepted pattern.
+    debug_assert!(
+        stride <= crate::node::REGEX_SAVE_SLOTS,
+        "saves stride {stride} exceeds REGEX_SAVE_SLOTS"
+    );
+    stride
 }

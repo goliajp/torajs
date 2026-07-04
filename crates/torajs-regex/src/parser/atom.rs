@@ -129,11 +129,21 @@ impl<'p> Parser<'p> {
     }
 
     /// Increment `n_captures` and return the new 1-based index, or
-    /// `None` (sets err) if it would exceed `REGEX_MAX_CAPTURES`.
+    /// `None` (sets err) if it would exceed the save-slot budget.
+    ///
+    /// The cap is `REGEX_MAX_CAPTURES - 1 = 31` user groups, not 32:
+    /// group `i` saves into slots `2*i` / `2*i + 1`, and slots 0/1
+    /// hold the whole match, so group 32 would need slots 64/65 —
+    /// past the fixed `REGEX_SAVE_SLOTS = 64` caller buffer that
+    /// `vm_match_at` writes back into (the pre-fix off-by-one let a
+    /// 32-group pattern through the parser and aborted at match time
+    /// on the out-of-bounds writeback). Rejected patterns take the
+    /// `rejected` path — miss for test/find, `abort_unsupported`
+    /// subset boundary for the heavier surfaces.
     fn assign_capture_idx(&mut self) -> Option<i32> {
         self.n_captures += 1;
         let idx = self.n_captures as i32;
-        if idx > REGEX_MAX_CAPTURES as i32 {
+        if idx >= REGEX_MAX_CAPTURES as i32 {
             self.set_err();
             return None;
         }
@@ -217,5 +227,23 @@ mod tests {
     #[test]
     fn rejects_unknown_paren_prefix() {
         parse_err("(?@)", 0);
+    }
+
+    #[test]
+    fn accepts_31_capture_groups() {
+        // 31 user groups = save slots up to 62/63, the last pair that
+        // fits the fixed REGEX_SAVE_SLOTS = 64 writeback buffer.
+        let pat: alloc::string::String = (0..31).map(|_| "(a)").collect();
+        let mut p = Parser::new(pat.as_bytes(), 0);
+        assert!(p.parse().is_some() && !p.err());
+        assert_eq!(p.n_captures, 31);
+    }
+
+    #[test]
+    fn rejects_32_capture_groups() {
+        // Group 32 would save into slots 64/65 — past the buffer. The
+        // pre-fix off-by-one accepted it and aborted at match time.
+        let pat: alloc::string::String = (0..32).map(|_| "(a)").collect();
+        parse_err(&pat, 0);
     }
 }
