@@ -95,6 +95,7 @@ mod index_any;
 mod method_call;
 mod method_call_date;
 mod method_call_mapset;
+mod method_call_num;
 
 pub mod inspect;
 

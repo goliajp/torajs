@@ -30,6 +30,9 @@
 //!   + the C4-2 boxed-entry forEach walk).
 //! - `Tag::Date` cell (C4-3a) → the full typed-tier method table
 //!   (getters / to*String / setters) in `method_call_date`.
+//! - int32 / double immediates (C4-3b) → toString / toFixed /
+//!   toExponential / toPrecision / toLocaleString / valueOf in
+//!   `method_call_num` (i / f kernel split off the box encoding).
 //! - anything else (numeric immediates, other heap tags, unknown
 //!   method ids) → catchable TypeError — the RFC's C3+ tags land
 //!   here one arm at a time, never a silent wrong answer.
@@ -52,7 +55,8 @@ use torajs_rc::{
 };
 
 use crate::nanbox::{
-    AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_null, is_short_str, is_undefined,
+    AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_double, is_int32, is_null, is_short_str,
+    is_undefined,
 };
 use crate::nanbox_encode::{__torajs_anyv_box_from_pair, __torajs_anyv_box_i64};
 use crate::nanbox_ffi::{__torajs_anyv_to_number, __torajs_anyv_to_str};
@@ -167,6 +171,9 @@ pub unsafe extern "C" fn __torajs_any_method_call(
             __torajs_str_drop(tmp as *mut c_void);
             return out;
         }
+    }
+    if is_int32(recv) || is_double(recv) {
+        return unsafe { crate::method_call_num::number_method(recv, mid, argv, argc) };
     }
     if is_cell(recv) {
         let ptr = as_void_ptr(recv);

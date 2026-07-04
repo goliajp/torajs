@@ -138,6 +138,15 @@ pub const ANY_METHOD_SET_MINUTES: i64 = 59;
 pub const ANY_METHOD_SET_SECONDS: i64 = 60;
 /// `Date.prototype.setMilliseconds`.
 pub const ANY_METHOD_SET_MILLISECONDS: i64 = 61;
+/// `toString` (the Number arm routes bare / radix; other receivers
+/// are a C4+ boundary).
+pub const ANY_METHOD_TO_STRING: i64 = 62;
+/// `Number.prototype.toFixed`.
+pub const ANY_METHOD_TO_FIXED: i64 = 63;
+/// `Number.prototype.toExponential`.
+pub const ANY_METHOD_TO_EXPONENTIAL: i64 = 64;
+/// `Number.prototype.toPrecision`.
+pub const ANY_METHOD_TO_PRECISION: i64 = 65;
 
 /// Compile-time name → id intern. `None`-shaped misses map to
 /// [`ANY_METHOD_UNKNOWN`] (the runtime throws with the name bytes).
@@ -204,6 +213,10 @@ pub fn any_method_id(name: &str) -> i64 {
         "setMinutes" => ANY_METHOD_SET_MINUTES,
         "setSeconds" => ANY_METHOD_SET_SECONDS,
         "setMilliseconds" => ANY_METHOD_SET_MILLISECONDS,
+        "toString" => ANY_METHOD_TO_STRING,
+        "toFixed" => ANY_METHOD_TO_FIXED,
+        "toExponential" => ANY_METHOD_TO_EXPONENTIAL,
+        "toPrecision" => ANY_METHOD_TO_PRECISION,
         _ => ANY_METHOD_UNKNOWN,
     }
 }
