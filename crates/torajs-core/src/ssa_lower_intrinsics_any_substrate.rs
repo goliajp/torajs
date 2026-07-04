@@ -62,6 +62,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_length_get: FuncId,
     pub any_size_get: FuncId,
     pub any_regexp_prop: FuncId,
+    pub any_member_set: FuncId,
     pub any_iter_next: FuncId,
     pub any_call: FuncId,
     pub any_method_call: FuncId,
@@ -279,6 +280,18 @@ pub(crate) fn declare(
             "__torajs_any_regexp_prop",
             &[Type::Any, Type::I64, Type::Ptr],
             Type::Any,
+        ),
+        // RFC 20260704 C4+ — tag-gated member write (recv AnyValue
+        // slot, key Str, payload (tag, value) pair, compile-time
+        // name hint): DynObj set with relocation write-back, RegExp
+        // lastIndex, Arr expando; everything else a catchable
+        // TypeError instead of a blind dynobj-layout write.
+        any_member_set: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_member_set",
+            &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64],
+            Type::Void,
         ),
         // RFC 20260704 S5+ — unified for-of iteration protocol
         // (indexed strings/arrays + stateful MapIter/ArrIter cells;

@@ -176,6 +176,14 @@ pub const ANY_RPROP_DOT_ALL: i64 = 6;
 pub const ANY_RPROP_UNICODE: i64 = 7;
 pub const ANY_RPROP_STICKY: i64 = 8;
 
+/// Write-site member-name hint for `__torajs_any_member_set` —
+/// `arr.length = n` through an `any` receiver must NOT become an
+/// expando shadow (reads answer the real length field), so the
+/// lowering interns `length` into this id and the runtime rejects
+/// the Arr arm loudly (truncation semantics are a recorded
+/// follow-up). Same append-only ABI contract as the ids above.
+pub const ANY_WPROP_ARR_LENGTH: i64 = 100;
+
 /// Compile-time member-name → RegExp-prop id intern (`None` = not a
 /// RegExp accessor name; the member fallback keeps its normal
 /// route).

@@ -6,12 +6,15 @@
 //! expression result, modulo the dynobj / Closure / Arr-prop paths
 //! that return `ConstI64(0)` to match the legacy in-line emit shape):
 //!
-//! 1. **Type::Any** (`P3.2`) — dynobj substrate: unbox the receiver ptr,
-//!    pack RHS as `(tag, value)`, call `dynobj_set`. Nested Type::Any
-//!    payload routes through `any_payload_rc_inc`. Frozen / non-writable
-//!    write throws via `emit_throw_check`. Post-resize ptr writeback
-//!    via `emit_any_dynobj_writeback` honoured when the receiver was a
-//!    plain Ident.
+//! 1. **Type::Any** (`P3.2`, tag-gated per RFC 20260704 C4+) — pack
+//!    RHS as `(tag, value)` and call `__torajs_any_member_set`, which
+//!    dispatches on the receiver's heap tag (DynObj set / RegExp
+//!    lastIndex / Arr expando; anything else a catchable TypeError —
+//!    never a blind dynobj-layout write). Nested Type::Any payload
+//!    routes through `any_payload_rc_inc`. Frozen / non-writable
+//!    write throws via `emit_throw_check`. Post-resize relocation
+//!    write-back rides the AnyValue slot, re-stored to a plain-Ident
+//!    receiver's local.
 //! 2. **Type::Closure** (`T-27`) — `f.x = v` writes to the closure's
 //!    lazy `props_dynobj` at `CLOSURE_PROPS_OFF` via `fn_props_set`.
 //! 3. **Type::FnSig** (`T-27.b`) — top-level FnDecl routes through
@@ -112,7 +115,7 @@ fn lower_dynobj_assign(
         // lower_dynobj_init). Step 7c: shim Call instead of inline
         // +8/+16 direct-offset Load (layout-decoupling).
         Type::Any => {
-            return lower_dynobj_assign_any_payload(ctx, obj_val, field, v_raw);
+            return lower_dynobj_assign_any_payload(ctx, obj_val, field, v_raw, obj_ident);
         }
         _ if v_ty.is_refcounted() => {
             ctx.emit_rc_inc(v_raw);
@@ -121,32 +124,78 @@ fn lower_dynobj_assign(
         Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
         _ => panic!("ssa-lower: dynobj assign unsupported value type {v_ty:?}"),
     };
-    let dynobj = ctx.any_unbox_value_as_ptr(obj_val);
-    let key_str = ctx.intern_string_literal(field);
-    let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+    emit_any_member_set(
+        ctx,
+        obj_val,
+        field,
+        Operand::ConstI64(tag),
+        val_op,
+        obj_ident,
     );
+    Operand::ConstI64(0)
+}
+
+/// Shared tail of both `any`-receiver member-write paths — the
+/// tag-gated `__torajs_any_member_set` call (RFC 20260704 C4+).
+/// The receiver rides an AnyValue slot so the DynObj arm's
+/// realloc-on-grow relocation writes the fresh cell back; a named
+/// Ident receiver then re-stores its local from the slot (the
+/// Step 7d-A write-back, now covering the Any-payload path too).
+/// The hint interns the compile-time member name for the RegExp
+/// `lastIndex` / Arr `length` runtime arms.
+fn emit_any_member_set(
+    ctx: &mut LowerCtx<'_>,
+    obj_val: Operand,
+    field: &str,
+    tag_op: Operand,
+    val_op: Operand,
+    obj_ident: &Option<String>,
+) {
+    let key_str = ctx.intern_string_literal(field);
+    let hint = if field == "length" {
+        torajs_rc::ANY_WPROP_ARR_LENGTH
+    } else {
+        torajs_rc::any_regexp_prop_id(field).unwrap_or(-1)
+    };
+    let slot = ctx.alloca(Type::Any, Some("__any_recv_slot"));
+    let cur_block = ctx.cur_block;
+    ctx.f
+        .append_void(cur_block, InstKind::Store(obj_val, Operand::Value(slot), 0));
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
         InstKind::Call(
-            ctx.intrinsics.dynobj_set,
+            ctx.intrinsics.any_member_set,
             vec![
                 Operand::Value(slot),
                 Operand::Value(key_str),
-                Operand::ConstI64(tag),
+                tag_op,
                 val_op,
+                Operand::ConstI64(hint),
             ],
         ),
     );
-    // P3.attribute-flag-tracking — implicit assign now throws on
-    // writable=false.
+    // P3.attribute-flag-tracking + the tag-gate boundary TypeErrors.
     ctx.emit_throw_check(None);
-    ctx.emit_any_dynobj_writeback(obj_ident, slot);
-    Operand::ConstI64(0)
+    let Some(name) = obj_ident else { return };
+    let Some(info) = ctx.locals.get(name).copied() else {
+        return;
+    };
+    if !matches!(info.ty, Type::Any) {
+        return;
+    }
+    let cur_block = ctx.cur_block;
+    let fresh = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(Type::Any, Operand::Value(slot), 0),
+        Type::Any,
+        None,
+    );
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Store(Operand::Value(fresh), Operand::Value(info.slot), 0),
+    );
 }
 
 fn lower_dynobj_assign_any_payload(
@@ -154,6 +203,7 @@ fn lower_dynobj_assign_any_payload(
     obj_val: Operand,
     field: &str,
     v_raw: Operand,
+    obj_ident: &Option<String>,
 ) -> Operand {
     let cur_block = ctx.cur_block;
     let tag_v = ctx.f.append_inst(
@@ -177,30 +227,14 @@ fn lower_dynobj_assign_any_payload(
             vec![Operand::Value(tag_v), Operand::Value(val_v)],
         ),
     );
-    let dynobj = ctx.any_unbox_value_as_ptr(obj_val);
-    let key_str = ctx.intern_string_literal(field);
-    let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+    emit_any_member_set(
+        ctx,
+        obj_val,
+        field,
+        Operand::Value(tag_v),
+        Operand::Value(val_v),
+        obj_ident,
     );
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.dynobj_set,
-            vec![
-                Operand::Value(slot),
-                Operand::Value(key_str),
-                Operand::Value(tag_v),
-                Operand::Value(val_v),
-            ],
-        ),
-    );
-    // P3.attribute-flag-tracking — implicit assign now throws on
-    // writable=false.
-    ctx.emit_throw_check(None);
     v_raw
 }
 

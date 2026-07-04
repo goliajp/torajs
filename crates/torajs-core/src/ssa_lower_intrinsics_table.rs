@@ -283,6 +283,7 @@ pub(crate) fn build(
         any_length_get: init_c.any_substrate.any_length_get,
         any_size_get: init_c.any_substrate.any_size_get,
         any_regexp_prop: init_c.any_substrate.any_regexp_prop,
+        any_member_set: init_c.any_substrate.any_member_set,
         any_iter_next: init_c.any_substrate.any_iter_next,
         any_call: init_c.any_substrate.any_call,
         any_method_call: init_c.any_substrate.any_method_call,
