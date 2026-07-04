@@ -16,7 +16,9 @@
 //! - `Tag::Arr` cell → push / pop / shift / unshift (torajs-arr
 //!   `method_any`; growth-relocating methods write the possibly-
 //!   moved receiver back through `recv_slot`) + indexOf / includes
-//!   / join (`method_any_search`).
+//!   / join (`method_any_search`) + map / filter / forEach
+//!   (`method_any_hof`, C3b — the callback resolves through
+//!   `closure_boxed_entry` and the loop runs runtime-side).
 //! - `Tag::DynObj` cell (C3a-2) → probe the property by the interned
 //!   name Str the lowerer now passes; a closure-cell value with a
 //!   non-zero boxed dual entry (`+32`, synthesized per lifted body)
@@ -37,10 +39,11 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_CHAR_AT, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_POP,
-    ANY_METHOD_PUSH, ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_SPLIT,
-    ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END,
-    ANY_METHOD_TRIM_START, ANY_METHOD_UNSHIFT, Tag,
+    ANY_METHOD_CHAR_AT, ANY_METHOD_FILTER, ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES,
+    ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH,
+    ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_SPLIT, ANY_METHOD_TO_LOWER_CASE,
+    ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START,
+    ANY_METHOD_UNSHIFT, Tag,
 };
 
 use crate::nanbox::{
@@ -78,6 +81,10 @@ unsafe extern "C" {
     fn __torajs_arr_any_includes(arr: *const c_void, needle: u64, from: i64) -> i64;
     /// torajs-arr — element-kind-dispatched join (fresh Str).
     fn __torajs_arr_any_join(arr: *const u8, sep: *const u8) -> u64;
+    /// torajs-arr — HO loops over the boxed dual-entry callback ABI.
+    fn __torajs_arr_any_map(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
+    fn __torajs_arr_any_filter(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
+    fn __torajs_arr_any_for_each(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
     /// torajs-str — charAt glue (empty string for OOB).
     fn __torajs_str_any_char_at(s: *mut u8, idx: i64) -> u64;
     /// torajs-str — toUpperCase / toLowerCase glue.
@@ -175,6 +182,26 @@ pub unsafe extern "C" fn __torajs_any_method_call(
     VALUE_UNDEFINED
 }
 
+/// Resolve a callback-shaped AnyValue to its `(closure cell, boxed
+/// dual entry)` pair — `None` for anything that can't dispatch
+/// through the uniform ABI (non-cell, non-closure, entry 0).
+unsafe fn closure_boxed_entry(av: AnyValue) -> Option<(*mut c_void, u64)> {
+    if !is_cell(av) {
+        return None;
+    }
+    let ptr = as_void_ptr(av);
+    unsafe {
+        if (ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Closure as u16 {
+            return None;
+        }
+        let entry = *(ptr.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
+        if entry == 0 {
+            return None;
+        }
+        Some((ptr, entry))
+    }
+}
+
 /// `Tag::DynObj` arm — probe the property by name; a closure-cell
 /// value invokes through its boxed dual entry. The property probe
 /// borrows (dynobj keeps its own value reference; the receiver
@@ -193,19 +220,17 @@ unsafe fn dynobj_method(
             // sentinel and fall through to the TypeError — getter
             // properties as callees are a C4+ arm).
             if __torajs_dynobj_get_tag(obj, key) == 4 {
-                let cell = __torajs_dynobj_get_value(obj, key) as *const u8;
-                if !cell.is_null() && (cell.add(4) as *const u16).read() == Tag::Closure as u16 {
-                    let entry = *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
-                    if entry != 0 {
-                        let mut buf = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
-                        let n = (argc.max(0) as usize).min(MAX_BOXED_ARGS);
-                        for (i, slot) in buf.iter_mut().enumerate().take(n) {
-                            *slot = *argv.add(i);
-                        }
-                        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
-                            core::mem::transmute(entry as usize);
-                        return call(cell as *mut c_void, buf.as_ptr(), argc);
+                let cell = __torajs_dynobj_get_value(obj, key);
+                // The cell's NaN-box encoding is its pointer bits.
+                if let Some((env, entry)) = closure_boxed_entry(cell) {
+                    let mut buf = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
+                    let n = (argc.max(0) as usize).min(MAX_BOXED_ARGS);
+                    for (i, slot) in buf.iter_mut().enumerate().take(n) {
+                        *slot = *argv.add(i);
                     }
+                    let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+                        core::mem::transmute(entry as usize);
+                    return call(env, buf.as_ptr(), argc);
                 }
             }
         }
@@ -303,6 +328,18 @@ unsafe fn arr_method(
             m if m == ANY_METHOD_INCLUDES => {
                 let from = to_index(arg_at(1), 0);
                 __torajs_anyv_box_from_pair(1, __torajs_arr_any_includes(arr, arg_at(0), from))
+            }
+            m if m == ANY_METHOD_MAP || m == ANY_METHOD_FILTER || m == ANY_METHOD_FOR_EACH => {
+                let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
+                    return method_not_a_function();
+                };
+                if m == ANY_METHOD_MAP {
+                    __torajs_arr_any_map(arr, cb_env, cb_entry)
+                } else if m == ANY_METHOD_FILTER {
+                    __torajs_arr_any_filter(arr, cb_env, cb_entry)
+                } else {
+                    __torajs_arr_any_for_each(arr, cb_env, cb_entry)
+                }
             }
             m if m == ANY_METHOD_JOIN => {
                 // ES §23.1.3.18 step 2: missing sep means ",".

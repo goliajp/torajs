@@ -1,0 +1,173 @@
+//! `any`-receiver Array higher-order methods (Any-method-call RFC
+//! 20260704 C3b) — `a.map(cb)` / `a.filter(cb)` / `a.forEach(cb)`
+//! where `a` crossed into the `any` world.
+//!
+//! The typed tier unrolls these loops inline at compile time
+//! (`ssa_lower_call_arr_ho`) with a statically-known callback; here
+//! neither the element repr nor the callback signature is static, so
+//! the loop runs in native code over the S3-get kernel
+//! ([`crate::index_any::__torajs_arr_index_get`], kind-aware boxed
+//! read) and invokes the callback through its boxed dual entry
+//! (`(env, argv, argc) -> AnyValue` — the C3a adapters). The
+//! dispatcher (torajs-anyvalue) has already verified the callback is
+//! a closure cell with a non-zero entry and hands the `(env, entry)`
+//! pair down.
+//!
+//! Per ES §23.1.3.19/8/15 the callback receives `(value, index,
+//! array)`; the argv buffer pads to the adapters' fixed 8-slot
+//! width with `undefined`.
+//!
+//! Ledger: argv slots are BORROWED by the callee (adapters unbox
+//! borrows; an Any-param body that stores one incs at its own store
+//! site). The element read is +1-owned — map/forEach release it
+//! after the call, filter transfers the kept ones into the result.
+//! The callback's return is +1-owned: map transfers it into the
+//! result slot, filter/forEach release it. A pending throw after any
+//! callback aborts the loop, releases the partial result, and
+//! returns `undefined` for the SSA-side throw check to propagate
+//! (the merge-sort comparator poll, sort.rs, is the precedent).
+//!
+//! Results are fresh `Arr<Any>` blocks (NaN-box slots are the only
+//! self-describing representation for runtime-mixed callback
+//! outputs).
+
+use core::ffi::c_void;
+
+use crate::layout::ARR_LEN_OFF;
+
+unsafe extern "C" {
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    /// torajs-anyvalue — ES ToBoolean over an AnyValue (filter's
+    /// predicate coercion).
+    fn __torajs_anyv_to_bool(v: u64) -> bool;
+    /// Cross-tier — universal NaN-box-safe heap dropper.
+    fn __torajs_value_drop_heap(p: *mut c_void);
+    /// Cross-tier — torajs-throw. Non-zero iff a throw is pending.
+    fn __torajs_throw_check() -> i64;
+}
+
+/// The boxed dual-entry ABI (torajs-core `ssa_lower_boxed_entry`).
+type BoxedFn = unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64;
+
+/// Adapter argv width mirror (`MAX_BOXED_PARAMS`).
+const ARGV_SLOTS: usize = 8;
+
+/// NaN-box `undefined`.
+#[inline]
+unsafe fn undef() -> u64 {
+    unsafe { __torajs_anyv_box_from_pair(5, 0) }
+}
+
+/// Shared HO loop. `mode`: 0 = forEach (result `undefined`),
+/// 1 = map, 2 = filter.
+unsafe fn hof_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode: i64) -> u64 {
+    unsafe {
+        let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
+        let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64);
+        let out: *mut u8 = if mode == 0 {
+            core::ptr::null_mut()
+        } else {
+            crate::any::__torajs_arr_alloc_any(len)
+        };
+        // The receiver rides as the callback's third argument — a
+        // heap cell's NaN-box encoding is its pointer bits (borrow).
+        let arr_boxed = arr as u64;
+        let mut i: u64 = 0;
+        while i < len {
+            // Kind-aware boxed read — +1-owned for cells.
+            let v = crate::index_any::__torajs_arr_index_get(arr, i as i64);
+            let mut argv = [undef(); ARGV_SLOTS];
+            argv[0] = v;
+            argv[1] = __torajs_anyv_box_from_pair(2, i as i64);
+            argv[2] = arr_boxed;
+            let r = cb(cb_env, argv.as_ptr(), 3);
+            if __torajs_throw_check() != 0 {
+                // Abort: release this round's values and the partial
+                // result; the dispatcher's caller propagates.
+                __torajs_value_drop_heap(v as *mut c_void);
+                __torajs_value_drop_heap(r as *mut c_void);
+                if !out.is_null() {
+                    __torajs_value_drop_heap(out as *mut c_void);
+                }
+                return undef();
+            }
+            match mode {
+                1 => {
+                    // map — transfer the owned return into the slot.
+                    let tag = __torajs_anyv_unbox_tag(r);
+                    let value = __torajs_anyv_unbox_value(r);
+                    crate::any::__torajs_arr_push_any(out as *mut c_void, tag as u64, value as u64);
+                    __torajs_value_drop_heap(v as *mut c_void);
+                }
+                2 => {
+                    // filter — keep transfers the owned element read.
+                    let keep = __torajs_anyv_to_bool(r);
+                    __torajs_value_drop_heap(r as *mut c_void);
+                    if keep {
+                        let tag = __torajs_anyv_unbox_tag(v);
+                        let value = __torajs_anyv_unbox_value(v);
+                        crate::any::__torajs_arr_push_any(
+                            out as *mut c_void,
+                            tag as u64,
+                            value as u64,
+                        );
+                    } else {
+                        __torajs_value_drop_heap(v as *mut c_void);
+                    }
+                }
+                _ => {
+                    // forEach — both values release.
+                    __torajs_value_drop_heap(r as *mut c_void);
+                    __torajs_value_drop_heap(v as *mut c_void);
+                }
+            }
+            i += 1;
+        }
+        if out.is_null() { undef() } else { out as u64 }
+    }
+}
+
+/// `a.map(cb)` per ES §23.1.3.19 — fresh `Arr<Any>` of the callback
+/// returns.
+///
+/// # Safety
+/// `arr` is a valid `Tag::Arr` heap pointer; `(cb_env, cb_entry)` is
+/// a live closure cell + its non-zero boxed dual entry.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_map(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+) -> u64 {
+    unsafe { hof_loop(arr, cb_env, cb_entry, 1) }
+}
+
+/// `a.filter(cb)` per ES §23.1.3.8 — fresh `Arr<Any>` of the
+/// elements whose predicate coerced true.
+///
+/// # Safety
+/// See [`__torajs_arr_any_map`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_filter(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+) -> u64 {
+    unsafe { hof_loop(arr, cb_env, cb_entry, 2) }
+}
+
+/// `a.forEach(cb)` per ES §23.1.3.15 — side effects only, returns
+/// `undefined`.
+///
+/// # Safety
+/// See [`__torajs_arr_any_map`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_for_each(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+) -> u64 {
+    unsafe { hof_loop(arr, cb_env, cb_entry, 0) }
+}

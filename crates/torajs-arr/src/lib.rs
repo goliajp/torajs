@@ -47,6 +47,7 @@ pub mod join_locale;
 pub mod layout;
 pub mod mark_kind;
 pub mod method_any;
+pub mod method_any_hof;
 pub mod method_any_search;
 pub mod ops;
 pub mod pool;

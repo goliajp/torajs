@@ -45,6 +45,12 @@ pub const ANY_METHOD_SHIFT: i64 = 13;
 pub const ANY_METHOD_UNSHIFT: i64 = 14;
 /// `Array.prototype.join`.
 pub const ANY_METHOD_JOIN: i64 = 15;
+/// `Array.prototype.map`.
+pub const ANY_METHOD_MAP: i64 = 16;
+/// `Array.prototype.filter`.
+pub const ANY_METHOD_FILTER: i64 = 17;
+/// `Array.prototype.forEach`.
+pub const ANY_METHOD_FOR_EACH: i64 = 18;
 
 /// Compile-time name → id intern. `None`-shaped misses map to
 /// [`ANY_METHOD_UNKNOWN`] (the runtime throws with the name bytes).
@@ -65,6 +71,9 @@ pub fn any_method_id(name: &str) -> i64 {
         "shift" => ANY_METHOD_SHIFT,
         "unshift" => ANY_METHOD_UNSHIFT,
         "join" => ANY_METHOD_JOIN,
+        "map" => ANY_METHOD_MAP,
+        "filter" => ANY_METHOD_FILTER,
+        "forEach" => ANY_METHOD_FOR_EACH,
         _ => ANY_METHOD_UNKNOWN,
     }
 }
