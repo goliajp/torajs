@@ -34,6 +34,9 @@ macro_rules! per_tag_drop_stub {
 per_tag_drop_stub!(
     __torajs_str_drop,
     __torajs_arr_drop,
+    __torajs_arr_drop_any,
+    __torajs_arr_drop_heap,
+    __torajs_cycle_unbuffer,
     __torajs_bigint_drop,
     __torajs_weakref_drop,
     __torajs_weakmap_drop,

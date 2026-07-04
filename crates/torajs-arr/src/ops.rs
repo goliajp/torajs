@@ -28,7 +28,7 @@ const ARR_HEAD_OFF: usize = 20;
 /// callers see a contiguous logical array regardless of T-13.5 deque
 /// shift state.
 #[inline]
-unsafe fn data_ptr(arr: *mut u8) -> *mut u8 {
+pub(crate) unsafe fn data_ptr(arr: *mut u8) -> *mut u8 {
     unsafe {
         let head = *(arr.add(ARR_HEAD_OFF) as *const u32) as usize;
         arr.add(ARR_SLOTS_OFF + head * 8)

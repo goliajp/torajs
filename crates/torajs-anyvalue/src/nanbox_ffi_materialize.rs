@@ -19,8 +19,6 @@
 
 use std::ffi::c_void;
 
-use torajs_rc::__torajs_rc_dec;
-
 use crate::nanbox::{AnyValue, is_short_str, short_str_bytes, short_str_len};
 
 unsafe extern "C" {
@@ -78,15 +76,14 @@ pub(crate) unsafe fn materialize_if_short(v: AnyValue) -> (AnyValue, Option<*mut
 }
 
 /// Drop a temporary Heap+Str obtained from [`materialize_if_short`].
-/// Matches the rc_dec → value_drop_heap pattern used elsewhere in
-/// the shim suite.
+/// `value_drop_heap`'s contract is "release one reference" — each
+/// per-type arm does its own rc-dec and frees on hit-zero. The old
+/// pre-dec here made the arm's dec underflow (rc 0 → u32::MAX →
+/// Keep), so every materialized temp leaked its Str block.
 #[inline]
 pub(crate) unsafe fn drop_materialized_str(p: *mut u8) {
     // SAFETY: p is a Heap+Str the caller exclusively owns.
     unsafe {
-        let dec = __torajs_rc_dec(p as *mut c_void);
-        if dec != 0 {
-            __torajs_value_drop_heap(p as *mut c_void);
-        }
+        __torajs_value_drop_heap(p as *mut c_void);
     }
 }

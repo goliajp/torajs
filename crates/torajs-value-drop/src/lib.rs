@@ -5,10 +5,16 @@
 //! "dispatch table" exception in `file-size.md` applies even though
 //! the body is small — the file does one logical thing). Reads the
 //! universal heap header's `type_tag` and routes to the per-type
-//! `__torajs_*_drop` extern. Used by:
+//! `__torajs_*_drop` extern.
 //!
-//! - `__torajs_anyv_rc_dec` when an AnyValue cell hits rc 0
+//! Contract: **release one reference** — every arm (or the per-type
+//! drop it delegates to) rc-decs itself and frees on hit-zero. The
+//! caller must NOT pre-dec (RFC 20260704 S6: the old `anyv_rc_dec`
+//! pre-dec made the arm's dec underflow and leak the block). Used by:
+//!
+//! - `__torajs_anyv_rc_dec` releasing an AnyValue's cell reference
 //! - `__torajs_arr_drop_any` when an Array<Any> slot is ANY_HEAP
+//! - `__torajs_arr_drop_heap` walking a typed array's cell slots
 //! - dynobj entry drop (key Str + value child)
 //!
 //! ## Cross-tier ABI
@@ -19,7 +25,7 @@
 //! | tag             | extern                          | provider          |
 //! |-----------------|---------------------------------|-------------------|
 //! | `Str`           | `__torajs_str_drop`             | torajs-str        |
-//! | `Arr`           | `__torajs_arr_drop`             | torajs-arr        |
+//! | `Arr`           | `__torajs_arr_drop{,_any,_heap}`| torajs-arr        |
 //! | `Response`      | `__torajs_response_drop`        | torajs-fetch      |
 //! | `BigInt`        | `__torajs_bigint_drop`          | torajs-bigint     |
 //! | `WeakRef`       | `__torajs_weakref_drop`         | torajs-weak       |
@@ -42,7 +48,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{__torajs_rc_dec, Tag};
+use torajs_rc::{__torajs_rc_dec, ARR_KIND_HEAP, FLAG_ARR_ANY, HeapHeader, Tag};
 
 // v0.7-A2 step 6b — force-link mmalloc for the `__torajs_libc_free`
 // extern below.
@@ -58,6 +64,9 @@ unsafe extern "C" {
 
     fn __torajs_str_drop(p: *mut c_void);
     fn __torajs_arr_drop(p: *mut c_void);
+    fn __torajs_arr_drop_any(p: *mut c_void);
+    fn __torajs_arr_drop_heap(p: *mut c_void);
+    fn __torajs_cycle_unbuffer(p: *mut c_void);
     fn __torajs_bigint_drop(p: *mut c_void);
     fn __torajs_weakref_drop(p: *mut c_void);
     fn __torajs_weakmap_drop(p: *mut c_void);
@@ -102,7 +111,22 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
     let tag = unsafe { (child.cast::<u8>().add(4) as *const u16).read() };
     match tag {
         t if t == Tag::Str as u16 => unsafe { __torajs_str_drop(child) },
-        t if t == Tag::Arr as u16 => unsafe { __torajs_arr_drop(child) },
+        // RFC 20260704 S6 — pick the walker the block's own header
+        // describes: Array<Any> walks its NaN-box slots; a typed
+        // array marked ARR_KIND_HEAP at the typed→Any boundary walks
+        // its cell-pointer slots; scalar kinds (I64/F64/BOOL) and
+        // UNSET (never crossed into `any`) have no element refs to
+        // release.
+        t if t == Tag::Arr as u16 => unsafe {
+            let flags = (*(child as *const HeapHeader)).flags;
+            if flags & FLAG_ARR_ANY != 0 {
+                __torajs_arr_drop_any(child);
+            } else if (*(child as *const HeapHeader)).arr_elem_kind() == ARR_KIND_HEAP {
+                __torajs_arr_drop_heap(child);
+            } else {
+                __torajs_arr_drop(child);
+            }
+        },
         #[cfg(not(target_os = "wasi"))]
         t if t == Tag::Response as u16 => unsafe { __torajs_response_drop(child) },
         t if t == Tag::BigInt as u16 => unsafe {
@@ -127,6 +151,13 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
             // handle that (per-type drop hooks fire from array element /
             // dynobj entry walks).
             if __torajs_rc_dec(child) != 0 {
+                // Scrub from the cycle root buffer before the memory
+                // goes away — a class Obj buffered as a cycle
+                // candidate that then normal-drops to rc=0 here would
+                // otherwise leave a dangling buffer entry (the
+                // lower-emitted class drop path does the same scrub).
+                // Cheap no-op when FLAG_BUFFERED is clear.
+                __torajs_cycle_unbuffer(child);
                 free(child);
             }
         },

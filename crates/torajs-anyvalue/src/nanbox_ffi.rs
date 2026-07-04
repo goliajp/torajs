@@ -20,7 +20,7 @@
 
 use std::ffi::c_void;
 
-use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, AnySlotTag, Tag};
+use torajs_rc::{__torajs_rc_inc, AnySlotTag, Tag};
 
 use crate::arith::{any_add, any_arith};
 use crate::coerce::{any_to_number, any_to_str};
@@ -74,11 +74,16 @@ pub unsafe extern "C" fn __torajs_anyv_rc_inc(v: AnyValue) {
     }
 }
 
-/// Refcount-decrement the heap payload of an [`AnyValue`]. No-op
-/// for primitive immediates. For cell values, decrements rc and
-/// — if rc transitions to zero — dispatches to
-/// `__torajs_value_drop_heap` (the C-side per-type drop walker)
-/// to free the heap object.
+/// Release one reference to the heap payload of an [`AnyValue`].
+/// No-op for primitive immediates. For cell values, delegates to
+/// `__torajs_value_drop_heap`, whose per-type arms rc-dec and free
+/// on hit-zero (the same "release one reference" contract every
+/// other caller — array slot walks, dynobj entry walks — uses).
+///
+/// The pre-RFC shape dec'd here FIRST and only then called
+/// `value_drop_heap`; the arm's own dec then underflowed (rc 0 →
+/// u32::MAX → Keep), so any heap value whose LAST reference was
+/// released through the `any` world never freed (RFC 20260704 S6).
 ///
 /// This is the immediate-mode replacement for the legacy
 /// box-drop shim deleted in Step 7f-D-1.
@@ -94,13 +99,8 @@ pub unsafe extern "C" fn __torajs_anyv_rc_dec(v: AnyValue) {
         return;
     }
     if is_cell(v) {
-        // SAFETY: as above.
-        let dec = unsafe { __torajs_rc_dec(as_void_ptr(v)) };
-        if dec != 0 {
-            // SAFETY: rc transitioned to zero — caller exclusively
-            // owns the underlying allocation, safe to drop.
-            unsafe { __torajs_value_drop_heap(as_void_ptr(v)) };
-        }
+        // SAFETY: as above; the arm dec-gates and frees on hit-zero.
+        unsafe { __torajs_value_drop_heap(as_void_ptr(v)) };
     }
 }
 
@@ -144,12 +144,7 @@ pub unsafe extern "C" fn __torajs_anyv_to_number(v: AnyValue) -> f64 {
         let s = unsafe { materialize_short_str(v) };
         let n = unsafe { __torajs_str_to_number(s as *const c_void) };
         // SAFETY: s is the freshly-materialized Str we own; rc=1.
-        unsafe {
-            let dec = __torajs_rc_dec(s as *mut c_void);
-            if dec != 0 {
-                __torajs_value_drop_heap(s as *mut c_void);
-            }
-        }
+        unsafe { drop_materialized_str(s) };
         return n;
     }
     if is_cell(v) {
@@ -316,12 +311,7 @@ pub unsafe extern "C" fn __torajs_anyv_strict_eq(l: AnyValue, r: AnyValue) -> bo
             // SAFETY: ls is Heap+Str layout, r is Heap+Str layout.
             let eq = unsafe { __torajs_str_eq(ls, rp as *const u8) != 0 };
             // SAFETY: drop the temporary.
-            unsafe {
-                let dec = __torajs_rc_dec(ls as *mut c_void);
-                if dec != 0 {
-                    __torajs_value_drop_heap(ls as *mut c_void);
-                }
-            }
+            unsafe { drop_materialized_str(ls) };
             return eq;
         }
         return false;
@@ -336,12 +326,7 @@ pub unsafe extern "C" fn __torajs_anyv_strict_eq(l: AnyValue, r: AnyValue) -> bo
             // SAFETY: both Heap+Str layout.
             let eq = unsafe { __torajs_str_eq(lp as *const u8, rs) != 0 };
             // SAFETY: drop the temporary.
-            unsafe {
-                let dec = __torajs_rc_dec(rs as *mut c_void);
-                if dec != 0 {
-                    __torajs_value_drop_heap(rs as *mut c_void);
-                }
-            }
+            unsafe { drop_materialized_str(rs) };
             return eq;
         }
         return false;

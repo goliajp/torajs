@@ -200,6 +200,38 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
             .append_void(ctx.cur_block, InstKind::Call(drop_fid, vec![val]));
     } else {
         if elem_ty.is_refcounted() {
+            // RFC 20260704 S6 — element references belong to the
+            // array block, so only the LAST owner walks them (rc==1
+            // here means the arr_drop below is the hit-zero dec).
+            // When the array also crossed into `any` (any_box inc'd
+            // the block) and the Any reference outlives this site,
+            // the runtime walker (`value_drop_heap` Tag::Arr →
+            // `arr_drop_heap` via the elem-kind header field) walks
+            // instead; the unconditional pre-S6 walk would leave the
+            // Any side's slots dangling.
+            let rc_now = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::I32, val.clone(), 0),
+                Type::I32,
+                None,
+            );
+            let is_last = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ICmp(IPred::Eq, Operand::Value(rc_now), Operand::ConstI32(1)),
+                Type::Bool,
+                None,
+            );
+            let walk_blk = ctx.f.add_block();
+            let walk_done = ctx.f.add_block();
+            ctx.f.set_term(
+                ctx.cur_block,
+                Terminator::CondBr {
+                    cond: Operand::Value(is_last),
+                    then_blk: walk_blk,
+                    else_blk: walk_done,
+                },
+            );
+            ctx.cur_block = walk_blk;
             let len_v = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Load(Type::I64, val.clone(), ARR_LEN_OFF),
@@ -212,6 +244,8 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
                 Operand::ConstI64(0),
                 Operand::Value(len_v),
             );
+            ctx.f.set_term(ctx.cur_block, Terminator::Br(walk_done));
+            ctx.cur_block = walk_done;
         }
         let drop_fid = ctx.intrinsics.arr_drop;
         ctx.f

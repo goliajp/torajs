@@ -127,6 +127,56 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
     }
 }
 
+/// rc-aware drop for a typed array whose element kind is
+/// `ARR_KIND_HEAP` (`Array<Str>` / `Array<Arr>` / any refcounted
+/// cell slots) — Any-dynamic-access RFC (20260704) S6.
+///
+/// Same NULL/STATIC_LITERAL/rc_dec gates as [`__torajs_arr_drop`];
+/// on hit-zero, walks every 8-byte cell-pointer slot through the
+/// universal `value_drop_heap` dispatcher (releasing the array's
+/// reference to each element), then frees through the regular
+/// pool-aware [`__torajs_arr_free`] path (typed stride — unlike
+/// `Array<Any>`'s libc-free bypass).
+///
+/// Caller is `__torajs_value_drop_heap`'s Tag::Arr arm when the
+/// header's elem-kind field says HEAP: the typed drop site's static
+/// element walk is rc==1-gated, so when the LAST reference is
+/// released through the `any` world this walker is the only place
+/// the elements get released.
+///
+/// Slots are read through the head-folded logical base (T-13.5
+/// deque state safe).
+///
+/// # Safety
+/// `arr` is either NULL or a valid typed Array heap pointer whose
+/// slots are cell pointers (elem-kind HEAP; caller dispatches on
+/// the header).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_drop_heap(arr: *mut c_void) {
+    if arr.is_null() {
+        return;
+    }
+    let header = unsafe { &*(arr as *const HeapHeader) };
+    if header.flags & FLAG_STATIC_LITERAL != 0 {
+        return;
+    }
+    if unsafe { __torajs_rc_dec(arr) } == 0 {
+        // Shared — at least one other owner remains; keep alive.
+        return;
+    }
+    unsafe {
+        let arr_u8 = arr as *mut u8;
+        let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
+        let slots = crate::ops::data_ptr(arr_u8);
+        for i in 0..len {
+            let child = *(slots.add(i as usize * 8) as *const *mut c_void);
+            __torajs_value_drop_heap(child);
+        }
+        __torajs_arrprops_drop_entry(arr);
+        __torajs_arr_free(arr);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +189,10 @@ mod tests {
     #[test]
     fn drop_any_null_is_noop() {
         unsafe { __torajs_arr_drop_any(core::ptr::null_mut()) };
+    }
+
+    #[test]
+    fn drop_heap_null_is_noop() {
+        unsafe { __torajs_arr_drop_heap(core::ptr::null_mut()) };
     }
 }
