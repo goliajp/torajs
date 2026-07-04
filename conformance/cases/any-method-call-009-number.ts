@@ -5,9 +5,7 @@ console.log(n.toFixed());
 console.log(n.toString());
 console.log(n.toPrecision(3));
 console.log(n.toExponential(1));
-// n.toLocaleString() omitted: num_to_locale_f lacks the en-US
-// max-3-fraction-digit rounding (pre-existing typed-tier debt, L3b);
-// the thousands-separator face is covered by `big` below.
+console.log(n.toLocaleString());
 console.log(n.valueOf());
 const i: any = 255;
 console.log(i.toString());

@@ -23,3 +23,11 @@ console.log((1000).toLocaleString().length)
 
 // Locale arg is ignored (tr's subset is en-US only).
 console.log((1000).toLocaleString('en-US'))
+
+// ECMA-402 default maximumFractionDigits = 3 — string-level
+// half-away-from-zero rounding, trailing fraction zeros stripped.
+console.log((5.12345).toLocaleString())
+console.log((-5.12345).toLocaleString())
+console.log((1234.56789).toLocaleString())
+console.log((1.9996).toLocaleString())
+console.log((5.1004).toLocaleString())

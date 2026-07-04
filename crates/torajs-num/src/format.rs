@@ -297,13 +297,6 @@ pub fn to_locale_f(n: f64) -> Vec<u8> {
     // digit (per half-away-from-zero). Sign-preserve so tiny negatives
     // render as `"-0"` — bun's behavior for `(-1e-6).toLocaleString()`
     // is `"-0"`, not `"-0.000001"`.
-    //
-    // Wider half-away-from-zero rounding (e.g. `(1.1235).toLocaleString()`
-    // → `"1.124"` instead of bun's exact match) is L3b: Rust's `{:.3}`
-    // uses banker's rounding and `f64` precision drift around the half-
-    // case breaks byte-equality — a spec-correct fix needs string-based
-    // rounding from the literal source. Tiny-magnitude collapse is the
-    // narrow path that user code most often observes.
     if n != 0.0 && n.abs() < 5e-4 {
         return if n.is_sign_negative() {
             b"-0".to_vec()
@@ -316,9 +309,64 @@ pub fn to_locale_f(n: f64) -> Vec<u8> {
         // `(1000.0).toLocaleString() === "1,000"`, matching bun.
         format!("{}", n as i64).into_bytes()
     } else {
-        format!("{n}").into_bytes()
+        // Round the shortest round-trip repr to ≤ 3 fraction digits
+        // at the STRING level (ECMA-402 roundingMode "halfExpand" =
+        // half-away-from-zero; `{:.3}` would banker's-round and f64
+        // re-quantization drifts the half cases off bun).
+        round_decimal_str(format!("{n}").into_bytes(), 3)
     };
     insert_grouping(&raw)
+}
+
+/// Round a plain signed decimal byte string (no exponent) to at most
+/// `max_frac` fraction digits, half-away-from-zero, then strip
+/// trailing fraction zeros and a bare trailing `.` (ECMA-402
+/// `minimumFractionDigits = 0`). Pure byte arithmetic — no f64
+/// round-trip, so half cases stay exactly where the shortest repr
+/// put them.
+fn round_decimal_str(raw: Vec<u8>, max_frac: usize) -> Vec<u8> {
+    let Some(dot) = raw.iter().position(|&b| b == b'.') else {
+        return raw;
+    };
+    if raw.len() - dot - 1 <= max_frac {
+        return raw;
+    }
+    let keep = dot + 1 + max_frac;
+    let round_up = raw[keep] >= b'5';
+    let mut out = raw;
+    out.truncate(keep);
+    if round_up {
+        // right-to-left decimal increment, carrying through the dot.
+        let mut i = out.len();
+        loop {
+            if i == 0 {
+                out.insert(0, b'1');
+                break;
+            }
+            i -= 1;
+            match out[i] {
+                b'.' => continue,
+                b'-' => {
+                    out.insert(i + 1, b'1');
+                    break;
+                }
+                b'9' => out[i] = b'0',
+                _ => {
+                    out[i] += 1;
+                    break;
+                }
+            }
+        }
+    }
+    // strip trailing fraction zeros, then a bare '.'
+    let dot = out.iter().position(|&b| b == b'.').unwrap_or(out.len());
+    while out.len() > dot + 1 && out.last() == Some(&b'0') {
+        out.pop();
+    }
+    if out.last() == Some(&b'.') {
+        out.pop();
+    }
+    out
 }
 
 pub fn to_locale_i(n: i64) -> Vec<u8> {
@@ -480,6 +528,38 @@ pub unsafe extern "C" fn __torajs_num_to_locale_i(n: i64) -> *mut u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- round_decimal_str / to_locale_f ----
+
+    #[test]
+    fn locale_rounds_to_three_fraction_digits() {
+        assert_eq!(to_locale_f(5.12345), b"5.123".to_vec());
+        assert_eq!(to_locale_f(-5.12345), b"-5.123".to_vec());
+        assert_eq!(to_locale_f(1.9996), b"2".to_vec());
+        assert_eq!(to_locale_f(9.9995), b"10".to_vec());
+        assert_eq!(to_locale_f(-9.9995), b"-10".to_vec());
+    }
+
+    #[test]
+    fn locale_strips_trailing_fraction_zeros() {
+        assert_eq!(to_locale_f(5.1004), b"5.1".to_vec());
+        assert_eq!(to_locale_f(1.0004), b"1".to_vec());
+    }
+
+    #[test]
+    fn locale_short_fractions_pass_through() {
+        assert_eq!(to_locale_f(1234.5), b"1,234.5".to_vec());
+        assert_eq!(to_locale_f(1234567.891), b"1,234,567.891".to_vec());
+    }
+
+    #[test]
+    fn round_decimal_str_carries_across_the_dot() {
+        assert_eq!(round_decimal_str(b"999.9995".to_vec(), 3), b"1000".to_vec());
+        assert_eq!(
+            round_decimal_str(b"-999.9995".to_vec(), 3),
+            b"-1000".to_vec()
+        );
+    }
 
     // ---- normalize_exp ----
 
