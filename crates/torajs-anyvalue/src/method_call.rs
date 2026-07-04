@@ -33,6 +33,8 @@
 //! - int32 / double immediates (C4-3b) → toString / toFixed /
 //!   toExponential / toPrecision / toLocaleString / valueOf in
 //!   `method_call_num` (i / f kernel split off the box encoding).
+//! - `Tag::RegExp` cell (C4-3c) → test / exec / toString in
+//!   `method_call_regexp`.
 //! - anything else (numeric immediates, other heap tags, unknown
 //!   method ids) → catchable TypeError — the RFC's C3+ tags land
 //!   here one arm at a time, never a silent wrong answer.
@@ -200,6 +202,9 @@ pub unsafe extern "C" fn __torajs_any_method_call(
         }
         if tag == Tag::Date as u16 {
             return unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) };
+        }
+        if tag == Tag::RegExp as u16 {
+            return unsafe { crate::method_call_regexp::regexp_method(ptr, mid, argv, argc) };
         }
     }
     unsafe {

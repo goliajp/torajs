@@ -147,6 +147,10 @@ pub const ANY_METHOD_TO_FIXED: i64 = 63;
 pub const ANY_METHOD_TO_EXPONENTIAL: i64 = 64;
 /// `Number.prototype.toPrecision`.
 pub const ANY_METHOD_TO_PRECISION: i64 = 65;
+/// `RegExp.prototype.test`.
+pub const ANY_METHOD_TEST: i64 = 66;
+/// `RegExp.prototype.exec`.
+pub const ANY_METHOD_EXEC: i64 = 67;
 
 /// Compile-time name → id intern. `None`-shaped misses map to
 /// [`ANY_METHOD_UNKNOWN`] (the runtime throws with the name bytes).
@@ -217,6 +221,8 @@ pub fn any_method_id(name: &str) -> i64 {
         "toFixed" => ANY_METHOD_TO_FIXED,
         "toExponential" => ANY_METHOD_TO_EXPONENTIAL,
         "toPrecision" => ANY_METHOD_TO_PRECISION,
+        "test" => ANY_METHOD_TEST,
+        "exec" => ANY_METHOD_EXEC,
         _ => ANY_METHOD_UNKNOWN,
     }
 }
