@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T07:32:47.700Z",
+  "generatedAt": "2026-07-04T09:49:19.599Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "e085958c",
-    "commitSubject": "feat: method calls on any receivers — push/pop, charAt, case methods",
+    "commit": "4fe9c3e9",
+    "commitSubject": "feat: map/set methods on any receivers — get/set/has/delete/add/clear",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "4fe9c3e9",
+      "subject": "feat: map/set methods on any receivers — get/set/has/delete/add/clear"
+    },
+    {
+      "hash": "3a6d12e8",
+      "subject": "feat: array higher-order methods on any receivers — map/filter/forEach"
+    },
+    {
+      "hash": "bfd34891",
+      "subject": "feat: dynobj closure property calls — boxed dual-entry synthesis + dispatch"
+    },
+    {
+      "hash": "600f6d3e",
+      "subject": "feat: closure cell boxed_entry slot — layout widening for dual-entry dynamic calls"
+    },
+    {
+      "hash": "ead1f68b",
+      "subject": "feat: any-receiver method calls c2 — str indexOf/includes/slice/split/trim, arr shift/unshift/indexOf/includes/join"
+    },
+    {
+      "hash": "28d98fb7",
+      "subject": "chore(dashboard): session snapshot @ e085958c — rotation 12 (496-498: any-drop ledger fix + nested-print + any-method-call c1; gate 1140 -> 1143)"
+    },
+    {
       "hash": "e085958c",
       "subject": "feat: method calls on any receivers — push/pop, charAt, case methods"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "d9840d77",
       "subject": "feat: for-of over any receivers"
-    },
-    {
-      "hash": "5ec4426e",
-      "subject": "feat: index write and .length on any receivers"
-    },
-    {
-      "hash": "2278365e",
-      "subject": "feat: index read on any receivers with kind-aware runtime dispatch"
-    },
-    {
-      "hash": "6db86804",
-      "subject": "feat: self-describing array element kind at the typed-to-any boundary"
-    },
-    {
-      "hash": "b0ddae00",
-      "subject": "perf: fold accept and monotone bits into dfa transition words"
-    },
-    {
-      "hash": "c99eea99",
-      "subject": "chore(dashboard): session snapshot @ f2413747 — rotation 10 (486-490: lib.rs file-debt zero, regex utf-16 offsets, 32-group cap, gy anchor, matchall exec shape; attacks 7/8 refuted-reverted)"
-    },
-    {
-      "hash": "f2413747",
-      "subject": "fix: attach index/input/groups to every matchall element"
     }
   ],
-  "headSha": "e085958c",
+  "headSha": "4fe9c3e9",
   "autorun": {
-    "total": 321,
+    "total": 322,
     "baselineTarget": 10,
-    "bySelf": 316,
+    "bySelf": 317,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783142787-640c",
-      "at": "2026-07-04T05:26:27Z",
-      "ts": 1783142787,
+      "rotationId": "r-1783150476-64f6",
+      "at": "2026-07-04T07:34:36Z",
+      "ts": 1783150476,
       "trigger": "self",
-      "prevHead": "55ff6c8f",
-      "handoffSha": "sha256:80483ae10c086d119ecf1d043fe606119a215529af440c8c6c2beed9000093ae",
-      "handoffAgeSec": 6,
+      "prevHead": "28d98fb7",
+      "handoffSha": "sha256:603c866f16a02f4bce29d6ed83bf7da97e8b91c21d499ea2a0fa8347ba7fdd67",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783150476-64f6",
+        "at": "2026-07-04T07:34:36Z",
+        "ts": 1783150476,
+        "trigger": "self",
+        "prevHead": "28d98fb7",
+        "handoffSha": "sha256:603c866f16a02f4bce29d6ed83bf7da97e8b91c21d499ea2a0fa8347ba7fdd67",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783142787-640c",
         "at": "2026-07-04T05:26:27Z",
@@ -876,17 +887,6 @@
         "prevHead": "91f6d17d",
         "handoffSha": "sha256:51cc4dd1b3c310214945f365c0b0d253f87ea719874fe87e1bd0fee2bb088de7",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783025976-55ae",
-        "at": "2026-07-02T20:59:36Z",
-        "ts": 1783025976,
-        "trigger": "self",
-        "prevHead": "18a9cd41",
-        "handoffSha": "sha256:cd818caaed05af14974bd0f244ddbc4b8bee67bd19f0f345ac932f03780b4868",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
