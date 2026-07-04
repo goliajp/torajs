@@ -30,8 +30,9 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_ADD, ANY_METHOD_CLEAR, ANY_METHOD_DELETE, ANY_METHOD_FOR_EACH, ANY_METHOD_GET,
-    ANY_METHOD_HAS, ANY_METHOD_SET,
+    ANY_METHOD_ADD, ANY_METHOD_CLEAR, ANY_METHOD_DELETE, ANY_METHOD_ENTRIES, ANY_METHOD_FOR_EACH,
+    ANY_METHOD_GET, ANY_METHOD_HAS, ANY_METHOD_KEYS, ANY_METHOD_NEXT, ANY_METHOD_SET,
+    ANY_METHOD_VALUES,
 };
 
 use crate::method_call::{MAX_BOXED_ARGS, closure_boxed_entry, method_not_a_function};
@@ -68,6 +69,25 @@ unsafe extern "C" {
         out_v_tag: *mut i64,
         out_v_payload: *mut i64,
     ) -> i64;
+    /// torajs-collections — iterator-object mints (each rc-incs the
+    /// source Map/Set and answers a fresh rc=1 MapIter cell) + the
+    /// cursor advance (out pair is a borrow; the ENTRIES pair array
+    /// comes back pre-decremented to 0 so the caller's owning inc
+    /// lands it at exactly 1).
+    fn __torajs_map_iter_create_keys(p: *mut c_void) -> *mut c_void;
+    fn __torajs_map_iter_create_values(p: *mut c_void) -> *mut c_void;
+    fn __torajs_map_iter_create_entries(p: *mut c_void) -> *mut c_void;
+    fn __torajs_map_iter_create_set_entries(p: *mut c_void) -> *mut c_void;
+    fn __torajs_map_iter_step(p: *mut c_void, out_tag: *mut i64, out_payload: *mut i64) -> i64;
+    /// torajs-dynobj — the IteratorResult `{ value, done }` shell.
+    /// `set` rc-incs the key (caller keeps its own ref) and CONSUMES
+    /// the heap value; the obj slot rides by reference (resize may
+    /// relocate).
+    fn __torajs_dynobj_alloc() -> *mut c_void;
+    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    /// torajs-str — key literals for the IteratorResult shell.
+    fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
+    fn __torajs_str_drop(s: *mut c_void);
     /// torajs-rc — NaN-box-safe refcount bump (the consume-contract
     /// pre-inc for borrowed argv payloads + the `set`/`add` return
     /// of `this`).
@@ -152,8 +172,54 @@ pub(crate) unsafe fn map_set_method(
                 };
                 map_set_for_each(m, is_set, cb_env, cb_entry)
             }
+            m2 if m2 == ANY_METHOD_KEYS || m2 == ANY_METHOD_VALUES || m2 == ANY_METHOD_ENTRIES => {
+                // Iterator mints — fresh rc=1 MapIter cell transfers
+                // out as the box. Set keys/values both yield elements
+                // (§24.2.3.8 `keys` is the `values` alias); Set
+                // entries yields `[e, e]` pairs (§24.2.3.6).
+                let it = if m2 == ANY_METHOD_ENTRIES {
+                    if is_set {
+                        __torajs_map_iter_create_set_entries(m)
+                    } else {
+                        __torajs_map_iter_create_entries(m)
+                    }
+                } else if is_set || m2 == ANY_METHOD_KEYS {
+                    __torajs_map_iter_create_keys(m)
+                } else {
+                    __torajs_map_iter_create_values(m)
+                };
+                it as u64
+            }
             _ => method_not_a_function(),
         }
+    }
+}
+
+/// `Tag::MapIter` arm — the iterator-protocol surface for the mints
+/// above. `next()` answers a fresh IteratorResult `{ value, done }`
+/// dynobj (ES §27.1.3): the step kernel's borrowed payload rc-bumps
+/// into an owned ref (the ENTRIES pair array arrives pre-decremented
+/// to 0 exactly so this inc lands it at 1) and transfers into the
+/// dynobj value slot; exhaustion answers `{ value: undefined,
+/// done: true }` forever after.
+pub(crate) unsafe fn map_iter_method(it: *mut c_void, mid: i64) -> AnyValue {
+    if mid != ANY_METHOD_NEXT {
+        return unsafe { method_not_a_function() };
+    }
+    unsafe {
+        let (mut tag, mut payload): (i64, i64) = (5, 0);
+        let hit = __torajs_map_iter_step(it, &mut tag, &mut payload);
+        if hit != 0 {
+            crate::payload_rc_inc(tag, payload);
+        }
+        let mut obj = __torajs_dynobj_alloc();
+        let k_value = __torajs_str_alloc(c"value".as_ptr() as *const u8, 5);
+        __torajs_dynobj_set(&mut obj, k_value as *mut c_void, tag as u64, payload as u64);
+        __torajs_str_drop(k_value as *mut c_void);
+        let k_done = __torajs_str_alloc(c"done".as_ptr() as *const u8, 4);
+        __torajs_dynobj_set(&mut obj, k_done as *mut c_void, 1, (hit == 0) as u64);
+        __torajs_str_drop(k_done as *mut c_void);
+        obj as u64
     }
 }
 

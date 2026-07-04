@@ -32,7 +32,10 @@
 //!   the adapter reads its param count unconditionally.
 //! - `Tag::Map` / `Tag::Set` cell (C4) → get / set / has / delete /
 //!   add / clear / forEach in `method_call_mapset` (pair-ABI kernels
-//!   + the C4-2 boxed-entry forEach walk).
+//!   + the C4-2 boxed-entry forEach walk) + the keys / values /
+//!   entries iterator mints.
+//! - `Tag::MapIter` cell → iterator-protocol `next()` (IteratorResult
+//!   `{ value, done }` dynobj), same module.
 //! - `Tag::Date` cell (C4-3a) → the full typed-tier method table
 //!   (getters / to*String / setters) in `method_call_date`.
 //! - int32 / double immediates (C4-3b) → toString / toFixed /
@@ -222,6 +225,9 @@ pub unsafe extern "C" fn __torajs_any_method_call(
                     argc,
                 )
             };
+        }
+        if tag == Tag::MapIter as u16 {
+            return unsafe { crate::method_call_mapset::map_iter_method(ptr, mid) };
         }
         if tag == Tag::Date as u16 {
             return unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) };

@@ -151,6 +151,15 @@ pub const ANY_METHOD_TO_PRECISION: i64 = 65;
 pub const ANY_METHOD_TEST: i64 = 66;
 /// `RegExp.prototype.exec`.
 pub const ANY_METHOD_EXEC: i64 = 67;
+/// `Map.prototype.keys` / `Set.prototype.keys`.
+pub const ANY_METHOD_KEYS: i64 = 68;
+/// `Map.prototype.values` / `Set.prototype.values` (= keys for Set).
+pub const ANY_METHOD_VALUES: i64 = 69;
+/// `Map.prototype.entries` / `Set.prototype.entries` (`[k, k]`).
+pub const ANY_METHOD_ENTRIES: i64 = 70;
+/// Iterator-protocol `next()` (the `Tag::MapIter` arm answers an
+/// IteratorResult `{ value, done }` dynobj).
+pub const ANY_METHOD_NEXT: i64 = 71;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -256,6 +265,10 @@ pub fn any_method_id(name: &str) -> i64 {
         "toPrecision" => ANY_METHOD_TO_PRECISION,
         "test" => ANY_METHOD_TEST,
         "exec" => ANY_METHOD_EXEC,
+        "keys" => ANY_METHOD_KEYS,
+        "values" => ANY_METHOD_VALUES,
+        "entries" => ANY_METHOD_ENTRIES,
+        "next" => ANY_METHOD_NEXT,
         _ => ANY_METHOD_UNKNOWN,
     }
 }
