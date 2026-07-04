@@ -11,7 +11,8 @@
 //!   variants / getDay / getTimezoneOffset / annexB getYear) —
 //!   receiver-only call, boxed i64 result.
 //! - **string renderings** (toISOString / toJSON alias /
-//!   toUTCString / toGMTString alias / toDateString / toLocale*) —
+//!   toUTCString / toGMTString alias / toDateString / toString /
+//!   toLocale*) —
 //!   the kernel returns a fresh +1 Str; the box transfers that
 //!   ownership out.
 //! - **setters** — arguments decode through `anyv_to_number` (ms
@@ -43,8 +44,8 @@ use torajs_rc::{
     ANY_METHOD_SET_MINUTES, ANY_METHOD_SET_MONTH, ANY_METHOD_SET_SECONDS, ANY_METHOD_SET_TIME,
     ANY_METHOD_SET_YEAR, ANY_METHOD_TO_DATE_STRING, ANY_METHOD_TO_GMT_STRING,
     ANY_METHOD_TO_ISO_STRING, ANY_METHOD_TO_JSON, ANY_METHOD_TO_LOCALE_DATE_STRING,
-    ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_LOCALE_TIME_STRING, ANY_METHOD_TO_UTC_STRING,
-    ANY_METHOD_VALUE_OF,
+    ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_LOCALE_TIME_STRING, ANY_METHOD_TO_STRING,
+    ANY_METHOD_TO_UTC_STRING, ANY_METHOD_VALUE_OF,
 };
 
 use crate::method_call::method_not_a_function;
@@ -80,6 +81,7 @@ unsafe extern "C" {
     fn __torajs_date_to_iso_string(d: *const c_void) -> *mut u8;
     fn __torajs_date_to_gmt_string(d: *const c_void) -> *mut u8;
     fn __torajs_date_to_date_string(d: *const c_void) -> *mut u8;
+    fn __torajs_date_to_string(d: *const c_void) -> *mut u8;
     fn __torajs_date_to_locale_string(d: *const c_void) -> *mut u8;
     fn __torajs_date_to_locale_date_string(d: *const c_void) -> *mut u8;
     fn __torajs_date_to_locale_time_string(d: *const c_void) -> *mut u8;
@@ -149,6 +151,7 @@ pub(crate) unsafe fn date_method(
                 s(__torajs_date_to_gmt_string(d))
             }
             m if m == ANY_METHOD_TO_DATE_STRING => s(__torajs_date_to_date_string(d)),
+            m if m == ANY_METHOD_TO_STRING => s(__torajs_date_to_string(d)),
             m if m == ANY_METHOD_TO_LOCALE_STRING => s(__torajs_date_to_locale_string(d)),
             m if m == ANY_METHOD_TO_LOCALE_DATE_STRING => s(__torajs_date_to_locale_date_string(d)),
             m if m == ANY_METHOD_TO_LOCALE_TIME_STRING => s(__torajs_date_to_locale_time_string(d)),

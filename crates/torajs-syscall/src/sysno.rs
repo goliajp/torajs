@@ -50,6 +50,10 @@ pub const SYS_RMDIR: u32 = 137;
 /// SYS_stat64 == 338.
 pub const SYS_STAT64: u32 = 338;
 
+/// `readlink(const char *path, char *buf, size_t bufsize) -> ssize_t`
+/// — read a symlink's target (NOT NUL-terminated). SYS_readlink == 58.
+pub const SYS_READLINK: u32 = 58;
+
 /// `getdirentries64(int fd, void *buf, size_t bufsize, off_t *basep)
 /// -> ssize_t` — read directory entries in the 64-bit-inode
 /// `struct dirent` layout. SYS_getdirentries64 == 344.

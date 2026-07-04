@@ -109,6 +109,46 @@ pub unsafe extern "C" fn __torajs_date_to_date_string(d_ptr: *const c_void) -> *
     p
 }
 
+/// `.toString()` per ES §21.4.4.41 / §21.4.4.41.2 ToDateString —
+/// `"Thu Jan 01 1970 09:00:00 GMT+0900 (Japan Standard Time)"`.
+/// Local-time decomposition + the TZif UT offset; the parenthesized
+/// long name comes from the CLDR table keyed by the /etc/localtime
+/// symlink target (DST-aware), degrading to `(GMT±HHMM)` when the
+/// host zone is unknown or untabled.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date`. Returned pointer is a pooled
+/// Str (rc=1; caller takes ownership).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_to_string(d_ptr: *const c_void) -> *mut u8 {
+    if d_ptr.is_null() {
+        return unsafe { __torajs_str_alloc_pooled(0) };
+    }
+    let ms = unsafe { as_date(d_ptr) }.ms;
+    let tm = localtime_decompose(ms);
+    let utc_secs = ms.div_euclid(1000);
+    let offs = crate::tz::local_utoff(utc_secs);
+    let sign = if offs < 0 { '-' } else { '+' };
+    let abs = offs.unsigned_abs();
+    let (oh, om) = (abs / 3600, abs / 60 % 60);
+    let gmt = format!("GMT{}{:02}{:02}", sign, oh, om);
+    let name = crate::tz::zone_long_name(utc_secs);
+    let s = format!(
+        "{} {} {:02} {:04} {:02}:{:02}:{:02} {} ({})",
+        DAY_NAMES[tm.tm_wday as usize],
+        MONTH_NAMES[tm.tm_mon as usize],
+        tm.tm_mday,
+        tm.tm_year + 1900,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec,
+        gmt,
+        name.unwrap_or(&gmt),
+    );
+    alloc_str(&s)
+}
+
 /// `.toLocaleString()` per ES §21.4.4.39 — en-US default locale,
 /// `"M/D/YYYY, h:mm:ss AM/PM"` joined by `", "`. Uses local-time
 /// decomposition so the formatted moment matches bun on whichever

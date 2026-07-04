@@ -187,6 +187,7 @@ pub(crate) struct Intrinsics {
     pub(crate) date_set_year: FuncId,
     pub(crate) date_to_gmt_string: FuncId,
     pub(crate) date_to_date_string: FuncId,
+    pub(crate) date_to_string: FuncId,
     pub(crate) date_to_locale_string: FuncId,
     pub(crate) date_to_locale_date_string: FuncId,
     pub(crate) date_to_locale_time_string: FuncId,

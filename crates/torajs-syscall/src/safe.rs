@@ -66,6 +66,26 @@ pub unsafe fn open(path: *const u8, flags: i32) -> Result<i32, Errno> {
     decode(raw).map(|fd| fd as i32)
 }
 
+/// `readlink(path, buf) -> Ok(len) | Err(errno)` — read a symlink's
+/// target into `buf` (the kernel does NOT NUL-terminate; the returned
+/// length is authoritative, and a full buffer means truncation).
+///
+/// # Safety
+///
+/// `path` must point to a NUL-terminated C string; `buf` must point to
+/// at least `buf.len()` writable bytes.
+pub unsafe fn readlink(path: *const u8, buf: &mut [u8]) -> Result<usize, Errno> {
+    let n = unsafe {
+        syscall3(
+            SYS_READLINK,
+            path as i64,
+            buf.as_mut_ptr() as i64,
+            buf.len() as i64,
+        )
+    };
+    decode(n).map(|x| x as usize)
+}
+
 /// `close(fd) -> Ok(()) | Err(errno)`.
 pub fn close(fd: i32) -> Result<(), Errno> {
     let raw = unsafe { syscall1(SYS_CLOSE, fd as i64) };

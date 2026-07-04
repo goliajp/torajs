@@ -28,6 +28,7 @@ pub mod getters;
 pub mod parse;
 pub mod tm;
 pub mod tz;
+pub mod tz_names;
 
 use core::ffi::c_void;
 

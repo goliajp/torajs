@@ -148,6 +148,13 @@ pub fn parse_tzif(buf: &[u8]) -> Option<Tz> {
 impl Tz {
     /// UT offset (seconds) effective at `t` (seconds since the epoch).
     pub fn utoff_at(&self, t: i64) -> i32 {
+        self.info_at(t).0
+    }
+
+    /// `(UT offset seconds, is-DST)` effective at `t` — the DST bit
+    /// picks between the standard / daylight display names in
+    /// [`zone_long_name`].
+    pub fn info_at(&self, t: i64) -> (i32, bool) {
         // before the first transition (or no transitions at all): the
         // first non-DST type, else type 0 — RFC 8536 §3.2.
         if self.transitions.is_empty() || t < self.transitions[0] {
@@ -156,13 +163,16 @@ impl Tz {
                 .iter()
                 .find(|i| !i.isdst)
                 .or_else(|| self.ttinfos.first())
-                .map(|i| i.utoff)
-                .unwrap_or(0);
+                .map(|i| (i.utoff, i.isdst))
+                .unwrap_or((0, false));
         }
         // largest index whose transition instant is ≤ t.
         let idx = self.transitions.partition_point(|&x| x <= t) - 1;
         let ti = *self.types.get(idx).unwrap_or(&0) as usize;
-        self.ttinfos.get(ti).map(|i| i.utoff).unwrap_or(0)
+        self.ttinfos
+            .get(ti)
+            .map(|i| (i.utoff, i.isdst))
+            .unwrap_or((0, false))
     }
 }
 
@@ -211,6 +221,65 @@ fn read_localtime() -> Option<Vec<u8>> {
 /// safe, never a panic.
 pub fn local_utoff(utc_secs: i64) -> i32 {
     cached().map(|tz| tz.utoff_at(utc_secs)).unwrap_or(0)
+}
+
+/// `(UTC offset seconds, is-DST)` effective at `utc_secs` — degrades
+/// to `(0, false)` like [`local_utoff`].
+pub fn local_info(utc_secs: i64) -> (i32, bool) {
+    cached()
+        .map(|tz| tz.info_at(utc_secs))
+        .unwrap_or((0, false))
+}
+
+// IANA zone id ("Asia/Tokyo") probed once from the /etc/localtime
+// symlink target — same plain-static caching rationale as TZ_CACHE.
+static mut ZONE_ID: Option<&'static str> = None;
+static mut ZONE_ID_TRIED: bool = false;
+
+/// The host's IANA zone id, read from the `/etc/localtime` symlink
+/// (macOS points it at `/var/db/timezone/zoneinfo/<id>`; Linux at
+/// `/usr/share/zoneinfo/<id>`). `None` when the link is missing, not
+/// a symlink, or has no `zoneinfo/` segment.
+pub fn zone_id() -> Option<&'static str> {
+    unsafe {
+        if !*(&raw const ZONE_ID_TRIED) {
+            *(&raw mut ZONE_ID_TRIED) = true;
+            *(&raw mut ZONE_ID) = read_zone_id();
+        }
+        *(&raw const ZONE_ID)
+    }
+}
+
+fn read_zone_id() -> Option<&'static str> {
+    let path = b"/etc/localtime\0";
+    let mut buf = [0u8; 256];
+    let n = unsafe { torajs_syscall::readlink(path.as_ptr(), &mut buf) }.ok()?;
+    if n == 0 || n >= buf.len() {
+        // empty or truncated target — no reliable id.
+        return None;
+    }
+    let target = &buf[..n];
+    let marker = b"zoneinfo/";
+    let start = target
+        .windows(marker.len())
+        .position(|w| w == marker)?
+        .checked_add(marker.len())?;
+    let id = core::str::from_utf8(&target[start..]).ok()?;
+    // 'static via a one-time leak — the id lives for the process.
+    Some(Box::leak(String::from(id).into_boxed_str()))
+}
+
+/// CLDR en long display name for the host zone at `utc_secs` — e.g.
+/// `"Japan Standard Time"`, or the daylight variant when DST is in
+/// effect. `None` when the zone id is unknown or not in the table
+/// (callers fall back to the numeric `GMT+HHMM` form).
+pub fn zone_long_name(utc_secs: i64) -> Option<&'static str> {
+    let id = zone_id()?;
+    let (_, dst) = local_info(utc_secs);
+    let names = &crate::tz_names::TZ_LONG_NAMES;
+    let idx = names.binary_search_by(|(z, _, _)| (*z).cmp(id)).ok()?;
+    let (_, std_name, dst_name) = names[idx];
+    Some(if dst { dst_name } else { std_name })
 }
 
 #[cfg(test)]
