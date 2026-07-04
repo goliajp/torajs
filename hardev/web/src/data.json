@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T15:10:14.780Z",
+  "generatedAt": "2026-07-04T17:32:47.302Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "cb867352",
-    "commitSubject": "chore: fmt — mod declaration ordering in lib.rs",
+    "commit": "e544ab5f",
+    "commitSubject": "feat: getter-as-callee through the any method-call dynobj arm",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "e544ab5f",
+      "subject": "feat: getter-as-callee through the any method-call dynobj arm"
+    },
+    {
+      "hash": "1199eb63",
+      "subject": "feat: infer return types for fns returning closure-typed locals"
+    },
+    {
+      "hash": "b0b73400",
+      "subject": "feat: tag-gated member reads on any receivers"
+    },
+    {
+      "hash": "450539cf",
+      "subject": "feat: tag-gated member writes on any receivers"
+    },
+    {
+      "hash": "2dbc6d8f",
+      "subject": "feat: named fns in any objectlit/array inits wrap in forwarder closures"
+    },
+    {
+      "hash": "db06e041",
+      "subject": "feat: named fn into any binding wraps in its forwarder closure"
+    },
+    {
+      "hash": "2030ad26",
+      "subject": "chore(dashboard): session snapshot @ cb867352 — rotation 16 (514-517: any unified iteration protocol for-of/spread + arr.slice + bare any-call; gate 1156 -> 1160)"
+    },
+    {
       "hash": "cb867352",
       "subject": "chore: fmt — mod declaration ordering in lib.rs"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "63c5642e",
       "subject": "feat: array spread over any via the unified iteration protocol"
-    },
-    {
-      "hash": "026046b5",
-      "subject": "feat: for-of over any via unified runtime iteration protocol"
-    },
-    {
-      "hash": "e2b56b17",
-      "subject": "chore(dashboard): session snapshot @ be9e94f5 — rotation 15 (509-513: tostring str/bool + date tostring kernel + tz env + tolocale rounding + mapset iters; gate 1153 -> 1156)"
-    },
-    {
-      "hash": "be9e94f5",
-      "subject": "feat: map/set keys/values/entries + mapiter next on any receivers"
-    },
-    {
-      "hash": "91fa1fc8",
-      "subject": "fix: tolocalestring max-3-fraction rounding — string-level half-away-from-zero"
-    },
-    {
-      "hash": "3cfafb88",
-      "subject": "chore: rustfmt tz.rs + generated tz_names table, note fmt step in generator"
-    },
-    {
-      "hash": "f234f529",
-      "subject": "feat: tz env override for date — raw env lookup + zone alias fan-out"
-    },
-    {
-      "hash": "7e1ec9e8",
-      "subject": "feat: date tostring — cldr zone-name table + tzif dst + typed/any tiers"
     }
   ],
-  "headSha": "cb867352",
+  "headSha": "e544ab5f",
   "autorun": {
-    "total": 325,
+    "total": 326,
     "baselineTarget": 10,
-    "bySelf": 320,
+    "bySelf": 321,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783170991-05b1",
-      "at": "2026-07-04T13:16:31Z",
-      "ts": 1783170991,
+      "rotationId": "r-1783177884-546c",
+      "at": "2026-07-04T15:11:24Z",
+      "ts": 1783177884,
       "trigger": "self",
-      "prevHead": "e2b56b17",
-      "handoffSha": "sha256:e6aec7cebd5565f2c99115eeea91d734790d3915bbe4075e77c55577b0449515",
-      "handoffAgeSec": 7,
+      "prevHead": "2030ad26",
+      "handoffSha": "sha256:b2882a6253b0d553ab4a5ab108c4be60add8e4105d0694e2215315918a352651",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783177884-546c",
+        "at": "2026-07-04T15:11:24Z",
+        "ts": 1783177884,
+        "trigger": "self",
+        "prevHead": "2030ad26",
+        "handoffSha": "sha256:b2882a6253b0d553ab4a5ab108c4be60add8e4105d0694e2215315918a352651",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783170991-05b1",
         "at": "2026-07-04T13:16:31Z",
@@ -876,17 +887,6 @@
         "prevHead": "cf6e82b9",
         "handoffSha": "sha256:f5f500d4533f6715573c97e65c2ea7d12c54d5eb81bff1744e1fa9f308a1b196",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783079505-42bd",
-        "at": "2026-07-03T11:51:45Z",
-        "ts": 1783079505,
-        "trigger": "self",
-        "prevHead": "61135609",
-        "handoffSha": "sha256:7a1038d7405f5405b33e215023e67b4fb7e8cc14f6f06a0007e42f0487b5671f",
-        "handoffAgeSec": 23,
         "conformanceBefore": null,
         "commitsInSession": null
       }
