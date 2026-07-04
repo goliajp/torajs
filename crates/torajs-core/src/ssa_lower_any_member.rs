@@ -248,6 +248,27 @@ fn emit_member_fallback(
         ctx.emit_throw_check(None);
         return Operand::Value(v);
     }
+    if let Some(prop) = torajs_rc::any_regexp_prop_id(name) {
+        // RFC 20260704 C4-3c-2 — the RegExp accessor surface
+        // (source / flags / lastIndex / six flag booleans). The
+        // interned key rides along so a DynObj receiver keeps
+        // ordinary own-property semantics.
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_regexp_prop,
+                vec![
+                    obj_val.clone(),
+                    Operand::ConstI64(prop),
+                    Operand::Value(key_str),
+                ],
+            ),
+            Type::Any,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return Operand::Value(v);
+    }
     emit_dynobj_only(ctx, dynobj, key_str)
 }
 

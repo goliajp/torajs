@@ -152,6 +152,39 @@ pub const ANY_METHOD_TEST: i64 = 66;
 /// `RegExp.prototype.exec`.
 pub const ANY_METHOD_EXEC: i64 = 67;
 
+/// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
+/// — `r.source` / `r.lastIndex` / flag booleans through an `any`
+/// receiver. ssa-lower interns the member NAME into one of these at
+/// the read site; `__torajs_any_regexp_prop` switches on the id
+/// (same append-only ABI contract as the method ids above).
+pub const ANY_RPROP_SOURCE: i64 = 0;
+pub const ANY_RPROP_FLAGS: i64 = 1;
+pub const ANY_RPROP_LAST_INDEX: i64 = 2;
+pub const ANY_RPROP_GLOBAL: i64 = 3;
+pub const ANY_RPROP_IGNORE_CASE: i64 = 4;
+pub const ANY_RPROP_MULTILINE: i64 = 5;
+pub const ANY_RPROP_DOT_ALL: i64 = 6;
+pub const ANY_RPROP_UNICODE: i64 = 7;
+pub const ANY_RPROP_STICKY: i64 = 8;
+
+/// Compile-time member-name → RegExp-prop id intern (`None` = not a
+/// RegExp accessor name; the member fallback keeps its normal
+/// route).
+pub fn any_regexp_prop_id(name: &str) -> Option<i64> {
+    match name {
+        "source" => Some(ANY_RPROP_SOURCE),
+        "flags" => Some(ANY_RPROP_FLAGS),
+        "lastIndex" => Some(ANY_RPROP_LAST_INDEX),
+        "global" => Some(ANY_RPROP_GLOBAL),
+        "ignoreCase" => Some(ANY_RPROP_IGNORE_CASE),
+        "multiline" => Some(ANY_RPROP_MULTILINE),
+        "dotAll" => Some(ANY_RPROP_DOT_ALL),
+        "unicode" => Some(ANY_RPROP_UNICODE),
+        "sticky" => Some(ANY_RPROP_STICKY),
+        _ => None,
+    }
+}
+
 /// Compile-time name → id intern. `None`-shaped misses map to
 /// [`ANY_METHOD_UNKNOWN`] (the runtime throws with the name bytes).
 pub fn any_method_id(name: &str) -> i64 {

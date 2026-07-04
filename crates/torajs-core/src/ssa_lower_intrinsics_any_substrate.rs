@@ -61,6 +61,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_index_set: FuncId,
     pub any_length_get: FuncId,
     pub any_size_get: FuncId,
+    pub any_regexp_prop: FuncId,
     pub any_iter_len: FuncId,
     pub any_method_call: FuncId,
     pub any_unbox_tag: FuncId,
@@ -267,6 +268,15 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_any_size_get",
             &[Type::Any],
+            Type::Any,
+        ),
+        // RFC 20260704 C4-3c-2 — RegExp accessor surface (source /
+        // flags / lastIndex / flag booleans) + dynobj probe.
+        any_regexp_prop: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_regexp_prop",
+            &[Type::Any, Type::I64, Type::Ptr],
             Type::Any,
         ),
         // RFC 20260704 S5 — for-of length driver (throws on
