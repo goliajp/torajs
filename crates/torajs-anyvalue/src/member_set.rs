@@ -42,6 +42,9 @@ unsafe extern "C" {
     fn __torajs_arrprops_set(arr_ptr: *mut c_void, key: *const c_void, tag: i64, value: i64);
     /// torajs-regex — `re.lastIndex` setter.
     fn __torajs_regex_set_last_index(re: *mut c_void, idx: f64);
+    /// torajs-dynobj — fresh empty table for the first closure
+    /// expando write.
+    fn __torajs_dynobj_alloc() -> *mut c_void;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
@@ -61,6 +64,10 @@ unsafe fn reject(tag: u64, value: u64) {
 }
 
 /// See module doc. `hint` carries the compile-time member-name
+/// Closure-cell lazy props slot — mirror of torajs-core
+/// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
+const MEMBER_SET_CLOSURE_PROPS_OFF: usize = 24;
+
 /// intern: `ANY_RPROP_LAST_INDEX` for `lastIndex`,
 /// `ANY_WPROP_ARR_LENGTH` for `length`, −1 otherwise.
 ///
@@ -110,6 +117,19 @@ pub unsafe extern "C" fn __torajs_any_member_set(
                 }
             };
             __torajs_regex_set_last_index(ptr, idx);
+            return;
+        }
+        if cell_tag == Tag::Closure as u16 {
+            let props_slot = ptr.cast::<u8>().add(MEMBER_SET_CLOSURE_PROPS_OFF) as *mut u64;
+            let mut props = *props_slot as *mut c_void;
+            if props.is_null() {
+                props = __torajs_dynobj_alloc();
+            }
+            __torajs_dynobj_set(&mut props, key, tag, value);
+            // First-write alloc and resize relocation both land the
+            // fresh table back in the +24 slot; the closure cell
+            // itself never moves.
+            *props_slot = props as u64;
             return;
         }
         if cell_tag == Tag::Arr as u16 && hint != ANY_WPROP_ARR_LENGTH {

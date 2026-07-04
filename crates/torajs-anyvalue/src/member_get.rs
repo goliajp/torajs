@@ -16,6 +16,11 @@
 //!   consumes it unchanged).
 //! - `Tag::Arr` → the `arrprops` expando probe (NULL props slot
 //!   answers absent).
+//! - `Tag::Closure` (L3b #11 residue, chunk 529) → the lazy
+//!   `props_dynobj` at `CLOSURE_PROPS_OFF` (T-27 Function-as-Object
+//!   expandos; NULL slot answers absent). `length` / `name` fn
+//!   metadata stays a recorded boundary — the env cell carries no
+//!   arity field, only the typed tier's compile-time fold sees it.
 //! - every other receiver → `(ANY_UNDEF, 0)` — a definite absent,
 //!   never a layout mis-read.
 //!
@@ -38,6 +43,16 @@ unsafe extern "C" {
     fn __torajs_arrprops_get_value(arr: *mut c_void, key: *const c_void) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}
+
+/// Closure-cell lazy props slot — mirror of torajs-core
+/// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
+const CLOSURE_PROPS_OFF: usize = 24;
+
+/// The closure's `props_dynobj` pointer, NULL when no expando was
+/// ever written.
+unsafe fn closure_props(ptr: *mut c_void) -> *const c_void {
+    unsafe { *(ptr.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64) as *const c_void }
 }
 
 /// Cell tag of a dispatchable receiver, `None` for everything the
@@ -68,6 +83,14 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_get_tag(ptr, key) },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe { __torajs_arrprops_get_tag(ptr, key) },
+        Some((ptr, t)) if t == Tag::Closure as u16 => unsafe {
+            let props = closure_props(ptr);
+            if props.is_null() {
+                5
+            } else {
+                __torajs_dynobj_get_tag(props, key)
+            }
+        },
         _ => 5,
     }
 }
@@ -81,6 +104,14 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_get_value(ptr, key) },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe { __torajs_arrprops_get_value(ptr, key) },
+        Some((ptr, t)) if t == Tag::Closure as u16 => unsafe {
+            let props = closure_props(ptr);
+            if props.is_null() {
+                0
+            } else {
+                __torajs_dynobj_get_value(props, key)
+            }
+        },
         _ => 0,
     }
 }
