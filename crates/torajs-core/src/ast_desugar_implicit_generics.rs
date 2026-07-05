@@ -41,6 +41,107 @@ use crate::ast::{
     infer_return_ann, infer_return_ann_seeded,
 };
 
+/// RFC 20260705 chunk 556 — bind-annotation collection for the
+/// closure return-ann sniff. Was a flat top-level walk: `for (let i
+/// = 0; ...)` init lets, block/loop-scoped lets and fn-body lets
+/// never entered the map, so an arrow capturing a loop variable
+/// (`(n: number) => n * 3 + i`) failed the static sniff, kept the
+/// Void return default, and every constrained use of its result was
+/// a loud mismatch. Recurse through control-flow shapes + FnDecl
+/// bodies (nested-fn desugar runs later — closures capture fn-scoped
+/// lets too). Same program-wide-by-name approximation as the rest of
+/// this pass: no scope precision, shadowing keeps the last-seen ann.
+fn collect_outer_binds(
+    stmts: &[Stmt],
+    ast_exprs_view: AstExprsView,
+    fn_sigs: &std::collections::HashMap<String, String>,
+    binds: &mut std::collections::HashMap<String, String>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                name,
+                type_ann,
+                init,
+                ..
+            } => {
+                if let Some(ann) = type_ann {
+                    binds.insert(name.clone(), ann.clone());
+                } else {
+                    let bs: Vec<Param> = binds_to_params(binds);
+                    if let Some(ann) =
+                        infer_expr_ann_with(ast_exprs_view, *init, &bs, binds, fn_sigs)
+                    {
+                        binds.insert(name.clone(), ann);
+                    }
+                }
+            }
+            Stmt::FnDecl { params, body, .. } => {
+                for p in params {
+                    if let Some(ann) = &p.type_ann
+                        && p.name != "__env"
+                        && p.name != "__this"
+                    {
+                        binds.insert(p.name.clone(), ann.clone());
+                    }
+                }
+                collect_outer_binds(body, ast_exprs_view, fn_sigs, binds);
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => {
+                collect_outer_binds(inner, ast_exprs_view, fn_sigs, binds);
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_outer_binds(
+                    std::slice::from_ref(then_branch),
+                    ast_exprs_view,
+                    fn_sigs,
+                    binds,
+                );
+                if let Some(e) = else_branch {
+                    collect_outer_binds(std::slice::from_ref(e), ast_exprs_view, fn_sigs, binds);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+                collect_outer_binds(std::slice::from_ref(body), ast_exprs_view, fn_sigs, binds);
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(i) = init {
+                    collect_outer_binds(std::slice::from_ref(i), ast_exprs_view, fn_sigs, binds);
+                }
+                collect_outer_binds(std::slice::from_ref(body), ast_exprs_view, fn_sigs, binds);
+            }
+            Stmt::ForOf { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
+                collect_outer_binds(std::slice::from_ref(body), ast_exprs_view, fn_sigs, binds);
+            }
+            Stmt::Switch { cases, default, .. } => {
+                for c in cases {
+                    collect_outer_binds(&c.body, ast_exprs_view, fn_sigs, binds);
+                }
+                if let Some(d) = default {
+                    collect_outer_binds(d, ast_exprs_view, fn_sigs, binds);
+                }
+            }
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                collect_outer_binds(body, ast_exprs_view, fn_sigs, binds);
+                collect_outer_binds(catch_body, ast_exprs_view, fn_sigs, binds);
+                if let Some(f) = finally_body {
+                    collect_outer_binds(f, ast_exprs_view, fn_sigs, binds);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 pub(crate) fn run(ast: &mut Ast) {
     let Ast { stmts, exprs, .. } = ast;
     let ast_exprs_view: AstExprsView = &*exprs;
@@ -62,36 +163,7 @@ pub(crate) fn run(ast: &mut Ast) {
 
     let mut outer_binds: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
-    for s in stmts.iter() {
-        if let Stmt::LetDecl {
-            name,
-            type_ann,
-            init,
-            ..
-        } = s
-        {
-            if let Some(ann) = type_ann {
-                outer_binds.insert(name.clone(), ann.clone());
-            } else {
-                let bs: Vec<Param> = binds_to_params(&outer_binds);
-                if let Some(ann) =
-                    infer_expr_ann_with(ast_exprs_view, *init, &bs, &outer_binds, &fn_sigs)
-                {
-                    outer_binds.insert(name.clone(), ann);
-                }
-            }
-        }
-        if let Stmt::FnDecl { params, .. } = s {
-            for p in params {
-                if let Some(ann) = &p.type_ann
-                    && p.name != "__env"
-                    && p.name != "__this"
-                {
-                    outer_binds.insert(p.name.clone(), ann.clone());
-                }
-            }
-        }
-    }
+    collect_outer_binds(stmts, ast_exprs_view, &fn_sigs, &mut outer_binds);
 
     // RFC 20260704 C4+ (chunk 522) — pre-infer the lifted-closure
     // signatures so a closure-typed local can bubble out of a fn as
