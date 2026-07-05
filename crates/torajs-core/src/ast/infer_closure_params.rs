@@ -1,5 +1,5 @@
 //! Backward inference of anonymous-closure param/return type annotations
-//! from the Array-method call site that consumes them.
+//! from the call site that consumes them.
 //!
 //! Chunk 342 — extracted from ast.rs. The pass + its two helper walkers
 //! (`collect_let_anns` for explicit let annotations, `collect_let_init_anns`
@@ -7,8 +7,19 @@
 //! cleanly into a single sibling. ast.rs re-exports `infer_anonymous_closure_params`
 //! so external callers (`crates/torajs-cli/src/{cmd_build,main,lsp}.rs`)
 //! keep their existing `ast::infer_anonymous_closure_params` path.
+//!
+//! RFC 20260705 chunk 554 — two contextual-typing extensions:
+//! - **chained receivers**: `b.reverse().sort((x, y) => x - y)` — the
+//!   receiver walks through identity-preserving Array methods
+//!   (reverse / toReversed / sort / toSorted / fill / copyWithin /
+//!   with / slice / filter / concat) back to the root binding's
+//!   annotation instead of preinferring `(any, any)`.
+//! - **user-fn callee hints**: `apply((n) => n + 1, 41)` — a
+//!   `__fn(P|..)->R`-annotated param at a closure arg position
+//!   projects its spellings onto the lifted closure's params/ret.
 
 use super::{Ast, Expr, ExprId, Stmt};
+use crate::num_width::{fn_type_canon, split_fn_type};
 
 /// Walk `body` collecting `let name = <init>` shapes where the init is a
 /// literal whose type can be inferred (number / string / boolean / array
@@ -104,6 +115,73 @@ fn collect_let_anns(body: &[Stmt], out: &mut std::collections::HashMap<String, S
     }
 }
 
+/* Resolve a literal expression's type ann string.
+ * - `Array(els)`      → infer `T[]` from els[0]'s shape (literal
+ *                       receiver path — `[1,2,3].map(x => ...)`).
+ *                       Empty literal can't infer an element type;
+ *                       skipped. Only homogeneous-typed literals
+ *                       matter here since the existing `T[]` infra
+ *                       requires homogeneous elements.
+ * - `String`          → "string"
+ * - `Number`          → "number"
+ * Anything more exotic falls through unchanged (caller relies on
+ * an explicit annotation upstream). */
+fn infer_lit_ann(ast: &Ast, eid: ExprId) -> Option<String> {
+    match ast.get_expr(eid) {
+        Expr::Number(_) => Some("number".into()),
+        Expr::String(_) => Some("string".into()),
+        Expr::Bool(_) => Some("boolean".into()),
+        Expr::Array(els) if !els.is_empty() => {
+            /* Recurse on first element to get its inferred ann,
+             * then suffix with []. Fails (returns None) if the
+             * first element isn't a recognized literal shape. */
+            infer_lit_ann(ast, els[0]).map(|inner| format!("{inner}[]"))
+        }
+        _ => None,
+    }
+}
+
+/// Resolve a receiver expression's type-annotation string.
+/// - `Ident(n)` — the all_anns table (params + let anns + literal inits).
+/// - `Call { callee: Member(inner, m) }` where `m` is an
+///   identity-preserving Array method (answers the receiver's own
+///   element type) — recurse on `inner`, so chained receivers
+///   (`b.reverse().sort(cmp)`, RFC 20260705 chunk 554) reach the root
+///   binding's annotation instead of preinferring `(any, any)`.
+/// - literal shapes — [`infer_lit_ann`].
+fn resolve_receiver_ann(
+    ast: &Ast,
+    eid: ExprId,
+    all_anns: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    const IDENTITY_PRESERVING: &[&str] = &[
+        "reverse",
+        "toReversed",
+        "sort",
+        "toSorted",
+        "fill",
+        "copyWithin",
+        "with",
+        "slice",
+        "filter",
+        "concat",
+    ];
+    match ast.get_expr(eid) {
+        Expr::Ident(n) => all_anns.get(n).cloned(),
+        Expr::Call { callee, .. } => {
+            let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+                return None;
+            };
+            if IDENTITY_PRESERVING.contains(&name.as_str()) {
+                resolve_receiver_ann(ast, *obj, all_anns)
+            } else {
+                None
+            }
+        }
+        _ => infer_lit_ann(ast, eid),
+    }
+}
+
 /// Backward-infer the param type annotations of anonymous arrow
 /// closures from the call site that consumes them. Runs after
 /// `lift_arrow_fns` so each arrow is now a top-level FnDecl named
@@ -165,6 +243,18 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
     // (deferred so we don't mutate ast.stmts mid-walk).
     let mut updates: HashMap<String, (Vec<String>, String)> = HashMap::new();
 
+    // fn name → positional param annotations, for the user-fn callee
+    // hint arm (RFC 20260705 chunk 554 — `apply((n) => n + 1, 41)`).
+    let mut fn_param_pos_anns: HashMap<String, Vec<Option<String>>> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, params, .. } = s {
+            fn_param_pos_anns.insert(
+                name.clone(),
+                params.iter().map(|p| p.type_ann.clone()).collect(),
+            );
+        }
+    }
+
     let n = ast.exprs.len();
     for i in 0..n {
         let Expr::Call { callee, args } = &ast.exprs[i] else {
@@ -172,10 +262,6 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         };
         let callee = *callee;
         let args = args.clone();
-        // Member(obj, method) with at least one Closure arg.
-        let Expr::Member { obj, name } = ast.get_expr(callee).clone() else {
-            continue;
-        };
         let mut closure_args: Vec<(usize, String)> = Vec::new();
         for (i, a) in args.iter().enumerate() {
             // Two shapes after lift_arrow_fns:
@@ -197,40 +283,37 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         if closure_args.is_empty() {
             continue;
         }
-        /* Resolve obj's type ann.
-         * - `Ident(n)`        → look up in the all_anns table built
-         *                       from FnDecl params + let-decl annotations.
-         * - `Array(els)`      → infer `T[]` from els[0]'s shape (literal
-         *                       receiver path — `[1,2,3].map(x => ...)`).
-         *                       Empty literal can't infer an element type;
-         *                       skipped. Only homogeneous-typed literals
-         *                       matter here since the existing `T[]` infra
-         *                       requires homogeneous elements.
-         * - `String`          → "string"
-         * - `Number`          → "number"
-         * Anything more exotic falls through unchanged (caller relies on
-         * an explicit annotation upstream). */
-        fn infer_lit_ann(ast: &Ast, eid: ExprId) -> Option<String> {
-            match ast.get_expr(eid) {
-                Expr::Number(_) => Some("number".into()),
-                Expr::String(_) => Some("string".into()),
-                Expr::Bool(_) => Some("boolean".into()),
-                Expr::Array(els) if !els.is_empty() => {
-                    /* Recurse on first element to get its inferred ann,
-                     * then suffix with []. Fails (returns None) if the
-                     * first element isn't a recognized literal shape. */
-                    infer_lit_ann(ast, els[0]).map(|inner| format!("{inner}[]"))
+        // User-fn callee: an `__fn(P|..)->R`-annotated param at a
+        // closure arg position hints the lifted closure's own
+        // param/ret annotations (chunk 554 face ②).
+        if let Expr::Ident(fname) = ast.get_expr(callee) {
+            if let Some(pos_anns) = fn_param_pos_anns.get(fname) {
+                for (arg_idx, fn_name) in &closure_args {
+                    let Some(Some(pann)) = pos_anns.get(*arg_idx) else {
+                        continue;
+                    };
+                    let Some(canon) = fn_type_canon(pann) else {
+                        continue;
+                    };
+                    let Some((param_spellings, ret_spelling)) = split_fn_type(&canon) else {
+                        continue;
+                    };
+                    updates.insert(
+                        fn_name.clone(),
+                        (
+                            param_spellings.iter().map(|s| s.to_string()).collect(),
+                            ret_spelling.to_string(),
+                        ),
+                    );
                 }
-                _ => None,
             }
+            continue;
         }
-        let obj_ann = match ast.get_expr(obj) {
-            Expr::Ident(n) => all_anns.get(n).cloned(),
-            other => {
-                let _ = other;
-                infer_lit_ann(ast, obj)
-            }
+        // Member(obj, method) — the Array-method path.
+        let Expr::Member { obj, name } = ast.get_expr(callee).clone() else {
+            continue;
         };
+        let obj_ann = resolve_receiver_ann(ast, obj, &all_anns);
         let Some(ann) = obj_ann else { continue };
         // Only handle T[] receivers for the known Array methods.
         let Some(elem_ann) = ann.strip_suffix("[]") else {
