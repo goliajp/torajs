@@ -47,6 +47,24 @@ impl<'a> LowerCtx<'a> {
             .append_void(block, InstKind::Call(self.intrinsics.rc_inc, vec![op]));
     }
 
+    /// Type-aware owned-result inc (RFC 20260705 owned-result
+    /// invariant): builtin lowerings that answer a borrowed value
+    /// (receiver identity / pass-through arg) call this so the
+    /// result carries its own ref. `Type::Any` routes through the
+    /// NaN-box-gated `any_box_rc_inc` runtime helper (immediates
+    /// are no-ops); other refcounted types take the plain header
+    /// inc; Copy types need none.
+    pub(crate) fn emit_owned_result_inc(&mut self, op: Operand, ty: Type) {
+        if ty == Type::Any {
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Call(self.intrinsics.any_box_rc_inc, vec![op]),
+            );
+        } else if ty.is_refcounted() {
+            self.emit_rc_inc(op);
+        }
+    }
+
     /// Emit an inline refcount dec on the heap-header pointer `hdr`.
     /// Returns the new refcount value (Type::I32) so the caller can
     /// `ICmp(Eq, _, ConstI32(0))` to dispatch to drop. Mirrors the

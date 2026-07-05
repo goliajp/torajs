@@ -130,9 +130,18 @@ pub(crate) fn try_dispatch(
         // doesn't cover (default no-comparator ToString compare,
         // Substr→Str materialization, non-{I64,F64,Str} elements).
         if helper::try_emit_sort_helper(ctx, &cmp_val, &cmp_ty, elem_ty, arr_ptr) {
+            // RFC 20260705 owned-result invariant: in-place sort answers
+            // the receiver — the chaining result carries its own ref.
+            // toSorted answers the fresh clone which is already owned.
+            if method == "sort" {
+                ctx.emit_rc_inc(Operand::Value(arr_ptr));
+            }
             return Some(Operand::Value(arr_ptr));
         }
         emit_insertion_sort(ctx, arr_ptr, elem_ty, &cmp_val, &cmp_ty);
+        if method == "sort" {
+            ctx.emit_rc_inc(Operand::Value(arr_ptr));
+        }
         return Some(Operand::Value(arr_ptr));
     }
     None

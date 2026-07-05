@@ -70,11 +70,15 @@ impl<'a> LowerCtx<'a> {
                 Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
                     stack.push(obj);
                 }
-                Expr::Call { callee, args } => {
-                    stack.push(callee);
-                    for a in args {
-                        stack.push(a);
-                    }
+                Expr::Call { .. } => {
+                    // RFC 20260705 owned-result invariant: a Call
+                    // result owns its own ref (+1-result / fresh
+                    // alloc / owned-result inc at the borrow sites),
+                    // so receiver and args participate as borrows
+                    // and keep their normal scope drops. Descending
+                    // here double-counted: `return a.sort()` marked
+                    // `a` moved while the lowering now also inc's
+                    // the chaining result.
                 }
                 Expr::Assign { target, value } => {
                     stack.push(target);
@@ -107,25 +111,14 @@ impl<'a> LowerCtx<'a> {
                     stack.push(lhs);
                     stack.push(rhs);
                 }
-                Expr::New { class_name, args } => {
-                    /* T-26 — `new WeakRef(target)` / `new WeakMap()`
-                     * / `new WeakSet()` borrow their args (or take
-                     * none); skip the recurse so the consume walk
-                     * doesn't mark bound idents as moved.
-                     * P6.1 — `new Map()` is zero-arg; the iterable-
-                     * initializer overload (P6.5) will need its own
-                     * recurse policy. */
-                    if class_name == "WeakRef"
-                        || class_name == "WeakMap"
-                        || class_name == "WeakSet"
-                        || class_name == "Map"
-                        || class_name == "Set"
-                    {
-                        continue;
-                    }
-                    for e in args {
-                        stack.push(e);
-                    }
+                Expr::New { .. } => {
+                    // RFC 20260705 owned-result invariant: a New
+                    // result is a fresh owned allocation; ctor args
+                    // participate per the ctor's own consume policy
+                    // (`__new_*` consuming-params bitmap), so the
+                    // return walk must not force-move them. Subsumes
+                    // the prior T-26 WeakRef/WeakMap/WeakSet + P6.1
+                    // Map/Set skip carve-outs.
                 }
                 Expr::Super { args } => {
                     for e in args {

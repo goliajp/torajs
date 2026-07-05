@@ -45,6 +45,9 @@ pub(crate) fn try_dispatch(
             Type::Arr(arr_id),
             None,
         );
+        // RFC 20260705 owned-result invariant: the chaining result
+        // carries its own ref; the receiver binding keeps its own.
+        ctx.emit_rc_inc(Operand::Value(v));
         return Some(Operand::Value(v));
     }
     // `arr.toReversed()` — non-mutating reverse. Fresh

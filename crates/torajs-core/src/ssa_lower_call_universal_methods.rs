@@ -80,6 +80,9 @@ pub(crate) fn try_lower(
         for &a in args.iter() {
             let _ = ctx.lower_expr(a);
         }
+        // RFC 20260705 owned-result invariant: identity result
+        // carries its own ref.
+        ctx.emit_rc_inc(recv_op.clone());
         return Some(recv_op);
     }
     if !(is_prim || is_obj) {
@@ -91,6 +94,12 @@ pub(crate) fn try_lower(
         // before identity return (S272 idiom).
         for &a in args.iter() {
             let _ = ctx.lower_expr(a);
+        }
+        // RFC 20260705 owned-result invariant: refcounted identity
+        // results (Str / Substr / BigInt / Symbol) carry their own
+        // ref; Copy primitives need none.
+        if recv_ty.is_refcounted() {
+            ctx.emit_rc_inc(recv_op.clone());
         }
         return Some(recv_op);
     }

@@ -30,6 +30,9 @@ pub(crate) fn try_dispatch(
     // duplicate emit paths.
     if recv_ty == Type::Str && method == "concat" {
         if args.is_empty() {
+            // RFC 20260705 owned-result invariant: even the identity
+            // shape answers an owned ref.
+            ctx.emit_rc_inc(recv_op.clone());
             return Some(recv_op);
         }
         let mut acc = recv_op;

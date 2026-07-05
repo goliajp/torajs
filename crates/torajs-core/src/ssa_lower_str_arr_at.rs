@@ -125,6 +125,13 @@ pub(crate) fn try_dispatch(
             elem_ty,
             None,
         );
+        // RFC 20260705 owned-result invariant: the answered element
+        // shares ownership with the array slot (mirrors find/findLast,
+        // ssa_lower_call_arr_predicate); without the inc a let-binding
+        // of `arr.at(i)` scope-drops a ref the slot still holds.
+        if elem_ty.is_refcounted() {
+            ctx.emit_rc_inc(Operand::Value(v));
+        }
         return Some(Operand::Value(v));
     }
     None

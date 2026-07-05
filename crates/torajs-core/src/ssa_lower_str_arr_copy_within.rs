@@ -160,6 +160,9 @@ pub(crate) fn try_dispatch(
             Type::Arr(arr_id),
             None,
         );
+        // RFC 20260705 owned-result invariant: chaining result
+        // carries its own ref.
+        ctx.emit_rc_inc(Operand::Value(v));
         return Some(Operand::Value(v));
     }
     None

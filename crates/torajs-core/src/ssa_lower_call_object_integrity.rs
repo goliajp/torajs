@@ -118,6 +118,12 @@ fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprI
     let v = ctx
         .f
         .append_inst(cur_block, InstKind::Call(fid, vec![arg_op]), ret_ty, None);
+    // RFC 20260705 owned-result invariant: `freeze` answers the
+    // receiver (obj_freeze passes the pointer through un-inc'd);
+    // the result must carry its own ref. isFrozen answers Bool.
+    if method == "freeze" {
+        ctx.emit_owned_result_inc(Operand::Value(v), ret_ty);
+    }
     Operand::Value(v)
 }
 
@@ -212,6 +218,9 @@ fn lower_seal(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         Type::Any,
         None,
     );
+    // RFC 20260705 owned-result invariant: anyv_seal answers the
+    // receiver box un-inc'd; the result carries its own ref.
+    ctx.emit_owned_result_inc(Operand::Value(v), Type::Any);
     Operand::Value(v)
 }
 
@@ -248,5 +257,10 @@ fn lower_noop(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     for a in args.iter().skip(1) {
         let _ = ctx.lower_expr(*a);
     }
+    // RFC 20260705 owned-result invariant: the pass-through result
+    // (ES answers the target/receiver) carries its own ref — the
+    // 542 gate over-release came from the opposite assumption.
+    let obj_ty = ctx.operand_ty(&obj_op);
+    ctx.emit_owned_result_inc(obj_op.clone(), obj_ty);
     obj_op
 }

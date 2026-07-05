@@ -122,6 +122,9 @@ impl<'a> LowerCtx<'a> {
             recv_ty,
             None,
         );
+        // RFC 20260705 owned-result invariant: chaining result
+        // carries its own ref.
+        self.emit_rc_inc(Operand::Value(v));
         Operand::Value(v)
     }
 }
