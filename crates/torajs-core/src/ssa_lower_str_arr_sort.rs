@@ -70,6 +70,17 @@ pub(crate) fn try_dispatch(
                 Type::Arr(arr_id),
                 None,
             );
+            // Phase B refcount: arr_slice memcpys the slots without
+            // touching element refcounts — inc each shared slot so the
+            // clone owns its refs (mirrors arr.slice; without this the
+            // clone's drop per-elem dec is unmatched = over-release).
+            if elem_ty.is_refcounted() {
+                ctx.emit_arr_rc_inc_range(
+                    Operand::Value(v),
+                    Operand::ConstI64(0),
+                    Operand::Value(len),
+                );
+            }
             Operand::Value(v)
         } else {
             recv_op
