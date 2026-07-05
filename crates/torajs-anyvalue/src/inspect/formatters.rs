@@ -69,6 +69,14 @@ unsafe extern "C" {
     // delegate to these for the pretty form.
     pub(super) fn __torajs_arr_print_any(arr: *const c_void);
     pub(super) fn __torajs_obj_print_any(obj: *const c_void);
+    // Indent-threaded variants (inspect indent trunk) — carry the
+    // container's own indent column so nested objects / arrays pad
+    // their fields at `indent + 2` and their closer at `indent`
+    // (bun's uniform depth*2 model, probed 2026-07-05). The plain
+    // entries above stay as `indent = 0` wrappers for the SSA
+    // dispatcher ABI.
+    pub(super) fn __torajs_arr_print_any_at(arr: *const c_void, indent: u32);
+    pub(super) fn __torajs_obj_print_any_at(obj: *const c_void, indent: u32);
     // Commit 5 — Date wire. Returns a fresh rc=1 Str holding the
     // ISO-8601 form. The Tag::Date branch prints the payload then
     // rc_dec's the temporary Str to balance allocation.
@@ -105,6 +113,10 @@ unsafe extern "C" {
     // trailing '\n'); `__torajs_print_anyv`'s Tag::Obj arm appends
     // '\n' at the top-level boundary.
     pub(super) fn __torajs_anyv_struct_print_inline(v: u64);
+    // Indent-threaded struct walker variant (inspect indent trunk) —
+    // same field walk, fields padded at `indent + 2`, closer at
+    // `indent`.
+    pub(super) fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u32);
     // Tag::Symbol / Tag::BigInt nested-context inline printers —
     // emit `Symbol(<desc>)` / `<decimal>n` with no trailing '\n'.
     // Top-level `__torajs_symbol_print` / IR-emitted BigInt print

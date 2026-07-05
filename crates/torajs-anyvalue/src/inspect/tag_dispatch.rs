@@ -13,12 +13,12 @@
 use core::ffi::c_void;
 
 use super::formatters::{
-    __torajs_anyv_struct_print_inline, __torajs_arr_print_any, __torajs_bigint_print_inline,
-    __torajs_date_to_iso_string, __torajs_fn_print_inline, __torajs_map_print,
-    __torajs_obj_print_any, __torajs_promise_print, __torajs_rc_dec, __torajs_regex_print_inline,
-    __torajs_set_print, __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, closure_fn_addr,
-    heap_flags, heap_type_tag, put_byte, put_bytes, put_f64_inline, put_i64_inline,
-    put_str_cell_inline, put_substr_cell_inline,
+    __torajs_anyv_struct_print_inline_at, __torajs_arr_print_any_at,
+    __torajs_bigint_print_inline, __torajs_date_to_iso_string, __torajs_fn_print_inline,
+    __torajs_map_print, __torajs_obj_print_any_at, __torajs_promise_print, __torajs_rc_dec,
+    __torajs_regex_print_inline, __torajs_set_print, __torajs_symbol_print_inline,
+    SUBSTR_VIEW_FLAG, closure_fn_addr, heap_flags, heap_type_tag, put_byte, put_bytes,
+    put_f64_inline, put_i64_inline, put_str_cell_inline, put_substr_cell_inline,
 };
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
@@ -47,6 +47,22 @@ use torajs_rc::Tag;
 /// matching its `HeapHeader::type_tag` layout.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
+    unsafe { __torajs_print_anyv_inline_at(v, 0) }
+}
+
+/// Indent-threaded variant of [`__torajs_print_anyv_inline`] —
+/// inspect indent trunk. `indent` is the *composite's own* indent
+/// column (bun's uniform model, probed 2026-07-05: every container
+/// level adds 2, whether or not the outer container broke to
+/// multi-line). Leaf arms ignore it; Tag::Arr / Tag::DynObj /
+/// Tag::Obj thread it into their indent-aware walkers so nested
+/// objects pad fields at `indent + 2` and the closer at `indent`.
+///
+/// # Safety
+///
+/// Same contract as [`__torajs_print_anyv_inline`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32) {
     if is_null(v) {
         unsafe { put_bytes(b"null") };
         return;
@@ -111,12 +127,12 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
             // `[Circular]` sentinel — known limitation tracked in
             // L3b (bun emits `[Circular *N]`, v0.7 doesn't).
             // SAFETY: Tag::Arr layout per torajs-arr::layout.
-            unsafe { __torajs_arr_print_any(child) };
+            unsafe { __torajs_arr_print_any_at(child, indent) };
         } else if tag == Tag::DynObj as u16 {
             // Commit 4 — Tag::DynObj nested. Same recursion form
             // as Tag::Arr above.
             // SAFETY: dynobj layout per torajs-dynobj::layout.
-            unsafe { __torajs_obj_print_any(child) };
+            unsafe { __torajs_obj_print_any_at(child, indent) };
         } else if tag == Tag::Date as u16 {
             // Commit 5 — nested Date prints unquoted (bun:
             // `[ 1970-01-01T00:00:00.000Z ]` not
@@ -157,7 +173,7 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
             // W-J Phase D — nested Tag::Obj struct cell prints the
             // same `Name {…}` form as top-level (no trailing '\n';
             // outer walker owns separators).
-            unsafe { __torajs_anyv_struct_print_inline(v) };
+            unsafe { __torajs_anyv_struct_print_inline_at(v, indent) };
         } else if tag == Tag::WeakMap as u16 {
             // WeakMap / WeakSet are non-enumerable per spec
             // (§24.4 / §24.5 — no `forEach`, no iterators), so

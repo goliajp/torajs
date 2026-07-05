@@ -42,18 +42,19 @@ use crate::print::{put_byte, put_bytes};
 const ARR_HEAD_OFF: usize = 20;
 
 unsafe extern "C" {
-    /// Inline AnyValue printer from `torajs-anyvalue::inspect`
-    /// (nested-print substrate trunk Commit 1). Cross-staticlib
-    /// extern — resolved at `tr build` link time. Takes the raw 8
-    /// bytes of an `AnyValue` slot as `u64` and writes its bun-form
+    /// Indent-threaded inline AnyValue printer from
+    /// `torajs-anyvalue::inspect` (inspect indent trunk).
+    /// Cross-staticlib extern — resolved at `tr build` link time.
+    /// Takes the raw 8 bytes of an `AnyValue` slot as `u64` plus the
+    /// composite's own indent column and writes its bun-form
     /// rendering through `__torajs_io_putc_stdout` with no trailing
     /// newline.
-    fn __torajs_print_anyv_inline(v: u64);
+    fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
 }
 
 /// `console.log(arr: Array<Any>)` — inline (no trailing newline)
 /// recursive walker. Each slot is treated as a NaN-box `AnyValue`
-/// and dispatched through `__torajs_print_anyv_inline`.
+/// and dispatched through `__torajs_print_anyv_inline_at`.
 ///
 /// # Safety
 ///
@@ -63,6 +64,21 @@ unsafe extern "C" {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_any(arr: *const c_void) {
     unsafe { print_any_at(arr, 0) }
+}
+
+/// Indent-threaded export of the walker (inspect indent trunk) —
+/// `indent` is this array's own indent column. Cross-staticlib
+/// callers: `torajs-anyvalue::inspect::tag_dispatch`'s Tag::Arr arm
+/// threads the surrounding composite's element indent through here
+/// so nested objects inside this array pad correctly (bun pads by
+/// depth even when every enclosing array stays single-line).
+///
+/// # Safety
+///
+/// Same contract as [`__torajs_arr_print_any`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_print_any_at(arr: *const c_void, indent: u32) {
+    unsafe { print_any_at(arr, indent) }
 }
 
 /// True when `v`'s bit pattern is a heap cell pointer whose header
@@ -160,7 +176,11 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
             if i > 0 {
                 put_bytes(b", ");
             }
-            __torajs_print_anyv_inline(slot_at(i));
+            // Element indent = this array's indent + 2 — bun pads
+            // nested composites by depth even when this level stays
+            // single-line (`[ 1, {\n    k: 1,\n  } ]` puts the
+            // object's fields at column 4, its closer at 2).
+            __torajs_print_anyv_inline_at(slot_at(i), indent + 2);
         }
         // Trailing " ]" — bun emits a space before the closing
         // bracket only when the array is non-empty (the empty arm

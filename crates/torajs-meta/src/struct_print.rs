@@ -53,10 +53,11 @@ unsafe extern "C" {
     // console.log.
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
 
-    // torajs-anyvalue::inspect — nested-context AnyValue printer
-    // (nested-print substrate trunk Commit 1). Adds `"..."` for
-    // strings, recurses into Tag::Arr / Tag::DynObj / Tag::Obj.
-    fn __torajs_print_anyv_inline(v: u64);
+    // torajs-anyvalue::inspect — indent-threaded nested-context
+    // AnyValue printer (inspect indent trunk). Adds `"..."` for
+    // strings, recurses into Tag::Arr / Tag::DynObj / Tag::Obj with
+    // the field row's indent column.
+    fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
 
     // torajs-io — per-byte stdout writer.
     fn __torajs_io_putc_stdout(c: i32) -> i32;
@@ -119,6 +120,17 @@ unsafe fn put_bytes_from_raw(ptr: *const u8, len: usize) {
 /// via raw pointer arithmetic against `cell + field_byte_offset`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_struct_print_inline(v: u64) {
+    unsafe { __torajs_anyv_struct_print_inline_at(v, 0) }
+}
+
+/// Indent-threaded variant (inspect indent trunk) — `indent` is this
+/// struct cell's own indent column: fields pad at `indent + 2`, the
+/// closing `}` at `indent`, values thread `indent + 2` onward.
+///
+/// # Safety
+/// Same caller contract as [`__torajs_anyv_struct_print_inline`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u32) {
     let cell = v as *const c_void;
     // SAFETY: caller asserted Tag::Obj cell — class_tag@+8 layout
     // holds by torajs-rc Tag::Obj invariant.
@@ -145,12 +157,13 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline(v: u64) {
         return;
     }
 
-    unsafe { put_bytes(b"{\n  ") };
+    unsafe { put_bytes(b"{\n") };
     let mut i: u32 = 0;
     while i < n {
         if i > 0 {
-            unsafe { put_bytes(b",\n  ") };
+            unsafe { put_bytes(b",\n") };
         }
+        unsafe { put_indent(indent + 2) };
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         let info = unsafe { __torajs_struct_field_info(layout, i) };
         // SAFETY: field_byte_offset is the SSA-emitted slot offset;
@@ -166,10 +179,19 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline(v: u64) {
         unsafe { put_bytes(b": ") };
         let (tag, val) = unsafe { field_slot_to_pair(info.type_tag, raw) };
         let anyv = unsafe { __torajs_anyv_box_from_pair(tag as i64, val as i64) };
-        unsafe { __torajs_print_anyv_inline(anyv) };
+        unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
         i += 1;
     }
-    unsafe { put_bytes(b",\n}") };
+    unsafe { put_bytes(b",\n") };
+    unsafe { put_indent(indent) };
+    unsafe { put_byte(b'}') };
+}
+
+#[inline]
+unsafe fn put_indent(n: u32) {
+    for _ in 0..n {
+        unsafe { put_byte(b' ') };
+    }
 }
 
 /// Top-level entry — emits the nested-form walker output plus a
