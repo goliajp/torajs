@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T21:00:24.678Z",
+  "generatedAt": "2026-07-05T05:28:45.114Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "24f2bfdd",
-    "commitSubject": "feat: closure expando props through the any member gate",
+    "commit": "59d88ce9",
+    "commitSubject": "fix: gate the cycle collector's array walk on heap elem kind",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "59d88ce9",
+      "subject": "fix: gate the cycle collector's array walk on heap elem kind"
+    },
+    {
+      "hash": "2136c5d1",
+      "subject": "fix: classify array-literal elements by checker type so heap-scalar mixes route to the any path"
+    },
+    {
+      "hash": "09cdc4dc",
+      "subject": "fix: mark arr elem kind at struct-field stores so runtime walkers don't nan-box-walk scalar slots"
+    },
+    {
+      "hash": "2c4d371a",
+      "subject": "feat: rc-aware class-layout walk for obj released through any"
+    },
+    {
+      "hash": "2ad63ba5",
+      "subject": "feat: route regexp/date/symbol/promise/closure any-drops to their type walkers"
+    },
+    {
+      "hash": "35cad8ae",
+      "subject": "chore(dashboard): session snapshot @ 24f2bfdd — rotation 18 (524-529: any-world L3b sweep — struct-cell method call, fnsig-into-any positions, lastIndex f64, numeric+string dynobj keys, closure expandos; gate 1166 -> 1172)"
+    },
+    {
       "hash": "24f2bfdd",
       "subject": "feat: closure expando props through the any member gate"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "2f4213d9",
       "subject": "feat: struct-cell receivers in the any method-call dispatcher"
-    },
-    {
-      "hash": "5eb9b63d",
-      "subject": "chore(dashboard): session snapshot @ e544ab5f — rotation 17 (518-523: any C4+ closeout — fnsig-into-any, tag-gated member r/w, closure-ret inference, getter-as-callee; gate 1160 -> 1166)"
-    },
-    {
-      "hash": "e544ab5f",
-      "subject": "feat: getter-as-callee through the any method-call dynobj arm"
-    },
-    {
-      "hash": "1199eb63",
-      "subject": "feat: infer return types for fns returning closure-typed locals"
-    },
-    {
-      "hash": "b0b73400",
-      "subject": "feat: tag-gated member reads on any receivers"
-    },
-    {
-      "hash": "450539cf",
-      "subject": "feat: tag-gated member writes on any receivers"
-    },
-    {
-      "hash": "2dbc6d8f",
-      "subject": "feat: named fns in any objectlit/array inits wrap in forwarder closures"
     }
   ],
-  "headSha": "24f2bfdd",
+  "headSha": "59d88ce9",
   "autorun": {
-    "total": 327,
+    "total": 328,
     "baselineTarget": 10,
-    "bySelf": 322,
+    "bySelf": 323,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783186427-4001",
-      "at": "2026-07-04T17:33:47Z",
-      "ts": 1783186427,
+      "rotationId": "r-1783198907-5f24",
+      "at": "2026-07-04T21:01:47Z",
+      "ts": 1783198907,
       "trigger": "self",
-      "prevHead": "5eb9b63d",
-      "handoffSha": "sha256:1d40c463eb065a9a47193e1e18046e87a9fba70445862e35fe709954c34e31f7",
-      "handoffAgeSec": 16,
+      "prevHead": "35cad8ae",
+      "handoffSha": "sha256:189bcb796102fd6a43a097253fcecee05e25c0ac8c6ea19038eb78bdb43c52eb",
+      "handoffAgeSec": 13,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783198907-5f24",
+        "at": "2026-07-04T21:01:47Z",
+        "ts": 1783198907,
+        "trigger": "self",
+        "prevHead": "35cad8ae",
+        "handoffSha": "sha256:189bcb796102fd6a43a097253fcecee05e25c0ac8c6ea19038eb78bdb43c52eb",
+        "handoffAgeSec": 13,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783186427-4001",
         "at": "2026-07-04T17:33:47Z",
@@ -876,17 +887,6 @@
         "prevHead": "d35580a7",
         "handoffSha": "sha256:bfe69d60cad577a5b259973557c061ce07a97c78c31488a2c0b4e45857061555",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783094891-49c6",
-        "at": "2026-07-03T16:08:11Z",
-        "ts": 1783094891,
-        "trigger": "self",
-        "prevHead": "5d2ba469",
-        "handoffSha": "sha256:93b59331fcee8ab24741b0a91ae1f50e2b7db9431f8bf132310e62c45fc8ba08",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
