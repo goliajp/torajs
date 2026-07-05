@@ -28,9 +28,10 @@
 //!   then per-elem-ty path: Any → `arr_drop_any` (16-byte tagged
 //!   slots); refcounted elems → `emit_arr_rc_drop_range` to dec
 //!   each element, then `arr_drop`.
-//! - **Closure** — load drop_fn ptr from `CLOSURE_DROP_FN_OFF` and
-//!   indirect-call; the synthesized drop fn (Pass 2.5) walks env
-//!   captures and frees the env block.
+//! - **Closure** — rc-gated (chunk 553): inline dec, on hit-zero
+//!   load drop_fn ptr from `CLOSURE_DROP_FN_OFF` and indirect-call;
+//!   the synthesized drop fn (Pass 2.5, no rc gate of its own) walks
+//!   env captures and frees the env block.
 //! - **RegExp / Date / Any / Symbol / Promise / BigInt / WeakRef /
 //!   WeakMap / WeakSet / Map / Set / MapIter / ArrIter** — all
 //!   route through their type-specific `__torajs_*_drop` runtime
@@ -255,12 +256,41 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
     ctx.cur_block = after;
 }
 
-/// `Type::Closure` drop — load the synthesized drop fn ptr from
-/// `CLOSURE_DROP_FN_OFF` and indirect-call it.
+/// `Type::Closure` drop — rc-gated release: dec the env header's
+/// refcount inline and only on hit-zero load the synthesized drop fn
+/// ptr from `CLOSURE_DROP_FN_OFF` and indirect-call it. Mirrors
+/// `__torajs_value_drop_heap`'s `Tag::Closure` arm — the synthesized
+/// `__env_drop_*` body carries no rc gate of its own, so the dec gate
+/// lives at every release site.
+///
+/// RFC 20260705 chunk 553 — the pre-553 direct finalizer call assumed
+/// typed sites own the env's single reference. A closure passed
+/// through a `__cls` param and returned (`keep(f) { return f }`)
+/// legitimately carries rc > 1 (the return retain + the caller's arg
+/// temp); the unconditional finalize freed the shared env from under
+/// the live binding and the next alloc aliased it.
 fn emit_drop_closure(ctx: &mut LowerCtx, val: Operand) {
+    let rc_new = ctx.emit_rc_dec_inline(val.clone());
+    let is_zero = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, rc_new, Operand::ConstI32(0)),
+        Type::Bool,
+        None,
+    );
+    let drop_blk = ctx.f.add_block();
+    let after = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_zero),
+            then_blk: drop_blk,
+            else_blk: after,
+        },
+    );
+    ctx.cur_block = drop_blk;
     let drop_fn_ptr = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::Ptr, val, CLOSURE_DROP_FN_OFF),
+        InstKind::Load(Type::Ptr, val.clone(), CLOSURE_DROP_FN_OFF),
         Type::Ptr,
         None,
     );
@@ -269,4 +299,6 @@ fn emit_drop_closure(ctx: &mut LowerCtx, val: Operand) {
         ctx.cur_block,
         InstKind::CallIndirect(drop_void_sig, Operand::Value(drop_fn_ptr), vec![val]),
     );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+    ctx.cur_block = after;
 }
