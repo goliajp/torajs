@@ -527,6 +527,37 @@ mod tests {
         unsafe { __torajs_substr_drop(ptr::null_mut()) };
     }
 
+    // L3b #15 (chunk 560) — Substr cells share Tag::Str, so Str-tag
+    // drop dispatch (value_drop_heap, any-world payload releases)
+    // hands views to `__torajs_str_drop`. The flags gate must route
+    // them to the substr path: parent rc dec'd, block back to the
+    // SUBSTR pool (not sized-freed by the Str layout, which reads
+    // the view's u64 len as a u32 Str length).
+    #[test]
+    fn str_drop_routes_view_to_substr_drop() {
+        let _g = TEST_LOCK.lock().unwrap();
+        pool_clear_for_test();
+
+        let parent_block = fresh_parent(8);
+        let parent_ptr = parent_block.0.as_ptr() as *mut c_void;
+
+        let view = unsafe { SubstrBlock::create(parent_ptr, 0, 4) };
+        let view_raw = view.into_raw();
+        let parent_hdr = unsafe { &*(parent_ptr as *const HeapHeader) };
+        assert_eq!(parent_hdr.refcount, 2, "view holds a parent ref");
+
+        unsafe { crate::str_drop::__torajs_str_drop(view_raw) };
+
+        assert_eq!(parent_hdr.refcount, 1, "str_drop on a view must dec parent");
+        assert_eq!(
+            pool_occupancy(),
+            1,
+            "view block must return to the substr pool"
+        );
+
+        parent_block.free_pool_aware();
+    }
+
     #[test]
     fn extern_c_create_then_drop_round_trips() {
         let _g = TEST_LOCK.lock().unwrap();

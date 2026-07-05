@@ -7,6 +7,7 @@
 use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
 use crate::block::StrBlock;
+use crate::substr::{__torajs_substr_drop, FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW};
 
 /// `__torajs_str_drop(s)` — Str scope-end decrement. The dominant
 /// drop path emitted by ssa_lower for every Str-typed local.
@@ -45,6 +46,19 @@ pub unsafe extern "C" fn __torajs_str_drop(s: *mut u8) {
     let header = unsafe { &mut *(s as *mut HeapHeader) };
     if header.flags & FLAG_STATIC_LITERAL != 0 {
         return;
+    }
+    // L3b #15 (chunk 560) — Substr views share Tag::Str, so any
+    // Str-tag drop dispatch (value_drop_heap, any-world payload
+    // releases, runtime-internal call sites) can hand this fn a
+    // 32-byte view cell. Freeing it by the Str layout reads the
+    // view's u64 len as the Str u32 length → wrong-size pool push
+    // (heap corruption on the next pooled alloc) and the parent
+    // ref never decs. Route by the cell's own flags — mirrors the
+    // value_drop_heap Arr arm picking its walker off the header.
+    // The bits are in the flags word already loaded for the
+    // STATIC_LITERAL gate; the owned-Str hot path pays one test.
+    if header.flags & (FLAG_SUBSTR_VIEW | FLAG_SUBSTR_INLINE) != 0 {
+        return unsafe { __torajs_substr_drop(s as *mut core::ffi::c_void) };
     }
     header.refcount -= 1;
     if header.refcount == 0 {
