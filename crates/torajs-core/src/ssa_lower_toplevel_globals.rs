@@ -201,13 +201,22 @@ pub(crate) fn collect_toplevel_globals(
             // mutable Arr / Obj globals stay scoped to the implicit
             // main as before. Mutable primitive Copy globals stay
             // promoted (K.3 / globals-001 depends on it). Mutable Str
-            // globals ARE promoted (chunk 558): strings have no
-            // in-place mutation methods (every str method borrows the
-            // receiver and returns a fresh cell), so the writeback
-            // concern doesn't exist — the Assign-Ident path handles
-            // drop-old/store-new and the K.4 exit hook drops the
-            // final value.
-            if *mutable && ty.is_refcounted() && ty != Type::Str {
+            // globals promote ONLY behind the named-fn-refs gate
+            // (chunk 558): strings have no in-place mutation methods,
+            // so the writeback concern doesn't exist and the
+            // Assign-Ident path handles drop-old/store-new — but the
+            // slot's sole purpose is named-fn visibility, and
+            // unconditional promotion drags await-init / borrow-
+            // shaped-init bindings (`let s: string = await p`) into
+            // the K.4 fresh-heap-init requirement they don't meet.
+            // No named-fn reader/writer → keep the main-local home
+            // (its scope-drop walk already owns cleanup). Closure-
+            // captured bindings also stay local — a slot would split
+            // the binding into two disagreeing homes.
+            let mutable_str_promote = ty == Type::Str
+                && binding_refs.named_fn_refs.contains(name)
+                && !binding_refs.closure_captured.contains(name);
+            if *mutable && ty.is_refcounted() && !mutable_str_promote {
                 continue;
             }
             globals.insert(name.clone(), ty);
