@@ -196,13 +196,20 @@ pub(crate) fn try_lower_method_call(
     let recv_op = ctx.lower_expr(obj_eid);
     let recv_ty = ctx.operand_ty(&recv_op);
     let method = name.clone();
-    let result = dispatch_method(ctx, &method, args, recv_op, recv_ty)?;
+    let Some(result) = dispatch_method(ctx, &method, args, recv_op, recv_ty) else {
+        // RFC 20260705 chunk 555 — the receiver is already lowered;
+        // park the operand so the next cascade arm's `lower_expr` of
+        // the same eid reuses it instead of re-emitting (a
+        // side-effecting receiver like `getNum().toString()` ran its
+        // call twice pre-555). Ownership travels with the operand —
+        // the accepting arm applies its own 548 release rules.
+        ctx.redispatch_lowered = Some((obj_eid, recv_op));
+        return None;
+    };
     // RFC 20260705 chunk 548 — a Call/New/BinOp-shaped receiver is
     // an owned temp; every dispatch arm answers an owned result
     // (chunk 545 invariant, incl. `at`'s element inc), so the
-    // receiver's own ref is released after the dispatch. The `None`
-    // fall-through re-lowers the receiver in a later cascade arm
-    // (pre-existing double-lower hazard, L3b ledger).
+    // receiver's own ref is released after the dispatch.
     ctx.release_owned_temp(obj_eid, &recv_op);
     Some(result)
 }

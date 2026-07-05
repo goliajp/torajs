@@ -101,6 +101,9 @@ pub(crate) fn try_lower(
             arg0_is_undef,
         ));
     }
+    // RFC 20260705 chunk 555 — the receiver is already lowered; park
+    // the operand for the next cascade arm (single-eval).
+    ctx.redispatch_lowered = Some((recv_id, recv_op));
     None
 }
 

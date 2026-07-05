@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, ExprId};
-use crate::ssa::{self, BakedRegexEntry, BlockId, FuncId, Type, ValueId};
+use crate::ssa::{self, BakedRegexEntry, BlockId, FuncId, Operand, Type, ValueId};
 use crate::ssa_lower::{CallRetargets, Intrinsics, LocalInfo, PreReserveState};
 
 pub(crate) struct LowerCtx<'a> {
@@ -338,4 +338,14 @@ pub(crate) struct LowerCtx<'a> {
     /// alloc swaps `Call(obj_alloc)` for `AllocaBytes(size)` and
     /// the name is inserted into `stack_alloced_locals`.
     pub(crate) let_stack_alloc_hint: Option<String>,
+    /// RFC 20260705 chunk 555 — take-once redispatch hint: a
+    /// try_lower dispatcher that already lowered a receiver and then
+    /// declined (`ssa_lower_str::try_lower_method_call`'s `None`
+    /// fall-through) parks the lowered operand here instead of
+    /// abandoning it. `lower_expr` consumes it when the next cascade
+    /// arm re-lowers the same `ExprId`, so a side-effecting receiver
+    /// (`getNum().toString()`) evaluates exactly once. The eid guard
+    /// keeps unrelated lowerings untouched; unconsumed entries are
+    /// dead values, never re-emitted.
+    pub(crate) redispatch_lowered: Option<(ExprId, Operand)>,
 }

@@ -46,6 +46,9 @@ pub(crate) fn try_lower(
     let recv_op = ctx.lower_expr(recv_id);
     let recv_ty = ctx.operand_ty(&recv_op);
     if recv_ty != Type::RegExp {
+        // RFC 20260705 chunk 555 — the receiver is already lowered;
+        // park the operand for the next cascade arm (single-eval).
+        ctx.redispatch_lowered = Some((recv_id, recv_op));
         return None;
     }
 

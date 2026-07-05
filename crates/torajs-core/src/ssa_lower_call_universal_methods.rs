@@ -86,6 +86,9 @@ pub(crate) fn try_lower(
         return Some(recv_op);
     }
     if !(is_prim || is_obj) {
+        // RFC 20260705 chunk 555 — the receiver is already lowered;
+        // park the operand for the next cascade arm (single-eval).
+        ctx.redispatch_lowered = Some((recv_id, recv_op));
         return None;
     }
     // valueOf returns the receiver as-is (identity).
@@ -116,7 +119,10 @@ pub(crate) fn try_lower(
             return Some(Operand::Value(v));
         }
         // For primitives, fall through to allow existing arms
-        // (toFixed/toString) to take over.
+        // (toFixed/toString) to take over. Chunk 555 — park the
+        // lowered receiver so the accepting arm reuses it
+        // (`getNum().toString()` evaluated its call twice pre-555).
+        ctx.redispatch_lowered = Some((recv_id, recv_op));
         return None;
     }
     // hasOwnProperty / propertyIsEnumerable / isPrototypeOf.

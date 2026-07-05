@@ -375,6 +375,16 @@ impl<'a> LowerCtx<'a> {
     /// so nested exprs get their own tighter origin scoped to the
     /// inner subtree (RAII-style save/restore on the prev value).
     pub(crate) fn lower_expr(&mut self, eid: ExprId) -> Operand {
+        // RFC 20260705 chunk 555 — a dispatcher that lowered this
+        // exact expr and then declined parked the operand; consume it
+        // instead of re-emitting (side-effecting receivers must
+        // evaluate exactly once). See `LowerCtx::redispatch_lowered`.
+        if let Some((cached_eid, op)) = self.redispatch_lowered
+            && cached_eid == eid
+        {
+            self.redispatch_lowered = None;
+            return op;
+        }
         let prev = self.f.current_origin;
         self.f.current_origin = Some(eid);
         let result = lower(self, eid);
