@@ -134,7 +134,13 @@ fn lower_higher_order(
         fn_ty,
         &sig_params,
     );
-    end_loop_and_produce(ctx, frame, &method, dst_slot, acc_slot, dst_arr_ty, acc_ty)
+    let out = end_loop_and_produce(ctx, frame, &method, dst_slot, acc_slot, dst_arr_ty, acc_ty);
+    // RFC 20260705 chunk 550 — release owned-shape temps after the
+    // loop consumed them: an inline arrow's minted env in the cb
+    // slot and a Call/New-shaped receiver.
+    ctx.release_owned_temp(args[0], &fn_val);
+    ctx.release_owned_temp(obj, &recv_op);
+    out
 }
 
 /// `map`/`filter`: pre-size dst to src.len so per-iter

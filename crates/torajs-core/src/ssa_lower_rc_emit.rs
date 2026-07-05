@@ -109,25 +109,43 @@ impl<'a> LowerCtx<'a> {
     /// must release: Call/New always answer an owned value (fresh
     /// alloc, +1 return retain, or the borrow sites' owned-result
     /// inc); BinOp results are fresh too (str concat) except the
-    /// short-circuit LAnd/LOr which answer an operand borrow.
-    /// Every other expression shape (Ident / Member / Index /
-    /// literal) answers a borrow.
+    /// short-circuit LAnd/LOr which answer an operand borrow;
+    /// Closure literals mint a fresh env block. Every other
+    /// expression shape (Ident / Member / Index / literal) answers
+    /// a borrow — except the minted-closure Ident caught by
+    /// [`Self::release_owned_temp`]'s operand-type check.
     pub(crate) fn expr_owned_shape(&self, eid: ExprId) -> bool {
         match self.ast.get_expr(eid) {
-            Expr::Call { .. } | Expr::New { .. } => true,
+            Expr::Call { .. } | Expr::New { .. } | Expr::Closure { .. } => true,
             Expr::BinOp { op, .. } => !matches!(op, AstBinOp::LAnd | AstBinOp::LOr),
             _ => false,
         }
     }
 
+    /// True when `eid` is a lifted-arrow Ident (`__closure_<N>`
+    /// shape after lift_arrow_fns, not a local binding) whose
+    /// lowering minted a fresh closure env — the fn-intro path
+    /// answers `Type::Closure` with a heap env block the consumer
+    /// owns. A user `let`-bound closure Ident is a local slot
+    /// borrow and stays off this predicate.
+    fn expr_minted_closure(&self, eid: ExprId, op: &Operand) -> bool {
+        matches!(
+            self.ast.get_expr(eid),
+            Expr::Ident(n) if !self.locals.contains_key(n)
+        ) && matches!(self.operand_ty(op), Type::Closure(_))
+    }
+
     /// Release the operand lowered from `eid` iff it is an
     /// owned-shape temp (see [`Self::expr_owned_shape`]) of a
-    /// non-Copy type. Consumers that borrow a sub-expression
-    /// result (method-call receivers, call arguments) call this
-    /// after the consuming instruction so nested-call temps
-    /// (`f(g())`, `a.reverse().sort()`) don't leak their ref.
+    /// non-Copy type, or a minted-closure Ident (see
+    /// [`Self::expr_minted_closure`]). Consumers that borrow a
+    /// sub-expression result (method-call receivers, call
+    /// arguments, callback slots) call this after the consuming
+    /// instruction so nested-call temps (`f(g())`,
+    /// `a.reverse().sort()`) and per-call closure envs
+    /// (`xs.map(x => ...)`) don't leak their ref.
     pub(crate) fn release_owned_temp(&mut self, eid: ExprId, op: &Operand) {
-        if !self.expr_owned_shape(eid) {
+        if !self.expr_owned_shape(eid) && !self.expr_minted_closure(eid, op) {
             return;
         }
         let ty = self.operand_ty(op);

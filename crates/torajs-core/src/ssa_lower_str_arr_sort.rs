@@ -136,15 +136,27 @@ pub(crate) fn try_dispatch(
             if method == "sort" {
                 ctx.emit_rc_inc(Operand::Value(arr_ptr));
             }
+            release_cmp_temp(ctx, args, &cmp_val);
             return Some(Operand::Value(arr_ptr));
         }
         emit_insertion_sort(ctx, arr_ptr, elem_ty, &cmp_val, &cmp_ty);
         if method == "sort" {
             ctx.emit_rc_inc(Operand::Value(arr_ptr));
         }
+        release_cmp_temp(ctx, args, &cmp_val);
         return Some(Operand::Value(arr_ptr));
     }
     None
+}
+
+/// RFC 20260705 chunk 550 — a comparator that lowered to an
+/// owned-shape temp (inline arrow's minted env) is released after
+/// the sort consumed it; `let`-bound / named-fn comparators are
+/// borrows and stay untouched.
+fn release_cmp_temp(ctx: &mut LowerCtx<'_>, args: &[ExprId], cmp_val: &Option<Operand>) {
+    if let (Some(cv), Some(a0)) = (cmp_val, args.first()) {
+        ctx.release_owned_temp(*a0, cv);
+    }
 }
 
 /// Emit the inline O(n²) insertion-sort fallback over `arr_ptr` in
