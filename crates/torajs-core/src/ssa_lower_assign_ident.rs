@@ -20,11 +20,12 @@
 //!    - `slot I64 + value I32` / `slot I32 + value I64`
 //!    - `slot Ptr || value Ptr` (free)
 //! 2. **Local binding** — `locals.contains(name)`:
-//!    Lower rhs FIRST (`s = s + "x"` consumes lhs binding;
-//!    `consume_if_ident` after RHS lower marks src moved). For
-//!    refcounted borrow rhs (Member / Index / unmoved Ident),
-//!    `emit_rc_inc` since lhs + rhs share ownership. Type-check
-//!    with permissible coercions:
+//!    Lower rhs FIRST (`s = s + "x"` consumes the lhs binding inside
+//!    the BinOp; the drop-old gate below skips it). For refcounted
+//!    borrow rhs (Member / container Index / named Ident),
+//!    `emit_rc_inc` since lhs + rhs share ownership — assignment is
+//!    a SHARE, never a move (chunk 564). Type-check with
+//!    permissible coercions:
 //!    - `slot Any + value !Any` → `box_to_any`
 //!    - `slot F64 + value I64` → `coerce_to_f64`
 //!    - `slot {I64|F64} + value Any` → `coerce_any_to_number`
@@ -139,7 +140,6 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
         None => panic!("ssa-lower: assign to unknown ident `{name}`"),
     };
     let v = ctx.lower_expr(value);
-    ctx.consume_if_ident(value);
     apply_borrow_rc_inc(ctx, &v, value);
     let v_ty = ctx.operand_ty(&v);
     check_local_coercion(ctx, &name, snapshot.ty, v_ty);
@@ -179,14 +179,18 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
             !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
         }
         Expr::Member { .. } => true,
-        // A global-slot read is always a borrow — the slot keeps its
-        // reference across the assignment (chunk 558; locals shadow
-        // globals, so the fallback only fires for true slot reads).
-        Expr::Ident(src) => ctx
-            .locals
-            .get(src)
-            .map(|info| !info.moved)
-            .unwrap_or_else(|| ctx.globals.contains_key(src)),
+        // Reading a named binding for an assignment is always a SHARE
+        // (TS has no move semantics): the source keeps its stake and
+        // stays readable, the target takes +1. This holds for alias
+        // and previously-consumed bindings too — their cell is alive
+        // (the canonical owner holds it), so the inc mints the
+        // target's own stake (chunk 564; replaced the consume-then-
+        // skip-inc transfer that let the target's drop-old steal the
+        // source's stake — cross-scope UAF, asm-proven). Non-binding
+        // Idents (lifted closures, fn names) mint owned values and
+        // keep transferring. Global-slot reads borrow the same way
+        // (chunk 558).
+        Expr::Ident(src) => ctx.locals.contains_key(src) || ctx.globals.contains_key(src),
         _ => false,
     };
     if needs_inc {

@@ -969,12 +969,11 @@ mod tests {
     }
 
     #[test]
-    fn borrowed_alias_mid_scope_transfer_errors() {
-        // A Member-init binding borrows obj's field heap. Assigning it
-        // into another slot is a mid-scope transfer of a borrowed
-        // reference — ssa_lower has no retain contract at assign-rhs
-        // yet, so check rejects it (escape via return/throw stays
-        // legal — see consume_escape).
+    fn borrowed_alias_mid_scope_assign_shares_ok() {
+        // A Member-init binding borrows obj's field heap. Assigning
+        // it into another slot is a SHARE — ssa_lower's assign lane
+        // retains borrow-shape rhs (+1, chunk 564), so the alias
+        // keeps borrowing and the target owns its own stake.
         let src = r#"
             type Named = { name: string };
             let o: Named = { name: "n" };
@@ -982,14 +981,7 @@ mod tests {
             let x: string = "y";
             x = n;
         "#;
-        let r = check_src(src);
-        assert!(
-            r.as_ref()
-                .err()
-                .map(|s| s.contains("cannot transfer"))
-                .unwrap_or(false),
-            "expected borrowed-transfer error, got {r:?}"
-        );
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
     }
 
     #[test]
