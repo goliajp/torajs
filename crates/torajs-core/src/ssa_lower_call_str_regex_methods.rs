@@ -315,5 +315,9 @@ fn emit_replace(
         Type::Str,
         None,
     );
+    // RFC 20260705 chunk 552 — release an inline arrow's minted env
+    // in the replacement slot after the runtime call consumed it
+    // (the Str-repl shape is a borrow and stays untouched).
+    ctx.release_owned_temp(args[1], &repl);
     Operand::Value(v)
 }

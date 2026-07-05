@@ -151,6 +151,11 @@ pub(crate) fn try_lower(
         dst_slot,
         dst_arr_ty,
     );
+    // RFC 20260705 chunk 552 — release owned-shape temps after the
+    // loop consumed them (inline arrow's minted env in the cb slot,
+    // Call/New-shaped receiver).
+    ctx.release_owned_temp(args[0], &fn_val);
+    ctx.release_owned_temp(obj, &recv_op);
     Some(Operand::Value(final_dst))
 }
 

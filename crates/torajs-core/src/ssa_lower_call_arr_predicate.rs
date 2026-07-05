@@ -63,7 +63,7 @@ pub(crate) fn try_lower(
         let _ = ctx.lower_expr(t);
     }
     let (result_ty, result_slot) = setup_result_slot(ctx, &name, elem_ty);
-    Some(emit_predicate_iter(
+    let out = emit_predicate_iter(
         ctx,
         &name,
         src_arr,
@@ -72,7 +72,13 @@ pub(crate) fn try_lower(
         fn_ty,
         result_ty,
         result_slot,
-    ))
+    );
+    // RFC 20260705 chunk 552 — release owned-shape temps after the
+    // loop consumed them (inline arrow's minted env in the cb slot,
+    // Call/New-shaped receiver).
+    ctx.release_owned_temp(args[0], &fn_val);
+    ctx.release_owned_temp(obj, &recv_op);
+    Some(out)
 }
 
 /// Allocate the result slot in the entry block + store the per-method default

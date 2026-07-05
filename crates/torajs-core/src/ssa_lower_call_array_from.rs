@@ -302,6 +302,9 @@ fn emit_map_loop(ctx: &mut LowerCtx<'_>, src_arr_op: Operand, args: &[ExprId]) -
     // stay live until src drop here.
     ctx.cur_block = after_blk;
     ctx.emit_drop_value(Operand::Value(src_arr_val), src_arr_ty);
+    // RFC 20260705 chunk 552 — release an inline arrow's minted env
+    // after the loop consumed it.
+    ctx.release_owned_temp(args[1], &fn_val);
     let final_dst = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(dst_arr_ty, Operand::Value(dst_slot), 0),

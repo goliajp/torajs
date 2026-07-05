@@ -372,6 +372,9 @@ fn emit_map_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
 
     ctx.cur_block = after_blk;
+    // RFC 20260705 chunk 552 — release an inline arrow's minted env
+    // after the loop consumed it.
+    ctx.release_owned_temp(args[0], &fn_val);
     Operand::ConstI64(0)
 }
 
