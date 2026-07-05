@@ -301,6 +301,7 @@ fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLayoutEntry> 
         .iter()
         .map(|cl| UserClassLayoutEntry {
             child_offsets: cl.child_offsets.clone(),
+            is_named: cl.is_named,
             // W-J A3b — plumb FieldMetaSpec through to the link layer so
             // it can emit the per-class `.__class_fields_<i>` inner
             // global + per-field name strings + wire the outer entry's

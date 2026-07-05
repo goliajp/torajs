@@ -244,6 +244,14 @@ pub struct ClassLayoutMeta {
     /// will turn this into a `__torajs_class_layouts` entry's
     /// `field_metadata_ptr` slot via per-class rodata emit.
     pub field_metadata: Vec<FieldMetaSpec>,
+    /// L3b #4 — `true` for declared classes, `false` for anonymous
+    /// struct shapes. Lowered into the outer entry's flags word
+    /// (bit 0) so the runtime Obj drop can mirror the typed path's
+    /// cycle-root policy: only named-class instances register in the
+    /// cycle buffer (the lower-emitted anon-struct drop skips the
+    /// buffer scrub for speed, so a runtime-buffered anon struct
+    /// would leave a dangling buffer entry behind).
+    pub is_named: bool,
 }
 
 /// W-J Phase A3 — coarse `Type` → 8-bit `type_tag` for [`FieldMetaSpec`].

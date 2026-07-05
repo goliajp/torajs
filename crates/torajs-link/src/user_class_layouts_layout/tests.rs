@@ -9,6 +9,7 @@ fn entry(offsets: &[u32]) -> UserClassLayoutEntry {
     UserClassLayoutEntry {
         child_offsets: offsets.to_vec(),
         fields: Vec::new(),
+        is_named: true,
     }
 }
 
@@ -24,6 +25,7 @@ fn entry_with_fields(offsets: &[u32], fields: Vec<UserFieldMetaEntry>) -> UserCl
     UserClassLayoutEntry {
         child_offsets: offsets.to_vec(),
         fields,
+        is_named: true,
     }
 }
 
@@ -111,8 +113,11 @@ fn build_payload_emits_inner_outer_count_in_order_no_fields() {
     assert_eq!(u32::from_le_bytes(payload[4..8].try_into().unwrap()), 24);
     // [8..12]  outer entry n_children = 2
     assert_eq!(u32::from_le_bytes(payload[8..12].try_into().unwrap()), 2);
-    // [12..16] outer entry pad = 0
-    assert_eq!(u32::from_le_bytes(payload[12..16].try_into().unwrap()), 0);
+    // [12..16] outer entry flags = NAMED_CLASS (helper builds named)
+    assert_eq!(
+        u32::from_le_bytes(payload[12..16].try_into().unwrap()),
+        ENTRY_FLAG_NAMED_CLASS
+    );
     // [16..24] outer entry child_offsets_ptr = link value
     assert_eq!(
         u64::from_le_bytes(payload[16..24].try_into().unwrap()),
@@ -251,8 +256,11 @@ fn single_entry_with_fields_payload_emits_in_order() {
     assert_eq!(&payload[33..40], &[0u8; 7]);
     // [40..44] outer entry n_children = 0
     assert_eq!(u32::from_le_bytes(payload[40..44].try_into().unwrap()), 0);
-    // [44..48] outer entry pad
-    assert_eq!(u32::from_le_bytes(payload[44..48].try_into().unwrap()), 0);
+    // [44..48] outer entry flags = NAMED_CLASS (helper builds named)
+    assert_eq!(
+        u32::from_le_bytes(payload[44..48].try_into().unwrap()),
+        ENTRY_FLAG_NAMED_CLASS
+    );
     // [48..56] outer entry child_offsets_ptr = NULL (no child_offsets)
     assert_eq!(u64::from_le_bytes(payload[48..56].try_into().unwrap()), 0);
     // [56..64] outer entry field_metadata_ptr = 0xBBBB (LV)

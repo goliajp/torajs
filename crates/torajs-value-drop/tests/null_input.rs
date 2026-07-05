@@ -52,6 +52,7 @@ per_tag_drop_stub!(
     __torajs_date_drop,
     __torajs_symbol_drop,
     __torajs_promise_drop,
+    __torajs_obj_drop_rc,
 );
 
 // Transitive extern: torajs-rc's `__torajs_rc_dec` notifies the weak

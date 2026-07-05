@@ -83,7 +83,8 @@ pub fn build_user_class_layouts_payload(
     pad_buf_to(&mut buf, region_start, layout.outer_file_offset);
     for entry in &layout.entries {
         buf.extend_from_slice(&entry.n_children.to_le_bytes());
-        buf.extend_from_slice(&[0u8; 4]);
+        // L3b #4 — flags word (bit 0 = named class) in the former pad.
+        buf.extend_from_slice(&entry.flags.to_le_bytes());
         let child_offsets_lv: u64 = if entry.inner_vaddr.is_some() {
             take_link_value(class_layouts_link_values, &mut link_idx)
         } else {

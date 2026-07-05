@@ -3,9 +3,10 @@
 //! table, then count.
 
 use super::types::{
-    COUNT_ALIGN, COUNT_SIZE, INNER_ELEM_ALIGN, INNER_ELEM_SIZE, INNER_FIELD_META_ALIGN,
-    INNER_FIELD_META_ELEM_SIZE, INNER_FIELD_META_HEADER_SIZE, OUTER_ENTRY_ALIGN, OUTER_ENTRY_SIZE,
-    UserClassLayoutEntryLayout, UserClassLayoutsLayout, UserFieldMetaPlacement,
+    COUNT_ALIGN, COUNT_SIZE, ENTRY_FLAG_NAMED_CLASS, INNER_ELEM_ALIGN, INNER_ELEM_SIZE,
+    INNER_FIELD_META_ALIGN, INNER_FIELD_META_ELEM_SIZE, INNER_FIELD_META_HEADER_SIZE,
+    OUTER_ENTRY_ALIGN, OUTER_ENTRY_SIZE, UserClassLayoutEntryLayout, UserClassLayoutsLayout,
+    UserFieldMetaPlacement,
 };
 use crate::exec::UserClassLayoutEntry;
 
@@ -92,6 +93,11 @@ pub fn compute_user_class_layouts_layout(
         entries.push(UserClassLayoutEntryLayout {
             n_children,
             child_offsets: entry.child_offsets.clone(),
+            flags: if entry.is_named {
+                ENTRY_FLAG_NAMED_CLASS
+            } else {
+                0
+            },
             inner_vaddr,
             inner_file_offset,
             field_metadata,

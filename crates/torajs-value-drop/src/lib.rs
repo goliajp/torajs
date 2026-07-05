@@ -40,6 +40,7 @@
 //! | `Date`          | `__torajs_date_drop`            | torajs-date       |
 //! | `Symbol`        | `__torajs_symbol_drop`          | torajs-str        |
 //! | `Promise`       | `__torajs_promise_drop`         | torajs-promise    |
+//! | `Obj`           | `__torajs_obj_drop_rc`          | torajs-cycle      |
 //! | `Closure`       | env's `drop_fn` slot at `+16`   | synthesized       |
 //! | (other)         | `__torajs_rc_dec` + libc `free` | torajs-rc + libc  |
 //!
@@ -51,10 +52,8 @@
 //! unconditionally (typed sites own their single reference; this
 //! dispatcher's contract is release-one-reference).
 //!
-//! Fallback (Obj): rc-dec; `free` on rc==0. Leaks Obj field refs —
-//! the L3b #4 remainder closes via a class-layout-table walk
-//! (torajs-cycle already reads `n_children` + `child_offsets` from
-//! the same table).
+//! Fallback (`Reserved6` / corrupt tags only — every live tag has an
+//! arm): rc-dec; `free` on rc==0.
 //!
 //! `Response` is gated `#[cfg(not(target_os = "wasi"))]` (no libcurl
 //! on WASI; mirrors runtime_str.c's `#ifndef __wasi__` gate).
@@ -100,6 +99,7 @@ unsafe extern "C" {
     fn __torajs_date_drop(p: *mut c_void);
     fn __torajs_symbol_drop(p: *mut c_void);
     fn __torajs_promise_drop(p: *mut c_void);
+    fn __torajs_obj_drop_rc(p: *mut c_void);
 }
 
 #[cfg(not(target_os = "wasi"))]
@@ -171,6 +171,13 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
         t if t == Tag::Date as u16 => unsafe { __torajs_date_drop(child) },
         t if t == Tag::Symbol as u16 => unsafe { __torajs_symbol_drop(child) },
         t if t == Tag::Promise as u16 => unsafe { __torajs_promise_drop(child) },
+        t if t == Tag::Obj as u16 => unsafe {
+            // Class instance / anonymous struct — rc-aware layout
+            // walk in torajs-cycle (reads the codegen-emitted
+            // `__torajs_class_layouts` child offsets; mirrors the
+            // typed path's cycle-root buffering for named classes).
+            __torajs_obj_drop_rc(child)
+        },
         t if t == Tag::Closure as u16 => unsafe {
             // Release one reference on the closure env cell. On
             // hit-zero, invoke the Pass-2.5-synthesized
@@ -189,9 +196,8 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
             }
         },
         _ => unsafe {
-            // Obj fallback — rc-dec; on hit-zero free the outer
-            // block. Leaks Obj field refs; the L3b #4 remainder
-            // closes via a class-layout-table child walk.
+            // Reserved6 / corrupt-tag fallback — rc-dec; on hit-zero
+            // free the outer block. Every live tag has its own arm.
             if __torajs_rc_dec(child) != 0 {
                 // Scrub from the cycle root buffer before the memory
                 // goes away — a class Obj buffered as a cycle

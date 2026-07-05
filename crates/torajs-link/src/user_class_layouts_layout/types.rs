@@ -15,10 +15,17 @@ pub const N_CLASS_LAYOUTS_SYM: &str = "___torajs_n_class_layouts";
 /// 16 → 24 to carry a reserved `field_metadata_ptr` slot. W-J Phase
 /// A3b populates that slot with the vaddr of the per-class
 /// `.__class_fields_<i>` inner global (or NULL when the class has
-/// no field metadata).
-///   `u32 n_children` (4) + 4-byte pad + `ptr child_offsets` (8) +
+/// no field metadata). L3b #4 turns the former 4-byte pad at +4
+/// into a `u32 flags` word (bit 0 = named class).
+///   `u32 n_children` (4) + `u32 flags` (4) + `ptr child_offsets` (8) +
 ///   `ptr field_metadata` (8) = 24
 pub(super) const OUTER_ENTRY_SIZE: u32 = 24;
+/// L3b #4 — outer-entry flags bit 0: entry describes a declared
+/// class (vs an anonymous struct shape). The runtime Obj drop reads
+/// this to restrict cycle-root buffering to named-class instances,
+/// mirroring the typed drop path's policy. Runtime mirror:
+/// `torajs-cycle::layout::CLASS_LAYOUT_FLAG_NAMED`.
+pub const ENTRY_FLAG_NAMED_CLASS: u32 = 1;
 /// Outer-table entry alignment.
 pub(super) const OUTER_ENTRY_ALIGN: u32 = 8;
 /// Inner child_offsets array element size — `i32`.
@@ -84,6 +91,9 @@ pub struct UserClassLayoutEntryLayout {
     /// Number of refcounted-pointer fields the entry advertises
     /// (= `child_offsets.len()` — cycle collector consumer).
     pub n_children: u32,
+    /// L3b #4 — outer-entry flags word written at +4 (bit 0 =
+    /// [`ENTRY_FLAG_NAMED_CLASS`]).
+    pub flags: u32,
     /// Cloned offsets for the build pass — written little-endian
     /// into `.__class_offsets_<i>`.
     pub child_offsets: Vec<u32>,

@@ -63,9 +63,11 @@ pub mod arr;
 pub mod buffer;
 pub mod collect;
 pub mod layout;
+pub mod obj_drop;
 
 pub use buffer::{__torajs_cycle_buffer, __torajs_cycle_unbuffer};
 pub use collect::{__torajs_cycle_at_exit_drain, __torajs_cycle_collect};
+pub use obj_drop::__torajs_obj_drop_rc;
 
 // Cross-tier extern stubs for cargo unit tests — `__torajs_value_drop_heap`
 // is provided by runtime_str.c at `tr build` link time; cargo test
@@ -76,5 +78,25 @@ pub use collect::{__torajs_cycle_at_exit_drain, __torajs_cycle_collect};
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
     panic!(
         "torajs-cycle unit-test stub: __torajs_value_drop_heap should not be called from cargo test paths"
+    );
+}
+
+// L3b #4 — `obj_drop.rs` references torajs-rc's dec + torajs-weak's
+// dying hook; neither crate links into the cargo test binary. The
+// null-input path never reaches them, so panicking stubs keep the
+// linker satisfied and misfires loud.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
+    panic!(
+        "torajs-cycle unit-test stub: __torajs_rc_dec should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-cycle unit-test stub: __torajs_weakref_target_dying should not be called from cargo test paths"
     );
 }

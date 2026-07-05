@@ -77,6 +77,11 @@ pub struct UserClassLayoutEntry {
     /// outer entry's `field_metadata_ptr` slot stays NULL and the
     /// reflection helper short-circuits.
     pub fields: Vec<UserFieldMetaEntry>,
+    /// L3b #4 — declared class (`true`) vs anonymous struct shape
+    /// (`false`). Written into the outer entry's flags word (bit 0)
+    /// so the runtime Obj drop can restrict cycle-root buffering to
+    /// named-class instances (mirrors the typed drop's policy).
+    pub is_named: bool,
 }
 
 /// W-J A3b — one per-field metadata row carried into the link layer.

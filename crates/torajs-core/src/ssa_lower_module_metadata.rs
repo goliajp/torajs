@@ -114,6 +114,7 @@ pub(crate) fn populate_class_layouts(
             class_name: (*cname).clone(),
             child_offsets,
             field_metadata,
+            is_named: true,
         });
     }
 
@@ -163,6 +164,7 @@ pub(crate) fn populate_class_layouts(
             class_name: format!("__anon_struct_{sid_idx}"),
             child_offsets,
             field_metadata,
+            is_named: false,
         });
     }
 }

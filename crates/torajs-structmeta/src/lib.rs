@@ -82,14 +82,19 @@ pub use class_name::{__torajs_struct_class_name, ClassNameTableEntry};
 /// `ClassLayout` mirrors. `n_children` + `child_offsets` belong to the
 /// cycle collector; this crate reads `field_metadata_ptr`.
 ///
-/// Layout: `{ u32 n_children; u32 _pad; *const u32 child_offsets;
+/// Layout: `{ u32 n_children; u32 flags; *const u32 child_offsets;
 /// *const u8 field_metadata_ptr }` — 24 bytes, 8-aligned (LLVM struct
-/// rule for `{ i32, i32, ptr, ptr }`). `_pad` is the implicit 4-byte
-/// alignment padding `repr(C)` inserts before the first pointer.
+/// rule for `{ i32, i32, ptr, ptr }`). L3b #4 turned the former
+/// implicit pad at +4 into a flags word (bit 0 = named class); this
+/// crate doesn't read it, but the field is declared so the mirror
+/// stays byte-exact with the emit side.
 #[repr(C)]
 pub struct StructLayoutEntry {
     /// Refcounted-pointer field count (cycle collector consumer).
     pub n_children: u32,
+    /// L3b #4 — bit 0 = declared class (vs anonymous struct shape).
+    /// Consumers: runtime Obj drop's cycle-root gate (torajs-cycle).
+    pub flags: u32,
     /// Byte offsets of refcounted-pointer fields (cycle collector
     /// consumer). `NULL` when the class has none.
     pub child_offsets: *const u32,
@@ -210,6 +215,7 @@ static __torajs_n_class_layouts: u32 = 0;
 #[unsafe(no_mangle)]
 static __torajs_class_layouts: StructLayoutEntry = StructLayoutEntry {
     n_children: 0,
+    flags: 0,
     child_offsets: core::ptr::null(),
     field_metadata_ptr: core::ptr::null(),
 };
@@ -445,6 +451,7 @@ mod tests {
     fn two_field_entry(image: &TwoFieldImage) -> StructLayoutEntry {
         StructLayoutEntry {
             n_children: 0,
+            flags: 0,
             child_offsets: core::ptr::null(),
             field_metadata_ptr: image as *const TwoFieldImage as *const u8,
         }
@@ -504,6 +511,7 @@ mod tests {
             // Entry with NULL field_metadata_ptr → 0.
             let empty = StructLayoutEntry {
                 n_children: 0,
+                flags: 0,
                 child_offsets: core::ptr::null(),
                 field_metadata_ptr: core::ptr::null(),
             };
@@ -564,6 +572,7 @@ mod tests {
             // Entry with NULL field_metadata_ptr → no fields.
             let empty = StructLayoutEntry {
                 n_children: 0,
+                flags: 0,
                 child_offsets: core::ptr::null(),
                 field_metadata_ptr: core::ptr::null(),
             };

@@ -87,16 +87,27 @@ pub struct HeapHeader {
 /// no new chain-fixup rebase target is added (the slot stays as a raw
 /// NULL u64 in the on-disk image). Phase A3 will fill it.
 ///
-/// Entry layout: `{ u32 n_children; u32 _pad; *const u32 child_offsets;
+/// Entry layout: `{ u32 n_children; u32 flags; *const u32 child_offsets;
 /// *const c_void field_metadata_ptr }` — 24 bytes, 8-aligned (matches
-/// LLVM struct rule for `{ i32, i32, ptr, ptr }`).
+/// LLVM struct rule for `{ i32, i32, ptr, ptr }`). L3b #4 turned the
+/// former pad at +4 into a flags word (bit 0 =
+/// [`CLASS_LAYOUT_FLAG_NAMED`]).
 #[repr(C)]
 pub struct ClassLayout {
     pub n_children: u32,
+    /// L3b #4 — bit 0 = declared class (vs anonymous struct shape).
+    /// Emit-side mirror: `torajs-link`'s `ENTRY_FLAG_NAMED_CLASS`.
+    pub flags: u32,
     pub child_offsets: *const u32,
     /// W-J Phase A2 reserved slot — NULL until A3 fills it.
     pub field_metadata_ptr: *const c_void,
 }
+
+/// L3b #4 — [`ClassLayout::flags`] bit 0: entry describes a declared
+/// class. The runtime Obj drop buffers only named-class instances as
+/// cycle roots (the lower-emitted anon-struct drop skips the buffer
+/// scrub for speed — a runtime-buffered anon struct would dangle).
+pub const CLASS_LAYOUT_FLAG_NAMED: u32 = 1;
 
 // SAFETY: `ClassLayout` carries a raw `*const u32` so the auto-derived
 // `Sync` check fails. Two reasons this is sound for our purposes:
@@ -128,6 +139,7 @@ pub static __torajs_n_class_layouts: u32 = 0;
 #[unsafe(no_mangle)]
 pub static __torajs_class_layouts: ClassLayout = ClassLayout {
     n_children: 0,
+    flags: 0,
     child_offsets: core::ptr::null(),
     field_metadata_ptr: core::ptr::null(),
 };

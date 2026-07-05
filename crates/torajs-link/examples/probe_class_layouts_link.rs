@@ -90,6 +90,7 @@ fn main() {
             // (LDR x2, [x1, #8]); empty fields = NULL field_metadata_ptr,
             // no inner field-meta global, no extra rebase target.
             fields: Vec::new(),
+            is_named: true,
         }],
         force_emit_class_layouts_globals: false,
         fn_name_globals: Vec::new(),
