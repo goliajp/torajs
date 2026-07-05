@@ -37,6 +37,8 @@
 //! are bit-identical.
 
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::substr::{FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW};
+use crate::substr_methods::substr_view;
 use torajs_rc::HeapHeader;
 
 /// Bytewise equality on two slices. Same as `a == b` for `&[u8]`
@@ -120,12 +122,20 @@ unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
 pub unsafe extern "C" fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64 {
     // SAFETY: caller's invariant — Type::Str pointers are
     // guaranteed non-null at the SSA-emit layer.
-    let a_len = unsafe { str_len(a) };
-    let b_len = unsafe { str_len(b) };
-    if a_len != b_len {
+    //
+    // Chunk 562 — either operand can be a Substr VIEW/INLINE cell:
+    // dispatch sites holding only the Tag::Str type_tag (the
+    // any-world strict-eq, dynobj key compares) hand views straight
+    // here, and the owned-Str layout read turned the view's
+    // parent-ptr/offset fields into "payload" bytes (`v === "c"`
+    // silently false). Resolve each side view-aware first; the
+    // owned/owned fast path pays one flags test per operand.
+    let (aa, a_latin1) = unsafe { resolve_payload(a) };
+    let (bb, b_latin1) = unsafe { resolve_payload(b) };
+    if aa.len() != bb.len() {
         return 0;
     }
-    if a_len == 0 {
+    if aa.is_empty() {
         // Both empty regardless of encoding flag — by the canonical-
         // encoding invariant zero-length Strs are always Latin-1
         // (max codepoint vacuously 0 ≤ 0xFF), but a defensive
@@ -133,26 +143,41 @@ pub unsafe extern "C" fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64 {
         // legacy caller stamped the wrong flag.
         return 1;
     }
-    let a_latin1 = unsafe { str_is_latin1(a) };
-    let b_latin1 = unsafe { str_is_latin1(b) };
     if a_latin1 != b_latin1 {
         // P11.1-S2.3 canonical short-circuit: distinct encodings
         // ⇒ distinct content under the canonical-encoding
         // invariant maintained by `StringLiteral::encode_from_str`
-        // (build-time) and `__torajs_str_alloc` (runtime). No
-        // need to walk payload bytes.
+        // (build-time) and `__torajs_str_alloc` (runtime); a view
+        // inherits its parent's encoding. No need to walk bytes.
         return 0;
     }
-    let byte_cnt = payload_byte_count(a_len, a_latin1);
-    // SAFETY: lengths are equal and non-zero; payload offsets are
-    // STR_DATA_OFF past the header. Lifetimes are immediate (the
-    // borrow doesn't escape this fn) so the heap blocks don't
-    // need to outlive Rust's stack frame. The byte count derived
-    // from `(length, is_latin1)` matches the layout of both
-    // operands (encoding flag already proven equal above).
-    let aa = unsafe { core::slice::from_raw_parts(a.add(STR_DATA_OFF), byte_cnt) };
-    let bb = unsafe { core::slice::from_raw_parts(b.add(STR_DATA_OFF), byte_cnt) };
     if bytes_eq(aa, bb) { 1 } else { 0 }
+}
+
+/// Resolve a Tag::Str-tagged cell to its `(payload bytes, latin1)`
+/// pair, view-aware: VIEW/INLINE-flagged Substr cells read through
+/// the parent (offset × encoding stride); owned Strs read their own
+/// payload. Byte lengths already carry the encoding stride, so a
+/// Latin-1 and a UTF-16 string of the same code-unit count differ
+/// in byte length (the empty case stays encoding-agnostic).
+///
+/// # Safety
+///
+/// `p` must point at a valid owned-Str or Substr heap block.
+#[inline]
+unsafe fn resolve_payload<'a>(p: *const u8) -> (&'a [u8], bool) {
+    let header = unsafe { &*(p as *const HeapHeader) };
+    if header.flags & (FLAG_SUBSTR_VIEW | FLAG_SUBSTR_INLINE) != 0 {
+        let (bytes, _, latin1) = unsafe { substr_view(p) };
+        (bytes, latin1)
+    } else {
+        let len = unsafe { str_len(p) };
+        let latin1 = unsafe { str_is_latin1(p) };
+        let byte_cnt = payload_byte_count(len, latin1);
+        // SAFETY: caller contract; payload starts at STR_DATA_OFF.
+        let bytes = unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), byte_cnt) };
+        (bytes, latin1)
+    }
 }
 
 /// Heap-Str equals raw-C-string check. Mirrors the pre-rewrite C
