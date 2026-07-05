@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-05T16:22:48.431Z",
+  "generatedAt": "2026-07-05T21:25:32.208Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "0f9d5b55",
-    "commitSubject": "fix: release cb env temps across remaining callback families (RFC 20260705 chunk 552)",
+    "commit": "3999c6b9",
+    "commitSubject": "fix: collect nested let anns for the closure return sniff (RFC 20260705 chunk 556)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "3999c6b9",
+      "subject": "fix: collect nested let anns for the closure return sniff (RFC 20260705 chunk 556)"
+    },
+    {
+      "hash": "e1bf130b",
+      "subject": "fix: park declined dispatchers' lowered receivers for single-eval redispatch (RFC 20260705 chunk 555)"
+    },
+    {
+      "hash": "139b433b",
+      "subject": "feat: contextual typing for chained receivers + user-fn fn-typed params (RFC 20260705 chunk 554)"
+    },
+    {
+      "hash": "7aa4289c",
+      "subject": "fix: normalize __cls( spellings onto the __fn( width class (chunk 553 fix-up)"
+    },
+    {
+      "hash": "a0485b60",
+      "subject": "fix: retag closure-carrying __fn returns to __cls + rc-gate typed closure drop (RFC 20260705 chunk 553)"
+    },
+    {
+      "hash": "0a617970",
+      "subject": "chore(dashboard): session snapshot @ 0f9d5b55 — rotation 23 (548-552: RFC 20260705 operand-ownership — nested-arg/chained-recv release, Any-param ABI box, cb env temps + capture-box outer-stake, default-sort temps, cb family sweep; gate 1193 held)"
+    },
+    {
       "hash": "0f9d5b55",
       "subject": "fix: release cb env temps across remaining callback families (RFC 20260705 chunk 552)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "8c5b8b12",
       "subject": "fix: release nested-call arg and chained-receiver owned temps (RFC 20260705 chunk 548)"
-    },
-    {
-      "hash": "c81debc0",
-      "subject": "chore(dashboard): session snapshot @ 1697a39e — rotation 22 (544-547: RFC 20260705 operand-ownership — toSorted inc, owned-result invariant + fixup, str coercion temps, arr-literal double-lower; gate 1188 -> 1193)"
-    },
-    {
-      "hash": "1697a39e",
-      "subject": "fix: array-literal anchor probe lowered the first element twice (RFC 20260705 chunk 547)"
-    },
-    {
-      "hash": "809103f4",
-      "subject": "fix: release str coercion temps and concat fold intermediates (RFC 20260705 chunk 546)"
-    },
-    {
-      "hash": "e8c1cd66",
-      "subject": "fix: three dedicated-path pass-throughs missed by the owned-result sweep"
-    },
-    {
-      "hash": "c9c56323",
-      "subject": "feat: owned-result invariant — every Call/New result owns its ref (RFC 20260705)"
-    },
-    {
-      "hash": "8c1ca94b",
-      "subject": "fix: toSorted clone missing element rc inc — over-release on refcounted elems"
     }
   ],
-  "headSha": "0f9d5b55",
+  "headSha": "3999c6b9",
   "autorun": {
-    "total": 332,
+    "total": 333,
     "baselineTarget": 10,
-    "bySelf": 327,
+    "bySelf": 328,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783259787-55ea",
-      "at": "2026-07-05T13:56:27Z",
-      "ts": 1783259787,
+      "rotationId": "r-1783268654-4504",
+      "at": "2026-07-05T16:24:14Z",
+      "ts": 1783268654,
       "trigger": "self",
-      "prevHead": "c81debc0",
-      "handoffSha": "sha256:97cf875b777c9b7870f477b8f271dfe1dbd591273036f49eed22653e7a01bc83",
-      "handoffAgeSec": 37,
+      "prevHead": "0a617970",
+      "handoffSha": "sha256:4b8bcc07c91d1aab81801733ef0e2e149f002bde52a059277f2742f18ab23749",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783268654-4504",
+        "at": "2026-07-05T16:24:14Z",
+        "ts": 1783268654,
+        "trigger": "self",
+        "prevHead": "0a617970",
+        "handoffSha": "sha256:4b8bcc07c91d1aab81801733ef0e2e149f002bde52a059277f2742f18ab23749",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783259787-55ea",
         "at": "2026-07-05T13:56:27Z",
@@ -876,17 +887,6 @@
         "prevHead": "c3332753",
         "handoffSha": "sha256:4676d2662336e526916ba9b1012bc813b7daa5ec5503d365e79b532ad261ec6b",
         "handoffAgeSec": 24,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783158614-5e88",
-        "at": "2026-07-04T09:50:14Z",
-        "ts": 1783158614,
-        "trigger": "self",
-        "prevHead": "06614be0",
-        "handoffSha": "sha256:10bffff3758212a22ef23c32b04ab6ffe42b50343ac1381cd35eb08918b89e6e",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
