@@ -33,6 +33,12 @@ pub(crate) fn try_lower(
     // `undefined + 0` (spec: NaN) keeps its current behavior.
     let mut a = a;
     let mut b = b;
+    // RFC 20260705 chunk 546 — operands minted by this lowering
+    // (undefined_to_str here, coerce_to_str temps below) are fresh
+    // owned Strs the concat only borrows; drop them after the
+    // concat call or they leak per evaluation.
+    let mut a_temp = false;
+    let mut b_temp = false;
     let str_shaped = |t: Type| matches!(t, Type::Str | Type::Substr);
     if ctx.binop_left_undef_id.is_some() && str_shaped(ctx.operand_ty(&b)) {
         let v = ctx.f.append_inst(
@@ -42,6 +48,7 @@ pub(crate) fn try_lower(
             None,
         );
         a = Operand::Value(v);
+        a_temp = true;
     }
     if ctx.binop_right_undef_id.is_some() && str_shaped(ctx.operand_ty(&a)) {
         let v = ctx.f.append_inst(
@@ -51,6 +58,7 @@ pub(crate) fn try_lower(
             None,
         );
         b = Operand::Value(v);
+        b_temp = true;
     }
     let a_ty = ctx.operand_ty(&a);
     let b_ty = ctx.operand_ty(&b);
@@ -102,42 +110,59 @@ pub(crate) fn try_lower(
         };
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(target, vec![a, b]),
+            InstKind::Call(target, vec![a.clone(), b.clone()]),
             Type::Str,
             None,
         );
+        drop_minted_temps(ctx, a, a_temp, b, b_temp);
         return Some(Operand::Value(v));
     }
     if a_ty == Type::Str && b_ty == Type::Str {
         let concat = ctx.intrinsics.str_concat;
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(concat, vec![a, b]),
+            InstKind::Call(concat, vec![a.clone(), b.clone()]),
             Type::Str,
             None,
         );
+        drop_minted_temps(ctx, a, a_temp, b, b_temp);
         return Some(Operand::Value(v));
     }
     if mixed_string {
-        let a_str = coerce_to_str(ctx, a);
-        let b_str = coerce_to_str(ctx, b);
+        let (a_str, a_fresh) = coerce_to_str(ctx, a);
+        let (b_str, b_fresh) = coerce_to_str(ctx, b);
         let concat = ctx.intrinsics.str_concat;
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(concat, vec![a_str, b_str]),
+            InstKind::Call(concat, vec![a_str.clone(), b_str.clone()]),
             Type::Str,
             None,
         );
+        drop_minted_temps(ctx, a_str, a_fresh || a_temp, b_str, b_fresh || b_temp);
         return Some(Operand::Value(v));
     }
     None
 }
 
+/// Release the fresh owned Str temps this lowering minted once the
+/// concat has copied their bytes (the runtime helpers borrow their
+/// operands). Non-minted operands are caller-owned — untouched.
+fn drop_minted_temps(ctx: &mut LowerCtx, a: Operand, a_temp: bool, b: Operand, b_temp: bool) {
+    if a_temp {
+        ctx.emit_drop_value(a, Type::Str);
+    }
+    if b_temp {
+        ctx.emit_drop_value(b, Type::Str);
+    }
+}
+
 /// One operand → owned Str for the mixed-concat path (body is the
-/// pre-split `coerce` closure, verbatim).
-fn coerce_to_str(ctx: &mut LowerCtx, v: Operand) -> Operand {
+/// pre-split `coerce` closure, verbatim). The bool is true when the
+/// Str was minted here (fresh owned — caller drops it post-concat);
+/// pass-throughs and interned literals answer false.
+fn coerce_to_str(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
     match ctx.operand_ty(&v) {
-        Type::Str => v,
+        Type::Str => (v, false),
         Type::Substr => {
             let r = ctx.f.append_inst(
                 ctx.cur_block,
@@ -145,7 +170,7 @@ fn coerce_to_str(ctx: &mut LowerCtx, v: Operand) -> Operand {
                 Type::Str,
                 None,
             );
-            Operand::Value(r)
+            (Operand::Value(r), true)
         }
         Type::I64 => {
             let r = ctx.f.append_inst(
@@ -154,7 +179,7 @@ fn coerce_to_str(ctx: &mut LowerCtx, v: Operand) -> Operand {
                 Type::Str,
                 None,
             );
-            Operand::Value(r)
+            (Operand::Value(r), true)
         }
         Type::F64 => {
             let r = ctx.f.append_inst(
@@ -163,7 +188,7 @@ fn coerce_to_str(ctx: &mut LowerCtx, v: Operand) -> Operand {
                 Type::Str,
                 None,
             );
-            Operand::Value(r)
+            (Operand::Value(r), true)
         }
         Type::Bool => {
             let r = ctx.f.append_inst(
@@ -172,7 +197,7 @@ fn coerce_to_str(ctx: &mut LowerCtx, v: Operand) -> Operand {
                 Type::Str,
                 None,
             );
-            Operand::Value(r)
+            (Operand::Value(r), true)
         }
         Type::BigInt => {
             // V3-18 m3.c — BigInt → String concat. The
@@ -184,7 +209,7 @@ fn coerce_to_str(ctx: &mut LowerCtx, v: Operand) -> Operand {
                 Type::Str,
                 None,
             );
-            Operand::Value(r)
+            (Operand::Value(r), true)
         }
         Type::Ptr if matches!(v, Operand::ConstPtrNull) => {
             // V3-18 m1.d — null literal → "null".
@@ -194,7 +219,7 @@ fn coerce_to_str(ctx: &mut LowerCtx, v: Operand) -> Operand {
                 Type::Str,
                 None,
             );
-            Operand::Value(r)
+            (Operand::Value(r), true)
         }
         // S138 — Arr / Obj sides reuse the S137 dispatch.
         Type::Arr(elem_arr_id) => {
@@ -214,9 +239,12 @@ fn coerce_to_str(ctx: &mut LowerCtx, v: Operand) -> Operand {
                 Type::Str,
                 None,
             );
-            Operand::Value(r)
+            (Operand::Value(r), true)
         }
-        Type::Obj(_) => Operand::Value(ctx.intern_string_literal("[object Object]")),
+        Type::Obj(_) => (
+            Operand::Value(ctx.intern_string_literal("[object Object]")),
+            false,
+        ),
         other => panic!("ssa-lower: mixed string concat unexpected type {other:?}"),
     }
 }

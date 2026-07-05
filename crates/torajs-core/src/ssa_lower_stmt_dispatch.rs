@@ -152,18 +152,23 @@ impl<'a> LowerCtx<'a> {
                 // lowering answers an owned value (fresh alloc, +1
                 // return retain, chaining +1, or the borrow sites'
                 // explicit owned-result inc), so a statement-position
-                // Call/New result is unconditionally released. Other
-                // expression shapes (Ident / Member / Index / Assign
-                // reads) answer borrows and must not be dropped;
-                // Ternary/Nullish over Calls stay on the L3b ledger
-                // with the nested-chain inner +1 (`m.set(a).set(b)`).
+                // Call/New result is unconditionally released; BinOp
+                // results are fresh too (str concat) except the
+                // short-circuit LAnd/LOr which answer an operand
+                // (borrow). Other expression shapes (Ident / Member /
+                // Index / Assign reads) answer borrows and must not
+                // be dropped; Ternary/Nullish over Calls stay on the
+                // L3b ledger with the nested-chain inner +1
+                // (`m.set(a).set(b)`).
                 let ty = self.operand_ty(&op);
-                if !ty.is_copy()
-                    && matches!(
-                        self.ast.get_expr(*eid),
-                        Expr::Call { .. } | Expr::New { .. }
-                    )
-                {
+                let owned_shape = match self.ast.get_expr(*eid) {
+                    Expr::Call { .. } | Expr::New { .. } => true,
+                    Expr::BinOp { op, .. } => {
+                        !matches!(op, crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr)
+                    }
+                    _ => false,
+                };
+                if !ty.is_copy() && owned_shape {
                     self.emit_drop_value(op, ty);
                 }
             }

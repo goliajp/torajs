@@ -36,6 +36,11 @@ pub(crate) fn try_dispatch(
             return Some(recv_op);
         }
         let mut acc = recv_op;
+        // RFC 20260705 chunk 546 — the left-fold mints a fresh Str
+        // per round; every non-final acc is a temp the next concat
+        // only borrows. Drop it post-concat (round 0's acc is the
+        // caller-owned receiver — untouched).
+        let mut acc_fresh = false;
         for &a in args {
             // S212 — explicit `undefined` arg per ES §22.1.3.4
             // step 3.a: each arg is ToString'd, undefined →
@@ -51,11 +56,15 @@ pub(crate) fn try_dispatch(
             };
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.str_concat, vec![acc, other]),
+                InstKind::Call(ctx.intrinsics.str_concat, vec![acc.clone(), other]),
                 Type::Str,
                 None,
             );
+            if acc_fresh {
+                ctx.emit_drop_value(acc, Type::Str);
+            }
             acc = Operand::Value(v);
+            acc_fresh = true;
         }
         return Some(acc);
     }
