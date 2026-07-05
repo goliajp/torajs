@@ -36,12 +36,25 @@
 //! | `MapIter`       | `__torajs_map_iter_drop`        | torajs-collections|
 //! | `ArrIter`       | `__torajs_arr_iter_drop`        | torajs-arr        |
 //! | `DynObj`        | `__torajs_dynobj_drop`          | torajs-dynobj     |
+//! | `RegExp`        | `__torajs_regex_drop`           | torajs-regex      |
+//! | `Date`          | `__torajs_date_drop`            | torajs-date       |
+//! | `Symbol`        | `__torajs_symbol_drop`          | torajs-str        |
+//! | `Promise`       | `__torajs_promise_drop`         | torajs-promise    |
+//! | `Closure`       | env's `drop_fn` slot at `+16`   | synthesized       |
 //! | (other)         | `__torajs_rc_dec` + libc `free` | torajs-rc + libc  |
 //!
-//! Fallback (Obj / Substr / Closure / RegExp / Date): rc-dec;
-//! `free` on rc==0. May leak inner refs for types with nested heap
-//! children — V3-10.b tightens this through the per-type drop hooks
-//! at the call site (array element walks, dynobj entry walks, etc.).
+//! `Closure` has no fixed extern: each closure env carries the
+//! address of its Pass-2.5-synthesized `__env_drop_<closure>` at
+//! [`CLOSURE_DROP_FN_OFF`] — the same indirect call the
+//! lower-emitted typed drop makes (`emit_drop_closure`), rc-dec
+//! gated here because the synthesized body walks + frees
+//! unconditionally (typed sites own their single reference; this
+//! dispatcher's contract is release-one-reference).
+//!
+//! Fallback (Obj): rc-dec; `free` on rc==0. Leaks Obj field refs —
+//! the L3b #4 remainder closes via a class-layout-table walk
+//! (torajs-cycle already reads `n_children` + `child_offsets` from
+//! the same table).
 //!
 //! `Response` is gated `#[cfg(not(target_os = "wasi"))]` (no libcurl
 //! on WASI; mirrors runtime_str.c's `#ifndef __wasi__` gate).
@@ -49,6 +62,12 @@
 use core::ffi::c_void;
 
 use torajs_rc::{__torajs_rc_dec, ARR_KIND_HEAP, FLAG_ARR_ANY, HeapHeader, Tag};
+
+/// Byte offset of the synthesized drop-fn pointer in a Closure env
+/// block — ABI mirror of `torajs-core::ssa_lower::CLOSURE_DROP_FN_OFF`
+/// (`{ hdr | fn_ptr@8 | drop_fn@16 | props@24 | boxed_entry@32 |
+/// caps@40+ }`, see the `Tag::Closure` doc in torajs-rc).
+const CLOSURE_DROP_FN_OFF: usize = 16;
 
 // v0.7-A2 step 6b — force-link mmalloc for the `__torajs_libc_free`
 // extern below.
@@ -77,6 +96,10 @@ unsafe extern "C" {
     fn __torajs_arr_iter_drop(p: *mut c_void);
     fn __torajs_dynobj_drop(p: *mut c_void);
     fn __torajs_accessor_drop(p: *mut c_void);
+    fn __torajs_regex_drop(p: *mut c_void);
+    fn __torajs_date_drop(p: *mut c_void);
+    fn __torajs_symbol_drop(p: *mut c_void);
+    fn __torajs_promise_drop(p: *mut c_void);
 }
 
 #[cfg(not(target_os = "wasi"))]
@@ -144,12 +167,31 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
         t if t == Tag::ArrIter as u16 => unsafe { __torajs_arr_iter_drop(child) },
         t if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_drop(child) },
         t if t == Tag::AccessorPair as u16 => unsafe { __torajs_accessor_drop(child) },
+        t if t == Tag::RegExp as u16 => unsafe { __torajs_regex_drop(child) },
+        t if t == Tag::Date as u16 => unsafe { __torajs_date_drop(child) },
+        t if t == Tag::Symbol as u16 => unsafe { __torajs_symbol_drop(child) },
+        t if t == Tag::Promise as u16 => unsafe { __torajs_promise_drop(child) },
+        t if t == Tag::Closure as u16 => unsafe {
+            // Release one reference on the closure env cell. On
+            // hit-zero, invoke the Pass-2.5-synthesized
+            // `__env_drop_<closure>` whose address every construction
+            // site stores at +16 (walks the props dynobj + Copy
+            // capture boxes, then frees the env block) — the same
+            // indirect call `emit_drop_closure` emits on the typed
+            // path. The synthesized body has no rc gate of its own
+            // (typed sites own their single reference), so the dec
+            // gate lives here.
+            if __torajs_rc_dec(child) != 0 {
+                let drop_fn: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(
+                    (child.cast::<u8>().add(CLOSURE_DROP_FN_OFF) as *const usize).read(),
+                );
+                drop_fn(child);
+            }
+        },
         _ => unsafe {
-            // Obj / Substr / Closure / RegExp / Date fallback —
-            // rc-dec; on hit-zero free the outer block. May leak inner
-            // refs for nested-heap types; V3-10.b call-site walks
-            // handle that (per-type drop hooks fire from array element /
-            // dynobj entry walks).
+            // Obj fallback — rc-dec; on hit-zero free the outer
+            // block. Leaks Obj field refs; the L3b #4 remainder
+            // closes via a class-layout-table child walk.
             if __torajs_rc_dec(child) != 0 {
                 // Scrub from the cycle root buffer before the memory
                 // goes away — a class Obj buffered as a cycle

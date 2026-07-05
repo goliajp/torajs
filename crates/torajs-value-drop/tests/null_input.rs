@@ -48,6 +48,10 @@ per_tag_drop_stub!(
     __torajs_dynobj_drop,
     __torajs_accessor_drop,
     __torajs_response_drop,
+    __torajs_regex_drop,
+    __torajs_date_drop,
+    __torajs_symbol_drop,
+    __torajs_promise_drop,
 );
 
 // Transitive extern: torajs-rc's `__torajs_rc_dec` notifies the weak
