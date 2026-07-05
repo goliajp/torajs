@@ -54,31 +54,43 @@ pub(super) fn emit_sort_pred(
             // no `*_to_str` exists for them yet and the spec
             // result (`"[object Object]"`-tied tie-break) is
             // niche enough to leave behind a follow-up.
+            // The second bool marks a minted temp the compare must
+            // release (RFC 20260705 chunk 551) — the Str/Substr arm
+            // answers the element borrow itself and is not dropped.
             let to_str = |ctx: &mut LowerCtx, v, ty: Type| match ty {
-                Type::Str | Type::Substr => Some(v),
-                Type::I64 => Some(ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.i64_to_str, vec![Operand::Value(v)]),
-                    Type::Str,
-                    None,
+                Type::Str | Type::Substr => Some((v, false)),
+                Type::I64 => Some((
+                    ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.i64_to_str, vec![Operand::Value(v)]),
+                        Type::Str,
+                        None,
+                    ),
+                    true,
                 )),
-                Type::F64 => Some(ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.f64_to_str, vec![Operand::Value(v)]),
-                    Type::Str,
-                    None,
+                Type::F64 => Some((
+                    ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.f64_to_str, vec![Operand::Value(v)]),
+                        Type::Str,
+                        None,
+                    ),
+                    true,
                 )),
-                Type::Bool => Some(ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.bool_to_str, vec![Operand::Value(v)]),
-                    Type::Str,
-                    None,
+                Type::Bool => Some((
+                    ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.bool_to_str, vec![Operand::Value(v)]),
+                        Type::Str,
+                        None,
+                    ),
+                    true,
                 )),
                 _ => None,
             };
             let prev_s = to_str(ctx, prev, elem_ty);
             let cur_s = to_str(ctx, cur, elem_ty);
-            if let (Some(ps), Some(cs)) = (prev_s, cur_s) {
+            if let (Some((ps, ps_minted)), Some((cs, cs_minted))) = (prev_s, cur_s) {
                 let r = ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::Call(
@@ -88,6 +100,12 @@ pub(super) fn emit_sort_pred(
                     Type::I64,
                     None,
                 );
+                if ps_minted {
+                    ctx.emit_drop_value(Operand::Value(ps), Type::Str);
+                }
+                if cs_minted {
+                    ctx.emit_drop_value(Operand::Value(cs), Type::Str);
+                }
                 ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::ICmp(IPred::Sgt, Operand::Value(r), Operand::ConstI64(0)),
