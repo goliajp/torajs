@@ -361,6 +361,14 @@ pub(crate) fn infer_expr_ann_with(
                     ) => "string",
                     ("string", _, "startsWith" | "endsWith" | "includes") => "boolean",
                     ("string", _, "indexOf" | "lastIndexOf" | "charCodeAt") => "number",
+                    // RFC 20260705 chunk 557 — conversion methods on known
+                    // primitive/array receivers (`j.toString()` inside a
+                    // string-concat chain bailed the whole sniff → Void).
+                    // Receivers whose ann we can't resolve still bail —
+                    // user classes may override toString with another shape.
+                    ("number" | "boolean" | "string", _, "toString" | "toLocaleString") => "string",
+                    ("number", _, "toFixed" | "toPrecision" | "toExponential") => "string",
+                    (_, Some(_), "toString" | "toLocaleString") => "string",
                     (_, Some(e), "pop" | "shift" | "at" | "find" | "findLast") => e,
                     (
                         _,
