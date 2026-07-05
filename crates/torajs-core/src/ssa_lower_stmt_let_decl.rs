@@ -167,7 +167,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
         init_val
     };
     let init_val = if boxed_any {
-        if ctx.operand_ty(&init_val).is_refcounted() && !any_init_transfers(ctx, init) {
+        if ctx.operand_ty(&init_val).is_refcounted() && !ctx.expr_transfers_ownership(init) {
             ctx.emit_rc_inc(init_val.clone());
         }
         ctx.box_to_any_from_expr(init, init_val)
@@ -230,26 +230,6 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     );
     let top = ctx.scope_stack.last_mut().expect("scope frame");
     top.push(name.to_string());
-}
-
-/// True when an `any`-annotated init's lowered value is an owned temp
-/// whose reference transfers straight into the box (no +1 needed):
-/// Call / New / BinOp / Closure per [`LowerCtx::expr_owned_shape`],
-/// string indexing (fresh Substr view, chunk 561), and string literals
-/// (static cells — rc traffic is a no-op, skip the inc). Borrow shapes
-/// (Ident / Member / container Index) answer false and take +1 before
-/// boxing (chunk 563).
-fn any_init_transfers(ctx: &LowerCtx, init: ExprId) -> bool {
-    if ctx.expr_owned_shape(init) {
-        return true;
-    }
-    match ctx.ast.get_expr(init) {
-        Expr::Index { obj, .. } => {
-            matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
-        }
-        Expr::String(_) => true,
-        _ => false,
-    }
 }
 
 /// K.3 / K.4 — top-level data global: main fn + name in `globals` emits

@@ -37,7 +37,11 @@ impl<'a> LowerCtx<'a> {
             None,
         );
         let v_raw = self.lower_expr(arg_id);
-        self.consume_if_ident(arg_id);
+        // Chunk 565 — pushing a value is a SHARE of the source
+        // binding, never a move: no consume. Borrow-shape args take
+        // +1 for the slot; owned temps (Call / BinOp / view mints)
+        // transfer their fresh reference into the slot instead.
+        let transfers = self.expr_transfers_ownership(arg_id);
         let v_ty = self.operand_ty(&v_raw);
         let (tag, push_val): (i64, Operand) = match v_ty {
             Type::I64 | Type::I32 => (2, v_raw),
@@ -59,23 +63,13 @@ impl<'a> LowerCtx<'a> {
                 );
                 (1, Operand::Value(zext))
             }
-            _ if v_ty.is_refcounted() => {
-                // ANY_HEAP slot — bump rc so the array's slot owns
-                // a balanced ref.
-                self.emit_rc_inc(v_raw.clone());
-                (4, v_raw)
-            }
-            Type::Ptr => {
-                if matches!(v_raw, Operand::ConstPtrNull) {
-                    (0, Operand::ConstI64(0))
-                } else {
-                    (4, v_raw)
-                }
-            }
+            // Type::Any must be handled BEFORE the is_refcounted
+            // catch-all (Type::Any is itself refcounted — the
+            // catch-all's raw header inc only worked by grace of
+            // rc_inc's nan_box_is_cell_like guard, and stamped
+            // tag=4 over immediates). Decode the (tag, value) pair
+            // so the slot records the real runtime tag.
             Type::Any => {
-                // Already a NaN-boxed AnyValue — decode the
-                // (tag, value) pair via the unbox shims and call
-                // arr_push_any directly.
                 let tag_v = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
@@ -88,6 +82,15 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
+                if !transfers {
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_payload_rc_inc,
+                            vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                        ),
+                    );
+                }
                 let new_arr = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(
@@ -112,6 +115,23 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 return Operand::Value(new_len);
+            }
+            _ if v_ty.is_refcounted() => {
+                // ANY_HEAP slot — a borrow-shape arg takes +1 so
+                // the slot owns a balanced ref while the source
+                // binding keeps its stake; an owned temp transfers
+                // its fresh reference (chunk 565).
+                if !transfers {
+                    self.emit_rc_inc(v_raw.clone());
+                }
+                (4, v_raw)
+            }
+            Type::Ptr => {
+                if matches!(v_raw, Operand::ConstPtrNull) {
+                    (0, Operand::ConstI64(0))
+                } else {
+                    (4, v_raw)
+                }
             }
             _ => panic!("ssa-lower: Array<Any>.push unsupported value type {v_ty:?}"),
         };

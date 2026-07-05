@@ -154,4 +154,26 @@ impl<'a> LowerCtx<'a> {
         }
         self.emit_drop_value(op.clone(), ty);
     }
+
+    /// True when the expression's lowered value is an owned temp
+    /// whose reference transfers straight into an owning consumer
+    /// (an `any` box, an `Arr<Any>` slot) with no +1 needed:
+    /// Call / New / BinOp / Closure per [`Self::expr_owned_shape`],
+    /// string indexing (fresh Substr view, chunk 561), and string
+    /// literals (static cells — rc traffic is a no-op, skip the
+    /// inc). Borrow shapes (Ident / Member / container Index)
+    /// answer false; the consumer takes +1 so the source binding
+    /// keeps its own stake (chunks 563/565).
+    pub(crate) fn expr_transfers_ownership(&self, eid: ExprId) -> bool {
+        if self.expr_owned_shape(eid) {
+            return true;
+        }
+        match self.ast.get_expr(eid) {
+            Expr::Index { obj, .. } => {
+                matches!(self.expr_types.get(obj), Some(crate::check::Type::String))
+            }
+            Expr::String(_) => true,
+            _ => false,
+        }
+    }
 }

@@ -32,8 +32,14 @@ impl<'a> LowerCtx<'a> {
         recv_ty: Type,
     ) -> Operand {
         let v_raw = self.lower_expr(args[0]);
-        self.consume_if_ident(args[0]);
+        // Chunk 565 — filling shares the value: no consume. The
+        // runtime helper rc_inc's per replaced slot, so a borrow-
+        // shape arg needs no caller-side action (the source binding
+        // keeps its stake); an owned temp's own reference is
+        // surplus and drops after the fill.
+        let transfers = self.expr_transfers_ownership(args[0]);
         let v_ty = self.operand_ty(&v_raw);
+        let v_keep = v_raw.clone();
         let (tag_op, val_op): (Operand, Operand) = match v_ty {
             Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw),
             Type::F64 => {
@@ -54,23 +60,10 @@ impl<'a> LowerCtx<'a> {
                 );
                 (Operand::ConstI64(1), Operand::Value(zext))
             }
-            _ if v_ty.is_refcounted() => {
-                // ANY_HEAP value — the runtime helper rc_inc's per
-                // replaced slot, so the caller-side rc balance is
-                // the value's pre-existing ref (which `consume_if
-                // _ident` already shifted). No extra inc here.
-                (Operand::ConstI64(4), v_raw)
-            }
-            Type::Ptr => {
-                if matches!(v_raw, Operand::ConstPtrNull) {
-                    (Operand::ConstI64(0), Operand::ConstI64(0))
-                } else {
-                    (Operand::ConstI64(4), v_raw)
-                }
-            }
+            // Type::Any must be handled BEFORE the is_refcounted
+            // catch-all (Type::Any is itself refcounted; the
+            // catch-all would stamp tag=4 over immediates).
             Type::Any => {
-                // Already a NaN-boxed AnyValue — split into (tag,
-                // value) so the helper can re-pack uniformly.
                 let tag_v = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
@@ -84,6 +77,20 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 (Operand::Value(tag_v), Operand::Value(val_v))
+            }
+            _ if v_ty.is_refcounted() => {
+                // ANY_HEAP value — per-slot ownership comes from
+                // the runtime helper's inc; the caller-side value
+                // reference is untouched here (borrow stays with
+                // the source binding; an owned temp drops below).
+                (Operand::ConstI64(4), v_raw)
+            }
+            Type::Ptr => {
+                if matches!(v_raw, Operand::ConstPtrNull) {
+                    (Operand::ConstI64(0), Operand::ConstI64(0))
+                } else {
+                    (Operand::ConstI64(4), v_raw)
+                }
             }
             _ => panic!("ssa-lower: Array<Any>.fill unsupported value type {v_ty:?}"),
         };
@@ -122,6 +129,12 @@ impl<'a> LowerCtx<'a> {
             recv_ty,
             None,
         );
+        // An owned-temp fill value has served its purpose — the
+        // slots hold their own refs from the runtime helper; the
+        // temp's surplus reference releases here (chunk 565).
+        if transfers && v_ty.is_refcounted() {
+            self.emit_drop_value(v_keep, v_ty);
+        }
         // RFC 20260705 owned-result invariant: chaining result
         // carries its own ref.
         self.emit_rc_inc(Operand::Value(v));
