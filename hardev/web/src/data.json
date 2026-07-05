@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-05T13:55:02.912Z",
+  "generatedAt": "2026-07-05T16:22:48.431Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "1697a39e",
-    "commitSubject": "fix: array-literal anchor probe lowered the first element twice (RFC 20260705 chunk 547)",
+    "commit": "0f9d5b55",
+    "commitSubject": "fix: release cb env temps across remaining callback families (RFC 20260705 chunk 552)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "0f9d5b55",
+      "subject": "fix: release cb env temps across remaining callback families (RFC 20260705 chunk 552)"
+    },
+    {
+      "hash": "a4738f66",
+      "subject": "fix: release default-sort ToString compare temps (RFC 20260705 chunk 551)"
+    },
+    {
+      "hash": "9ac8a71c",
+      "subject": "fix: capture-box outer-stake protocol (RFC 20260705 chunk 550 fix-up)"
+    },
+    {
+      "hash": "1c84c06b",
+      "subject": "fix: release per-call closure env temps in cb slots (RFC 20260705 chunk 550)"
+    },
+    {
+      "hash": "921303d9",
+      "subject": "fix: box concrete args at Any-param positions in call_fn_value (RFC 20260705 chunk 549)"
+    },
+    {
+      "hash": "8c5b8b12",
+      "subject": "fix: release nested-call arg and chained-receiver owned temps (RFC 20260705 chunk 548)"
+    },
+    {
+      "hash": "c81debc0",
+      "subject": "chore(dashboard): session snapshot @ 1697a39e — rotation 22 (544-547: RFC 20260705 operand-ownership — toSorted inc, owned-result invariant + fixup, str coercion temps, arr-literal double-lower; gate 1188 -> 1193)"
+    },
+    {
       "hash": "1697a39e",
       "subject": "fix: array-literal anchor probe lowered the first element twice (RFC 20260705 chunk 547)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "8c1ca94b",
       "subject": "fix: toSorted clone missing element rc inc — over-release on refcounted elems"
-    },
-    {
-      "hash": "a7eae0e5",
-      "subject": "chore(dashboard): session snapshot @ c9c92708 — rotation 21 (540-543: ownership sweep — L3b #7 refuted by runtime probe, capture ownership phase 1, expr-stmt discard + namespace-static fix, dynobj es property order; gate 1184 -> 1187)"
-    },
-    {
-      "hash": "c9c92708",
-      "subject": "feat: es property order for dynobj print faces — integer keys ascending first"
-    },
-    {
-      "hash": "8627ee35",
-      "subject": "fix: exclude namespace statics from the any-call discard drop"
-    },
-    {
-      "hash": "0ffccce2",
-      "subject": "fix: release owned results discarded by expression statements (map/set chaining, any calls)"
-    },
-    {
-      "hash": "cddf7618",
-      "subject": "feat: closure env owns non-copy captures — env-drop walk + sibling stake (RFC 20260705 phase 1)"
-    },
-    {
-      "hash": "9cd3243c",
-      "subject": "test: for-of src temp ownership coverage fixtures (L3b #7 refuted by runtime probe)"
-    },
-    {
-      "hash": "97cd1bfe",
-      "subject": "chore(dashboard): session snapshot @ 2cf17358 — rotation 20 (535-539: inspect trunk close — indent threading, Arr<Any> + typed break/wrap 80-col est model, key quote + JSON escape, Map/Set indent; gate 1177 -> 1182)"
     }
   ],
-  "headSha": "1697a39e",
+  "headSha": "0f9d5b55",
   "autorun": {
-    "total": 331,
+    "total": 332,
     "baselineTarget": 10,
-    "bySelf": 326,
+    "bySelf": 327,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783252164-5a40",
-      "at": "2026-07-05T11:49:24Z",
-      "ts": 1783252164,
+      "rotationId": "r-1783259787-55ea",
+      "at": "2026-07-05T13:56:27Z",
+      "ts": 1783259787,
       "trigger": "self",
-      "prevHead": "a7eae0e5",
-      "handoffSha": "sha256:26c46e2987935dc29cca778317ab87facfc6acec6f5c74394b79a390d0529175",
-      "handoffAgeSec": 22,
+      "prevHead": "c81debc0",
+      "handoffSha": "sha256:97cf875b777c9b7870f477b8f271dfe1dbd591273036f49eed22653e7a01bc83",
+      "handoffAgeSec": 37,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783259787-55ea",
+        "at": "2026-07-05T13:56:27Z",
+        "ts": 1783259787,
+        "trigger": "self",
+        "prevHead": "c81debc0",
+        "handoffSha": "sha256:97cf875b777c9b7870f477b8f271dfe1dbd591273036f49eed22653e7a01bc83",
+        "handoffAgeSec": 37,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783252164-5a40",
         "at": "2026-07-05T11:49:24Z",
@@ -876,17 +887,6 @@
         "prevHead": "06614be0",
         "handoffSha": "sha256:10bffff3758212a22ef23c32b04ab6ffe42b50343ac1381cd35eb08918b89e6e",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783150476-64f6",
-        "at": "2026-07-04T07:34:36Z",
-        "ts": 1783150476,
-        "trigger": "self",
-        "prevHead": "28d98fb7",
-        "handoffSha": "sha256:603c866f16a02f4bce29d6ed83bf7da97e8b91c21d499ea2a0fa8347ba7fdd67",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
