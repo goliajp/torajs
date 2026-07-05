@@ -101,8 +101,9 @@ fn lower_empty(ctx: &mut LowerCtx<'_>) -> Operand {
 
 fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) -> Operand {
     let n = element_ids.len() as i64;
-    let anchor_ty = probe_anchor_ty(ctx, element_ids);
-    let (mut elem_vals, elem_inc_after) = lower_no_spread_elements(ctx, element_ids, anchor_ty);
+    let (anchor_ty, probed) = probe_anchor_ty(ctx, element_ids);
+    let (mut elem_vals, elem_inc_after) =
+        lower_no_spread_elements(ctx, element_ids, anchor_ty, probed);
     let elem_ty = compute_elem_ty(ctx, anchor_ty, &elem_vals, eid);
     if elem_ty == Type::F64 {
         coerce_elem_vals_to_f64(ctx, &mut elem_vals);
@@ -133,25 +134,36 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
     Operand::Value(arr_ptr)
 }
 
-fn probe_anchor_ty(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId]) -> Option<Type> {
-    for eid in element_ids {
+/// Lower the first non-empty-array element to learn the anchor type.
+/// The lowered operand is returned alongside (keyed by its element
+/// index) so the collect loop reuses it instead of lowering the
+/// expression again — a second lower re-emits the element's SSA
+/// (double side-effect: `[step(), ..]` called step twice) and leaked
+/// the first evaluation's owned result (RFC 20260705 chunk 547).
+fn probe_anchor_ty(
+    ctx: &mut LowerCtx<'_>,
+    element_ids: &[ExprId],
+) -> (Option<Type>, Option<(usize, Operand)>) {
+    for (idx, eid) in element_ids.iter().enumerate() {
         if matches!(ctx.ast.get_expr(*eid), Expr::Array(els) if els.is_empty()) {
             continue;
         }
         let probe = ctx.lower_expr(*eid);
-        return Some(ctx.operand_ty(&probe));
+        let ty = ctx.operand_ty(&probe);
+        return (Some(ty), Some((idx, probe)));
     }
-    None
+    (None, None)
 }
 
 fn lower_no_spread_elements(
     ctx: &mut LowerCtx<'_>,
     element_ids: &[ExprId],
     anchor_ty: Option<Type>,
+    probed: Option<(usize, Operand)>,
 ) -> (Vec<Operand>, Vec<bool>) {
     let mut elem_vals: Vec<Operand> = Vec::with_capacity(element_ids.len());
     let mut elem_inc_after: Vec<bool> = Vec::with_capacity(element_ids.len());
-    for eid in element_ids {
+    for (idx, eid) in element_ids.iter().enumerate() {
         if matches!(ctx.ast.get_expr(*eid), Expr::Array(els) if els.is_empty())
             && let Some(Type::Arr(inner_id)) = anchor_ty
         {
@@ -166,7 +178,10 @@ fn lower_no_spread_elements(
             elem_inc_after.push(false);
             continue;
         }
-        let v = ctx.lower_expr(*eid);
+        let v = match &probed {
+            Some((p_idx, p_op)) if *p_idx == idx => p_op.clone(),
+            _ => ctx.lower_expr(*eid),
+        };
         let v_ty = ctx.operand_ty(&v);
         let needs_inc = v_ty.is_refcounted()
             && match ctx.ast.get_expr(*eid) {
