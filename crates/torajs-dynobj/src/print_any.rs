@@ -36,11 +36,17 @@ use core::ffi::c_void;
 
 use crate::iter::{
     __torajs_dynobj_iter_flags, __torajs_dynobj_iter_key, __torajs_dynobj_iter_len,
-    __torajs_dynobj_iter_value,
+    __torajs_dynobj_iter_order, __torajs_dynobj_iter_value,
 };
 use crate::layout::BUCKET_FLAG_ENUMERABLE;
 
 unsafe extern "C" {
+    /// mmalloc Layer-1 sized API (same pair resize.rs uses) — the
+    /// ES-order visit buffer is a per-print cold-path allocation.
+    #[link_name = "__torajs_calloc"]
+    fn calloc(size: usize) -> *mut c_void;
+    #[link_name = "__torajs_free"]
+    fn free(p: *mut c_void, size: usize);
     /// Indent-threaded inline AnyValue printer from
     /// `torajs-anyvalue::inspect` (inspect indent trunk).
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
@@ -109,14 +115,19 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
             return;
         }
         let len = __torajs_dynobj_iter_len(obj);
+        // ES §10.1.11.1 visit order (L3b #17) — array-index keys
+        // ascending first, then insertion order; holes pre-excluded
+        // by iter_order so no NULL-key check in the loop.
+        let order = if len > 0 {
+            calloc(len as usize * 8) as *mut u64
+        } else {
+            core::ptr::null_mut()
+        };
+        let n = __torajs_dynobj_iter_order(obj, order, len);
         let mut any_emitted = false;
-        for i in 0..len {
+        for j in 0..n {
+            let i = *order.add(j as usize);
             let key = __torajs_dynobj_iter_key(obj, i);
-            if key.is_null() {
-                // Tombstone — entry was deleted; skip per iter
-                // contract (key==null sentinel for vacated slot).
-                continue;
-            }
             let flags = __torajs_dynobj_iter_flags(obj, i);
             if flags & BUCKET_FLAG_ENUMERABLE == 0 {
                 // Hidden property (W/E/C all-false or just
@@ -151,6 +162,9 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
             // row's column (indent + 2).
             let v = __torajs_dynobj_iter_value(obj, i);
             __torajs_print_anyv_inline_at(v, indent + 2);
+        }
+        if !order.is_null() {
+            free(order as *mut c_void, len as usize * 8);
         }
         if !any_emitted {
             put_bytes(b"{}");

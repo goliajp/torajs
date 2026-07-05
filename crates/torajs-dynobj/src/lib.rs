@@ -52,7 +52,7 @@ pub use get::{__torajs_dynobj_get_flags, __torajs_dynobj_get_tag, __torajs_dynob
 pub use has::__torajs_dynobj_has;
 pub use iter::{
     __torajs_dynobj_iter_flags, __torajs_dynobj_iter_key, __torajs_dynobj_iter_len,
-    __torajs_dynobj_iter_value,
+    __torajs_dynobj_iter_order, __torajs_dynobj_iter_value,
 };
 pub use seal::{__torajs_dynobj_all_entries_non_configurable, __torajs_dynobj_seal_entries};
 pub use set::__torajs_dynobj_set;

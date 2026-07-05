@@ -54,14 +54,23 @@ const DYNOBJ_FLAG_ENUMERABLE: u64 = 1 << 1;
 const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
 
 unsafe extern "C" {
-    /// torajs-dynobj — insertion-order iteration surface.
+    /// torajs-dynobj — iteration surface. `iter_order` materializes
+    /// the ES §10.1.11.1 visit sequence (array-index keys ascending
+    /// first, then insertion order; holes excluded).
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
     fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) -> u64;
     fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
+    fn __torajs_dynobj_iter_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
     /// torajs-anyvalue — NaN-box AnyValue pair decoders.
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    /// torajs-mmalloc libc-compat pair (crate-wide idiom, grow.rs) —
+    /// the visit-order buffer is a per-print cold-path allocation.
+    #[link_name = "__torajs_libc_malloc"]
+    fn malloc(n: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_free"]
+    fn libc_free(p: *mut c_void);
 }
 
 /// Emit the props face for `arr` between its last element and the
@@ -75,12 +84,16 @@ pub(crate) unsafe fn put_arrprops(arr: *mut c_void) {
     if dynobj.is_null() {
         return;
     }
-    let n = unsafe { __torajs_dynobj_iter_len(dynobj) };
-    for i in 0..n {
+    let len = unsafe { __torajs_dynobj_iter_len(dynobj) };
+    if len == 0 {
+        return;
+    }
+    // ES §10.1.11.1 visit order (L3b #17) — holes pre-excluded.
+    let order = unsafe { malloc(len as usize * 8) } as *mut u64;
+    let n = unsafe { __torajs_dynobj_iter_order(dynobj, order, len) };
+    for j in 0..n {
+        let i = unsafe { *order.add(j as usize) };
         let key = unsafe { __torajs_dynobj_iter_key(dynobj, i) };
-        if key.is_null() {
-            continue;
-        }
         if unsafe { __torajs_dynobj_iter_flags(dynobj, i) } & DYNOBJ_FLAG_ENUMERABLE == 0 {
             continue;
         }
@@ -91,6 +104,7 @@ pub(crate) unsafe fn put_arrprops(arr: *mut c_void) {
             put_anyv_inline(__torajs_dynobj_iter_value(dynobj, i), 1);
         }
     }
+    unsafe { libc_free(order as *mut c_void) };
 }
 
 /// Emit a Str's payload bytes (encoding-aware: Latin-1 passthrough /
@@ -174,21 +188,30 @@ unsafe fn put_dynobj_block(obj: *const c_void, depth: usize) {
     if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
         unsafe { put_bytes(b"[Object: null prototype] ") };
     }
-    let n = unsafe { __torajs_dynobj_iter_len(obj) };
-    let live = |i: u64| -> bool {
-        unsafe {
-            !__torajs_dynobj_iter_key(obj, i).is_null()
-                && __torajs_dynobj_iter_flags(obj, i) & DYNOBJ_FLAG_ENUMERABLE != 0
-        }
+    let len = unsafe { __torajs_dynobj_iter_len(obj) };
+    let enumerable = |i: u64| -> bool {
+        (unsafe { __torajs_dynobj_iter_flags(obj, i) }) & DYNOBJ_FLAG_ENUMERABLE != 0
     };
-    if !(0..n).any(live) {
+    // ES §10.1.11.1 visit order (L3b #17) — holes pre-excluded.
+    let order = if len > 0 {
+        unsafe { malloc(len as usize * 8) as *mut u64 }
+    } else {
+        core::ptr::null_mut()
+    };
+    let n = unsafe { __torajs_dynobj_iter_order(obj, order, len) };
+    let idx = |j: u64| -> u64 { unsafe { *order.add(j as usize) } };
+    if !(0..n).any(|j| enumerable(idx(j))) {
+        if !order.is_null() {
+            unsafe { libc_free(order as *mut c_void) };
+        }
         unsafe { put_bytes(b"{}") };
         return;
     }
     unsafe {
         put_byte(b'{');
-        for i in 0..n {
-            if !live(i) {
+        for j in 0..n {
+            let i = idx(j);
+            if !enumerable(i) {
                 continue;
             }
             put_byte(b'\n');
@@ -205,5 +228,6 @@ unsafe fn put_dynobj_block(obj: *const c_void, depth: usize) {
             put_byte(b' ');
         }
         put_byte(b'}');
+        libc_free(order as *mut c_void);
     }
 }
