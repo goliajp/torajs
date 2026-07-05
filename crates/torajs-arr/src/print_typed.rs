@@ -20,11 +20,7 @@
 use core::ffi::c_void;
 
 use crate::layout::ARR_LEN_OFF;
-use crate::print::{
-    ARR_HEAD_OFF, HDR_FLAGS_OFF, STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF, SUBSTR_LEN_OFF,
-    SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF, put_byte, put_bytes, put_snprintf_f64_g,
-    put_snprintf_i64, put_str_payload,
-};
+use crate::print::{ARR_HEAD_OFF, put_byte, put_bytes, put_snprintf_f64_g, put_snprintf_i64};
 
 unsafe extern "C" {
     /// Line-width estimate primitives (inspect wrap trunk) — hosted
@@ -33,6 +29,10 @@ unsafe extern "C" {
     fn __torajs_inspect_line_reset(cols: u32);
     fn __torajs_inspect_line_add(n: u32);
     fn __torajs_inspect_line_len() -> u32;
+    /// Quoted + JSON-escaped Str / Substr cell printer (inspect
+    /// escape trunk) — handles the Substr-view flag internally and
+    /// accounts the quote-free payload width.
+    fn __torajs_print_str_cell_quoted(cell: *const c_void);
 }
 
 /// Element kind selector for [`print_typed_at`] — one arm per
@@ -75,8 +75,8 @@ unsafe fn emit_elem(kind: TypedKind, slot: *const u8) {
                 put_bytes(if v != 0 { b"true" } else { b"false" });
                 __torajs_inspect_line_add(if v != 0 { 4 } else { 5 });
             }
-            TypedKind::Str => {
-                let s = *(slot as *const *const u8);
+            TypedKind::Str | TypedKind::Substr => {
+                let s = *(slot as *const *const c_void);
                 if s.is_null() {
                     // NULL slot = non-participating capture (regex
                     // exec / match) — bun prints `undefined`.
@@ -84,46 +84,9 @@ unsafe fn emit_elem(kind: TypedKind, slot: *const u8) {
                     __torajs_inspect_line_add(9);
                     return;
                 }
-                let length = *(s.add(STR_LEN_OFF) as *const u32);
-                let flags = *(s.add(HDR_FLAGS_OFF) as *const u16);
-                let is_latin1 = (flags & STR_FLAG_IS_LATIN1) != 0;
-                let byte_cnt = if is_latin1 {
-                    length as usize
-                } else {
-                    (length as usize) * 2
-                };
-                put_byte(b'"');
-                if byte_cnt > 0 {
-                    let bytes = core::slice::from_raw_parts(s.add(STR_DATA_OFF), byte_cnt);
-                    put_str_payload(bytes, is_latin1);
-                }
-                put_byte(b'"');
-                // Quote-free accounting (bun parity).
-                __torajs_inspect_line_add(length);
-            }
-            TypedKind::Substr => {
-                let v = *(slot as *const *const u8);
-                if v.is_null() {
-                    put_bytes(b"undefined");
-                    __torajs_inspect_line_add(9);
-                    return;
-                }
-                let cu_len = *(v.add(SUBSTR_LEN_OFF) as *const u64) as usize;
-                let parent = *(v.add(SUBSTR_PARENT_OFF) as *const *const u8);
-                let cu_offset = *(v.add(SUBSTR_OFFSET_OFF) as *const u64) as usize;
-                put_byte(b'"');
-                if cu_len > 0 {
-                    let flags = *(parent.add(HDR_FLAGS_OFF) as *const u16);
-                    let is_latin1 = (flags & STR_FLAG_IS_LATIN1) != 0;
-                    let stride = if is_latin1 { 1 } else { 2 };
-                    let bytes = core::slice::from_raw_parts(
-                        parent.add(STR_DATA_OFF + cu_offset * stride),
-                        cu_len * stride,
-                    );
-                    put_str_payload(bytes, is_latin1);
-                }
-                put_byte(b'"');
-                __torajs_inspect_line_add(cu_len as u32);
+                // Quoted + JSON-escaped, Substr flag handled inside;
+                // payload width accounted quote-free (bun parity).
+                __torajs_print_str_cell_quoted(s);
             }
         }
     }

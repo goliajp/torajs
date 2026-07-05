@@ -52,11 +52,12 @@ unsafe extern "C" {
     /// Per-byte stdout writer (`libtorajs_io.a`). Same buffer
     /// shared with IR-emitted `print_*` and Str / Arr printers.
     fn __torajs_io_putc_stdout(c: i32) -> i32;
-    /// Emit a Str / Substr cell's bytes WITHOUT the `"..."` quote
-    /// wrapper — for dynobj keys which bun renders unquoted
-    /// (`{ a: 1 }` not `{ "a": 1 }`). Commit 4 substrate helper
-    /// in `torajs-anyvalue::inspect`.
-    fn __torajs_print_str_cell_unquoted(cell: *const c_void);
+    /// Emit a Str / Substr cell as an object key — bare when the
+    /// key is an ASCII identifier, JSON-quoted otherwise
+    /// (`{ a: 1 }` but `{ "a-b": 1 }`, bun `isLatin1Identifier`
+    /// rule). Inspect escape trunk helper in
+    /// `torajs-anyvalue::inspect`.
+    fn __torajs_print_str_cell_as_key(cell: *const c_void);
 }
 
 #[inline]
@@ -139,11 +140,10 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
             put_indent(indent + 2);
             // Key — borrowed Str cell ptr. Dynobj keys are always
             // Tag::Str (dynobj symbol-keyed entries are not yet
-            // supported per W-N-c L3b). bun renders obj keys
-            // unquoted (`{ a: 1 }`) so we use the unquoted helper
-            // instead of __torajs_print_anyv_inline_at (which adds
-            // `"..."` for nested-context strings).
-            __torajs_print_str_cell_unquoted(key);
+            // supported per W-N-c L3b). Bare when it's an ASCII
+            // identifier, JSON-quoted otherwise (bun's
+            // isLatin1Identifier rule).
+            __torajs_print_str_cell_as_key(key);
             put_bytes(b": ");
             __torajs_inspect_line_add(2);
             // Value — already a NaN-box AnyValue per iter_value's

@@ -175,6 +175,54 @@ pub(super) unsafe fn closure_fn_addr(closure: *const c_void) -> u64 {
     unsafe { *((closure as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const u64) }
 }
 
+/// True when a Str / Substr cell's code units form a bare object
+/// key in bun's inspect (`isLatin1Identifier`,
+/// src/js_parser/lexer.zig:3186): first `[A-Za-z$_]`, rest
+/// `[A-Za-z0-9$_]`, empty false. Non-matching keys render as
+/// JSON-quoted strings.
+pub(super) unsafe fn str_cell_is_bare_key(cell: *const c_void) -> bool {
+    unsafe {
+        let flags = heap_flags(cell);
+        let is_substr = flags & SUBSTR_VIEW_FLAG != 0;
+        let p = cell as *const u8;
+        let (base, len, is_latin1, stride): (*const u8, usize, bool, usize) = if is_substr {
+            let len = *(p.add(SUBSTR_LEN_OFF) as *const u32) as usize;
+            let parent = *(p.add(SUBSTR_PARENT_OFF) as *const *const u8);
+            if parent.is_null() {
+                return false;
+            }
+            let offset = *(p.add(SUBSTR_OFFSET_OFF) as *const u32) as usize;
+            let pl = (*(parent.add(HDR_FLAGS_OFF) as *const u16) & STR_FLAG_IS_LATIN1) != 0;
+            let stride = if pl { 1 } else { 2 };
+            (parent.add(STR_DATA_OFF + offset * stride), len, pl, stride)
+        } else {
+            let len = *(p.add(STR_LEN_OFF) as *const u32) as usize;
+            let pl = (*(p.add(HDR_FLAGS_OFF) as *const u16) & STR_FLAG_IS_LATIN1) != 0;
+            (p.add(STR_DATA_OFF), len, pl, if pl { 1 } else { 2 })
+        };
+        if len == 0 {
+            return false;
+        }
+        let _ = is_latin1;
+        for i in 0..len {
+            // Code unit i — latin1 stride 1, UTF-16 LE stride 2
+            // (high byte must be 0 for ASCII identifier chars).
+            let lo = *base.add(i * stride);
+            if stride == 2 && *base.add(i * stride + 1) != 0 {
+                return false;
+            }
+            let ok = lo == b'$'
+                || lo == b'_'
+                || lo.is_ascii_alphabetic()
+                || (i > 0 && lo.is_ascii_digit());
+            if !ok {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 #[inline]
 pub(super) unsafe fn heap_flags(child: *const c_void) -> u16 {
     unsafe { (*(child as *const HeapHeader)).flags }
@@ -247,15 +295,49 @@ pub(crate) unsafe fn put_f64_inline(v: f64) {
     }
 }
 
+/// JSON-escape one code point in a quoted inspect context (bun
+/// routes quoted strings through `JSPrinter.writeJSONString`):
+/// `"` / `\` get backslash escapes, the C0 controls get their JSON
+/// short forms (`\b \t \n \f \r`) or `\u00xx`, everything else
+/// passes through as UTF-8. Returns `true` when it consumed the
+/// code point (caller emits it raw otherwise).
+#[inline]
+pub(super) unsafe fn put_cp_json_escaped(cp: u32) -> bool {
+    unsafe {
+        match cp {
+            0x22 => put_bytes(b"\\\""),
+            0x5C => put_bytes(b"\\\\"),
+            0x08 => put_bytes(b"\\b"),
+            0x09 => put_bytes(b"\\t"),
+            0x0A => put_bytes(b"\\n"),
+            0x0C => put_bytes(b"\\f"),
+            0x0D => put_bytes(b"\\r"),
+            c if c < 0x20 => {
+                put_bytes(b"\\u00");
+                const HEX: &[u8; 16] = b"0123456789abcdef";
+                put_byte(HEX[(c >> 4) as usize]);
+                put_byte(HEX[(c & 0xF) as usize]);
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
 /// Emit the Latin-1 or UTF-16-LE payload of an encoded Str cell as
 /// UTF-8 bytes. Duplicated from `torajs-arr::print::put_str_payload`
 /// (sibling-crate textbook mirror; same constraint applies — the
 /// upstream Str encoding is fixed by `torajs-str::layout`, drift
 /// would already break the standalone `__torajs_str_print` walker).
-pub(super) unsafe fn put_str_payload_utf8(payload: &[u8], is_latin1: bool) {
+/// `escape` routes each code point through [`put_cp_json_escaped`]
+/// first (quoted inspect context).
+pub(super) unsafe fn put_str_payload_utf8_esc(payload: &[u8], is_latin1: bool, escape: bool) {
     unsafe {
         if is_latin1 {
             for &b in payload {
+                if escape && put_cp_json_escaped(b as u32) {
+                    continue;
+                }
                 if b <= 0x7F {
                     put_byte(b);
                 } else {
@@ -281,6 +363,9 @@ pub(super) unsafe fn put_str_payload_utf8(payload: &[u8], is_latin1: bool) {
                 i += 2;
                 cu
             };
+            if escape && put_cp_json_escaped(cp) {
+                continue;
+            }
             if cp <= 0x7F {
                 put_byte(cp as u8);
             } else if cp <= 0x7FF {
@@ -305,6 +390,12 @@ pub(super) unsafe fn put_str_payload_utf8(payload: &[u8], is_latin1: bool) {
 /// without a trailing newline. Mirrors `__torajs_str_print`'s walk
 /// minus the final '\n'.
 pub(super) unsafe fn put_str_cell_inline(child: *const c_void) {
+    unsafe { put_str_cell_inline_esc(child, false) }
+}
+
+/// Escape-aware body of [`put_str_cell_inline`] — `escape` = quoted
+/// inspect context (JSON escapes per bun's writeJSONString).
+pub(super) unsafe fn put_str_cell_inline_esc(child: *const c_void, escape: bool) {
     unsafe {
         let p = child as *const u8;
         let len = *(p.add(STR_LEN_OFF) as *const u32) as usize;
@@ -320,7 +411,7 @@ pub(super) unsafe fn put_str_cell_inline(child: *const c_void) {
         let is_latin1 = (flags & STR_FLAG_IS_LATIN1) != 0;
         let payload_len = if is_latin1 { len } else { len * 2 };
         let bytes = core::slice::from_raw_parts(p.add(STR_DATA_OFF), payload_len);
-        put_str_payload_utf8(bytes, is_latin1);
+        put_str_payload_utf8_esc(bytes, is_latin1, escape);
     }
 }
 
@@ -329,6 +420,11 @@ pub(super) unsafe fn put_str_cell_inline(child: *const c_void) {
 /// `byte_offset@+24` (`torajs-str::substr`). Mirrors
 /// `__torajs_substr_print`'s walk minus the final '\n'.
 pub(super) unsafe fn put_substr_cell_inline(child: *const c_void) {
+    unsafe { put_substr_cell_inline_esc(child, false) }
+}
+
+/// Escape-aware body of [`put_substr_cell_inline`].
+pub(super) unsafe fn put_substr_cell_inline_esc(child: *const c_void, escape: bool) {
     unsafe {
         let p = child as *const u8;
         let len = *(p.add(SUBSTR_LEN_OFF) as *const u32) as usize;
@@ -347,6 +443,6 @@ pub(super) unsafe fn put_substr_cell_inline(child: *const c_void) {
         let stride = if is_latin1 { 1 } else { 2 };
         let bytes =
             core::slice::from_raw_parts(parent.add(STR_DATA_OFF + offset * stride), len * stride);
-        put_str_payload_utf8(bytes, is_latin1);
+        put_str_payload_utf8_esc(bytes, is_latin1, escape);
     }
 }

@@ -35,20 +35,6 @@ use crate::print_typed::{TypedKind, print_typed_top};
 
 pub(crate) const ARR_HEAD_OFF: usize = 20;
 
-// Str layout (mirror torajs-str::layout::{STR_LEN_OFF, STR_DATA_OFF,
-// STR_FLAG_IS_LATIN1}). Duplicated to avoid Layer-3 → Layer-2
-// sibling Cargo dep; same cross-tier extern pattern as torajs-num /
-// torajs-bigint use.
-pub(crate) const STR_LEN_OFF: usize = 8;
-pub(crate) const STR_DATA_OFF: usize = 16;
-pub(crate) const STR_FLAG_IS_LATIN1: u16 = 0x0002;
-pub(crate) const HDR_FLAGS_OFF: usize = 6;
-
-// Substr layout (mirror torajs-str's substr module).
-pub(crate) const SUBSTR_LEN_OFF: usize = 8;
-pub(crate) const SUBSTR_PARENT_OFF: usize = 16;
-pub(crate) const SUBSTR_OFFSET_OFF: usize = 24;
-
 // ============================================================
 // Str payload transcoding helpers (P11.1-S2.1)
 // ============================================================

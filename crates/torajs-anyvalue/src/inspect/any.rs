@@ -14,7 +14,8 @@ use super::formatters::{
     __torajs_rc_dec, __torajs_regex_print_inline, __torajs_set_print, __torajs_str_print,
     __torajs_substr_print, __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, alloc_literal,
     closure_fn_addr, heap_flags, heap_type_tag, print_bool, print_f64, print_i64, put_bytes,
-    put_f64_inline, put_i64_inline, put_str_cell_inline, put_substr_cell_inline, write_line,
+    put_f64_inline, put_i64_inline, put_str_cell_inline, put_str_cell_inline_esc,
+    put_substr_cell_inline, put_substr_cell_inline_esc, str_cell_is_bare_key, write_line,
 };
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
@@ -417,6 +418,62 @@ pub unsafe extern "C" fn __torajs_print_str_cell_unquoted(cell: *const c_void) {
             put_substr_cell_inline(cell);
         } else {
             put_str_cell_inline(cell);
+        }
+    }
+}
+
+/// Emit a Str / Substr cell as a quoted, JSON-escaped inspect
+/// string — `"..."` with bun's writeJSONString escapes (inspect
+/// escape trunk). Quote bytes stay out of the width estimate (bun
+/// parity); the payload length is accounted by the cell walkers.
+/// Cross-staticlib export for the typed-array printer family
+/// (`torajs-arr::print_typed`).
+///
+/// # Safety
+///
+/// `cell` must be NULL (no-op) or point to a valid Tag::Str heap
+/// object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_print_str_cell_quoted(cell: *const c_void) {
+    unsafe {
+        if cell.is_null() {
+            return;
+        }
+        if heap_type_tag(cell) != Tag::Str as u16 {
+            return;
+        }
+        __torajs_io_putc_stdout(b'"' as i32);
+        if heap_flags(cell) & SUBSTR_VIEW_FLAG != 0 {
+            put_substr_cell_inline_esc(cell, true);
+        } else {
+            put_str_cell_inline_esc(cell, true);
+        }
+        __torajs_io_putc_stdout(b'"' as i32);
+    }
+}
+
+/// Emit a Str / Substr cell as an object key — bare when its code
+/// units form an ASCII identifier (`[A-Za-z$_][A-Za-z0-9$_]*`, bun
+/// `isLatin1Identifier`), otherwise JSON-quoted (`"a-b": 1`,
+/// `"0": 2`, `"with space": 5`). Cross-staticlib export for the
+/// dynobj walker.
+///
+/// # Safety
+///
+/// Same contract as [`__torajs_print_str_cell_quoted`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_print_str_cell_as_key(cell: *const c_void) {
+    unsafe {
+        if cell.is_null() {
+            return;
+        }
+        if heap_type_tag(cell) != Tag::Str as u16 {
+            return;
+        }
+        if str_cell_is_bare_key(cell) {
+            __torajs_print_str_cell_unquoted(cell);
+        } else {
+            __torajs_print_str_cell_quoted(cell);
         }
     }
 }

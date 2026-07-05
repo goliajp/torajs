@@ -18,7 +18,8 @@ use super::formatters::{
     __torajs_map_print, __torajs_obj_print_any_at, __torajs_promise_print, __torajs_rc_dec,
     __torajs_regex_print_inline, __torajs_set_print, __torajs_symbol_print_inline,
     SUBSTR_VIEW_FLAG, closure_fn_addr, heap_flags, heap_type_tag, put_byte, put_bytes,
-    put_f64_inline, put_i64_inline, put_str_cell_inline, put_substr_cell_inline,
+    put_cp_json_escaped, put_f64_inline, put_i64_inline, put_str_cell_inline,
+    put_str_cell_inline_esc, put_substr_cell_inline_esc,
 };
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
@@ -88,16 +89,17 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
         return;
     }
     if is_short_str(v) {
-        // Nested context — strings get `"..."` quotes (bun inspect
-        // form, e.g. `[ "hi" ]` not `[ hi ]`). Top-level
-        // `__torajs_print_anyv` skips the quoting (matches bun's
-        // `console.log("hi")` → `hi`).  Escapes (`"`, `\`, control
-        // chars) not yet honoured — pure-ASCII fixtures only for
-        // this commit; full bun escape table is a later commit.
+        // Nested context — strings get `"..."` quotes with JSON
+        // escapes (bun routes quoted inspect strings through
+        // writeJSONString). Top-level `__torajs_print_anyv` skips
+        // both (matches bun's `console.log("hi")` → `hi`).
         let len = short_str_len(v) as usize;
         let bytes = short_str_bytes(v);
         unsafe { put_byte(b'"') };
         for &b in &bytes[..len] {
+            if unsafe { put_cp_json_escaped(b as u32) } {
+                continue;
+            }
             unsafe { put_byte(b) };
         }
         unsafe { put_byte(b'"') };
@@ -118,9 +120,9 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
             let flags = unsafe { heap_flags(child) };
             unsafe { put_byte(b'"') };
             if flags & SUBSTR_VIEW_FLAG != 0 {
-                unsafe { put_substr_cell_inline(child) };
+                unsafe { put_substr_cell_inline_esc(child, true) };
             } else {
-                unsafe { put_str_cell_inline(child) };
+                unsafe { put_str_cell_inline_esc(child, true) };
             }
             unsafe { put_byte(b'"') };
         } else if tag == Tag::Arr as u16 {
