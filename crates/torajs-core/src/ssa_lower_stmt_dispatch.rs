@@ -25,7 +25,8 @@
 //!   `FnDecl` / `ClassDecl` inside a nested scope (planned hoisting)
 //!   and any other unimplemented statement shape.
 
-use crate::ast::Stmt;
+use crate::ast::{Expr, Stmt};
+use crate::ssa::Type;
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_while_push_fast::lower_while_inner;
 
@@ -147,7 +148,34 @@ impl<'a> LowerCtx<'a> {
                 }
                 // Result discarded. Expression may still produce SSA insts as
                 // side effects (its own value), e.g. nested Calls.
-                let _ = self.lower_expr(*eid);
+                let op = self.lower_expr(*eid);
+                // RFC 20260705 — release provably-owned non-Copy
+                // results the statement drops on the floor: (a)
+                // any-typed Call results (the any world's uniform
+                // owned-box contract), (b) the Map/Set set()/add()
+                // chaining +1 (emit_map_set / emit_set_add rc_inc the
+                // receiver per ES chaining; discarding the statement
+                // result leaked the whole container). A blanket drop
+                // stays unsound while builtin lowerings disagree on
+                // return ownership (arr.reverse hands back the
+                // receiver un-inc'd) — unification is the L3b
+                // ownership-bit item; nested chains (`m.set(a).set(b)`)
+                // still leak the inner +1 (sub-expression temp face).
+                let ty = self.operand_ty(&op);
+                let discard_owned = match ty {
+                    Type::Any => matches!(self.ast.get_expr(*eid), Expr::Call { .. }),
+                    Type::Map | Type::Set => matches!(
+                        self.ast.get_expr(*eid),
+                        Expr::Call { callee, .. } if matches!(
+                            self.ast.get_expr(*callee),
+                            Expr::Member { name, .. } if name == "set" || name == "add"
+                        )
+                    ),
+                    _ => false,
+                };
+                if discard_owned {
+                    self.emit_drop_value(op, ty);
+                }
             }
             Stmt::TypeDecl { .. } => {
                 // Pass 0 of `lower()` already registered the alias and
