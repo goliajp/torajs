@@ -124,6 +124,13 @@ impl<'a> LowerCtx<'a> {
         let other = self.lower_expr(other_eid);
         let other_ty = self.operand_ty(&other);
         if other_ty != Type::Str && other_ty != Type::Substr {
+            // RFC 20260705 chunk 559 — decline-after-lower: the
+            // generic binop path re-lowers both sides, so park the
+            // emission for the take-once reuse in lower_expr
+            // (`step() === "foo"` with a non-Str step() must
+            // evaluate step() exactly once; mirror of chunk 555's
+            // receiver hint).
+            self.redispatch_lowered = Some((other_eid, other));
             return None;
         }
         let r = self.emit_inline_str_eq_bytes(other, &lit_bytes);
