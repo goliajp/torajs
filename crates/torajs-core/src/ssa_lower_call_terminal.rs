@@ -43,9 +43,21 @@ pub(crate) fn emit(
 ) -> Operand {
     let mut target = resolve_target(ctx, eid, callee);
     let mut argv: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
+    // RFC 20260705 chunk 548 — snapshot owned-shape arg temps
+    // (`f(g())` nested-call results) before pad/coerce mutate argv;
+    // they are released after the call. A consuming position
+    // transfers ownership to the callee instead, so it is skipped
+    // below via the consume bitmap.
+    let owned_temps: Vec<(usize, Operand)> = args
+        .iter()
+        .zip(argv.iter())
+        .enumerate()
+        .filter(|(_, (a, _))| ctx.expr_owned_shape(**a))
+        .map(|(i, (_, op))| (i, *op))
+        .collect();
     target = maybe_swap_math_sum_precise(ctx, target, &argv);
     pad_trailing_undef(ctx, eid, &mut argv);
-    apply_consume_bitmap(ctx, callee, args);
+    let consume_bitmap = apply_consume_bitmap(ctx, callee, args);
     coerce_args(ctx, target, args, &mut argv);
     let ret_ty = ctx.f_ret_type_hint(target);
     let cur_block = ctx.cur_block;
@@ -53,6 +65,12 @@ pub(crate) fn emit(
         .f
         .append_inst(cur_block, InstKind::Call(target, argv), ret_ty, None);
     ctx.emit_throw_check(Some(target));
+    for (i, op) in owned_temps {
+        if consume_bitmap.get(i).copied().unwrap_or(false) {
+            continue;
+        }
+        ctx.release_owned_temp(args[i], &op);
+    }
     Operand::Value(v)
 }
 
@@ -108,12 +126,13 @@ fn pad_trailing_undef(ctx: &mut LowerCtx<'_>, eid: ExprId, argv: &mut Vec<Operan
     }
 }
 
-fn apply_consume_bitmap(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) {
+fn apply_consume_bitmap(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Vec<bool> {
     // Per-call-site consume bitmap from `ast.consuming_params`.
     // Mirrors the check.rs pass. A consuming arg position transfers
     // ownership from the caller's binding to the callee — without
     // this, both the caller's local and the callee's slot would own
-    // the same heap and both drop.
+    // the same heap and both drop. Returned so the caller can skip
+    // consumed positions in the owned-temp release walk.
     let consume_bitmap: Vec<bool> = match ctx.ast.get_expr(callee) {
         Expr::Ident(callee_name) => {
             if let Some(bm) = ctx.ast.consuming_params.get(callee_name) {
@@ -131,6 +150,7 @@ fn apply_consume_bitmap(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId])
             ctx.consume_if_ident(*a);
         }
     }
+    consume_bitmap
 }
 
 fn coerce_args(ctx: &mut LowerCtx<'_>, target: FuncId, args: &[ExprId], argv: &mut [Operand]) {

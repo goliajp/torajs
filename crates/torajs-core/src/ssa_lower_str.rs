@@ -196,6 +196,27 @@ pub(crate) fn try_lower_method_call(
     let recv_op = ctx.lower_expr(obj_eid);
     let recv_ty = ctx.operand_ty(&recv_op);
     let method = name.clone();
+    let result = dispatch_method(ctx, &method, args, recv_op, recv_ty)?;
+    // RFC 20260705 chunk 548 — a Call/New/BinOp-shaped receiver is
+    // an owned temp; every dispatch arm answers an owned result
+    // (chunk 545 invariant, incl. `at`'s element inc), so the
+    // receiver's own ref is released after the dispatch. The `None`
+    // fall-through re-lowers the receiver in a later cascade arm
+    // (pre-existing double-lower hazard, L3b ledger).
+    ctx.release_owned_temp(obj_eid, &recv_op);
+    Some(result)
+}
+
+/// The per-method sibling dispatch chain — split from
+/// [`try_lower_method_call`] so the owned-receiver release above has
+/// a single `Some` exit instead of thirteen.
+fn dispatch_method(
+    ctx: &mut LowerCtx,
+    method: &str,
+    args: &[ExprId],
+    recv_op: Operand,
+    recv_ty: Type,
+) -> Option<Operand> {
     // Phase Substr.B: dispatch view-aware methods on
     // Type::Substr receivers without materializing.
     // Currently MVP routes only the cheap byte-only ops;
@@ -220,67 +241,67 @@ pub(crate) fn try_lower_method_call(
     // charAt(idx, trailing) shape still routes through this fast
     // path; args[1] is never lowered (trailing-arg ignore).
     if let Some(v) =
-        crate::ssa_lower_str_substr_dispatch::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_substr_dispatch::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }
     if let Some(v) =
-        crate::ssa_lower_str_charat_wedges::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_charat_wedges::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }
     if let Some(v) =
-        crate::ssa_lower_str_short_circuits::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_short_circuits::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }
     // String methods.
     if let Some(v) =
-        crate::ssa_lower_str_str_dispatch::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_str_dispatch::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }
     if let Some(v) =
-        crate::ssa_lower_str_arr_join_flat::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_arr_join_flat::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }
     if let Some(v) =
-        crate::ssa_lower_str_arr_sort::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_arr_sort::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }
     if let Some(v) =
-        crate::ssa_lower_str_concat_dispatch::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_concat_dispatch::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }
-    if let Some(v) = crate::ssa_lower_str_arr_at::try_dispatch(ctx, &method, args, recv_op, recv_ty)
-    {
-        return Some(v);
-    }
-    if let Some(v) =
-        crate::ssa_lower_str_arr_copy_within::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+    if let Some(v) = crate::ssa_lower_str_arr_at::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }
     if let Some(v) =
-        crate::ssa_lower_str_arr_inplace::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_arr_copy_within::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }
     if let Some(v) =
-        crate::ssa_lower_str_arr_fill::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_arr_inplace::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }
     if let Some(v) =
-        crate::ssa_lower_str_arr_slice::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_arr_fill::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }
     if let Some(v) =
-        crate::ssa_lower_str_arr_index_search::try_dispatch(ctx, &method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_arr_slice::try_dispatch(ctx, method, args, recv_op, recv_ty)
+    {
+        return Some(v);
+    }
+    if let Some(v) =
+        crate::ssa_lower_str_arr_index_search::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {
         return Some(v);
     }

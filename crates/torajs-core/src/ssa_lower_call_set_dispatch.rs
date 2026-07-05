@@ -83,7 +83,12 @@ pub(crate) fn try_lower(
         return None;
     }
     let recv_op = ctx.lower_expr(obj);
-    Some(dispatch_set_method(ctx, m_name.as_str(), recv_op, args))
+    let out = dispatch_set_method(ctx, m_name.as_str(), recv_op, args);
+    // RFC 20260705 chunk 548 — a Call-shaped receiver (chained
+    // `s.add(a).add(b)`) is an owned temp; `add` answers the
+    // receiver with its own +1, so the inner ref is released here.
+    ctx.release_owned_temp(obj, &recv_op);
+    Some(out)
 }
 
 fn dispatch_set_method(

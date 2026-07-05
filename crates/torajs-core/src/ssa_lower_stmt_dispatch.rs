@@ -25,7 +25,7 @@
 //!   `FnDecl` / `ClassDecl` inside a nested scope (planned hoisting)
 //!   and any other unimplemented statement shape.
 
-use crate::ast::{Expr, Stmt};
+use crate::ast::Stmt;
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_while_push_fast::lower_while_inner;
 
@@ -148,29 +148,11 @@ impl<'a> LowerCtx<'a> {
                 // Result discarded. Expression may still produce SSA insts as
                 // side effects (its own value), e.g. nested Calls.
                 let op = self.lower_expr(*eid);
-                // RFC 20260705 owned-result invariant: every Call/New
-                // lowering answers an owned value (fresh alloc, +1
-                // return retain, chaining +1, or the borrow sites'
-                // explicit owned-result inc), so a statement-position
-                // Call/New result is unconditionally released; BinOp
-                // results are fresh too (str concat) except the
-                // short-circuit LAnd/LOr which answer an operand
-                // (borrow). Other expression shapes (Ident / Member /
-                // Index / Assign reads) answer borrows and must not
-                // be dropped; Ternary/Nullish over Calls stay on the
-                // L3b ledger with the nested-chain inner +1
-                // (`m.set(a).set(b)`).
-                let ty = self.operand_ty(&op);
-                let owned_shape = match self.ast.get_expr(*eid) {
-                    Expr::Call { .. } | Expr::New { .. } => true,
-                    Expr::BinOp { op, .. } => {
-                        !matches!(op, crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr)
-                    }
-                    _ => false,
-                };
-                if !ty.is_copy() && owned_shape {
-                    self.emit_drop_value(op, ty);
-                }
+                // RFC 20260705 owned-result invariant — the shape
+                // predicate + release live in `release_owned_temp`
+                // (ssa_lower_rc_emit); Ternary/Nullish over Calls
+                // stay on the L3b ledger.
+                self.release_owned_temp(*eid, &op);
             }
             Stmt::TypeDecl { .. } => {
                 // Pass 0 of `lower()` already registered the alias and

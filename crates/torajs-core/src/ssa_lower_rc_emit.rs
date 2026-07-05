@@ -18,6 +18,7 @@
 //! source; sibling reaches LowerCtx fields via
 //! `impl<'a> super::LowerCtx<'a>`, so call sites need zero edits.
 
+use crate::ast::{BinOp as AstBinOp, Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, BlockId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -101,5 +102,38 @@ impl<'a> LowerCtx<'a> {
 
     pub(crate) fn emit_drop_value(&mut self, val: Operand, ty: Type) {
         crate::ssa_lower_emit_drop_value::emit(self, val, ty)
+    }
+
+    /// RFC 20260705 owned-result invariant — true when the
+    /// expression's lowered result is an owned temp its consumer
+    /// must release: Call/New always answer an owned value (fresh
+    /// alloc, +1 return retain, or the borrow sites' owned-result
+    /// inc); BinOp results are fresh too (str concat) except the
+    /// short-circuit LAnd/LOr which answer an operand borrow.
+    /// Every other expression shape (Ident / Member / Index /
+    /// literal) answers a borrow.
+    pub(crate) fn expr_owned_shape(&self, eid: ExprId) -> bool {
+        match self.ast.get_expr(eid) {
+            Expr::Call { .. } | Expr::New { .. } => true,
+            Expr::BinOp { op, .. } => !matches!(op, AstBinOp::LAnd | AstBinOp::LOr),
+            _ => false,
+        }
+    }
+
+    /// Release the operand lowered from `eid` iff it is an
+    /// owned-shape temp (see [`Self::expr_owned_shape`]) of a
+    /// non-Copy type. Consumers that borrow a sub-expression
+    /// result (method-call receivers, call arguments) call this
+    /// after the consuming instruction so nested-call temps
+    /// (`f(g())`, `a.reverse().sort()`) don't leak their ref.
+    pub(crate) fn release_owned_temp(&mut self, eid: ExprId, op: &Operand) {
+        if !self.expr_owned_shape(eid) {
+            return;
+        }
+        let ty = self.operand_ty(op);
+        if ty.is_copy() {
+            return;
+        }
+        self.emit_drop_value(op.clone(), ty);
     }
 }
