@@ -71,16 +71,21 @@ impl<'a> LowerCtx<'a> {
         )
     }
 
-    /// T-10.c (v0.4.0) — cheap AST-shape probe for Array literal
-    /// heterogeneity. Returns true iff the literal mixes DIFFERENT
-    /// static-known kinds (Number vs String vs Bool vs Null among
-    /// LITERAL elements only). Non-literal elements (Identifier,
-    /// Call, Member, BinOp, ...) are treated as "kind unknown" and
-    /// don't trigger the Any path — those route through the regular
-    /// homogeneous codegen which already understands them. This
-    /// means `[1, 'a', true]` → Any, but `[1, x, 3]` (where x is an
-    /// `i64` ident) → regular Array<I64>. Matching the operand types
-    /// of mixed expressions to the Any path is T-10.d work.
+    /// T-10.c (v0.4.0) — probe for Array literal heterogeneity.
+    /// Returns true iff the literal mixes DIFFERENT static-known
+    /// kinds. Literal elements classify by AST shape (Number vs
+    /// String vs Bool vs Null vs nested Array vs negated Number);
+    /// non-literal elements (Identifier, Call, New, ObjectLit,
+    /// Member, ...) classify by their checker type (T-10.d close,
+    /// 2026-07-05): pre-fix they were skipped entirely, so
+    /// `[{ k: 1 }, 2]` anchored on the number and lowered as a
+    /// typed 8-byte-slot array — the obj pointer and the int shared
+    /// one slot interpretation and every downstream reader
+    /// (index, print, drop) silently mis-decoded (null / bare
+    /// pointer digits / 2e-314 / scope-drop SIGSEGV). Elements the
+    /// checker can't pin either (`any`, unions, missing entries)
+    /// still fall back to the homogeneous path: `[1, x, 3]` with
+    /// `x: number` stays a typed Array<I64>.
     pub(crate) fn array_literal_is_heterogeneous(&self, ids: &[ExprId]) -> bool {
         // Recursive — `Unary{Neg, Number(...)}` like `-3.14` keeps the
         // inner Number's kind so `[-3.14, 'x']` correctly flags as
@@ -108,12 +113,45 @@ impl<'a> LowerCtx<'a> {
                 // the same kind = 2 → typed Array<Array<T>>.
                 Expr::Array(_) => Some(2),
                 Expr::Unary { expr, .. } => classify(ast, *expr),
-                _ => None, // unknown kind — fall back to homogeneous path
+                _ => None, // no syntactic kind — checker type below
+            }
+        }
+        // Checker-type classes. Scalar/array kinds share the
+        // syntactic values so `[1, x, 3]` (x: number) stays
+        // homogeneous; heap kinds get distinct values so any
+        // cross-kind mix routes to the Array<Any> path.
+        fn classify_checked(t: &crate::check::Type) -> Option<u8> {
+            use crate::check::Type as C;
+            match t {
+                C::Number => Some(1),
+                C::Array(_) => Some(2),
+                C::String => Some(3),
+                C::Boolean => Some(4),
+                C::Null => Some(5),
+                C::Struct(_) | C::ClassRef(_) | C::Object(_) => Some(10),
+                C::Map => Some(11),
+                C::Set => Some(12),
+                C::Function(..) => Some(13),
+                C::BigInt => Some(14),
+                C::WeakRef => Some(15),
+                C::WeakMap => Some(16),
+                C::WeakSet => Some(17),
+                C::RegExp => Some(18),
+                C::Date => Some(19),
+                C::Symbol => Some(20),
+                C::Promise(_) => Some(21),
+                C::MapIter => Some(22),
+                C::ArrIter => Some(23),
+                // Any / unions / Nullable / TypeVar / Undefined /
+                // missing — unknown, keep the homogeneous fallback.
+                _ => None,
             }
         }
         let mut anchor: Option<u8> = None;
         for &eid in ids {
-            if let Some(k) = classify(self.ast, eid) {
+            let k = classify(self.ast, eid)
+                .or_else(|| self.expr_types.get(&eid).and_then(classify_checked));
+            if let Some(k) = k {
                 match anchor {
                     None => anchor = Some(k),
                     Some(a) if a != k => return true,

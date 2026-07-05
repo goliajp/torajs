@@ -212,6 +212,13 @@ impl<'a> LowerCtx<'a> {
                 // current InstKind enum doesn't expose). Drop
                 // walks via __torajs_arr_drop_any when the array
                 // dies.
+                //
+                // RFC 20260704 S1 — a typed Array entering an
+                // Array<Any> slot crosses into `any` just like
+                // box_to_any: record its elem kind so the runtime
+                // readers (index / print / drop walkers) don't
+                // NaN-box-walk raw scalar slots. No-op for non-Arr.
+                self.emit_arr_mark_kind(&val, &val_ty);
                 self.emit_rc_inc(val.clone());
                 (Operand::ConstI64(4), val)
             }
