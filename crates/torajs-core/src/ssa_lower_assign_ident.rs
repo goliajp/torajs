@@ -172,7 +172,13 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
         return;
     }
     let needs_inc = match ctx.ast.get_expr(value) {
-        Expr::Member { .. } | Expr::Index { .. } => true,
+        // String indexing emits a fresh owned Substr view, not an
+        // element borrow — inc'ing it here left the extra reference
+        // undropped (chunk 561, mirror of the let-decl alias fix).
+        Expr::Index { obj, .. } => {
+            !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
+        }
+        Expr::Member { .. } => true,
         // A global-slot read is always a borrow — the slot keeps its
         // reference across the assignment (chunk 558; locals shadow
         // globals, so the fallback only fires for true slot reads).
@@ -195,7 +201,8 @@ fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type, v_ty: Typ
     let direct_compatible = v_ty == snap_ty
         || (snap_ty == Type::F64 && v_ty == Type::I64)
         || (matches!(snap_ty, Type::I64 | Type::F64) && v_ty == Type::Any)
-        || (snap_ty == Type::Str && v_ty == Type::Any);
+        || (snap_ty == Type::Str && v_ty == Type::Any)
+        || (snap_ty == Type::Str && v_ty == Type::Substr);
     if direct_compatible {
         return;
     }
@@ -221,6 +228,21 @@ fn coerce_for_local(ctx: &mut LowerCtx<'_>, snap_ty: Type, v_ty: Type, v: Operan
         ctx.coerce_any_to_number(v, snap_ty)
     } else if snap_ty == Type::Str && v_ty == Type::Any {
         ctx.coerce_to_str(v, Type::Any)
+    } else if snap_ty == Type::Str && v_ty == Type::Substr {
+        // Chunk 561 — a Substr view assigned into an owned-Str slot
+        // materializes (mirror of materialize_call_args); the view
+        // reference (fresh from string indexing, or the +1 an alias
+        // rhs took above) releases after the copy, so both shapes
+        // balance.
+        let cur_block = ctx.cur_block;
+        let owned = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v.clone()]),
+            Type::Str,
+            None,
+        );
+        ctx.emit_drop_value(v, Type::Substr);
+        Operand::Value(owned)
     } else {
         v
     }

@@ -346,7 +346,13 @@ impl Checker {
     /// produces a new owner; not an alias.
     pub(crate) fn classify_init_alias(&self, ast: &Ast, eid: ExprId) -> bool {
         match ast.get_expr(eid) {
-            Expr::Member { .. } | Expr::Index { .. } => true,
+            // String indexing returns a fresh owned Substr view
+            // (chunk 561) — a new owner, not an element alias; the
+            // receiver's memoized type is present because the init
+            // was type-checked before classification. Missing entry
+            // keeps the conservative alias answer.
+            Expr::Index { obj, .. } => !matches!(self.expr_types.get(obj), Some(Type::String)),
+            Expr::Member { .. } => true,
             Expr::Ident(name) => {
                 if let Some((_, src_depth)) = self.lookup_with_depth(name) {
                     let cur_depth = self.scopes.len() - 1;

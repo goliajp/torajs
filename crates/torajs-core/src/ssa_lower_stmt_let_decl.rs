@@ -111,7 +111,16 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     };
     let cur_depth = ctx.scope_stack.len() - 1;
     let is_alias_init = match ctx.ast.get_expr(init) {
-        Expr::Member { .. } | Expr::Index { .. } => true,
+        // L3b #15 residual (chunk 561) — string indexing (`s[i]` on
+        // a Str/Substr receiver) emits a FRESH standalone Substr
+        // view (str_char_at / substr_slice, rc=1), not a borrow of
+        // an element slot: marking it moved skipped the scope drop
+        // and leaked 32B per binding. Array/map/any indexing keeps
+        // the alias path (element loads borrow the container).
+        Expr::Index { obj, .. } => {
+            !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
+        }
+        Expr::Member { .. } => true,
         Expr::Ident(src) => ctx
             .locals
             .get(src)
