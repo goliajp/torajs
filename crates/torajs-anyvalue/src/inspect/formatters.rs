@@ -136,6 +136,10 @@ unsafe extern "C" {
     // `__torajs_print_anyv_inline` arm leaves it off.
     pub(super) fn __torajs_map_print(m_ptr: *const c_void);
     pub(super) fn __torajs_set_print(s_ptr: *const c_void);
+    // Indent-threaded variants (inspect wrap trunk) — nested Map /
+    // Set cells pad their rows at `indent + 2`, closer at `indent`.
+    pub(super) fn __torajs_map_print_at(m_ptr: *const c_void, indent: u32);
+    pub(super) fn __torajs_set_print_at(s_ptr: *const c_void, indent: u32);
     // Commit 8 — Promise wire. Tag::Promise=8 is unambiguous so
     // the AnyValue walker can route directly here.
     pub(super) fn __torajs_promise_print(p_ptr: *const c_void);

@@ -15,8 +15,8 @@ use core::ffi::c_void;
 use super::formatters::{
     __torajs_anyv_struct_print_inline_at, __torajs_arr_print_any_at, __torajs_bigint_print_inline,
     __torajs_date_to_iso_string, __torajs_fn_print_inline, __torajs_inspect_line_add,
-    __torajs_map_print, __torajs_obj_print_any_at, __torajs_promise_print, __torajs_rc_dec,
-    __torajs_regex_print_inline, __torajs_set_print, __torajs_symbol_print_inline,
+    __torajs_map_print_at, __torajs_obj_print_any_at, __torajs_promise_print, __torajs_rc_dec,
+    __torajs_regex_print_inline, __torajs_set_print_at, __torajs_symbol_print_inline,
     SUBSTR_VIEW_FLAG, closure_fn_addr, heap_flags, heap_type_tag, put_byte, put_bytes,
     put_cp_json_escaped, put_f64_inline, put_i64_inline, put_str_cell_inline,
     put_str_cell_inline_esc, put_substr_cell_inline_esc,
@@ -172,12 +172,13 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
             unsafe { __torajs_fn_print_inline(fn_addr) };
         } else if tag == Tag::Map as u16 {
             // Runtime Tag::Set substrate — nested Map cell prints
-            // inline (`Map {}` / `Map(N) {…}` form, no trailing '\n').
+            // inline (`Map {}` / `Map(N) {…}` form, no trailing
+            // '\n'), rows padded at this cell's indent + 2.
             // SAFETY: Map layout per torajs-collections::layout.
-            unsafe { __torajs_map_print(child) };
+            unsafe { __torajs_map_print_at(child, indent) };
         } else if tag == Tag::Set as u16 {
             // SAFETY: Set shares Map layout, just stamped TAG_SET.
-            unsafe { __torajs_set_print(child) };
+            unsafe { __torajs_set_print_at(child, indent) };
         } else if tag == Tag::Obj as u16 {
             // W-J Phase D — nested Tag::Obj struct cell prints the
             // same `Name {…}` form as top-level (no trailing '\n';
