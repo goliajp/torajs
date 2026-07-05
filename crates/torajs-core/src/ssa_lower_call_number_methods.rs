@@ -86,6 +86,9 @@ pub(crate) fn try_lower(
         for &a in args.iter() {
             let _ = ctx.lower_expr(a);
         }
+        // RFC 20260705 owned-result invariant: identity result carries
+        // its own ref.
+        ctx.emit_owned_result_inc(recv_op.clone(), recv_ty);
         return Some(recv_op);
     }
     if recv_ty == Type::I64 || recv_ty == Type::F64 {

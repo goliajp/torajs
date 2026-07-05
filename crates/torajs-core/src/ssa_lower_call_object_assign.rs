@@ -131,5 +131,9 @@ pub(crate) fn try_lower(
                 .append_void(ctx.cur_block, InstKind::Store(to_store, target_op, offset));
         }
     }
+    // RFC 20260705 owned-result invariant: ES answers the target;
+    // the pass-through result carries its own ref (dedicated path,
+    // bypasses integrity's lower_noop).
+    ctx.emit_owned_result_inc(target_op.clone(), target_ty);
     Some(target_op)
 }

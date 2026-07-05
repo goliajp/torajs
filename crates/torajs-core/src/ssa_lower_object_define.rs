@@ -280,6 +280,11 @@ fn try_lower_define_properties(
             // arg for side effects; full runtime walk is a follow-up.
             let _ = ctx.lower_expr(args[1]);
         }
+        // RFC 20260705 owned-result invariant: ES answers the receiver;
+        // the pass-through result carries its own ref (this dedicated
+        // path bypasses integrity's lower_noop — the 545 gate caught
+        // the blanket discard over-releasing the un-inc'd receiver).
+        ctx.emit_owned_result_inc(obj_raw.clone(), obj_ty);
         return Some(obj_raw);
     }
     None
