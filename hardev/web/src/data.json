@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-05T07:11:00.420Z",
+  "generatedAt": "2026-07-05T11:48:09.473Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "2cf17358",
-    "commitSubject": "feat: indent threading and width accounting for Map/Set inspect walkers",
+    "commit": "c9c92708",
+    "commitSubject": "feat: es property order for dynobj print faces — integer keys ascending first",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "c9c92708",
+      "subject": "feat: es property order for dynobj print faces — integer keys ascending first"
+    },
+    {
+      "hash": "8627ee35",
+      "subject": "fix: exclude namespace statics from the any-call discard drop"
+    },
+    {
+      "hash": "0ffccce2",
+      "subject": "fix: release owned results discarded by expression statements (map/set chaining, any calls)"
+    },
+    {
+      "hash": "cddf7618",
+      "subject": "feat: closure env owns non-copy captures — env-drop walk + sibling stake (RFC 20260705 phase 1)"
+    },
+    {
+      "hash": "9cd3243c",
+      "subject": "test: for-of src temp ownership coverage fixtures (L3b #7 refuted by runtime probe)"
+    },
+    {
+      "hash": "97cd1bfe",
+      "subject": "chore(dashboard): session snapshot @ 2cf17358 — rotation 20 (535-539: inspect trunk close — indent threading, Arr<Any> + typed break/wrap 80-col est model, key quote + JSON escape, Map/Set indent; gate 1177 -> 1182)"
+    },
+    {
       "hash": "2cf17358",
       "subject": "feat: indent threading and width accounting for Map/Set inspect walkers"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "ae00020f",
       "subject": "fix: thread indent through nested object and struct inspect walkers"
-    },
-    {
-      "hash": "c7df051a",
-      "subject": "chore(dashboard): session snapshot @ 59d88ce9 — rotation 19 (530-534: any-drop close — regexp/date/symbol/promise/closure/obj type walkers, struct-field arr kind marks, heterogeneous literal checker classify, cycle arr walk kind gate; gate 1172 -> 1177)"
-    },
-    {
-      "hash": "59d88ce9",
-      "subject": "fix: gate the cycle collector's array walk on heap elem kind"
-    },
-    {
-      "hash": "2136c5d1",
-      "subject": "fix: classify array-literal elements by checker type so heap-scalar mixes route to the any path"
-    },
-    {
-      "hash": "09cdc4dc",
-      "subject": "fix: mark arr elem kind at struct-field stores so runtime walkers don't nan-box-walk scalar slots"
-    },
-    {
-      "hash": "2c4d371a",
-      "subject": "feat: rc-aware class-layout walk for obj released through any"
-    },
-    {
-      "hash": "2ad63ba5",
-      "subject": "feat: route regexp/date/symbol/promise/closure any-drops to their type walkers"
     }
   ],
-  "headSha": "2cf17358",
+  "headSha": "c9c92708",
   "autorun": {
-    "total": 329,
+    "total": 330,
     "baselineTarget": 10,
-    "bySelf": 324,
+    "bySelf": 325,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783229389-1433",
-      "at": "2026-07-05T05:29:49Z",
-      "ts": 1783229389,
+      "rotationId": "r-1783235527-7699",
+      "at": "2026-07-05T07:12:07Z",
+      "ts": 1783235527,
       "trigger": "self",
-      "prevHead": "c7df051a",
-      "handoffSha": "sha256:caf8bd39ea8874f2fd018b01a112270af5ebdc300e80df90e017ca8bd11babec",
+      "prevHead": "97cd1bfe",
+      "handoffSha": "sha256:7006e37157edd7c1a5c5890f9231282aded946d32fbccdcd7aac6efcc0f59f77",
       "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783235527-7699",
+        "at": "2026-07-05T07:12:07Z",
+        "ts": 1783235527,
+        "trigger": "self",
+        "prevHead": "97cd1bfe",
+        "handoffSha": "sha256:7006e37157edd7c1a5c5890f9231282aded946d32fbccdcd7aac6efcc0f59f77",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783229389-1433",
         "at": "2026-07-05T05:29:49Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "55ff6c8f",
         "handoffSha": "sha256:80483ae10c086d119ecf1d043fe606119a215529af440c8c6c2beed9000093ae",
-        "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783133862-5c51",
-        "at": "2026-07-04T02:57:42Z",
-        "ts": 1783133862,
-        "trigger": "self",
-        "prevHead": "c99eea99",
-        "handoffSha": "sha256:cf554fc68cf5a3254fe5b42ee42963c68567837c18461f18ba597cd26c337b60",
         "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
