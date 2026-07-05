@@ -151,19 +151,34 @@ impl<'a> LowerCtx<'a> {
                 let op = self.lower_expr(*eid);
                 // RFC 20260705 — release provably-owned non-Copy
                 // results the statement drops on the floor: (a)
-                // any-typed Call results (the any world's uniform
-                // owned-box contract), (b) the Map/Set set()/add()
-                // chaining +1 (emit_map_set / emit_set_add rc_inc the
-                // receiver per ES chaining; discarding the statement
-                // result leaked the whole container). A blanket drop
-                // stays unsound while builtin lowerings disagree on
+                // any-typed user-fn calls (+1 return retain) and
+                // instance method calls on a local binding (the any
+                // dispatcher's owned-box contract), (b) the Map/Set
+                // set()/add() chaining +1 (emit_map_set /
+                // emit_set_add rc_inc the receiver per ES chaining;
+                // discarding the statement result leaked the whole
+                // container). Namespace statics are EXCLUDED — their
+                // per-lowering ownership differs
+                // (Object.defineProperties answers the receiver
+                // un-inc'd; gate-caught over-release) — as is a
+                // blanket drop while builtin lowerings disagree on
                 // return ownership (arr.reverse hands back the
-                // receiver un-inc'd) — unification is the L3b
-                // ownership-bit item; nested chains (`m.set(a).set(b)`)
-                // still leak the inner +1 (sub-expression temp face).
+                // receiver un-inc'd). Ownership-bit unification and
+                // the nested-chain inner +1 (`m.set(a).set(b)`) stay
+                // on the L3b ledger.
                 let ty = self.operand_ty(&op);
                 let discard_owned = match ty {
-                    Type::Any => matches!(self.ast.get_expr(*eid), Expr::Call { .. }),
+                    Type::Any => match self.ast.get_expr(*eid) {
+                        Expr::Call { callee, .. } => match self.ast.get_expr(*callee) {
+                            Expr::Ident(_) => true,
+                            Expr::Member { obj, .. } => matches!(
+                                self.ast.get_expr(*obj),
+                                Expr::Ident(n) if self.locals.contains_key(n)
+                            ),
+                            _ => false,
+                        },
+                        _ => false,
+                    },
                     Type::Map | Type::Set => matches!(
                         self.ast.get_expr(*eid),
                         Expr::Call { callee, .. } if matches!(
