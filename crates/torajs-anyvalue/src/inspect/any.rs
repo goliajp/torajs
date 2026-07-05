@@ -9,12 +9,12 @@ use core::ffi::c_void;
 
 use super::formatters::{
     __torajs_anyv_struct_print_inline, __torajs_arr_print_any, __torajs_bigint_print_inline,
-    __torajs_date_to_iso_string, __torajs_fn_print_inline, __torajs_io_putc_stdout,
-    __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print, __torajs_rc_dec,
-    __torajs_regex_print_inline, __torajs_set_print, __torajs_str_print, __torajs_substr_print,
-    __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, alloc_literal, closure_fn_addr, heap_flags,
-    heap_type_tag, print_bool, print_f64, print_i64, put_bytes, put_f64_inline, put_i64_inline,
-    put_str_cell_inline, put_substr_cell_inline, write_line,
+    __torajs_date_to_iso_string, __torajs_fn_print_inline, __torajs_inspect_line_reset,
+    __torajs_io_putc_stdout, __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print,
+    __torajs_rc_dec, __torajs_regex_print_inline, __torajs_set_print, __torajs_str_print,
+    __torajs_substr_print, __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, alloc_literal,
+    closure_fn_addr, heap_flags, heap_type_tag, print_bool, print_f64, print_i64, put_bytes,
+    put_f64_inline, put_i64_inline, put_str_cell_inline, put_substr_cell_inline, write_line,
 };
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
@@ -102,6 +102,10 @@ pub unsafe extern "C" fn __torajs_anyv_typeof(v: AnyValue) -> *mut u8 {
 /// Cell case: encoded pointer must point to a valid heap object.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
+    // Fresh console.log line — reset the wrap estimate to column 0
+    // (inspect wrap trunk; bun starts each log with a fresh
+    // estimated_line_length).
+    __torajs_inspect_line_reset(0);
     if is_null(v) {
         write_line(b"null\n");
         return;
@@ -295,6 +299,12 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
 /// whose `HeapHeader::type_tag` matches its layout.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_print_anyv_inline_top(v: AnyValue) {
+    // Per-arg reset (multi-arg joiner). Approximation: bun keeps one
+    // estimate across all args of a single console.log; tr resets per
+    // arg. Divergence only matters when an earlier arg pushes a later
+    // composite arg over the 80-column wrap edge — probe-calibrate if
+    // a fixture ever hits it.
+    __torajs_inspect_line_reset(0);
     if is_null(v) {
         unsafe { put_bytes(b"null") };
         return;

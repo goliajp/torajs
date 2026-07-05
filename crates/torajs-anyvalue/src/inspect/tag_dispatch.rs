@@ -14,8 +14,8 @@ use core::ffi::c_void;
 
 use super::formatters::{
     __torajs_anyv_struct_print_inline_at, __torajs_arr_print_any_at, __torajs_bigint_print_inline,
-    __torajs_date_to_iso_string, __torajs_fn_print_inline, __torajs_map_print,
-    __torajs_obj_print_any_at, __torajs_promise_print, __torajs_rc_dec,
+    __torajs_date_to_iso_string, __torajs_fn_print_inline, __torajs_inspect_line_add,
+    __torajs_map_print, __torajs_obj_print_any_at, __torajs_promise_print, __torajs_rc_dec,
     __torajs_regex_print_inline, __torajs_set_print, __torajs_symbol_print_inline,
     SUBSTR_VIEW_FLAG, closure_fn_addr, heap_flags, heap_type_tag, put_byte, put_bytes,
     put_f64_inline, put_i64_inline, put_str_cell_inline, put_substr_cell_inline,
@@ -65,14 +65,18 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline(v: AnyValue) {
 pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32) {
     if is_null(v) {
         unsafe { put_bytes(b"null") };
+        __torajs_inspect_line_add(4);
         return;
     }
     if is_undefined(v) {
         unsafe { put_bytes(b"undefined") };
+        __torajs_inspect_line_add(9);
         return;
     }
     if is_bool(v) {
-        unsafe { put_bytes(if as_bool(v) { b"true" } else { b"false" }) };
+        let b = as_bool(v);
+        unsafe { put_bytes(if b { b"true" } else { b"false" }) };
+        __torajs_inspect_line_add(if b { 4 } else { 5 });
         return;
     }
     if is_int32(v) {
@@ -97,6 +101,9 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
             unsafe { put_byte(b) };
         }
         unsafe { put_byte(b'"') };
+        // Quote-free width accounting (bun parity — see
+        // put_str_cell_inline).
+        __torajs_inspect_line_add(len as u32);
         return;
     }
     if is_cell(v) {

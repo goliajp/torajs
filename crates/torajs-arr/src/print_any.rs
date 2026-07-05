@@ -50,6 +50,12 @@ unsafe extern "C" {
     /// rendering through `__torajs_io_putc_stdout` with no trailing
     /// newline.
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
+    /// Line-width estimate primitives (inspect wrap trunk) — mirror
+    /// of bun's `estimated_line_length` accounting, hosted in
+    /// `torajs-anyvalue::inspect::formatters`.
+    fn __torajs_inspect_line_reset(cols: u32);
+    fn __torajs_inspect_line_add(n: u32);
+    fn __torajs_inspect_line_len() -> u32;
 }
 
 /// `console.log(arr: Array<Any>)` — inline (no trailing newline)
@@ -63,6 +69,9 @@ unsafe extern "C" {
 /// re-interpreted as `AnyValue` for the inline printer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_any(arr: *const c_void) {
+    // Top-level entry (SSA dispatcher / any.rs top-level arm) — a
+    // fresh console.log line starts at column 0.
+    unsafe { __torajs_inspect_line_reset(0) };
     unsafe { print_any_at(arr, 0) }
 }
 
@@ -81,35 +90,42 @@ pub unsafe extern "C" fn __torajs_arr_print_any_at(arr: *const c_void, indent: u
     unsafe { print_any_at(arr, indent) }
 }
 
-/// True when `v`'s bit pattern is a heap cell pointer whose header
-/// tag is `Tag::Arr`. Mirrors `nan_box_is_cell_like` in torajs-rc /
-/// torajs-value-drop (top 16 bits zero + low TAG_BIT_TYPE_OTHER bit
-/// clear + non-zero).
+/// True when `v`'s NaN-box bit pattern is a *composite* value in
+/// bun's `isPrimitive` sense (ConsoleObject.zig:1121-1135):
+/// primitives are string / number / bool / null / undefined /
+/// symbol / bigint; every other heap cell (Array, DynObj, struct
+/// Obj, Map, Set, Promise, Date, RegExp, Closure, Weak*) is
+/// composite. Cell detection mirrors `nan_box_is_cell_like` in
+/// torajs-rc / torajs-value-drop (top 16 bits zero + low
+/// TAG_BIT_TYPE_OTHER bit clear + non-zero).
 #[inline]
-unsafe fn slot_is_arr_cell(v: u64) -> bool {
+unsafe fn slot_is_composite(v: u64) -> bool {
     const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
     const TAG_BIT_TYPE_OTHER: u64 = 0x02;
     if v == 0 || (v & TOP_16_MASK) != 0 || (v & TAG_BIT_TYPE_OTHER) != 0 {
         return false;
     }
     let header = unsafe { &*(v as *const torajs_rc::HeapHeader) };
-    header.type_tag == torajs_rc::Tag::Arr as u16
+    let tag = header.type_tag;
+    tag != torajs_rc::Tag::Str as u16
+        && tag != torajs_rc::Tag::Symbol as u16
+        && tag != torajs_rc::Tag::BigInt as u16
 }
 
 /// Indent-aware body of [`__torajs_arr_print_any`].
 ///
-/// Break rule (bun parity, probed 2026-07-04): an array whose
-/// elements are ALL arrays renders multi-line —
-/// `[\n<indent+2><e0>, <e1>\n<indent>]`, siblings joined by `", "`
-/// on the same line, two spaces of indent per nesting level. Any
-/// scalar element keeps the whole level single-line. (bun's wider
-/// inspect heuristics — leading-composite break, width-driven wrap,
-/// object elements — are a separate L3b trunk; those shapes keep
-/// tr's current single-line form.)
-///
-/// Array-cell slots recurse HERE (carrying indent) rather than
-/// through `__torajs_print_anyv_inline`'s Tag::Arr branch, which
-/// would reset indent to 0.
+/// Full bun 1.3.14 break/wrap heuristic
+/// (ConsoleObject.zig:2410-2591, inspect wrap trunk):
+/// - open: full-break (`[\n<pad>` …) when `len > 10`, or the FIRST
+///   element is composite (Array / object / Map / … — anything
+///   non-primitive), or the running line estimate already exceeds
+///   80; otherwise single-line (`[ `).
+/// - mid-loop: elements join with `", "`; after each comma, if the
+///   estimate exceeds 80 the line breaks and continues at the
+///   element pad (this also upgrades a single-line opener to a
+///   broken closer — the "first line inline" wrap shape).
+/// - close: `\n<parent pad>]` when broken (no trailing comma),
+///   otherwise ` ]`.
 ///
 /// # Safety
 /// Same contract as [`__torajs_arr_print_any`].
@@ -150,43 +166,65 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
         let len = *(p.add(ARR_LEN_OFF) as *const u64);
         if len == 0 {
             put_bytes(b"[]");
+            __torajs_inspect_line_add(2);
             return;
         }
         let head = *(p.add(ARR_HEAD_OFF) as *const u32);
         let slot_at = |i: u64| -> u64 {
             *(p.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8) as *const u64)
         };
-        let all_arr = (0..len).all(|i| slot_is_arr_cell(slot_at(i)));
-        if all_arr {
+        // bun's open-bracket decision (ConsoleObject.zig:2410-2462),
+        // made once after peeking ONLY the first element's tag:
+        // full-break when len > 10, or the first element is
+        // composite, or the running line estimate already overflows.
+        // Element indent = this array's indent + 2 (bun `indent += 1`
+        // on entry, applied even on the single-line form).
+        let my_indent = indent + 2;
+        __torajs_inspect_line_add(2);
+        let mut full =
+            len > 10 || slot_is_composite(slot_at(0)) || __torajs_inspect_line_len() > 80;
+        if full {
             put_bytes(b"[\n");
-            put_indent(indent + 2);
-            for i in 0..len {
-                if i > 0 {
-                    put_bytes(b", ");
+            put_indent(my_indent);
+            __torajs_inspect_line_reset(my_indent);
+            __torajs_inspect_line_add(1);
+        } else {
+            put_bytes(b"[ ");
+            __torajs_inspect_line_add(2);
+        }
+        for i in 0..len {
+            if i > 0 {
+                // Comma first, then the wrap check (bun's mid-loop
+                // `printComma` → `goodTimeForANewLine`): the line
+                // may run past 80 mid-element; only the position
+                // *after* a comma triggers a break.
+                put_byte(b',');
+                __torajs_inspect_line_add(1);
+                if __torajs_inspect_line_len() > 80 {
+                    put_byte(b'\n');
+                    put_indent(my_indent);
+                    __torajs_inspect_line_reset(my_indent);
+                    full = true;
+                } else {
+                    put_byte(b' ');
+                    __torajs_inspect_line_add(1);
                 }
-                print_any_at(slot_at(i) as *const c_void, indent + 2);
             }
+            __torajs_print_anyv_inline_at(slot_at(i), my_indent);
+        }
+        // Close-bracket decision is independent of the opener
+        // (ConsoleObject.zig:2581-2591): a single-line opener that
+        // wrapped mid-loop (or overflowed) still closes on its own
+        // line at the PARENT indent. No trailing comma for arrays.
+        if full || __torajs_inspect_line_len() > 80 {
+            __torajs_inspect_line_reset(indent);
             put_byte(b'\n');
             put_indent(indent);
             put_byte(b']');
-            return;
+        } else {
+            put_bytes(b" ]");
+            __torajs_inspect_line_add(2);
         }
-        put_bytes(b"[ ");
-        for i in 0..len {
-            if i > 0 {
-                put_bytes(b", ");
-            }
-            // Element indent = this array's indent + 2 — bun pads
-            // nested composites by depth even when this level stays
-            // single-line (`[ 1, {\n    k: 1,\n  } ]` puts the
-            // object's fields at column 4, its closer at 2).
-            __torajs_print_anyv_inline_at(slot_at(i), indent + 2);
-        }
-        // Trailing " ]" — bun emits a space before the closing
-        // bracket only when the array is non-empty (the empty arm
-        // above already short-circuited with `[]`).
-        put_byte(b' ');
-        put_byte(b']');
     }
 }
 

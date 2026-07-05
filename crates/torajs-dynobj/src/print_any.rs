@@ -44,6 +44,11 @@ unsafe extern "C" {
     /// Indent-threaded inline AnyValue printer from
     /// `torajs-anyvalue::inspect` (inspect indent trunk).
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
+    /// Line-width estimate primitives (inspect wrap trunk) — mirror
+    /// of bun's `estimated_line_length` accounting, hosted in
+    /// `torajs-anyvalue::inspect::formatters`.
+    fn __torajs_inspect_line_reset(cols: u32);
+    fn __torajs_inspect_line_add(n: u32);
     /// Per-byte stdout writer (`libtorajs_io.a`). Same buffer
     /// shared with IR-emitted `print_*` and Str / Arr printers.
     fn __torajs_io_putc_stdout(c: i32) -> i32;
@@ -76,6 +81,9 @@ unsafe fn put_bytes(s: &[u8]) {
 /// `torajs-dynobj::layout`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_print_any(obj: *const c_void) {
+    // Top-level entry (SSA dispatcher / any.rs top-level arm) — a
+    // fresh console.log line starts at column 0.
+    unsafe { __torajs_inspect_line_reset(0) };
     unsafe { obj_print_any_at(obj, 0) }
 }
 
@@ -117,9 +125,16 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
             }
             if !any_emitted {
                 put_bytes(b"{\n");
+                // bun handleFirstProperty (ConsoleObject.zig:1893):
+                // the estimate is OVERWRITTEN to parent-indent + 1 on
+                // the first property; later property rows do NOT
+                // reset (bun's deliberate accumulation — the estimate
+                // only gates nested array wrap decisions).
+                __torajs_inspect_line_reset(indent + 1);
                 any_emitted = true;
             } else {
                 put_bytes(b",\n");
+                __torajs_inspect_line_add(1);
             }
             put_indent(indent + 2);
             // Key — borrowed Str cell ptr. Dynobj keys are always
@@ -130,6 +145,7 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
             // `"..."` for nested-context strings).
             __torajs_print_str_cell_unquoted(key);
             put_bytes(b": ");
+            __torajs_inspect_line_add(2);
             // Value — already a NaN-box AnyValue per iter_value's
             // u64 return contract. Its own indent is this field
             // row's column (indent + 2).
@@ -140,6 +156,7 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
             put_bytes(b"{}");
         } else {
             put_bytes(b",\n");
+            __torajs_inspect_line_add(1);
             put_indent(indent);
             put_byte(b'}');
         }

@@ -61,6 +61,11 @@ unsafe extern "C" {
 
     // torajs-io — per-byte stdout writer.
     fn __torajs_io_putc_stdout(c: i32) -> i32;
+
+    // torajs-anyvalue::inspect — line-width estimate primitives
+    // (inspect wrap trunk), bun `estimated_line_length` mirror.
+    fn __torajs_inspect_line_reset(cols: u32);
+    fn __torajs_inspect_line_add(n: u32);
 }
 
 /// Mirrors `torajs-structmeta::StrSlice` — `(ptr, len)` borrowed view
@@ -158,10 +163,14 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
     }
 
     unsafe { put_bytes(b"{\n") };
+    // bun handleFirstProperty estimate seed — see
+    // torajs-dynobj::print_any for the accumulation rationale.
+    unsafe { __torajs_inspect_line_reset(indent + 1) };
     let mut i: u32 = 0;
     while i < n {
         if i > 0 {
             unsafe { put_bytes(b",\n") };
+            unsafe { __torajs_inspect_line_add(1) };
         }
         unsafe { put_indent(indent + 2) };
         let name = unsafe { __torajs_struct_field_name(layout, i) };
@@ -177,12 +186,14 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
         };
         unsafe { put_bytes_from_raw(name.ptr, name.len) };
         unsafe { put_bytes(b": ") };
+        unsafe { __torajs_inspect_line_add(name.len as u32 + 2) };
         let (tag, val) = unsafe { field_slot_to_pair(info.type_tag, raw) };
         let anyv = unsafe { __torajs_anyv_box_from_pair(tag as i64, val as i64) };
         unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
         i += 1;
     }
     unsafe { put_bytes(b",\n") };
+    unsafe { __torajs_inspect_line_add(1) };
     unsafe { put_indent(indent) };
     unsafe { put_byte(b'}') };
 }
@@ -206,6 +217,8 @@ unsafe fn put_indent(n: u32) {
 /// Same caller contract as [`__torajs_anyv_struct_print_inline`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_struct_print(v: u64) {
+    // Fresh console.log line — reset the wrap estimate to column 0.
+    unsafe { __torajs_inspect_line_reset(0) };
     unsafe { __torajs_anyv_struct_print_inline(v) };
     unsafe { put_byte(b'\n') };
 }
