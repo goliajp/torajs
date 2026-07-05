@@ -55,6 +55,7 @@ pub mod print;
 pub mod print_any;
 pub mod print_inline;
 mod print_props;
+mod print_typed;
 pub mod props;
 pub mod slice;
 pub mod sort;

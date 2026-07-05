@@ -147,20 +147,18 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
         // UNSET both fall through to the AnyValue walk below.
         let header = &*(p as *const torajs_rc::HeapHeader);
         if header.flags & torajs_rc::FLAG_ARR_ANY == 0 {
-            match header.arr_elem_kind() {
-                torajs_rc::ARR_KIND_I64 => {
-                    crate::print_inline::__torajs_arr_print_i64_inline(arr);
-                    return;
-                }
-                torajs_rc::ARR_KIND_F64 => {
-                    crate::print_inline::__torajs_arr_print_f64_inline(arr);
-                    return;
-                }
-                torajs_rc::ARR_KIND_BOOL => {
-                    crate::print_inline::__torajs_arr_print_bool_inline(arr);
-                    return;
-                }
-                _ => {}
+            let kind = match header.arr_elem_kind() {
+                torajs_rc::ARR_KIND_I64 => Some(crate::print_typed::TypedKind::I64),
+                torajs_rc::ARR_KIND_F64 => Some(crate::print_typed::TypedKind::F64),
+                torajs_rc::ARR_KIND_BOOL => Some(crate::print_typed::TypedKind::Bool),
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                // Nested typed array — same break/wrap walker, at
+                // this cell's indent (no estimate reset: the outer
+                // composite's line is still live).
+                crate::print_typed::print_typed_at(p, indent, kind);
+                return;
             }
         }
         let len = *(p.add(ARR_LEN_OFF) as *const u64);
@@ -212,11 +210,13 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
             }
             __torajs_print_anyv_inline_at(slot_at(i), my_indent);
         }
-        // Close-bracket decision is independent of the opener
-        // (ConsoleObject.zig:2581-2591): a single-line opener that
-        // wrapped mid-loop (or overflowed) still closes on its own
-        // line at the PARENT indent. No trailing comma for arrays.
-        if full || __torajs_inspect_line_len() > 80 {
+        // Close-bracket decision is independent of the opener: a
+        // single-line opener that wrapped mid-loop still closes on
+        // its own line at the PARENT indent. It does NOT re-test the
+        // 80-column estimate (probed 2026-07-05: bun keeps
+        // `[ 7×"xxxxxxxxxx" ]` single-line at estimate 86). No
+        // trailing comma for arrays.
+        if full {
             __torajs_inspect_line_reset(indent);
             put_byte(b'\n');
             put_indent(indent);

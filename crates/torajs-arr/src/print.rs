@@ -30,7 +30,8 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
+use crate::layout::ARR_SLOTS_OFF;
+use crate::print_typed::{TypedKind, print_typed_top};
 
 pub(crate) const ARR_HEAD_OFF: usize = 20;
 
@@ -121,6 +122,9 @@ unsafe extern "C" {
     // arr_print_* element format paths.
     fn __torajs_fmt_itoa(n: i64, out_buf: *mut u8, out_cap: usize) -> i32;
     fn __torajs_fmt_dtoa(d: f64, out_buf: *mut u8, out_cap: usize) -> i32;
+    // Line-width estimate accounting (inspect wrap trunk) — hosted
+    // in torajs-anyvalue::inspect::formatters.
+    fn __torajs_inspect_line_add(n: u32);
 }
 
 // ============================================================
@@ -141,73 +145,6 @@ pub(crate) unsafe fn put_bytes(s: &[u8]) {
     }
 }
 
-/// Emit `[ ` prefix.
-#[inline]
-pub(crate) unsafe fn put_open_bracket() {
-    unsafe { put_bytes(b"[ ") };
-}
-
-/// Emit ` ]\n` suffix.
-#[inline]
-unsafe fn put_close_bracket() {
-    unsafe { put_bytes(b" ]\n") };
-}
-
-/// Emit ` ]` suffix (no trailing newline) — used by the no-\n
-/// inline typed-walker family in `print_inline.rs`.
-#[inline]
-pub(crate) unsafe fn put_close_bracket_inline() {
-    unsafe { put_bytes(b" ]") };
-}
-
-/// Same as [`print_header`] but emits `null` / `[]` **without** the
-/// trailing newline. Used by the no-\n inline typed walkers that
-/// feed the multi-arg `console.log` joiner (caller owns the final
-/// '\n').
-pub(crate) unsafe fn print_header_inline(arr: *const u8) -> Option<(u32, u64)> {
-    if arr.is_null() {
-        unsafe { put_bytes(b"null") };
-        return None;
-    }
-    let len = unsafe { *(arr.add(ARR_LEN_OFF) as *const u64) };
-    if len == 0 {
-        unsafe { put_bytes(b"[]") };
-        return None;
-    }
-    let head = unsafe { *(arr.add(ARR_HEAD_OFF) as *const u32) };
-    unsafe { put_open_bracket() };
-    Some((head, len))
-}
-
-/// Emit `, ` separator before non-first element.
-#[inline]
-pub(crate) unsafe fn put_sep(i: u64) {
-    if i > 0 {
-        unsafe { put_bytes(b", ") };
-    }
-}
-
-/// Common entry: NULL → "null\n" (a NULL array reaches print only as
-/// a regex exec / match no-match result, which is `null` per spec
-/// §22.2.7.2), empty → "[]\n", else open bracket + return (head, len)
-/// for the caller to drive its per-element loop. Returns
-/// `Some((head, len))` when caller should proceed; `None` when
-/// already handled the NULL / empty case.
-unsafe fn print_header(arr: *const u8) -> Option<(u32, u64)> {
-    if arr.is_null() {
-        unsafe { put_bytes(b"null\n") };
-        return None;
-    }
-    let len = unsafe { *(arr.add(ARR_LEN_OFF) as *const u64) };
-    if len == 0 {
-        unsafe { put_bytes(b"[]\n") };
-        return None;
-    }
-    let head = unsafe { *(arr.add(ARR_HEAD_OFF) as *const u32) };
-    unsafe { put_open_bracket() };
-    Some((head, len))
-}
-
 #[inline]
 pub(crate) unsafe fn slot_addr(arr: *const u8, head: u32, i: u64) -> *const u8 {
     unsafe { arr.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8) }
@@ -222,6 +159,7 @@ pub(crate) unsafe fn put_snprintf_i64(v: i64) {
     if n > 0 {
         let n = (n as usize).min(63);
         unsafe { put_bytes(&buf[..n]) };
+        unsafe { __torajs_inspect_line_add(n as u32) };
     }
 }
 
@@ -235,160 +173,51 @@ pub(crate) unsafe fn put_snprintf_f64_g(v: f64) {
     if n > 0 {
         let n = (n as usize).min(63);
         unsafe { put_bytes(&buf[..n]) };
+        unsafe { __torajs_inspect_line_add(n as u32) };
     }
 }
 
 // ============================================================
-// Per-element-type printers
+// Per-element-type printers — thin delegates over the shared
+// break/wrap walker (inspect wrap trunk chunk C). Element format
+// docs live on `print_typed::emit_elem`.
 // ============================================================
 
 /// `console.log(arr: Array<I64>)`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_i64(arr: *const c_void) {
-    let arr = arr as *const u8;
-    unsafe {
-        let Some((head, len)) = print_header(arr) else {
-            return;
-        };
-        for i in 0..len {
-            put_sep(i);
-            let v = *(slot_addr(arr, head, i) as *const i64);
-            put_snprintf_i64(v);
-        }
-        crate::print_props::put_arrprops(arr as *mut c_void);
-        put_close_bracket();
-    }
+    unsafe { print_typed_top(arr, TypedKind::I64) };
+    unsafe { put_byte(b'\n') };
 }
 
 /// `console.log(arr: Array<F64>)`. JS-spec NaN / Infinity / -Infinity
-/// special cases, else `%g` short-form via snprintf (matches C 1:1).
+/// special cases, else shortest-roundtrip dtoa.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_f64(arr: *const c_void) {
-    let arr = arr as *const u8;
-    unsafe {
-        let Some((head, len)) = print_header(arr) else {
-            return;
-        };
-        for i in 0..len {
-            put_sep(i);
-            let v = *(slot_addr(arr, head, i) as *const f64);
-            if v.is_nan() {
-                put_bytes(b"NaN");
-            } else if v == f64::INFINITY {
-                put_bytes(b"Infinity");
-            } else if v == f64::NEG_INFINITY {
-                put_bytes(b"-Infinity");
-            } else {
-                put_snprintf_f64_g(v);
-            }
-        }
-        crate::print_props::put_arrprops(arr as *mut c_void);
-        put_close_bracket();
-    }
+    unsafe { print_typed_top(arr, TypedKind::F64) };
+    unsafe { put_byte(b'\n') };
 }
 
 /// `console.log(arr: Array<Bool>)`. Slots are i64 (0 / non-0).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_bool(arr: *const c_void) {
-    let arr = arr as *const u8;
-    unsafe {
-        let Some((head, len)) = print_header(arr) else {
-            return;
-        };
-        for i in 0..len {
-            put_sep(i);
-            let v = *(slot_addr(arr, head, i) as *const i64);
-            put_bytes(if v != 0 { b"true" } else { b"false" });
-        }
-        crate::print_props::put_arrprops(arr as *mut c_void);
-        put_close_bracket();
-    }
+    unsafe { print_typed_top(arr, TypedKind::Bool) };
+    unsafe { put_byte(b'\n') };
 }
 
-/// `console.log(arr: Array<Str>)`. Each slot is a `*Str` (NULL → `""`).
-///
-/// P11.1-S2.1 — reads the Str's `length u32 @8` (was u64 pre-S1)
-/// and its `IS_LATIN1` flag bit on `flags u16 @6`. Latin-1 ASCII
-/// payloads pass through verbatim; Latin-1 supplement and UTF-16
-/// LE payloads transcode to UTF-8 before stdout writes so array
-/// elements render correctly regardless of encoding.
+/// `console.log(arr: Array<Str>)`. Each slot is a `*Str` (NULL →
+/// `undefined` — non-participating regex capture).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_str(arr: *const c_void) {
-    let arr = arr as *const u8;
-    unsafe {
-        let Some((head, len)) = print_header(arr) else {
-            return;
-        };
-        for i in 0..len {
-            put_sep(i);
-            let s = *(slot_addr(arr, head, i) as *const *const u8);
-            if s.is_null() {
-                // NULL slot = non-participating capture (regex exec /
-                // match) — bun prints `undefined`, not an empty string.
-                put_bytes(b"undefined");
-                continue;
-            }
-            let length = *(s.add(STR_LEN_OFF) as *const u32);
-            let flags = *(s.add(HDR_FLAGS_OFF) as *const u16);
-            let is_latin1 = (flags & STR_FLAG_IS_LATIN1) != 0;
-            let byte_cnt = if is_latin1 {
-                length as usize
-            } else {
-                (length as usize) * 2
-            };
-            put_byte(b'"');
-            if byte_cnt > 0 {
-                let bytes = core::slice::from_raw_parts(s.add(STR_DATA_OFF), byte_cnt);
-                put_str_payload(bytes, is_latin1);
-            }
-            put_byte(b'"');
-        }
-        crate::print_props::put_arrprops(arr as *mut c_void);
-        put_close_bracket();
-    }
+    unsafe { print_typed_top(arr, TypedKind::Str) };
+    unsafe { put_byte(b'\n') };
 }
 
 /// `console.log(arr: Array<Substr>)`. Each slot is a `*Substr` —
-/// layout differs from Str (has parent + offset instead of inline
+/// layout differs from Str (parent + offset instead of inline
 /// bytes); without this dispatch the bytes would print as garbage.
-///
-/// P11.1-S2.1 — Substr layout still stores a `u64` byte length
-/// (its code-unit flip is queued for S5), but the parent Str's
-/// header carries the encoding flag. Transcode parent bytes
-/// view via the same Latin-1 / UTF-16 helper so non-ASCII Substrs
-/// render correctly.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_print_substr(arr: *const c_void) {
-    let arr = arr as *const u8;
-    unsafe {
-        let Some((head, len)) = print_header(arr) else {
-            return;
-        };
-        for i in 0..len {
-            put_sep(i);
-            let v = *(slot_addr(arr, head, i) as *const *const u8);
-            if v.is_null() {
-                // NULL slot → `undefined` (mirrors the Str printer).
-                put_bytes(b"undefined");
-                continue;
-            }
-            let cu_len = *(v.add(SUBSTR_LEN_OFF) as *const u64) as usize;
-            let parent = *(v.add(SUBSTR_PARENT_OFF) as *const *const u8);
-            let cu_offset = *(v.add(SUBSTR_OFFSET_OFF) as *const u64) as usize;
-            put_byte(b'"');
-            if cu_len > 0 {
-                let flags = *(parent.add(HDR_FLAGS_OFF) as *const u16);
-                let is_latin1 = (flags & STR_FLAG_IS_LATIN1) != 0;
-                let stride = if is_latin1 { 1 } else { 2 };
-                let bytes = core::slice::from_raw_parts(
-                    parent.add(STR_DATA_OFF + cu_offset * stride),
-                    cu_len * stride,
-                );
-                put_str_payload(bytes, is_latin1);
-            }
-            put_byte(b'"');
-        }
-        crate::print_props::put_arrprops(arr as *mut c_void);
-        put_close_bracket();
-    }
+    unsafe { print_typed_top(arr, TypedKind::Substr) };
+    unsafe { put_byte(b'\n') };
 }
