@@ -70,6 +70,16 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
     write_class_tag(ctx, obj_ptr, sid);
     write_vtable_ptr(ctx, obj_ptr);
     for (i, val) in field_vals.iter().enumerate() {
+        // L3b #6 crash fix — a typed Array stored into a struct field
+        // reaches runtime walkers (inspect's Tag::Obj field printer,
+        // the cycle collector's child walk) that read the header's
+        // elem-kind to pick a slot interpretation. Record it here,
+        // same as the `any`-boxing boundary (RFC 20260704 S1) —
+        // without the mark a raw-i64 array walks as NaN-box cells
+        // and SIGSEGVs on the first small-int deref. No-op for
+        // non-Arr fields.
+        let fty = field_tys[i].1;
+        ctx.emit_arr_mark_kind(val, &fty);
         let offset = OBJ_HEADER_SIZE + i as u64 * 8;
         let cur_block = ctx.cur_block;
         ctx.f.append_void(

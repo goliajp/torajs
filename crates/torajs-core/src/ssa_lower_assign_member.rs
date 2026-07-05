@@ -355,6 +355,11 @@ fn lower_struct_field_store(
         );
         ctx.emit_drop_value(Operand::Value(old), field_ty);
     }
+    // L3b #6 crash fix — mirror the ObjectLit field-store mark: a
+    // typed Array entering a struct field must carry its elem kind
+    // for the runtime walkers (inspect / cycle collector). No-op for
+    // non-Arr fields.
+    ctx.emit_arr_mark_kind(&v, &field_ty);
     let cur_block = ctx.cur_block;
     ctx.f
         .append_void(cur_block, InstKind::Store(v, obj_val, offset));
