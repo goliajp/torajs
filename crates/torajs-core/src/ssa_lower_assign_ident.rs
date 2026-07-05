@@ -7,13 +7,16 @@
 //!
 //! 1. **K.3 module-level data global** — `globals.contains(name)`:
 //!    `GlobalRef + Store` to the slot pointer. Primitive Copy types
-//!    have no old-value drop dance; K.4 refcount globals (Str) are
-//!    rejected loudly (mutable refcount globals are a follow-up).
+//!    have no old-value drop dance; Str slots (chunk 558) run the
+//!    borrow-inc → load-old → store-new → drop-old sequence; Arr/Obj
+//!    refcount globals are rejected loudly (K.6 — method-mutation
+//!    writeback not yet landed, so they never enter `globals`).
 //!    P11.2-A1 type-check rejects silent `f64 → i64` slot stores;
 //!    permissible coercions:
 //!    - `slot F64 + value I64` → `coerce_to_f64`
 //!    - `slot {I64|F64} + value Any` → `coerce_any_to_number` (catch-
 //!      block narrow)
+//!    - `slot Str + value Any` → `coerce_to_str`
 //!    - `slot I64 + value I32` / `slot I32 + value I64`
 //!    - `slot Ptr || value Ptr` (free)
 //! 2. **Local binding** — `locals.contains(name)`:
@@ -54,12 +57,21 @@ fn lower_global_assign(
     slot_ty: Type,
     value: ExprId,
 ) -> Operand {
-    if slot_ty.is_refcounted() {
+    if slot_ty.is_refcounted() && slot_ty != Type::Str {
         panic!(
-            "ssa-lower: assignment to refcount global `{name}` is not yet supported (K.4 ships read-only Str globals; mutable refcount globals are a follow-up)"
+            "ssa-lower: assignment to refcount global `{name}` is not yet supported (K.6 — mutable Arr/Obj globals need method-mutation writeback)"
         );
     }
     let v = ctx.lower_expr(value);
+    // Chunk 558 — mutable Str globals. RHS lowers FIRST (`g = g + "x"`
+    // reads the old slot value); borrow-shaped rhs (Member / Index /
+    // unmoved Ident, including reads of another global slot) takes +1
+    // since the slot and the rhs home share ownership. Then
+    // load-old → store-new → drop-old; self-assign `g = g` is safe
+    // because the borrow inc lands before the old value's dec.
+    if slot_ty == Type::Str {
+        apply_borrow_rc_inc(ctx, &v, value);
+    }
     let v_ty = ctx.operand_ty(&v);
     if !global_coercion_compatible(slot_ty, v_ty) {
         panic!(
@@ -71,6 +83,20 @@ fn lower_global_assign(
     let ptr = ctx
         .f
         .append_inst(cur_block, InstKind::GlobalRef(name), Type::Ptr, None);
+    if slot_ty == Type::Str {
+        let cur_block = ctx.cur_block;
+        let old = ctx.f.append_inst(
+            cur_block,
+            InstKind::Load(Type::Str, Operand::Value(ptr), 0),
+            Type::Str,
+            None,
+        );
+        let cur_block = ctx.cur_block;
+        ctx.f
+            .append_void(cur_block, InstKind::Store(v, Operand::Value(ptr), 0));
+        ctx.emit_drop_value(Operand::Value(old), Type::Str);
+        return v;
+    }
     let cur_block = ctx.cur_block;
     ctx.f
         .append_void(cur_block, InstKind::Store(v, Operand::Value(ptr), 0));
@@ -92,6 +118,7 @@ fn global_coercion_compatible(slot_ty: Type, v_ty: Type) -> bool {
         || slot_ty == Type::Ptr
         || v_ty == Type::Ptr
         || (matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any)
+        || (slot_ty == Type::Str && v_ty == Type::Any)
 }
 
 fn coerce_for_global(ctx: &mut LowerCtx<'_>, slot_ty: Type, v_ty: Type, v: Operand) -> Operand {
@@ -99,6 +126,8 @@ fn coerce_for_global(ctx: &mut LowerCtx<'_>, slot_ty: Type, v_ty: Type, v: Opera
         ctx.coerce_to_f64(v)
     } else if matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any {
         ctx.coerce_any_to_number(v, slot_ty)
+    } else if slot_ty == Type::Str && v_ty == Type::Any {
+        ctx.coerce_to_str(v, Type::Any)
     } else {
         v
     }
@@ -144,7 +173,14 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
     }
     let needs_inc = match ctx.ast.get_expr(value) {
         Expr::Member { .. } | Expr::Index { .. } => true,
-        Expr::Ident(src) => ctx.locals.get(src).map(|info| !info.moved).unwrap_or(false),
+        // A global-slot read is always a borrow — the slot keeps its
+        // reference across the assignment (chunk 558; locals shadow
+        // globals, so the fallback only fires for true slot reads).
+        Expr::Ident(src) => ctx
+            .locals
+            .get(src)
+            .map(|info| !info.moved)
+            .unwrap_or_else(|| ctx.globals.contains_key(src)),
         _ => false,
     };
     if needs_inc {

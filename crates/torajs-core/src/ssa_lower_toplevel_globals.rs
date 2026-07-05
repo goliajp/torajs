@@ -192,16 +192,22 @@ pub(crate) fn collect_toplevel_globals(
             if !supported {
                 continue;
             }
-            // K.6 — mutable refcount globals are not yet supported.
+            // K.6 — mutable Arr / Obj globals are not yet supported.
             // The shipped Assign-Ident reject covers `X = newValue`,
             // but hidden mutation through method calls (`xs.push(v)`,
             // `xs.sort()`, `obj.field = v` on a global) bypasses
             // that gate and would need writeback to the global slot
             // for any push that reallocates. Until that path lands,
-            // mutable refcount globals stay scoped to the implicit
+            // mutable Arr / Obj globals stay scoped to the implicit
             // main as before. Mutable primitive Copy globals stay
-            // promoted (K.3 / globals-001 depends on it).
-            if *mutable && ty.is_refcounted() {
+            // promoted (K.3 / globals-001 depends on it). Mutable Str
+            // globals ARE promoted (chunk 558): strings have no
+            // in-place mutation methods (every str method borrows the
+            // receiver and returns a fresh cell), so the writeback
+            // concern doesn't exist — the Assign-Ident path handles
+            // drop-old/store-new and the K.4 exit hook drops the
+            // final value.
+            if *mutable && ty.is_refcounted() && ty != Type::Str {
                 continue;
             }
             globals.insert(name.clone(), ty);
