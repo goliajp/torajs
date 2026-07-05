@@ -135,6 +135,17 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     }
     let init_val = lower_let_init_val(ctx, ty, init);
     ctx.let_stack_alloc_hint = None;
+    // RFC 20260705 ledger #2 (chunk 563) — a concrete value boxed into
+    // an `any` slot is ALWAYS owned by the slot: `anyv_box_from_pair`
+    // transfers one reference (NaN-box contract), and every any-slot
+    // consumer (assign drop-old, scope drop) releases one. Borrow-shape
+    // inits (Ident / Member / container Index) therefore take +1 before
+    // the box; owned shapes (Call / BinOp / string-indexing view)
+    // transfer their fresh reference. The old consume path moved the
+    // source binding's single stake into the box (double-free when
+    // boxed twice); the old alias path left the box borrowing a stake
+    // the slot's drop-old then stole (UAF).
+    let boxed_any = ty == Type::Any && ctx.operand_ty(&init_val) != Type::Any;
     if !is_alias_init {
         let pre_ty = ctx.operand_ty(&init_val);
         let shares = if let Expr::Ident(src) = ctx.ast.get_expr(init) {
@@ -146,7 +157,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
         };
         if shares {
             ctx.emit_rc_inc(init_val.clone());
-        } else {
+        } else if !boxed_any {
             ctx.consume_if_ident(init);
         }
     }
@@ -155,7 +166,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     } else {
         init_val
     };
-    let init_val = if ty == Type::Any && ctx.operand_ty(&init_val) != Type::Any {
+    let init_val = if boxed_any {
+        if ctx.operand_ty(&init_val).is_refcounted() && !any_init_transfers(ctx, init) {
+            ctx.emit_rc_inc(init_val.clone());
+        }
         ctx.box_to_any_from_expr(init, init_val)
     } else {
         init_val
@@ -206,13 +220,36 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
         LocalInfo {
             slot,
             ty,
-            moved: is_alias_init || escape_captured,
-            borrowed: is_alias_init,
+            // A boxed-any binding owns the box's stake regardless of
+            // the init's alias shape — it must reach the scope-close
+            // drop walk (chunk 563).
+            moved: (is_alias_init && !boxed_any) || escape_captured,
+            borrowed: is_alias_init && !boxed_any,
             scope_depth: cur_depth,
         },
     );
     let top = ctx.scope_stack.last_mut().expect("scope frame");
     top.push(name.to_string());
+}
+
+/// True when an `any`-annotated init's lowered value is an owned temp
+/// whose reference transfers straight into the box (no +1 needed):
+/// Call / New / BinOp / Closure per [`LowerCtx::expr_owned_shape`],
+/// string indexing (fresh Substr view, chunk 561), and string literals
+/// (static cells — rc traffic is a no-op, skip the inc). Borrow shapes
+/// (Ident / Member / container Index) answer false and take +1 before
+/// boxing (chunk 563).
+fn any_init_transfers(ctx: &LowerCtx, init: ExprId) -> bool {
+    if ctx.expr_owned_shape(init) {
+        return true;
+    }
+    match ctx.ast.get_expr(init) {
+        Expr::Index { obj, .. } => {
+            matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
+        }
+        Expr::String(_) => true,
+        _ => false,
+    }
 }
 
 /// K.3 / K.4 — top-level data global: main fn + name in `globals` emits
