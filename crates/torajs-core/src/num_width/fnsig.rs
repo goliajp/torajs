@@ -36,7 +36,15 @@ use crate::ast::{Expr, ExprId, Stmt};
 /// nested inside another spelling) are not extracted — the union is
 /// skipped and the inner signature keeps its parse width (loud at
 /// the call site, never silent-wrong).
-pub(crate) fn fn_type_canon(ann: &str) -> Option<&str> {
+///
+/// `__cls(P)->R` (the bug-327 C2 / chunk 553 env-first retag of an
+/// `__fn(P)->R` slot, and struct-field closure spellings) is the
+/// SAME nominal signature — it normalizes to the `__fn(` spelling so
+/// retagged slots and their residents keep unioning onto one class.
+/// Pre-553 `__cls(` fell out of the F1 aggregation entirely: a
+/// retagged slot's f64-possible faces stopped floating the interned
+/// signature and the caller read the ret off the wrong register lane.
+pub(crate) fn fn_type_canon(ann: &str) -> Option<String> {
     let mut t = ann.trim();
     while let Some(inner) = t
         .strip_prefix("__nullable(")
@@ -45,7 +53,9 @@ pub(crate) fn fn_type_canon(ann: &str) -> Option<&str> {
         t = inner.trim();
     }
     if t.starts_with("__fn(") {
-        Some(t)
+        Some(t.to_string())
+    } else if let Some(rest) = t.strip_prefix("__cls(") {
+        Some(format!("__fn({rest}"))
     } else {
         None
     }
@@ -103,7 +113,7 @@ impl<'a> Analysis<'a> {
         let Some(canon) = fn_type_canon(ann) else {
             return;
         };
-        let ck = SlotKey::Class(canon.to_string());
+        let ck = SlotKey::Class(canon);
         self.mark_containerish(&ck);
         self.mark_containerish(key);
         self.uf.union(&ck, key);
@@ -206,12 +216,17 @@ mod tests {
     #[test]
     fn canon_spellings() {
         assert_eq!(
-            fn_type_canon("__fn(number)->number"),
+            fn_type_canon("__fn(number)->number").as_deref(),
             Some("__fn(number)->number")
         );
         assert_eq!(
-            fn_type_canon("__nullable(__fn(number|number)->number)"),
+            fn_type_canon("__nullable(__fn(number|number)->number)").as_deref(),
             Some("__fn(number|number)->number")
+        );
+        // env-first retag spelling normalizes onto the same class
+        assert_eq!(
+            fn_type_canon("__cls(number)->number").as_deref(),
+            Some("__fn(number)->number")
         );
         assert_eq!(fn_type_canon("number"), None);
         assert_eq!(fn_type_canon("Item | null"), None);

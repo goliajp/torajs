@@ -84,10 +84,10 @@ pub(crate) fn widen_fn_sig(
     let Some(canon) = ann.and_then(fn_type_canon) else {
         return parsed;
     };
-    let Some((param_anns, ret_ann)) = split_fn_type(canon) else {
+    let Some((param_anns, ret_ann)) = split_fn_type(&canon) else {
         return parsed;
     };
-    let ck = SlotKey::Class(canon.to_string());
+    let ck = SlotKey::Class(canon.clone());
     let (param_tys, ret_ty) = fn_sigs[sid.0 as usize].clone();
     let mut new_params = param_tys.clone();
     for (i, pt) in new_params.iter_mut().enumerate() {
