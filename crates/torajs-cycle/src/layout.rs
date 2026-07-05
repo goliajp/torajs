@@ -63,6 +63,22 @@ pub const FLAG_BUFFERED: u16 = 1 << 5;
 /// right after the universal 8-byte heap header.
 pub const OBJ_CLASS_TAG_OFF: usize = 8;
 
+/// `Array<Any>` marker (torajs-rc `FLAG_ARR_ANY` mirror) — NaN-box
+/// slots, 8 bytes each, immediates mixed with cell pointers. Also
+/// bit-shares with the cycle color field (see torajs-rc's flag-bit
+/// doc), so coloring an Arr<Any> would clobber its layout marker —
+/// both reasons exclude it from the walk in [`is_visitable_arr`].
+pub const FLAG_ARR_ANY: u16 = 1 << 3;
+
+/// Shift/mask of the 3-bit elem-kind field (torajs-rc `arr_kind`
+/// mirror, bits 10-12 of `HeapHeader.flags`).
+pub const ARR_ELEM_KIND_SHIFT: u16 = 10;
+/// Mask companion of [`ARR_ELEM_KIND_SHIFT`].
+pub const ARR_ELEM_KIND_MASK: u16 = 0b111 << ARR_ELEM_KIND_SHIFT;
+/// Heap-pointer element slots — the only kind whose 8-byte slots are
+/// guaranteed cell pointers the walk may dereference.
+pub const ARR_KIND_HEAP: u16 = 4;
+
 /// Universal heap header — 8 bytes, ABI-shared with
 /// `torajs_rc::HeapHeader` + every `__torajs_heap_header_t` typedef
 /// repeated in the C runtime translation units.
@@ -209,7 +225,21 @@ pub unsafe fn is_visitable_arr(p: *mut c_void) -> bool {
     if header.flags & FLAG_STATIC_LITERAL != 0 {
         return false;
     }
-    header.type_tag == TAG_ARR
+    if header.type_tag != TAG_ARR {
+        return false;
+    }
+    // L3b #16 — only ARR_KIND_HEAP arrays have 8-byte slots that are
+    // guaranteed cell pointers. Scalar kinds (raw i64/f64/bool) have
+    // no children and their slot bits would deref as garbage
+    // (`has_walkable_children(1)` = SIGSEGV); UNSET means the array
+    // never crossed a marking boundary — conservatively treat it as
+    // a leaf (a missed descent under-collects a cycle, never
+    // corrupts). Arr<Any> is excluded both for its NaN-box immediates
+    // and the FLAG_ARR_ANY/color bit-3 overlap (see const doc).
+    if header.flags & FLAG_ARR_ANY != 0 {
+        return false;
+    }
+    (header.flags & ARR_ELEM_KIND_MASK) >> ARR_ELEM_KIND_SHIFT == ARR_KIND_HEAP
 }
 
 /// True iff any cycle-collector phase can descend into `p`. Today =
@@ -287,5 +317,30 @@ mod tests {
         unsafe { set_color(&mut h, COLOR_WHITE) };
         assert_eq!(color_of(&h), COLOR_WHITE);
         assert_ne!(h.flags & FLAG_BUFFERED, 0);
+    }
+
+    // L3b #16 — the walk only descends into ARR_KIND_HEAP arrays:
+    // scalar-kind and UNSET slots are not cell pointers, Arr<Any>
+    // slots are NaN-box immediates (and its flag bit-shares with
+    // the color field).
+    #[test]
+    fn visitable_arr_gates_on_elem_kind() {
+        fn arr_header(flags: u16) -> HeapHeader {
+            HeapHeader {
+                refcount: 1,
+                type_tag: TAG_ARR,
+                flags,
+            }
+        }
+        let heap = arr_header(ARR_KIND_HEAP << ARR_ELEM_KIND_SHIFT);
+        assert!(unsafe { is_visitable_arr(&heap as *const _ as *mut c_void) });
+        let unset = arr_header(0);
+        assert!(!unsafe { is_visitable_arr(&unset as *const _ as *mut c_void) });
+        let i64_kind = arr_header(1 << ARR_ELEM_KIND_SHIFT);
+        assert!(!unsafe { is_visitable_arr(&i64_kind as *const _ as *mut c_void) });
+        let any_arr = arr_header(FLAG_ARR_ANY);
+        assert!(!unsafe { is_visitable_arr(&any_arr as *const _ as *mut c_void) });
+        let static_heap = arr_header(FLAG_STATIC_LITERAL | (ARR_KIND_HEAP << ARR_ELEM_KIND_SHIFT));
+        assert!(!unsafe { is_visitable_arr(&static_heap as *const _ as *mut c_void) });
     }
 }
