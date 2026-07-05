@@ -47,14 +47,20 @@ impl<'a> LowerCtx<'a> {
     /// `Type::Str` for an arg position and the actual operand is
     /// `Type::Substr`, allocate an owned Str via substr_to_owned and
     /// return the materialized operand; the caller drops it after the
-    /// call. Other type pairs pass through unchanged. Returns the
-    /// (possibly-rewritten) args plus a list of Str values to drop after
-    /// the call returns.
+    /// call. An `Any` param position with a concrete arg boxes it via
+    /// `box_to_any` — the CallIndirect otherwise passes the raw slot
+    /// bits into a box-shaped ABI lane (SIGSEGV when an
+    /// inference-defaulted `(x: any, y: any)` comparator derefs a raw
+    /// i64; RFC 20260705 chunk 549). Heap payloads are inc'd by the
+    /// any_box helper, so boxed args join the post-call drop list.
+    /// Other type pairs pass through unchanged. Returns the
+    /// (possibly-rewritten) args plus the (value, type) drops to emit
+    /// after the call returns.
     fn materialize_call_args(
         &mut self,
         fn_ty: Type,
         args: Vec<Operand>,
-    ) -> (Vec<Operand>, Vec<Operand>) {
+    ) -> (Vec<Operand>, Vec<(Operand, Type)>) {
         let Some(param_tys) = self.sig_param_tys(fn_ty) else {
             return (args, Vec::new());
         };
@@ -71,7 +77,11 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 out.push(Operand::Value(v));
-                drops.push(Operand::Value(v));
+                drops.push((Operand::Value(v), Type::Str));
+            } else if expected == Some(Type::Any) && actual != Type::Any {
+                let boxed = self.box_to_any(a);
+                out.push(boxed);
+                drops.push((boxed, Type::Any));
             } else {
                 out.push(a);
             }
@@ -87,8 +97,8 @@ impl<'a> LowerCtx<'a> {
     ) -> ValueId {
         let (args, drops) = self.materialize_call_args(fn_ty, args);
         let ret = self.call_fn_value_raw(fn_val, fn_ty, args);
-        for d in drops {
-            self.emit_drop_value(d, Type::Str);
+        for (d, ty) in drops {
+            self.emit_drop_value(d, ty);
         }
         ret
     }
@@ -135,8 +145,8 @@ impl<'a> LowerCtx<'a> {
             ret_ty,
             None,
         );
-        for d in drops {
-            self.emit_drop_value(d, Type::Str);
+        for (d, ty) in drops {
+            self.emit_drop_value(d, ty);
         }
         ret
     }
