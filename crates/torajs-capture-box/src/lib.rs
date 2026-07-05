@@ -56,7 +56,11 @@ unsafe fn rc_word(slot_ptr: *mut c_void) -> *mut u64 {
 
 /// Allocate a 16-byte capture box, write `init_value` at base+8,
 /// return the value-slot pointer (= base + 8). Refcount starts at
-/// 0; the caller's closure-construction site inc's per use.
+/// 1 — the promoting function's own stake, released by its fn-exit
+/// drop walk (RFC 20260705 chunk 550 fix-up: the pre-fix rc=0
+/// protocol counted only capturing closures, so an env released
+/// while the outer frame was still live freed the box under the
+/// outer's feet). Each closure-construction site inc's per use.
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_capture_box_alloc(init_value: i64) -> *mut c_void {
     let base = unsafe { std::alloc::alloc(box_layout()) } as *mut u64;
@@ -64,7 +68,7 @@ pub extern "C" fn __torajs_capture_box_alloc(init_value: i64) -> *mut c_void {
         return core::ptr::null_mut();
     }
     unsafe {
-        *base = 0;
+        *base = 1;
         *(base.add(1) as *mut i64) = init_value;
     }
     unsafe { base.add(1) as *mut c_void }
@@ -89,8 +93,9 @@ pub unsafe extern "C" fn __torajs_capture_box_inc(slot_ptr: *mut c_void) {
 }
 
 /// Dec the refcount; free the underlying allocation when it hits
-/// zero. Defensive at-zero-observation free covers the unused-but-
-/// promoted edge case (see crate docs).
+/// zero. Under the outer-stake protocol (alloc = rc 1) a drop at
+/// rc 0 is unreachable when bookkeeping balances; the defensive
+/// at-zero free is kept as a leak backstop.
 ///
 /// # Safety
 ///
@@ -129,24 +134,29 @@ mod tests {
         // ssa_lower emits: Load i64 at slot+0).
         let v = unsafe { *(slot as *const i64) };
         assert_eq!(v, 42);
-        // inc x 2.
+        // alloc = 1 (outer stake); inc x 2 (two capturing envs).
         unsafe {
             __torajs_capture_box_inc(slot);
             __torajs_capture_box_inc(slot);
         }
         let rc = unsafe { *rc_word(slot) };
-        assert_eq!(rc, 2);
-        // drop x 2 → frees.
+        assert_eq!(rc, 3);
+        // env drops x 2 leave the outer stake alive — the value
+        // stays readable (the chunk-550 regression shape).
         unsafe {
             __torajs_capture_box_drop(slot);
             __torajs_capture_box_drop(slot);
         }
+        let v = unsafe { *(slot as *const i64) };
+        assert_eq!(v, 42);
+        // outer fn-exit drop → frees.
+        unsafe { __torajs_capture_box_drop(slot) };
         // Slot is freed; we can't safely dereference. Test passes
         // if no panic / leak (also asan-friendly).
     }
 
     #[test]
-    fn never_inced_drop_frees_immediately() {
+    fn uncaptured_promoted_box_frees_on_outer_drop() {
         let slot = __torajs_capture_box_alloc(0);
         assert!(!slot.is_null());
         unsafe { __torajs_capture_box_drop(slot) };

@@ -53,7 +53,22 @@ pub(crate) fn lower(ctx: &mut LowerCtx, stmts: &[Stmt]) {
                 Some(i) => *i,
                 None => continue,
             };
-            if info.moved || info.ty.is_copy() || ctx.stack_alloced_locals.contains(name) {
+            if info.ty.is_copy() {
+                // RFC 20260705 chunk 550 fix-up — escape-promoted
+                // Copy locals hold a capture-box stake (outer-stake
+                // protocol); release it at scope close.
+                if ctx.escape_captured_lets.contains(name) {
+                    ctx.f.append_void(
+                        ctx.cur_block,
+                        InstKind::Call(
+                            ctx.intrinsics.capture_box_drop,
+                            vec![Operand::Value(info.slot)],
+                        ),
+                    );
+                }
+                continue;
+            }
+            if info.moved || ctx.stack_alloced_locals.contains(name) {
                 continue;
             }
             let val = ctx.f.append_inst(

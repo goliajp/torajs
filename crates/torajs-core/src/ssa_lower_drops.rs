@@ -37,6 +37,25 @@ impl LowerCtx<'_> {
             );
             self.emit_drop_value(Operand::Value(val), ty);
         }
+        // RFC 20260705 chunk 550 fix-up — escape-promoted Copy locals
+        // live in refcounted capture boxes (outer-stake protocol:
+        // alloc = rc 1, each capturing env +1). Release the frame's
+        // own stake so the box frees once the last capturing env
+        // drops; without the env-temp release of chunk 550 the envs
+        // never dropped and the box leaked instead.
+        let mut boxed: Vec<ValueId> = self
+            .locals
+            .iter()
+            .filter(|(name, info)| info.ty.is_copy() && self.escape_captured_lets.contains(*name))
+            .map(|(_, info)| info.slot)
+            .collect();
+        boxed.sort_by_key(|slot| std::cmp::Reverse(slot.0));
+        for slot in boxed {
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Call(self.intrinsics.capture_box_drop, vec![Operand::Value(slot)]),
+            );
+        }
     }
 
     /// K.4 — drop refcount-typed module data globals at the
