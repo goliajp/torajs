@@ -24,8 +24,14 @@ use crate::ssa_lower_body_returns_closure::body_returns_closure;
 ///   - `T-15.g.5` — Copy captures live in refcounted `capture_box`
 ///     slots; `capture_box_drop` deallocates when the last capturing
 ///     closure releases.
-///   - Non-Copy captures are borrowed from the outer scope; env-drop
-///     does NOT recurse into them (outer scope owns + drops).
+///   - RFC 20260705 closure-capture-ownership Phase 1 — non-Copy
+///     captures are OWNED by the env (`write_captures` moves them in,
+///     marking the outer binding moved): release each one. `Any`
+///     slots hold a NaN-box value → `any_box_drop`; `Substr` is a
+///     view cell with no universal Tag → `substr_drop` (parent-chain
+///     aware); every other non-Copy type is a universal-header cell →
+///     `value_drop_heap` (tag-dispatched, rc-aware, NULL/NaN-box
+///     gated in the runtime).
 ///   - Free the env block itself with `obj_drop_sized(env,
 ///     CLOSURE_CAP_BASE_OFF + N_captures * 8)`.
 ///
@@ -36,9 +42,6 @@ pub(crate) fn synthesize_env_drop(
     name: &str,
     cap_meta: &[(Type, bool)],
     intrinsics: &Intrinsics,
-    arr_layouts: &[Type],
-    struct_layouts: &[Vec<(String, Type)>],
-    drop_sig: ssa::SigId,
 ) -> ssa::Function {
     let mut f = ssa::Function::new(name, Type::Void);
     let env_pid = f.add_param(Type::Ptr, "env");
@@ -96,17 +99,25 @@ pub(crate) fn synthesize_env_drop(
                 entry,
                 InstKind::Call(intrinsics.capture_box_drop, vec![Operand::Value(slot_ptr)]),
             );
+        } else {
+            // RFC 20260705 Phase 1 — the env owns its non-Copy
+            // captures (construction moved them in; sibling captures
+            // took their own +1 stake). Release one reference per
+            // slot; shared captures free exactly once, on the last
+            // release.
+            let (load_ty, drop_fid) = match cap_ty {
+                Type::Any => (Type::Any, intrinsics.any_box_drop),
+                Type::Substr => (Type::Substr, intrinsics.substr_drop),
+                other => (*other, intrinsics.value_drop_heap),
+            };
+            let cap_v = f.append_inst(
+                entry,
+                InstKind::Load(load_ty, env_op, offset),
+                load_ty,
+                None,
+            );
+            f.append_void(entry, InstKind::Call(drop_fid, vec![Operand::Value(cap_v)]));
         }
-        // Non-Copy captures: env borrows the heap pointer; outer
-        // scope owns and drops. We do NOT recursively drop here so
-        // multiple closures can share the same non-Copy capture
-        // without double-freeing. Trade-off: a closure that escapes
-        // its construction frame and holds a non-Copy capture will
-        // observe a dangling pointer once the outer drops. Refcount
-        // is the proper fix; deferred.
-        let _ = arr_layouts;
-        let _ = struct_layouts;
-        let _ = drop_sig;
     }
     // Free the env block itself. Size = closure header
     // (`CLOSURE_CAP_BASE_OFF` = 32) + N_captures * 8.

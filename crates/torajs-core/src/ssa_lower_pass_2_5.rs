@@ -18,23 +18,14 @@ pub(crate) fn populate_env_drop_bodies(
     env_drop_fids: &[(String, FuncId, ssa::SigId)],
     closure_captures: &HashMap<String, Vec<(Type, bool)>>,
     intrinsics: &Intrinsics,
-    arr_layouts: &[Type],
-    struct_layouts: &[Vec<(String, Type)>],
     module: &mut Module,
 ) {
-    for (closure_name, drop_fid, drop_sig) in env_drop_fids {
+    for (closure_name, drop_fid, _drop_sig) in env_drop_fids {
         let cap_meta = closure_captures
             .get(closure_name)
             .cloned()
             .unwrap_or_default();
-        let f = synthesize_env_drop(
-            &format!("__env_drop_{closure_name}"),
-            &cap_meta,
-            intrinsics,
-            arr_layouts,
-            struct_layouts,
-            *drop_sig,
-        );
+        let f = synthesize_env_drop(&format!("__env_drop_{closure_name}"), &cap_meta, intrinsics);
         module.funcs[drop_fid.0 as usize] = f;
     }
 }

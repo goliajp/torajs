@@ -71,6 +71,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
     pub any_box_drop: FuncId,
+    pub any_box_rc_inc: FuncId,
 }
 
 pub(crate) fn declare(
@@ -371,6 +372,13 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_anyv_rc_dec",
+            &[Type::Any],
+            Type::Void,
+        ),
+        any_box_rc_inc: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_rc_inc",
             &[Type::Any],
             Type::Void,
         ),

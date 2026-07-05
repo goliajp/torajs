@@ -292,6 +292,7 @@ pub(crate) fn build(
         any_unbox_tag: init_c.any_substrate.any_unbox_tag,
         any_unbox_value: init_c.any_substrate.any_unbox_value,
         any_box_drop: init_c.any_substrate.any_box_drop,
+        any_box_rc_inc: init_c.any_substrate.any_box_rc_inc,
         print_any: init_c.print_freeze.print_any,
         print_any_inline_top: init_c.print_freeze.print_any_inline_top,
         io_putc_stdout: init_c.print_freeze.io_putc_stdout,

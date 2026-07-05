@@ -31,12 +31,16 @@
 //!      stashing in env so multi-closure capture doesn't
 //!      double-free at env-drop. Store `info.slot` ptr at
 //!      `CLOSURE_CAP_BASE_OFF + i*8`.
-//!    - **Non-Copy types**: by-value of the heap pointer. Load
-//!      from `info.slot`, store value into env slot. Mark outer
-//!      `local.moved = true` so the env's pointer isn't double-
-//!      freed (closure body may realloc the array via push,
-//!      updating env+offset; outer slot still holds stale pre-
-//!      realloc ptr). env-drop skips non-Copy captures.
+//!    - **Non-Copy types**: by-value of the heap pointer — the env
+//!      OWNS the capture (RFC 20260705 Phase 1). Load from
+//!      `info.slot`, store value into env slot, mark outer
+//!      `local.moved = true` (outer scope-drop skips; the closure
+//!      body may also realloc an Arr capture via push, updating
+//!      env+offset while the outer slot holds the stale ptr). A
+//!      local that is ALREADY moved is owned by an earlier env /
+//!      move-out target, so this env takes its own +1 stake
+//!      (`any_box_rc_inc` for Any, `emit_rc_inc` otherwise).
+//!      env-drop releases one reference per non-Copy slot.
 
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{
@@ -221,6 +225,22 @@ fn write_captures(
                 *cap_ty,
                 None,
             );
+            // RFC 20260705 Phase 1 — sibling-capture accounting: a
+            // local already marked moved is owned elsewhere (an
+            // earlier closure's env / a move-out target), so this env
+            // takes its own +1 stake; env-drop releases one reference
+            // per env. An unmoved local hands its stake to the env
+            // (rc unchanged) and is marked moved below.
+            if info.moved {
+                if *cap_ty == Type::Any {
+                    ctx.f.append_void(
+                        cur_block,
+                        InstKind::Call(ctx.intrinsics.any_box_rc_inc, vec![Operand::Value(v)]),
+                    );
+                } else {
+                    ctx.emit_rc_inc(Operand::Value(v));
+                }
+            }
             ctx.f.append_void(
                 cur_block,
                 InstKind::Store(Operand::Value(v), Operand::Value(env_v), offset),

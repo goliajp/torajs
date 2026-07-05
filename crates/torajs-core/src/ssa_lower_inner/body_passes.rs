@@ -194,8 +194,6 @@ pub(crate) fn run(
         env_drop_fids,
         closure_captures,
         intrinsics,
-        arr_layouts,
-        struct_layouts,
         module,
     );
 }
