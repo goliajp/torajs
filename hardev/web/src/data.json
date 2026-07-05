@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-05T21:25:32.208Z",
+  "generatedAt": "2026-07-05T22:46:44.456Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "3999c6b9",
-    "commitSubject": "fix: collect nested let anns for the closure return sniff (RFC 20260705 chunk 556)",
+    "commit": "12b549f6",
+    "commitSubject": "fix: classify string indexing as owned in alias/borrow judgments (L3b #15 residual, chunk 561)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "12b549f6",
+      "subject": "fix: classify string indexing as owned in alias/borrow judgments (L3b #15 residual, chunk 561)"
+    },
+    {
+      "hash": "855ef01c",
+      "subject": "fix: route substr views through substr_drop in str_drop (L3b #15)"
+    },
+    {
+      "hash": "2684cee0",
+      "subject": "fix: park declined str-eq fastpath operand for single eval (RFC 20260705 chunk 559)"
+    },
+    {
+      "hash": "549ffad6",
+      "subject": "fix: gate mutable str global promotion on named-fn refs (chunk 558 fix-up)"
+    },
+    {
+      "hash": "88127d52",
+      "subject": "feat: mutable str top-level globals (L3b #19)"
+    },
+    {
+      "hash": "f8a089e9",
+      "subject": "feat: infer conversion-method returns in the closure ann sniff (RFC 20260705 chunk 557)"
+    },
+    {
+      "hash": "9a1b89b4",
+      "subject": "chore(dashboard): session snapshot @ 3999c6b9 — rotation 24 (553-556: RFC 20260705 — keep-escape SIGBUS return-lane retag + rc-gated closure drop, __cls width-class unification, contextual typing for chained receivers + user-fn params, decline-redispatch single-eval, loop-capture return sniff binds; gate 1193 → 1197)"
+    },
+    {
       "hash": "3999c6b9",
       "subject": "fix: collect nested let anns for the closure return sniff (RFC 20260705 chunk 556)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "a0485b60",
       "subject": "fix: retag closure-carrying __fn returns to __cls + rc-gate typed closure drop (RFC 20260705 chunk 553)"
-    },
-    {
-      "hash": "0a617970",
-      "subject": "chore(dashboard): session snapshot @ 0f9d5b55 — rotation 23 (548-552: RFC 20260705 operand-ownership — nested-arg/chained-recv release, Any-param ABI box, cb env temps + capture-box outer-stake, default-sort temps, cb family sweep; gate 1193 held)"
-    },
-    {
-      "hash": "0f9d5b55",
-      "subject": "fix: release cb env temps across remaining callback families (RFC 20260705 chunk 552)"
-    },
-    {
-      "hash": "a4738f66",
-      "subject": "fix: release default-sort ToString compare temps (RFC 20260705 chunk 551)"
-    },
-    {
-      "hash": "9ac8a71c",
-      "subject": "fix: capture-box outer-stake protocol (RFC 20260705 chunk 550 fix-up)"
-    },
-    {
-      "hash": "1c84c06b",
-      "subject": "fix: release per-call closure env temps in cb slots (RFC 20260705 chunk 550)"
-    },
-    {
-      "hash": "921303d9",
-      "subject": "fix: box concrete args at Any-param positions in call_fn_value (RFC 20260705 chunk 549)"
-    },
-    {
-      "hash": "8c5b8b12",
-      "subject": "fix: release nested-call arg and chained-receiver owned temps (RFC 20260705 chunk 548)"
     }
   ],
-  "headSha": "3999c6b9",
+  "headSha": "12b549f6",
   "autorun": {
-    "total": 333,
+    "total": 334,
     "baselineTarget": 10,
-    "bySelf": 328,
+    "bySelf": 329,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783268654-4504",
-      "at": "2026-07-05T16:24:14Z",
-      "ts": 1783268654,
+      "rotationId": "r-1783286813-1b56",
+      "at": "2026-07-05T21:26:53Z",
+      "ts": 1783286813,
       "trigger": "self",
-      "prevHead": "0a617970",
-      "handoffSha": "sha256:4b8bcc07c91d1aab81801733ef0e2e149f002bde52a059277f2742f18ab23749",
+      "prevHead": "9a1b89b4",
+      "handoffSha": "sha256:816f6eb209a3fd0377ff52d79d85a765e731bce9447d2a8c4ffcdd9173e3e340",
       "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783286813-1b56",
+        "at": "2026-07-05T21:26:53Z",
+        "ts": 1783286813,
+        "trigger": "self",
+        "prevHead": "9a1b89b4",
+        "handoffSha": "sha256:816f6eb209a3fd0377ff52d79d85a765e731bce9447d2a8c4ffcdd9173e3e340",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783268654-4504",
         "at": "2026-07-05T16:24:14Z",
@@ -876,17 +887,6 @@
         "prevHead": "e2b56b17",
         "handoffSha": "sha256:e6aec7cebd5565f2c99115eeea91d734790d3915bbe4075e77c55577b0449515",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783164942-0620",
-        "at": "2026-07-04T11:35:42Z",
-        "ts": 1783164942,
-        "trigger": "self",
-        "prevHead": "c3332753",
-        "handoffSha": "sha256:4676d2662336e526916ba9b1012bc813b7daa5ec5503d365e79b532ad261ec6b",
-        "handoffAgeSec": 24,
         "conformanceBefore": null,
         "commitsInSession": null
       }
