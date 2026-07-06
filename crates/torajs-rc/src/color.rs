@@ -8,21 +8,22 @@
 //! positioning constants and re-exports through the crate root.
 
 /// Bit position of the 2-bit cycle-collector color field.
-pub const COLOR_SHIFT: u16 = 3;
+///
+/// Moved from 3 to 13 (RFC 20260706 chunk 573): the old bits 3-4
+/// overlapped `FLAG_ARR_ANY` / `FLAG_FROZEN` behind a "use sites
+/// are disjoint" assumption that did NOT hold for FROZEN — the
+/// collector colors declared-class instances, and `Object.freeze`
+/// marks those too, so buffering a frozen obj Purple (bit 4) and
+/// scanning it back Black cleared the freeze marker (probe: store
+/// after `Bun.gc` wrote through, bun throws). Bits 13-14 are free
+/// across every tag (bit 15 stays spare).
+pub const COLOR_SHIFT: u16 = 13;
 /// Mask covering both color bits.
 pub const COLOR_MASK: u16 = 0b11 << COLOR_SHIFT;
 
 /// Bacon-Rajan trial-deletion state. Stored in
-/// `HeapHeader::flags` at bits 3-4 (see [`COLOR_SHIFT`] /
-/// [`COLOR_MASK`]).
-///
-/// Note the bit overlap with `FLAG_ARR_ANY` / `FLAG_FROZEN`:
-/// cycle-collector traversal only runs on container types
-/// (`Tag::Obj` / `Tag::Arr`); ARR_ANY only marks Array<Any>;
-/// FROZEN only applies to plain objects. The use sites are
-/// disjoint, so the same bits can serve both readers safely —
-/// don't repurpose either without an audit of every cycle /
-/// freeze / Array<Any> code path.
+/// `HeapHeader::flags` at bits 13-14 (see [`COLOR_SHIFT`] /
+/// [`COLOR_MASK`]) — disjoint from every flag user.
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {

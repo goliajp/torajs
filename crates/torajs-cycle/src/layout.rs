@@ -43,8 +43,11 @@ pub const TAG_ARR: u16 = 2;
 /// (immortal, never owned).
 pub const FLAG_STATIC_LITERAL: u16 = 4;
 
-/// Color bit-shift inside `flags`. Mirrors `COLOR_SHIFT = 3`.
-pub const COLOR_SHIFT: u32 = 3;
+/// Color bit-shift inside `flags`. Mirrors torajs-rc
+/// `COLOR_SHIFT = 13` (moved off bits 3-4 by RFC 20260706 chunk
+/// 573 — the old span overlapped FLAG_ARR_ANY / FLAG_FROZEN, and
+/// scan-black cleared a frozen obj's freeze marker).
+pub const COLOR_SHIFT: u32 = 13;
 
 /// Mask covering the 2 color bits.
 pub const COLOR_MASK: u16 = 3 << COLOR_SHIFT;
@@ -63,11 +66,12 @@ pub const FLAG_BUFFERED: u16 = 1 << 5;
 /// right after the universal 8-byte heap header.
 pub const OBJ_CLASS_TAG_OFF: usize = 8;
 
-/// `Array<Any>` marker (torajs-rc `FLAG_ARR_ANY` mirror) — NaN-box
-/// slots, 8 bytes each, immediates mixed with cell pointers. Also
-/// bit-shares with the cycle color field (see torajs-rc's flag-bit
-/// doc), so coloring an Arr<Any> would clobber its layout marker —
-/// both reasons exclude it from the walk in [`is_visitable_arr`].
+/// `Array<Any>` marker (torajs-rc `FLAG_ARR_ANY` mirror) — 16-byte
+/// tag/value slots, immediates mixed with cell pointers, so a raw
+/// 8-byte-slot walk would deref garbage. Excluded from the walk in
+/// [`is_visitable_arr`] until the any-slot walker lands (RFC
+/// 20260706 Phase C); the historical color-bit overlap is gone
+/// (color moved to bits 13-14, chunk 573).
 pub const FLAG_ARR_ANY: u16 = 1 << 3;
 
 /// Shift/mask of the 3-bit elem-kind field (torajs-rc `arr_kind`
@@ -234,8 +238,10 @@ pub unsafe fn is_visitable_arr(p: *mut c_void) -> bool {
     // (`has_walkable_children(1)` = SIGSEGV); UNSET means the array
     // never crossed a marking boundary — conservatively treat it as
     // a leaf (a missed descent under-collects a cycle, never
-    // corrupts). Arr<Any> is excluded both for its NaN-box immediates
-    // and the FLAG_ARR_ANY/color bit-3 overlap (see const doc).
+    // corrupts). Arr<Any> is excluded for its 16-byte tag/value
+    // slots mixing immediates with cells — joining the walk needs
+    // the any-slot walker (RFC 20260706 Phase C; the color-bit
+    // overlap that also blocked it moved away in chunk 573).
     if header.flags & FLAG_ARR_ANY != 0 {
         return false;
     }
@@ -289,14 +295,15 @@ mod tests {
     }
 
     #[test]
-    fn color_constants_match_c() {
-        // Mirrors runtime_cycle.c — COLOR_SHIFT = 3, mask = 3 << 3 = 0x18.
-        assert_eq!(COLOR_SHIFT, 3);
-        assert_eq!(COLOR_MASK, 0x18);
+    fn color_constants_match_rc() {
+        // Mirrors torajs-rc color.rs — COLOR_SHIFT = 13 (RFC
+        // 20260706 chunk 573), mask = 3 << 13.
+        assert_eq!(COLOR_SHIFT, 13);
+        assert_eq!(COLOR_MASK, 0b11 << 13);
         assert_eq!(COLOR_BLACK, 0x00);
-        assert_eq!(COLOR_GRAY, 0x08);
-        assert_eq!(COLOR_PURPLE, 0x10);
-        assert_eq!(COLOR_WHITE, 0x18);
+        assert_eq!(COLOR_GRAY, 1 << 13);
+        assert_eq!(COLOR_PURPLE, 1 << 14);
+        assert_eq!(COLOR_WHITE, 0b11 << 13);
         assert_eq!(FLAG_BUFFERED, 0x20);
         assert_eq!(FLAG_STATIC_LITERAL, 4);
     }

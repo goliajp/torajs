@@ -50,14 +50,13 @@
 //!   bit positions encoded by [`COLOR_SHIFT`] / [`COLOR_MASK`].
 //!   Layout drift here would silently corrupt the trial-deletion
 //!   pass.
-//! - `flags` bit 3 is shared between `Color::Gray` / `Color::Purple`
-//!   / `Color::White` (the upper 2 bits of the COLOR_MASK shift
-//!   span) AND [`FLAG_ARR_ANY`] (the Array<Any> 16-byte-slot
-//!   marker) AND [`FLAG_FROZEN`] (`Object.freeze` marker). The two
-//!   users are disjoint per type — cycle-collector colors run on
-//!   `Tag::Obj` / `Tag::Arr` containers, FROZEN is only set on
-//!   plain objects, ARR_ANY only on Array<Any>. Auditing the
-//!   constants without auditing the use sites would miss this.
+//! - The 2-bit color field lives at bits 13-14 (RFC 20260706
+//!   chunk 573), disjoint from every flag user. It historically
+//!   overlapped [`FLAG_ARR_ANY`] (bit 3) and [`FLAG_FROZEN`]
+//!   (bit 4) behind a "use sites are disjoint" assumption that
+//!   broke for FROZEN: the collector colors declared-class
+//!   instances, freeze marks those too, and scan-black cleared
+//!   the freeze bit (silent write-through after `Bun.gc`).
 //!
 //! ## Non-atomic, single-threaded
 //!
@@ -149,8 +148,7 @@ pub struct HeapHeader {
 pub const FLAG_SPLIT_BLOCK: u16 = 1 << 1;
 /// rc_inc / rc_dec / str_free no-op when set (immortal literal).
 pub const FLAG_STATIC_LITERAL: u16 = 1 << 2;
-/// Array<Any>: 16-byte slots instead of 8. Disjoint user with
-/// cycle-collector color bits (see [`Color`] doc).
+/// Array<Any>: 16-byte slots instead of 8.
 pub const FLAG_ARR_ANY: u16 = 1 << 3;
 /// `Object.freeze(obj)` set — field stores become silent no-ops.
 pub const FLAG_FROZEN: u16 = 1 << 4;
@@ -163,8 +161,7 @@ pub const FLAG_BUFFERED: u16 = 1 << 5;
 /// uncaught-throw reporter can render `name: message` (fields are at
 /// the Error layout prefix: message @ field0, name @ field1). Bit 6 is
 /// taken by torajs-dynobj's NULL_PROTO marker (Tag::DynObj, disjoint
-/// tag), so this uses bit 7. Disjoint from the cycle-collector color
-/// bits (3-4) and every other flag user.
+/// tag), so this uses bit 7. Disjoint from every other flag user.
 pub const FLAG_ERROR: u16 = 1 << 7;
 
 /// `Object.preventExtensions(obj)` / `Object.seal(obj)` — clear the
@@ -175,8 +172,8 @@ pub const FLAG_ERROR: u16 = 1 << 7;
 ///
 /// Bit 8 is the first universally-free position on `HeapHeader.flags`
 /// — bits 1-5 / 7 are taken by [`FLAG_SPLIT_BLOCK`] /
-/// [`FLAG_STATIC_LITERAL`] / cycle-color overlay / [`FLAG_FROZEN`] /
-/// [`FLAG_ARR_ANY`] / [`FLAG_BUFFERED`] / [`FLAG_ERROR`]; bit 6 is
+/// [`FLAG_STATIC_LITERAL`] / [`FLAG_ARR_ANY`] / [`FLAG_FROZEN`] /
+/// [`FLAG_BUFFERED`] / [`FLAG_ERROR`]; bit 6 is
 /// `DynObj`-private NULL_PROTO. Disjoint from every prior user
 /// regardless of `type_tag`.
 pub const FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
@@ -590,12 +587,12 @@ mod tests {
         assert_eq!(FLAG_ARR_ANY, 8);
         assert_eq!(FLAG_FROZEN, 16);
         assert_eq!(FLAG_BUFFERED, 32);
-        assert_eq!(COLOR_SHIFT, 3);
-        assert_eq!(COLOR_MASK, 0b11000); // bits 3-4
+        assert_eq!(COLOR_SHIFT, 13);
+        assert_eq!(COLOR_MASK, 0b0110_0000_0000_0000); // bits 13-14
         assert_eq!(Color::Black as u16, 0);
-        assert_eq!(Color::Gray as u16, 0b01000); // bit 3
-        assert_eq!(Color::Purple as u16, 0b10000); // bit 4
-        assert_eq!(Color::White as u16, 0b11000); // bits 3+4
+        assert_eq!(Color::Gray as u16, 1 << 13);
+        assert_eq!(Color::Purple as u16, 1 << 14);
+        assert_eq!(Color::White as u16, 0b11 << 13);
     }
 
     // ---- Methods ----

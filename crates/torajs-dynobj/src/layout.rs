@@ -66,8 +66,9 @@ pub const TAG_DYNOBJ: u16 = 14;
 /// null prototype (`Object.create(null)` semantics — e.g. a regex
 /// match's `.groups` dict per spec §22.2.7.8). Print surfaces render
 /// the `[Object: null prototype] ` prefix off this bit. Bit 6 is free
-/// on DynObj: bits 1-5 are SPLIT_BLOCK / STATIC_LITERAL / color-field
-/// (3-4 overlay) / FROZEN / BUFFERED per torajs-rc's flag table.
+/// on DynObj: bits 1-5 are SPLIT_BLOCK / STATIC_LITERAL / ARR_ANY /
+/// FROZEN / BUFFERED per torajs-rc's flag table (color field lives
+/// at bits 13-14 since RFC 20260706 chunk 573).
 pub const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
 
 /// Heap-header `flags` bit (u16 @6) mirror of
