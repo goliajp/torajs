@@ -82,6 +82,11 @@ impl<'a> LowerCtx<'a> {
         for (i, a) in args.into_iter().enumerate() {
             let actual = self.operand_ty(&a);
             let expected = param_tys.get(i).copied();
+            // RFC 20260707 chunk 626 — typed array into an Arr<Any>
+            // param marks the block's elem kind (self-gating).
+            if let Some(exp) = expected {
+                self.mark_arr_arg_for_any_param(exp, &a);
+            }
             if expected == Some(Type::Str) && actual == Type::Substr {
                 let v = self.f.append_inst(
                     self.cur_block,

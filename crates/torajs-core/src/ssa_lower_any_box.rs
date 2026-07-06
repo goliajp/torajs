@@ -130,6 +130,21 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// RFC 20260707 chunk 626 — call-arg admit station. When the
+    /// callee's param slot is `Arr<Any>` and the arg's own SSA type
+    /// is a typed array (T-11 container widen at the call boundary),
+    /// mark the block's elem kind so the callee's kind-aware
+    /// `Arr<Any>` readers can decode the raw layout. No-op when the
+    /// arg is already `Arr<Any>` (chain 0), boxed `Any`, or not an
+    /// array — `emit_arr_mark_kind` self-gates on the value's type.
+    pub(crate) fn mark_arr_arg_for_any_param(&mut self, expected: Type, op: &Operand) {
+        if let Type::Arr(pid) = expected
+            && matches!(self.arr_layouts[pid.0 as usize], Type::Any)
+        {
+            self.emit_arr_mark_kind(op);
+        }
+    }
+
     /// Kind values mirror `torajs_rc::ARR_KIND_*` (1=I64 raw, 2=F64
     /// raw, 3=Bool raw, 4=heap cell ptr; 0=UNSET/no-mark). Depth is
     /// capped at 21 levels (u64 / 3 bits) — deeper nests leave the

@@ -76,6 +76,12 @@ pub(crate) fn try_lower(
         // their stake (no inc: the body never drops params, no
         // consume: TS args share).
         owned_temps.push((*a, raw));
+        // RFC 20260707 chunk 626 — typed array into an Arr<Any>
+        // param marks the block's elem kind (T-11 call-boundary
+        // widen; self-gating no-op for other type pairs).
+        if let Some(p) = user_params.get(i) {
+            ctx.mark_arr_arg_for_any_param(*p, &raw);
+        }
         let boxed = if i < user_params.len()
             && matches!(user_params[i], Type::Any)
             && !matches!(ctx.operand_ty(&raw), Type::Any)

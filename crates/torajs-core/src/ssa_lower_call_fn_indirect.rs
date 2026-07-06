@@ -87,6 +87,11 @@ fn try_lower_local_fnsig(
         .map(|(i, a)| {
             let raw = ctx.lower_expr(*a);
             owned_temps.push((*a, raw));
+            // RFC 20260707 chunk 626 — typed array into an Arr<Any>
+            // param marks the block's elem kind (self-gating).
+            if let Some(p) = target_params.get(i) {
+                ctx.mark_arr_arg_for_any_param(*p, &raw);
+            }
             if i < target_params.len()
                 && matches!(target_params[i], Type::Any)
                 && !matches!(ctx.operand_ty(&raw), Type::Any)
@@ -195,6 +200,11 @@ fn emit_closure_callee(
         // callee's deref (test262 asi / statements-function /
         // arguments-object family). Boxing is a pure bit-encode; the
         // raw temp's release below still settles owned temps.
+        // RFC 20260707 chunk 626 — typed array into an Arr<Any>
+        // param marks the block's elem kind (self-gating).
+        if let Some(p) = user_params.get(i) {
+            ctx.mark_arr_arg_for_any_param(*p, &raw);
+        }
         if i < user_params.len()
             && matches!(user_params[i], Type::Any)
             && !matches!(ctx.operand_ty(&raw), Type::Any)
@@ -257,6 +267,11 @@ fn emit_fnsig_callee(
         .map(|(i, a)| {
             let raw = ctx.lower_expr(*a);
             owned_temps.push((*a, raw));
+            // RFC 20260707 chunk 626 — typed array into an Arr<Any>
+            // param marks the block's elem kind (self-gating).
+            if let Some(p) = target_params.get(i) {
+                ctx.mark_arr_arg_for_any_param(*p, &raw);
+            }
             if i < target_params.len()
                 && matches!(target_params[i], Type::Any)
                 && !matches!(ctx.operand_ty(&raw), Type::Any)

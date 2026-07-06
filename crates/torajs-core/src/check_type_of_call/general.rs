@@ -151,9 +151,18 @@ pub(crate) fn general_call(
         // (chunk 307).
         let callback_subtype =
             crate::check_type_of_call_callback_subtype::matches(param_ty, &arg_ty);
+        // RFC 20260707 chunk 626 — T-11 container widen at the call
+        // boundary: an `Array(Any)` param admits any concrete
+        // `Array(T)` arg (mirror of check_assignable's T-11 arm).
+        // Every lowering call-arg station pairs this admit with
+        // `emit_arr_mark_kind` per the RFC §2 protocol so the
+        // callee's kind-aware Arr<Any> readers decode the raw block.
+        let t11_arr_any = matches!(param_ty, Type::Array(el) if matches!(**el, Type::Any))
+            && matches!(arg_ty, Type::Array(_));
         if !skip_type_check
             && !nullable_match
             && !callback_subtype
+            && !t11_arr_any
             && param_ty != &Type::Any
             && &arg_ty != param_ty
         {

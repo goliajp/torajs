@@ -166,6 +166,10 @@ fn coerce_args(ctx: &mut LowerCtx<'_>, target: FuncId, args: &[ExprId], argv: &m
         if i >= argv.len() {
             break;
         }
+        // RFC 20260707 chunk 626 — typed array into an Arr<Any>
+        // param (T-11 call-boundary widen) marks the block's elem
+        // kind for the callee's kind-aware readers.
+        ctx.mark_arr_arg_for_any_param(*expected, &argv[i]);
         let got = ctx.operand_ty(&argv[i]);
         match (expected, got) {
             (Type::F64, Type::I64) | (Type::F64, Type::Bool) => {
