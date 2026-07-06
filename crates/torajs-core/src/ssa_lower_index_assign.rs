@@ -162,6 +162,12 @@ impl<'a> LowerCtx<'a> {
         // it (a write_blk-local def would be unreachable on the OOB
         // path).
         let v = self.lower_expr(value);
+        // Chunk 575 — an array value entering a container slot must
+        // be self-describing for the cycle walker: field-store /
+        // any-box boundaries chain-mark whatever is nested at that
+        // moment, but a LATER stored array was born UNSET and broke
+        // the cycle walk there (86MB probe). No-op for non-Arr elems.
+        self.emit_arr_mark_kind(&v, &elem_ty);
         // Chunk 567 — a typed-tier elem store SHARES the rhs: a
         // borrow-shape value takes +1 so the slot owns its stake
         // while the source binding keeps its own (re-assign
