@@ -102,6 +102,8 @@ mod method_call_dynobj;
 mod method_call_mapset;
 mod method_call_num;
 mod method_call_regexp;
+mod method_call_str;
+mod method_call_weak;
 
 pub mod inspect;
 
