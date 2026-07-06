@@ -12,9 +12,11 @@
 //! intern an env-first sig (Ptr prepended to user-facing params), prepend
 //! env_ptr to argv, emit `CallIndirect`. Type::Any target params box
 //! concrete args (P0.5 — closure-lift desugar defaults unannotated
-//! closure params to Type::Any). Refcounted heap args get `rc_inc` so
-//! the callee owns its own ref; non-heap args go through
-//! `consume_if_ident` (caller's local transfers ownership to argv slot).
+//! closure params to Type::Any). Args SHARE (chunk 569): the callee
+//! body never drops its params (+0 borrow, same body contract as
+//! direct calls), so the historical caller-side rc_inc had no
+//! collector and leaked one ref per call; owned-shape temps release
+//! after the call instead (call_terminal mirror).
 //!
 //! Returns `Some(result)` when callee resolves to a `Type::Closure`-typed
 //! local; `None` falls through to the caller's
@@ -65,8 +67,14 @@ pub(crate) fn try_lower(
     // S126-3 see direct fn-call P0.9 in ssa_lower.
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
     argv.push(Operand::Value(env_ptr));
+    let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     for (i, a) in args.iter().enumerate() {
         let raw = ctx.lower_expr(*a);
+        // Chunk 569 — snapshot pre-box owned temps for the
+        // post-call release; borrow-shape args pass +0 and keep
+        // their stake (no inc: the body never drops params, no
+        // consume: TS args share).
+        owned_temps.push((*a, raw));
         let boxed = if i < user_params.len()
             && matches!(user_params[i], Type::Any)
             && !matches!(ctx.operand_ty(&raw), Type::Any)
@@ -77,21 +85,6 @@ pub(crate) fn try_lower(
         };
         argv.push(boxed);
     }
-    // Refcounted heap args: caller stays the owner, the callee gets
-    // its own ref via rc_inc. Without this every closure / fnsig call
-    // would mark the source moved + skip caller's scope drop, producing
-    // latent UAFs whenever the callee returns the same heap or when
-    // the same arg is passed twice (identity-style map / filter
-    // callbacks etc.).
-    for (i, a) in args.iter().enumerate() {
-        let argv_op = argv[i + 1]; // env_ptr is at 0
-        let a_ty = ctx.operand_ty(&argv_op);
-        if a_ty.is_refcounted() {
-            ctx.emit_rc_inc(argv_op);
-        } else {
-            ctx.consume_if_ident(*a);
-        }
-    }
     if ret_ty == Type::Void {
         ctx.f.append_void(
             ctx.cur_block,
@@ -100,6 +93,9 @@ pub(crate) fn try_lower(
         // bug-327 C2.5 — indirect targets are unknown statically;
         // propagate a pending throw the same way direct user-fn calls do.
         ctx.emit_throw_check(None);
+        for (a, op) in owned_temps {
+            ctx.release_owned_temp(a, &op);
+        }
         return Some(Operand::ConstI64(0));
     }
     let v = ctx.f.append_inst(
@@ -109,5 +105,8 @@ pub(crate) fn try_lower(
         None,
     );
     ctx.emit_throw_check(None);
+    for (a, op) in owned_temps {
+        ctx.release_owned_temp(a, &op);
+    }
     Some(Operand::Value(v))
 }

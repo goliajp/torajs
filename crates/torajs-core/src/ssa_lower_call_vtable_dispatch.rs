@@ -13,8 +13,10 @@
 //! The return type + signature are resolved from the base owner's
 //! `__cm_<base>__<M>` fn. Every override shares the signature
 //! (Liskov: subclass `__cm` has the same param + return shape as the
-//! base). `consume_if_ident` runs on each arg to honour the move-out
-//! semantics of identifier args (consumed on use).
+//! base). Args SHARE (chunk 569): non-Copy idents pass as +0
+//! borrows and keep their stake — the historical blanket consume
+//! orphaned every fresh-binding arg (32B/iter leak, probe-proven);
+//! owned-shape temps release after the call (call_terminal mirror).
 //!
 //! Returns `Some(op)` on hit; `None` on miss (callee not an
 //! `Ident("__dispatch_<M>")`, `M` absent from `method_owners` /
@@ -38,13 +40,13 @@ pub(crate) fn try_lower(
     if args.is_empty() {
         return None;
     }
-    let arg_ops: Vec<Operand> = args
+    let arg_ops: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
+    let owned_temps: Vec<(usize, Operand)> = args
         .iter()
-        .map(|a| {
-            let op = ctx.lower_expr(*a);
-            ctx.consume_if_ident(*a);
-            op
-        })
+        .zip(arg_ops.iter())
+        .enumerate()
+        .filter(|(_, (a, _))| ctx.expr_owned_shape(**a))
+        .map(|(i, (_, op))| (i, *op))
         .collect();
     let recv = arg_ops[0];
     let base_fn_name = format!("__cm_{}__{method_name}", owners[0]);
@@ -75,5 +77,8 @@ pub(crate) fn try_lower(
         ret_ty,
         None,
     );
+    for (i, op) in owned_temps {
+        ctx.release_owned_temp(args[i], &op);
+    }
     Some(Operand::Value(r))
 }

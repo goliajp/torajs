@@ -74,11 +74,17 @@ fn try_lower_local_fnsig(
     // desugar defaults unannotated closure params to Type::Any).
     // S126-3 see direct fn-call P0.9 below.
     let target_params = ctx.fn_sigs[sig_id.0 as usize].0.clone();
+    // Chunk 569 — args SHARE: +0 borrows, no inc (the body never
+    // drops its params — the historical rc_inc leaked one ref per
+    // call, probe-proven), no consume; owned-shape temps release
+    // after the call (call_terminal mirror).
+    let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     let argv: Vec<Operand> = args
         .iter()
         .enumerate()
         .map(|(i, a)| {
             let raw = ctx.lower_expr(*a);
+            owned_temps.push((*a, raw));
             if i < target_params.len()
                 && matches!(target_params[i], Type::Any)
                 && !matches!(ctx.operand_ty(&raw), Type::Any)
@@ -89,14 +95,6 @@ fn try_lower_local_fnsig(
             }
         })
         .collect();
-    for (i, a) in args.iter().enumerate() {
-        let a_ty = ctx.operand_ty(&argv[i]);
-        if a_ty.is_refcounted() {
-            ctx.emit_rc_inc(argv[i]);
-        } else {
-            ctx.consume_if_ident(*a);
-        }
-    }
     let ret_ty = ctx.fn_sigs[sig_id.0 as usize].1;
     if ret_ty == Type::Void {
         ctx.f.append_void(
@@ -104,6 +102,9 @@ fn try_lower_local_fnsig(
             InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
         );
         ctx.emit_throw_check(None);
+        for (a, op) in owned_temps {
+            ctx.release_owned_temp(a, &op);
+        }
         return Some(Operand::ConstI64(0));
     }
     let v = ctx.f.append_inst(
@@ -113,6 +114,9 @@ fn try_lower_local_fnsig(
         None,
     );
     ctx.emit_throw_check(None);
+    for (a, op) in owned_temps {
+        ctx.release_owned_temp(a, &op);
+    }
     Some(Operand::Value(v))
 }
 
@@ -170,18 +174,23 @@ fn emit_closure_callee(
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first, ret_ty);
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
     argv.push(Operand::Value(env_ptr));
+    let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     for a in args {
-        argv.push(ctx.lower_expr(*a));
+        let raw = ctx.lower_expr(*a);
+        owned_temps.push((*a, raw));
+        argv.push(raw);
     }
-    for a in args {
-        ctx.consume_if_ident(*a);
-    }
+    // Chunk 569 — args SHARE: no consume (the historical consume
+    // orphaned live-binding stakes); owned temps release after.
     if ret_ty == Type::Void {
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
         );
         ctx.emit_throw_check(None);
+        for (a, op) in owned_temps {
+            ctx.release_owned_temp(a, &op);
+        }
         return Operand::ConstI64(0);
     }
     let v = ctx.f.append_inst(
@@ -191,6 +200,9 @@ fn emit_closure_callee(
         None,
     );
     ctx.emit_throw_check(None);
+    for (a, op) in owned_temps {
+        ctx.release_owned_temp(a, &op);
+    }
     Operand::Value(v)
 }
 
@@ -207,15 +219,18 @@ fn emit_fnsig_callee(
     };
     let ret_ty = ctx.fn_sigs[sig_id.0 as usize].1;
     let argv: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
-    for a in args {
-        ctx.consume_if_ident(*a);
-    }
+    // Chunk 569 — args SHARE: no consume; owned temps release after.
+    let owned_temps: Vec<(ExprId, Operand)> =
+        args.iter().copied().zip(argv.iter().copied()).collect();
     if ret_ty == Type::Void {
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
         );
         ctx.emit_throw_check(None);
+        for (a, op) in owned_temps {
+            ctx.release_owned_temp(a, &op);
+        }
         return Operand::ConstI64(0);
     }
     let v = ctx.f.append_inst(
@@ -225,5 +240,8 @@ fn emit_fnsig_callee(
         None,
     );
     ctx.emit_throw_check(None);
+    for (a, op) in owned_temps {
+        ctx.release_owned_temp(a, &op);
+    }
     Operand::Value(v)
 }
