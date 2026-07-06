@@ -210,6 +210,7 @@ pub(crate) fn build(
         process_stderr_write: init_c.runtime_misc.process_stderr_write,
         arr_alloc_any: init_b.arr_any.arr_alloc_any,
         arr_push_any: init_b.arr_any.arr_push_any,
+        arr_unshift_any: init_b.arr_any.arr_unshift_any,
         arr_fill_any: init_b.arr_any.arr_fill_any,
         arr_extend_any: init_b.arr_any.arr_extend_any,
         arr_any_slice: init_b.arr_any.arr_any_slice,

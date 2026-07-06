@@ -30,6 +30,36 @@ impl<'a> LowerCtx<'a> {
         arg_id: ExprId,
         arr_ty: Type,
     ) -> Operand {
+        let fid = self.intrinsics.arr_push_any;
+        self.emit_arr_any_grow_at_slot(base, offset, arg_id, arr_ty, fid)
+    }
+
+    /// `xs.unshift(v)` for `Array<Any>` — same pack + adopt + store-
+    /// back shape as push (both runtime helpers share the (arr, tag,
+    /// value) → new-ptr adopt contract), prepending via
+    /// `__torajs_arr_unshift_any`. Returns the new length.
+    pub(crate) fn emit_arr_any_unshift_at_slot(
+        &mut self,
+        base: Operand,
+        offset: u64,
+        arg_id: ExprId,
+        arr_ty: Type,
+    ) -> Operand {
+        let fid = self.intrinsics.arr_unshift_any;
+        self.emit_arr_any_grow_at_slot(base, offset, arg_id, arr_ty, fid)
+    }
+
+    /// Shared pack + call + store-back core for the Array<Any> grow
+    /// mutators (push / unshift) — `grow_fid` is the (Ptr, I64, I64)
+    /// → Ptr adopt-contract runtime helper to invoke.
+    fn emit_arr_any_grow_at_slot(
+        &mut self,
+        base: Operand,
+        offset: u64,
+        arg_id: ExprId,
+        arr_ty: Type,
+        grow_fid: crate::ssa::FuncId,
+    ) -> Operand {
         let cur_arr = self.f.append_inst(
             self.cur_block,
             InstKind::Load(arr_ty, base.clone(), offset),
@@ -94,7 +124,7 @@ impl<'a> LowerCtx<'a> {
                 let new_arr = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(
-                        self.intrinsics.arr_push_any,
+                        grow_fid,
                         vec![
                             Operand::Value(cur_arr),
                             Operand::Value(tag_v),
@@ -138,7 +168,7 @@ impl<'a> LowerCtx<'a> {
         let new_arr = self.f.append_inst(
             self.cur_block,
             InstKind::Call(
-                self.intrinsics.arr_push_any,
+                grow_fid,
                 vec![Operand::Value(cur_arr), Operand::ConstI64(tag), push_val],
             ),
             arr_ty,

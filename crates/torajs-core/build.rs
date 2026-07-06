@@ -91,6 +91,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_inner/body_passes.rs",
     "src/ssa_lower_deque_escape.rs",
     "src/ssa_lower_arr_mutators.rs",
+    "src/ssa_lower_arr_any_push.rs",
     "src/ssa_lower_index_assign.rs",
     "src/ssa_lower_any_member.rs",
     "src/ssa_lower_stmt_for_of.rs",

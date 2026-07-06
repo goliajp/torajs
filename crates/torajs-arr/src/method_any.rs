@@ -271,6 +271,16 @@ unsafe fn any_unshift_one(p: *mut u8, av: u64) -> *mut u8 {
                 __torajs_rc_inc(v as *mut c_void);
             }
         }
+        any_unshift_adopt(p, av)
+    }
+}
+
+/// Prepend core — memmove right + store slot 0 + len bump. Adopts
+/// `av` as-is (no inc): the caller either owns the stake it hands
+/// over (typed-tier adopt contract, mirror of `arr_push_any`) or
+/// has already inc'd it (`any_unshift_one` borrow contract).
+unsafe fn any_unshift_adopt(p: *mut u8, av: u64) -> *mut u8 {
+    unsafe {
         let len = *(p.add(ARR_LEN_OFF) as *const u64);
         let cur = crate::grow::__torajs_arr_reserve(p, (len + 1) as i64);
         core::ptr::copy(
@@ -281,5 +291,22 @@ unsafe fn any_unshift_one(p: *mut u8, av: u64) -> *mut u8 {
         *(cur.add(ARR_SLOTS_OFF) as *mut u64) = av;
         *(cur.add(ARR_LEN_OFF) as *mut u64) = len + 1;
         cur
+    }
+}
+
+/// `xs.unshift(v)` for `Array<Any>` on the typed tier — (tag, value)
+/// pair form, mirror of `__torajs_arr_push_any`'s adopt contract
+/// (the caller transfers ONE refcount with the pair; immediates
+/// carry none). Returns the possibly-realloc'd array pointer; the
+/// caller stores it back and reads the new length.
+///
+/// # Safety
+/// `arr` is a valid Array<Any> heap block (FLAG_ARR_ANY, 8-byte
+/// AnyValue slots).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_unshift_any(arr: *mut u8, tag: i64, value: i64) -> *mut u8 {
+    unsafe {
+        let av = __torajs_anyv_box_from_pair(tag, value);
+        any_unshift_adopt(arr, av)
     }
 }

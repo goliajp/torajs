@@ -237,6 +237,7 @@ pub(crate) struct Intrinsics {
     pub(crate) process_stderr_write: FuncId,
     pub(crate) arr_alloc_any: FuncId,
     pub(crate) arr_push_any: FuncId,
+    pub(crate) arr_unshift_any: FuncId,
     pub(crate) arr_fill_any: FuncId,
     pub(crate) arr_extend_any: FuncId,
     pub(crate) arr_any_slice: FuncId,

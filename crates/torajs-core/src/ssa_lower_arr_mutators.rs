@@ -354,6 +354,17 @@ impl<'a> LowerCtx<'a> {
             {
                 let arr_ty = info.ty;
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                // Array<Any> — (tag, value) pair prepend through the
+                // adopt-contract helper (push twin); the typed flow
+                // below would raw-write the value over a NaN-box slot.
+                if matches!(elem_ty, Type::Any) {
+                    return Some(self.emit_arr_any_unshift_at_slot(
+                        Operand::Value(info.slot),
+                        0,
+                        args[0],
+                        arr_ty,
+                    ));
+                }
                 let cur_arr = self.f.append_inst(
                     self.cur_block,
                     InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
@@ -420,12 +431,8 @@ impl<'a> LowerCtx<'a> {
             // (top-level explicit-annotation const → registered as a
             // global by K.6) panicked "unsupported member call shape:
             // unshift" — the locals-only guard above missed it.
-            // Typed elem only; Any-elem globals would need a tagged-
-            // slot helper analogous to `emit_arr_any_push_at_slot` and
-            // fall through unchanged (panics, same as before).
             if let Some(slot_ty) = self.globals.get(&recv_name).copied()
                 && let Type::Arr(arr_id) = slot_ty
-                && !matches!(self.arr_layouts[arr_id.0 as usize], Type::Any)
             {
                 let arr_ty = slot_ty;
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
@@ -435,6 +442,15 @@ impl<'a> LowerCtx<'a> {
                     Type::Ptr,
                     None,
                 );
+                // Array<Any> — pair prepend, mirror of push's K.8 arm.
+                if matches!(elem_ty, Type::Any) {
+                    return Some(self.emit_arr_any_unshift_at_slot(
+                        Operand::Value(slot_ptr),
+                        0,
+                        args[0],
+                        arr_ty,
+                    ));
+                }
                 let cur_arr = self.f.append_inst(
                     self.cur_block,
                     InstKind::Load(arr_ty, Operand::Value(slot_ptr), 0),

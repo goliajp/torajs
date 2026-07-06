@@ -37,6 +37,7 @@ use crate::ssa_lower::declare_intrinsic;
 pub(crate) struct ArrAnyIds {
     pub arr_alloc_any: FuncId,
     pub arr_push_any: FuncId,
+    pub arr_unshift_any: FuncId,
     pub arr_fill_any: FuncId,
     pub arr_extend_any: FuncId,
     pub arr_any_slice: FuncId,
@@ -73,6 +74,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_arr_push_any",
+            &[Type::Ptr, Type::I64, Type::I64],
+            Type::Ptr,
+        ),
+        arr_unshift_any: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_unshift_any",
             &[Type::Ptr, Type::I64, Type::I64],
             Type::Ptr,
         ),
