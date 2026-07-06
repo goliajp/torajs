@@ -303,9 +303,25 @@ fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId) -> bool {
             Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
         );
         if init_is_borrow {
-            panic!(
-                "ssa-lower: K.4 refcount global `{name}` requires fresh-heap init (function-call / concat / new); borrow-shaped init not yet supported"
-            );
+            // RFC 20260707 chunk 627 — Ident-shaped init (alias of
+            // another binding, a guaranteed +0 borrow): the global
+            // slot takes its own stake; the source binding keeps its
+            // own. Only same-type and Arr↔Arr (T-11 container widen)
+            // aliases are admitted — an Any↔concrete mismatch needs a
+            // box/unbox station and stays loud rather than storing
+            // wrong-repr bits. Member/Index inits stay loud too:
+            // their ownership shape is lane-dependent (arr_index_get
+            // answers +1), so a blanket inc would double-count.
+            let got = ctx.operand_ty(&init_val);
+            let ident_alias = matches!(ctx.ast.get_expr(init), Expr::Ident(_));
+            let compatible =
+                got == slot_ty || matches!((slot_ty, got), (Type::Arr(_), Type::Arr(_)));
+            if !ident_alias || !compatible {
+                panic!(
+                    "ssa-lower: K.4 refcount global `{name}` requires fresh-heap or same-type ident-alias init; this init shape is not yet supported"
+                );
+            }
+            ctx.emit_owned_result_inc(init_val, got);
         }
     }
     let coerced = if slot_ty == Type::F64 && ctx.operand_ty(&init_val) == Type::I64 {
@@ -313,6 +329,11 @@ fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId) -> bool {
     } else {
         init_val
     };
+    // RFC 20260707 chunk 627 — a typed array stored into an Arr<Any>
+    // global slot (T-11 widen) marks the block's elem kind for the
+    // kind-aware Arr<Any> readers (621 let-decl general-path mirror;
+    // self-gating no-op for non-array / Arr<Any> values).
+    ctx.emit_arr_mark_kind(&coerced);
     let ptr = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::GlobalRef(name.to_string()),
