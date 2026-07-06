@@ -41,10 +41,18 @@ pub(crate) fn try_lower(
         return None;
     }
     let n = args.len() as i64;
+    // Chunk 570 — elems SHARE (raw Store below adopts the passed
+    // reference): a borrow-shape arg takes +1 so the slot owns its
+    // stake while the source binding keeps its own (the historical
+    // consume let the array's death free the source's only ref —
+    // UAF, probe-proven); owned temps keep transferring.
     let mut elem_vals: Vec<Operand> = Vec::with_capacity(args.len());
     for &aid in args {
         let v = ctx.lower_expr(aid);
-        ctx.consume_if_ident(aid);
+        let v_ty = ctx.operand_ty(&v);
+        if !ctx.expr_transfers_ownership(aid) && !v_ty.is_copy() {
+            ctx.emit_rc_inc(v);
+        }
         elem_vals.push(v);
     }
     let elem_ty = ctx.operand_ty(&elem_vals[0]);

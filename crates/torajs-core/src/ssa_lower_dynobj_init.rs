@@ -46,8 +46,15 @@ impl<'a> LowerCtx<'a> {
         // first using the same scheme as box_to_any but inlined.
         for (fname, fval_eid) in fields {
             let v_raw = self.lower_expr(fval_eid);
-            self.consume_if_ident(fval_eid);
+            // Chunk 570 — SHARE: the bucket takes its own +1 (the
+            // refcounted arm's rc_inc / the Any arm's payload inc);
+            // no consume, so a borrow-shape value keeps the source
+            // binding's stake and an owned temp releases its
+            // surplus reference after the set (was a 32B/iter
+            // orphan leak, probe-proven).
+            let transfers = self.expr_transfers_ownership(fval_eid);
             let v_ty = self.operand_ty(&v_raw);
+            let v_keep = v_raw.clone();
             let (tag, val_op): (i64, Operand) = match v_ty {
                 Type::I64 | Type::I32 => (2, v_raw),
                 Type::F64 => {
@@ -118,6 +125,9 @@ impl<'a> LowerCtx<'a> {
                             ],
                         ),
                     );
+                    if transfers {
+                        self.emit_drop_value(v_keep, Type::Any);
+                    }
                     continue;
                 }
                 _ if v_ty.is_refcounted() => {
@@ -145,6 +155,9 @@ impl<'a> LowerCtx<'a> {
                     ],
                 ),
             );
+            if transfers && v_ty.is_refcounted() {
+                self.emit_drop_value(v_keep, v_ty);
+            }
         }
         Operand::Value(dynobj)
     }

@@ -45,10 +45,19 @@ pub(crate) fn try_lower(
 /// `console.<m>(v)` — type-specific print target. Substr gets a
 /// one-time own copy; primitives and Str pass straight through.
 fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId) -> Operand {
-    let is_borrow = matches!(
-        ctx.ast.get_expr(arg_id),
-        Expr::Ident(_) | Expr::Member { .. }
-    );
+    // Chunk 570 — container Index reads are borrows too (the slot
+    // owns the elem; dropping the read stole the slot's stake and
+    // the array's death then freed the source — UAF, probe-proven).
+    // String indexing stays owned: `s[i]` mints a fresh Substr view
+    // (chunk 561 family predicate). OptChain / This align with
+    // expr_is_fresh_owned's borrow set.
+    let is_borrow = match ctx.ast.get_expr(arg_id) {
+        Expr::Ident(_) | Expr::Member { .. } | Expr::OptChain { .. } | Expr::This => true,
+        Expr::Index { obj, .. } => {
+            !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
+        }
+        _ => false,
+    };
     let arg = ctx.lower_expr(arg_id);
     let arg_ty = ctx.operand_ty(&arg);
     let cur_block = ctx.cur_block;

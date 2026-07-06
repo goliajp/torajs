@@ -183,19 +183,20 @@ fn lower_no_spread_elements(
             _ => ctx.lower_expr(*eid),
         };
         let v_ty = ctx.operand_ty(&v);
+        // Chunk 570 — a named-binding elem is always a SHARE: local
+        // OR global (the old `locals`-only lookup answered false for
+        // a top-level source, so the slot stole the global's only
+        // ref and the array's death freed it — UAF, probe-proven;
+        // 564 apply_borrow_rc_inc mirror), moved bindings included
+        // (their cell is alive under the canonical owner).
         let needs_inc = v_ty.is_refcounted()
             && match ctx.ast.get_expr(*eid) {
-                Expr::Ident(name) => ctx
-                    .locals
-                    .get(name)
-                    .map(|info| !info.moved)
-                    .unwrap_or(false),
+                Expr::Ident(name) => {
+                    ctx.locals.contains_key(name) || ctx.globals.contains_key(name)
+                }
                 Expr::Member { .. } | Expr::Index { .. } => true,
                 _ => false,
             };
-        if !needs_inc {
-            ctx.consume_if_ident(*eid);
-        }
         elem_inc_after.push(needs_inc);
         elem_vals.push(v);
     }
