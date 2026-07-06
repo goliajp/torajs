@@ -9,27 +9,19 @@ use core::ffi::c_void;
 
 use torajs_rc::{
     ANY_METHOD_CHAR_AT, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_MATCH,
-    ANY_METHOD_SLICE, ANY_METHOD_SPLIT, ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_UPPER_CASE,
-    ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START, Tag,
+    ANY_METHOD_REPLACE, ANY_METHOD_REPLACE_ALL, ANY_METHOD_SLICE, ANY_METHOD_SPLIT,
+    ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END,
+    ANY_METHOD_TRIM_START, Tag,
 };
 
 use crate::method_call::{method_not_a_function, to_index};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_undefined};
-use crate::nanbox_encode::{
-    __torajs_anyv_box_from_pair, __torajs_anyv_box_i64, __torajs_anyv_box_pointer,
-};
+use crate::nanbox_encode::{__torajs_anyv_box_from_pair, __torajs_anyv_box_i64};
 use crate::nanbox_ffi::__torajs_anyv_to_str;
 
 unsafe extern "C" {
     /// torajs-str — charAt glue (empty string for OOB).
     fn __torajs_str_any_char_at(s: *mut u8, idx: i64) -> u64;
-    /// torajs-regex — the typed tier's `s.match(re)` kernel: fresh
-    /// +1 match Arr, or null for no match (spec §22.2.7.5/.8).
-    fn __torajs_str_match_regex(s: *const c_void, re: *const c_void) -> *mut c_void;
-    /// torajs-arr — elem-kind marker; 4 = KIND_HEAP_CHAIN (Str-cell
-    /// slots) so any-tier index reads box the raw pointers on read
-    /// (same treatment as `__torajs_str_any_split`'s product).
-    fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
     /// torajs-str — toUpperCase / toLowerCase glue.
     fn __torajs_str_any_case(s: *const u8, upper: i64) -> u64;
     /// torajs-str — indexOf glue (found code-unit index or -1).
@@ -40,6 +32,18 @@ unsafe extern "C" {
     fn __torajs_str_any_split(s: *const u8, sep: *const u8) -> u64;
     /// torajs-str — trim glue (mode: 0 both, 1 start, 2 end).
     fn __torajs_str_any_trim(s: *const u8, mode: i64) -> u64;
+    /// torajs-str — match glue (owned_src materialize + heap-chain
+    /// mark + boxed-null no-match).
+    fn __torajs_str_any_match(s: *const u8, re: *const c_void) -> u64;
+    /// torajs-str — replace/replaceAll glue, string-pattern lane.
+    fn __torajs_str_any_replace(s: *const u8, needle: *const u8, repl: *const u8, all: i64) -> u64;
+    /// torajs-str — replace/replaceAll glue, RegExp-pattern lane.
+    fn __torajs_str_any_replace_regex(
+        s: *const u8,
+        re: *const c_void,
+        repl: *const u8,
+        all: i64,
+    ) -> u64;
     /// torajs-str — release a heap Str/Substr reference.
     fn __torajs_str_drop(s: *mut c_void);
     /// torajs-throw — record a pending catchable TypeError.
@@ -91,33 +95,54 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
             m if m == ANY_METHOD_MATCH => {
                 // RC-2 (RFC 20260706-test262-bug-corpus) — RegExp-cell
                 // argument only; the string→RegExp coercion lane is a
-                // follow-up. Kernel ownership (+1 Arr / null) transfers
-                // into the box; box_pointer maps null → VALUE_NULL.
-                let re_av = arg_at(0);
-                let mut re_ptr: *const c_void = core::ptr::null();
-                if is_cell(re_av) {
-                    let rp = as_void_ptr(re_av);
-                    let rtag = (rp.cast::<u8>().add(4) as *const u16).read();
-                    if rtag == Tag::RegExp as u16 {
-                        re_ptr = rp;
-                    }
-                }
-                if re_ptr.is_null() {
+                // follow-up. The torajs-str glue materializes Substr
+                // receivers and heap-chain-marks the product.
+                let Some(re_ptr) = regexp_cell(arg_at(0)) else {
                     __torajs_throw_type_error(
                         c"s.match(...) on an any receiver requires a RegExp argument".as_ptr(),
                     );
                     return VALUE_UNDEFINED;
-                }
-                let out = __torajs_str_match_regex(s as *const c_void, re_ptr);
-                if !out.is_null() {
-                    __torajs_arr_mark_kind(out, 4); // KIND_HEAP_CHAIN
-                }
-                __torajs_anyv_box_pointer(out)
+                };
+                __torajs_str_any_match(s, re_ptr)
+            }
+            m if m == ANY_METHOD_REPLACE || m == ANY_METHOD_REPLACE_ALL => {
+                // RC-2c — the pattern argument's cell tag picks the
+                // lane; both replacement operands ToString through
+                // owned temps this arm drops. A closure replacement
+                // (the `_regex_fn` kernels) is a recorded follow-up.
+                let all = (m == ANY_METHOD_REPLACE_ALL) as i64;
+                let repl = __torajs_anyv_to_str(arg_at(1));
+                let out = if let Some(re_ptr) = regexp_cell(arg_at(0)) {
+                    __torajs_str_any_replace_regex(s, re_ptr, repl as *const u8, all)
+                } else {
+                    let needle = __torajs_anyv_to_str(arg_at(0));
+                    let out =
+                        __torajs_str_any_replace(s, needle as *const u8, repl as *const u8, all);
+                    __torajs_str_drop(needle);
+                    out
+                };
+                __torajs_str_drop(repl);
+                out
             }
             m if m == ANY_METHOD_TRIM => __torajs_str_any_trim(s, 0),
             m if m == ANY_METHOD_TRIM_START => __torajs_str_any_trim(s, 1),
             m if m == ANY_METHOD_TRIM_END => __torajs_str_any_trim(s, 2),
             _ => method_not_a_function(),
         }
+    }
+}
+
+/// The argument's RegExp cell pointer, or `None` for any non-RegExp
+/// value (primitives, other cell tags).
+unsafe fn regexp_cell(av: AnyValue) -> Option<*const c_void> {
+    if !is_cell(av) {
+        return None;
+    }
+    let p = as_void_ptr(av);
+    let tag = unsafe { (p.cast::<u8>().add(4) as *const u16).read() };
+    if tag == Tag::RegExp as u16 {
+        Some(p as *const c_void)
+    } else {
+        None
     }
 }

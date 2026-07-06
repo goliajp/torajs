@@ -28,6 +28,7 @@ use crate::str_drop::__torajs_str_drop;
 use crate::substr::{FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW};
 use crate::substr_methods::__torajs_substr_to_owned;
 use crate::transform::case::{__torajs_str_to_lower, __torajs_str_to_upper};
+use crate::transform::replace::{__torajs_str_replace, __torajs_str_replace_all};
 use crate::transform::trim::{__torajs_str_trim, __torajs_str_trim_end, __torajs_str_trim_start};
 
 unsafe extern "C" {
@@ -36,7 +37,27 @@ unsafe extern "C" {
     /// pointers → `ARR_KIND_HEAP` = 4) so kind-aware any-world reads
     /// (`arr_index_get` / `arr_print_any` / join) stay correct.
     fn __torajs_arr_mark_kind(arr: *mut core::ffi::c_void, chain: u64);
+    /// Cross-tier — torajs-regex kernels (owned-Str layout inputs;
+    /// extern decls only, resolved at `tr build` link time).
+    fn __torajs_str_match_regex(
+        s: *const core::ffi::c_void,
+        re: *const core::ffi::c_void,
+    ) -> *mut core::ffi::c_void;
+    fn __torajs_str_replace_regex(
+        s: *const core::ffi::c_void,
+        re: *const core::ffi::c_void,
+        repl: *const core::ffi::c_void,
+    ) -> *mut core::ffi::c_void;
+    fn __torajs_str_replace_all_regex(
+        s: *const core::ffi::c_void,
+        re: *const core::ffi::c_void,
+        repl: *const core::ffi::c_void,
+    ) -> *mut core::ffi::c_void;
 }
+
+/// NaN-box `null` bit pattern (torajs-anyvalue `VALUE_NULL` mirror)
+/// — `s.match` answers JS null on no-match.
+const VALUE_NULL_BOX: u64 = 2;
 
 /// `ARR_KIND_HEAP` mirror (torajs-rc) — the one kind `split` output
 /// slots ever hold.
@@ -181,6 +202,91 @@ pub unsafe extern "C" fn __torajs_str_any_trim(s: *const u8, mode: i64) -> u64 {
             _ => __torajs_str_trim(src),
         };
         drop_tmp(tmp);
+        out as u64
+    }
+}
+
+/// `s.match(re)` glue (RFC 20260706-test262-bug-corpus RC-2) — the
+/// receiver materializes through [`owned_src`] (the regex kernels
+/// read the owned-Str layout), the product is heap-chain-marked so
+/// any-world index reads box its Str-cell slots, and no-match
+/// answers the boxed JS null.
+///
+/// # Safety
+/// `s` is a live Str/Substr cell; `re` is a live RegExp cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_match(s: *const u8, re: *const core::ffi::c_void) -> u64 {
+    unsafe {
+        let (src, tmp) = owned_src(s);
+        let out = __torajs_str_match_regex(src as *const core::ffi::c_void, re);
+        drop_tmp(tmp);
+        if out.is_null() {
+            VALUE_NULL_BOX
+        } else {
+            __torajs_arr_mark_kind(out, KIND_HEAP_CHAIN);
+            out as u64
+        }
+    }
+}
+
+/// `s.replace(needle, repl)` / `replaceAll` glue for string-pattern
+/// arguments — all three operands materialize through [`owned_src`].
+///
+/// # Safety
+/// `s` / `needle` / `repl` are live Str/Substr cells.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_replace(
+    s: *const u8,
+    needle: *const u8,
+    repl: *const u8,
+    all: i64,
+) -> u64 {
+    unsafe {
+        let (src, t0) = owned_src(s);
+        let (nd, t1) = owned_src(needle);
+        let (rp, t2) = owned_src(repl);
+        let out = if all != 0 {
+            __torajs_str_replace_all(src, nd, rp)
+        } else {
+            __torajs_str_replace(src, nd, rp)
+        };
+        drop_tmp(t2);
+        drop_tmp(t1);
+        drop_tmp(t0);
+        out as u64
+    }
+}
+
+/// `s.replace(re, repl)` / `replaceAll` glue for RegExp-pattern
+/// arguments.
+///
+/// # Safety
+/// `s` / `repl` are live Str/Substr cells; `re` is a live RegExp.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_replace_regex(
+    s: *const u8,
+    re: *const core::ffi::c_void,
+    repl: *const u8,
+    all: i64,
+) -> u64 {
+    unsafe {
+        let (src, t0) = owned_src(s);
+        let (rp, t1) = owned_src(repl);
+        let out = if all != 0 {
+            __torajs_str_replace_all_regex(
+                src as *const core::ffi::c_void,
+                re,
+                rp as *const core::ffi::c_void,
+            )
+        } else {
+            __torajs_str_replace_regex(
+                src as *const core::ffi::c_void,
+                re,
+                rp as *const core::ffi::c_void,
+            )
+        };
+        drop_tmp(t1);
+        drop_tmp(t0);
         out as u64
     }
 }

@@ -164,6 +164,11 @@ pub const ANY_METHOD_NEXT: i64 = 71;
 /// — the `Tag::Str` arm routes a RegExp-cell argument through the
 /// typed tier's `__torajs_str_match_regex` kernel.
 pub const ANY_METHOD_MATCH: i64 = 72;
+/// `String.prototype.replace` (RC-2c) — string- or RegExp-pattern
+/// lane picked by the argument's cell tag.
+pub const ANY_METHOD_REPLACE: i64 = 73;
+/// `String.prototype.replaceAll` (RC-2c).
+pub const ANY_METHOD_REPLACE_ALL: i64 = 74;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -276,6 +281,8 @@ pub fn any_method_id(name: &str) -> i64 {
         "toExponential" => ANY_METHOD_TO_EXPONENTIAL,
         "toPrecision" => ANY_METHOD_TO_PRECISION,
         "match" => ANY_METHOD_MATCH,
+        "replace" => ANY_METHOD_REPLACE,
+        "replaceAll" => ANY_METHOD_REPLACE_ALL,
         "test" => ANY_METHOD_TEST,
         "exec" => ANY_METHOD_EXEC,
         "keys" => ANY_METHOD_KEYS,
