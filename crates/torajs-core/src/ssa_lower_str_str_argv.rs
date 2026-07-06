@@ -130,11 +130,11 @@ pub(crate) fn populate_argv(
         if undef_to_str_repl && (arg_undef || arg_null) {
             let u = str_sub(ctx);
             argv.push(u);
-        } else if undef_to_str_at_arg0 && arg_undef && i == 0 {
-            // Null stays checker-rejected for the indexOf family —
-            // their declared arg0 is String (vs replace's Any), so a
-            // null fold here would be dead code until the checker
-            // admits it (L3b: pair the two).
+        } else if undef_to_str_at_arg0 && (arg_undef || arg_null) && i == 0 {
+            // Chunk 616 — the checker's search-undef arm now admits
+            // Null needles too (§7.1.17 ToString(null) = "null");
+            // str_sub picks the matching literal. Shipped as a pair
+            // with that admit per the 605-era note here.
             let u = str_sub(ctx);
             argv.push(u);
         } else if undef_to_zero && arg_undef {

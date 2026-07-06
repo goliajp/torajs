@@ -13,6 +13,13 @@
 //! the interned `"undefined"` literal for the helper's
 //! `(Str, Str)` ABI.
 //!
+//! Chunk 616 — `Null` needles take the same widen
+//! (`ToString(null) = "null"`, §7.1.17; for `search`,
+//! `RegExp(null)` compiles the metachar-free pattern `/null/`,
+//! literally equivalent to the substring probe). Admit + the
+//! lowering fold ship as a pair — the 605-era note in
+//! ssa_lower_str_str_argv barred a lone fold as dead code.
+//!
 //! Result is `Type::Boolean` for the membership predicates
 //! (`includes / startsWith / endsWith`); `Type::Number` for
 //! the index lookups (`indexOf / lastIndexOf / search`).
@@ -56,7 +63,7 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
-    if !matches!(needle_ty, Type::Undefined) {
+    if !matches!(needle_ty, Type::Undefined | Type::Null) {
         return None;
     }
     Some(Ok(
