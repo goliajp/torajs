@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T16:03:17.501Z",
+  "generatedAt": "2026-07-06T17:33:10.745Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "d83229e6",
-    "commitSubject": "fix: void-callback positions accept any-ret closures (gate-fail fix-up for chunk 607)",
+    "commit": "52041b58",
+    "commitSubject": "feat: arguments.length real argc for iife closures + untyped named-fn ret chains (test262-bug-corpus RC-4, chunk 613)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "52041b58",
+      "subject": "feat: arguments.length real argc for iife closures + untyped named-fn ret chains (test262-bug-corpus RC-4, chunk 613)"
+    },
+    {
+      "hash": "7a4262e0",
+      "subject": "fix: nullish equality folds are type-based, not operand-shape based (test262-bug-corpus RC-4 undefined sentinel face, chunk 612)"
+    },
+    {
+      "hash": "45592e88",
+      "subject": "fix: release the grow-spilled data buffer in arr_drop_any and cycle collect_white (B1 retrofit miss, chunk 611)"
+    },
+    {
+      "hash": "4d6ea119",
+      "subject": "fix: owning pair sites take the slot stake via owned unbox (test262-bug-corpus RC-4 pair-unbox leak, chunk 610)"
+    },
+    {
+      "hash": "6882e0d4",
+      "subject": "fix: borrow-shaped pair consumers settle shortstr materialized temps (test262-bug-corpus RC-4 pair-unbox leak, chunk 609)"
+    },
+    {
+      "hash": "cb6be8c4",
+      "subject": "chore(dashboard): session snapshot @ d83229e6 — rotation 34 (602-608: test262-bug-corpus crash-bucket closeout + any-param face — indirect-call t28 pad, may-throw triple accounting, str-pattern replace fn lane, null-pattern fold, nullable-arr generic decay, closure ret any-fallback + any-str ret materialize, void-callback variance; gate 1240 -> 1246 with one FAIL caught+fixed, crash corpus 24/24 cleared, A1_T4 true pass)"
+    },
+    {
       "hash": "d83229e6",
       "subject": "fix: void-callback positions accept any-ret closures (gate-fail fix-up for chunk 607)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "58cacc5f",
       "subject": "feat: functional replaceValue for string-pattern replace/replaceAll (test262-bug-corpus RC-4 replace A1_T4)"
-    },
-    {
-      "hash": "c33c2623",
-      "subject": "fix: may-throw analysis records IIFE and chained-call callees (test262-bug-corpus RC-4 arguments-object)"
-    },
-    {
-      "hash": "bfd1886b",
-      "subject": "fix: pad missing trailing any args on indirect closure/fnsig calls (test262-bug-corpus RC-4 arguments-object)"
-    },
-    {
-      "hash": "52db096a",
-      "subject": "chore(dashboard): session snapshot @ 58ac6ea6 — rotation 33 (595-601: test262-bug-corpus RC-4 F4 freeze-any, F5 array-len rangeerror, F6 capture shared-stake UAF, F1a exec nullable retype+guard, codegen frame shifted-imm, multiline-dollar vm gate; gate 1234 -> 1240, crash corpus 17 pass / 5 loud / 2 left)"
-    },
-    {
-      "hash": "58ac6ea6",
-      "subject": "fix: multiline $ patterns run on the pike vm, not the dfa (test262-bug-corpus RC-4 engine face)"
-    },
-    {
-      "hash": "21167355",
-      "subject": "chore(dashboard): session snapshot @ 91d991ce — rotation 33 (595-600: test262-bug-corpus RC-4 F4 freeze-any, F5 array-len rangeerror, F6 capture shared-stake UAF, F1a exec nullable retype+guard, codegen frame shifted-imm; gate 1234 -> 1239, crash corpus 15 pass / 7 loud / 2 left)"
-    },
-    {
-      "hash": "91d991ce",
-      "subject": "fix: arm64 frame carve supports sizes past imm12 via shifted-imm pair (codegen)"
     }
   ],
-  "headSha": "d83229e6",
+  "headSha": "52041b58",
   "autorun": {
-    "total": 342,
+    "total": 343,
     "baselineTarget": 10,
-    "bySelf": 337,
+    "bySelf": 338,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783348034-066b",
-      "at": "2026-07-06T14:27:14Z",
-      "ts": 1783348034,
+      "rotationId": "r-1783353834-703f",
+      "at": "2026-07-06T16:03:54Z",
+      "ts": 1783353834,
       "trigger": "self",
-      "prevHead": "52db096a",
-      "handoffSha": "sha256:7afa70ed45f96ceeb6f1207824d08b2fbb15b1320f809ce991023ea61680fd6b",
-      "handoffAgeSec": 10,
+      "prevHead": "cb6be8c4",
+      "handoffSha": "sha256:9c7a12c39e61e2f8eac4d0fb65c96f016ffce0ea55c7c91baef64d75b43beea1",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783353834-703f",
+        "at": "2026-07-06T16:03:54Z",
+        "ts": 1783353834,
+        "trigger": "self",
+        "prevHead": "cb6be8c4",
+        "handoffSha": "sha256:9c7a12c39e61e2f8eac4d0fb65c96f016ffce0ea55c7c91baef64d75b43beea1",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783348034-066b",
         "at": "2026-07-06T14:27:14Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "9a1b89b4",
         "handoffSha": "sha256:816f6eb209a3fd0377ff52d79d85a765e731bce9447d2a8c4ffcdd9173e3e340",
-        "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783268654-4504",
-        "at": "2026-07-05T16:24:14Z",
-        "ts": 1783268654,
-        "trigger": "self",
-        "prevHead": "0a617970",
-        "handoffSha": "sha256:4b8bcc07c91d1aab81801733ef0e2e149f002bde52a059277f2742f18ab23749",
         "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
