@@ -97,12 +97,15 @@ fn maybe_swap_math_sum_precise(ctx: &LowerCtx<'_>, target: FuncId, argv: &[Opera
     target
 }
 
-fn pad_trailing_undef(ctx: &mut LowerCtx<'_>, eid: ExprId, argv: &mut Vec<Operand>) {
+pub(crate) fn pad_trailing_undef(ctx: &mut LowerCtx<'_>, eid: ExprId, argv: &mut Vec<Operand>) {
     // T-28 — pad trailing missing Type::Any params with ANY_UNDEF
     // Any-box operands. check.rs's arity_pad_count recorded the
     // missing count for this Call ExprId iff all the trailing
     // missing params were Type::Any (the typed-tier strict-arity
-    // check rejected mixed-typed missing).
+    // check rejected mixed-typed missing). Shared by the indirect
+    // arms (closure_local / fn_indirect) — an indirect CallIndirect
+    // whose argv is shorter than its signature reads garbage
+    // registers in the callee (RC-4 arguments-object SIGSEGV).
     let pad_n = match ctx.arity_pad_count.get(&eid).copied() {
         Some(n) if n > 0 => n,
         _ => return,

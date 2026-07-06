@@ -32,6 +32,7 @@ use crate::ssa_lower::{CLOSURE_FN_ADDR_OFF, LowerCtx, intern_fn_sig};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
@@ -85,6 +86,11 @@ pub(crate) fn try_lower(
         };
         argv.push(boxed);
     }
+    // T-28 — missing trailing Any args pad with ANY_UNDEF (checker
+    // recorded arity_pad_count); without the pad the CallIndirect
+    // argv is shorter than env_first_sig and the callee reads
+    // garbage registers (RC-4 arguments-object SIGSEGV).
+    crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
     if ret_ty == Type::Void {
         ctx.f.append_void(
             ctx.cur_block,

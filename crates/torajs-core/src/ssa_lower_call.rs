@@ -316,11 +316,11 @@ fn try_dispatch_d(
         return Some(op);
     }
     // M2 — call a Closure-typed local. Load env_ptr + fn_ptr, indirect-call with env prepended.
-    if let Some(op) = crate::ssa_lower_call_closure_local::try_lower(ctx, callee, args) {
+    if let Some(op) = crate::ssa_lower_call_closure_local::try_lower(ctx, eid, callee, args) {
         return Some(op);
     }
     // M2 Phase B Stage 4 — fn-typed local indirect call + generalized indirect.
-    if let Some(op) = crate::ssa_lower_call_fn_indirect::try_lower(ctx, callee, args) {
+    if let Some(op) = crate::ssa_lower_call_fn_indirect::try_lower(ctx, eid, callee, args) {
         return Some(op);
     }
     None

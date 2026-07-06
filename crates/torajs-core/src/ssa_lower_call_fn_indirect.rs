@@ -37,13 +37,14 @@ use crate::ssa_lower::{CLOSURE_FN_ADDR_OFF, LowerCtx, intern_fn_sig};
 /// M3 retarget / direct resolve path.
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
-    if let Some(op) = try_lower_local_fnsig(ctx, callee, args) {
+    if let Some(op) = try_lower_local_fnsig(ctx, eid, callee, args) {
         return Some(op);
     }
-    try_lower_call_or_closure_callee(ctx, callee, args)
+    try_lower_call_or_closure_callee(ctx, eid, callee, args)
 }
 
 /// M2 Phase B Stage 4 — `let f = global_fn; f(args);` or fn-typed param
@@ -53,6 +54,7 @@ pub(crate) fn try_lower(
 /// `emit_throw_check`, return the result.
 fn try_lower_local_fnsig(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
@@ -79,7 +81,7 @@ fn try_lower_local_fnsig(
     // call, probe-proven), no consume; owned-shape temps release
     // after the call (call_terminal mirror).
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
-    let argv: Vec<Operand> = args
+    let mut argv: Vec<Operand> = args
         .iter()
         .enumerate()
         .map(|(i, a)| {
@@ -95,6 +97,9 @@ fn try_lower_local_fnsig(
             }
         })
         .collect();
+    // T-28 — missing trailing Any args pad with ANY_UNDEF (see
+    // pad_trailing_undef doc; short argv = garbage-register reads).
+    crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
     let ret_ty = ctx.fn_sigs[sig_id.0 as usize].1;
     if ret_ty == Type::Void {
         ctx.f.append_void(
@@ -126,6 +131,7 @@ fn try_lower_local_fnsig(
 /// Void return handling.
 fn try_lower_call_or_closure_callee(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
@@ -138,8 +144,10 @@ fn try_lower_call_or_closure_callee(
     let callee_op = ctx.lower_expr(callee);
     let callee_ty = ctx.operand_ty(&callee_op);
     match callee_ty {
-        Type::Closure(user_sig_id) => Some(emit_closure_callee(ctx, callee_op, user_sig_id, args)),
-        Type::FnSig(sig_id) => Some(emit_fnsig_callee(ctx, callee_op, sig_id, args)),
+        Type::Closure(user_sig_id) => {
+            Some(emit_closure_callee(ctx, eid, callee_op, user_sig_id, args))
+        }
+        Type::FnSig(sig_id) => Some(emit_fnsig_callee(ctx, eid, callee_op, sig_id, args)),
         _ => {
             // Non-callable — fall through to resolve_callee for the panic
             // with a clearer error message.
@@ -153,6 +161,7 @@ fn try_lower_call_or_closure_callee(
 /// intern an env-first signature for the indirect call.
 fn emit_closure_callee(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee_op: Operand,
     user_sig_id: crate::ssa::SigId,
     args: &[ExprId],
@@ -195,6 +204,9 @@ fn emit_closure_callee(
             argv.push(raw);
         }
     }
+    // T-28 — missing trailing Any args pad with ANY_UNDEF (see
+    // pad_trailing_undef doc; short argv = garbage-register reads).
+    crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
     // Chunk 569 — args SHARE: no consume (the historical consume
     // orphaned live-binding stakes); owned temps release after.
     if ret_ty == Type::Void {
@@ -224,6 +236,7 @@ fn emit_closure_callee(
 /// Emit direct CallIndirect for a `Type::FnSig` callee (no env prefix).
 fn emit_fnsig_callee(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee_op: Operand,
     sig_id: crate::ssa::SigId,
     args: &[ExprId],
@@ -238,7 +251,7 @@ fn emit_fnsig_callee(
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     // RC-4 F3 — Type::Any target param boxes a concrete arg (see
     // emit_closure_callee / arm-1 P0.5).
-    let argv: Vec<Operand> = args
+    let mut argv: Vec<Operand> = args
         .iter()
         .enumerate()
         .map(|(i, a)| {
@@ -254,6 +267,9 @@ fn emit_fnsig_callee(
             }
         })
         .collect();
+    // T-28 — missing trailing Any args pad with ANY_UNDEF (see
+    // pad_trailing_undef doc; short argv = garbage-register reads).
+    crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
     if ret_ty == Type::Void {
         ctx.f.append_void(
             ctx.cur_block,
