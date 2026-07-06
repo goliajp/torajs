@@ -45,6 +45,16 @@ pub(crate) fn emit(
 ) -> Operand {
     let mut target = resolve_target(ctx, eid, callee);
     let mut argv: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
+    // RC-4 — a Nullable<Array> arg decayed against a generic Array
+    // param at the checker (generic_ident decay_nullable_arr); guard
+    // the runtime null before it enters the monomorphized callee as
+    // a bare Arr. Only retargeted (generic) call sites qualify —
+    // non-generic calls never see the decay.
+    if ctx.call_retargets.contains_key(&eid) {
+        for (a, op) in args.iter().zip(argv.clone().iter()) {
+            crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, *a, op);
+        }
+    }
     // RFC 20260705 chunk 548 — snapshot owned-shape arg temps
     // (`f(g())` nested-call results) before pad/coerce mutate argv;
     // they are released after the call.

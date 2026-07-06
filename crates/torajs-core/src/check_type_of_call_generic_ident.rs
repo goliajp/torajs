@@ -39,6 +39,22 @@ use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type, substitute_typevars};
 use crate::check_typevar::{typevar_appears_in, typevar_appears_in_iter, unify_typevar};
 
+/// RC-4 — a `Nullable<Array<..>>` arg (exec/match result, chunk 598
+/// retype) decays to its inner Array against an Array-shaped generic
+/// param, mirroring the member/index decay: unification never binds
+/// a TypeVar to a Nullable wrapper. The runtime null stays guarded —
+/// ssa_lower_call_terminal emits `__torajs_arr_null_check` on
+/// nullable-arr args at retargeted call sites.
+fn decay_nullable_arr(param_ty: &Type, arg_ty: Type) -> Type {
+    if matches!(param_ty, Type::Array(_))
+        && let Type::Nullable(inner) = &arg_ty
+        && matches!(**inner, Type::Array(_))
+    {
+        return (**inner).clone();
+    }
+    arg_ty
+}
+
 pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
@@ -76,6 +92,7 @@ pub(crate) fn try_match(
                         Ok(t) => t,
                         Err(e) => return Some(Err(e)),
                     };
+                    let arg_ty = decay_nullable_arr(param_ty, arg_ty);
                     if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst) {
                         return Some(Err(format!("argument {i} to `{name}`: {e}")));
                     }
@@ -113,6 +130,7 @@ pub(crate) fn try_match(
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
+            let arg_ty = decay_nullable_arr(param_ty, arg_ty);
             if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst) {
                 return Some(Err(format!("argument {i} to `{name}`: {e}")));
             }
