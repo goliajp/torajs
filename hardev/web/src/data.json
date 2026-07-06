@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T02:49:12.744Z",
+  "generatedAt": "2026-07-06T07:31:46.085Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "07d2c063",
-    "commitSubject": "fix: chain-mark arrays stored into container slots (RFC 20260706, chunk 575)",
+    "commit": "cd7713a3",
+    "commitSubject": "feat: demote any-escaping typed arrays to Arr<Any> at module level",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "cd7713a3",
+      "subject": "feat: demote any-escaping typed arrays to Arr<Any> at module level"
+    },
+    {
+      "hash": "80aed7f4",
+      "subject": "feat: Array<Any>.unshift through the tagged-slot adopt helper"
+    },
+    {
+      "hash": "743f98db",
+      "subject": "fix: flag-aware alloc for Any-elem HO dst and slice products"
+    },
+    {
+      "hash": "098e16ee",
+      "subject": "fix: sort default compare unboxes Any elements through ToString"
+    },
+    {
+      "hash": "43bc8350",
+      "subject": "fix: route Array<Any>.concat through a FLAG_ARR_ANY-aware lane"
+    },
+    {
+      "hash": "0df5cfe5",
+      "subject": "chore(dashboard): session snapshot @ 07d2c063 — rotation 28 (571-575: coercion-family + remaining-station share = RFC 20260705 ledger #3 close + consume_if_ident retirement; RFC 20260706 color-bits migration + FROZEN clobber fix + Arr<Any> cycle walk + slot-offset drift + container chain-mark; gate 1211 -> 1216)"
+    },
+    {
       "hash": "07d2c063",
       "subject": "fix: chain-mark arrays stored into container slots (RFC 20260706, chunk 575)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "2c160a5e",
       "subject": "chore(dashboard): session snapshot @ b53f765e — rotation 27 (566-570: member/index-assign share, consuming-params retirement, call-arg share, container-init + console index-read; gate 1206 -> 1211)"
-    },
-    {
-      "hash": "b53f765e",
-      "subject": "fix: share container-init elems and console index reads (RFC 20260705 ledger #3, chunk 570)"
-    },
-    {
-      "hash": "46f39929",
-      "subject": "fix: share indirect and vtable call args instead of inc or consume (RFC 20260705 ledger #3, chunk 569)"
-    },
-    {
-      "hash": "f5181938",
-      "subject": "fix: retire the consuming-params bitmap, fn args always share (RFC 20260705 ledger #3, chunk 568)"
-    },
-    {
-      "hash": "d6cc91cf",
-      "subject": "fix: share index-assign values instead of consuming (RFC 20260705 ledger #3, chunk 567)"
-    },
-    {
-      "hash": "93944f33",
-      "subject": "fix: share member-assign values instead of consuming (RFC 20260705 ledger #3, chunk 566)"
-    },
-    {
-      "hash": "409b2382",
-      "subject": "fix: share borrow-shape values into Arr<Any> push/fill slots (RFC 20260705 ledger #3, chunk 565)"
     }
   ],
-  "headSha": "07d2c063",
+  "headSha": "cd7713a3",
   "autorun": {
-    "total": 336,
+    "total": 337,
     "baselineTarget": 10,
-    "bySelf": 331,
+    "bySelf": 332,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783300506-721b",
-      "at": "2026-07-06T01:15:06Z",
-      "ts": 1783300506,
+      "rotationId": "r-1783306224-0425",
+      "at": "2026-07-06T02:50:24Z",
+      "ts": 1783306224,
       "trigger": "self",
-      "prevHead": "2c160a5e",
-      "handoffSha": "sha256:5fca777139590e49e36a2f00829e93392a6a61dfc2cf1189da22974e94378996",
-      "handoffAgeSec": 7,
+      "prevHead": "0df5cfe5",
+      "handoffSha": "sha256:6c1817e4682ba188405a5430fb6fa45f447bb38f11e1f3b12a666872f09423c2",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783306224-0425",
+        "at": "2026-07-06T02:50:24Z",
+        "ts": 1783306224,
+        "trigger": "self",
+        "prevHead": "0df5cfe5",
+        "handoffSha": "sha256:6c1817e4682ba188405a5430fb6fa45f447bb38f11e1f3b12a666872f09423c2",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783300506-721b",
         "at": "2026-07-06T01:15:06Z",
@@ -876,17 +887,6 @@
         "prevHead": "35cad8ae",
         "handoffSha": "sha256:189bcb796102fd6a43a097253fcecee05e25c0ac8c6ea19038eb78bdb43c52eb",
         "handoffAgeSec": 13,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783186427-4001",
-        "at": "2026-07-04T17:33:47Z",
-        "ts": 1783186427,
-        "trigger": "self",
-        "prevHead": "5eb9b63d",
-        "handoffSha": "sha256:1d40c463eb065a9a47193e1e18046e87a9fba70445862e35fe709954c34e31f7",
-        "handoffAgeSec": 16,
         "conformanceBefore": null,
         "commitsInSession": null
       }
