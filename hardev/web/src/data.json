@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T17:33:10.745Z",
+  "generatedAt": "2026-07-06T18:55:27.445Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "52041b58",
-    "commitSubject": "feat: arguments.length real argc for iife closures + untyped named-fn ret chains (test262-bug-corpus RC-4, chunk 613)",
+    "commit": "c17a79b5",
+    "commitSubject": "feat: admit nullish x any loose equality (test262-bug-corpus RC-4, chunk 619)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "c17a79b5",
+      "subject": "feat: admit nullish x any loose equality (test262-bug-corpus RC-4, chunk 619)"
+    },
+    {
+      "hash": "45976b1d",
+      "subject": "feat: heap-ref nullish loose eq via ptr cmp + void-call init binds undefined (test262-bug-corpus RC-4, chunk 618)"
+    },
+    {
+      "hash": "c670853a",
+      "subject": "feat: named top-level fn as replace callback via forwarder wrap (test262-bug-corpus RC-4, chunk 617)"
+    },
+    {
+      "hash": "24c65011",
+      "subject": "feat: indexOf-family null-literal needle admit + tostring fold (test262-bug-corpus RC-4, chunk 616)"
+    },
+    {
+      "hash": "bbcedc50",
+      "subject": "feat: reject Symbol.for-registered symbols as weak keys (test262-bug-corpus RC-4, chunk 615)"
+    },
+    {
+      "hash": "5a4b3c11",
+      "subject": "fix: cycle collector reclaims arr-participating cycles (test262-bug-corpus RC-4, chunk 614)"
+    },
+    {
+      "hash": "70171d94",
+      "subject": "chore(dashboard): session snapshot @ 52041b58 — rotation 35 (609-613: RC-4 pair-unbox leak both faces via settle protocol + owned unbox fuse, B1 grow-spilled buffer free retrofit in arr_drop_any + cycle collect_white, type-based nullish equality folds, arguments.length real argc for iife closures + untyped named-fn ret chains; gate 1246 -> 1250 all green, all leak probes flat at ~6.4MB baseline)"
+    },
+    {
       "hash": "52041b58",
       "subject": "feat: arguments.length real argc for iife closures + untyped named-fn ret chains (test262-bug-corpus RC-4, chunk 613)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "6882e0d4",
       "subject": "fix: borrow-shaped pair consumers settle shortstr materialized temps (test262-bug-corpus RC-4 pair-unbox leak, chunk 609)"
-    },
-    {
-      "hash": "cb6be8c4",
-      "subject": "chore(dashboard): session snapshot @ d83229e6 — rotation 34 (602-608: test262-bug-corpus crash-bucket closeout + any-param face — indirect-call t28 pad, may-throw triple accounting, str-pattern replace fn lane, null-pattern fold, nullable-arr generic decay, closure ret any-fallback + any-str ret materialize, void-callback variance; gate 1240 -> 1246 with one FAIL caught+fixed, crash corpus 24/24 cleared, A1_T4 true pass)"
-    },
-    {
-      "hash": "d83229e6",
-      "subject": "fix: void-callback positions accept any-ret closures (gate-fail fix-up for chunk 607)"
-    },
-    {
-      "hash": "648180cc",
-      "subject": "fix: closure ret inference falls back to any, and any-typed str returns materialize (test262-bug-corpus RC-4 any-param face)"
-    },
-    {
-      "hash": "e9726022",
-      "subject": "chore(dashboard): session snapshot @ 5774f8e1 — rotation 34 (602-606: test262-bug-corpus crash-bucket closeout — indirect-call t28 pad, may-throw iife/chained/arg-closure accounting, str-pattern replace fn lane, null-pattern tostring fold, nullable-arr generic decay+guard; gate 1240 -> 1245, crash corpus 24/24 cleared, A1_T4 true pass)"
-    },
-    {
-      "hash": "5774f8e1",
-      "subject": "feat: nullable-arr args decay against generic array params with runtime guard (test262-bug-corpus RC-4 F1a)"
-    },
-    {
-      "hash": "4411fbf7",
-      "subject": "fix: null/undefined literal replace patterns fold to their tostring text (test262-bug-corpus RC-4 replace A1_T4)"
-    },
-    {
-      "hash": "58cacc5f",
-      "subject": "feat: functional replaceValue for string-pattern replace/replaceAll (test262-bug-corpus RC-4 replace A1_T4)"
     }
   ],
-  "headSha": "52041b58",
+  "headSha": "c17a79b5",
   "autorun": {
-    "total": 343,
+    "total": 344,
     "baselineTarget": 10,
-    "bySelf": 338,
+    "bySelf": 339,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783353834-703f",
-      "at": "2026-07-06T16:03:54Z",
-      "ts": 1783353834,
+      "rotationId": "r-1783359270-6144",
+      "at": "2026-07-06T17:34:30Z",
+      "ts": 1783359270,
       "trigger": "self",
-      "prevHead": "cb6be8c4",
-      "handoffSha": "sha256:9c7a12c39e61e2f8eac4d0fb65c96f016ffce0ea55c7c91baef64d75b43beea1",
-      "handoffAgeSec": 8,
+      "prevHead": "70171d94",
+      "handoffSha": "sha256:81068be7246d73ff181e2343d099868e849ba1681c1a563855bd776fbb7cc551",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783359270-6144",
+        "at": "2026-07-06T17:34:30Z",
+        "ts": 1783359270,
+        "trigger": "self",
+        "prevHead": "70171d94",
+        "handoffSha": "sha256:81068be7246d73ff181e2343d099868e849ba1681c1a563855bd776fbb7cc551",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783353834-703f",
         "at": "2026-07-06T16:03:54Z",
@@ -876,17 +887,6 @@
         "prevHead": "6f6d7402",
         "handoffSha": "sha256:e07253ad77ae917bfe899b7b05a0ff6056269b18a1a556fbd99d6b1a065a9681",
         "handoffAgeSec": 89,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783286813-1b56",
-        "at": "2026-07-05T21:26:53Z",
-        "ts": 1783286813,
-        "trigger": "self",
-        "prevHead": "9a1b89b4",
-        "handoffSha": "sha256:816f6eb209a3fd0377ff52d79d85a765e731bce9447d2a8c4ffcdd9173e3e340",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
