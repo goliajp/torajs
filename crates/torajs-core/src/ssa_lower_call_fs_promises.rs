@@ -58,14 +58,11 @@ pub(crate) fn try_lower(
         return None;
     }
 
-    let arg_ops: Vec<Operand> = args
-        .iter()
-        .map(|a| {
-            let op = ctx.lower_expr(*a);
-            ctx.consume_if_ident(*a);
-            op
-        })
-        .collect();
+    // The fs helpers borrow every Str arg (bytes copied to a stack
+    // buf, no rc traffic), so Ident args keep their stake and their
+    // scope drop — the old consume path orphaned it (RFC 20260705
+    // ledger #3). Owned temps release after the sync call below.
+    let arg_ops: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
     let (sync_fid, sync_ret_ty) = match method.as_str() {
         "readFile" => (ctx.intrinsics.fs_read_file_sync, Type::Str),
         "writeFile" => (ctx.intrinsics.fs_write_file_sync, Type::Void),
@@ -82,10 +79,13 @@ pub(crate) fn try_lower(
     let cur_block = ctx.cur_block;
     let sync_v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(sync_fid, arg_ops),
+        InstKind::Call(sync_fid, arg_ops.clone()),
         sync_ret_ty,
         None,
     );
+    for (a, op) in args.iter().zip(arg_ops.iter()) {
+        ctx.release_owned_temp(*a, op);
+    }
     // Wrap sync result. Heap variants (Str / Arr) hand ownership to the
     // Promise; primitive (Bool / Void) packs into i64.
     let (promise_alloc_fid, value_op) = match sync_ret_ty {

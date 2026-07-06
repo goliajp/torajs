@@ -300,9 +300,6 @@ fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
         None,
     );
     let mut val = ctx.lower_expr(args[0]);
-    if !elem_ty.is_refcounted() {
-        ctx.consume_if_ident(args[0]);
-    }
     // W4 — align with the elem width. (Field path doesn't include the
     // Substr→Str owned path; receiver-field arrays don't get for-of-str
     // bound-substrs pushed into them in practice.)
@@ -350,12 +347,6 @@ fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
 /// already allocated a fresh ref).
 fn coerce_push_value(ctx: &mut LowerCtx<'_>, arg_eid: ExprId, elem_ty: Type) -> (Operand, bool) {
     let mut val = ctx.lower_expr(arg_eid);
-    // Refcounted elements: caller stays the owner via post-push inc;
-    // non-refcounted: consume the source ident so the consume-walk doesn't
-    // double-drop. Mirror local-receiver semantic.
-    if !elem_ty.is_refcounted() {
-        ctx.consume_if_ident(arg_eid);
-    }
     val = ctx.coerce_bool_to_i64(val);
     let mut val_owned_from_substr = false;
     val = match (elem_ty, ctx.operand_ty(&val)) {

@@ -89,23 +89,27 @@ pub(crate) fn try_lower(
 }
 
 /// `Bun.file(path)` — pass the path Str straight through. Caller's
-/// `arg_op` is the BunFile handle.
+/// `arg_op` is the BunFile handle. Identity pass-through: the result
+/// IS the arg value under the owned-result invariant, so a borrow-
+/// shaped path shares (+1, source keeps its stake — the old consume
+/// stole it, String(str)-station twin); owned temps transfer.
 fn try_lower_bun_file(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     if args.len() != 1 {
         return None;
     }
     let arg_op = ctx.lower_expr(args[0]);
-    ctx.consume_if_ident(args[0]);
+    if !ctx.expr_transfers_ownership(args[0]) {
+        ctx.emit_rc_inc(arg_op.clone());
+    }
     Some(arg_op)
 }
 
 /// `Bun.gc(synchronous)` — fire the Bacon-Rajan cycle collector. The
-/// bool arg is lowered + consumed for side-effect parity but ignored
-/// at the intrinsic level (tr is always synchronous).
+/// bool arg is lowered for side-effect parity but ignored at the
+/// intrinsic level (tr is always synchronous).
 fn try_lower_bun_gc(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     for a in args.iter() {
         let _ = ctx.lower_expr(*a);
-        ctx.consume_if_ident(*a);
     }
     let cur_block = ctx.cur_block;
     let cycle_collect = ctx.intrinsics.cycle_collect;
@@ -121,16 +125,18 @@ fn try_lower_fetch(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
         return None;
     }
     let url_op = ctx.lower_expr(args[0]);
-    ctx.consume_if_ident(args[0]);
     let cur_block = ctx.cur_block;
     let fetch_sync = ctx.intrinsics.fetch_sync;
     let promise_alloc_fulfilled_heap = ctx.intrinsics.promise_alloc_fulfilled_heap;
     let resp_v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(fetch_sync, vec![url_op]),
+        InstKind::Call(fetch_sync, vec![url_op.clone()]),
         Type::Ptr,
         None,
     );
+    // `fetch_sync` borrows the url (reads into a CString), so an Ident
+    // arg keeps its stake and its scope drop; owned temps release here.
+    ctx.release_owned_temp(args[0], &url_op);
     let p_v = ctx.f.append_inst(
         cur_block,
         InstKind::Call(promise_alloc_fulfilled_heap, vec![Operand::Value(resp_v)]),

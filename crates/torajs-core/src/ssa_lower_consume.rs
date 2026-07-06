@@ -1,36 +1,19 @@
-//! Affine-consume helpers for `LowerCtx<'a>` extracted from
+//! Affine-consume helper for `LowerCtx<'a>` extracted from
 //! `ssa_lower.rs` chunk 377.
 //!
-//! Two locals-move markers used by SSA lowering to keep the drop walk
-//! in sync with check.rs's affine consume pass: `consume_if_ident`
-//! marks a single non-Copy `Ident(name)` binding as moved (no-op for
-//! Copy / non-Ident); `consume_all_idents_in_return` walks the entire
-//! expression tree under a `Stmt::Return` and marks every non-Copy
-//! ident it reaches as moved, so the return-site drop walk skips
-//! locals whose heap may be aliased by the returned value. Both
-//! bodies are byte-for-byte preserved from the source; the sibling
-//! reaches LowerCtx fields via `impl<'a> super::LowerCtx<'a>`, so
-//! call sites need zero edits.
+//! One locals-move marker remains: `consume_all_idents_in_return`
+//! walks the entire expression tree under a `Stmt::Return` /
+//! `Stmt::Throw` and marks every non-Copy ident it reaches as moved,
+//! so the scope-exit drop walk skips locals whose heap may be aliased
+//! by the escaping value. The per-arg `consume_if_ident` sibling was
+//! retired by RFC 20260705 ledger #3 (chunks 564-572): call args
+//! share — runtime helpers borrow (or internally inc) their args, so
+//! stealing the source binding's stake either leaked it or dangled it.
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
-    /// If `eid` resolves to a non-Copy `Ident(name)` binding, mark that
-    /// binding as moved. No-op for Copy types (number/bool/etc) and for
-    /// non-Ident expressions (literals, BinOp results, Call results).
-    /// Mirrors check.rs's affine consume pass.
-    pub(crate) fn consume_if_ident(&mut self, eid: ExprId) {
-        if let Expr::Ident(name) = self.ast.get_expr(eid) {
-            let name = name.clone();
-            if let Some(info) = self.locals.get_mut(&name)
-                && !info.ty.is_copy()
-            {
-                info.moved = true;
-            }
-        }
-    }
-
     /// Walk the entire expression tree under `eid` and mark every
     /// non-Copy `Expr::Ident(name)` reference as moved. Used at
     /// `Stmt::Return` so the drop walk skips any local whose heap

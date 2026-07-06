@@ -16,7 +16,7 @@
 //!    discipline (same shape as the array-literal fix; without it,
 //!    two struct lits sharing a refcounted Obj field
 //!    `{x:a}; {x:a}` would double-walk-drop the shared element).
-//!    Inline `Ident` consume gets `consume_if_ident` semantics.
+//!    (chunk 572: non-inc shapes need no move marker — all no-ops).
 //! 2. **W4 field-width widen** — the literal's field widths come
 //!    from its alias class (the Anon origin key unions with the
 //!    receiving slot during analysis): `{x:1}` with a later
@@ -157,10 +157,11 @@ fn lower_regular_field(
             Expr::Member { .. } | Expr::Index { .. } => true,
             _ => false,
         };
+    // No consume on the else side: every shape reaching it is a no-op
+    // for the move-walk (Copy binding / non-local Ident / already-moved
+    // Ident / non-Ident expr) — chunk 572 removed the dead marker.
     if needs_inc {
         ctx.emit_rc_inc(v);
-    } else {
-        ctx.consume_if_ident(eid);
     }
     if let Some(pos) = field_tys.iter().position(|(k, _)| k == name) {
         field_tys[pos] = (name.to_string(), ty);

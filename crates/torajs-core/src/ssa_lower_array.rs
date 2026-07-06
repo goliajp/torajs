@@ -282,8 +282,7 @@ fn lower_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) -> 
     if matches!(elem_ty, Some(Type::Any)) {
         return crate::ssa_lower_arr_from_any::assemble_any_spread(ctx, lowered, literal_count);
     }
-    let elem_is_refcounted = elem_ty.unwrap_or(Type::I64).is_refcounted();
-    let items = build_items(ctx, &lowered, elem_is_refcounted);
+    let items = build_items(&lowered);
     let mut elem_ty = elem_ty.unwrap_or(Type::I64);
     if elem_ty == Type::I64
         && ctx
@@ -398,23 +397,17 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
     (v, v_ty, false)
 }
 
-fn build_items(
-    ctx: &mut LowerCtx<'_>,
-    lowered: &[LoweredItem],
-    elem_is_refcounted: bool,
-) -> Vec<Item> {
-    let mut items: Vec<Item> = Vec::with_capacity(lowered.len());
-    for li in lowered {
-        if !elem_is_refcounted {
-            ctx.consume_if_ident(li.src_eid);
-        }
-        items.push(if li.is_spread {
-            Item::Spread(li.op)
-        } else {
-            Item::Lit(li.op)
-        });
-    }
-    items
+fn build_items(lowered: &[LoweredItem]) -> Vec<Item> {
+    lowered
+        .iter()
+        .map(|li| {
+            if li.is_spread {
+                Item::Spread(li.op)
+            } else {
+                Item::Lit(li.op)
+            }
+        })
+        .collect()
 }
 
 fn compute_total_length(ctx: &mut LowerCtx<'_>, items: &[Item], literal_count: i64) -> Operand {

@@ -74,7 +74,6 @@ pub(crate) fn try_lower(
 /// drop the rest for side-effects per S273 / ES §27.2.4.
 fn lower_aggregate(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprId]) -> Operand {
     let arr_op = ctx.lower_expr(args[0]);
-    ctx.consume_if_ident(args[0]);
     for &a in &args[1..] {
         let _ = ctx.lower_expr(a);
     }
@@ -88,10 +87,15 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprId]) -> Ope
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(fid, vec![arr_op]),
+        InstKind::Call(fid, vec![arr_op.clone()]),
         Type::Promise,
         None,
     );
+    // The combinator borrows the promises array (walks slots, incs
+    // what it keeps), so an Ident arg keeps its stake and its scope
+    // drop — the old consume path orphaned the array AND its promises
+    // (RFC 20260705 ledger #3, 35MB probe). Owned temps release here.
+    ctx.release_owned_temp(args[0], &arr_op);
     Operand::Value(v)
 }
 
@@ -117,20 +121,25 @@ fn lower_zero_arg(ctx: &mut LowerCtx<'_>, method: &str) -> Operand {
 /// primitive dispatch + S322 trailing-arg side-effect.
 fn lower_one_plus(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[ExprId]) -> Operand {
     let arg_op = ctx.lower_expr(args[0]);
-    ctx.consume_if_ident(args[0]);
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
     }
     let arg_ty = ctx.operand_ty(&arg_op);
-    // T-19.f — thenable absorption.
+    // T-19.f — thenable absorption. `promise_resolve_thenable` borrows
+    // the promise (shares its inner value into the fresh one), so an
+    // Ident arg keeps its stake; owned temps release post-call.
     if matches!(arg_ty, Type::Promise) && method == "resolve" {
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.promise_resolve_thenable, vec![arg_op]),
+            InstKind::Call(
+                ctx.intrinsics.promise_resolve_thenable,
+                vec![arg_op.clone()],
+            ),
             Type::Promise,
             None,
         );
+        ctx.release_owned_temp(args[0], &arg_op);
         return Operand::Value(v);
     }
     let is_heap = matches!(
@@ -153,6 +162,15 @@ fn lower_one_plus(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Exp
         ("reject", true) => ctx.intrinsics.promise_alloc_rejected_heap,
         _ => unreachable!(),
     };
+    // `promise_alloc_*_heap` ADOPTS the value (caller transfers one
+    // ref, pool.rs contract). A borrow-shaped arg therefore shares:
+    // +1 so the source binding keeps its own stake — the old consume
+    // path stole it (UAF once the promise dropped first, reuse-window
+    // probe printed filler vs bun val42). Owned temps transfer their
+    // fresh ref as-is.
+    if is_heap && !ctx.expr_transfers_ownership(args[0]) {
+        ctx.emit_owned_result_inc(arg_op.clone(), arg_ty);
+    }
     let arg_i64 = if matches!(arg_ty, Type::Bool) {
         ctx.coerce_bool_to_i64(arg_op)
     } else if matches!(arg_ty, Type::F64) {

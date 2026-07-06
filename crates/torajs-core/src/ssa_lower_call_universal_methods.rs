@@ -132,13 +132,13 @@ pub(crate) fn try_lower(
     {
         return Some(emit_obj_has_own_property(ctx, recv_ty, *arg_eid, args));
     }
-    // Fallback (primitives, isPrototypeOf, no args): drop arg + return
-    // false.
+    // Fallback (primitives, isPrototypeOf, no args): release an owned
+    // temp arg + return false. Ident args are borrows — the old
+    // consume+drop pair destroyed the source's stake while later reads
+    // still used it (reuse-window probe read filler bytes).
     if !args.is_empty() {
         let arg_val = ctx.lower_expr(args[0]);
-        let arg_ty = ctx.operand_ty(&arg_val);
-        ctx.consume_if_ident(args[0]);
-        ctx.emit_drop_value(arg_val, arg_ty);
+        ctx.release_owned_temp(args[0], &arg_val);
     }
     // S304 — lower-and-drop trailing args (isPrototypeOf useful=1;
     // primitive fallback also covers stray trailing).
@@ -163,13 +163,12 @@ fn emit_obj_has_own_property(
         unreachable!("emit_obj_has_own_property called with non-Obj receiver");
     };
     if let Expr::String(key) = ctx.ast.get_expr(arg_eid) {
-        // Literal key — compile-time fold.
+        // Literal key — compile-time fold. The lowered literal is a
+        // static cell (rc no-op); nothing to release.
         let layout = &ctx.struct_layouts[sid.0 as usize];
         let result = layout.iter().any(|(fname, _)| fname == key);
         let arg_val = ctx.lower_expr(arg_eid);
-        let arg_ty = ctx.operand_ty(&arg_val);
-        ctx.consume_if_ident(arg_eid);
-        ctx.emit_drop_value(arg_val, arg_ty);
+        ctx.release_owned_temp(arg_eid, &arg_val);
         // S304 — lower-and-drop trailing args per S272 idiom
         // (hasOwnProperty / propertyIsEnumerable useful arity 1).
         for &a in args.iter().skip(1) {
@@ -208,8 +207,10 @@ fn emit_obj_has_own_property(
             acc = Operand::Value(or);
         }
     }
-    ctx.consume_if_ident(arg_eid);
-    ctx.emit_drop_value(key_op, key_ty);
+    // The str_eq chain only reads the key — an Ident key keeps its
+    // stake and its scope drop; owned temp keys release here (the old
+    // consume+drop pair destroyed the source's stake, reuse-window UAF).
+    ctx.release_owned_temp(arg_eid, &key_op);
     // S304 — lower-and-drop trailing args (runtime-key path;
     // same useful=1).
     for &a in args.iter().skip(1) {

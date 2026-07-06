@@ -77,10 +77,11 @@ pub(crate) fn try_lower(
                 false
             };
             if !args.is_empty() {
+                // The compile-time fold only inspects the AST; an Ident
+                // arg is a borrow (keeps its stake), owned temps
+                // release here (old consume+drop stole the stake).
                 let arg_val = ctx.lower_expr(args[0]);
-                let arg_ty = ctx.operand_ty(&arg_val);
-                ctx.consume_if_ident(args[0]);
-                ctx.emit_drop_value(arg_val, arg_ty);
+                ctx.release_owned_temp(args[0], &arg_val);
             }
             Some(Operand::ConstBool(result))
         }

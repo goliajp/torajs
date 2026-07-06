@@ -155,10 +155,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
         } else {
             false
         };
+        // No consume on the non-share side: every shape reaching it is
+        // a no-op for the move-walk (Copy / non-local Ident / non-Ident
+        // expr — local refcounted Idents all take the share arm) —
+        // chunk 572 removed the dead marker.
         if shares {
             ctx.emit_rc_inc(init_val.clone());
-        } else if !boxed_any {
-            ctx.consume_if_ident(init);
         }
     }
     let init_val = if ty == Type::F64 && ctx.operand_ty(&init_val) == Type::I64 {

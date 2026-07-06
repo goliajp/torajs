@@ -361,9 +361,6 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 let mut val = self.lower_expr(args[0]);
-                if !elem_ty.is_refcounted() {
-                    self.consume_if_ident(args[0]);
-                }
                 // W4 — align with the elem width (mirrors push).
                 if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
                     val = self.coerce_to_f64(val);
@@ -443,9 +440,6 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 let mut val = self.lower_expr(args[0]);
-                if !elem_ty.is_refcounted() {
-                    self.consume_if_ident(args[0]);
-                }
                 if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
                     val = self.coerce_to_f64(val);
                 }
