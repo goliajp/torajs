@@ -172,13 +172,28 @@ fn emit_closure_callee(
     env_first.push(Type::Ptr);
     env_first.extend(user_params);
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first, ret_ty);
+    let user_params = ctx.fn_sigs[user_sig_id.0 as usize].0.clone();
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
     argv.push(Operand::Value(env_ptr));
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
-    for a in args {
+    for (i, a) in args.iter().enumerate() {
         let raw = ctx.lower_expr(*a);
         owned_temps.push((*a, raw));
-        argv.push(raw);
+        // RC-4 F3 — Type::Any target param boxes a concrete arg
+        // (arm-1 P0.5 mirror): an untyped IIFE param is Type::Any at
+        // the ABI, and passing a raw i64 into the box-shaped lane
+        // made `(function(a){ return a })(1)` SIGSEGV on the
+        // callee's deref (test262 asi / statements-function /
+        // arguments-object family). Boxing is a pure bit-encode; the
+        // raw temp's release below still settles owned temps.
+        if i < user_params.len()
+            && matches!(user_params[i], Type::Any)
+            && !matches!(ctx.operand_ty(&raw), Type::Any)
+        {
+            argv.push(ctx.box_to_any_from_expr(*a, raw));
+        } else {
+            argv.push(raw);
+        }
     }
     // Chunk 569 — args SHARE: no consume (the historical consume
     // orphaned live-binding stakes); owned temps release after.
@@ -218,10 +233,27 @@ fn emit_fnsig_callee(
         _ => panic!("ssa-lower: fnsig callee must be an SSA value"),
     };
     let ret_ty = ctx.fn_sigs[sig_id.0 as usize].1;
-    let argv: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
+    let target_params = ctx.fn_sigs[sig_id.0 as usize].0.clone();
     // Chunk 569 — args SHARE: no consume; owned temps release after.
-    let owned_temps: Vec<(ExprId, Operand)> =
-        args.iter().copied().zip(argv.iter().copied()).collect();
+    let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
+    // RC-4 F3 — Type::Any target param boxes a concrete arg (see
+    // emit_closure_callee / arm-1 P0.5).
+    let argv: Vec<Operand> = args
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let raw = ctx.lower_expr(*a);
+            owned_temps.push((*a, raw));
+            if i < target_params.len()
+                && matches!(target_params[i], Type::Any)
+                && !matches!(ctx.operand_ty(&raw), Type::Any)
+            {
+                ctx.box_to_any_from_expr(*a, raw)
+            } else {
+                raw
+            }
+        })
+        .collect();
     if ret_ty == Type::Void {
         ctx.f.append_void(
             ctx.cur_block,
