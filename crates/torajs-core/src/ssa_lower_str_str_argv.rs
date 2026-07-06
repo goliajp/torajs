@@ -110,6 +110,16 @@ pub(crate) fn populate_argv(
         matches!(method, "padStart" | "padEnd") && (args.len() == 2 || args.len() == 3);
     for (i, &a) in args.iter().enumerate() {
         let arg_undef = matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined));
+        // RC-4 replace A1_T4 — a null literal takes the same
+        // ToString substitution as undefined on the String-coercing
+        // slots ("null" per §7.1.17): before this it lowered to a
+        // null ptr in the helper's Str param and the runtime
+        // deref'd it.
+        let arg_null = matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Null));
+        let str_sub = |ctx: &mut LowerCtx<'_>| {
+            let v = ctx.intern_string_literal(if arg_null { "null" } else { "undefined" });
+            Operand::Value(v)
+        };
         // Per-method trailing-arg-ignore — drop args beyond the
         // helper ABI arity (lower-and-drop so step()-style
         // side-effect exprs still fire per S272 idiom).
@@ -117,12 +127,16 @@ pub(crate) fn populate_argv(
             let _ = ctx.lower_expr(a);
             continue;
         }
-        if undef_to_str_repl && arg_undef {
-            let u = ctx.intern_string_literal("undefined");
-            argv.push(Operand::Value(u));
+        if undef_to_str_repl && (arg_undef || arg_null) {
+            let u = str_sub(ctx);
+            argv.push(u);
         } else if undef_to_str_at_arg0 && arg_undef && i == 0 {
-            let u = ctx.intern_string_literal("undefined");
-            argv.push(Operand::Value(u));
+            // Null stays checker-rejected for the indexOf family —
+            // their declared arg0 is String (vs replace's Any), so a
+            // null fold here would be dead code until the checker
+            // admits it (L3b: pair the two).
+            let u = str_sub(ctx);
+            argv.push(u);
         } else if undef_to_zero && arg_undef {
             argv.push(Operand::ConstI64(0));
         } else if undef_zero_at_arg1 && arg_undef && i == 1 {

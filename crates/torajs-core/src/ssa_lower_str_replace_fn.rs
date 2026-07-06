@@ -41,13 +41,26 @@ pub(crate) fn try_lower(
     ) {
         return None;
     }
-    let pat = ctx.lower_expr(args[0]);
-    if ctx.operand_ty(&pat) != Type::Str {
-        // Non-Str pattern (null literal / Any) keeps its existing
-        // path for now — the ToString(searchValue) fold is a
-        // separate face.
-        return None;
-    }
+    // Pattern gate decides on the CHECKER type before lowering (a
+    // post-lower fall-through would double-lower args[0]). Null /
+    // undefined literals fold to their ToString text (§22.1.3.18
+    // step 3 — the test262 A1_T4 shape is `replace(null, fn)`);
+    // other non-Str patterns (Any / number) stay on their existing
+    // paths.
+    let pat = match ctx.expr_types.get(&args[0]) {
+        Some(crate::check::Type::String) => {
+            let p = ctx.lower_expr(args[0]);
+            if ctx.operand_ty(&p) != Type::Str {
+                return None;
+            }
+            p
+        }
+        Some(crate::check::Type::Null) => Operand::Value(ctx.intern_string_literal("null")),
+        Some(crate::check::Type::Undefined) => {
+            Operand::Value(ctx.intern_string_literal("undefined"))
+        }
+        _ => return None,
+    };
     let repl = ctx.lower_expr(args[1]);
     let repl_ty = ctx.operand_ty(&repl);
     if !matches!(repl_ty, Type::Closure(_)) {
