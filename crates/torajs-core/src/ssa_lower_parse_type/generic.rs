@@ -155,6 +155,9 @@ pub(super) fn parse_generic(
         "Set" | "ReadonlySet" => Some(Type::Set),
         "WeakMap" => Some(Type::WeakMap),
         "WeakSet" => Some(Type::WeakSet),
+        // Chunk 629 — `WeakRef<T>` erases like its weak-family
+        // siblings (mirror of check_type_ann's generic arm).
+        "WeakRef" => Some(Type::WeakRef),
         // P6.4b/c generic-ann form `MapIter<T>` / `ArrIter<T>` —
         // the type-arg is erased at SSA the same way Map/Set
         // generics erase to Type::Map / Type::Set above.

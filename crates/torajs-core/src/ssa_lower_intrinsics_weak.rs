@@ -24,7 +24,7 @@ use crate::ssa_lower::declare_intrinsic;
 
 pub(crate) struct WeakIds {
     pub weakref_create: FuncId,
-    pub weakref_deref: FuncId,
+    pub weakref_deref_any: FuncId,
     pub weakref_drop: FuncId,
     pub weakref_target_dying: FuncId,
     pub weakmap_create: FuncId,
@@ -54,12 +54,17 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             &[Type::Ptr],
             Type::WeakRef,
         ),
-        weakref_deref: declare_intrinsic(
+        // Chunk 629 — boxed deref: checker types `wr.deref()` as
+        // Nullable<Any>, so the SSA value is an AnyValue box (alive
+        // box = ptr, cleared = ANY_UNDEF). The raw-Ptr
+        // `__torajs_weakref_deref` stays in the runtime as this
+        // helper's core but is no longer declared as an intrinsic.
+        weakref_deref_any: declare_intrinsic(
             module,
             fn_table,
-            "__torajs_weakref_deref",
+            "__torajs_weakref_deref_any",
             &[Type::WeakRef],
-            Type::Ptr,
+            Type::Any,
         ),
         weakref_drop: declare_intrinsic(
             module,

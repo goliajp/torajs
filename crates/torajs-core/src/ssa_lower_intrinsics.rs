@@ -414,7 +414,7 @@ pub(crate) struct Intrinsics {
     pub(crate) bigint_as_uint_n: FuncId,
     pub(crate) bigint_drop_rc: FuncId,
     pub(crate) weakref_create: FuncId,
-    pub(crate) weakref_deref: FuncId,
+    pub(crate) weakref_deref_any: FuncId,
     pub(crate) weakref_drop: FuncId,
     pub(crate) weakref_target_dying: FuncId,
     pub(crate) weakmap_create: FuncId,

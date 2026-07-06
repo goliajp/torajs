@@ -369,7 +369,7 @@ pub(crate) fn build(
         bigint_as_uint_n: init_c.bigint.bigint_as_uint_n,
         bigint_drop_rc: init_c.bigint.bigint_drop_rc,
         weakref_create: init_c.weak.weakref_create,
-        weakref_deref: init_c.weak.weakref_deref,
+        weakref_deref_any: init_c.weak.weakref_deref_any,
         weakref_drop: init_c.weak.weakref_drop,
         weakref_target_dying: init_c.weak.weakref_target_dying,
         weakmap_create: init_c.weak.weakmap_create,

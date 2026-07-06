@@ -60,6 +60,18 @@ impl Checker {
                 let name = match (ast.get_expr(*left), ast.get_expr(*right)) {
                     (Expr::Ident(n), Expr::Null) => Some(n.clone()),
                     (Expr::Null, Expr::Ident(n)) => Some(n.clone()),
+                    // Chunk 629 — `x !== undefined` narrows the same
+                    // way: `Nullable<T>` ≡ `T | null | undefined`
+                    // (P1.7) and the checker's Nullable narrow has
+                    // always been the P1.7 collapse (`!== null`
+                    // doesn't exclude undefined either). The
+                    // undefined literal parses as Ident("undefined").
+                    (Expr::Ident(a), Expr::Ident(b)) if b == "undefined" && a != "undefined" => {
+                        Some(a.clone())
+                    }
+                    (Expr::Ident(a), Expr::Ident(b)) if a == "undefined" && b != "undefined" => {
+                        Some(b.clone())
+                    }
                     _ => None,
                 };
                 if let Some(name) = name {

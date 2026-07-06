@@ -79,10 +79,15 @@ fn try_lower_weakref_deref(
     let recv_id = *obj;
     let recv_op = ctx.lower_expr(recv_id);
     let cur_block = ctx.cur_block;
+    // Chunk 629 — boxed deref: the checker types the result
+    // Nullable<Any>, so the SSA value is an AnyValue box (alive box
+    // = target ptr with the caller's +1, cleared = ANY_UNDEF). The
+    // raw-Ptr form NaN-box-misaligned every downstream Any consumer
+    // (member access on a narrowed deref result was a loud reject).
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.weakref_deref, vec![recv_op]),
-        Type::Ptr,
+        InstKind::Call(ctx.intrinsics.weakref_deref_any, vec![recv_op]),
+        Type::Any,
         None,
     );
     for &a in args.iter() {

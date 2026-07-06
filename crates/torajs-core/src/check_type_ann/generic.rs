@@ -153,6 +153,7 @@ pub(super) fn resolve_generic(
             | "Set"
             | "WeakMap"
             | "WeakSet"
+            | "WeakRef"
             | "ReadonlyMap"
             | "ReadonlySet"
             | "MapIter"
@@ -174,6 +175,10 @@ pub(super) fn resolve_generic(
             "Set" | "ReadonlySet" => Type::Set,
             "WeakMap" => Type::WeakMap,
             "WeakSet" => Type::WeakSet,
+            // Chunk 629 — `WeakRef<T>` erases like its weak-family
+            // siblings (deref() answers Nullable<Any>; the target
+            // type is validated above, then dropped).
+            "WeakRef" => Type::WeakRef,
             "MapIter" | "mapiter" => Type::MapIter,
             "ArrIter" | "arriter" => Type::ArrIter,
             _ => unreachable!(),
