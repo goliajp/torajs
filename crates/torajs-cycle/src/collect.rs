@@ -31,8 +31,9 @@ use core::ffi::c_void;
 use crate::arr::{ARR_PROPS_OFF, arr_child_at, arr_len_of, arr_slot_clear, arr_spilled_data};
 use crate::buffer;
 use crate::layout::{
-    COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED, FLAG_STATIC_LITERAL,
-    HeapHeader, color_of, has_walkable_children, is_class_obj, layout_for_class_obj, set_color,
+    CLASS_LAYOUT_FLAG_NAMED, COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED,
+    FLAG_STATIC_LITERAL, HeapHeader, color_of, has_walkable_children, is_class_obj,
+    layout_for_class_obj, set_color,
 };
 
 unsafe extern "C" {
@@ -49,6 +50,12 @@ unsafe extern "C" {
     /// Called by `collect_white` to drop surviving (non-cycle)
     /// children with their type-specific dec paths.
     fn __torajs_value_drop_heap(p: *mut c_void);
+
+    /// torajs-weak — clear WeakRefs pointing at a dying target
+    /// (chunk 620, mirror of `obj_drop_rc`'s named-class hook: a
+    /// cycle-collected obj previously left its WeakRefs dangling —
+    /// deref after the collect returned freed memory).
+    fn __torajs_weakref_target_dying(target: *mut c_void);
 }
 
 /// Mark phase — Bacon & Rajan's "MarkGray". Recursively descend from
@@ -209,6 +216,13 @@ unsafe fn collect_white(p: *mut c_void) {
     }
     if unsafe { is_class_obj(p) } {
         let lay = unsafe { layout_for_class_obj(p) };
+        // Named-class instances can be WeakRef / WeakMap-key
+        // targets — notify before teardown, exactly like the
+        // normal-drop path (chunk 620; anonymous structs are
+        // never weak targets on either path).
+        if unsafe { (*lay).flags } & CLASS_LAYOUT_FLAG_NAMED != 0 {
+            unsafe { __torajs_weakref_target_dying(p) };
+        }
         let n_children = unsafe { (*lay).n_children };
         // First sweep: recurse into WHITE children + zero the slot.
         for i in 0..n_children as usize {
