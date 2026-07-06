@@ -71,8 +71,9 @@ pub use alloc::{
     __torajs_arr_alloc_pooled, __torajs_arr_free,
 };
 pub use any::{
-    __torajs_arr_extend_any, __torajs_arr_flat_any, __torajs_arr_get_any_tag,
-    __torajs_arr_get_any_value, __torajs_arr_push_any, __torajs_arr_set_any,
+    __torajs_arr_extend_any, __torajs_arr_flat_any, __torajs_arr_get_any_boxed,
+    __torajs_arr_get_any_tag, __torajs_arr_get_any_value, __torajs_arr_push_any,
+    __torajs_arr_set_any,
 };
 pub use any_typed_bridge::__torajs_arr_extend_typed_into_any;
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any, __torajs_arr_drop_heap};

@@ -47,6 +47,7 @@ pub(crate) struct ArrAnyIds {
     pub arr_null_check: FuncId,
     pub arr_get_any_tag: FuncId,
     pub arr_get_any_value: FuncId,
+    pub arr_get_any_boxed: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ArrAnyIds {
@@ -151,6 +152,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_arr_get_any_value",
             &[Type::Ptr, Type::I64],
             Type::I64,
+        ),
+        arr_get_any_boxed: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_get_any_boxed",
+            &[Type::Ptr, Type::I64],
+            Type::Any,
         ),
     }
 }

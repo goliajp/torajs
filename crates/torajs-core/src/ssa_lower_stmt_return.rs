@@ -42,7 +42,22 @@ use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
     let ret_operand = maybe.map(|eid| {
-        let v = ctx.lower_expr(eid);
+        // RFC 20260707 chunk 625 — an array literal returned from an
+        // `Arr<Any>`-ret fn takes the annotation-consuming widen
+        // (mirror of lower_let_init_val / assign_member's chunk 614
+        // arm): without it the literal lowered through the typed
+        // fast path, the block never got FLAG_ARR_ANY, and every
+        // kind-aware Arr<Any> reader saw UNSET (undefined) while its
+        // raw scalar slots misread as NaN-boxes elsewhere.
+        let v = if let Expr::Array(els) = ctx.ast.get_expr(eid)
+            && let Type::Arr(arr_id) = ctx.f.ret
+            && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
+        {
+            let ids: Vec<crate::ast::ExprId> = els.clone();
+            ctx.lower_array_any_literal(&ids)
+        } else {
+            ctx.lower_expr(eid)
+        };
         let needs_retain = if let Expr::Ident(name) = ctx.ast.get_expr(eid) {
             ctx.locals
                 .get(name)

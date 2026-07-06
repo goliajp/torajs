@@ -221,6 +221,7 @@ pub(crate) fn build(
         arr_oob_write_reject: init_b.arr_any.arr_oob_write_reject,
         arr_null_check: init_b.arr_any.arr_null_check,
         arr_get_any_tag: init_b.arr_any.arr_get_any_tag,
+        arr_get_any_boxed: init_b.arr_any.arr_get_any_boxed,
         arr_get_any_value: init_b.arr_any.arr_get_any_value,
         dynobj_alloc: init_b.object.dynobj_alloc,
         get_builtin_prototype: init_b.object.get_builtin_prototype,

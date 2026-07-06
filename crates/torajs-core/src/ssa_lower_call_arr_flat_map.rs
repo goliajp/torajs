@@ -70,10 +70,20 @@ pub(crate) fn try_lower(
     let dst_elem_ty = ctx.arr_layouts[inner_arr_id.0 as usize];
     let dst_arr_ty = inner_arr_ty;
 
-    // Allocate dst (cap=0; arr_push grows on demand).
+    // Allocate dst (cap=0; arr_push grows on demand). Chunk 625 —
+    // an Any dst allocates the FLAG_ARR_ANY flavor: the walk pushes
+    // NaN-box bits raw (any slots ARE box bits, so arr_push's 8B
+    // store is layout-correct), but the block must self-describe as
+    // Any for the kind-aware readers — the old typed alloc left an
+    // unmarked block whose reads fell to the UNSET arm (undefined).
+    let dst_alloc_fn = if dst_elem_ty == Type::Any {
+        ctx.intrinsics.arr_alloc_any
+    } else {
+        ctx.intrinsics.arr_alloc
+    };
     let dst_init = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+        InstKind::Call(dst_alloc_fn, vec![Operand::ConstI64(0)]),
         dst_arr_ty,
         None,
     );
@@ -129,15 +139,30 @@ pub(crate) fn try_lower(
         Type::Arr(id) => id.0 as usize,
         _ => unreachable!(),
     }];
-    // T-13.5: head-aware offset for flatMap src walk.
-    let (off_base, off) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now), 3, false);
-    let elem = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::LoadDyn(src_elem_ty, off_base.clone(), off),
-        src_elem_ty,
-        None,
-    );
+    // T-13.5: head-aware offset for flatMap src walk. RFC 20260707
+    // chunk 625 — an Any elem reads through the kind-aware
+    // borrowed-box helper (typed-behind-Arr<Any> raw slots misread
+    // under a raw LoadDyn).
+    let elem = if src_elem_ty == Type::Any {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_get_any_boxed,
+                vec![Operand::Value(src_arr), Operand::Value(i_now)],
+            ),
+            Type::Any,
+            None,
+        )
+    } else {
+        let (off_base, off) =
+            ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now), 3, false);
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::LoadDyn(src_elem_ty, off_base, off),
+            src_elem_ty,
+            None,
+        )
+    };
     let inner_arr = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)]);
 
     emit_inner_walk(ctx, inner_arr, dst_slot, dst_arr_ty, dst_elem_ty);
@@ -209,14 +234,32 @@ fn emit_inner_walk(
     );
     ctx.cur_block = ib;
     // T-13.5: head-aware offset for flatMap inner walk.
-    let (joff_base, joff) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(inner_arr), Operand::Value(j_now), 3, false);
-    let inner_elem = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::LoadDyn(dst_elem_ty, joff_base.clone(), joff),
-        dst_elem_ty,
-        None,
-    );
+    // Chunk 625 — same kind-aware read for the cb-returned inner
+    // array's Any elems (a typed array return is a typed block).
+    let inner_elem = if dst_elem_ty == Type::Any {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_get_any_boxed,
+                vec![Operand::Value(inner_arr), Operand::Value(j_now)],
+            ),
+            Type::Any,
+            None,
+        )
+    } else {
+        let (joff_base, joff) = ctx.emit_arr_slot_byte_offset(
+            Operand::Value(inner_arr),
+            Operand::Value(j_now),
+            3,
+            false,
+        );
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::LoadDyn(dst_elem_ty, joff_base, joff),
+            dst_elem_ty,
+            None,
+        )
+    };
     if dst_elem_ty.is_refcounted() {
         ctx.emit_rc_inc(Operand::Value(inner_elem));
     }

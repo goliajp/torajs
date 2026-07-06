@@ -161,6 +161,31 @@ pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -
     }
 }
 
+/// RFC 20260707 chunk 625 — borrowed whole-box read of slot `i`
+/// for the inline SSA consumers (HOF loops / sort comparisons /
+/// find family) whose `LoadDyn` raw read misread typed blocks
+/// behind a static `Arr<Any>` view. Same borrow contract as
+/// `LoadDyn` (the slot keeps its reference — heap boxes are NOT
+/// +1'd), so emitted consumers need no rc changes. NULL / OOB
+/// answer boxed `undefined` (ES §10.4.2.1).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) -> u64 {
+    unsafe {
+        if arr.is_null() {
+            return __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0);
+        }
+        let arr_u8 = arr as *const u8;
+        let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
+        if i >= len {
+            return __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0);
+        }
+        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
+            return crate::any_typed_bridge::typed_slot_anyvalue_borrowed(arr_u8, i);
+        }
+        *slot_anyvalue_ptr(arr_u8 as *mut u8, i)
+    }
+}
+
 /// OOB-safe read of slot `i`'s tag. NULL arr or `i >= len` returns
 /// `ANY_UNDEF=5` per ES spec §10.4.2.1 (sparse array missing-index
 /// semantics). A typed block behind the static `Arr<Any>` view

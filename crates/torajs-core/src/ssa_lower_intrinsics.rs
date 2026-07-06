@@ -248,6 +248,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_oob_write_reject: FuncId,
     pub(crate) arr_null_check: FuncId,
     pub(crate) arr_get_any_tag: FuncId,
+    pub(crate) arr_get_any_boxed: FuncId,
     pub(crate) arr_get_any_value: FuncId,
     pub(crate) dynobj_alloc: FuncId,
     pub(crate) get_builtin_prototype: FuncId,

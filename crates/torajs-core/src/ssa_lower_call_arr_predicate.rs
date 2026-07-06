@@ -265,14 +265,33 @@ fn emit_body_and_step(
         None,
     );
     // T-13.5: head-aware offset for some/every/findIndex.
-    let (off_base, off) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now2), 3, false);
-    let elem = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, off_base.clone(), off),
-        elem_ty,
-        None,
-    );
+    // RFC 20260707 chunk 625 — an Any elem reads through the
+    // kind-aware borrowed-box helper (typed-behind-Arr<Any> raw
+    // slots misread under a raw LoadDyn; same borrow contract).
+    let elem = if elem_ty == Type::Any {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_get_any_boxed,
+                vec![Operand::Value(src_arr), Operand::Value(i_now2)],
+            ),
+            Type::Any,
+            None,
+        )
+    } else {
+        let (off_base, off) = ctx.emit_arr_slot_byte_offset(
+            Operand::Value(src_arr),
+            Operand::Value(i_now2),
+            3,
+            false,
+        );
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::LoadDyn(elem_ty, off_base, off),
+            elem_ty,
+            None,
+        )
+    };
     // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret predicate
     // returns `undefined`; ToBoolean folds every hit test to false
     // (ES §23.1.3.{8-11,30}). Emit the call for its side effects

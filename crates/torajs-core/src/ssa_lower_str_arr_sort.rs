@@ -225,6 +225,25 @@ fn emit_insertion_sort(
         elem_ty,
         None,
     );
+    // RFC 20260707 chunk 625 — comparison inputs for an Any elem
+    // read through the kind-aware borrowed-box helper: a typed
+    // block behind the static Arr<Any> view keeps raw slots, which
+    // the raw LoadDyn misreads. The raw `cur` above stays the
+    // SHIFT/write-back value (slot moves are layout-blind 8-byte
+    // copies); only the predicate sees the boxed view.
+    let cur_cmp = if elem_ty == Type::Any {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_get_any_boxed,
+                vec![Operand::Value(arr_ptr), Operand::Value(i_now2)],
+            ),
+            Type::Any,
+            None,
+        )
+    } else {
+        cur
+    };
     let j_slot = ctx.alloca(Type::I64, Some("__sort_j"));
     ctx.f.append_void(
         ctx.cur_block,
@@ -266,20 +285,39 @@ fn emit_insertion_sort(
         Type::I64,
         None,
     );
-    let (off_jm1_base, off_jm1) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_minus_1), 3, false);
-    let prev = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, off_jm1_base.clone(), off_jm1.clone()),
-        elem_ty,
-        None,
-    );
+    // Chunk 625 — the comparison's prev input takes the kind-aware
+    // boxed read for Any elems (see cur_cmp above); the raw LoadDyn
+    // stays for the shift copy in inner_body.
+    let prev = if elem_ty == Type::Any {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_get_any_boxed,
+                vec![Operand::Value(arr_ptr), Operand::Value(j_minus_1)],
+            ),
+            Type::Any,
+            None,
+        )
+    } else {
+        let (off_jm1_base, off_jm1) = ctx.emit_arr_slot_byte_offset(
+            Operand::Value(arr_ptr),
+            Operand::Value(j_minus_1),
+            3,
+            false,
+        );
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::LoadDyn(elem_ty, off_jm1_base, off_jm1),
+            elem_ty,
+            None,
+        )
+    };
     // V3-18 wedge — branch on cmp_val presence.
     // With a user comparator: call it, test ret > 0.
     // Without: directly compare prev > cur using the
     // element-type-aware predicate (Sgt for I64,
     // Ogt for F64, str_locale_compare for Str).
-    let pred_v = pred::emit_sort_pred(ctx, cmp_val, cmp_ty, prev, cur, elem_ty);
+    let pred_v = pred::emit_sort_pred(ctx, cmp_val, cmp_ty, prev, cur_cmp, elem_ty);
     ctx.f.set_term(
         ctx.cur_block,
         Terminator::CondBr {

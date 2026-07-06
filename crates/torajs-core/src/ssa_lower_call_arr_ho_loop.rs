@@ -159,14 +159,35 @@ pub(crate) fn emit_per_method_body(
         None,
     );
     // T-13.5: head-aware offset for map/filter/reduce src walk.
-    let (off_base, off) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now2), 3, false);
-    let elem = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, off_base.clone(), off),
-        elem_ty,
-        None,
-    );
+    // RFC 20260707 chunk 625 — an Any elem reads through the
+    // kind-aware borrowed-box helper instead of a raw LoadDyn: a
+    // typed block behind the static Arr<Any> view keeps raw slots,
+    // which the raw load misread (same borrow contract, so the cb /
+    // push consumers below are unchanged).
+    let elem = if elem_ty == Type::Any {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_get_any_boxed,
+                vec![Operand::Value(src_arr), Operand::Value(i_now2)],
+            ),
+            Type::Any,
+            None,
+        )
+    } else {
+        let (off_base, off) = ctx.emit_arr_slot_byte_offset(
+            Operand::Value(src_arr),
+            Operand::Value(i_now2),
+            3,
+            false,
+        );
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::LoadDyn(elem_ty, off_base, off),
+            elem_ty,
+            None,
+        )
+    };
     match method {
         "map" => emit_map(
             ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, sig_params,
