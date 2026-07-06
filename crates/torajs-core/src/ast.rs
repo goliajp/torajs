@@ -5,7 +5,6 @@ mod arguments_object;
 mod arguments_object_rewrite;
 mod array_isarray_value;
 mod class_globals;
-mod consuming_flow;
 mod desugar_async;
 mod desugar_classes;
 mod desugar_classes_abstract;
@@ -48,7 +47,6 @@ pub use apply_args::{apply_default_args, apply_rest_args};
 pub use arguments_object::desugar_arguments_object;
 pub use array_isarray_value::desugar_array_isarray_value;
 pub use class_globals::synthesize_class_globals;
-pub use consuming_flow::compute_consuming_params;
 pub use desugar_async::desugar_async;
 use desugar_async::{body_ends_in_return, rewrite_returns_for_async};
 pub use desugar_classes::desugar_classes;
@@ -146,18 +144,6 @@ pub struct Ast {
     /// Avoids adding an `is_async: bool` to every FnDecl construction
     /// site.
     pub async_fns: std::collections::HashSet<String>,
-    /// Ownership pass — per-function bitmap of which params get
-    /// "consumed" (transferred) by the call site instead of
-    /// borrowed. A param consumes if its body passes the param into a
-    /// `__new_*` constructor factory (which stores it into a class
-    /// field) or into another fn already known to consume that
-    /// position. Computed by `compute_consuming_params` after all
-    /// desugars; check.rs / ssa_lower consult this map at call sites
-    /// to decide whether to mark the caller's binding as moved.
-    /// Without this, `let g = make_iter(arr); ... drop` creates a
-    /// double-free because both `arr` and `g`'s field own the same
-    /// heap.
-    pub consuming_params: std::collections::HashMap<String, Vec<bool>>,
     /// Plan A — Array literal ExprIds that the escape verifier proved
     /// safe to emit on the stack instead of `__torajs_arr_alloc_pooled`.
     /// Populated by `escape_analyze_array_literals`. ssa_lower's

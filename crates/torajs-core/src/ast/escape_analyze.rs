@@ -32,8 +32,8 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// alloc + no per-call drop).
 ///
 /// Runs after all desugars (so closure-lift visibility, arguments
-/// rewrites, split-for-i fusion etc are already settled) and before
-/// `compute_consuming_params` so the verifier sees the final shape.
+/// rewrites, split-for-i fusion etc are already settled) so the
+/// verifier sees the final shape.
 /// False negatives stay heap (correct, just slower); false
 /// positives would be silent UAF — bias every uncertain shape
 /// toward false.

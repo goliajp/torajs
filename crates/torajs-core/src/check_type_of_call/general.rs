@@ -132,11 +132,6 @@ pub(crate) fn general_call(
     // [`crate::check_type_of_call_dispatch_flags`] (chunk 306;
     // M6.1 String borrow flag pruned in chunk 311).
     let is_class_method = crate::check_type_of_call_dispatch_flags::derive(ast, callee);
-    // Per-call-site consume bitmap derivation extracted to
-    // [`crate::check_type_of_call_consume_bitmap`]
-    // (chunk 305).
-    let consume_bitmap: Vec<bool> =
-        crate::check_type_of_call_consume_bitmap::derive(ast, callee, args.len());
     for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
         let arg_ty = checker.type_of(ast, *arg_id)?;
         // M5.2 class-method receiver subclass prefix-subtype check extracted
@@ -166,24 +161,11 @@ pub(crate) fn general_call(
                 "argument {i}: expected {param_ty:?}, got {arg_ty:?}"
             ));
         }
-        // TS-shape: function parameters borrow non-Copy args
-        // by default. Calling `f(x)` does not mark `x` as
-        // moved — the caller keeps owning the heap and can
-        // pass the same binding to another function later.
-        // Matches JS pass-by-reference semantics. Caveat: a
-        // function that stores its arg into long-lived heap
-        // (e.g. a global, or a returned struct field) would
-        // create a dangling pointer once the caller drops
-        // the original — there's no GC to keep it alive. For
-        // the cases we ship today this is fine; the ts-subset
-        // doc calls out the constraint.
-        if consume_bitmap.get(i).copied().unwrap_or(false)
-            && !arg_ty.is_copy()
-            && !checker.consumed_calls.contains(&eid)
-        {
-            checker.consume(ast, *arg_id);
-        }
+        // TS-shape: function parameters SHARE non-Copy args —
+        // calling `f(x)` never marks `x` moved. The consuming-
+        // params bitmap retired in chunk 568: every store lane
+        // takes its own +1 (chunks 564-567), so the historical
+        // caller-side consume double-counted into a leak.
     }
-    checker.consumed_calls.insert(eid);
     Ok(*ret)
 }

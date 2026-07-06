@@ -341,7 +341,6 @@ impl Checker {
             arity_pad_count: HashMap::new(),
             generic_alias_decls: HashMap::new(),
             fn_defaults: HashMap::new(),
-            consumed_calls: std::collections::HashSet::new(),
             expr_types: HashMap::new(),
             demoted_cm_rewrites: HashMap::new(),
         }
@@ -423,13 +422,6 @@ pub(crate) struct Checker {
     /// to allow caller to omit trailing args, and at lower time to
     /// supply the default expr at the call site.
     pub fn_defaults: HashMap<String, Vec<Option<ExprId>>>,
-    /// Set of `Expr::Call` ExprIds whose consume-bitmap has already
-    /// fired. type_of() is called multiple times on the same Call expr
-    /// in some flow paths (e.g. Stmt::Throw runs type_of, then runs it
-    /// again to fetch the type for consume); without this guard a Call
-    /// inside the throw expression would consume its args twice and
-    /// trip the affine tracker on the second pass.
-    pub(crate) consumed_calls: std::collections::HashSet<ExprId>,
     /// v0.3 #5 LSP — every successful `type_of(eid)` call records
     /// its result here so the LSP `hover` handler can answer "what
     /// is the type of the expression at this position?" by looking
