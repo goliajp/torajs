@@ -25,6 +25,7 @@
 
 pub mod classmeta;
 pub mod fnprops;
+pub mod obj_own_keys;
 pub mod own_names;
 pub mod reflect;
 pub mod str_descriptor;

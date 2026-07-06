@@ -109,6 +109,16 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     } else {
         Type::Void
     };
+    // RC-4 F1c — defineProperty receiver: unannotated ObjectLit
+    // binding lowers through the P3.2 dynobj-init lane (`any`),
+    // mirroring the checker's dynobj_degraded typing, so the define
+    // write-back can rebind the slot.
+    if type_ann.is_none()
+        && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
+        && ctx.dynobj_degraded.contains(name)
+    {
+        ty = Type::Any;
+    }
     let cur_depth = ctx.scope_stack.len() - 1;
     let is_alias_init = match ctx.ast.get_expr(init) {
         // L3b #15 residual (chunk 561) — string indexing (`s[i]` on

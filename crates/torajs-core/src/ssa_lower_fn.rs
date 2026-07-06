@@ -175,6 +175,7 @@ pub(crate) fn lower_fn(
         drop_inline_stack: std::collections::HashSet::new(),
         deque_arrs: std::collections::HashSet::new(),
         escape_obj_lets: std::collections::HashSet::new(),
+        dynobj_degraded: std::collections::HashSet::new(),
         stack_alloced_locals: std::collections::HashSet::new(),
         let_stack_alloc_hint: None,
         redispatch_lowered: None,
@@ -189,6 +190,9 @@ pub(crate) fn lower_fn(
     for s in body {
         collect_escape_obj_let_names_in_stmt(ctx.ast, s, &mut ctx.escape_obj_lets);
     }
+    // RC-4 F1c — mirror of the checker's dynobj_degraded set (flat
+    // arena scan; see `crate::define_receivers`).
+    ctx.dynobj_degraded = crate::define_receivers::collect_defineproperty_receivers(ctx.ast);
 
     ctx.materialize_fn_params(name, param_setup);
     ctx.emit_closure_env_preamble(name, params);

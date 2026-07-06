@@ -142,9 +142,16 @@ pub(crate) fn try_lower(
     // chain, no array `length`), so both surfaces share this arm. A
     // non-struct cell throws loudly inside the helper — propagate it.
     if matches!(arg_ty, Type::Any) {
+        // RC-4 F1c — a DynObj cell (defineProperty-degraded binding)
+        // walks its live entries with the surface's enumerable
+        // filter; struct cells keep the compile-time-layout walk;
+        // non-struct cells still throw loudly inside the helper.
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.anyv_struct_keys, vec![arg_op]),
+            InstKind::Call(
+                ctx.intrinsics.anyv_own_keys,
+                vec![arg_op, Operand::ConstI64(if is_keys_only { 0 } else { 1 })],
+            ),
             Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
             None,
         );
@@ -180,5 +187,24 @@ pub(crate) fn try_lower(
             InstKind::Store(Operand::Value(str_v), data.clone(), off),
         );
     }
-    Some(Operand::Value(arr_ptr))
+    // RC-4 F1c — Object.defineProperty converts a struct receiver to
+    // a DynObj and rebinds (emit_any_dynobj_writeback), so the
+    // compile-time field list can be stale. Route through the runtime
+    // chooser: a DynObj cell walks its live entries (ES §10.1.11.1
+    // order; `keys` filters enumerable-only), anything else returns
+    // the static list unchanged.
+    let chosen = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.obj_own_keys,
+            vec![
+                arg_op,
+                Operand::Value(arr_ptr),
+                Operand::ConstI64(if is_keys_only { 0 } else { 1 }),
+            ],
+        ),
+        Type::Arr(arr_id),
+        None,
+    );
+    Some(Operand::Value(chosen))
 }

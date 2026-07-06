@@ -80,6 +80,19 @@ pub(crate) fn check(
             ann_ty
         }
     };
+    // RC-4 F1c — a defineProperty receiver's unannotated ObjectLit
+    // binding types as `any`: the define lowering converts the cell
+    // to a DynObj and the write-back only rebinds Any-typed slots,
+    // so a static struct type would strand the defined property on
+    // an orphan cell (test262 gOPN accessor family).
+    let final_ty = if type_ann.is_none()
+        && matches!(ast.get_expr(init), Expr::ObjectLit { .. })
+        && checker.dynobj_degraded.contains(name)
+    {
+        Type::Any
+    } else {
+        final_ty
+    };
     let is_alias_init = checker.classify_init_alias(ast, init);
     let declared_class: Option<String> = type_ann.as_ref().and_then(|s| {
         if ast.class_parents.contains_key(s.as_str()) {

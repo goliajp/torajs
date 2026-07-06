@@ -31,6 +31,7 @@ pub(crate) mod check_fn_type;
 pub(crate) mod check_js_semantics;
 pub(crate) mod check_method_name;
 pub(crate) mod check_pipeline;
+pub(crate) mod define_receivers;
 pub(crate) mod check_resolve_class_ref;
 pub(crate) mod check_stmt_diverges;
 pub(crate) mod check_stmt_fn_decl;

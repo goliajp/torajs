@@ -277,6 +277,10 @@ pub(crate) struct Intrinsics {
     pub(crate) str_index_strs: FuncId,
     pub(crate) arr_keys_only: FuncId,
     pub(crate) str_keys_only: FuncId,
+    /* RC-4 F1c — runtime chooser for keys/gOPN on struct receivers
+     * that may have been dynobj-converted by defineProperty. */
+    pub(crate) obj_own_keys: FuncId,
+    pub(crate) anyv_own_keys: FuncId,
     pub(crate) str_to_char_arr: FuncId,
     pub(crate) arr_entries_by_tag: FuncId,
     pub(crate) str_entries: FuncId,

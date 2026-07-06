@@ -68,6 +68,11 @@ pub(crate) struct ObjectIds {
     pub str_index_strs: FuncId,
     pub arr_keys_only: FuncId,
     pub str_keys_only: FuncId,
+    /// RC-4 F1c — runtime chooser for keys/gOPN on struct receivers
+    /// that may have been dynobj-converted by defineProperty.
+    pub obj_own_keys: FuncId,
+    /// RC-4 F1c — any-receiver keys/gOPN: DynObj walk or struct arm.
+    pub anyv_own_keys: FuncId,
     pub str_to_char_arr: FuncId,
     pub arr_entries_by_tag: FuncId,
     pub str_entries: FuncId,
@@ -121,6 +126,8 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         str_index_strs: decl!("__torajs_str_index_strs", [Ptr], Ptr),
         arr_keys_only: decl!("__torajs_arr_keys_only", [I64], Ptr),
         str_keys_only: decl!("__torajs_str_keys_only", [Ptr], Ptr),
+        obj_own_keys: decl!("__torajs_obj_own_keys", [Ptr, Ptr, I64], Ptr),
+        anyv_own_keys: decl!("__torajs_anyv_own_keys", [Any, I64], Ptr),
         str_to_char_arr: decl!("__torajs_str_to_char_arr", [Ptr], Ptr),
         arr_entries_by_tag: decl!("__torajs_arr_entries_by_tag", [Ptr, I64], Ptr),
         str_entries: decl!("__torajs_str_entries", [Ptr], Ptr),

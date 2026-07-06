@@ -336,6 +336,7 @@ impl Checker {
             current_class: None,
             closure_captures: HashMap::new(),
             closure_fn_names: std::collections::HashSet::new(),
+            dynobj_degraded: std::collections::HashSet::new(),
             generic_type_params: HashMap::new(),
             generic_call_sites: HashMap::new(),
             arity_pad_count: HashMap::new(),
@@ -347,6 +348,11 @@ impl Checker {
     }
 
     pub(crate) fn run_full_pipeline(&mut self, ast: &Ast) {
+        // RC-4 F1c — defineProperty receivers must type as `any` so
+        // the dynobj write-back can rebind them (see
+        // `crate::define_receivers`). Collected before the passes so
+        // the LetDecl arm sees the set.
+        self.dynobj_degraded = crate::define_receivers::collect_defineproperty_receivers(ast);
         // Three native passes split out into `check_pipeline` sibling
         // (chunk 136). Order matters: Pass 1 reads aliases populated
         // by Pass 0; Pass 2 reads globals populated by Pass 1 and
@@ -389,6 +395,13 @@ pub(crate) struct Checker {
     /// when an `Expr::Closure` references them, so the captures are in
     /// scope.
     pub(crate) closure_fn_names: std::collections::HashSet<String>,
+    /// RC-4 F1c — binding names that appear as the receiver of an
+    /// `Object.defineProperty` / `defineProperties` call anywhere in
+    /// the module (`crate::define_receivers` flat arena scan). An
+    /// unannotated `let x = { ... }` for such a name types as `any`
+    /// so it lowers through the P3.2 dynobj-init lane and the define
+    /// write-back can rebind it.
+    pub(crate) dynobj_degraded: std::collections::HashSet<String>,
     /// M3 — type params for each generic FnDecl (`function id<T, U>(...)`).
     /// Empty for non-generic fns. Pass-2 skips these decls (their
     /// TypeVar-bearing bodies can't be type-checked without substitution);

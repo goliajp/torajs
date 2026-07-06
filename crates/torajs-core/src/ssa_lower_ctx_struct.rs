@@ -311,6 +311,12 @@ pub(crate) struct LowerCtx<'a> {
     /// recorded in `stack_alloced_locals` so end-of-scope drop
     /// emission skips its rc-dec branch + drop_sized call.
     pub(crate) escape_obj_lets: std::collections::HashSet<String>,
+    /// RC-4 F1c — defineProperty receiver names (module-flat arena
+    /// scan, `crate::define_receivers`). An unannotated ObjectLit
+    /// `LetDecl` for such a name lowers through the P3.2 dynobj-init
+    /// lane (binding type `any`), mirroring the checker's
+    /// `dynobj_degraded` so the two sides can't drift.
+    pub(crate) dynobj_degraded: std::collections::HashSet<String>,
     /// 11-A2-a — set of binding names whose backing storage was
     /// allocated on the stack (`AllocaBytes`) instead of the heap.
     /// `emit_drops_for_owned_locals` and sibling drop emitters skip
