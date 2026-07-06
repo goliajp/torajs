@@ -28,7 +28,7 @@
 
 use core::ffi::c_void;
 
-use crate::arr::{arr_child_at, arr_len_of, arr_slot_clear};
+use crate::arr::{arr_child_at, arr_len_of, arr_slot_clear, arr_spilled_data};
 use crate::buffer;
 use crate::layout::{
     COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED, FLAG_STATIC_LITERAL,
@@ -254,6 +254,14 @@ unsafe fn collect_white(p: *mut c_void) {
             if !child.is_null() {
                 unsafe { __torajs_value_drop_heap(child) };
             }
+        }
+        // B1 — a grown array spilled its slots to an independent
+        // buffer; release it alongside the cell (mirror of
+        // torajs-arr __torajs_arr_free's spill branch — pre-fix
+        // every cycle-collected grown array leaked its buffer).
+        let spill = unsafe { arr_spilled_data(p) };
+        if !spill.is_null() {
+            unsafe { free(spill as *mut c_void) };
         }
     }
     unsafe { free(p) };

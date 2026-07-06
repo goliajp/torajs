@@ -124,3 +124,51 @@ pub unsafe fn arr_child_at(p: *mut c_void, i: u64) -> *mut c_void {
 pub unsafe fn arr_slot_clear(p: *mut c_void, i: u64) {
     unsafe { *arr_slot_ptr(p, i) = core::ptr::null_mut() };
 }
+
+/// Fixed cell size — header 8 + len 8 + cap/head 8 + props 8 +
+/// data-ptr 8 (torajs-arr `ARR_CELL_SIZE` mirror; inline slots
+/// start right after).
+const ARR_CELL_SIZE: usize = 40;
+
+/// B1 — the grow-spilled slots buffer, or NULL while the slots
+/// still live in the cell's inline region. `collect_white` must
+/// free a spilled buffer alongside the cell (mirror of torajs-arr
+/// `__torajs_arr_free`'s spill branch).
+///
+/// # Safety
+/// `p` must be a non-NULL array cell with an initialized data field.
+#[inline]
+pub unsafe fn arr_spilled_data(p: *mut c_void) -> *mut u8 {
+    let data = unsafe { arr_data(p) };
+    if data == unsafe { (p as *mut u8).add(ARR_CELL_SIZE) } {
+        core::ptr::null_mut()
+    } else {
+        data
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spilled_data_null_while_inline() {
+        let mut cell = [0u8; ARR_CELL_SIZE + 32];
+        let base = cell.as_mut_ptr();
+        let inline_region = unsafe { base.add(ARR_CELL_SIZE) };
+        unsafe { *(base.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = inline_region };
+        assert!(unsafe { arr_spilled_data(base as *mut c_void) }.is_null());
+    }
+
+    #[test]
+    fn spilled_data_returns_external_buffer() {
+        let mut cell = [0u8; ARR_CELL_SIZE + 32];
+        let mut buf = [0u8; 32];
+        let base = cell.as_mut_ptr();
+        unsafe { *(base.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = buf.as_mut_ptr() };
+        assert_eq!(
+            unsafe { arr_spilled_data(base as *mut c_void) },
+            buf.as_mut_ptr()
+        );
+    }
+}

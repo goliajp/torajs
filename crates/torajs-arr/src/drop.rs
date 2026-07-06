@@ -22,7 +22,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
-use crate::layout::{ARR_LEN_OFF, arr_data};
+use crate::layout::{ARR_LEN_OFF, arr_data, arr_data_is_inline};
 
 /// 8-byte slot stride for Array<Any> — Step 7e-A (NaN-box AnyValue
 /// per slot; mirrors `any.rs`'s `ANY_SLOT_BYTES`).
@@ -123,6 +123,14 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
             __torajs_value_drop_heap(av as *mut c_void);
         }
         __torajs_arrprops_drop_entry(arr);
+        // B1 — a grown array spilled its slots to an independent
+        // buffer; release it before the cell (mirror of
+        // __torajs_arr_free's spill branch — this fn bypasses
+        // arr_free for the stride reason above and missed the B1
+        // retrofit: every grown Array<Any> leaked its buffer).
+        if !arr_data_is_inline(arr_u8) {
+            free(slots as *mut c_void);
+        }
         free(arr);
     }
 }
