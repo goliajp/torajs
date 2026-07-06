@@ -168,6 +168,8 @@ pub(crate) fn lower_fn(
         regex_lit_cache: std::collections::HashMap::new(),
         binop_left_undef_id: None,
         binop_right_undef_id: None,
+        binop_left_null_id: None,
+        binop_right_null_id: None,
         binop_mul_square: false,
         bigint_op_may_throw: false,
         globals,

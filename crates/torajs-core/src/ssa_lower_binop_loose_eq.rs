@@ -35,15 +35,23 @@ pub(crate) fn try_lower(
     if !matches!(op, AstBinOp::LooseEq | AstBinOp::LooseNeq) {
         return None;
     }
+    // Chunk 612 — nullish is a TYPE property, not an operand shape:
+    // an Undefined/Null-typed binding is a Load, not ConstPtrNull.
+    // §7.2.13 step 2: nullish == nullish → true regardless of which
+    // of the two nullish values each side holds.
     let a_is_null = matches!(a, Operand::ConstPtrNull);
     let b_is_null = matches!(b, Operand::ConstPtrNull);
-    if a_is_null ^ b_is_null
-        && let Some(v) = try_lower_any_loose_eq_null(ctx, op, a, b, a_is_null)
+    let a_nullish =
+        a_is_null || ctx.binop_left_undef_id.is_some() || ctx.binop_left_null_id.is_some();
+    let b_nullish =
+        b_is_null || ctx.binop_right_undef_id.is_some() || ctx.binop_right_null_id.is_some();
+    if a_nullish ^ b_nullish
+        && let Some(v) = try_lower_any_loose_eq_null(ctx, op, a, b, a_nullish)
     {
         return Some(v);
     }
-    if a_is_null || b_is_null {
-        let result = a_is_null && b_is_null;
+    if a_nullish || b_nullish {
+        let result = a_nullish && b_nullish;
         let answer = match op {
             AstBinOp::LooseEq => result,
             AstBinOp::LooseNeq => !result,

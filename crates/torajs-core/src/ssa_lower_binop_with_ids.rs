@@ -51,6 +51,8 @@ impl<'a> LowerCtx<'a> {
     ) -> Operand {
         let saved_left = self.binop_left_undef_id.take();
         let saved_right = self.binop_right_undef_id.take();
+        let saved_left_null = self.binop_left_null_id.take();
+        let saved_right_null = self.binop_right_null_id.take();
         let saved_square = self.binop_mul_square;
         self.binop_mul_square = matches!(op, AstBinOp::Mul)
             && matches!(
@@ -72,9 +74,15 @@ impl<'a> LowerCtx<'a> {
                 Some(crate::check::Type::Undefined)
             )
         });
+        self.binop_left_null_id = left_id
+            .filter(|eid| matches!(self.expr_types.get(eid), Some(crate::check::Type::Null)));
+        self.binop_right_null_id = right_id
+            .filter(|eid| matches!(self.expr_types.get(eid), Some(crate::check::Type::Null)));
         let r = crate::ssa_lower_binop_inner::lower(self, op, a, b);
         self.binop_left_undef_id = saved_left;
         self.binop_right_undef_id = saved_right;
+        self.binop_left_null_id = saved_left_null;
+        self.binop_right_null_id = saved_right_null;
         self.binop_mul_square = saved_square;
         r
     }

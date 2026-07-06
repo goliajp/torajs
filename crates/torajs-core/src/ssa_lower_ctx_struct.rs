@@ -258,6 +258,14 @@ pub(crate) struct LowerCtx<'a> {
     /// Any-side packing reads these to pick ANY_UNDEF=5 vs ANY_NULL=0.
     pub(crate) binop_left_undef_id: Option<ExprId>,
     pub(crate) binop_right_undef_id: Option<ExprId>,
+    /// Chunk 612 companion — which side (if any) is a frontend
+    /// Type::Null source (the `null` literal or a Null-typed
+    /// binding). The Eq/Neq nullish folds combine these with the
+    /// undef flags to answer undefined-vs-null statically for
+    /// bindings, not just literals (a Null/Undefined-typed Load is
+    /// not ConstPtrNull, so operand-shape checks alone miss it).
+    pub(crate) binop_left_null_id: Option<ExprId>,
+    pub(crate) binop_right_null_id: Option<ExprId>,
     /// S9 square carve — set by lower_binop_with_ids when both Mul
     /// operands are the same identifier (`x * x`): a value times
     /// itself can never be negative×zero, so -0 is unmintable and
