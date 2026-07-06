@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T15:37:51.230Z",
+  "generatedAt": "2026-07-06T16:03:17.501Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "5774f8e1",
-    "commitSubject": "feat: nullable-arr args decay against generic array params with runtime guard (test262-bug-corpus RC-4 F1a)",
+    "commit": "d83229e6",
+    "commitSubject": "fix: void-callback positions accept any-ret closures (gate-fail fix-up for chunk 607)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "d83229e6",
+      "subject": "fix: void-callback positions accept any-ret closures (gate-fail fix-up for chunk 607)"
+    },
+    {
+      "hash": "648180cc",
+      "subject": "fix: closure ret inference falls back to any, and any-typed str returns materialize (test262-bug-corpus RC-4 any-param face)"
+    },
+    {
+      "hash": "e9726022",
+      "subject": "chore(dashboard): session snapshot @ 5774f8e1 — rotation 34 (602-606: test262-bug-corpus crash-bucket closeout — indirect-call t28 pad, may-throw iife/chained/arg-closure accounting, str-pattern replace fn lane, null-pattern tostring fold, nullable-arr generic decay+guard; gate 1240 -> 1245, crash corpus 24/24 cleared, A1_T4 true pass)"
+    },
+    {
       "hash": "5774f8e1",
       "subject": "feat: nullable-arr args decay against generic array params with runtime guard (test262-bug-corpus RC-4 F1a)"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "91d991ce",
       "subject": "fix: arm64 frame carve supports sizes past imm12 via shifted-imm pair (codegen)"
-    },
-    {
-      "hash": "8914ced8",
-      "subject": "feat: null guard on un-narrowed exec/match receivers (test262-bug-corpus RC-4 F1a part 2)"
-    },
-    {
-      "hash": "0879b70c",
-      "subject": "feat: re.exec / s.match retype to Nullable<Array<Str>> with array decay (test262-bug-corpus RC-4 F1a part 1)"
-    },
-    {
-      "hash": "337a66a3",
-      "subject": "fix: closure captures take a shared +1 stake instead of moving the outer binding's (test262-bug-corpus RC-4 F6)"
     }
   ],
-  "headSha": "5774f8e1",
+  "headSha": "d83229e6",
   "autorun": {
     "total": 342,
     "baselineTarget": 10,
