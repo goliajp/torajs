@@ -9,7 +9,7 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF, TAG_ARR};
+use crate::layout::{ARR_CELL_SIZE, ARR_DATA_PTR_OFF, ARR_LEN_OFF, TAG_ARR, arr_data};
 use crate::str_bridge::str_alloc_pooled;
 
 const ARR_HEAD_OFF: usize = 20;
@@ -76,7 +76,7 @@ unsafe fn arr_head(arr: *const u8) -> u32 {
 unsafe fn slot_addr(arr: *const u8, i: u64) -> *const u8 {
     unsafe {
         let head = arr_head(arr) as usize;
-        arr.add(ARR_SLOTS_OFF + (head + i as usize) * 8)
+        arr_data(arr).add((head + i as usize) * 8)
     }
 }
 
@@ -106,7 +106,7 @@ unsafe fn f64_shortest(d: f64, buf: *mut u8, cap: usize) -> i32 {
 #[inline]
 unsafe fn arr_alloc_fresh(len: u64, cap: u64) -> *mut u8 {
     unsafe {
-        let total = ARR_SLOTS_OFF + (cap as usize) * 8;
+        let total = ARR_CELL_SIZE + (cap as usize) * 8;
         let p = malloc(total) as *mut u8;
         *(p as *mut u32) = 1;
         *(p.add(4) as *mut u16) = TAG_ARR;
@@ -114,6 +114,10 @@ unsafe fn arr_alloc_fresh(len: u64, cap: u64) -> *mut u8 {
         *(p.add(ARR_LEN_OFF) as *mut u64) = len;
         *(p.add(ARR_CAP_LOW32_OFF) as *mut u32) = cap as u32;
         *(p.add(ARR_HEAD_OFF) as *mut u32) = 0;
+        // props NULL (chunk 516 slice fix, same latent-garbage class)
+        // + B1 self-referential data pointer.
+        *(p.add(crate::layout::ARR_PROPS_OFF) as *mut u64) = 0;
+        *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
         p
     }
 }
@@ -459,7 +463,7 @@ pub unsafe extern "C" fn __torajs_arr_to_reversed(arr: *const u8) -> *mut u8 {
     unsafe {
         let len = arr_len(arr);
         let p = arr_alloc_fresh(len, len);
-        let dst = p.add(ARR_SLOTS_OFF);
+        let dst = arr_data(p);
         for i in 0..len {
             let src = slot_addr(arr, len - 1 - i);
             *(dst.add(i as usize * 8) as *mut u64) = *(src as *const u64);
@@ -486,7 +490,7 @@ pub unsafe extern "C" fn __torajs_arr_with(arr: *const u8, i: i64, v: i64) -> *m
             return core::ptr::null_mut();
         }
         let p = arr_alloc_fresh(len, len);
-        let dst = p.add(ARR_SLOTS_OFF);
+        let dst = arr_data(p);
         if len > 0 {
             let src = slot_addr(arr, 0);
             core::ptr::copy_nonoverlapping(src, dst, (len as usize) * 8);

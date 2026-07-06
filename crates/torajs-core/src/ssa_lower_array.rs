@@ -51,24 +51,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
-use crate::ssa_lower::{ARR_DATA_OFF, ARR_LEN_OFF, ARR_PROPS_OFF, LowerCtx, intern_arr_layout};
-
-#[derive(Debug)]
-enum Item {
-    Lit(Operand),
-    Spread(Operand),
-}
-
-pub(crate) struct LoweredItem {
-    pub(crate) op: Operand,
-    pub(crate) src_eid: ExprId,
-    pub(crate) is_spread: bool,
-    /// Spread source lowered to `Type::Any` and was materialized into
-    /// an owned `Arr<Any>` temp (RFC 20260704 S5+) — the assembler
-    /// (`ssa_lower_arr_from_any::assemble_any_spread`) drops it after
-    /// the extend.
-    pub(crate) was_any: bool,
-}
+use crate::ssa_lower::{ARR_LEN_OFF, ARR_PROPS_OFF, LowerCtx, intern_arr_layout};
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) -> Operand {
     if elements.is_empty() {
@@ -97,7 +80,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) ->
     if !has_spread {
         return lower_no_spread(ctx, &element_ids, eid);
     }
-    lower_spread(ctx, &element_ids, eid)
+    crate::ssa_lower_array_spread::lower_spread(ctx, &element_ids, eid)
 }
 
 fn lower_empty(ctx: &mut LowerCtx<'_>) -> Operand {
@@ -133,13 +116,12 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
         cur_block,
         InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
     );
+    let data = ctx.emit_arr_data_ptr(Operand::Value(arr_ptr));
     for (i, val) in elem_vals.iter().enumerate() {
-        let off = ARR_DATA_OFF + (i as u64) * 8;
+        let off = (i as u64) * 8;
         let cur_block = ctx.cur_block;
-        ctx.f.append_void(
-            cur_block,
-            InstKind::Store(*val, Operand::Value(arr_ptr), off),
-        );
+        ctx.f
+            .append_void(cur_block, InstKind::Store(*val, data.clone(), off));
         if elem_inc_after[i] {
             ctx.emit_rc_inc(*val);
         }
@@ -246,7 +228,7 @@ fn alloc_stack_arr(
     arr_id: crate::ssa::ArrId,
     n: i64,
 ) -> crate::ssa::ValueId {
-    let total_bytes = ARR_DATA_OFF + (n as u64) * 8;
+    let total_bytes = crate::ssa_lower::ARR_CELL_SIZE + (n as u64) * 8;
     let cur_block = ctx.cur_block;
     let p = ctx.f.append_inst(
         cur_block,
@@ -269,6 +251,26 @@ fn alloc_stack_arr(
         cur_block,
         InstKind::Store(Operand::ConstI64(0), Operand::Value(p), ARR_PROPS_OFF),
     );
+    // B1 — self-referential data pointer into the alloca's own
+    // inline region.
+    let inline0 = ctx.f.append_inst(
+        cur_block,
+        InstKind::BinOp(
+            SsaBinOp::Add,
+            Operand::Value(p),
+            Operand::ConstI64(crate::ssa_lower::ARR_CELL_SIZE as i64),
+        ),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Store(
+            Operand::Value(inline0),
+            Operand::Value(p),
+            crate::ssa_lower::ARR_DATA_PTR_OFF,
+        ),
+    );
     p
 }
 
@@ -284,232 +286,4 @@ fn alloc_heap_arr(
         Type::Arr(arr_id),
         None,
     )
-}
-
-fn lower_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) -> Operand {
-    let (lowered, elem_ty, literal_count) = lower_spread_elements(ctx, element_ids);
-    // Any element type assembles from the ALREADY-lowered operands —
-    // re-lowering the ExprIds (the pre-S5+ shape) would double-emit
-    // spread source side effects (e.g. `[...m.values()]` minting the
-    // iterator twice).
-    if matches!(elem_ty, Some(Type::Any)) {
-        return crate::ssa_lower_arr_from_any::assemble_any_spread(ctx, lowered, literal_count);
-    }
-    let items = build_items(&lowered);
-    let mut elem_ty = elem_ty.unwrap_or(Type::I64);
-    if elem_ty == Type::I64
-        && ctx
-            .num_f64_slots
-            .elem_is_f64(&crate::num_width::SlotKey::Anon(eid.0))
-    {
-        elem_ty = Type::F64;
-    }
-    let arr_id = intern_arr_layout(ctx.arr_layouts, elem_ty);
-    let elem_is_refcounted = elem_ty.is_refcounted();
-    let total = compute_total_length(ctx, &items, literal_count);
-    let cur_block = ctx.cur_block;
-    let arr_ptr = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.arr_alloc, vec![total]),
-        Type::Arr(arr_id),
-        None,
-    );
-    fill_arr_from_items(ctx, arr_ptr, items, elem_ty, elem_is_refcounted);
-    Operand::Value(arr_ptr)
-}
-
-fn lower_spread_elements(
-    ctx: &mut LowerCtx<'_>,
-    element_ids: &[ExprId],
-) -> (Vec<LoweredItem>, Option<Type>, i64) {
-    let mut lowered: Vec<LoweredItem> = Vec::with_capacity(element_ids.len());
-    let mut elem_ty: Option<Type> = None;
-    let mut literal_count: i64 = 0;
-    for eid in element_ids {
-        if let Expr::Spread { expr } = ctx.ast.get_expr(*eid) {
-            let inner = *expr;
-            let (op, v_ty, was_any) = lower_spread_source(ctx, inner);
-            if was_any {
-                // Materialized Arr<Any> — force the Any assembly path
-                // regardless of what earlier items anchored.
-                elem_ty = Some(Type::Any);
-            }
-            if let Type::Arr(arr_id) = v_ty
-                && elem_ty.is_none()
-            {
-                elem_ty = Some(ctx.arr_layouts[arr_id.0 as usize]);
-            }
-            lowered.push(LoweredItem {
-                op,
-                src_eid: inner,
-                is_spread: true,
-                was_any,
-            });
-        } else {
-            let v = ctx.lower_expr(*eid);
-            let v_ty = ctx.operand_ty(&v);
-            if elem_ty.is_none() {
-                elem_ty = Some(v_ty);
-            }
-            literal_count += 1;
-            lowered.push(LoweredItem {
-                op: v,
-                src_eid: *eid,
-                is_spread: false,
-                was_any: false,
-            });
-        }
-    }
-    (lowered, elem_ty, literal_count)
-}
-
-fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type, bool) {
-    let mut v = ctx.lower_expr(inner);
-    let mut v_ty = ctx.operand_ty(&v);
-    // S134 — string spread `[...str]` unfolds per code unit. Substr
-    // first materializes to owned Str.
-    if matches!(v_ty, Type::Substr) {
-        let cur_block = ctx.cur_block;
-        let owned = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v]),
-            Type::Str,
-            None,
-        );
-        v = Operand::Value(owned);
-        v_ty = Type::Str;
-    }
-    if matches!(v_ty, Type::Str) {
-        let empty_sep = ctx.intern_string_literal("");
-        let substr_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Substr);
-        let cur_block = ctx.cur_block;
-        let substr_arr = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.str_split, vec![v, Operand::Value(empty_sep)]),
-            Type::Arr(substr_arr_id),
-            None,
-        );
-        let str_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
-        v = ctx.materialize_arr_substr_to_str(Operand::Value(substr_arr), Type::Arr(str_arr_id));
-        v_ty = Type::Arr(str_arr_id);
-    }
-    if matches!(v_ty, Type::Set) {
-        let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
-        v = crate::ssa_lower_arr_from_set::emit(ctx, v);
-        v_ty = Type::Arr(arr_any_id);
-    }
-    // RFC 20260704 S5+ — `any` spread source: materialize through the
-    // unified runtime iteration protocol into an owned Arr<Any> temp
-    // (the assembler drops it after the extend).
-    if matches!(v_ty, Type::Any) {
-        let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
-        v = crate::ssa_lower_arr_from_any::emit(ctx, v);
-        v_ty = Type::Arr(arr_any_id);
-        return (v, v_ty, true);
-    }
-    (v, v_ty, false)
-}
-
-fn build_items(lowered: &[LoweredItem]) -> Vec<Item> {
-    lowered
-        .iter()
-        .map(|li| {
-            if li.is_spread {
-                Item::Spread(li.op)
-            } else {
-                Item::Lit(li.op)
-            }
-        })
-        .collect()
-}
-
-fn compute_total_length(ctx: &mut LowerCtx<'_>, items: &[Item], literal_count: i64) -> Operand {
-    let mut total: Operand = Operand::ConstI64(literal_count);
-    for it in items {
-        if let Item::Spread(arr_op) = it {
-            let cur_block = ctx.cur_block;
-            let len = ctx.f.append_inst(
-                cur_block,
-                InstKind::Load(Type::I64, *arr_op, ARR_LEN_OFF),
-                Type::I64,
-                None,
-            );
-            let cur_block = ctx.cur_block;
-            let summed = ctx.f.append_inst(
-                cur_block,
-                InstKind::BinOp(SsaBinOp::Add, total, Operand::Value(len)),
-                Type::I64,
-                None,
-            );
-            total = Operand::Value(summed);
-        }
-    }
-    total
-}
-
-fn fill_arr_from_items(
-    ctx: &mut LowerCtx<'_>,
-    arr_ptr: crate::ssa::ValueId,
-    items: Vec<Item>,
-    elem_ty: Type,
-    elem_is_refcounted: bool,
-) {
-    for it in items {
-        match it {
-            Item::Lit(v) => {
-                let v = if elem_ty == Type::F64 && ctx.operand_ty(&v) == Type::I64 {
-                    ctx.coerce_to_f64(v)
-                } else {
-                    v
-                };
-                let push_arg = ctx.raw_slot_arg(v);
-                let cur_block = ctx.cur_block;
-                ctx.f.append_void(
-                    cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.arr_push_unchecked,
-                        vec![Operand::Value(arr_ptr), push_arg],
-                    ),
-                );
-                if elem_is_refcounted {
-                    ctx.emit_rc_inc(v);
-                }
-            }
-            Item::Spread(src) => {
-                let cur_block = ctx.cur_block;
-                let old_len = if elem_is_refcounted {
-                    Some(ctx.f.append_inst(
-                        cur_block,
-                        InstKind::Load(Type::I64, Operand::Value(arr_ptr), ARR_LEN_OFF),
-                        Type::I64,
-                        None,
-                    ))
-                } else {
-                    None
-                };
-                let cur_block = ctx.cur_block;
-                ctx.f.append_void(
-                    cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.arr_extend_unchecked,
-                        vec![Operand::Value(arr_ptr), src],
-                    ),
-                );
-                if let Some(old) = old_len {
-                    let cur_block = ctx.cur_block;
-                    let new_len = ctx.f.append_inst(
-                        cur_block,
-                        InstKind::Load(Type::I64, Operand::Value(arr_ptr), ARR_LEN_OFF),
-                        Type::I64,
-                        None,
-                    );
-                    ctx.emit_arr_rc_inc_range(
-                        Operand::Value(arr_ptr),
-                        Operand::Value(old),
-                        Operand::Value(new_len),
-                    );
-                }
-            }
-        }
-    }
 }

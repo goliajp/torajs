@@ -118,10 +118,11 @@ pub(crate) fn try_dispatch(
             None,
         );
         // T-13.5 deque: head-aware offset for arr.at(i).
-        let off = ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(adj), 3, false);
+        let (off_base, off) =
+            ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(adj), 3, false);
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::LoadDyn(elem_ty, recv_op, off),
+            InstKind::LoadDyn(elem_ty, off_base.clone(), off),
             elem_ty,
             None,
         );

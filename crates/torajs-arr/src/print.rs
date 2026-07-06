@@ -30,7 +30,7 @@
 
 use core::ffi::c_void;
 
-use crate::layout::ARR_SLOTS_OFF;
+use crate::layout::arr_data;
 use crate::print_typed::{TypedKind, print_typed_top};
 
 pub(crate) const ARR_HEAD_OFF: usize = 20;
@@ -133,7 +133,7 @@ pub(crate) unsafe fn put_bytes(s: &[u8]) {
 
 #[inline]
 pub(crate) unsafe fn slot_addr(arr: *const u8, head: u32, i: u64) -> *const u8 {
-    unsafe { arr.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8) }
+    unsafe { arr_data(arr).add((head as usize + i as usize) * 8) }
 }
 
 /// v0.7-A4 Step 15-d: format `v` via `__torajs_fmt_itoa`

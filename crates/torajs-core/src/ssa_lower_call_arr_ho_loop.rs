@@ -161,11 +161,11 @@ pub(crate) fn emit_per_method_body(
         None,
     );
     // T-13.5: head-aware offset for map/filter/reduce src walk.
-    let off =
+    let (off_base, off) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now2), 3, false);
     let elem = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, Operand::Value(src_arr), off),
+        InstKind::LoadDyn(elem_ty, off_base.clone(), off),
         elem_ty,
         None,
     );

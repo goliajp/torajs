@@ -22,7 +22,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
+use crate::layout::{ARR_LEN_OFF, arr_data};
 
 /// 8-byte slot stride for Array<Any> — Step 7e-A (NaN-box AnyValue
 /// per slot; mirrors `any.rs`'s `ANY_SLOT_BYTES`).
@@ -116,7 +116,7 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
     unsafe {
         let arr_u8 = arr as *mut u8;
         let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
-        let slots = arr_u8.add(ARR_SLOTS_OFF);
+        let slots = arr_data(arr_u8);
         for i in 0..len {
             let off = (i as usize) * ANY_SLOT_BYTES;
             let av = *(slots.add(off) as *const u64);

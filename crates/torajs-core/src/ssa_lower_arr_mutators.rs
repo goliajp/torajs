@@ -209,7 +209,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 // T-13.5: head-aware byte offset for arr.pop()'s
                 // last-element load.
-                let off = self.emit_arr_slot_byte_offset(
+                let (off_base, off) = self.emit_arr_slot_byte_offset(
                     Operand::Value(cur_arr),
                     Operand::Value(new_len),
                     3,
@@ -217,7 +217,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let elem = self.f.append_inst(
                     self.cur_block,
-                    InstKind::LoadDyn(elem_ty, Operand::Value(cur_arr), off),
+                    InstKind::LoadDyn(elem_ty, off_base.clone(), off),
                     elem_ty,
                     None,
                 );

@@ -36,7 +36,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{ArrId, InstKind, Operand, Type, ValueId};
-use crate::ssa_lower::{ARR_DATA_OFF, ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE, intern_arr_layout};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE, intern_arr_layout};
 
 /// Try to lower an `Object.entries(obj, ...)` call. Returns `Some` when
 /// dispatched.
@@ -160,13 +160,15 @@ fn emit_struct_entries_unfold(
     );
     for (idx, (fname, fty)) in layout.iter().enumerate() {
         let inner_after_val = emit_one_pair(ctx, inner_arr_id, &arg_op, idx, fname, *fty);
-        // Store inner ptr directly into outer slot at offset 16+idx*8
-        // (regular Array<T> layout). No rc_inc — inner has rc=1 from
-        // arr_alloc_any and outer takes ownership of that ref.
-        let off = ARR_DATA_OFF + (idx as u64) * 8;
+        // Store inner ptr directly into the outer's slot region
+        // (regular Array<T> layout, through the data pointer). No
+        // rc_inc — inner has rc=1 from arr_alloc_any and outer takes
+        // ownership of that ref.
+        let data = ctx.emit_arr_data_ptr(Operand::Value(outer));
+        let off = (idx as u64) * 8;
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Store(Operand::Value(inner_after_val), Operand::Value(outer), off),
+            InstKind::Store(Operand::Value(inner_after_val), data, off),
         );
     }
     Operand::Value(outer)

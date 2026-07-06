@@ -1,18 +1,30 @@
 //! Array-layout helpers for `LowerCtx<'a>` extracted from
 //! `ssa_lower.rs` chunk 371.
 //!
-//! T-13.5 deque head-x8 computation, slot byte-offset math
-//! (`ARR_DATA_OFF + head_x8 + idx*stride`), and refcount walk loops
-//! (`emit_arr_rc_drop_range` / `emit_arr_rc_inc_range`). Method bodies
-//! are byte-for-byte preserved from the source; siblings and
-//! `ssa_lower.rs` reach them through the impl block on the shared
-//! `crate::ssa_lower::LowerCtx` type.
+//! T-13.5 deque head-x8 computation, slot address math (data-ptr
+//! load + `head_x8 + idx*stride` — RFC 20260706-arr-grow-alias-
+//! stability B1: slots live behind the cell's data pointer, so every
+//! element access is a two-level load), and refcount walk loops
+//! (`emit_arr_rc_drop_range` / `emit_arr_rc_inc_range`).
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{ARR_DATA_OFF, LowerCtx};
+use crate::ssa_lower::{ARR_DATA_PTR_OFF, LowerCtx};
 
 impl<'a> LowerCtx<'a> {
+    /// B1 — load the slots base pointer from the cell's data field.
+    /// Emit once per access site; grow-capable calls in between
+    /// invalidate it (grow swaps the buffer, not the cell).
+    pub(crate) fn emit_arr_data_ptr(&mut self, arr: Operand) -> Operand {
+        let d = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::Ptr, arr, ARR_DATA_PTR_OFF),
+            Type::Ptr,
+            None,
+        );
+        Operand::Value(d)
+    }
+
     /// T-13.5 deque: load `head * 8` from arr (the byte offset of
     /// logical[0] within the slot data section). Reads the packed
     /// u64 at offset 16 (low 32 = cap, high 32 = head, little-endian),
@@ -44,18 +56,18 @@ impl<'a> LowerCtx<'a> {
         Operand::Value(head_x8)
     }
 
-    /// T-13.5 deque: return byte offset of logical slot[idx] in arr,
-    /// `24 + (idx + head) * 8`. Use at element-walk sites that may
-    /// operate on a shifted array (Index, sort, map/filter/reduce
-    /// closures, JSON.stringify, console.log). For literal-init paths
-    /// where the array was just allocated and head=0, prefer
-    /// `ARR_DATA_OFF + idx*8` directly to skip the head load.
+    /// T-13.5 deque: return `(slots_base, byte_off)` for logical
+    /// slot[idx] — the caller passes `slots_base` as the LoadDyn /
+    /// StoreDyn base and `byte_off` as the offset (B1: the base is
+    /// the cell's data pointer, not the cell). Use at element-walk
+    /// sites that may operate on a shifted array (Index, sort,
+    /// map/filter/reduce closures, JSON.stringify, console.log).
     /// `stride_log2` is 3 for regular Array<T> (8-byte slots) and 4
     /// for Array<Any> (16-byte tagged slots); head is always counted
     /// in 8-byte units (matching the C-side macro contract).
     ///
     /// 11-A1: `is_non_deque = true` ⇒ skip head load + lshr + shl +
-    /// extra add chain (5 → 2 arith ops). Caller proves safety via
+    /// extra add chain. Caller proves safety via
     /// `arr_expr_is_non_deque` against `LowerCtx::deque_arrs`.
     pub(crate) fn emit_arr_slot_byte_offset(
         &mut self,
@@ -63,7 +75,8 @@ impl<'a> LowerCtx<'a> {
         idx: Operand,
         stride_log2: i64,
         is_non_deque: bool,
-    ) -> Operand {
+    ) -> (Operand, Operand) {
+        let data = self.emit_arr_data_ptr(arr.clone());
         if is_non_deque {
             // 11-A1 fast-path: head ≡ 0 by escape analysis.
             let scaled = self.f.append_inst(
@@ -72,17 +85,7 @@ impl<'a> LowerCtx<'a> {
                 Type::I64,
                 None,
             );
-            let off = self.f.append_inst(
-                self.cur_block,
-                InstKind::BinOp(
-                    SsaBinOp::Add,
-                    Operand::Value(scaled),
-                    Operand::ConstI64(ARR_DATA_OFF as i64),
-                ),
-                Type::I64,
-                None,
-            );
-            return Operand::Value(off);
+            return (data, Operand::Value(scaled));
         }
         let head_x8 = self.emit_arr_head_x8(arr);
         let head_scaled = if stride_log2 == 3 {
@@ -104,23 +107,13 @@ impl<'a> LowerCtx<'a> {
             Type::I64,
             None,
         );
-        let with_data = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Add,
-                Operand::Value(scaled),
-                Operand::ConstI64(ARR_DATA_OFF as i64),
-            ),
-            Type::I64,
-            None,
-        );
         let off = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(with_data), head_scaled),
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), head_scaled),
             Type::I64,
             None,
         );
-        Operand::Value(off)
+        (data, Operand::Value(off))
     }
 
     /// 11-A1 — peek an array-receiving expr's binding name; returns
@@ -149,9 +142,11 @@ impl<'a> LowerCtx<'a> {
             self.cur_block,
             InstKind::Store(start, Operand::Value(i_slot), 0),
         );
-        // T-13.5 deque: hoist head_x8 out of the loop (cur_block is the
-        // pre-loop block; head doesn't change during element-walk).
+        // T-13.5 deque: hoist head_x8 + data ptr out of the loop
+        // (cur_block is the pre-loop block; neither changes during an
+        // element-walk — drop calls never grow this array).
         let head_x8 = self.emit_arr_head_x8(arr.clone());
+        let data = self.emit_arr_data_ptr(arr);
         let header = self.f.add_block();
         let body = self.f.add_block();
         let after = self.f.add_block();
@@ -184,26 +179,16 @@ impl<'a> LowerCtx<'a> {
             Type::I64,
             None,
         );
-        // T-13.5: off = scaled + ARR_DATA_OFF + head_x8
-        let off_no_head = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Add,
-                Operand::Value(scaled),
-                Operand::ConstI64(ARR_DATA_OFF as i64),
-            ),
-            Type::I64,
-            None,
-        );
+        // off = scaled + head_x8 (relative to the hoisted data ptr)
         let off = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(off_no_head), head_x8.clone()),
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), head_x8.clone()),
             Type::I64,
             None,
         );
         let elem = self.f.append_inst(
             self.cur_block,
-            InstKind::LoadDyn(elem_ty, arr, Operand::Value(off)),
+            InstKind::LoadDyn(elem_ty, data.clone(), Operand::Value(off)),
             elem_ty,
             None,
         );
@@ -240,8 +225,9 @@ impl<'a> LowerCtx<'a> {
             self.cur_block,
             InstKind::Store(start, Operand::Value(i_slot), 0),
         );
-        // T-13.5 deque: hoist head_x8 out of the loop.
+        // T-13.5 deque: hoist head_x8 + data ptr out of the loop.
         let head_x8 = self.emit_arr_head_x8(arr.clone());
+        let data = self.emit_arr_data_ptr(arr);
         let header = self.f.add_block();
         let body = self.f.add_block();
         let after = self.f.add_block();
@@ -276,26 +262,16 @@ impl<'a> LowerCtx<'a> {
             Type::I64,
             None,
         );
-        // T-13.5: off = scaled + ARR_DATA_OFF + head_x8
-        let off_no_head = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Add,
-                Operand::Value(scaled),
-                Operand::ConstI64(ARR_DATA_OFF as i64),
-            ),
-            Type::I64,
-            None,
-        );
+        // off = scaled + head_x8 (relative to the hoisted data ptr)
         let off = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(off_no_head), head_x8.clone()),
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), head_x8.clone()),
             Type::I64,
             None,
         );
         let elem = self.f.append_inst(
             self.cur_block,
-            InstKind::LoadDyn(Type::Ptr, arr, Operand::Value(off)),
+            InstKind::LoadDyn(Type::Ptr, data.clone(), Operand::Value(off)),
             Type::Ptr,
             None,
         );

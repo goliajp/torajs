@@ -22,7 +22,7 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
+use crate::layout::{ARR_LEN_OFF, arr_data};
 
 // Mirrors the deque-aware `head` u32 field that lives in the cap
 // slot's upper half (matches `join.rs` / `print.rs`).
@@ -41,7 +41,7 @@ unsafe fn arr_head(arr: *const u8) -> u32 {
 #[inline]
 unsafe fn slot_f64(arr: *const u8, head: u32, i: u64) -> f64 {
     unsafe {
-        let p = arr.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8);
+        let p = arr_data(arr).add((head as usize + i as usize) * 8);
         *(p as *const f64)
     }
 }
@@ -49,7 +49,7 @@ unsafe fn slot_f64(arr: *const u8, head: u32, i: u64) -> f64 {
 #[inline]
 unsafe fn slot_i64(arr: *const u8, head: u32, i: u64) -> i64 {
     unsafe {
-        let p = arr.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8);
+        let p = arr_data(arr).add((head as usize + i as usize) * 8);
         *(p as *const i64)
     }
 }

@@ -211,6 +211,9 @@ unsafe fn write_arr_header(block: NonNull<u8>, out_count: u64) {
         // slot must be valid for the eventual inline arrprops dispatch
         // (chunk 5b+) to read a clean pointer.
         (block.as_ptr().add(24) as *mut u64).write(0);
+        // B1 — data pointer, permanently self-referential (split
+        // blocks never grow).
+        (block.as_ptr().add(32) as *mut *mut u8).write(block.as_ptr().add(ARR_HDR_SIZE));
     }
 }
 

@@ -120,17 +120,18 @@ fn emit_fill_rc_loop(
     );
     ctx.cur_block = body;
     // T-13.5: head-aware offset for arr.fill loop.
-    let off = ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(i_now), 3, false);
+    let (off_base, off) =
+        ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(i_now), 3, false);
     let old = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, recv_op.clone(), off.clone()),
+        InstKind::LoadDyn(elem_ty, off_base.clone(), off.clone()),
         elem_ty,
         None,
     );
     ctx.emit_drop_value(Operand::Value(old), elem_ty);
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::StoreDyn(value.clone(), recv_op.clone(), off),
+        InstKind::StoreDyn(value.clone(), off_base.clone(), off),
     );
     ctx.emit_rc_inc(value);
     let i_next = ctx.f.append_inst(

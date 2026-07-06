@@ -61,11 +61,10 @@ pub const STR_HDR_SIZE: usize = 16;
 /// / .any walks. Re-declared here so torajs-promise doesn't pull in
 /// a torajs-arr dep — same independent-layout pattern the original
 /// runtime_promise.c used. Must move in lockstep with
-/// `torajs_arr::layout::ARR_SLOTS_OFF` and
-/// `torajs_core::ssa_lower::ARR_DATA_OFF` — Round 4 chunk 5a (2026-06-25)
-/// bumped the array header from 24 → 32 bytes to make room for the
-/// inline `props_dynobj` slot at offset 24.
-pub const ARR_HDR_SIZE: usize = 32;
+/// `torajs_arr::layout::ARR_DATA_PTR_OFF` — RFC 20260706-arr-grow-
+/// alias-stability B1 (2026-07-06): slots live behind the data
+/// pointer at offset 32; the cell is fixed across grow.
+pub const ARR_DATA_PTR_OFF: usize = 32;
 pub const ARR_LEN_OFF: usize = 8;
 pub const ARR_HEAD_OFF: usize = 20;
 

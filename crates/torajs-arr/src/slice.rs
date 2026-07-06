@@ -16,7 +16,9 @@ use core::ffi::c_void;
 
 use torajs_rc::{ARR_ELEM_KIND_MASK, ARR_KIND_HEAP, FLAG_ARR_ANY, HeapHeader};
 
-use crate::layout::{ARR_LEN_OFF, ARR_PROPS_OFF, ARR_SLOTS_OFF, TAG_ARR};
+use crate::layout::{
+    ARR_CELL_SIZE, ARR_DATA_PTR_OFF, ARR_LEN_OFF, ARR_PROPS_OFF, TAG_ARR, arr_data,
+};
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
@@ -39,7 +41,7 @@ const ANY_SLOT_BYTES: usize = 8;
 unsafe fn data_ptr_at(arr: *const u8, i: usize) -> *const u8 {
     unsafe {
         let head = *(arr.add(ARR_HEAD_OFF) as *const u32) as usize;
-        arr.add(ARR_SLOTS_OFF + (head + i) * 8)
+        arr_data(arr).add((head + i) * 8)
     }
 }
 
@@ -50,7 +52,7 @@ unsafe fn data_ptr_at(arr: *const u8, i: usize) -> *const u8 {
 #[inline]
 unsafe fn arr_alloc_fresh(len: u64, cap: u64) -> *mut u8 {
     unsafe {
-        let total = ARR_SLOTS_OFF + (cap as usize) * 8;
+        let total = ARR_CELL_SIZE + (cap as usize) * 8;
         let p = malloc(total) as *mut u8;
         *(p as *mut u32) = 1; // refcount
         *(p.add(4) as *mut u16) = TAG_ARR;
@@ -62,6 +64,8 @@ unsafe fn arr_alloc_fresh(len: u64, cap: u64) -> *mut u8 {
         // (was malloc garbage here; a props consumer's NULL gate
         // would chase it).
         *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
+        // B1 — data pointer starts self-referential (inline slots).
+        *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
         p
     }
 }
@@ -80,7 +84,7 @@ pub unsafe extern "C" fn __torajs_arr_slice(arr: *const u8, start: i64, end: i64
         let p = arr_alloc_fresh(out_len, out_len);
         if out_len > 0 {
             let src = data_ptr_at(arr, lo as usize);
-            let dst = p.add(ARR_SLOTS_OFF);
+            let dst = arr_data(p);
             core::ptr::copy_nonoverlapping(src, dst, (out_len as usize) * 8);
         }
         p
@@ -137,7 +141,7 @@ pub unsafe extern "C" fn __torajs_arr_any_slice(arr: *const u8, start: i64, end:
         let flags = (*(arr as *const HeapHeader)).flags;
         if flags & FLAG_ARR_ANY != 0 {
             // Any-arrays never deque-shift — head is always 0.
-            let total = ARR_SLOTS_OFF + (out_len as usize) * ANY_SLOT_BYTES;
+            let total = ARR_CELL_SIZE + (out_len as usize) * ANY_SLOT_BYTES;
             let p = malloc(total) as *mut u8;
             *(p as *mut u32) = 1; // refcount
             *(p.add(4) as *mut u16) = TAG_ARR;
@@ -146,11 +150,11 @@ pub unsafe extern "C" fn __torajs_arr_any_slice(arr: *const u8, start: i64, end:
             *(p.add(ARR_CAP_LOW32_OFF) as *mut u32) = out_len as u32;
             *(p.add(ARR_HEAD_OFF) as *mut u32) = 0;
             *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
+            *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
             for i in 0..out_len as usize {
-                let av =
-                    *(arr.add(ARR_SLOTS_OFF + (lo as usize + i) * ANY_SLOT_BYTES) as *const u64);
+                let av = *(arr_data(arr).add((lo as usize + i) * ANY_SLOT_BYTES) as *const u64);
                 __torajs_rc_inc(av as *mut c_void);
-                *(p.add(ARR_SLOTS_OFF + i * ANY_SLOT_BYTES) as *mut u64) = av;
+                *(arr_data(p).add(i * ANY_SLOT_BYTES) as *mut u64) = av;
             }
             return p;
         }
@@ -159,7 +163,7 @@ pub unsafe extern "C" fn __torajs_arr_any_slice(arr: *const u8, start: i64, end:
         *(p.add(6) as *mut u16) |= kind_bits;
         if kind_bits >> torajs_rc::ARR_ELEM_KIND_SHIFT == ARR_KIND_HEAP {
             for i in 0..out_len as usize {
-                let cell = *(p.add(ARR_SLOTS_OFF + i * 8) as *const u64);
+                let cell = *(arr_data(p).add(i * 8) as *const u64);
                 __torajs_rc_inc(cell as *mut c_void);
             }
         }

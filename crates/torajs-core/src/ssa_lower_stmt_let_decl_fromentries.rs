@@ -20,7 +20,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{IPred, InstKind, Operand, Type};
-use crate::ssa_lower::{ARR_DATA_OFF, LocalInfo, LowerCtx, OBJ_HEADER_SIZE};
+use crate::ssa_lower::{LocalInfo, LowerCtx, OBJ_HEADER_SIZE};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx,
@@ -62,11 +62,12 @@ pub(crate) fn try_lower(
     );
     let obj_op = Operand::Value(obj_ptr);
     ctx.emit_obj_header_init(obj_op.clone());
+    let entries_data = ctx.emit_arr_data_ptr(entries_op.clone());
     for (idx, (_fname, fty)) in layout.iter().enumerate() {
-        let inner_off = ARR_DATA_OFF + (idx as u64) * 8;
+        let inner_off = (idx as u64) * 8;
         let inner_ptr = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Load(Type::Ptr, entries_op.clone(), inner_off),
+            InstKind::Load(Type::Ptr, entries_data.clone(), inner_off),
             Type::Ptr,
             None,
         );

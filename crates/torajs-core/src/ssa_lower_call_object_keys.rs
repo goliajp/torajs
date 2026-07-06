@@ -49,7 +49,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
-use crate::ssa_lower::{ARR_DATA_OFF, ARR_LEN_OFF, LowerCtx, intern_arr_layout};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -171,12 +171,13 @@ pub(crate) fn try_lower(
         ctx.cur_block,
         InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
     );
+    let data = ctx.emit_arr_data_ptr(Operand::Value(arr_ptr));
     for (i, fname) in field_names.iter().enumerate() {
         let str_v = ctx.intern_string_literal(fname);
-        let off = ARR_DATA_OFF + (i as u64) * 8;
+        let off = (i as u64) * 8;
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Store(Operand::Value(str_v), Operand::Value(arr_ptr), off),
+            InstKind::Store(Operand::Value(str_v), data.clone(), off),
         );
     }
     Some(Operand::Value(arr_ptr))

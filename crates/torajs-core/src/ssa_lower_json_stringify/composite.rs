@@ -97,11 +97,11 @@ pub(super) fn lower_arr(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> O
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(no_sep_blk));
     ctx.cur_block = no_sep_blk;
-    let off =
+    let (off_base, off) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(i_now), 3, false);
     let elem = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, Operand::Value(arr_ptr), off),
+        InstKind::LoadDyn(elem_ty, off_base.clone(), off),
         elem_ty,
         None,
     );

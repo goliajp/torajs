@@ -20,7 +20,7 @@
 //! sites need zero edits.
 
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{ARR_DATA_OFF, ARR_LEN_OFF, LowerCtx};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 impl<'a> LowerCtx<'a> {
     /// Boundary materialize: take an Array<Substr> and return a fresh
@@ -83,28 +83,20 @@ impl<'a> LowerCtx<'a> {
         );
         self.cur_block = body;
         // T-13.5: src may be shifted (head>0) — use head-aware offset.
-        // dst is freshly allocated above so head=0; reuse the raw
-        // physical offset (i*8 + ARR_DATA_OFF) for the store.
-        let src_off = self.emit_arr_slot_byte_offset(src.clone(), Operand::Value(i_now), 3, false);
-        let scaled = self.f.append_inst(
+        // dst is freshly allocated above so head=0; store through its
+        // data pointer at i*8.
+        let (src_off_base, src_off) =
+            self.emit_arr_slot_byte_offset(src.clone(), Operand::Value(i_now), 3, false);
+        let dst_data = self.emit_arr_data_ptr(Operand::Value(dst));
+        let off = self.f.append_inst(
             self.cur_block,
             InstKind::BinOp(SsaBinOp::Shl, Operand::Value(i_now), Operand::ConstI64(3)),
             Type::I64,
             None,
         );
-        let off = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Add,
-                Operand::Value(scaled),
-                Operand::ConstI64(ARR_DATA_OFF as i64),
-            ),
-            Type::I64,
-            None,
-        );
         let substr_v = self.f.append_inst(
             self.cur_block,
-            InstKind::LoadDyn(Type::Substr, src, src_off),
+            InstKind::LoadDyn(Type::Substr, src_off_base.clone(), src_off),
             Type::Substr,
             None,
         );
@@ -119,11 +111,7 @@ impl<'a> LowerCtx<'a> {
         );
         self.f.append_void(
             self.cur_block,
-            InstKind::StoreDyn(
-                Operand::Value(owned),
-                Operand::Value(dst),
-                Operand::Value(off),
-            ),
+            InstKind::StoreDyn(Operand::Value(owned), dst_data.clone(), Operand::Value(off)),
         );
         let i_next = self.f.append_inst(
             self.cur_block,

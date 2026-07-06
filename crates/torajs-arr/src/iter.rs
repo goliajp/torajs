@@ -24,7 +24,7 @@ use core::ffi::c_void;
 
 use torajs_rc::HeapHeader;
 
-use crate::layout::ARR_SLOTS_OFF;
+use crate::layout::arr_data;
 
 /// `type_tag` for ArrIter heap blocks (matches `torajs_rc::Tag::ArrIter`
 /// = 17).
@@ -170,9 +170,8 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
         }
         return 0;
     }
-    let slot_av = unsafe {
-        *((arr as *const u8).add(ARR_SLOTS_OFF + (i as usize) * ANY_SLOT_BYTES) as *const u64)
-    };
+    let slot_av =
+        unsafe { *(arr_data(arr as *const u8).add((i as usize) * ANY_SLOT_BYTES) as *const u64) };
     let slot_tag = unsafe { __torajs_anyv_unbox_tag(slot_av) } as u64;
     let slot_val = unsafe { __torajs_anyv_unbox_value(slot_av) } as u64;
     unsafe { (*it).cursor = (i + 1) as i64 };

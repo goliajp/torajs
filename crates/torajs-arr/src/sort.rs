@@ -39,7 +39,7 @@ const ARR_HDR_LEN_OFF: usize = 8;
 /// (T-13.5 deque packed cap + head).
 const ARR_HDR_HEAD_OFF: usize = 20;
 
-use crate::layout::ARR_SLOTS_OFF as ARR_HDR_DATA_OFF;
+use crate::layout::arr_data;
 
 unsafe extern "C" {
     /// Cross-tier — provided by torajs-throw at `tr build` link time.
@@ -248,7 +248,7 @@ pub unsafe extern "C" fn __torajs_arr_sort_cb(
             return;
         }
         let head = *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) as usize;
-        let slots = arr.add(ARR_HDR_DATA_OFF + head * 8) as *mut u64;
+        let slots = arr_data(arr).add(head * 8) as *mut u64;
         let cmp = Cmp { fn_ptr, env, mode };
         if len <= INSERTION_RUN {
             insertion(slots, len, &cmp);
@@ -281,14 +281,16 @@ mod tests {
     /// [cap+head 8][props 8][slots]. Returns the backing Vec (keep
     /// alive) and the block pointer.
     fn make_arr(slots: &[u64], head: u32) -> (Vec<u8>, *mut u8) {
-        let total = ARR_HDR_DATA_OFF + (head as usize + slots.len()) * 8;
+        let total = crate::layout::ARR_CELL_SIZE + (head as usize + slots.len()) * 8;
         let mut buf = vec![0u8; total];
         let p = buf.as_mut_ptr();
         unsafe {
             *(p.add(ARR_HDR_LEN_OFF) as *mut u64) = slots.len() as u64;
             *(p.add(16) as *mut u32) = (head as usize + slots.len()) as u32; // cap
             *(p.add(ARR_HDR_HEAD_OFF) as *mut u32) = head;
-            let data = p.add(ARR_HDR_DATA_OFF + head as usize * 8) as *mut u64;
+            *(p.add(crate::layout::ARR_DATA_PTR_OFF) as *mut *mut u8) =
+                p.add(crate::layout::ARR_CELL_SIZE);
+            let data = p.add(crate::layout::ARR_CELL_SIZE + head as usize * 8) as *mut u64;
             for (i, &v) in slots.iter().enumerate() {
                 *data.add(i) = v;
             }
@@ -299,7 +301,7 @@ mod tests {
     fn read_slots(p: *mut u8, n: usize, head: u32) -> Vec<u64> {
         let mut out = Vec::with_capacity(n);
         unsafe {
-            let data = p.add(ARR_HDR_DATA_OFF + head as usize * 8) as *const u64;
+            let data = arr_data(p).add(head as usize * 8) as *const u64;
             for i in 0..n {
                 out.push(*data.add(i));
             }

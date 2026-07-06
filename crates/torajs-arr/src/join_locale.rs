@@ -18,7 +18,7 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
+use crate::layout::{ARR_LEN_OFF, arr_data};
 
 const ARR_HEAD_OFF: usize = 20;
 const STR_LEN_OFF: usize = 8;
@@ -45,10 +45,7 @@ unsafe fn arr_head_offset(arr: *const u8) -> u64 {
 
 #[inline]
 unsafe fn slot_addr(arr: *const u8, i: u64) -> *const u8 {
-    unsafe {
-        arr.add(ARR_SLOTS_OFF)
-            .wrapping_add(((arr_head_offset(arr) + i) * 8) as usize)
-    }
+    unsafe { arr_data(arr).wrapping_add(((arr_head_offset(arr) + i) * 8) as usize) }
 }
 
 #[inline]

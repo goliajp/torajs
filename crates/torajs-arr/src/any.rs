@@ -21,7 +21,10 @@ use core::ffi::c_void;
 
 use torajs_rc::FLAG_ARR_ANY;
 
-use crate::layout::{ARR_LEN_OFF, ARR_PROPS_OFF, ARR_SLOTS_OFF, TAG_ARR};
+use crate::grow::grow_data_buffer;
+use crate::layout::{
+    ARR_CELL_SIZE, ARR_DATA_PTR_OFF, ARR_LEN_OFF, ARR_PROPS_OFF, TAG_ARR, arr_data,
+};
 
 /// Tag value for ANY_UNDEF — returned by OOB get to match JS spec.
 const ANY_UNDEF: u64 = 5;
@@ -45,8 +48,6 @@ unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_realloc"]
-    fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
 
     /// Cross-tier — torajs-rc. Increments refcount; NULL pass-through
     /// (post-7d-A: also no-ops for non-cell NaN-box bit patterns).
@@ -69,7 +70,7 @@ unsafe extern "C" {
 
 #[inline]
 unsafe fn slot_anyvalue_ptr(arr: *mut u8, i: u64) -> *mut u64 {
-    unsafe { arr.add(ARR_SLOTS_OFF + (i as usize) * ANY_SLOT_BYTES) as *mut u64 }
+    unsafe { arr_data(arr).add((i as usize) * ANY_SLOT_BYTES) as *mut u64 }
 }
 
 #[inline]
@@ -83,6 +84,8 @@ unsafe fn write_header_any(p: *mut u8, len: u64, cap: u32) {
         *(p.add(ARR_HEAD_OFF) as *mut u32) = 0; // Any-arrays never deque-shift
         // Round 4 chunk 5a — inline props_dynobj slot initialized to NULL.
         *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
+        // B1 — data pointer starts self-referential (inline slots).
+        *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
     }
 }
 
@@ -91,7 +94,7 @@ unsafe fn write_header_any(p: *mut u8, len: u64, cap: u32) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_any(cap: u64) -> *mut u8 {
     unsafe {
-        let total = ARR_SLOTS_OFF + (cap as usize) * ANY_SLOT_BYTES;
+        let total = ARR_CELL_SIZE + (cap as usize) * ANY_SLOT_BYTES;
         let p = malloc(total) as *mut u8;
         write_header_any(p, 0, cap as u32);
         p
@@ -107,7 +110,7 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any(cap: u64) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
     unsafe {
-        let total = ARR_SLOTS_OFF + (n as usize) * ANY_SLOT_BYTES;
+        let total = ARR_CELL_SIZE + (n as usize) * ANY_SLOT_BYTES;
         let p = malloc(total) as *mut u8;
         write_header_any(p, n, n as u32);
         if n > 0 {
@@ -131,15 +134,13 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
 /// have pre-rc-incremented the heap value; push takes ownership.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8 {
-    let mut arr = arr as *mut u8;
+    let arr = arr as *mut u8;
     unsafe {
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         let cap = *(arr.add(ARR_CAP_LOW32_OFF) as *const u32);
         if (len as u32) == cap {
             let new_cap: u32 = if cap == 0 { 4 } else { cap * 2 };
-            let total = ARR_SLOTS_OFF + (new_cap as usize) * ANY_SLOT_BYTES;
-            arr = realloc(arr as *mut c_void, total) as *mut u8;
-            *(arr.add(ARR_CAP_LOW32_OFF) as *mut u32) = new_cap;
+            grow_data_buffer(arr, new_cap as u64);
         }
         let av = __torajs_anyv_box_from_pair(tag as i64, value as i64);
         *slot_anyvalue_ptr(arr, len) = av;
@@ -158,7 +159,6 @@ pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value
 /// Caller MUST capture the return value (dst may have moved).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -> *mut u8 {
-    let mut dst = dst;
     unsafe {
         let dst_len = *(dst.add(ARR_LEN_OFF) as *const u64);
         let src_len = *(src.add(ARR_LEN_OFF) as *const u64);
@@ -172,9 +172,7 @@ pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -
             while (new_cap as u64) < needed {
                 new_cap *= 2;
             }
-            let total = ARR_SLOTS_OFF + (new_cap as usize) * ANY_SLOT_BYTES;
-            dst = realloc(dst as *mut c_void, total) as *mut u8;
-            *(dst.add(ARR_CAP_LOW32_OFF) as *mut u32) = new_cap;
+            grow_data_buffer(dst, new_cap as u64);
         }
         for i in 0..src_len {
             // src is technically *const u8; cast via *mut for the
@@ -342,7 +340,7 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
     tag: u64,
     value: u64,
 ) -> *mut u8 {
-    let mut arr = arr as *mut u8;
+    let arr = arr as *mut u8;
     unsafe {
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         if i < len {
@@ -363,9 +361,7 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
             if new_cap < i + 1 {
                 new_cap = i + 1;
             }
-            let total = ARR_SLOTS_OFF + (new_cap as usize) * ANY_SLOT_BYTES;
-            arr = realloc(arr as *mut c_void, total) as *mut u8;
-            *(arr.add(ARR_CAP_LOW32_OFF) as *mut u32) = new_cap as u32;
+            grow_data_buffer(arr, new_cap);
         }
         let undef = __torajs_anyv_box_from_pair(5, 0); // ANY_UNDEF
         for k in len..i {
@@ -403,7 +399,6 @@ pub unsafe extern "C" fn __torajs_arr_extend_typed_into_any(
     src: *const u8,
     elem_tag: u64,
 ) -> *mut u8 {
-    let mut dst = dst;
     unsafe {
         let dst_len = *(dst.add(ARR_LEN_OFF) as *const u64);
         let src_len = *(src.add(ARR_LEN_OFF) as *const u64);
@@ -417,16 +412,14 @@ pub unsafe extern "C" fn __torajs_arr_extend_typed_into_any(
             while (new_cap as u64) < needed {
                 new_cap *= 2;
             }
-            let total = ARR_SLOTS_OFF + (new_cap as usize) * ANY_SLOT_BYTES;
-            dst = realloc(dst as *mut c_void, total) as *mut u8;
-            *(dst.add(ARR_CAP_LOW32_OFF) as *mut u32) = new_cap;
+            grow_data_buffer(dst, new_cap as u64);
         }
         // Box each typed src slot per the tag scheme. src is a typed
         // deque — fold its head offset in (a shifted src otherwise
         // reads slack slots).
         let src_head = *(src.add(ARR_HEAD_OFF) as *const u32) as usize;
         for i in 0..src_len {
-            let slot_ptr = src.add(ARR_SLOTS_OFF + (src_head + i as usize) * 8);
+            let slot_ptr = arr_data(src).add((src_head + i as usize) * 8);
             let raw = match elem_tag {
                 1 => (slot_ptr as *const u8).read() as u64, // Bool — 1B store
                 _ => (slot_ptr as *const u64).read(),       // I64 / F64 / Heap — 8B

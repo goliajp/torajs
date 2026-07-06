@@ -1,32 +1,35 @@
 //! Array heap-block layout constants.
 //!
-//! Mirrors `runtime_str.c`'s arr macros 1:1 (the C runtime keeps the
-//! definitions inline so this is a deliberate duplicate; the contract
-//! is "shared layout, separately compiled"):
+//! RFC 20260706-arr-grow-alias-stability B1 (2026-07-06): the cell is
+//! FIXED — slots moved behind a data pointer so grow never relocates
+//! the cell (V8 `elements` / JSC butterfly shape, SmallVector-style
+//! inline-then-spill):
 //!
 //! ```text
 //! offset | size | field
 //! -------|------|------
 //!   0    |  8B  | universal heap header (refcount + type_tag + flags)
 //!   8    |  8B  | len (current element count, u64)
-//!  16    |  8B  | cap (u32) + head_offset (u32) — packed T-13.5
+//!  16    |  8B  | cap (u32) + head_offset (u32) — packed T-13.5;
+//!                  cap describes the CURRENT data buffer
 //!  24    |  8B  | props_dynobj — pointer to inline arr-prop dynobj or
 //!                  NULL when no `arr.x = v` was ever written
-//!                  (Round 4 chunk 5a layout, 2026-06-25;
-//!                  chunk 5b+ flips arrprops_set to write here inline)
-//!  32    | 8×n  | slots[cap] — 8 bytes each (boxed-Any tag/value or
-//!                  inline scalar depending on the element type)
+//!  32    |  8B  | data — pointer to slots[cap]. Freshly allocated
+//!                  arrays point it at the inline region (cell+40,
+//!                  same malloc block — zero locality change); grow
+//!                  swaps it to an independent buffer and the cell
+//!                  never moves. Aliases stay valid across grow.
+//!  40    | 8×n  | inline slots region (only while data == cell+40;
+//!                  dead space after a grow spilled to a buffer)
 //! ```
 //!
 //! Sub-types (encoded via the universal header's `type_tag` /
 //! `flags`):
 //! - `Array<T>` (T is a tightly-typed scalar) → slots are raw values
-//! - `Array<Any>` (FLAG_ARR_ANY set) → each slot is a tag/value pair
-//!   spread over 16 bytes; len/cap are still element counts but each
-//!   element is 16 B instead of 8. See `runtime_str.c` arr_alloc_any.
+//! - `Array<Any>` (FLAG_ARR_ANY set) → each slot is an 8-byte NaN-box
 //! - `Array<Substr>` split-block (FLAG_SPLIT_BLOCK in `torajs-str`) —
-//!   same 32-byte header (chunk 5a sync); slots are `*mut u8` pointers
-//!   into inline substrs trailing the slot table. See
+//!   same 40-byte cell (B1 sync); split blocks never grow so their
+//!   data pointer is permanently self-referential. See
 //!   `torajs-str/src/split/pool.rs::ARR_HDR_SIZE`.
 
 /// `type_tag` value for Array heap blocks (matches
@@ -47,10 +50,34 @@ pub const ARR_CAP_OFF: usize = HEAP_HEADER_SIZE + 8;
 /// read by `__torajs_arr_drop` to release the chained props block.
 pub const ARR_PROPS_OFF: usize = HEAP_HEADER_SIZE + 16;
 
-/// Offset of `slots[0]` — the inline-following element array.
-/// Bumped from 24 → 32 in Round 4 chunk 5a to make room for the
-/// inline `props_dynobj` slot at offset 24. Cross-crate sync sites
+/// Offset of the `data` pointer field — points at `slots[0]`
+/// (RFC 20260706-arr-grow-alias-stability B1). Cross-crate sync sites
 /// (must move in lockstep):
-/// - `torajs_core::ssa_lower::ARR_DATA_OFF` (IR emit)
-/// - `torajs_str::split::pool::ARR_HDR_SIZE` (split-block layout)
-pub const ARR_SLOTS_OFF: usize = HEAP_HEADER_SIZE + 24;
+/// - `torajs_core::ssa_lower::ARR_DATA_PTR_OFF` (IR emit)
+/// - `torajs_cycle::layout` (cycle walker mirror)
+/// - `torajs_str::split::pool` (split-block layout)
+pub const ARR_DATA_PTR_OFF: usize = HEAP_HEADER_SIZE + 24;
+
+/// Fixed cell size — header through the `data` pointer field. The
+/// inline slots region starts here; `arr_data(cell)` == `cell +
+/// ARR_CELL_SIZE` exactly while the array has never grown.
+pub const ARR_CELL_SIZE: usize = HEAP_HEADER_SIZE + 32;
+
+/// Read the slots base pointer from a cell.
+///
+/// # Safety
+/// `arr` must be a live array cell with an initialized data field.
+#[inline]
+pub unsafe fn arr_data(arr: *const u8) -> *mut u8 {
+    unsafe { *(arr.add(ARR_DATA_PTR_OFF) as *const *mut u8) }
+}
+
+/// True when the data pointer still targets the cell's own inline
+/// region (single-block state; grow spills to an external buffer).
+///
+/// # Safety
+/// Same contract as [`arr_data`].
+#[inline]
+pub unsafe fn arr_data_is_inline(arr: *const u8) -> bool {
+    unsafe { arr_data(arr) == (arr as *mut u8).add(ARR_CELL_SIZE) }
+}

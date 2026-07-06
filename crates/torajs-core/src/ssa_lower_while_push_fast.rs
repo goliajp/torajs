@@ -31,7 +31,7 @@
 
 use crate::ast::{ExprId, Stmt};
 use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{ARR_DATA_OFF, ARR_LEN_OFF, LowerCtx, PreReserveState};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState};
 use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays_while;
 
 /// 12-c-1 — `while` lowering, with an optional pre-reserve fast-push
@@ -116,16 +116,15 @@ pub(crate) fn lower_while_inner(
                 InstKind::Store(Operand::Value(reserved), Operand::Value(info.slot), 0),
             );
             let head_x8 = ctx.emit_arr_head_x8(Operand::Value(reserved));
-            let head_off = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BinOp(
-                    SsaBinOp::Add,
-                    head_x8,
-                    Operand::ConstI64(ARR_DATA_OFF as i64),
-                ),
-                Type::I64,
-                None,
-            );
+            let head_off = match head_x8 {
+                Operand::Value(v) => v,
+                _ => unreachable!("emit_arr_head_x8 returns a value"),
+            };
+            let data_op = ctx.emit_arr_data_ptr(Operand::Value(reserved));
+            let data_ptr = match data_op {
+                Operand::Value(v) => v,
+                _ => unreachable!("emit_arr_data_ptr returns a value"),
+            };
             let len_after = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Load(Type::I64, Operand::Value(reserved), ARR_LEN_OFF),
@@ -141,6 +140,7 @@ pub(crate) fn lower_while_inner(
                 name.clone(),
                 PreReserveState {
                     arr_ptr: reserved,
+                    data_ptr,
                     head_off,
                     len_slot,
                 },

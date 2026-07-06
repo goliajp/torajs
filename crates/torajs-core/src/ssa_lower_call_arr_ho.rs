@@ -272,7 +272,7 @@ fn prepare_acc_slot(
                 None,
             )
         };
-        let off = ctx.emit_arr_slot_byte_offset(
+        let (off_base, off) = ctx.emit_arr_slot_byte_offset(
             Operand::Value(src_arr),
             Operand::Value(seed_idx),
             3,
@@ -280,7 +280,7 @@ fn prepare_acc_slot(
         );
         let seed = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::LoadDyn(elem_ty, Operand::Value(src_arr), off),
+            InstKind::LoadDyn(elem_ty, off_base.clone(), off),
             elem_ty,
             None,
         );

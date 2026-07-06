@@ -19,7 +19,7 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
+use crate::layout::{ARR_LEN_OFF, arr_data};
 
 /// Cap slot (low 32 bits) + head_offset (high 32) live at offset 16.
 const ARR_HEAD_OFF: usize = 20;
@@ -31,7 +31,7 @@ const ARR_HEAD_OFF: usize = 20;
 pub(crate) unsafe fn data_ptr(arr: *mut u8) -> *mut u8 {
     unsafe {
         let head = *(arr.add(ARR_HEAD_OFF) as *const u32) as usize;
-        arr.add(ARR_SLOTS_OFF + head * 8)
+        arr_data(arr).add(head * 8)
     }
 }
 
@@ -75,7 +75,7 @@ pub unsafe extern "C" fn __torajs_arr_extend_unchecked(dst: *mut u8, src: *const
         // semantics. Implementation mirrors the C version's
         // memcpy(ARR_SLOT(dst, dst_len), ARR_CSLOT(src, 0), src_len * 8).
         let src_head = *(src.add(ARR_HEAD_OFF) as *const u32) as usize;
-        let src_slot = src.add(ARR_SLOTS_OFF + src_head * 8);
+        let src_slot = arr_data(src).add(src_head * 8);
         core::ptr::copy_nonoverlapping(src_slot, dst_slot, src_len as usize * 8);
         *(dst.add(ARR_LEN_OFF) as *mut u64) = dst_len + src_len;
     }

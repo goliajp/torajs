@@ -250,11 +250,11 @@ fn emit_body_and_step(
         None,
     );
     // T-13.5: head-aware offset for some/every/findIndex.
-    let off =
+    let (off_base, off) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now2), 3, false);
     let elem = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, Operand::Value(src_arr), off),
+        InstKind::LoadDyn(elem_ty, off_base.clone(), off),
         elem_ty,
         None,
     );

@@ -156,11 +156,12 @@ fn lower_index(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId, is_inc: bool)
         other => panic!("ssa-lower: post-incr index on non-array {other:?}"),
     };
     let idx_val = ctx.lower_index_operand(index);
-    let offset = ctx.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
+    let (offset_base, offset) =
+        ctx.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
     let cur_block = ctx.cur_block;
     let old = ctx.f.append_inst(
         cur_block,
-        InstKind::LoadDyn(elem_ty, arr_val.clone(), offset.clone()),
+        InstKind::LoadDyn(elem_ty, offset_base.clone(), offset.clone()),
         elem_ty,
         None,
     );
@@ -174,7 +175,7 @@ fn lower_index(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId, is_inc: bool)
     );
     ctx.f.append_void(
         cur_block,
-        InstKind::StoreDyn(Operand::Value(new_v), arr_val, offset),
+        InstKind::StoreDyn(Operand::Value(new_v), offset_base.clone(), offset),
     );
     Operand::Value(old)
 }

@@ -39,15 +39,24 @@ pub const ARR_LEN_OFF: usize = 8;
 /// Byte offset of `head` (u32) inside an Array<T> heap block.
 pub const ARR_HEAD_OFF: usize = 20;
 
-/// Byte offset of slot[0] *before head adjustment* — physical slot
-/// `i` lives at `ARR_DATA_OFF + i * ARR_SLOT_STRIDE`. Mirrors
-/// torajs-arr `ARR_SLOTS_OFF` (header 8 + len 8 + cap/head 8 +
-/// props_dynobj 8).
-pub const ARR_DATA_OFF: usize = 32;
+/// Byte offset of the `data` pointer field — slots live behind it
+/// since RFC 20260706-arr-grow-alias-stability B1 (the cell is fixed;
+/// grow swaps the buffer). Mirrors torajs-arr `ARR_DATA_PTR_OFF`
+/// (header 8 + len 8 + cap/head 8 + props_dynobj 8).
+pub const ARR_DATA_PTR_OFF: usize = 32;
 
 /// Bytes per slot — shared by typed Array<T> (raw pointers) and
 /// Array<Any> (NaN-box `AnyValue`s).
 pub const ARR_SLOT_STRIDE: usize = 8;
+
+/// Read the slots base pointer (torajs-arr `arr_data` mirror).
+///
+/// # Safety
+/// `p` must be a non-NULL array cell with an initialized data field.
+#[inline]
+unsafe fn arr_data(p: *mut c_void) -> *mut u8 {
+    unsafe { *((p as *const u8).add(ARR_DATA_PTR_OFF) as *const *mut u8) }
+}
 
 /// Read the logical `len` of an Array<T> block.
 ///
@@ -59,12 +68,13 @@ pub unsafe fn arr_len_of(p: *mut c_void) -> u64 {
     unsafe { *((p as *const u8).add(ARR_LEN_OFF) as *const u64) }
 }
 
-/// Compute the byte offset of logical slot `i` in an Array<T>
-/// block, applying the deque-shift `head` offset.
+/// Address of logical slot `i` in an Array<T> block, applying the
+/// deque-shift `head` offset (through the data pointer — B1).
 #[inline]
-pub unsafe fn arr_slot_byte_off(p: *mut c_void, i: u64) -> usize {
+unsafe fn arr_slot_ptr(p: *mut c_void, i: u64) -> *mut *mut c_void {
     let head = unsafe { *((p as *const u8).add(ARR_HEAD_OFF) as *const u32) };
-    ARR_DATA_OFF + ((head as u64 + i) as usize) * ARR_SLOT_STRIDE
+    let off = ((head as u64 + i) as usize) * ARR_SLOT_STRIDE;
+    unsafe { arr_data(p).add(off) as *mut *mut c_void }
 }
 
 /// Read logical slot `i` as a raw `*mut c_void`.
@@ -73,8 +83,7 @@ pub unsafe fn arr_slot_byte_off(p: *mut c_void, i: u64) -> usize {
 /// Same as `arr_len_of`; additionally `i` must be < `arr_len_of(p)`.
 #[inline]
 pub unsafe fn arr_slot_at(p: *mut c_void, i: u64) -> *mut c_void {
-    let off = unsafe { arr_slot_byte_off(p, i) };
-    unsafe { *((p as *mut u8).add(off) as *mut *mut c_void) }
+    unsafe { *arr_slot_ptr(p, i) }
 }
 
 /// NaN-box discriminator mirror (torajs-anyvalue `nanbox.rs` —
@@ -113,6 +122,5 @@ pub unsafe fn arr_child_at(p: *mut c_void, i: u64) -> *mut c_void {
 /// Same as `arr_slot_at`.
 #[inline]
 pub unsafe fn arr_slot_clear(p: *mut c_void, i: u64) {
-    let off = unsafe { arr_slot_byte_off(p, i) };
-    unsafe { *((p as *mut u8).add(off) as *mut *mut c_void) = core::ptr::null_mut() };
+    unsafe { *arr_slot_ptr(p, i) = core::ptr::null_mut() };
 }

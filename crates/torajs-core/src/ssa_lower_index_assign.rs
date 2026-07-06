@@ -192,14 +192,15 @@ impl<'a> LowerCtx<'a> {
             self.emit_rc_inc(v.clone());
         }
         // T-13.5: head-aware byte offset for indexed assign.
-        let offset = self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
+        let (offset_base, offset) =
+            self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
         // Drop old elem if non-Copy. M1.2 MVP only ships i64
         // elements (Copy), so this branch currently never fires; lays
         // groundwork for non-Copy element types in a follow-up.
         if !elem_ty.is_copy() {
             let old = self.f.append_inst(
                 self.cur_block,
-                InstKind::LoadDyn(elem_ty, arr_val.clone(), offset.clone()),
+                InstKind::LoadDyn(elem_ty, offset_base.clone(), offset.clone()),
                 elem_ty,
                 None,
             );
@@ -207,7 +208,7 @@ impl<'a> LowerCtx<'a> {
         }
         self.f.append_void(
             self.cur_block,
-            InstKind::StoreDyn(v.clone(), arr_val, offset),
+            InstKind::StoreDyn(v.clone(), offset_base.clone(), offset),
         );
         let wb = self.cur_block;
         self.f.set_term(wb, Terminator::Br(join_blk));

@@ -86,11 +86,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
     if elem_ty == Type::Any {
         return lower_array_any_index(ctx, arr_val, idx_val);
     }
-    let offset = ctx.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
+    let (offset_base, offset) =
+        ctx.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::LoadDyn(elem_ty, arr_val, offset),
+        InstKind::LoadDyn(elem_ty, offset_base.clone(), offset),
         elem_ty,
         None,
     );

@@ -217,11 +217,11 @@ fn emit_insertion_sort(
         None,
     );
     // T-13.5: head-aware byte offset for arr.sort() reads.
-    let off_i =
+    let (off_i_base, off_i) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(i_now2), 3, false);
     let cur = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, Operand::Value(arr_ptr), off_i),
+        InstKind::LoadDyn(elem_ty, off_i_base.clone(), off_i),
         elem_ty,
         None,
     );
@@ -266,11 +266,11 @@ fn emit_insertion_sort(
         Type::I64,
         None,
     );
-    let off_jm1 =
+    let (off_jm1_base, off_jm1) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_minus_1), 3, false);
     let prev = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, Operand::Value(arr_ptr), off_jm1.clone()),
+        InstKind::LoadDyn(elem_ty, off_jm1_base.clone(), off_jm1.clone()),
         elem_ty,
         None,
     );
@@ -290,21 +290,21 @@ fn emit_insertion_sort(
     );
     // inner body: xs[j] = xs[j-1]; j--
     ctx.cur_block = inner_body;
-    let off_j =
+    let (off_j_base, off_j) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_now), 3, false);
     // off_jm1 was computed in inner_check; recompute
     // here since this is a different block.
-    let off_jm1_b =
+    let (off_jm1_base, off_jm1_b) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_minus_1), 3, false);
     let prev2 = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, Operand::Value(arr_ptr), off_jm1_b),
+        InstKind::LoadDyn(elem_ty, off_jm1_base, off_jm1_b),
         elem_ty,
         None,
     );
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::StoreDyn(Operand::Value(prev2), Operand::Value(arr_ptr), off_j),
+        InstKind::StoreDyn(Operand::Value(prev2), off_j_base, off_j),
     );
     ctx.f.append_void(
         ctx.cur_block,
@@ -319,11 +319,11 @@ fn emit_insertion_sort(
         Type::I64,
         None,
     );
-    let off_jf =
+    let (off_jf_base, off_jf) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_final), 3, false);
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::StoreDyn(Operand::Value(cur), Operand::Value(arr_ptr), off_jf),
+        InstKind::StoreDyn(Operand::Value(cur), off_jf_base.clone(), off_jf),
     );
     // i++
     let i_next = ctx.f.append_inst(

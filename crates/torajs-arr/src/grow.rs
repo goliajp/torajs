@@ -25,12 +25,7 @@ const ARR_HDR_CAP_OFF: usize = 16;
 /// deque packed cap + head).
 const ARR_HDR_HEAD_OFF: usize = 20;
 
-/// Offset of the slot array within an array heap block. Mirrors
-/// `crate::layout::ARR_SLOTS_OFF` (single source of truth) — bumped
-/// 24 → 32 in Round 4 chunk 5a so the inline `props_dynobj` slot
-/// fits between cap/head and slots. ssa_lower's deque-layout table
-/// is kept in sync via `torajs_core::ssa_lower::ARR_DATA_OFF`.
-use crate::layout::ARR_SLOTS_OFF as ARR_HDR_DATA_OFF;
+use crate::layout::{ARR_DATA_PTR_OFF, arr_data, arr_data_is_inline};
 
 unsafe extern "C" {
     /// Cross-tier — provided by torajs-throw at `tr build` link time
@@ -46,14 +41,34 @@ unsafe extern "C" {
     #[link_name = "__torajs_libc_realloc"]
     fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
 
-    /// torajs-mmalloc libc-compat malloc / free — used by the pool-aware
-    /// grow path in `__torajs_arr_push` (alloc-new + memcpy + free-old
-    /// replaces `realloc` so cap=0 blocks re-enter the array pool —
-    /// Round 4 wire-back chunk 2 attack #4, 2026-06-25).
+    /// torajs-mmalloc libc-compat malloc — first grow spills the
+    /// inline slots region to an independent buffer (B1).
     #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
+}
+
+/// RFC 20260706-arr-grow-alias-stability B1 — grow the data buffer to
+/// `new_cap` slots (8-byte stride; typed and Array<Any> share it).
+/// The CELL never moves, so every alias — caller bindings, container
+/// slots, struct fields, globals — stays valid across grow. First
+/// grow spills the inline region to a malloc'd buffer (full physical
+/// range copied, preserving deque head layout); later grows realloc
+/// the buffer in place.
+pub(crate) unsafe fn grow_data_buffer(arr: *mut u8, new_cap: u64) {
+    unsafe {
+        let new_bytes = (new_cap as usize) * 8;
+        let old_data = arr_data(arr);
+        let new_data = if arr_data_is_inline(arr) {
+            let buf = malloc(new_bytes) as *mut u8;
+            let old_cap = *(arr.add(ARR_HDR_CAP_OFF) as *const u32) as usize;
+            core::ptr::copy_nonoverlapping(old_data, buf, old_cap * 8);
+            buf
+        } else {
+            realloc(old_data as *mut c_void, new_bytes) as *mut u8
+        };
+        *(arr.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = new_data;
+        *(arr.add(ARR_HDR_CAP_OFF) as *mut u32) = new_cap as u32;
+    }
 }
 
 /// `arr.length = v` validator (ES §9.4.2.4: throw RangeError if `v`
@@ -145,27 +160,23 @@ pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
     // — leave len untouched (silent no-op for now, recorded as L3b).
 }
 
-/// Push `val` onto the end of `arr`, growing the backing block if
-/// needed. Returns the (possibly relocated) array pointer; caller
-/// stores it back. Mirrors `__torajs_arr_push_unchecked` semantically
-/// but with the cap-check + compact + grow path.
-///
-/// Algorithm (1:1 port of ssa_inkwell::define_arr_push, 187 LOC IR @
-/// L2647-2829; collapsed via native realloc + ptr::copy + linear
-/// control flow):
+/// Push `val` onto the end of `arr`, growing the data buffer if
+/// needed. Returns `arr` unchanged — the cell never moves (B1);
+/// callers that store the return value back are harmless no-ops
+/// (write-back chain retires in B3).
 ///
 /// ```text
 /// fast path: head + len < cap → store immediately
 /// need-room:
 ///   if head > 0: memmove(data, data + head*8, len*8); head = 0  // T-13.5 compact
-///   if len == cap: realloc(new_cap = max(4, cap*2)); update cap
-/// store: data = arr + 24 + head*8 (re-load head); *(data + len*8) = val; len += 1
+///   if len == cap: grow_data_buffer(max(4, cap*2))
+/// store: *(arr_data(arr) + (head + len)*8) = val; len += 1
 /// ```
 ///
 /// # Safety
 /// `extern "C"` ABI. `arr` must be a live Array<T> heap block (8-byte
-/// slot stride — Array<Any> uses a 16-byte stride and has its own
-/// push_any path in [`crate::any`]).
+/// slot stride — Array<Any> has its own push_any path in
+/// [`crate::any`]).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
     let len = unsafe { *(arr.add(ARR_HDR_LEN_OFF) as *const u64) } as i64;
@@ -173,11 +184,10 @@ pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
     let head = unsafe { *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) } as i64;
     let phys_used = head + len;
 
-    let mut arr = arr;
     if phys_used >= cap {
         if head > 0 {
             unsafe {
-                let raw_data = arr.add(ARR_HDR_DATA_OFF);
+                let raw_data = arr_data(arr);
                 let src = raw_data.add((head as usize) * 8);
                 core::ptr::copy(src, raw_data, (len as usize) * 8);
                 *(arr.add(ARR_HDR_HEAD_OFF) as *mut u32) = 0;
@@ -185,52 +195,14 @@ pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
         }
         if len == cap {
             let new_cap = if cap == 0 { 4 } else { cap * 2 };
-            let new_total = (new_cap as usize) * 8 + ARR_HDR_DATA_OFF;
-            // Pool-aware grow (Round 4 wire-back chunk 2 attack #4):
-            // alloc new (pool-first) + memcpy + free old (pool-first).
-            // Replaces `realloc` so the freed cap=0 / cap=N block re-enters
-            // the cap-match pool — without this, the fast `[].push(x)`
-            // pattern realloc's the cap=0 block in-place, leaving alloc(0)
-            // forever pool-miss on subsequent iterations.
-            let old_arr = arr;
-            let new_arr: *mut u8 = if (new_cap as u64) <= crate::pool::POOL_CAP_MAX {
-                let r = crate::pool::pop_cap_match(new_cap as u64);
-                if !r.is_null() {
-                    r
-                } else {
-                    unsafe { malloc(new_total) as *mut u8 }
-                }
-            } else {
-                unsafe { malloc(new_total) as *mut u8 }
-            };
-            // head was compacted to 0 immediately above; copy header (24B)
-            // + live slots [0..len) only.
-            let copy_total = ARR_HDR_DATA_OFF + (len as usize) * 8;
-            unsafe { core::ptr::copy_nonoverlapping(old_arr, new_arr, copy_total) };
-            arr = new_arr;
-            unsafe {
-                *(arr.add(ARR_HDR_CAP_OFF) as *mut u32) = new_cap as u32;
-            }
-            // Free old: regular Array<T> reaching arr_push cannot carry
-            // FLAG_ARR_ANY (uses arr_push_any) / FLAG_SPLIT_BLOCK (split
-            // result is immutable) / FLAG_STATIC_LITERAL (would COW
-            // upstream). Push directly to the cap-match pool; libc free
-            // on pool full.
-            let count = crate::pool::current_count();
-            let pushed = (cap as u64) <= crate::pool::POOL_CAP_MAX
-                && count < crate::pool::POOL_SLOTS
-                && crate::pool::push(old_arr, cap as u64);
-            if !pushed {
-                unsafe { free(old_arr as *mut c_void) };
-            }
+            unsafe { grow_data_buffer(arr, new_cap as u64) };
         }
     }
 
     // Re-load head — compact path may have reset it to 0.
     let head_now = unsafe { *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) } as i64;
     unsafe {
-        let data = arr.add(ARR_HDR_DATA_OFF + (head_now as usize) * 8);
-        let slot = data.add((len as usize) * 8) as *mut i64;
+        let slot = arr_data(arr).add(((head_now + len) as usize) * 8) as *mut i64;
         *slot = val;
         *(arr.add(ARR_HDR_LEN_OFF) as *mut u64) = (len + 1) as u64;
     }
@@ -292,7 +264,7 @@ pub unsafe extern "C" fn __torajs_arr_shift(arr: *mut u8) -> i64 {
         );
         let head_p = arr.add(ARR_HDR_HEAD_OFF) as *mut u32;
         let head = *head_p as usize;
-        let slot = arr.add(ARR_HDR_DATA_OFF + head * 8) as *const i64;
+        let slot = arr_data(arr).add(head * 8) as *const i64;
         let v = *slot;
         *head_p = (head + 1) as u32;
         let len_p = arr.add(ARR_HDR_LEN_OFF) as *mut u64;
@@ -301,38 +273,20 @@ pub unsafe extern "C" fn __torajs_arr_shift(arr: *mut u8) -> i64 {
     }
 }
 
-/// Grow an array's backing block to fit at least `new_cap` elements.
-/// Cap-equal short-circuits to no-op (returns input pointer unchanged).
-///
-/// **Returns the (possibly relocated) array pointer** — the caller
-/// must use the return value, not the input pointer, since `realloc`
-/// may move the block.
-///
-/// Algorithm (1:1 port of ssa_inkwell::define_arr_reserve, 66 LOC IR
-/// → ~10 LOC Rust thanks to native realloc + raw-pointer arithmetic):
-///
-/// ```text
-/// if cap(arr) >= new_cap: return arr   // no-op short-circuit
-/// new_total = new_cap * 8 + ARR_HDR_DATA_OFF
-/// arr = realloc(arr, new_total)
-/// *(u32*)(arr + ARR_HDR_CAP_OFF) = new_cap as u32
-/// return arr
-/// ```
+/// Grow an array's data buffer to fit at least `new_cap` elements.
+/// Cap-equal short-circuits to no-op. Returns `arr` unchanged — the
+/// cell never moves (B1); the historical "caller must adopt the
+/// return value" contract is now a harmless no-op.
 ///
 /// # Safety
 /// `extern "C"` ABI. `arr` must be a live array heap block (non-NULL,
 /// allocated via `__torajs_arr_alloc*`); `new_cap` non-negative.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_reserve(arr: *mut u8, new_cap: i64) -> *mut u8 {
-    let cap_p = unsafe { arr.add(ARR_HDR_CAP_OFF) as *mut u32 };
-    let cap = unsafe { *cap_p } as i64;
+    let cap = unsafe { *(arr.add(ARR_HDR_CAP_OFF) as *const u32) } as i64;
     if cap >= new_cap {
         return arr;
     }
-    let new_total = (new_cap as usize) * 8 + ARR_HDR_DATA_OFF;
-    let arr_grown = unsafe { realloc(arr as *mut c_void, new_total) as *mut u8 };
-    unsafe {
-        *(arr_grown.add(ARR_HDR_CAP_OFF) as *mut u32) = new_cap as u32;
-    }
-    arr_grown
+    unsafe { grow_data_buffer(arr, new_cap as u64) };
+    arr
 }

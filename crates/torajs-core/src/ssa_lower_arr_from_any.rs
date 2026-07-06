@@ -25,7 +25,7 @@
 
 use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, intern_arr_layout};
-use crate::ssa_lower_array::LoweredItem;
+use crate::ssa_lower_array_spread::LoweredItem;
 
 /// Emit the any-iterable → `Array<Any>` materialization loop. See
 /// module doc for the ownership contract.

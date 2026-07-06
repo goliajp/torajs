@@ -25,7 +25,7 @@ use torajs_rc::{
     HeapHeader,
 };
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
+use crate::layout::{ARR_LEN_OFF, arr_data};
 
 const ARR_HEAD_OFF: usize = 20;
 
@@ -71,7 +71,7 @@ pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) ->
             return undef();
         }
         let head = *(p.add(ARR_HEAD_OFF) as *const u32) as u64;
-        let slot = p.add(ARR_SLOTS_OFF + ((head + idx as u64) as usize) * 8);
+        let slot = arr_data(p).add(((head + idx as u64) as usize) * 8);
         let raw = *(slot as *const u64);
         let header = &*(arr as *const HeapHeader);
         if header.flags & FLAG_ARR_ANY != 0 {
@@ -156,7 +156,7 @@ pub unsafe extern "C" fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag:
             return;
         }
         let head = *(p.add(ARR_HEAD_OFF) as *const u32) as u64;
-        let slot = p.add(ARR_SLOTS_OFF + ((head + idx as u64) as usize) * 8) as *mut u64;
+        let slot = arr_data(p).add(((head + idx as u64) as usize) * 8) as *mut u64;
         let kind = header.arr_elem_kind();
         let raw: u64 = match (kind, tag) {
             // I64 slot: int direct; integral double narrows.

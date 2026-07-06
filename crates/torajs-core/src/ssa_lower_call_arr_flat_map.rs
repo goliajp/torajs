@@ -130,11 +130,11 @@ pub(crate) fn try_lower(
         _ => unreachable!(),
     }];
     // T-13.5: head-aware offset for flatMap src walk.
-    let off =
+    let (off_base, off) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now), 3, false);
     let elem = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(src_elem_ty, Operand::Value(src_arr), off),
+        InstKind::LoadDyn(src_elem_ty, off_base.clone(), off),
         src_elem_ty,
         None,
     );
@@ -209,11 +209,11 @@ fn emit_inner_walk(
     );
     ctx.cur_block = ib;
     // T-13.5: head-aware offset for flatMap inner walk.
-    let joff =
+    let (joff_base, joff) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(inner_arr), Operand::Value(j_now), 3, false);
     let inner_elem = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(dst_elem_ty, Operand::Value(inner_arr), joff),
+        InstKind::LoadDyn(dst_elem_ty, joff_base.clone(), joff),
         dst_elem_ty,
         None,
     );

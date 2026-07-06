@@ -29,7 +29,7 @@ use torajs_rc::{
     HeapHeader, Tag,
 };
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
+use crate::layout::{ARR_LEN_OFF, arr_data};
 
 /// Write `chain & 7` into the header's element-kind field; when that
 /// level is [`ARR_KIND_HEAP`] and a deeper chain remains, walk the
@@ -64,7 +64,7 @@ pub unsafe extern "C" fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64) {
         let arr_u8 = arr as *mut u8;
         let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
         for i in 0..len {
-            let slot = *(arr_u8.add(ARR_SLOTS_OFF + (i as usize) * 8) as *const u64);
+            let slot = *(arr_data(arr_u8).add((i as usize) * 8) as *const u64);
             let child = slot as *mut c_void;
             if child.is_null() {
                 continue;
@@ -123,21 +123,25 @@ mod tests {
     fn mark_heap_chain_recurses_into_nested_arr() {
         // outer = Arr with one slot pointing at inner Arr; chain =
         // HEAP | (I64 << 3) must set outer=HEAP, inner=I64.
-        let mut inner = [0u8; 32];
+        let mut inner = [0u8; 40];
         let ip = inner.as_mut_ptr();
-        let mut outer = [0u8; 40];
+        let mut outer = [0u8; 48];
         let op = outer.as_mut_ptr();
         unsafe {
             *(ip as *mut u32) = 1;
             *(ip.add(4) as *mut u16) = crate::layout::TAG_ARR;
             *(ip.add(6) as *mut u16) = 0;
             *(ip.add(ARR_LEN_OFF) as *mut u64) = 0;
+            *(ip.add(crate::layout::ARR_DATA_PTR_OFF) as *mut *mut u8) =
+                ip.add(crate::layout::ARR_CELL_SIZE);
 
             *(op as *mut u32) = 1;
             *(op.add(4) as *mut u16) = crate::layout::TAG_ARR;
             *(op.add(6) as *mut u16) = 0;
             *(op.add(ARR_LEN_OFF) as *mut u64) = 1;
-            *(op.add(ARR_SLOTS_OFF) as *mut u64) = ip as u64;
+            *(op.add(crate::layout::ARR_DATA_PTR_OFF) as *mut *mut u8) =
+                op.add(crate::layout::ARR_CELL_SIZE);
+            *(arr_data(op) as *mut u64) = ip as u64;
 
             let chain = (ARR_KIND_HEAP as u64) | ((ARR_KIND_I64 as u64) << 3);
             __torajs_arr_mark_kind(op as *mut c_void, chain);

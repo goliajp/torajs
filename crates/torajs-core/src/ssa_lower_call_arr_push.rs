@@ -97,9 +97,9 @@ fn try_lower_ident_local(
     // v0.6+1 perf checkpoint — push-loop pre-reserve. If the enclosing
     // for-loop's lowerer detected the canonical fill pattern and emitted
     // `arr_reserve(xs, len + N)`, this push is guaranteed to fit without
-    // realloc. Inline the fast-path: read hoisted len, write the slot at
-    // arr_ptr + head_off + len*8, bump len_slot. head_off already encodes
-    // (head*8 + ARR_DATA_OFF) so the byte offset is head_off + len*8.
+    // a buffer grow. Inline the fast-path: read hoisted len, write the
+    // slot at data_ptr + head_off + len*8, bump len_slot (B1: base is
+    // the hoisted data pointer; the reserve guarantees it stays valid).
     if let Some(state) = ctx.push_unchecked_for.get(recv_name).copied() {
         let len_now = ctx.f.append_inst(
             ctx.cur_block,
@@ -127,7 +127,7 @@ fn try_lower_ident_local(
             ctx.cur_block,
             InstKind::StoreDyn(
                 val.clone(),
-                Operand::Value(state.arr_ptr),
+                Operand::Value(state.data_ptr),
                 Operand::Value(byte_off),
             ),
         );

@@ -427,10 +427,11 @@ fn emit_elem_load(
             None,
         )
     } else {
-        let off = ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(i_cur), 3, false);
+        let (off_base, off) =
+            ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(i_cur), 3, false);
         ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::LoadDyn(elem_ty, recv_op, off),
+            InstKind::LoadDyn(elem_ty, off_base.clone(), off),
             elem_ty,
             None,
         )

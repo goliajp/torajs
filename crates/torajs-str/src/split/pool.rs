@@ -28,16 +28,19 @@ use crate::substr::SUBSTR_SIZE;
 //   offset 16 — cap u32 + head_offset u32 (packed)
 //   offset 24 — props_dynobj u64 (NULL for split blocks; chunk 5b+
 //                 enables inline arr-props via this slot)
-//   offset 32 — slots[cap] (each 8B substr_ptr for split blocks)
+//   offset 32 — data pointer (RFC 20260706-arr-grow-alias-stability
+//                 B1; split blocks never grow, so it is permanently
+//                 self-referential → block+40)
+//   offset 40 — slots[cap] (each 8B substr_ptr for split blocks)
 //
 // Split blocks additionally carry `cap × SUBSTR_SIZE` inline substrs
 // trailing the slot table — local to split's emit, not part of the
 // shared Array layout. The three values must move in lockstep with
-// `torajs_arr::layout::ARR_SLOTS_OFF` / `ARR_PROPS_OFF` and
+// `torajs_arr::layout::ARR_DATA_PTR_OFF` / `ARR_CELL_SIZE` and
 // `torajs_core::ssa_lower::ARR_DATA_OFF` (chunk 5a comment in each).
 // ============================================================
 
-pub(crate) const ARR_HDR_SIZE: usize = 32;
+pub(crate) const ARR_HDR_SIZE: usize = 40;
 pub(crate) const ARR_CAP_OFF: usize = 16;
 /// Inline `props_dynobj` slot (Round 4 chunk 5a). Split blocks
 /// initialize this to NULL in [`crate::split::ops::write_arr_header`]
@@ -63,8 +66,8 @@ static COUNT: AtomicUsize = AtomicUsize::new(0);
 // ============================================================
 
 /// Exact byte size of a split block for the given `cap`:
-/// `ARR_HDR_SIZE + cap * 8 + cap * SUBSTR_SIZE` = `32 + 40 * cap`
-/// (Round 4 chunk 5a: header bumped 24 → 32).
+/// `ARR_HDR_SIZE + cap * 8 + cap * SUBSTR_SIZE` = `40 + 40 * cap`
+/// (B1: cell bumped 32 → 40 for the data-pointer field).
 #[inline]
 pub fn block_size(cap: u64) -> usize {
     let cap_u = cap as usize;
@@ -195,12 +198,12 @@ mod tests {
 
     #[test]
     fn block_size_matches_c_formula() {
-        // Round 4 chunk 5a: ARR_HDR_SIZE bumped 24 → 32 for inline
-        // props_dynobj slot. block_size = 32 + cap × 40 (8 slot + 32 substr).
-        assert_eq!(block_size(0), 32);
-        assert_eq!(block_size(1), 32 + 8 + 32);
-        assert_eq!(block_size(3), 32 + 24 + 96);
-        assert_eq!(block_size(10), 32 + 80 + 320);
+        // B1: ARR_HDR_SIZE bumped 32 → 40 for the data-pointer
+        // field. block_size = 40 + cap × 40 (8 slot + 32 substr).
+        assert_eq!(block_size(0), 40);
+        assert_eq!(block_size(1), 40 + 8 + 32);
+        assert_eq!(block_size(3), 40 + 24 + 96);
+        assert_eq!(block_size(10), 40 + 80 + 320);
     }
 
     #[test]

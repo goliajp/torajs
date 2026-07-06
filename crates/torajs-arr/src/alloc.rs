@@ -23,7 +23,9 @@ use core::ffi::c_void;
 
 use torajs_rc::{FLAG_ARR_ANY, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, HeapHeader};
 
-use crate::layout::{ARR_LEN_OFF, ARR_PROPS_OFF, ARR_SLOTS_OFF, TAG_ARR};
+use crate::layout::{
+    ARR_CELL_SIZE, ARR_DATA_PTR_OFF, ARR_LEN_OFF, ARR_PROPS_OFF, TAG_ARR, arr_data_is_inline,
+};
 use crate::pool::{POOL_CAP_MAX, POOL_SLOTS, pop_cap_match, push};
 
 unsafe extern "C" {
@@ -47,11 +49,11 @@ unsafe extern "C" {
 /// head_offset).
 const ARR_CAP_LOW32_OFF: usize = 16;
 
-/// Block size for cap-N regular `Array<T>`: 24-byte header + 8 bytes
-/// per slot.
+/// Block size for cap-N regular `Array<T>`: 40-byte cell + 8 bytes
+/// per inline slot.
 #[inline]
 fn block_size_regular(cap: u64) -> usize {
-    ARR_SLOTS_OFF + (cap as usize) * 8
+    ARR_CELL_SIZE + (cap as usize) * 8
 }
 
 /// Pool-aware alloc for a regular `Array<T>` (not `Array<Any>`).
@@ -86,6 +88,8 @@ pub unsafe extern "C" fn __torajs_arr_alloc_pooled(cap: u64) -> *mut u8 {
         // Round 4 chunk 5a — inline props_dynobj slot initialized to
         // NULL. Set by arrprops_set (chunk 5b+) on first `arr.x = v`.
         *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
+        // B1 — data pointer starts self-referential (inline slots).
+        *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
     }
     p
 }
@@ -127,9 +131,18 @@ pub unsafe extern "C" fn __torajs_arr_free(p: *mut c_void) {
         }
         // Pool full → fall through to libc free.
     } else {
+        // Grown arrays spilled slots to an external buffer — release
+        // it first (B1). The cell itself must NOT enter the pool: its
+        // cap field describes the buffer, not the cell's inline
+        // region, so a cap-keyed pool reuse would under-allocate.
+        if !unsafe { arr_data_is_inline(p as *const u8) } {
+            unsafe { free(crate::layout::arr_data(p as *const u8) as *mut c_void) };
+            unsafe { free(p) };
+            return;
+        }
         // Read cap (low 32 bits at offset 16). Pool only accepts
-        // regular Array<T> — Array<Any>'s 16-byte slots wouldn't
-        // match the pool's 8-byte stride assumption.
+        // regular Array<T> — Array<Any> blocks bypass it (historic
+        // stride-mismatch rule, kept as-is).
         let cap = unsafe { *((p as *const u8).add(ARR_CAP_LOW32_OFF) as *const u32) } as u64;
         let count = crate::pool::current_count();
         if cap <= POOL_CAP_MAX

@@ -16,7 +16,7 @@
 use core::ffi::c_void;
 
 use crate::layout::{
-    ALLSETTLED_OBJ_HEADER_SIZE, ALLSETTLED_OBJ_TAG, ARR_HDR_SIZE, ARR_HEAD_OFF, ARR_LEN_OFF,
+    ALLSETTLED_OBJ_HEADER_SIZE, ALLSETTLED_OBJ_TAG, ARR_DATA_PTR_OFF, ARR_HEAD_OFF, ARR_LEN_OFF,
     Promise, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED, STR_HDR_SIZE,
 };
 use crate::pool::{
@@ -53,7 +53,7 @@ unsafe fn arr_slot_ptr(arr: *mut c_void, i: u64) -> *mut Promise {
     unsafe {
         let bytes = arr as *mut u8;
         let head = *(bytes.add(ARR_HEAD_OFF) as *const u32) as u64;
-        let data = bytes.add(ARR_HDR_SIZE);
+        let data = *(bytes.add(ARR_DATA_PTR_OFF) as *const *mut u8);
         let slot_off = (head + i) * 8;
         *(data.add(slot_off as usize) as *mut *mut Promise)
     }

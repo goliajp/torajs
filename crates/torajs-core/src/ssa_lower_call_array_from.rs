@@ -232,7 +232,7 @@ fn emit_map_loop(ctx: &mut LowerCtx<'_>, src_arr_op: Operand, args: &[ExprId]) -
         Type::I64,
         None,
     );
-    let off = ctx.emit_arr_slot_byte_offset(
+    let (off_base, off) = ctx.emit_arr_slot_byte_offset(
         Operand::Value(src_arr_val),
         Operand::Value(i_body),
         3,
@@ -240,7 +240,7 @@ fn emit_map_loop(ctx: &mut LowerCtx<'_>, src_arr_op: Operand, args: &[ExprId]) -
     );
     let elem = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(src_elem_ty, Operand::Value(src_arr_val), off),
+        InstKind::LoadDyn(src_elem_ty, off_base.clone(), off),
         src_elem_ty,
         None,
     );

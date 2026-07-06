@@ -31,7 +31,7 @@ use torajs_rc::{
     HeapHeader,
 };
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
+use crate::layout::{ARR_LEN_OFF, arr_data};
 
 const ARR_HEAD_OFF: usize = 20;
 
@@ -162,11 +162,11 @@ pub unsafe extern "C" fn __torajs_arr_any_pop(arr: *mut c_void) -> u64 {
         if header.flags & FLAG_ARR_ANY != 0 {
             // Arr<Any>: 8-byte NaN-box slots, no deque head (mirrors
             // `any::slot_anyvalue_ptr` / `drop::__torajs_arr_drop_any`).
-            let slot = *(p.add(ARR_SLOTS_OFF + ((len - 1) as usize) * 8) as *const u64);
+            let slot = *(arr_data(p).add(((len - 1) as usize) * 8) as *const u64);
             __torajs_value_drop_heap(slot as *mut c_void);
         } else if header.arr_elem_kind() == ARR_KIND_HEAP {
             let head = *(p.add(ARR_HEAD_OFF) as *const u32) as u64;
-            let slot = *(p.add(ARR_SLOTS_OFF + ((head + len - 1) as usize) * 8) as *const u64);
+            let slot = *(arr_data(p).add(((head + len - 1) as usize) * 8) as *const u64);
             __torajs_value_drop_heap(slot as *mut c_void);
         }
         *(p.add(ARR_LEN_OFF) as *mut u64) = len - 1;
@@ -195,18 +195,14 @@ pub unsafe extern "C" fn __torajs_arr_any_shift(arr: *mut c_void) -> u64 {
         let out = crate::index_any::__torajs_arr_index_get(arr, 0);
         let header = &*(arr as *const HeapHeader);
         if header.flags & FLAG_ARR_ANY != 0 {
-            let slot0 = *(p.add(ARR_SLOTS_OFF) as *const u64);
+            let slot0 = *(arr_data(p) as *const u64);
             __torajs_value_drop_heap(slot0 as *mut c_void);
-            core::ptr::copy(
-                p.add(ARR_SLOTS_OFF + 8),
-                p.add(ARR_SLOTS_OFF),
-                ((len - 1) as usize) * 8,
-            );
+            core::ptr::copy(arr_data(p).add(8), arr_data(p), ((len - 1) as usize) * 8);
             *(p.add(ARR_LEN_OFF) as *mut u64) = len - 1;
         } else {
             if header.arr_elem_kind() == ARR_KIND_HEAP {
                 let head = *(p.add(ARR_HEAD_OFF) as *const u32) as u64;
-                let slot = *(p.add(ARR_SLOTS_OFF + (head as usize) * 8) as *const u64);
+                let slot = *(arr_data(p).add((head as usize) * 8) as *const u64);
                 __torajs_value_drop_heap(slot as *mut c_void);
             }
             // Deque-head bump + len shrink (the raw return is the
@@ -283,12 +279,8 @@ unsafe fn any_unshift_adopt(p: *mut u8, av: u64) -> *mut u8 {
     unsafe {
         let len = *(p.add(ARR_LEN_OFF) as *const u64);
         let cur = crate::grow::__torajs_arr_reserve(p, (len + 1) as i64);
-        core::ptr::copy(
-            cur.add(ARR_SLOTS_OFF),
-            cur.add(ARR_SLOTS_OFF + 8),
-            (len as usize) * 8,
-        );
-        *(cur.add(ARR_SLOTS_OFF) as *mut u64) = av;
+        core::ptr::copy(arr_data(cur), arr_data(cur).add(8), (len as usize) * 8);
+        *(arr_data(cur) as *mut u64) = av;
         *(cur.add(ARR_LEN_OFF) as *mut u64) = len + 1;
         cur
     }

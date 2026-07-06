@@ -94,6 +94,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_arr_mutators.rs",
     "src/ssa_lower_arr_any_push.rs",
     "src/ssa_lower_array.rs",
+    "src/ssa_lower_array_spread.rs",
     "src/ssa_lower_container_width.rs",
     "src/ssa_lower_index_assign.rs",
     "src/ssa_lower_any_member.rs",

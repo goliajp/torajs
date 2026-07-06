@@ -11,13 +11,13 @@
 //!
 //! T-13.5 deque-aware: `head_offset` is folded into per-slot
 //! pointer math; in-place ops (reverse / fill) use the logical
-//! slot 0 anchored at `ARR_SLOTS_OFF + head * 8`. unshift reclaims
+//! slot 0 anchored at `arr_data(arr) + head * 8`. unshift reclaims
 //! head>0 freed-front slots O(1) before falling back to the
 //! grow / memmove path.
 
 use core::ffi::c_void;
 
-use crate::layout::{ARR_CAP_OFF, ARR_LEN_OFF, ARR_SLOTS_OFF, TAG_ARR};
+use crate::layout::{ARR_CAP_OFF, ARR_CELL_SIZE, ARR_DATA_PTR_OFF, ARR_LEN_OFF, TAG_ARR, arr_data};
 
 /// `head_offset` lives in the high 32 bits of the u64 at
 /// `ARR_CAP_OFF`. ops.rs uses the same constant for its
@@ -28,8 +28,6 @@ unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_libc_malloc"]
     fn malloc(size: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
 }
 
 #[inline]
@@ -61,14 +59,14 @@ unsafe fn set_arr_head(arr: *mut u8, v: u32) {
 #[inline]
 unsafe fn data_ptr(arr: *const u8) -> *mut u8 {
     let head = unsafe { arr_head(arr) } as usize;
-    unsafe { arr.add(ARR_SLOTS_OFF + head * 8) as *mut u8 }
+    unsafe { arr_data(arr).add(head * 8) }
 }
 
 /// Pointer to physical slot `i` — bypasses `head_offset` so the
 /// caller writes into the slack region (e.g. unshift's grow path).
 #[inline]
 unsafe fn data_ptr_raw(arr: *const u8, i: usize) -> *mut u8 {
-    unsafe { arr.add(ARR_SLOTS_OFF + i * 8) as *mut u8 }
+    unsafe { arr_data(arr).add(i * 8) }
 }
 
 /// `arr_alloc_(len, cap)` mirror — fresh refcount=1 Array<T> block
@@ -76,7 +74,7 @@ unsafe fn data_ptr_raw(arr: *const u8, i: usize) -> *mut u8 {
 /// sets len=0; this internal helper preserves the "alloc + write
 /// len in one go" pattern from `runtime_str.c::arr_alloc_`.
 unsafe fn arr_alloc_with(len: u64, cap: u64) -> *mut u8 {
-    let block_size = ARR_SLOTS_OFF + (cap as usize) * 8;
+    let block_size = ARR_CELL_SIZE + (cap as usize) * 8;
     let p = unsafe { malloc(block_size) } as *mut u8;
     if p.is_null() {
         torajs_abort::abort_with(b"OOM in Array alloc");
@@ -89,6 +87,8 @@ unsafe fn arr_alloc_with(len: u64, cap: u64) -> *mut u8 {
         (p.add(ARR_LEN_OFF) as *mut u64).write(len);
         (p.add(ARR_CAP_OFF) as *mut u32).write(cap as u32);
         (p.add(ARR_HEAD_OFF) as *mut u32).write(0);
+        // B1 — data pointer starts self-referential (inline slots).
+        (p.add(ARR_DATA_PTR_OFF) as *mut *mut u8).write(p.add(ARR_CELL_SIZE));
     }
     p
 }
@@ -205,22 +205,21 @@ pub unsafe extern "C" fn __torajs_arr_unshift(arr: *mut u8, v: i64) -> *mut u8 {
     let len = unsafe { arr_len(arr) } as usize;
     let cap = unsafe { arr_cap(arr) } as usize;
     if len >= cap {
-        // Realloc — double cap (or 1 if 0). Live range moves to
-        // physical slot 1; head stays 0 so logical slot 0 is the
-        // new value at physical 0.
+        // Grow the data buffer (cell never moves — B1), then shift
+        // the live range right one slot so logical slot 0 lands at
+        // physical 0 for the new value.
         let new_cap = if cap == 0 { 1 } else { cap * 2 };
-        let p = unsafe { arr_alloc_with(0, new_cap as u64) };
+        unsafe { crate::grow::grow_data_buffer(arr, new_cap as u64) };
         if len > 0 {
             unsafe {
-                core::ptr::copy_nonoverlapping(data_ptr(arr), data_ptr_raw(p, 1), len * 8);
+                core::ptr::copy(data_ptr(arr), data_ptr_raw(arr, 1), len * 8);
             }
         }
         unsafe {
-            (data_ptr_raw(p, 0) as *mut i64).write(v);
-            set_arr_len(p, (len + 1) as u64);
-            free(arr as *mut c_void);
+            (data_ptr_raw(arr, 0) as *mut i64).write(v);
+            set_arr_len(arr, (len + 1) as u64);
         }
-        return p;
+        return arr;
     }
     // In-place: head==0 + cap room → memmove right and prepend.
     if len > 0 {

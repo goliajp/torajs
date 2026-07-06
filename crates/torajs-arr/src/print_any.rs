@@ -36,7 +36,7 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
+use crate::layout::{ARR_LEN_OFF, arr_data};
 use crate::print::{put_byte, put_bytes};
 
 const ARR_HEAD_OFF: usize = 20;
@@ -168,9 +168,8 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
             return;
         }
         let head = *(p.add(ARR_HEAD_OFF) as *const u32);
-        let slot_at = |i: u64| -> u64 {
-            *(p.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8) as *const u64)
-        };
+        let slot_at =
+            |i: u64| -> u64 { *(arr_data(p).add((head as usize + i as usize) * 8) as *const u64) };
         // bun's open-bracket decision (ConsoleObject.zig:2410-2462),
         // made once after peeking ONLY the first element's tag:
         // full-break when len > 10, or the first element is

@@ -81,23 +81,23 @@ pub(crate) fn lower_map_from_arr(
         Type::I64,
         None,
     );
-    let outer_off =
+    let (outer_off_base, outer_off) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(outer_arr), Operand::Value(i_body), 3, false);
     let cur_block = ctx.cur_block;
     let inner_arr = ctx.f.append_inst(
         cur_block,
-        InstKind::LoadDyn(Type::Arr(inner_id), Operand::Value(outer_arr), outer_off),
+        InstKind::LoadDyn(Type::Arr(inner_id), outer_off_base.clone(), outer_off),
         Type::Arr(inner_id),
         None,
     );
     let inner_stride_log2 = if inner_elem_ty == Type::Any { 4 } else { 3 };
-    let k_off = ctx.emit_arr_slot_byte_offset(
+    let (k_base, k_off) = ctx.emit_arr_slot_byte_offset(
         Operand::Value(inner_arr),
         Operand::ConstI64(0),
         inner_stride_log2,
         false,
     );
-    let v_off = ctx.emit_arr_slot_byte_offset(
+    let (v_base, v_off) = ctx.emit_arr_slot_byte_offset(
         Operand::Value(inner_arr),
         Operand::ConstI64(1),
         inner_stride_log2,
@@ -106,13 +106,13 @@ pub(crate) fn lower_map_from_arr(
     let cur_block = ctx.cur_block;
     let k_loaded = ctx.f.append_inst(
         cur_block,
-        InstKind::LoadDyn(inner_elem_ty, Operand::Value(inner_arr), k_off),
+        InstKind::LoadDyn(inner_elem_ty, k_base, k_off),
         inner_elem_ty,
         None,
     );
     let v_loaded = ctx.f.append_inst(
         cur_block,
-        InstKind::LoadDyn(inner_elem_ty, Operand::Value(inner_arr), v_off),
+        InstKind::LoadDyn(inner_elem_ty, v_base, v_off),
         inner_elem_ty,
         None,
     );
@@ -195,12 +195,12 @@ pub(crate) fn lower_set_from_arr(
         Type::I64,
         None,
     );
-    let off =
+    let (off_base, off) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(arr_val), Operand::Value(i_body), 3, false);
     let cur_block = ctx.cur_block;
     let elem = ctx.f.append_inst(
         cur_block,
-        InstKind::LoadDyn(elem_ty, Operand::Value(arr_val), off),
+        InstKind::LoadDyn(elem_ty, off_base.clone(), off),
         elem_ty,
         None,
     );
