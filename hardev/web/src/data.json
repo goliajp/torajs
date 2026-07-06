@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T09:20:08.540Z",
+  "generatedAt": "2026-07-06T10:53:57.273Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "041e9aaa",
-    "commitSubject": "chore(bench): B1 A/B comparison results — 6 array-heavy cases pre/post arr-grow-alias-stability",
+    "commit": "4ce24297",
+    "commitSubject": "feat: s.replace/replaceAll dispatch on any receivers (test262-bug-corpus RC-2c)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "4ce24297",
+      "subject": "feat: s.replace/replaceAll dispatch on any receivers (test262-bug-corpus RC-2c)"
+    },
+    {
+      "hash": "6f1e1108",
+      "subject": "feat: WeakMap/WeakSet methods dispatch on any receivers (test262-bug-corpus RC-2b)"
+    },
+    {
+      "hash": "f7a397b2",
+      "subject": "feat: s.match(re) dispatches on any receivers (test262-bug-corpus RC-2)"
+    },
+    {
+      "hash": "15d76691",
+      "subject": "fix: class-expression static methods dispatch through the P8.5 alias (test262-bug-corpus RC-3)"
+    },
+    {
+      "hash": "e6cfb1a0",
+      "subject": "fix: void-ret callbacks to array HO methods return undefined (test262-bug-corpus RC-1)"
+    },
+    {
+      "hash": "60f91bac",
+      "subject": "chore(dashboard): session snapshot @ 041e9aaa — rotation 30 (581-585: escape RFC B3 close + RFC arr-grow-alias-stability full Phase B — cell fixed across grow, data-ptr indirection, writeback chain retired; gate 1221 -> 1225)"
+    },
+    {
       "hash": "041e9aaa",
       "subject": "chore(bench): B1 A/B comparison results — 6 array-heavy cases pre/post arr-grow-alias-stability"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "62fa6fb4",
       "subject": "test: escape-to-any B3 backstop fixtures — cross-module escape parity + obj-any-field loud contract"
-    },
-    {
-      "hash": "cc48fea2",
-      "subject": "chore(dashboard): session snapshot @ cd7713a3 — rotation 29 (576-580: RFC 20260706-typed-arr-any-escape — Phase A decomp + B0 four pre-existing Arr<Any> debts (concat SIGSEGV lane, sort ToString, HO-dst/slice flag-aware, unshift adopt) + B1/B2 escape analysis & Arr<Any> demotion = L3b #2 main close; gate 1216 -> 1221)"
-    },
-    {
-      "hash": "cd7713a3",
-      "subject": "feat: demote any-escaping typed arrays to Arr<Any> at module level"
-    },
-    {
-      "hash": "80aed7f4",
-      "subject": "feat: Array<Any>.unshift through the tagged-slot adopt helper"
-    },
-    {
-      "hash": "743f98db",
-      "subject": "fix: flag-aware alloc for Any-elem HO dst and slice products"
-    },
-    {
-      "hash": "098e16ee",
-      "subject": "fix: sort default compare unboxes Any elements through ToString"
-    },
-    {
-      "hash": "43bc8350",
-      "subject": "fix: route Array<Any>.concat through a FLAG_ARR_ANY-aware lane"
     }
   ],
-  "headSha": "041e9aaa",
+  "headSha": "4ce24297",
   "autorun": {
-    "total": 338,
+    "total": 339,
     "baselineTarget": 10,
-    "bySelf": 333,
+    "bySelf": 334,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783323196-244c",
-      "at": "2026-07-06T07:33:16Z",
-      "ts": 1783323196,
+      "rotationId": "r-1783329685-1faf",
+      "at": "2026-07-06T09:21:25Z",
+      "ts": 1783329685,
       "trigger": "self",
-      "prevHead": "cc48fea2",
-      "handoffSha": "sha256:89b896ddcb0f4b8c5bbd93000def50244587c203eb9d2830b7260455ee2ea4f9",
-      "handoffAgeSec": 7,
+      "prevHead": "60f91bac",
+      "handoffSha": "sha256:7a97c38412adc0ac4408cd35c45620abe96385a5a2ee03a9a0b617129fc56c0e",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783329685-1faf",
+        "at": "2026-07-06T09:21:25Z",
+        "ts": 1783329685,
+        "trigger": "self",
+        "prevHead": "60f91bac",
+        "handoffSha": "sha256:7a97c38412adc0ac4408cd35c45620abe96385a5a2ee03a9a0b617129fc56c0e",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783323196-244c",
         "at": "2026-07-06T07:33:16Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "97cd1bfe",
         "handoffSha": "sha256:7006e37157edd7c1a5c5890f9231282aded946d32fbccdcd7aac6efcc0f59f77",
-        "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783229389-1433",
-        "at": "2026-07-05T05:29:49Z",
-        "ts": 1783229389,
-        "trigger": "self",
-        "prevHead": "c7df051a",
-        "handoffSha": "sha256:caf8bd39ea8874f2fd018b01a112270af5ebdc300e80df90e017ca8bd11babec",
         "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
