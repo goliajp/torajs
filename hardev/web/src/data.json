@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T10:53:57.273Z",
+  "generatedAt": "2026-07-06T12:53:10.893Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "4ce24297",
-    "commitSubject": "feat: s.replace/replaceAll dispatch on any receivers (test262-bug-corpus RC-2c)",
+    "commit": "7de0634d",
+    "commitSubject": "chore: rustfmt module-order fix for define_receivers in torajs-core lib.rs",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "7de0634d",
+      "subject": "chore: rustfmt module-order fix for define_receivers in torajs-core lib.rs"
+    },
+    {
+      "hash": "648026cb",
+      "subject": "feat: reflection sees runtime-defined properties (test262-bug-corpus RC-4 F1c)"
+    },
+    {
+      "hash": "c59e6184",
+      "subject": "fix: IIFE args box against the callee's Any params (test262-bug-corpus RC-4 F3)"
+    },
+    {
+      "hash": "624051d6",
+      "subject": "feat: WeakMap value slot rides an AnyValue lane + weak-key classification (test262-bug-corpus RC-4 F2)"
+    },
+    {
+      "hash": "5e9cfbd4",
+      "subject": "fix: void yields the undefined value + null Str slots compare/concat as undefined (test262-bug-corpus RC-4 F1b)"
+    },
+    {
+      "hash": "6ecaac9d",
+      "subject": "chore(test262): add --dump-src DIR to runner for isomorphic crash reproduction"
+    },
+    {
+      "hash": "a161ddea",
+      "subject": "chore(dashboard): session snapshot @ 4ce24297 — rotation 31 (586-590: test262-bug-corpus RFC Phase A full rerun + RC-1 voidcb SIGTRAP family, RC-3 clsexpr statics, RC-2a/b/c any-receiver match/weak/replace; gate 1225 -> 1230)"
+    },
+    {
       "hash": "4ce24297",
       "subject": "feat: s.replace/replaceAll dispatch on any receivers (test262-bug-corpus RC-2c)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "e6cfb1a0",
       "subject": "fix: void-ret callbacks to array HO methods return undefined (test262-bug-corpus RC-1)"
-    },
-    {
-      "hash": "60f91bac",
-      "subject": "chore(dashboard): session snapshot @ 041e9aaa — rotation 30 (581-585: escape RFC B3 close + RFC arr-grow-alias-stability full Phase B — cell fixed across grow, data-ptr indirection, writeback chain retired; gate 1221 -> 1225)"
-    },
-    {
-      "hash": "041e9aaa",
-      "subject": "chore(bench): B1 A/B comparison results — 6 array-heavy cases pre/post arr-grow-alias-stability"
-    },
-    {
-      "hash": "fc30e2e5",
-      "subject": "refactor: retire grow write-back chain (arr-grow-alias-stability B3)"
-    },
-    {
-      "hash": "e882f721",
-      "subject": "test: cross-module escape fixture exercises grow through the any alias (arr-grow-alias-stability B2)"
-    },
-    {
-      "hash": "5c5d5604",
-      "subject": "fix: arr_entries_by_tag reads slots through the data pointer (B1 fix-up)"
-    },
-    {
-      "hash": "9c573f0e",
-      "subject": "feat: array cell fixed across grow — slots behind data pointer (arr-grow-alias-stability B1)"
-    },
-    {
-      "hash": "62fa6fb4",
-      "subject": "test: escape-to-any B3 backstop fixtures — cross-module escape parity + obj-any-field loud contract"
     }
   ],
-  "headSha": "4ce24297",
+  "headSha": "7de0634d",
   "autorun": {
-    "total": 339,
+    "total": 340,
     "baselineTarget": 10,
-    "bySelf": 334,
+    "bySelf": 335,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783329685-1faf",
-      "at": "2026-07-06T09:21:25Z",
-      "ts": 1783329685,
+      "rotationId": "r-1783335678-6ff6",
+      "at": "2026-07-06T11:01:18Z",
+      "ts": 1783335678,
       "trigger": "self",
-      "prevHead": "60f91bac",
-      "handoffSha": "sha256:7a97c38412adc0ac4408cd35c45620abe96385a5a2ee03a9a0b617129fc56c0e",
-      "handoffAgeSec": 6,
+      "prevHead": "a161ddea",
+      "handoffSha": "sha256:5c488437773d5014511f2f16bfbb0089233e78fc61982b8062f399663d69025b",
+      "handoffAgeSec": 19,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783335678-6ff6",
+        "at": "2026-07-06T11:01:18Z",
+        "ts": 1783335678,
+        "trigger": "self",
+        "prevHead": "a161ddea",
+        "handoffSha": "sha256:5c488437773d5014511f2f16bfbb0089233e78fc61982b8062f399663d69025b",
+        "handoffAgeSec": 19,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783329685-1faf",
         "at": "2026-07-06T09:21:25Z",
@@ -876,17 +887,6 @@
         "prevHead": "a7eae0e5",
         "handoffSha": "sha256:26c46e2987935dc29cca778317ab87facfc6acec6f5c74394b79a390d0529175",
         "handoffAgeSec": 22,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783235527-7699",
-        "at": "2026-07-05T07:12:07Z",
-        "ts": 1783235527,
-        "trigger": "self",
-        "prevHead": "97cd1bfe",
-        "handoffSha": "sha256:7006e37157edd7c1a5c5890f9231282aded946d32fbccdcd7aac6efcc0f59f77",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
