@@ -173,6 +173,15 @@ pub(crate) fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
     if (nullish(l) && heap_ref(r)) || (nullish(r) && heap_ref(l)) {
         return true;
     }
+    // Chunk 619 — nullish × Any (`u == a` with u: undefined,
+    // a: any): ssa_lower's S127-2 arm already emits the
+    // `any_strict_eq(NULL) || any_strict_eq(UNDEF)` probe for a
+    // nullish-typed side (612 wired the type-based flags); only
+    // this admit was missing. Strict === has accepted the pair
+    // since m3.b.
+    if (nullish(l) && matches!(r, Type::Any)) || (nullish(r) && matches!(l, Type::Any)) {
+        return true;
+    }
     // ES §7.2.13 step 6 — String <-> Number cross-pair coerces the
     // string side via ToNumber + numeric compare. ssa_lower
     // (loose-eq arm following the nullish fold) emits
