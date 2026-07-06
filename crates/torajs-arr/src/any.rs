@@ -109,6 +109,21 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any(cap: u64) -> *mut u8 {
 /// `__torajs_arr_set_at_any`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
+    // §23.1.2.1 step 4.b — a length outside [0, 2^32-1] is a
+    // RangeError (test262-bug-corpus RC-4 F5: `new Array(-1)` arrives
+    // as 0xFFFF..FF u64 and SIGSEGVd through the overflowed malloc).
+    // Message matches bun/JSC for uncaught-print byte parity. The
+    // throw helper RETURNS; ssa_lower's emit_throw_check right after
+    // the call diverts before the NULL is touched.
+    const MAX_ARRAY_LEN: u64 = u32::MAX as u64;
+    if n > MAX_ARRAY_LEN {
+        unsafe {
+            __torajs_throw_range_error(
+                b"Array length must be a positive integer of safe magnitude.\0".as_ptr(),
+            );
+        }
+        return core::ptr::null_mut();
+    }
     unsafe {
         let total = ARR_CELL_SIZE + (n as usize) * ANY_SLOT_BYTES;
         let p = malloc(total) as *mut u8;

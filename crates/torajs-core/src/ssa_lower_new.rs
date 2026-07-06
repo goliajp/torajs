@@ -284,6 +284,9 @@ fn lower_array_n(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         Type::Arr(arr_id),
         None,
     );
+    // RC-4 F5 — the alloc arms a RangeError for lengths outside
+    // [0, 2^32-1] and returns NULL; divert before the NULL is used.
+    ctx.emit_throw_check(None);
     Operand::Value(v)
 }
 
