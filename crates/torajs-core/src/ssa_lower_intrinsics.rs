@@ -339,6 +339,7 @@ pub(crate) struct Intrinsics {
     pub(crate) fn_print_outer: FuncId,
     pub(crate) any_to_str: FuncId,
     pub(crate) obj_freeze: FuncId,
+    pub(crate) obj_freeze_any: FuncId,
     pub(crate) obj_is_frozen: FuncId,
     pub(crate) obj_is_frozen_any: FuncId,
     pub(crate) obj_check_not_frozen: FuncId,

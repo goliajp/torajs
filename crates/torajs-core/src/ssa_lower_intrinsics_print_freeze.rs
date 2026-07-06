@@ -58,6 +58,7 @@ pub(crate) struct PrintFreezeIds {
     pub fn_print_outer: FuncId,
     pub any_to_str: FuncId,
     pub obj_freeze: FuncId,
+    pub obj_freeze_any: FuncId,
     pub obj_is_frozen: FuncId,
     pub obj_is_frozen_any: FuncId,
     pub obj_check_not_frozen: FuncId,
@@ -158,6 +159,13 @@ pub(crate) fn declare(
             "__torajs_obj_freeze",
             &[Type::Ptr],
             Type::Ptr,
+        ),
+        obj_freeze_any: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_obj_freeze_any",
+            &[Type::Any],
+            Type::Any,
         ),
         obj_is_frozen: declare_intrinsic(
             module,

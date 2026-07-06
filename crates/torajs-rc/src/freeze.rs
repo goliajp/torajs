@@ -99,6 +99,26 @@ pub unsafe extern "C" fn __torajs_obj_is_frozen_any(v: i64) -> bool {
     unsafe { __torajs_obj_is_frozen(ptr) }
 }
 
+/// `Object.freeze(any)` — NaN-box-aware entry. ssa_lower routes
+/// `Object.freeze(arg)` here when `arg` is `Type::Any` (the raw
+/// helper above takes `*mut c_void` and would deref a NaN-box
+/// sentinel as a heap header — same shape as
+/// [`__torajs_obj_is_frozen_any`], see cases#obj-is-frozen-any-segv).
+///
+/// Per ES2015+ §19.1.2.6 step 1: non-Object input is returned
+/// unchanged; Object input gets the FROZEN bit and the same box
+/// back.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_freeze_any(v: i64) -> i64 {
+    const ANY_TAG_HEAP: i64 = 4;
+    let tag = unsafe { __torajs_anyv_unbox_tag(v) };
+    if tag == ANY_TAG_HEAP {
+        let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *mut c_void;
+        unsafe { __torajs_obj_freeze(ptr) };
+    }
+    v
+}
+
 /// Mutation guard emitted at every `obj.field = value` site by
 /// `ssa_lower`. If `p`'s FROZEN bit is set, arms a TypeError throw
 /// via [`__torajs_throw_type_error`] and returns; ssa_lower's

@@ -310,6 +310,7 @@ pub(crate) fn build(
         fn_print_outer: init_c.print_freeze.fn_print_outer,
         any_to_str: init_c.print_freeze.any_to_str,
         obj_freeze: init_c.print_freeze.obj_freeze,
+        obj_freeze_any: init_c.print_freeze.obj_freeze_any,
         obj_is_frozen: init_c.print_freeze.obj_is_frozen,
         obj_is_frozen_any: init_c.print_freeze.obj_is_frozen_any,
         obj_check_not_frozen: init_c.print_freeze.obj_check_not_frozen,

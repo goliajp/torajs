@@ -108,7 +108,13 @@ fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprI
         };
     }
     let (fid, ret_ty) = if method == "freeze" {
-        (ctx.intrinsics.obj_freeze, arg_ty)
+        if arg_ty == Type::Any {
+            // NaN-box-aware: the raw obj_freeze would deref an Any
+            // sentinel (e.g. undefined) as a heap header — SIGSEGV.
+            (ctx.intrinsics.obj_freeze_any, Type::Any)
+        } else {
+            (ctx.intrinsics.obj_freeze, arg_ty)
+        }
     } else if arg_ty == Type::Any {
         (ctx.intrinsics.obj_is_frozen_any, Type::Bool)
     } else {
