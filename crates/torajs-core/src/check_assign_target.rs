@@ -28,7 +28,9 @@
 //!        array type.
 //!      - **Direct struct field** (V3-05) — `is_assignable_to_resolved`
 //!        on field_ty vs value_ty.
-//!      Consume the value expr; return the assigned-to type.
+//!      Return the assigned-to type (no rhs consume since chunk
+//!      566 — member stores share, mirroring chunk 564's
+//!      assign-ident contract).
 //! - **`arr[i] = value` (Index-target)** — M1.4: obj must be
 //!   `Array<T>`; index must be Number; value type must match elem.
 //!   `Array<Any>[i] = <concrete>` allowed per TS spec (box at
@@ -52,9 +54,14 @@ pub(crate) fn check_member(
 ) -> Result<Type, String> {
     let obj_ty = checker.type_of(ast, obj)?;
     enforce_readonly(checker, ast, obj, &field)?;
+    // Chunk 566 — member assignment does NOT consume the rhs:
+    // ssa_lower's member-store lanes now share (slot/bucket +1,
+    // source keeps its stake), mirroring the chunk-564 assign-ident
+    // contract. The historical consume both leaked the source's
+    // stake (props lanes) and loudly rejected legal alias-rhs
+    // writes.
     if matches!(obj_ty, Type::Any | Type::Function(..) | Type::Array(_)) {
         let _ = checker.type_of(ast, value)?;
-        checker.consume(ast, value);
         return Ok(Type::Any);
     }
     if matches!(obj_ty, Type::RegExp) && field == "lastIndex" {
@@ -64,7 +71,6 @@ pub(crate) fn check_member(
                 "type mismatch assigning to `RegExp.lastIndex`: expected number, got {value_ty:?}"
             ));
         }
-        checker.consume(ast, value);
         return Ok(Type::Number);
     }
     let Type::Struct(fields) = &obj_ty else {
@@ -88,7 +94,6 @@ pub(crate) fn check_member(
             Type::Array(_)
         )
     {
-        checker.consume(ast, value);
         return Ok(field_ty);
     }
     let value_ty = checker.type_of(ast, value)?;
@@ -102,7 +107,6 @@ pub(crate) fn check_member(
             "type mismatch assigning to `{field}`: field is {field_ty:?}, value is {value_ty:?}"
         ));
     }
-    checker.consume(ast, value);
     Ok(field_ty)
 }
 
@@ -177,7 +181,6 @@ fn try_accessor_setter(
             "type mismatch assigning to accessor `{cls}.{field}`: setter expects {setter_param_ty:?}, value is {value_ty:?}"
         ));
     }
-    checker.consume(ast, value);
     Ok(Some(setter_param_ty))
 }
 

@@ -73,6 +73,18 @@ impl<'a> LowerCtx<'a> {
     /// the SSA-level `Type::Ptr` + `ConstPtrNull` and emit ANY_NULL,
     /// collapsing undefined and null into the same key.
     pub(crate) fn lower_to_tag_value(&mut self, eid: ExprId) -> (Operand, Operand) {
+        let (tag, val, _, _) = self.lower_to_tag_value_raw(eid);
+        (tag, val)
+    }
+
+    /// [`Self::lower_to_tag_value`] variant that also hands back the
+    /// raw lowered operand and its type, so consuming stores can
+    /// settle an owned temp's surplus reference after the slot takes
+    /// its +1 from `box_to_tag_value` (chunk 566 member-assign share).
+    pub(crate) fn lower_to_tag_value_raw(
+        &mut self,
+        eid: ExprId,
+    ) -> (Operand, Operand, Operand, Type) {
         let is_undef = matches!(
             self.expr_types.get(&eid),
             Some(crate::check::Type::Undefined)
@@ -80,9 +92,10 @@ impl<'a> LowerCtx<'a> {
         let val = self.lower_expr(eid);
         let val_ty = self.operand_ty(&val);
         if is_undef && matches!(val_ty, Type::Ptr) {
-            return (Operand::ConstI64(5), Operand::ConstI64(0));
+            return (Operand::ConstI64(5), Operand::ConstI64(0), val, Type::Ptr);
         }
-        self.box_to_tag_value(val)
+        let (tag, v) = self.box_to_tag_value(val.clone());
+        (tag, v, val, val_ty)
     }
 
     /// Any-dynamic-access RFC (20260704) S1 — when a typed

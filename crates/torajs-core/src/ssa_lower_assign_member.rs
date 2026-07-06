@@ -94,9 +94,17 @@ fn lower_closure_props_assign(
     value: ExprId,
 ) -> Operand {
     let v_raw = ctx.lower_expr(value);
-    ctx.consume_if_ident(value);
-    let (tag, val_op) = ctx.box_to_tag_value(v_raw);
+    // Chunk 566 — storing into closure props is a SHARE: no consume.
+    // box_to_tag_value mints the bucket's +1; a borrow-shape rhs
+    // keeps the source binding's stake, an owned temp releases its
+    // surplus reference after the store.
+    let transfers = ctx.expr_transfers_ownership(value);
+    let v_ty = ctx.operand_ty(&v_raw);
+    let (tag, val_op) = ctx.box_to_tag_value(v_raw.clone());
     ctx.fn_props_set(obj_val, field, tag, val_op);
+    if transfers && v_ty.is_refcounted() {
+        ctx.emit_drop_value(v_raw, v_ty);
+    }
     Operand::ConstI64(0)
 }
 
@@ -107,8 +115,10 @@ fn lower_fnsig_props_assign(
     value: ExprId,
 ) -> Operand {
     let v_raw = ctx.lower_expr(value);
-    ctx.consume_if_ident(value);
-    let (tag, val_op) = ctx.box_to_tag_value(v_raw);
+    // Chunk 566 — SHARE, mirror of the closure-props arm above.
+    let transfers = ctx.expr_transfers_ownership(value);
+    let v_ty = ctx.operand_ty(&v_raw);
+    let (tag, val_op) = ctx.box_to_tag_value(v_raw.clone());
     let key_str = ctx.intern_string_literal(field);
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
@@ -118,6 +128,9 @@ fn lower_fnsig_props_assign(
             vec![obj_val, Operand::Value(key_str), tag, val_op],
         ),
     );
+    if transfers && v_ty.is_refcounted() {
+        ctx.emit_drop_value(v_raw, v_ty);
+    }
     Operand::ConstI64(0)
 }
 
@@ -127,8 +140,10 @@ fn lower_arr_length_assign(
     obj_ty: Type,
     value: ExprId,
 ) -> Operand {
+    // Chunk 566 — no consume: the rhs is a number (checker-gated),
+    // so the historical consume was a Copy no-op; an Any-typed Ident
+    // rhs must keep its stake (the validate helper only reads).
     let (tag, val_op) = ctx.lower_to_tag_value(value);
-    ctx.consume_if_ident(value);
     // ES §10.4.2.5 step 4 — for non-refcounted scalar element types
     // we route to the truncate-aware helper that also writes
     // `len = N` when `N < oldLen`. Refcounted element types (Str /
@@ -166,9 +181,11 @@ fn lower_arr_props_assign(
     value: ExprId,
 ) -> Operand {
     // lower_to_tag_value keeps `undefined` ANY_UNDEF (plain pair
-    // would collapse to null)
-    let (tag, val_op) = ctx.lower_to_tag_value(value);
-    ctx.consume_if_ident(value);
+    // would collapse to null). Chunk 566 — SHARE: the bucket's +1
+    // comes from box_to_tag_value inside; no consume, and an owned
+    // temp releases its surplus reference after the store.
+    let (tag, val_op, v_raw, v_ty) = ctx.lower_to_tag_value_raw(value);
+    let transfers = ctx.expr_transfers_ownership(value);
     let key_str = ctx.intern_string_literal(field);
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
@@ -178,6 +195,9 @@ fn lower_arr_props_assign(
             vec![obj_val, Operand::Value(key_str), tag, val_op],
         ),
     );
+    if transfers && v_ty.is_refcounted() {
+        ctx.emit_drop_value(v_raw, v_ty);
+    }
     Operand::ConstI64(0)
 }
 
@@ -187,12 +207,17 @@ fn lower_regex_last_index_assign(
     value: ExprId,
 ) -> Operand {
     let v_raw = ctx.lower_expr(value);
-    ctx.consume_if_ident(value);
+    // Chunk 566 — no consume: any_to_number only READS an Any rhs,
+    // so a borrow-shape source keeps its stake; an owned Any temp's
+    // box releases after the store below.
+    let transfers = ctx.expr_transfers_ownership(value);
     // lastIndex is an ordinary data property — the store is
     // uncoerced (`r.lastIndex = 2.9` reads back 2.9); ToLength
     // happens at the regex kernels' consumption sites. An Any RHS
     // goes through ToNumber for the f64 slot.
-    let v_f64 = if ctx.operand_ty(&v_raw) == Type::Any {
+    let v_ty = ctx.operand_ty(&v_raw);
+    let v_keep = v_raw.clone();
+    let v_f64 = if v_ty == Type::Any {
         let cur_block = ctx.cur_block;
         let f = ctx.f.append_inst(
             cur_block,
@@ -212,6 +237,9 @@ fn lower_regex_last_index_assign(
             vec![obj_val, v_f64.clone()],
         ),
     );
+    if transfers && v_ty.is_refcounted() {
+        ctx.emit_drop_value(v_keep, v_ty);
+    }
     v_f64
 }
 
@@ -257,11 +285,19 @@ fn try_lower_setter_call(
         .cloned()?;
     let fid = ctx.fn_table.get(&setter_fn).copied()?;
     let v = ctx.lower_expr(value);
-    ctx.consume_if_ident(value);
+    // Chunk 566 — SHARE: no consume. The value passes to the setter
+    // as a +0 borrow; the setter body's own field store takes the
+    // field's +1 (struct-field share below), so a borrow-shape rhs
+    // keeps the source binding's stake and an owned temp releases
+    // its surplus after the call. Recorded edge (RFC 20260705
+    // ledger): a non-storing setter + a consumer binding the assign
+    // result reads a released temp — assign-result ownership is its
+    // own lane.
+    let transfers = ctx.expr_transfers_ownership(value);
     // F2-fix — the accessor arm bypasses the width-aware direct-call
     // coercion; an i64 value must widen to the setter's f64 param
     // (raw bits read as a denormal).
-    let mut arg = v;
+    let mut arg = v.clone();
     if let Some(sig_id) = ctx.fn_sig_ids.get(&fid).copied()
         && ctx.fn_sigs[sig_id.0 as usize].0.get(1) == Some(&Type::F64)
         && ctx.operand_ty(&arg) == Type::I64
@@ -272,6 +308,10 @@ fn try_lower_setter_call(
     ctx.f
         .append_void(cur_block, InstKind::Call(fid, vec![obj_val, arg]));
     ctx.emit_throw_check(Some(fid));
+    let v_ty = ctx.operand_ty(&v);
+    if transfers && v_ty.is_refcounted() {
+        ctx.emit_drop_value(v.clone(), v_ty);
+    }
     Some(v)
 }
 
@@ -331,18 +371,29 @@ fn lower_struct_field_store(
         Operand::Value(alloc)
     } else {
         let v = ctx.lower_expr(value);
-        ctx.consume_if_ident(value);
+        // Chunk 566 — a field store SHARES the rhs (TS has no move
+        // semantics): a borrow-shape value takes +1 so the field
+        // owns its stake while the source binding keeps its own —
+        // the old consume let a re-assign's drop-old steal the
+        // source's only ref (UAF, reuse-window probe-proven). Owned
+        // temps keep transferring their fresh reference.
+        let transfers = ctx.expr_transfers_ownership(value);
         // W4 — align the stored value with the field width (mirrors
         // the index-assign site; the reverse direction means the
         // width analysis missed this write).
-        match (field_ty, ctx.operand_ty(&v)) {
+        let v = match (field_ty, ctx.operand_ty(&v)) {
             (Type::F64, Type::I64) => ctx.coerce_to_f64(v),
             (Type::I64, Type::F64) => panic!(
                 "ssa-lower: f64 value into i64 struct field `{field}` — \
                  container width analysis missed this write"
             ),
             _ => v,
+        };
+        let v_ty = ctx.operand_ty(&v);
+        if !transfers && !v_ty.is_copy() {
+            ctx.emit_rc_inc(v.clone());
         }
+        v
     };
     // Drop the old field value if non-Copy.
     if !field_ty.is_copy() {

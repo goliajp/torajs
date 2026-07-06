@@ -18,8 +18,14 @@ pub(crate) fn lower_dynobj_assign(
     obj_ident: &Option<String>,
 ) -> Operand {
     let v_raw = ctx.lower_expr(value);
-    ctx.consume_if_ident(value);
+    // Chunk 566 — SHARE: the dynobj bucket takes its own +1 (the
+    // refcounted arm's rc_inc / the Any payload path's
+    // any_payload_rc_inc); no consume, so a borrow-shape rhs keeps
+    // the source binding's stake and an owned temp releases its
+    // surplus reference after the store.
+    let transfers = ctx.expr_transfers_ownership(value);
     let v_ty = ctx.operand_ty(&v_raw);
+    let v_keep = v_raw.clone();
     let (tag, val_op): (i64, Operand) = match v_ty {
         Type::I64 | Type::I32 => (2, v_raw),
         Type::F64 => {
@@ -41,7 +47,14 @@ pub(crate) fn lower_dynobj_assign(
         // lower_dynobj_init). Step 7c: shim Call instead of inline
         // +8/+16 direct-offset Load (layout-decoupling).
         Type::Any => {
-            return lower_dynobj_assign_any_payload(ctx, obj_val, field, v_raw, obj_ident);
+            let r = lower_dynobj_assign_any_payload(ctx, obj_val, field, v_raw, obj_ident);
+            if transfers {
+                // Owned Any temp: dropping the box releases its
+                // payload stake and frees the shell; the bucket
+                // keeps the payload +1 minted inside.
+                ctx.emit_drop_value(v_keep, Type::Any);
+            }
+            return r;
         }
         _ if v_ty.is_refcounted() => {
             ctx.emit_rc_inc(v_raw);
@@ -58,6 +71,9 @@ pub(crate) fn lower_dynobj_assign(
         val_op,
         obj_ident,
     );
+    if transfers && v_ty.is_refcounted() {
+        ctx.emit_drop_value(v_keep, v_ty);
+    }
     Operand::ConstI64(0)
 }
 
