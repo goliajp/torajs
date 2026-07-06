@@ -225,6 +225,7 @@ pub(crate) fn check_index(
             "type mismatch on element assignment: array of {elem_ty:?}, value is {value_ty:?}"
         ));
     }
-    checker.consume(ast, value);
+    // Chunk 567 — element assignment shares the rhs (mirror of the
+    // member-store contract above); no consume.
     Ok(elem_ty)
 }

@@ -66,9 +66,10 @@ impl<'a> LowerCtx<'a> {
                     None
                 };
                 let v_raw = self.lower_expr(value);
-                self.consume_if_ident(value);
+                // Chunk 567 — SHARE, no consume (see
+                // pack_any_slot_value_shared).
                 let v_ty = self.operand_ty(&v_raw);
-                let (tag_op, value_op) = self.pack_any_slot_value(&v_raw, v_ty);
+                let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
                 crate::ssa_lower_assign_member_any::emit_any_member_set(
                     self, arr_val, &lit, tag_op, value_op, &obj_ident,
                 );
@@ -82,9 +83,9 @@ impl<'a> LowerCtx<'a> {
             }
             let idx_val = self.lower_index_operand(index);
             let v_raw = self.lower_expr(value);
-            self.consume_if_ident(value);
+            // Chunk 567 — SHARE, no consume.
             let v_ty = self.operand_ty(&v_raw);
-            let (tag_op, value_op) = self.pack_any_slot_value(&v_raw, v_ty);
+            let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
             // L3b #3 (chunk 527) — an Ident receiver rides its
             // variable slot along so a dynobj store that resizes
             // writes the fresh cell back (same two shapes as the
@@ -145,9 +146,11 @@ impl<'a> LowerCtx<'a> {
         // bypass the box/drop bookkeeping).
         if matches!(elem_ty, Type::Any) {
             let v_raw = self.lower_expr(value);
-            self.consume_if_ident(value);
+            // Chunk 567 — SHARE, no consume: arr_set_any/_grow store
+            // the pair raw (slot takes the passed reference), the
+            // unfixed sibling of the chunk-565 push/fill lanes.
             let v_ty = self.operand_ty(&v_raw);
-            let (tag_op, value_op) = self.pack_any_slot_value(&v_raw, v_ty);
+            let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
             self.emit_arr_set_any(writeback, arr_val, arr_ty, idx_val, tag_op, value_op);
             // Both entries can raise (dense-limit / temporary-receiver
             // RangeError) — propagate.
@@ -159,7 +162,12 @@ impl<'a> LowerCtx<'a> {
         // it (a write_blk-local def would be unreachable on the OOB
         // path).
         let v = self.lower_expr(value);
-        self.consume_if_ident(value);
+        // Chunk 567 — a typed-tier elem store SHARES the rhs: a
+        // borrow-shape value takes +1 so the slot owns its stake
+        // while the source binding keeps its own (re-assign
+        // drop-old no longer steals it — UAF, probe-proven); owned
+        // temps keep transferring their fresh reference.
+        let transfers = self.expr_transfers_ownership(value);
         // W4 — align the stored value with the elem width. The
         // reverse direction (f64 value into an i64 elem) means the
         // width analysis missed a write site — loud over bit-punning.
@@ -172,6 +180,11 @@ impl<'a> LowerCtx<'a> {
             _ => v,
         };
         let join_blk = self.emit_index_bounds_guard(&arr_val, &idx_val);
+        // The slot's +1 lands inside the in-bounds write block — the
+        // OOB path stores nothing and must not mint a stake.
+        if !transfers && !elem_ty.is_copy() {
+            self.emit_rc_inc(v.clone());
+        }
         // T-13.5: head-aware byte offset for indexed assign.
         let offset = self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
         // Drop old elem if non-Copy. M1.2 MVP only ships i64
@@ -194,6 +207,38 @@ impl<'a> LowerCtx<'a> {
         self.f.set_term(wb, Terminator::Br(join_blk));
         self.cur_block = join_blk;
         v
+    }
+
+    /// Share-aware wrapper around [`Self::pack_any_slot_value`]
+    /// (chunk 567): the Any-slot runtimes store the pair raw (the
+    /// slot takes ownership of the passed reference), so a
+    /// borrow-shape rhs takes +1 here — refcounted values via
+    /// rc_inc, boxed Any via a payload inc — keeping the source
+    /// binding's stake; owned temps transfer their fresh reference.
+    fn pack_any_slot_value_shared(
+        &mut self,
+        value: ExprId,
+        v_raw: &Operand,
+        v_ty: Type,
+    ) -> (Operand, Operand) {
+        let transfers = self.expr_transfers_ownership(value);
+        let (tag_op, value_op) = self.pack_any_slot_value(v_raw, v_ty);
+        if !transfers {
+            match v_ty {
+                Type::Any => {
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_payload_rc_inc,
+                            vec![tag_op.clone(), value_op.clone()],
+                        ),
+                    );
+                }
+                _ if v_ty.is_refcounted() => self.emit_rc_inc(v_raw.clone()),
+                _ => {}
+            }
+        }
+        (tag_op, value_op)
     }
 
     /// Pack the value into a (tag, value) operand pair using the same
@@ -387,21 +432,32 @@ impl<'a> LowerCtx<'a> {
         };
         let k_raw = self.lower_expr(index);
         let k_ty = self.operand_ty(&k_raw);
-        self.consume_if_ident(index);
+        // Chunk 567 — the key is READ by the set core (interned into
+        // the bucket, not adopted): no consume, a borrow-shape key
+        // keeps its stake; an owned-temp key (BinOp mint / Substr
+        // view) releases after the call — was a 32B/iter leak.
+        let key_transfers = self.expr_transfers_ownership(index) && k_ty.is_refcounted();
+        let key_raw_keep = k_raw.clone();
         let key_owned = k_ty == Type::Substr;
         let key_op = self.coerce_to_str(k_raw, k_ty);
         let Operand::Value(key_v) = key_op else {
             panic!("ssa-lower: string index key lowered to a non-value operand");
         };
         let v_raw = self.lower_expr(value);
-        self.consume_if_ident(value);
+        // Chunk 567 — SHARE, no consume.
         let v_ty = self.operand_ty(&v_raw);
-        let (tag_op, value_op) = self.pack_any_slot_value(&v_raw, v_ty);
+        let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
         crate::ssa_lower_assign_member_any::emit_any_member_set_dyn(
             self, obj_val, key_v, -1, tag_op, value_op, &obj_ident,
         );
         if key_owned {
+            // Substr view materialized to a fresh owned Str.
             self.emit_drop_value(key_op, Type::Str);
+        }
+        if key_transfers {
+            // An owned-temp key (BinOp mint / fresh view) releases
+            // its own reference too — substr_to_owned only reads.
+            self.emit_drop_value(key_raw_keep, k_ty);
         }
         v_raw
     }
