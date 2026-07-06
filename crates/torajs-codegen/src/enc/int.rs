@@ -29,6 +29,14 @@ pub fn add_imm(rd: Gpr, rn: Gpr, imm12: u16) -> u32 {
     0x9100_0000 | ((imm12 as u32) << 10) | (rn.idx() << 5) | rd.idx()
 }
 
+/// ADD Xd, Xn, #imm12, LSL #12 — shifted-immediate form (sh=1),
+/// adds `imm12 * 4096`. Pairs with the plain form for frame sizes
+/// past imm12. ARM ARM C6.2.4.
+pub fn add_imm_lsl12(rd: Gpr, rn: Gpr, imm12: u16) -> u32 {
+    debug_assert!(imm12 < 4096, "imm12 must fit in 12 bits");
+    0x9140_0000 | ((imm12 as u32) << 10) | (rn.idx() << 5) | rd.idx()
+}
+
 /// SUB Xd, Xn, Xm, LSL #0. ARM ARM C6.2.376.
 pub fn sub_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
     0xCB00_0000 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
@@ -38,6 +46,13 @@ pub fn sub_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
 pub fn sub_imm(rd: Gpr, rn: Gpr, imm12: u16) -> u32 {
     debug_assert!(imm12 < 4096, "imm12 must fit in 12 bits");
     0xD100_0000 | ((imm12 as u32) << 10) | (rn.idx() << 5) | rd.idx()
+}
+
+/// SUB Xd, Xn, #imm12, LSL #12 — shifted-immediate form (sh=1),
+/// subtracts `imm12 * 4096`. ARM ARM C6.2.376.
+pub fn sub_imm_lsl12(rd: Gpr, rn: Gpr, imm12: u16) -> u32 {
+    debug_assert!(imm12 < 4096, "imm12 must fit in 12 bits");
+    0xD140_0000 | ((imm12 as u32) << 10) | (rn.idx() << 5) | rd.idx()
 }
 
 /// MUL Xd, Xn, Xm — alias for MADD Xd, Xn, Xm, XZR. ARM ARM C6.2.222.

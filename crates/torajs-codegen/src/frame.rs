@@ -38,8 +38,8 @@
 //! Alloca-region carve-out.
 
 use crate::enc::{
-    add_imm, ldp_post_index, ldr_d_imm12, ldr_x_imm12, stp_pre_index, str_d_imm12, str_x_imm12,
-    sub_imm,
+    add_imm, add_imm_lsl12, ldp_post_index, ldr_d_imm12, ldr_x_imm12, stp_pre_index, str_d_imm12,
+    str_x_imm12, sub_imm, sub_imm_lsl12,
 };
 use crate::reg::{Gpr, aapcs64};
 
@@ -182,13 +182,24 @@ impl FrameLayout {
         // MOV x29, sp = ADD x29, sp, #0  — FP anchors at saved-FP location
         write_word(bytes, add_imm(Gpr::X29, Gpr::SP, 0));
         // SUB sp, sp, #frame_size  — carve alloca + spill + callee-save.
+        // Sizes past imm12 split into a shifted-imm pair
+        // (SUB #hi, LSL #12 + SUB #lo). Hard cap stays at 32 KiB:
+        // spill / callee-save STR/LDR use scaled-imm12 addressing
+        // (byte offset < 32768); past that needs a scratch-reg path.
         let total = self.frame_size();
         if total > 0 {
             assert!(
-                total < 4096,
-                "frame size {total} must fit in ADD/SUB imm12; larger frames land later with shifted-imm or scratch-reg path"
+                total < (1 << 15),
+                "frame size {total} exceeds the 32 KiB scaled-imm12 slot-addressing cap; scratch-reg path lands later"
             );
-            write_word(bytes, sub_imm(Gpr::SP, Gpr::SP, total as u16));
+            let hi = total >> 12;
+            let lo = total & 0xFFF;
+            if hi > 0 {
+                write_word(bytes, sub_imm_lsl12(Gpr::SP, Gpr::SP, hi as u16));
+            }
+            if lo > 0 {
+                write_word(bytes, sub_imm(Gpr::SP, Gpr::SP, lo as u16));
+            }
         }
         // Save callee-saved registers into the area above alloca/spill.
         self.emit_callee_saves(bytes, /*restore=*/ false);
@@ -204,10 +215,18 @@ impl FrameLayout {
         // Restore callee-saved registers (offsets still valid — sp is
         // at the bottom of the frame until the ADD below).
         self.emit_callee_saves(bytes, /*restore=*/ true);
-        // ADD sp, sp, #frame_size  — release the whole frame.
+        // ADD sp, sp, #frame_size  — release the whole frame
+        // (shifted-imm pair past imm12, mirroring the prologue).
         let total = self.frame_size();
         if total > 0 {
-            write_word(bytes, add_imm(Gpr::SP, Gpr::SP, total as u16));
+            let hi = total >> 12;
+            let lo = total & 0xFFF;
+            if hi > 0 {
+                write_word(bytes, add_imm_lsl12(Gpr::SP, Gpr::SP, hi as u16));
+            }
+            if lo > 0 {
+                write_word(bytes, add_imm(Gpr::SP, Gpr::SP, lo as u16));
+            }
         }
         // LDP x29, x30, [sp], #16  — restore FP/LR, sp += 16
         write_word(bytes, ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 16));
@@ -245,6 +264,60 @@ mod tests {
     fn nonzero_frame_is_not_trivial() {
         let f = FrameLayout::from_alloca_bytes(16, false);
         assert!(!f.is_trivial());
+    }
+
+    /// Frame past imm12 (RC-4 F1a fallout: guard-heavy fixtures hit
+    /// 7184) carves and releases sp with the shifted-imm pair:
+    /// SUB #hi LSL#12 + SUB #lo, mirrored in the epilogue.
+    #[test]
+    fn prologue_epilogue_large_frame_shifted_imm_pair() {
+        let f = FrameLayout::from_alloca_bytes(7184, true);
+        assert_eq!(f.frame_size(), 7184);
+
+        let mut prologue = Vec::new();
+        f.emit_prologue(&mut prologue);
+        let expected_pro = [
+            stp_pre_index(Gpr::X29, Gpr::X30, Gpr::SP, -16),
+            add_imm(Gpr::X29, Gpr::SP, 0),
+            sub_imm_lsl12(Gpr::SP, Gpr::SP, 1), // 4096
+            sub_imm(Gpr::SP, Gpr::SP, 3088),    // 7184 - 4096
+        ];
+        let mut want = Vec::new();
+        for w in expected_pro {
+            want.extend_from_slice(&w.to_le_bytes());
+        }
+        assert_eq!(prologue, want);
+
+        let mut epilogue = Vec::new();
+        f.emit_epilogue(&mut epilogue);
+        let expected_epi = [
+            add_imm_lsl12(Gpr::SP, Gpr::SP, 1),
+            add_imm(Gpr::SP, Gpr::SP, 3088),
+            ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 16),
+        ];
+        let mut want_epi = Vec::new();
+        for w in expected_epi {
+            want_epi.extend_from_slice(&w.to_le_bytes());
+        }
+        assert_eq!(epilogue, want_epi);
+    }
+
+    /// An exact multiple of 4096 emits only the shifted-imm half.
+    #[test]
+    fn large_frame_exact_multiple_single_shifted_sub() {
+        let f = FrameLayout::from_alloca_bytes(8192, true);
+        let mut prologue = Vec::new();
+        f.emit_prologue(&mut prologue);
+        let expected = [
+            stp_pre_index(Gpr::X29, Gpr::X30, Gpr::SP, -16),
+            add_imm(Gpr::X29, Gpr::SP, 0),
+            sub_imm_lsl12(Gpr::SP, Gpr::SP, 2),
+        ];
+        let mut want = Vec::new();
+        for w in expected {
+            want.extend_from_slice(&w.to_le_bytes());
+        }
+        assert_eq!(prologue, want);
     }
 
     #[test]
