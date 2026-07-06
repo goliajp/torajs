@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T14:16:23.676Z",
+  "generatedAt": "2026-07-06T14:26:05.628Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "91d991ce",
-    "commitSubject": "fix: arm64 frame carve supports sizes past imm12 via shifted-imm pair (codegen)",
+    "commit": "58ac6ea6",
+    "commitSubject": "fix: multiline $ patterns run on the pike vm, not the dfa (test262-bug-corpus RC-4 engine face)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "58ac6ea6",
+      "subject": "fix: multiline $ patterns run on the pike vm, not the dfa (test262-bug-corpus RC-4 engine face)"
+    },
+    {
+      "hash": "21167355",
+      "subject": "chore(dashboard): session snapshot @ 91d991ce — rotation 33 (595-600: test262-bug-corpus RC-4 F4 freeze-any, F5 array-len rangeerror, F6 capture shared-stake UAF, F1a exec nullable retype+guard, codegen frame shifted-imm; gate 1234 -> 1239, crash corpus 15 pass / 7 loud / 2 left)"
+    },
+    {
       "hash": "91d991ce",
       "subject": "fix: arm64 frame carve supports sizes past imm12 via shifted-imm pair (codegen)"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "c59e6184",
       "subject": "fix: IIFE args box against the callee's Any params (test262-bug-corpus RC-4 F3)"
-    },
-    {
-      "hash": "624051d6",
-      "subject": "feat: WeakMap value slot rides an AnyValue lane + weak-key classification (test262-bug-corpus RC-4 F2)"
-    },
-    {
-      "hash": "5e9cfbd4",
-      "subject": "fix: void yields the undefined value + null Str slots compare/concat as undefined (test262-bug-corpus RC-4 F1b)"
     }
   ],
-  "headSha": "91d991ce",
+  "headSha": "58ac6ea6",
   "autorun": {
     "total": 341,
     "baselineTarget": 10,
