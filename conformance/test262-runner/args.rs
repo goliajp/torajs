@@ -25,6 +25,13 @@ pub struct Args {
     /// Useful for benchmarking the runner itself or after a corpus /
     /// harness change that hasn't yet invalidated the hash key.
     pub no_cache: bool,
+    /// `--dump-src DIR` flag: also write each assembled source (typed
+    /// harness + transformed case, byte-identical to the tmp file the
+    /// worker executes) into DIR, named by the case path with `/`
+    /// flattened to `__`. Feeds runner-isomorphic crash reproduction —
+    /// rerunning the dumped file under `tr run` reproduces exactly
+    /// what the worker ran. Use with `--filter` to keep DIR small.
+    pub dump_src: Option<String>,
 }
 
 pub fn parse_args() -> Args {
@@ -35,6 +42,7 @@ pub fn parse_args() -> Args {
     let mut json_out: Option<String> = None;
     let mut bugs_ndjson: Option<String> = None;
     let mut no_cache = false;
+    let mut dump_src: Option<String> = None;
     let mut iter = std::env::args().skip(1);
     while let Some(a) = iter.next() {
         match a.as_str() {
@@ -53,6 +61,7 @@ pub fn parse_args() -> Args {
             "--json" => json_out = iter.next(),
             "--bugs-ndjson" => bugs_ndjson = iter.next(),
             "--no-cache" => no_cache = true,
+            "--dump-src" => dump_src = iter.next(),
             "-h" | "--help" => {
                 eprintln!(
                     "torajs-test262 — run tc39/test262 against tr\n\n\
@@ -63,7 +72,8 @@ pub fn parse_args() -> Args {
                      --report-bugs N list first N bug failures (default {DEFAULT_REPORT_BUGS})\n  \
                      --json PATH     also write machine-readable summary to PATH\n  \
                      --bugs-ndjson PATH  dump every bug case (path/kind/msg) as ndjson for clustering\n  \
-                     --no-cache      bypass the bun oracle cache for this run"
+                     --no-cache      bypass the bun oracle cache for this run\n  \
+                     --dump-src DIR  also write each assembled source (harness + transformed case) into DIR"
                 );
                 std::process::exit(0);
             }
@@ -81,5 +91,6 @@ pub fn parse_args() -> Args {
         json_out,
         bugs_ndjson,
         no_cache,
+        dump_src,
     }
 }

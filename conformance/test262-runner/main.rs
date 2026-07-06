@@ -444,7 +444,13 @@ fn preceded_by_word(bytes: &[u8], i: usize) -> bool {
     c.is_ascii_alphanumeric() || c == b'_' || c == b'$'
 }
 
-fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
+fn run_case(
+    path: &Path,
+    harness: &str,
+    tr_bin: &Path,
+    slot: usize,
+    dump_src: Option<&Path>,
+) -> Outcome {
     let case_src = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -486,6 +492,17 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
 
     let transformed = transform_source(&case_src);
     let full = format!("{harness}\n{transformed}");
+
+    // `--dump-src`: persist the assembled source for runner-isomorphic
+    // reproduction (byte-identical to the tmp file executed below).
+    if let Some(dir) = dump_src {
+        let rel = path
+            .strip_prefix(TEST262_ROOT)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('/', "__");
+        let _ = std::fs::write(dir.join(format!("{rel}.ts")), &full);
+    }
 
     // Distinct tmp file per worker slot to avoid races. Use `.ts` so
     // tr's read_source treats it as a normal source file (extension
@@ -600,6 +617,14 @@ fn main() {
         args.workers
     );
 
+    let dump_src = args.dump_src.as_deref().map(Path::new);
+    if let Some(dir) = dump_src {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            eprintln!("error: create --dump-src dir {}: {e}", dir.display());
+            std::process::exit(2);
+        }
+    }
+
     let queue = Mutex::new(0usize);
     let pass = AtomicUsize::new(0);
     let pass_no_oracle = AtomicUsize::new(0);
@@ -642,7 +667,7 @@ fn main() {
                         break;
                     }
                     let p = &cases[idx];
-                    let outcome = run_case(p, harness, tr_bin, slot);
+                    let outcome = run_case(p, harness, tr_bin, slot, dump_src);
                     match outcome {
                         Outcome::Pass => {
                             pass.fetch_add(1, Ordering::Relaxed);
