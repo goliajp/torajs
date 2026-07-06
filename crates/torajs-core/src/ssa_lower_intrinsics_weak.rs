@@ -33,6 +33,11 @@ pub(crate) struct WeakIds {
     pub weakmap_has: FuncId,
     pub weakmap_delete: FuncId,
     pub weakmap_drop: FuncId,
+    /// RC-4 F2 — key classification + extraction (ES CanBeHeldWeakly):
+    /// `from_any` reads illegal keys as absent (NULL), `or_throw`
+    /// records a pending TypeError for set/add.
+    pub weak_key_from_any: FuncId,
+    pub weak_key_from_any_or_throw: FuncId,
     pub weakset_create: FuncId,
     pub weakset_add: FuncId,
     pub weakset_has: FuncId,
@@ -81,7 +86,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_weakmap_set",
-            &[Type::WeakMap, Type::Ptr, Type::Ptr],
+            &[Type::WeakMap, Type::Ptr, Type::Any],
             Type::Void,
         ),
         weakmap_get: declare_intrinsic(
@@ -89,6 +94,20 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_weakmap_get",
             &[Type::WeakMap, Type::Ptr],
+            Type::Any,
+        ),
+        weak_key_from_any: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_weak_key_from_any",
+            &[Type::Any],
+            Type::Ptr,
+        ),
+        weak_key_from_any_or_throw: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_weak_key_from_any_or_throw",
+            &[Type::Any],
             Type::Ptr,
         ),
         weakmap_has: declare_intrinsic(

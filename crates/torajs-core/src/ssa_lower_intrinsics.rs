@@ -409,6 +409,11 @@ pub(crate) struct Intrinsics {
     pub(crate) weakmap_has: FuncId,
     pub(crate) weakmap_delete: FuncId,
     pub(crate) weakmap_drop: FuncId,
+    /* RC-4 F2 — weak-key classification (ES CanBeHeldWeakly):
+     * `from_any` reads illegal keys as absent (NULL), `or_throw`
+     * records a pending TypeError for set/add. */
+    pub(crate) weak_key_from_any: FuncId,
+    pub(crate) weak_key_from_any_or_throw: FuncId,
     /* P6.1 — strong-ref Map<K,V> intrinsics. */
     pub(crate) map_create: FuncId,
     /* `__torajs_set_create()` — fresh Set heap (Map layout + TAG_SET).

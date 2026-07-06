@@ -12,10 +12,9 @@
 //!   primitive key reads as absent (`has` → false, `delete` → false,
 //!   `get` → undefined) and THROWS for `set` / `add` (spec
 //!   "Invalid value used as weak map key").
-//! - `set` values ride the kernel's heap-ptr rc lane, so only cell
-//!   values pass; a primitive value is a loud TypeError until the
-//!   kernel's value slot widens to a boxed AnyValue (RFC records the
-//!   follow-up lane).
+//! - `set` values ride the kernel's AnyValue lane (RC-4 F2): cells
+//!   get a strong rc from the kernel, primitives are stored
+//!   verbatim — spec allows any value, only keys must be cells.
 //! - `set` / `add` return `this` (+1, boxed-value convention);
 //!   `get` boxes the kernel's already-inc'd hit or `undefined`.
 
@@ -27,20 +26,25 @@ use torajs_rc::{
 };
 
 use crate::method_call::method_not_a_function;
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
-use crate::nanbox_encode::{__torajs_anyv_box_from_pair, __torajs_anyv_box_pointer};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
+use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 
 unsafe extern "C" {
     /// torajs-weak — ptr-keyed kernels. Keys are held weakly (no
-    /// rc); `set` incs the value it keeps, `get` incs the hit it
-    /// hands out.
-    fn __torajs_weakmap_set(p: *mut c_void, key: *mut c_void, value: *mut c_void);
-    fn __torajs_weakmap_get(p: *mut c_void, key: *mut c_void) -> *mut c_void;
+    /// rc); values are NaN-box `AnyValue` bits (RC-4 F2 — cells
+    /// strong-rc'd by the kernel, primitives verbatim). `set` incs
+    /// the cell value it keeps, `get` incs the cell hit it hands
+    /// out (miss → the undefined sentinel).
+    fn __torajs_weakmap_set(p: *mut c_void, key: *mut c_void, value: u64);
+    fn __torajs_weakmap_get(p: *mut c_void, key: *mut c_void) -> u64;
     fn __torajs_weakmap_has(p: *mut c_void, key: *mut c_void) -> i64;
     fn __torajs_weakmap_delete(p: *mut c_void, key: *mut c_void) -> i64;
     fn __torajs_weakset_add(p: *mut c_void, key: *mut c_void);
     fn __torajs_weakset_has(p: *mut c_void, key: *mut c_void) -> i64;
     fn __torajs_weakset_delete(p: *mut c_void, key: *mut c_void) -> i64;
+    /// torajs-weak key classification (ES CanBeHeldWeakly) — NULL
+    /// for an illegal key (primitives INCLUDING Str/BigInt cells).
+    fn __torajs_weak_key_from_any(av: u64) -> *mut c_void;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
@@ -63,12 +67,12 @@ pub(crate) unsafe fn weak_method(
             VALUE_UNDEFINED
         }
     };
+    // RC-4 F2 — classification via the shared torajs-weak helper:
+    // a legal weak key is an object-like cell; Str / BigInt cells
+    // back JS primitives and read as illegal (NULL) exactly like a
+    // bare number.
     let key_av = arg_at(0);
-    let key: *mut c_void = if is_cell(key_av) {
-        as_void_ptr(key_av)
-    } else {
-        core::ptr::null_mut()
-    };
+    let key: *mut c_void = unsafe { __torajs_weak_key_from_any(key_av) };
     unsafe {
         match mid {
             m if m == ANY_METHOD_HAS => {
@@ -95,13 +99,10 @@ pub(crate) unsafe fn weak_method(
                 if key.is_null() {
                     return VALUE_UNDEFINED;
                 }
-                let v = __torajs_weakmap_get(ptr, key);
-                if v.is_null() {
-                    VALUE_UNDEFINED
-                } else {
-                    // Kernel already handed out a +1.
-                    __torajs_anyv_box_pointer(v)
-                }
+                // Kernel returns AnyValue bits directly — cells come
+                // with a +1 the caller owns, miss is the undefined
+                // sentinel. No re-boxing needed.
+                __torajs_weakmap_get(ptr, key)
             }
             m if (m == ANY_METHOD_SET && !is_weakset) || (m == ANY_METHOD_ADD && is_weakset) => {
                 if key.is_null() {
@@ -111,18 +112,11 @@ pub(crate) unsafe fn weak_method(
                 if is_weakset {
                     __torajs_weakset_add(ptr, key);
                 } else {
-                    let val_av = arg_at(1);
-                    if !is_cell(val_av) {
-                        // Kernel value slot is a heap-ptr rc lane —
-                        // the boxed-AnyValue value lane is the RFC's
-                        // recorded follow-up.
-                        __torajs_throw_type_error(
-                            c"WeakMap.set with a non-object value is not yet supported on an any receiver"
-                                .as_ptr(),
-                        );
-                        return VALUE_UNDEFINED;
-                    }
-                    __torajs_weakmap_set(ptr, key, as_void_ptr(val_av));
+                    // RC-4 F2 — the kernel value slot is an AnyValue
+                    // lane: pass the borrowed bits verbatim (the
+                    // kernel incs cells it keeps; primitives ride
+                    // free, per spec any value is legal).
+                    __torajs_weakmap_set(ptr, key, arg_at(1));
                 }
                 // set / add return `this` (+1, boxed-value convention).
                 __torajs_rc_inc(ptr);

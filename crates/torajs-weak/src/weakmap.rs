@@ -21,7 +21,10 @@
 //!
 //! ```text
 //!   offset 0  : key   (*mut c_void) — observed, NOT rc'd
-//!   offset 8  : value (*mut c_void) — strong-rc'd while in the map
+//!   offset 8  : value (u64 AnyValue) — cells strong-rc'd while in
+//!               the map; primitives ride the NaN-box bits verbatim
+//!               (RC-4 F2 — spec allows any value, only keys must
+//!               be held weakly)
 //!   offset 16 : next  (*mut WeakMapEntry) — hash-bucket chain
 //! ```
 //!
@@ -35,6 +38,7 @@
 use core::ffi::c_void;
 use core::ptr;
 
+use crate::key::{AV_UNDEFINED, av_is_cell};
 use crate::layout::{HeapHeader, OBSERVER_WEAKMAP, TAG_WEAKMAP};
 use crate::registry::{__torajs_weakref_registry_deregister, __torajs_weakref_registry_register};
 
@@ -48,11 +52,13 @@ const WEAKMAP_INITIAL_BUCKETS: u32 = 16;
 const FLAG_STATIC_LITERAL: u16 = 4;
 
 /// Mirror of `runtime_weakmap.c::WeakMapEntry`. Single-linked-list
-/// node in a bucket chain.
+/// node in a bucket chain. `value` is a NaN-box `AnyValue` (RC-4
+/// F2): cells carry their raw ptr bits and are strong-rc'd while in
+/// the map; primitives are stored verbatim with no rc traffic.
 #[repr(C)]
 struct WeakMapEntry {
     key: *mut c_void,
-    value: *mut c_void,
+    value: u64,
     next: *mut WeakMapEntry,
 }
 
@@ -172,16 +178,16 @@ pub unsafe extern "C" fn __torajs_weakmap_create() -> *mut c_void {
     m as *mut c_void
 }
 
-/// `m.set(key, value)` — install or replace. Replacing drops the old
-/// value's strong ref before installing the new one. NULL `m` or NULL
-/// `key` is a defensive silent no-op (the typechecker normally
-/// rejects, but we don't trust caller bugs).
+/// `m.set(key, value)` — install or replace. `value` is a NaN-box
+/// `AnyValue` (RC-4 F2): cells get a strong ref while in the map,
+/// primitives ride the bits verbatim. Replacing incs the new value
+/// BEFORE dropping the old one (same-cell replace on a map-held
+/// last ref must not free-then-inc). NULL `m` or NULL `key` is a
+/// defensive silent no-op (callers guard keys; the any lane and the
+/// typed lowering both throw for a primitive key per spec before
+/// reaching here).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_weakmap_set(
-    p: *mut c_void,
-    key: *mut c_void,
-    value: *mut c_void,
-) {
+pub unsafe extern "C" fn __torajs_weakmap_set(p: *mut c_void, key: *mut c_void, value: u64) {
     if p.is_null() || key.is_null() {
         return;
     }
@@ -193,11 +199,11 @@ pub unsafe extern "C" fn __torajs_weakmap_set(
     let existing = unsafe { find(m, key, bkt) };
     if !existing.is_null() {
         let old_val = unsafe { (*existing).value };
-        if !old_val.is_null() {
-            unsafe { __torajs_value_drop_heap(old_val) };
+        if av_is_cell(value) {
+            unsafe { __torajs_rc_inc(value as *mut c_void) };
         }
-        if !value.is_null() {
-            unsafe { __torajs_rc_inc(value) };
+        if av_is_cell(old_val) {
+            unsafe { __torajs_value_drop_heap(old_val as *mut c_void) };
         }
         unsafe { (*existing).value = value };
         return;
@@ -205,8 +211,8 @@ pub unsafe extern "C" fn __torajs_weakmap_set(
     let e = unsafe { malloc(core::mem::size_of::<WeakMapEntry>()) } as *mut WeakMapEntry;
     unsafe {
         (*e).key = key;
-        if !value.is_null() {
-            __torajs_rc_inc(value);
+        if av_is_cell(value) {
+            __torajs_rc_inc(value as *mut c_void);
         }
         (*e).value = value;
         (*e).next = *(*m).buckets.add(bkt as usize);
@@ -216,22 +222,23 @@ pub unsafe extern "C" fn __torajs_weakmap_set(
     }
 }
 
-/// `m.get(key)` — return the value with rc_inc, or NULL when absent.
-/// Caller takes ownership of the returned strong ref.
+/// `m.get(key)` — return the value AnyValue (cells handed out with a
+/// fresh strong ref the caller owns), or the `undefined` sentinel
+/// when absent (spec §24.3.3.3 — miss is undefined, not null).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_weakmap_get(p: *mut c_void, key: *mut c_void) -> *mut c_void {
+pub unsafe extern "C" fn __torajs_weakmap_get(p: *mut c_void, key: *mut c_void) -> u64 {
     if p.is_null() || key.is_null() {
-        return ptr::null_mut();
+        return AV_UNDEFINED;
     }
     let m = p as *mut WeakMap;
     let bkt = hash_ptr_for(key, unsafe { (*m).n_buckets });
     let e = unsafe { find(m, key, bkt) };
     if e.is_null() {
-        return ptr::null_mut();
+        return AV_UNDEFINED;
     }
     let v = unsafe { (*e).value };
-    if !v.is_null() {
-        unsafe { __torajs_rc_inc(v) };
+    if av_is_cell(v) {
+        unsafe { __torajs_rc_inc(v as *mut c_void) };
     }
     v
 }
@@ -267,8 +274,9 @@ pub unsafe extern "C" fn __torajs_weakmap_delete(p: *mut c_void, key: *mut c_voi
         if unsafe { (*cur).key } == key {
             unsafe {
                 *slot = (*cur).next;
-                if !(*cur).value.is_null() {
-                    __torajs_value_drop_heap((*cur).value);
+                let v = (*cur).value;
+                if av_is_cell(v) {
+                    __torajs_value_drop_heap(v as *mut c_void);
                 }
                 free(cur as *mut c_void);
                 (*m).n_entries -= 1;
@@ -298,8 +306,9 @@ pub unsafe extern "C" fn __torajs_weakmap_invalidate_key(p: *mut c_void, dying_k
         if unsafe { (*cur).key } == dying_key {
             unsafe {
                 *slot = (*cur).next;
-                if !(*cur).value.is_null() {
-                    __torajs_value_drop_heap((*cur).value);
+                let v = (*cur).value;
+                if av_is_cell(v) {
+                    __torajs_value_drop_heap(v as *mut c_void);
                 }
                 free(cur as *mut c_void);
                 (*m).n_entries -= 1;
@@ -332,8 +341,9 @@ pub unsafe extern "C" fn __torajs_weakmap_drop(p: *mut c_void) {
             let mut cur = *(*m).buckets.add(i);
             while !cur.is_null() {
                 let next = (*cur).next;
-                if !(*cur).value.is_null() {
-                    __torajs_value_drop_heap((*cur).value);
+                let v = (*cur).value;
+                if av_is_cell(v) {
+                    __torajs_value_drop_heap(v as *mut c_void);
                 }
                 __torajs_weakref_registry_deregister(
                     (*cur).key,

@@ -55,6 +55,7 @@ extern crate torajs_mmalloc as _;
 pub mod create;
 pub mod deref;
 pub mod drop;
+pub mod key;
 pub mod layout;
 pub mod registry;
 pub mod weakmap;
@@ -63,6 +64,7 @@ pub mod weakset;
 pub use create::__torajs_weakref_create;
 pub use deref::__torajs_weakref_deref;
 pub use drop::__torajs_weakref_drop;
+pub use key::{__torajs_weak_key_from_any, __torajs_weak_key_from_any_or_throw};
 pub use registry::{
     __torajs_weakref_registry_deregister, __torajs_weakref_registry_register,
     __torajs_weakref_target_dying,
@@ -105,5 +107,17 @@ pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
     panic!(
         "torajs-weak unit-test stub: __torajs_value_drop_heap should not be called from cargo test paths"
+    );
+}
+
+// `__torajs_throw_type_error` comes from libtorajs_throw.a at
+// `tr build` link time — stubbed for cargo test (used by
+// key::__torajs_weak_key_from_any_or_throw; the key tests only
+// exercise the non-throwing classification path).
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {
+    panic!(
+        "torajs-weak unit-test stub: __torajs_throw_type_error should not be called from cargo test paths"
     );
 }

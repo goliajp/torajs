@@ -366,6 +366,8 @@ pub(crate) fn build(
         weakmap_has: init_c.weak.weakmap_has,
         weakmap_delete: init_c.weak.weakmap_delete,
         weakmap_drop: init_c.weak.weakmap_drop,
+        weak_key_from_any: init_c.weak.weak_key_from_any,
+        weak_key_from_any_or_throw: init_c.weak.weak_key_from_any_or_throw,
         map_create: init_c.map_set.map_create,
         set_create: init_c.map_set.set_create,
         set_is_subset_of: init_c.map_set.set_is_subset_of,

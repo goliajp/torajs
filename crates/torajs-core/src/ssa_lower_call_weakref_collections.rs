@@ -125,20 +125,50 @@ fn try_lower_weak_collection_method(
         return None;
     }
 
+    if args.is_empty() {
+        return None;
+    }
     let recv_op = ctx.lower_expr(recv_id);
     let useful = if do_weakmap && m_name == "set" { 2 } else { 1 };
-    let arg_ops: Vec<Operand> = args
-        .iter()
-        .take(useful)
-        .map(|a| ctx.lower_expr(*a))
-        .collect();
+    let is_setter = (do_weakmap && m_name == "set") || (do_weakset && m_name == "add");
+
+    // RC-4 F2 — key classification per ES CanBeHeldWeakly: a
+    // statically object-like key passes as its raw ptr; anything
+    // else (Any / primitive / null / undefined) is encoded to
+    // borrowed AnyValue bits and classified by the runtime helper
+    // (set/add record a pending TypeError for an illegal key,
+    // has/get/delete read it as absent). The kernels no-op on the
+    // helper's NULL result.
+    let key_op = lower_weak_key(ctx, args[0], is_setter);
+    let mut arg_ops: Vec<Operand> = vec![key_op];
+    // RC-4 F2 — the WeakMap value slot is an AnyValue lane: encode
+    // the value to borrowed bits (undef-aware pair extraction; the
+    // kernel incs cells it keeps, primitives ride verbatim).
+    if useful == 2 {
+        let (tag, val) = if args.len() >= 2 {
+            ctx.lower_to_tag_value(args[1])
+        } else {
+            // `m.set(k)` — the missing value is `undefined` per spec.
+            (Operand::ConstI64(5), Operand::ConstI64(0))
+        };
+        let cur_block = ctx.cur_block;
+        let av = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.any_box, vec![tag, val]),
+            Type::Any,
+            None,
+        );
+        arg_ops.push(Operand::Value(av));
+    }
     for &a in args.iter().skip(useful) {
         let _ = ctx.lower_expr(a);
     }
     let (target, ret_ty) = if do_weakmap {
         match m_name.as_str() {
             "set" => (ctx.intrinsics.weakmap_set, Type::Void),
-            "get" => (ctx.intrinsics.weakmap_get, Type::Ptr),
+            // RC-4 F2 — get returns the AnyValue lane directly
+            // (cells +1'd by the kernel, miss = undefined sentinel).
+            "get" => (ctx.intrinsics.weakmap_get, Type::Any),
             "has" => (ctx.intrinsics.weakmap_has, Type::I64),
             "delete" => (ctx.intrinsics.weakmap_delete, Type::I64),
             _ => unreachable!(),
@@ -159,6 +189,11 @@ fn try_lower_weak_collection_method(
     if ret_ty == Type::Void {
         ctx.f
             .append_void(cur_block, InstKind::Call(target, full_args));
+        // RC-4 F2 — an illegal key on set/add recorded a pending
+        // TypeError in the key helper; propagate it here.
+        if is_setter {
+            ctx.emit_throw_check(None);
+        }
         return Some(Operand::ConstI64(0));
     }
     let v = ctx
@@ -174,4 +209,66 @@ fn try_lower_weak_collection_method(
         return Some(Operand::Value(b));
     }
     Some(Operand::Value(v))
+}
+
+/// RC-4 F2 — route a weak-collection KEY operand per ES
+/// `CanBeHeldWeakly`. A statically object-like key (Obj / Arr /
+/// Closure / Symbol / Promise / RegExp / Date / weak-family / Map /
+/// Set) passes as its raw ptr — zero-cost fast path. Everything else
+/// (Any / primitive / null / undefined; Str and BigInt cells back JS
+/// *primitives* and must be rejected too) is encoded to borrowed
+/// AnyValue bits and classified by the torajs-weak runtime helper:
+/// `or_throw` (set/add) records a pending TypeError for an illegal
+/// key, `from_any` (has/get/delete) reads it as absent. Both return
+/// NULL on rejection and the kernels no-op on a NULL key.
+fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> Operand {
+    let is_undef = matches!(ctx.expr_types.get(&eid), Some(check_mod::Type::Undefined));
+    let raw = ctx.lower_expr(eid);
+    let ty = ctx.operand_ty(&raw);
+    if matches!(
+        ty,
+        Type::Obj(_)
+            | Type::Arr(_)
+            | Type::Closure(_)
+            | Type::Symbol
+            | Type::Promise
+            | Type::RegExp
+            | Type::Date
+            | Type::WeakRef
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::Map
+            | Type::Set
+    ) {
+        return raw;
+    }
+    let cur_block = ctx.cur_block;
+    let av = if matches!(ty, Type::Any) {
+        raw
+    } else {
+        let (tag, val) = if is_undef && matches!(ty, Type::Ptr) {
+            (Operand::ConstI64(5), Operand::ConstI64(0))
+        } else {
+            ctx.box_to_tag_value(raw)
+        };
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.any_box, vec![tag, val]),
+            Type::Any,
+            None,
+        );
+        Operand::Value(v)
+    };
+    let helper = if is_setter {
+        ctx.intrinsics.weak_key_from_any_or_throw
+    } else {
+        ctx.intrinsics.weak_key_from_any
+    };
+    let p = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(helper, vec![av]),
+        Type::Ptr,
+        None,
+    );
+    Operand::Value(p)
 }
