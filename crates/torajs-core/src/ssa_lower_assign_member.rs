@@ -382,6 +382,21 @@ fn lower_struct_field_store(
             None,
         );
         Operand::Value(alloc)
+    } else if let Expr::Array(els) = ctx.ast.get_expr(value)
+        && let Type::Arr(arr_id) = field_ty
+        && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
+    {
+        // Chunk 614 — non-empty literal into an Any-elem field takes
+        // the same annotation-consuming widen the LetDecl path has
+        // (`lower_let_init_val`): without it the literal lowered
+        // through the typed fast path, so the stored block never got
+        // FLAG_ARR_ANY — the cycle collector's `is_visitable_arr`
+        // said leaf, an `any[]` field cycle was invisible (obj root
+        // buffered but the trial-deletion walk never crossed the
+        // arr), and its raw scalar slots were NaN-box-misread by
+        // every flag-dispatch consumer.
+        let ids: Vec<ExprId> = els.clone();
+        ctx.lower_array_any_literal(&ids)
     } else {
         let v = ctx.lower_expr(value);
         // Chunk 566 — a field store SHARES the rhs (TS has no move

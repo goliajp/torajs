@@ -77,11 +77,17 @@ fn buffer_push(p: *mut c_void) {
 /// `collect` module — keeps buffer iteration semantics confined to
 /// this module so the algorithm code in `collect.rs` doesn't poke
 /// at `G_BUFFER` directly.
+///
+/// The length is snapshotted once (entries appended by the callback
+/// belong to the NEXT collect), but the base pointer reloads every
+/// iteration: a callback-triggered `cycle_buffer` push at the cap
+/// boundary reallocs the backing array, and a cached base would read
+/// freed memory (chunk 614 — pass-3 re-buffer pushes hit this).
 #[inline]
 pub fn for_each<F: FnMut(*mut c_void)>(mut f: F) {
-    let buf = G_BUFFER.load(Ordering::Relaxed);
     let len = G_BUFFER_LEN.load(Ordering::Relaxed);
     for i in 0..len as usize {
+        let buf = G_BUFFER.load(Ordering::Relaxed);
         let p = unsafe { *buf.add(i) };
         if !p.is_null() {
             f(p);
@@ -93,23 +99,36 @@ pub fn for_each<F: FnMut(*mut c_void)>(mut f: F) {
 /// + index. Needed by `cycle_collect`'s third pass which must read
 /// each slot's pointer to look at its color flag and possibly clear
 /// the `FLAG_BUFFERED` bit before potentially recursing into
-/// `collect_white`.
+/// `collect_white`. Same snapshot-len + reload-base discipline as
+/// [`for_each`].
 #[inline]
 pub fn for_each_with_index<F: FnMut(usize, *mut c_void)>(mut f: F) {
-    let buf = G_BUFFER.load(Ordering::Relaxed);
     let len = G_BUFFER_LEN.load(Ordering::Relaxed);
     for i in 0..len as usize {
+        let buf = G_BUFFER.load(Ordering::Relaxed);
         let p = unsafe { *buf.add(i) };
         f(i, p);
     }
 }
 
-/// Reset the buffer length to 0 (capacity preserved — next push
-/// won't realloc until cap is reached again). Called at the end
-/// of `cycle_collect` to discard processed entries.
-#[inline]
-pub fn reset_len() {
-    G_BUFFER_LEN.store(0, Ordering::Relaxed);
+/// Discard the processed prefix (entries `[0..processed)`) while
+/// keeping candidates appended DURING the collect — pass-3 drops of
+/// surviving children re-buffer through `cycle_buffer`, and the old
+/// blanket length reset stranded those blocks with `FLAG_BUFFERED`
+/// still set but no buffer entry (permanently un-bufferable, their
+/// future cycles invisible). Called at the end of `cycle_collect`.
+pub fn compact_from(processed: u32) {
+    let buf = G_BUFFER.load(Ordering::Relaxed);
+    let len = G_BUFFER_LEN.load(Ordering::Relaxed);
+    let mut w: u32 = 0;
+    for i in processed..len {
+        let p = unsafe { *buf.add(i as usize) };
+        if !p.is_null() {
+            unsafe { *buf.add(w as usize) = p };
+            w += 1;
+        }
+    }
+    G_BUFFER_LEN.store(w, Ordering::Relaxed);
 }
 
 /// Current buffer length, for the early-out fast path in

@@ -163,3 +163,23 @@ pub unsafe extern "C" fn __torajs_split_block_free_push(_p: *mut u8) -> i32 {
         "torajs-arr unit-test stub: __torajs_split_block_free_push should not be called from cargo test paths"
     );
 }
+
+// `__torajs_cycle_buffer` / `__torajs_cycle_unbuffer` (called from
+// drop.rs's cycle-root hooks, chunk 614) live in libtorajs_cycle.a
+// at `tr build` link time; stubbed for cargo test. The NULL-drop
+// unit tests never reach them (NULL early-outs precede the rc dec).
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-arr unit-test stub: __torajs_cycle_buffer should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-arr unit-test stub: __torajs_cycle_unbuffer should not be called from cargo test paths"
+    );
+}

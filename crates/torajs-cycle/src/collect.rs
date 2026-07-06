@@ -28,7 +28,7 @@
 
 use core::ffi::c_void;
 
-use crate::arr::{arr_child_at, arr_len_of, arr_slot_clear, arr_spilled_data};
+use crate::arr::{ARR_PROPS_OFF, arr_child_at, arr_len_of, arr_slot_clear, arr_spilled_data};
 use crate::buffer;
 use crate::layout::{
     COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED, FLAG_STATIC_LITERAL,
@@ -226,11 +226,19 @@ unsafe fn collect_white(p: *mut c_void) {
             }
         }
         // Second sweep: drop surviving (non-cycle) children via the
-        // universal drop dispatch.
+        // universal drop dispatch. rc == 0 marks a cycle member being
+        // freed by its own collect_white frame up the recursion (its
+        // slot stayed set because it recolored BLACK on entry, so the
+        // first sweep didn't clear it) — re-dropping it underflows
+        // the rc and re-buffers a block that's about to be freed
+        // (chunk 614: the l8 obj↔arr probe crashed here). Surviving
+        // children always carry rc ≥ 1: non-walkable types are never
+        // trial-decremented and externally-reachable walkables had
+        // their rc restored by scan_black.
         for i in 0..n_children as usize {
             let off = unsafe { *(*lay).child_offsets.add(i) };
             let child = unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) };
-            if !child.is_null() {
+            if !child.is_null() && unsafe { (*(child as *const HeapHeader)).refcount } > 0 {
                 unsafe { __torajs_value_drop_heap(child) };
             }
         }
@@ -249,11 +257,22 @@ unsafe fn collect_white(p: *mut c_void) {
                 }
             }
         }
+        // Same rc == 0 cycle-member guard as the TAG_OBJ sweep above
+        // (an arr self-cycle's own slot points back at the BLACK
+        // frame being freed).
         for i in 0..n {
             let child = unsafe { arr_child_at(p, i) };
-            if !child.is_null() {
+            if !child.is_null() && unsafe { (*(child as *const HeapHeader)).refcount } > 0 {
                 unsafe { __torajs_value_drop_heap(child) };
             }
+        }
+        // Mirror __torajs_arr_drop_any's teardown — release the
+        // inline props-dynobj slot (a dynobj is never walkable, so
+        // the trial-deletion walk can't have released it; pre-fix a
+        // cycle-collected `arr.x = v` array leaked its props).
+        let props = unsafe { *((p as *const u8).add(ARR_PROPS_OFF) as *const *mut c_void) };
+        if !props.is_null() {
+            unsafe { __torajs_value_drop_heap(props) };
         }
         // B1 — a grown array spilled its slots to an independent
         // buffer; release it alongside the cell (mirror of
@@ -278,6 +297,10 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
     if buffer::len() == 0 {
         return;
     }
+    // Entries appended DURING the phases (pass-3 drops re-buffer
+    // surviving children) are next-collect candidates — the compact
+    // below keeps them instead of blanket-resetting the length.
+    let processed = buffer::len();
 
     // Mark phase: descend from each buffered root.
     buffer::for_each(|p| {
@@ -304,7 +327,7 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
         }
     });
 
-    buffer::reset_len();
+    buffer::compact_from(processed);
 }
 
 /// Main-exit drain. Public symbol the codegen wires into the
@@ -318,5 +341,11 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
 /// calls into the runtime that touch malloc/free can crash.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_at_exit_drain() {
-    unsafe { __torajs_cycle_collect() };
+    // Pass-3 drops can re-buffer surviving candidates (kept by the
+    // compact) — loop until quiescent. Terminates: entries appended
+    // during a round require frees in that round, and the heap is
+    // finite; a round that frees nothing appends nothing.
+    while buffer::len() > 0 {
+        unsafe { __torajs_cycle_collect() };
+    }
 }

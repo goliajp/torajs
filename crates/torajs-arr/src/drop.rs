@@ -20,7 +20,10 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
+use torajs_rc::{
+    ARR_ELEM_KIND_MASK, ARR_ELEM_KIND_SHIFT, ARR_KIND_HEAP, FLAG_ARR_ANY, FLAG_BUFFERED,
+    FLAG_STATIC_LITERAL, HeapHeader,
+};
 
 use crate::layout::{ARR_LEN_OFF, arr_data, arr_data_is_inline};
 
@@ -54,6 +57,27 @@ unsafe extern "C" {
     /// 16-byte stride doesn't match).
     #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
+
+    /// torajs-cycle — register a potential cycle root when an rc dec
+    /// stays positive on a pointer-carrying array (chunk 614: the
+    /// obj drop had this hook since T-26.C, the arr drops never did,
+    /// so a pure-array cycle was never even a collection candidate).
+    fn __torajs_cycle_buffer(p: *mut c_void);
+
+    /// torajs-cycle — scrub a buffered block from the root buffer
+    /// before its memory is freed / pooled (a stale entry would be
+    /// walked by the next collect).
+    fn __torajs_cycle_unbuffer(p: *mut c_void);
+}
+
+/// True iff the array's slots can carry heap-cell pointers — the only
+/// shapes that can close a reference cycle (mirrors the arr half of
+/// torajs-cycle `is_visitable_arr`). Scalar-kind / UNSET arrays are
+/// leaves: skip the cycle-buffer call entirely on their hot drop path.
+#[inline]
+fn arr_may_cycle(flags: u16) -> bool {
+    flags & FLAG_ARR_ANY != 0
+        || (flags & ARR_ELEM_KIND_MASK) >> ARR_ELEM_KIND_SHIFT == ARR_KIND_HEAP
 }
 
 /// rc-aware drop. NULL-safe + `FLAG_STATIC_LITERAL`-safe.
@@ -74,9 +98,18 @@ pub unsafe extern "C" fn __torajs_arr_drop(p: *mut c_void) {
     }
     if unsafe { __torajs_rc_dec(p) } != 0 {
         unsafe {
+            // A previously-buffered block must leave the cycle root
+            // buffer before arr_free can pool-recycle its cell.
+            if header.flags & FLAG_BUFFERED != 0 {
+                __torajs_cycle_unbuffer(p);
+            }
             __torajs_arrprops_drop_entry(p);
             __torajs_arr_free(p);
         }
+    } else if arr_may_cycle(header.flags) {
+        // Still referenced — a pointer-carrying array is a potential
+        // cycle root, exactly like the obj drop's T-26.C hook.
+        unsafe { __torajs_cycle_buffer(p) };
     }
 }
 
@@ -108,12 +141,19 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
         return;
     }
     if unsafe { __torajs_rc_dec(arr) } == 0 {
-        // Shared — at least one other owner remains; keep alive.
+        // Shared — at least one other owner remains; an Any-array
+        // holds cell pointers, so it's a potential cycle root.
+        if arr_may_cycle(header.flags) {
+            unsafe { __torajs_cycle_buffer(arr) };
+        }
         return;
     }
     // Last owner: walk slots, drop each cell-tagged heap value via
     // the NaN-box-safe dispatcher (immediates skip), then free.
     unsafe {
+        if header.flags & FLAG_BUFFERED != 0 {
+            __torajs_cycle_unbuffer(arr);
+        }
         let arr_u8 = arr as *mut u8;
         let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
         let slots = arr_data(arr_u8);
@@ -169,10 +209,17 @@ pub unsafe extern "C" fn __torajs_arr_drop_heap(arr: *mut c_void) {
         return;
     }
     if unsafe { __torajs_rc_dec(arr) } == 0 {
-        // Shared — at least one other owner remains; keep alive.
+        // Shared — heap-elem slots are cell pointers; potential
+        // cycle root (same hook as `__torajs_arr_drop_any`).
+        if arr_may_cycle(header.flags) {
+            unsafe { __torajs_cycle_buffer(arr) };
+        }
         return;
     }
     unsafe {
+        if header.flags & FLAG_BUFFERED != 0 {
+            __torajs_cycle_unbuffer(arr);
+        }
         let arr_u8 = arr as *mut u8;
         let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
         let slots = crate::ops::data_ptr(arr_u8);

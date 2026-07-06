@@ -39,6 +39,11 @@ pub const ARR_LEN_OFF: usize = 8;
 /// Byte offset of `head` (u32) inside an Array<T> heap block.
 pub const ARR_HEAD_OFF: usize = 20;
 
+/// Byte offset of the inline `props_dynobj` slot (u64) — the
+/// exec-props dynobj released by `collect_white`'s TAG_ARR teardown
+/// (mirror of torajs-arr `props::props_slot_ptr`'s +24).
+pub const ARR_PROPS_OFF: usize = 24;
+
 /// Byte offset of the `data` pointer field — slots live behind it
 /// since RFC 20260706-arr-grow-alias-stability B1 (the cell is fixed;
 /// grow swaps the buffer). Mirrors torajs-arr `ARR_DATA_PTR_OFF`
