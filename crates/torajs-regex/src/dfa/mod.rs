@@ -155,6 +155,26 @@ pub fn analyze(root: &Node) -> DfaEligibility {
     DfaEligibility::Eligible
 }
 
+/// RC-4 multiline-`$` face — true iff the tree contains an
+/// `AnchorEnd` (`$`) node anywhere. Under `RE_FLAG_M` the DFA
+/// closure resolves `Op::AnchorE` only at text end (`PositionCtx`
+/// carries no right byte), so a multiline `$` before `\n` silently
+/// missed; callers gate `can_dfa` off for `m` + `$` patterns and the
+/// Pike VM (multiline-aware AnchorE) takes over. DFA support needs a
+/// right-byte-aware closure or RE2-style `(?=\n|$)` folding —
+/// roadmap item.
+pub fn tree_contains_anchor_end(root: &Node) -> bool {
+    if matches!(root.kind, NodeKind::AnchorEnd) {
+        return true;
+    }
+    if let Some(child) = root.child.as_ref()
+        && tree_contains_anchor_end(child)
+    {
+        return true;
+    }
+    root.kids.iter().any(|k| tree_contains_anchor_end(k))
+}
+
 /// Compute the ε-closure of `seeds` under `prog` — the set of all PCs
 /// reachable from any `seeds[i]` via pure-ε transitions.
 ///

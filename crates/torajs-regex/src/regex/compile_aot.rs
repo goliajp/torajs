@@ -99,7 +99,10 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
 
     let mut prog = Program::new();
     let rejected = if let Some(root) = root_ok.take() {
-        prog.can_dfa = crate::dfa::analyze(&root).is_eligible();
+        // RC-4: multiline `$` is VM-only, mirroring compile.rs.
+        prog.can_dfa = crate::dfa::analyze(&root).is_eligible()
+            && !(flag_bits & crate::parser::RE_FLAG_M != 0
+                && crate::dfa::tree_contains_anchor_end(&root));
         compile(&mut prog, &root, flag_bits);
         prog.emit(Inst::match_accept());
         prog.has_save = prog

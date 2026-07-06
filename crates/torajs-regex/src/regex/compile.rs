@@ -89,9 +89,12 @@ pub unsafe extern "C" fn __torajs_regex_compile(
     let mut prog = Program::new();
     let rejected = if let Some(root) = root_ok.take() {
         // DFA eligibility — runs post-resolve so named backrefs are
-        // correctly identified as blockers. Informational only;
-        // future chunks gate a DFA fast path on this flag.
-        prog.can_dfa = crate::dfa::analyze(&root).is_eligible();
+        // correctly identified as blockers. RC-4: multiline `$` is
+        // VM-only (the DFA closure can't see the right byte, so `$`
+        // before `\n` silently missed).
+        prog.can_dfa = crate::dfa::analyze(&root).is_eligible()
+            && !(flag_bits & crate::parser::RE_FLAG_M != 0
+                && crate::dfa::tree_contains_anchor_end(&root));
         compile(&mut prog, &root, flag_bits);
         prog.emit(Inst::match_accept());
         prog.has_save = prog
