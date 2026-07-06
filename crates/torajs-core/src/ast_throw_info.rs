@@ -234,28 +234,49 @@ fn scan_expr(
 ) {
     match ast.get_expr(eid) {
         Expr::Call { callee, args } => {
-            if let Expr::Ident(name) = ast.get_expr(*callee) {
-                if !out.contains(name) {
-                    out.push(name.clone());
+            match ast.get_expr(*callee) {
+                Expr::Ident(name) => {
+                    if !out.contains(name) {
+                        out.push(name.clone());
+                    }
+                    // P7.4-a-b — `BigInt(x)` throws a real RangeError on a
+                    // non-integer / non-finite argument (runtime_bigint.c →
+                    // __torajs_throw_range_error). Conservatively flag every
+                    // BigInt() call as may-throw: such calls are rare and
+                    // never hot-path, so the over-approximation costs at
+                    // most one cold-path throw-check while guaranteeing the
+                    // RangeError can't be silently swallowed across a fn
+                    // boundary. `BigInt` is a global ctor, not user-named,
+                    // so it never enters `out` (called user-fn names).
+                    if name == "BigInt" {
+                        *direct = true;
+                    }
+                    // bug-327 C2.5 — indirect call through a fn-valued
+                    // binding: the target is statically unknown, so the
+                    // fn must conservatively count as may-throw.
+                    if fn_values.contains(name) {
+                        *direct = true;
+                    }
                 }
-                // P7.4-a-b — `BigInt(x)` throws a real RangeError on a
-                // non-integer / non-finite argument (runtime_bigint.c →
-                // __torajs_throw_range_error). Conservatively flag every
-                // BigInt() call as may-throw: such calls are rare and
-                // never hot-path, so the over-approximation costs at
-                // most one cold-path throw-check while guaranteeing the
-                // RangeError can't be silently swallowed across a fn
-                // boundary. `BigInt` is a global ctor, not user-named,
-                // so it never enters `out` (called user-fn names).
-                if name == "BigInt" {
+                // RC-4 arguments-object — IIFE: the callee closure is its
+                // own lifted FnDecl; record the lifted name so the fixed-
+                // point propagates its throw bit into this fn. Before this
+                // arm the IIFE call fell out of the analysis entirely, so
+                // a throw inside `(function () { throw x; })()` nested in
+                // a named fn was swallowed at the caller's caller (the
+                // caller's emit_throw_check was M4.3.b-skipped).
+                Expr::Closure { fn_name, .. } => {
+                    if !out.contains(fn_name) {
+                        out.push(fn_name.clone());
+                    }
+                }
+                // Chained call `f(0)(5)` / direct arrow-IIFE — the target
+                // is statically unknown: conservative may-throw (mirrors
+                // the fn-valued-binding rule above).
+                Expr::Call { .. } | Expr::ArrowFn { .. } => {
                     *direct = true;
                 }
-                // bug-327 C2.5 — indirect call through a fn-valued
-                // binding: the target is statically unknown, so the
-                // fn must conservatively count as may-throw.
-                if fn_values.contains(name) {
-                    *direct = true;
-                }
+                _ => {}
             }
             scan_expr(ast, *callee, out, direct, fn_values, expr_types);
             for a in args {
