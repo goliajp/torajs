@@ -49,14 +49,16 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         // __torajs_regex_set_last_index (see assign-Member
         // arm). Tracks across exec/match when g or y set.
         "lastIndex" => Type::Number,
-        // Phase 1c.1 — re.exec(s) returns Array<Str>:
-        // [matched, group1, group2, ...] on hit, empty
-        // array on miss. JS spec returns null on miss;
-        // tr deviates until Nullable<Array<Str>> propagation
-        // lands (Phase 1c.4 — same gate as s.match).
+        // RC-4 F1a — re.exec(s) returns Nullable<Array<Str>>:
+        // [matched, group1, group2, ...] on hit, null on miss
+        // (spec §22.2.6.2). V3-18 narrowing (`if (m !== null)`)
+        // yields the bare Array<Str>; un-narrowed member/index
+        // consumption decays with a runtime null guard.
         "exec" => Type::Function(
             vec![Type::String],
-            Box::new(Type::Array(Box::new(Type::String))),
+            Box::new(Type::Nullable(Box::new(Type::Array(Box::new(
+                Type::String,
+            ))))),
         ),
         _ => return None,
     };

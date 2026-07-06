@@ -60,7 +60,9 @@ pub(crate) fn try_match(
         }
         return Some(Ok(match m_name.as_str() {
             "test" => Type::Boolean,
-            "exec" => Type::Array(Box::new(Type::String)),
+            // RC-4 F1a — null on miss per spec §22.2.6.2; see
+            // check_type_of_member_regex for the decay contract.
+            "exec" => Type::Nullable(Box::new(Type::Array(Box::new(Type::String)))),
             _ => unreachable!(),
         }));
     }

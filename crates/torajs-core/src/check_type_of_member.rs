@@ -35,6 +35,15 @@ pub(crate) fn check(
     name: &str,
 ) -> Result<Type, String> {
     let obj_ty = checker.type_of(ast, *obj)?;
+    // RC-4 F1a — Nullable<Array<T>> receiver (un-narrowed
+    // exec/match result) decays to the bare array for member
+    // lookup; the null case is a runtime TypeError at the
+    // lowering-side guard, matching JS null-deref semantics.
+    // Other Nullable receivers keep the existing reject.
+    let obj_ty = match obj_ty {
+        Type::Nullable(inner) if matches!(*inner, Type::Array(_)) => *inner,
+        other => other,
+    };
     // M-OO.5 — visibility enforcement. Find the binding's
     // nominal class:
     //   - `this` inside a class method body inherits the

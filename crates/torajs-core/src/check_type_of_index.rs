@@ -36,6 +36,13 @@ pub(crate) fn check(
     match obj_ty {
         Type::String => Ok(Type::String),
         Type::Array(elem) => Ok(*elem),
+        // RC-4 F1a — un-narrowed Nullable<Array<T>> (exec/match
+        // result) decays for indexing; null is a runtime
+        // TypeError at the lowering-side guard.
+        Type::Nullable(inner) if matches!(*inner, Type::Array(_)) => match *inner {
+            Type::Array(elem) => Ok(*elem),
+            _ => unreachable!(),
+        },
         Type::Any => Ok(Type::Any),
         other => Err(format!("can't index into {other:?}")),
     }

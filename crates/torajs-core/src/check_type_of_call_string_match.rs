@@ -64,6 +64,9 @@ pub(crate) fn try_match(
     Some(Ok(if m_name == "matchAll" {
         Type::Array(Box::new(Type::Array(Box::new(Type::String))))
     } else {
-        Type::Array(Box::new(Type::String))
+        // RC-4 F1a — s.match(re) is null on miss per spec
+        // §22.1.3.13 (matchAll never is); see
+        // check_type_of_member_regex for the decay contract.
+        Type::Nullable(Box::new(Type::Array(Box::new(Type::String))))
     }))
 }
