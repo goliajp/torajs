@@ -164,13 +164,16 @@ pub unsafe extern "C" fn __torajs_arr_entries_by_tag(
     let len = unsafe { (base.add(8) as *const u64).read() } as i64;
     let head = unsafe { (base.add(20) as *const u32).read() } as i64;
     let mut outer = unsafe { __torajs_arr_alloc(len.max(0) as u64) };
+    // B1 (RFC 20260706-arr-grow-alias-stability): slots live behind
+    // the data pointer at +32; the loop only calls push/push_any on
+    // OTHER arrays, so src's data pointer is loop-invariant.
+    let data = unsafe { (base.add(32) as *const *const u8).read() };
     for i in 0..len {
         // Raw slot value as i64 (8-byte stride; F64 / Ptr round-trip
         // via i64 bits is ABI-safe since LLVM stores both in the
-        // same machine word). Slot data at offset 32 (Round 4
-        // chunk 5a layout: header 8 + len 8 + cap/head 8 + props 8).
-        let slot_off = 32 + ((head + i) as usize) * 8;
-        let slot = unsafe { (base.add(slot_off) as *const i64).read() };
+        // same machine word).
+        let slot_off = ((head + i) as usize) * 8;
+        let slot = unsafe { (data.add(slot_off) as *const i64).read() };
         if val_tag == 4 {
             // ANY_HEAP — push_any takes an owning ref; bump rc so
             // the original Arr's drop won't tear the cell out.
