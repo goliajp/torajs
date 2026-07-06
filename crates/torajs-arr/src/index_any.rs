@@ -164,21 +164,10 @@ pub unsafe extern "C" fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag:
         let head = *(p.add(ARR_HEAD_OFF) as *const u32) as u64;
         let slot = arr_data(p).add(((head + idx as u64) as usize) * 8) as *mut u64;
         let kind = header.arr_elem_kind();
-        let raw: u64 = match (kind, tag) {
-            // I64 slot: int direct; integral double narrows.
-            (ARR_KIND_I64, 2) => value,
-            (ARR_KIND_I64, 3) => {
-                let d = f64::from_bits(value);
-                if d.fract() != 0.0 || !d.is_finite() {
-                    return kind_mismatch(tag, value);
-                }
-                d as i64 as u64
-            }
-            // F64 slot: double bits direct; int widens.
-            (ARR_KIND_F64, 3) => value,
-            (ARR_KIND_F64, 2) => (value as i64 as f64).to_bits(),
-            (ARR_KIND_BOOL, 1) => value,
-            _ => return kind_mismatch(tag, value),
+        // Scalar coercion table shared with the chunk 622 typed
+        // writers (`any_typed_bridge`); every HEAP case is None.
+        let Some(raw) = crate::any_typed_bridge::coerce_raw_scalar(kind, tag, value) else {
+            return kind_mismatch(tag, value);
         };
         *slot = raw;
     }

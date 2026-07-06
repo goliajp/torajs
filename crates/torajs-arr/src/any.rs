@@ -151,6 +151,11 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
 pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8 {
     let arr = arr as *mut u8;
     unsafe {
+        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
+            // Chunk 622 — typed block behind the static Arr<Any>
+            // view: kind-coerce and append raw (mismatch TypeError).
+            return crate::any_typed_bridge::typed_push_pair(arr, tag, value);
+        }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         let cap = *(arr.add(ARR_CAP_LOW32_OFF) as *const u32);
         if (len as u32) == cap {
@@ -274,6 +279,16 @@ pub unsafe extern "C" fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64
     }
     let arr = arr as *mut u8;
     unsafe {
+        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
+            // Chunk 622 — typed block behind the static Arr<Any>
+            // view: in-bounds kind-coerced write / `i == len`
+            // append / past-the-end RangeError. The returned cell is
+            // always `arr` itself (B1 fixed-cell: grow swaps the
+            // data buffer, never the cell), so the missing
+            // write-back slot on this entry is safe to ignore.
+            crate::any_typed_bridge::typed_set_grow(arr, i, tag, value);
+            return;
+        }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         if i >= len {
             __torajs_throw_range_error(
@@ -328,6 +343,12 @@ pub unsafe extern "C" fn __torajs_arr_fill_any(
         if hi <= lo {
             return arr;
         }
+        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
+            // Chunk 622 — typed block behind the static Arr<Any>
+            // view: raw-fill per the elem kind (mismatch TypeError).
+            crate::any_typed_bridge::typed_fill_pair(arr, tag, value, lo, hi);
+            return arr;
+        }
         let av = __torajs_anyv_box_from_pair(tag as i64, value as i64);
         for i in lo..hi {
             let slot = slot_anyvalue_ptr(arr, i as u64);
@@ -370,6 +391,12 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
 ) -> *mut u8 {
     let arr = arr as *mut u8;
     unsafe {
+        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
+            // Chunk 622 — typed block behind the static Arr<Any>
+            // view: in-bounds kind-coerced write / `i == len`
+            // append / past-the-end RangeError.
+            return crate::any_typed_bridge::typed_set_grow(arr, i, tag, value);
+        }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         if i < len {
             let old_av = *slot_anyvalue_ptr(arr, i);

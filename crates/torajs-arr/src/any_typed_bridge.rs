@@ -1,12 +1,18 @@
 //! Typed-array ↔ `Array<Any>` bridge helpers.
 //!
-//! Two crossings of the raw-slot / NaN-box boundary live here:
+//! Crossings of the raw-slot / NaN-box boundary live here:
 //!
 //! - [`typed_slot_anyvalue_borrowed`] — RFC 20260707 chunk 621: a
 //!   typed array shared into a static `Arr<Any>` slot (T-11
 //!   container widen) keeps its raw-slot layout; the static any-arr
 //!   readers rebox each slot per the elem kind recorded at the
 //!   coercion boundary.
+//! - [`typed_push_pair`] / [`typed_set_grow`] / [`typed_fill_pair`]
+//!   — chunk 622 write side: kind-coerced raw writes for the static
+//!   any-arr writers (mismatch is a catchable TypeError, never a
+//!   silent NaN-box store into a raw slot).
+//! - [`coerce_raw_scalar`] — the scalar half of the S3-set coercion
+//!   table, shared with `index_any::__torajs_arr_index_set`.
 //! - [`__torajs_arr_extend_typed_into_any`] — concat's bulk append
 //!   of typed src slots into an `Array<Any>` dst.
 //!
@@ -35,6 +41,127 @@ unsafe extern "C" {
     /// Cross-tier — torajs-rc. NaN-box-safe refcount bump (no-ops
     /// for non-cell bit patterns and NULL).
     fn __torajs_rc_inc(p: *mut c_void);
+    /// Cross-tier — universal heap dropper (NaN-box-safe).
+    fn __torajs_value_drop_heap(p: *mut c_void);
+    /// Cross-tier — torajs-throw catchable errors (record + return).
+    fn __torajs_throw_range_error(msg: *const u8);
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}
+
+/// Scalar half of the S3-set `(kind, anyv tag) → raw slot repr`
+/// coercion table (`index_any::__torajs_arr_index_set` / the chunk
+/// 622 typed writers). `None` = the value can't store without
+/// changing the array's element kind — including every HEAP case,
+/// which the 3-bit kind can't verify against the static elem type.
+pub(crate) fn coerce_raw_scalar(kind: u16, tag: u64, value: u64) -> Option<u64> {
+    match (kind, tag) {
+        // I64 slot: int direct; integral double narrows.
+        (ARR_KIND_I64, 2) => Some(value),
+        (ARR_KIND_I64, 3) => {
+            let d = f64::from_bits(value);
+            if d.fract() != 0.0 || !d.is_finite() {
+                return None;
+            }
+            Some(d as i64 as u64)
+        }
+        // F64 slot: double bits direct; int widens.
+        (ARR_KIND_F64, 3) => Some(value),
+        (ARR_KIND_F64, 2) => Some((value as i64 as f64).to_bits()),
+        (ARR_KIND_BOOL, 1) => Some(value),
+        _ => None,
+    }
+}
+
+/// Release a transferred `tag == 4` rc (no-op for immediates).
+pub(crate) unsafe fn drop_pair(tag: u64, value: u64) {
+    if tag == 4 {
+        unsafe { __torajs_value_drop_heap(value as *mut c_void) };
+    }
+}
+
+/// Chunk 622 — `push_any`'s typed arm: kind-coerce the pair into a
+/// raw slot and append via the typed `__torajs_arr_push`. A HEAP
+/// slot takes the transferred reference directly (same admit as
+/// `method_any`'s push table); a kind mismatch releases the
+/// transferred rc and raises a catchable TypeError.
+///
+/// # Safety
+/// `arr` is a valid non-Any `Tag::Arr` heap pointer; a `tag == 4`
+/// `value` is 0 or a valid owned heap pointer.
+pub(crate) unsafe fn typed_push_pair(arr: *mut u8, tag: u64, value: u64) -> *mut u8 {
+    unsafe {
+        let kind = (*(arr as *const HeapHeader)).arr_elem_kind();
+        let raw = if kind == ARR_KIND_HEAP && tag == 4 {
+            value // ownership transfers straight into the raw slot
+        } else {
+            match coerce_raw_scalar(kind, tag, value) {
+                Some(r) => r,
+                None => {
+                    drop_pair(tag, value);
+                    __torajs_throw_type_error(
+                        c"push through an any[] view would change the typed array's element kind"
+                            .as_ptr(),
+                    );
+                    return arr;
+                }
+            }
+        };
+        crate::grow::__torajs_arr_push(arr, raw as i64)
+    }
+}
+
+/// Chunk 622 — `set_any_grow`'s typed arm. In-bounds writes delegate
+/// to the kind-aware `arr_index_set` (same transfer ABI); `i == len`
+/// is an append (`a[a.length] = v`) through [`typed_push_pair`]; a
+/// past-the-end write would need an undefined gap fill, which raw
+/// slots can't express — catchable RangeError, never a silent hole.
+///
+/// # Safety
+/// Same contract as [`typed_push_pair`].
+pub(crate) unsafe fn typed_set_grow(arr: *mut u8, i: u64, tag: u64, value: u64) -> *mut u8 {
+    unsafe {
+        let len = *(arr.add(ARR_LEN_OFF) as *const u64);
+        if i < len {
+            crate::index_any::__torajs_arr_index_set(arr as *mut c_void, i as i64, tag, value);
+            return arr;
+        }
+        if i == len {
+            return typed_push_pair(arr, tag, value);
+        }
+        drop_pair(tag, value);
+        __torajs_throw_range_error(
+            b"index write past the end of a typed array through an any[] view is not yet supported\0"
+                .as_ptr(),
+        );
+        arr
+    }
+}
+
+/// Chunk 622 — `fill_any`'s typed arm: coerce the fill value once,
+/// then raw-fill `[lo, hi)` honoring the deque head. The pair is a
+/// BORROW (fill_any's contract — the Any path incs per replaced
+/// slot), so a mismatch only throws; scalar slots carry no rc, so
+/// the fill loop is a plain store. Every HEAP case is a mismatch
+/// (`coerce_raw_scalar` has no HEAP arm — the 3-bit kind can't
+/// verify the static elem type).
+///
+/// # Safety
+/// `arr` is a valid non-Any `Tag::Arr` heap pointer with
+/// `lo <= hi <= len`.
+pub(crate) unsafe fn typed_fill_pair(arr: *mut u8, tag: u64, value: u64, lo: i64, hi: i64) {
+    unsafe {
+        let kind = (*(arr as *const HeapHeader)).arr_elem_kind();
+        let Some(raw) = coerce_raw_scalar(kind, tag, value) else {
+            __torajs_throw_type_error(
+                c"fill through an any[] view would change the typed array's element kind".as_ptr(),
+            );
+            return;
+        };
+        let head = *(arr.add(ARR_HEAD_OFF) as *const u32) as u64;
+        for i in lo..hi {
+            *(arr_data(arr).add(((head + i as u64) as usize) * ANY_SLOT_BYTES) as *mut u64) = raw;
+        }
+    }
 }
 
 /// RFC 20260707 chunk 621 — borrowed AnyValue view of slot `i` on a
