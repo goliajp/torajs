@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T07:31:46.085Z",
+  "generatedAt": "2026-07-06T09:20:08.540Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "cd7713a3",
-    "commitSubject": "feat: demote any-escaping typed arrays to Arr<Any> at module level",
+    "commit": "041e9aaa",
+    "commitSubject": "chore(bench): B1 A/B comparison results — 6 array-heavy cases pre/post arr-grow-alias-stability",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "041e9aaa",
+      "subject": "chore(bench): B1 A/B comparison results — 6 array-heavy cases pre/post arr-grow-alias-stability"
+    },
+    {
+      "hash": "fc30e2e5",
+      "subject": "refactor: retire grow write-back chain (arr-grow-alias-stability B3)"
+    },
+    {
+      "hash": "e882f721",
+      "subject": "test: cross-module escape fixture exercises grow through the any alias (arr-grow-alias-stability B2)"
+    },
+    {
+      "hash": "5c5d5604",
+      "subject": "fix: arr_entries_by_tag reads slots through the data pointer (B1 fix-up)"
+    },
+    {
+      "hash": "9c573f0e",
+      "subject": "feat: array cell fixed across grow — slots behind data pointer (arr-grow-alias-stability B1)"
+    },
+    {
+      "hash": "62fa6fb4",
+      "subject": "test: escape-to-any B3 backstop fixtures — cross-module escape parity + obj-any-field loud contract"
+    },
+    {
+      "hash": "cc48fea2",
+      "subject": "chore(dashboard): session snapshot @ cd7713a3 — rotation 29 (576-580: RFC 20260706-typed-arr-any-escape — Phase A decomp + B0 four pre-existing Arr<Any> debts (concat SIGSEGV lane, sort ToString, HO-dst/slice flag-aware, unshift adopt) + B1/B2 escape analysis & Arr<Any> demotion = L3b #2 main close; gate 1216 -> 1221)"
+    },
+    {
       "hash": "cd7713a3",
       "subject": "feat: demote any-escaping typed arrays to Arr<Any> at module level"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "43bc8350",
       "subject": "fix: route Array<Any>.concat through a FLAG_ARR_ANY-aware lane"
-    },
-    {
-      "hash": "0df5cfe5",
-      "subject": "chore(dashboard): session snapshot @ 07d2c063 — rotation 28 (571-575: coercion-family + remaining-station share = RFC 20260705 ledger #3 close + consume_if_ident retirement; RFC 20260706 color-bits migration + FROZEN clobber fix + Arr<Any> cycle walk + slot-offset drift + container chain-mark; gate 1211 -> 1216)"
-    },
-    {
-      "hash": "07d2c063",
-      "subject": "fix: chain-mark arrays stored into container slots (RFC 20260706, chunk 575)"
-    },
-    {
-      "hash": "88785bd9",
-      "subject": "fix: walk Arr<Any> in the cycle collector, fix arr slot offset drift (RFC 20260706 Phase C, chunk 574)"
-    },
-    {
-      "hash": "bc517809",
-      "subject": "fix: move cycle-collector color field off bits 3-4 to 13-14 (RFC 20260706, chunk 573)"
-    },
-    {
-      "hash": "0b32e0e0",
-      "subject": "fix: share remaining call-arg stations, retire consume_if_ident (RFC 20260705 ledger #3, chunk 572)"
-    },
-    {
-      "hash": "ae983380",
-      "subject": "fix: share coercion-family call args instead of consuming (RFC 20260705 ledger #3, chunk 571)"
-    },
-    {
-      "hash": "2c160a5e",
-      "subject": "chore(dashboard): session snapshot @ b53f765e — rotation 27 (566-570: member/index-assign share, consuming-params retirement, call-arg share, container-init + console index-read; gate 1206 -> 1211)"
     }
   ],
-  "headSha": "cd7713a3",
+  "headSha": "041e9aaa",
   "autorun": {
-    "total": 337,
+    "total": 338,
     "baselineTarget": 10,
-    "bySelf": 332,
+    "bySelf": 333,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783306224-0425",
-      "at": "2026-07-06T02:50:24Z",
-      "ts": 1783306224,
+      "rotationId": "r-1783323196-244c",
+      "at": "2026-07-06T07:33:16Z",
+      "ts": 1783323196,
       "trigger": "self",
-      "prevHead": "0df5cfe5",
-      "handoffSha": "sha256:6c1817e4682ba188405a5430fb6fa45f447bb38f11e1f3b12a666872f09423c2",
-      "handoffAgeSec": 6,
+      "prevHead": "cc48fea2",
+      "handoffSha": "sha256:89b896ddcb0f4b8c5bbd93000def50244587c203eb9d2830b7260455ee2ea4f9",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783323196-244c",
+        "at": "2026-07-06T07:33:16Z",
+        "ts": 1783323196,
+        "trigger": "self",
+        "prevHead": "cc48fea2",
+        "handoffSha": "sha256:89b896ddcb0f4b8c5bbd93000def50244587c203eb9d2830b7260455ee2ea4f9",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783306224-0425",
         "at": "2026-07-06T02:50:24Z",
@@ -876,17 +887,6 @@
         "prevHead": "c7df051a",
         "handoffSha": "sha256:caf8bd39ea8874f2fd018b01a112270af5ebdc300e80df90e017ca8bd11babec",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783198907-5f24",
-        "at": "2026-07-04T21:01:47Z",
-        "ts": 1783198907,
-        "trigger": "self",
-        "prevHead": "35cad8ae",
-        "handoffSha": "sha256:189bcb796102fd6a43a097253fcecee05e25c0ac8c6ea19038eb78bdb43c52eb",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
