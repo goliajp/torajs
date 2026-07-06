@@ -121,3 +121,14 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_cha
         "torajs-weak unit-test stub: __torajs_throw_type_error should not be called from cargo test paths"
     );
 }
+
+// `__torajs_symbol_is_registered` comes from libtorajs_str.a at
+// `tr build` link time — cargo-test stub reports "not registered"
+// so key.rs unit tests can classify a fake Symbol cell (the
+// registered-rejection path is covered by the conformance fixture,
+// which exercises the real registry).
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_is_registered(_sym: *const core::ffi::c_void) -> i32 {
+    0
+}

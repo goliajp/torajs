@@ -270,6 +270,29 @@ pub unsafe extern "C" fn __torajs_symbol_for(key: *mut c_void) -> *mut c_void {
     sym
 }
 
+/// `CanBeHeldWeakly` support (ES §24.3/§24.4) — 1 iff `sym` was
+/// minted by `Symbol.for` (present in the global registry). A
+/// registered symbol is an illegal WeakMap/WeakSet key: the registry
+/// keeps it reachable forever, so a weak entry keyed by it could
+/// never be collected. Consumed by torajs-weak's key classifier.
+///
+/// # Safety
+///
+/// `sym` is null or a `*Symbol`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_is_registered(sym: *const c_void) -> i32 {
+    if sym.is_null() {
+        return 0;
+    }
+    let reg = SYMBOL_REG.lock();
+    for &reg_sym in reg.iter() {
+        if reg_sym == sym as usize {
+            return 1;
+        }
+    }
+    0
+}
+
 /// `Symbol.keyFor(sym)` — returns the registered key Str (rc'd) or
 /// NULL.
 ///

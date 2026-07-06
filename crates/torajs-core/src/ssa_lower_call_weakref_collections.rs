@@ -230,7 +230,6 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> Opera
         Type::Obj(_)
             | Type::Arr(_)
             | Type::Closure(_)
-            | Type::Symbol
             | Type::Promise
             | Type::RegExp
             | Type::Date
@@ -241,6 +240,27 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> Opera
             | Type::Set
     ) {
         return raw;
+    }
+    // A Symbol key is legal only while NOT in the `Symbol.for`
+    // registry (`CanBeHeldWeakly` — a registered symbol lives
+    // forever, its weak entry could never collect). The NaN-box
+    // encodes a heap cell as its raw pointer bits, so the Symbol
+    // ptr passes to the classifier directly — borrowed, no box
+    // call, no rc traffic (ptr ↔ i64 are ABI-compatible at the
+    // call site, same as arr_push_any's third param).
+    if matches!(ty, Type::Symbol) {
+        let helper = if is_setter {
+            ctx.intrinsics.weak_key_from_any_or_throw
+        } else {
+            ctx.intrinsics.weak_key_from_any
+        };
+        let p = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(helper, vec![raw]),
+            Type::Ptr,
+            None,
+        );
+        return Operand::Value(p);
     }
     let cur_block = ctx.cur_block;
     let av = if matches!(ty, Type::Any) {

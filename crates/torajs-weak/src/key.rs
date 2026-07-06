@@ -31,15 +31,23 @@ pub(crate) const AV_TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
 pub(crate) const AV_TAG_BIT_TYPE_OTHER: u64 = 0x0000_0000_0000_0002;
 pub(crate) const AV_UNDEFINED: u64 = 0x0000_0000_0000_000A;
 
-/// `HeapHeader::type_tag` mirrors of `torajs_rc::Tag` — only the two
-/// primitive-backing tags a weak key must reject.
+/// `HeapHeader::type_tag` mirrors of `torajs_rc::Tag` — the two
+/// primitive-backing tags a weak key must reject, plus Symbol
+/// (legal only while NOT in the `Symbol.for` registry).
 const TAG_STR: u16 = 0;
 const TAG_BIGINT: u16 = 10;
+const TAG_SYMBOL: u16 = 7;
 
 unsafe extern "C" {
     /// torajs-throw — records the pending throw in TLS and returns;
     /// the SSA-side caller's `emit_throw_check` propagates.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+
+    /// torajs-str — 1 iff the Symbol lives in the `Symbol.for`
+    /// registry. `CanBeHeldWeakly` rejects registered symbols (the
+    /// registry keeps them reachable forever, so a weak entry keyed
+    /// by one could never be collected).
+    fn __torajs_symbol_is_registered(sym: *const c_void) -> i32;
 }
 
 /// `true` iff the AnyValue bit pattern is a heap cell (its bits ARE
@@ -61,6 +69,11 @@ fn valid_weak_key(av: u64) -> *mut c_void {
     // NaN-box contract; the header is the first 8 bytes.
     let tag = unsafe { (*h).type_tag };
     if tag == TAG_STR || tag == TAG_BIGINT {
+        return core::ptr::null_mut();
+    }
+    if tag == TAG_SYMBOL
+        && unsafe { __torajs_symbol_is_registered(av as usize as *const c_void) } != 0
+    {
         return core::ptr::null_mut();
     }
     av as usize as *mut c_void
@@ -122,5 +135,21 @@ mod tests {
         assert_eq!(valid_weak_key(obj_av), obj_av as usize as *mut c_void);
         assert!(valid_weak_key(0x0A).is_null(), "undefined sentinel");
         assert!(valid_weak_key(0xFFFE_0000_0000_0005).is_null(), "boxed int");
+    }
+
+    #[test]
+    fn unregistered_symbol_accepted() {
+        // The cargo-test stub for `__torajs_symbol_is_registered`
+        // reports 0 (lib.rs), so an unregistered Symbol cell
+        // classifies as a legal key; the registered-rejection path
+        // is exercised by the conformance fixture against the real
+        // `Symbol.for` registry.
+        let sym_cell = HeapHeader {
+            refcount: 1,
+            type_tag: TAG_SYMBOL,
+            flags: 0,
+        };
+        let sym_av = &sym_cell as *const HeapHeader as u64;
+        assert_eq!(valid_weak_key(sym_av), sym_av as usize as *mut c_void);
     }
 }
