@@ -70,6 +70,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_method_call: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
+    pub any_unbox_value_owned: FuncId,
     pub any_unbox_settle: FuncId,
     pub any_box_drop: FuncId,
     pub any_box_rc_inc: FuncId,
@@ -366,6 +367,18 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_anyv_unbox_value",
+            &[Type::Any],
+            Type::I64,
+        ),
+        // Owned-pair unbox: heap cell → rc_inc + ptr, ShortStr →
+        // materialized rc=1 Str (the materialization IS the
+        // caller's stake). Owning sites use this instead of
+        // unbox_value + any_payload_rc_inc so a ShortStr temp
+        // isn't double-counted.
+        any_unbox_value_owned: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_unbox_value_owned",
             &[Type::Any],
             Type::I64,
         ),

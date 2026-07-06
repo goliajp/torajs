@@ -88,6 +88,9 @@ impl<'a> LowerCtx<'a> {
                 // `Load i64 +8/+16` direct-offset); bucket owns the
                 // +1 on val via any_payload_rc_inc when tag == HEAP.
                 Type::Any => {
+                    // Chunk 610 — owned unbox fuses unbox_value +
+                    // payload_rc_inc (ShortStr materialize was
+                    // double-counted by the separate inc and leaked).
                     let tag_v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
@@ -96,16 +99,9 @@ impl<'a> LowerCtx<'a> {
                     );
                     let val_v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(self.intrinsics.any_unbox_value, vec![v_raw.clone()]),
+                        InstKind::Call(self.intrinsics.any_unbox_value_owned, vec![v_raw.clone()]),
                         Type::I64,
                         None,
-                    );
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.any_payload_rc_inc,
-                            vec![Operand::Value(tag_v), Operand::Value(val_v)],
-                        ),
                     );
                     let key_str = self.intern_string_literal(&fname);
                     let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));

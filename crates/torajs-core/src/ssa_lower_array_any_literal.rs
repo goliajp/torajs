@@ -178,9 +178,11 @@ impl<'a> LowerCtx<'a> {
             }
             Type::Any => {
                 // RFC 20260704 S5+ — an `any` element carries its own
-                // runtime tag: unbox the pair and rc-bump the heap
-                // payload (the box is a borrow of its owner; the slot
-                // needs an independent ref).
+                // runtime tag: unbox the pair with the slot's own
+                // stake (chunk 610 — owned unbox fuses unbox_value +
+                // payload_rc_inc; a ShortStr's materialized rc=1 Str
+                // IS the slot's ref, the separate inc double-counted
+                // it and leaked).
                 let tag_v = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.any_unbox_tag, vec![val.clone()]),
@@ -189,16 +191,9 @@ impl<'a> LowerCtx<'a> {
                 );
                 let val_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_value, vec![val]),
+                    InstKind::Call(self.intrinsics.any_unbox_value_owned, vec![val]),
                     Type::I64,
                     None,
-                );
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.any_payload_rc_inc,
-                        vec![Operand::Value(tag_v), Operand::Value(val_v)],
-                    ),
                 );
                 (Operand::Value(tag_v), Operand::Value(val_v))
             }

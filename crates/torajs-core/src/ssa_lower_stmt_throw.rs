@@ -72,6 +72,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
                 (Operand::ConstI64(1), Operand::Value(zext))
             }
             Type::Any => {
+                // Chunk 610 — owned unbox fuses unbox_value +
+                // payload_rc_inc (ShortStr materialize was
+                // double-counted by the separate inc and leaked).
                 let tag_v = ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![v.clone()]),
@@ -80,16 +83,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
                 );
                 let val_v = ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.any_unbox_value, vec![v.clone()]),
+                    InstKind::Call(ctx.intrinsics.any_unbox_value_owned, vec![v.clone()]),
                     Type::I64,
                     None,
-                );
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.any_payload_rc_inc,
-                        vec![Operand::Value(tag_v), Operand::Value(val_v)],
-                    ),
                 );
                 (Operand::Value(tag_v), Operand::Value(val_v))
             }

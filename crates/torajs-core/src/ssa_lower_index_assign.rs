@@ -224,8 +224,11 @@ impl<'a> LowerCtx<'a> {
     /// (chunk 567): the Any-slot runtimes store the pair raw (the
     /// slot takes ownership of the passed reference), so a
     /// borrow-shape rhs takes +1 here — refcounted values via
-    /// rc_inc, boxed Any via a payload inc — keeping the source
-    /// binding's stake; owned temps transfer their fresh reference.
+    /// rc_inc, boxed Any through the owned unbox (chunk 610 — fuses
+    /// the old separate payload inc, which double-counted a
+    /// ShortStr's materialized rc=1 Str and leaked) — keeping the
+    /// source binding's stake; owned temps transfer their fresh
+    /// reference (a ShortStr materialization IS that fresh ref).
     fn pack_any_slot_value_shared(
         &mut self,
         value: ExprId,
@@ -233,28 +236,23 @@ impl<'a> LowerCtx<'a> {
         v_ty: Type,
     ) -> (Operand, Operand) {
         let transfers = self.expr_transfers_ownership(value);
-        let (tag_op, value_op) = self.pack_any_slot_value(v_raw, v_ty);
-        if !transfers {
-            match v_ty {
-                Type::Any => {
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.any_payload_rc_inc,
-                            vec![tag_op.clone(), value_op.clone()],
-                        ),
-                    );
-                }
-                _ if v_ty.is_refcounted() => self.emit_rc_inc(v_raw.clone()),
-                _ => {}
-            }
+        let (tag_op, value_op) = self.pack_any_slot_value(v_raw, v_ty, !transfers);
+        if !transfers && !matches!(v_ty, Type::Any) && v_ty.is_refcounted() {
+            self.emit_rc_inc(v_raw.clone());
         }
         (tag_op, value_op)
     }
 
     /// Pack the value into a (tag, value) operand pair using the same
     /// scheme as box_to_any but without the heap allocation.
-    fn pack_any_slot_value(&mut self, v_raw: &Operand, v_ty: Type) -> (Operand, Operand) {
+    /// `any_owned` selects the owned unbox for an Any input (the
+    /// pair carries the slot's +1; see pack_any_slot_value_shared).
+    fn pack_any_slot_value(
+        &mut self,
+        v_raw: &Operand,
+        v_ty: Type,
+        any_owned: bool,
+    ) -> (Operand, Operand) {
         match v_ty {
             Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw.clone()),
             Type::F64 => {
@@ -277,16 +275,22 @@ impl<'a> LowerCtx<'a> {
             }
             Type::Any => {
                 // Already boxed — extract tag/value via the
-                // NaN-box decoders (Step 7e-A).
+                // NaN-box decoders (Step 7e-A). Owned variant
+                // hands the pair the slot's +1 (chunk 610).
                 let tag_v = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
                     Type::I64,
                     None,
                 );
+                let unbox_fid = if any_owned {
+                    self.intrinsics.any_unbox_value_owned
+                } else {
+                    self.intrinsics.any_unbox_value
+                };
                 let val_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_value, vec![v_raw.clone()]),
+                    InstKind::Call(unbox_fid, vec![v_raw.clone()]),
                     Type::I64,
                     None,
                 );

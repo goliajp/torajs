@@ -106,21 +106,23 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
+                // Chunk 610 — borrow-shape args take the slot's +1
+                // through the owned unbox (fuses the old separate
+                // payload_rc_inc, which double-counted a ShortStr's
+                // materialized rc=1 Str and leaked); an owned temp
+                // transfers its fresh reference via the plain unbox
+                // (a ShortStr materialization IS that fresh ref).
+                let unbox_fid = if transfers {
+                    self.intrinsics.any_unbox_value
+                } else {
+                    self.intrinsics.any_unbox_value_owned
+                };
                 let val_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_value, vec![v_raw.clone()]),
+                    InstKind::Call(unbox_fid, vec![v_raw.clone()]),
                     Type::I64,
                     None,
                 );
-                if !transfers {
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.any_payload_rc_inc,
-                            vec![Operand::Value(tag_v), Operand::Value(val_v)],
-                        ),
-                    );
-                }
                 let new_arr = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(

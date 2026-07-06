@@ -180,7 +180,12 @@ impl<'a> LowerCtx<'a> {
             // refcounted; would otherwise grab the any-box wrapper
             // ptr and tag=ANY_HEAP, dropping the real tag/value).
             // Step 7c: read via any_unbox_tag/_value shims (was
-            // inline `Load i64 +8/+16` direct-offset).
+            // inline `Load i64 +8/+16` direct-offset). Chunk 610:
+            // owned unbox fuses the old unbox_value +
+            // any_payload_rc_inc pair — a heap cell still gets the
+            // slot's +1 (inc moved inside the shim), while a
+            // ShortStr's materialized rc=1 Str IS the slot's stake
+            // (the separate inc double-counted it and leaked).
             Type::Any => {
                 let tag_v = self.f.append_inst(
                     self.cur_block,
@@ -190,16 +195,9 @@ impl<'a> LowerCtx<'a> {
                 );
                 let val_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_value, vec![val]),
+                    InstKind::Call(self.intrinsics.any_unbox_value_owned, vec![val]),
                     Type::I64,
                     None,
-                );
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.any_payload_rc_inc,
-                        vec![Operand::Value(tag_v), Operand::Value(val_v)],
-                    ),
                 );
                 (Operand::Value(tag_v), Operand::Value(val_v))
             }

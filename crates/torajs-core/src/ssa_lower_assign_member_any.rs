@@ -171,20 +171,15 @@ fn lower_dynobj_assign_any_payload(
         Type::I64,
         None,
     );
+    // Chunk 610 — owned unbox fuses unbox_value + payload_rc_inc
+    // (ShortStr materialize was double-counted by the separate inc
+    // and leaked).
     let cur_block = ctx.cur_block;
     let val_v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.any_unbox_value, vec![v_raw]),
+        InstKind::Call(ctx.intrinsics.any_unbox_value_owned, vec![v_raw]),
         Type::I64,
         None,
-    );
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_payload_rc_inc,
-            vec![Operand::Value(tag_v), Operand::Value(val_v)],
-        ),
     );
     emit_any_member_set(
         ctx,
