@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T14:26:05.628Z",
+  "generatedAt": "2026-07-06T15:37:51.230Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "58ac6ea6",
-    "commitSubject": "fix: multiline $ patterns run on the pike vm, not the dfa (test262-bug-corpus RC-4 engine face)",
+    "commit": "5774f8e1",
+    "commitSubject": "feat: nullable-arr args decay against generic array params with runtime guard (test262-bug-corpus RC-4 F1a)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "5774f8e1",
+      "subject": "feat: nullable-arr args decay against generic array params with runtime guard (test262-bug-corpus RC-4 F1a)"
+    },
+    {
+      "hash": "4411fbf7",
+      "subject": "fix: null/undefined literal replace patterns fold to their tostring text (test262-bug-corpus RC-4 replace A1_T4)"
+    },
+    {
+      "hash": "58cacc5f",
+      "subject": "feat: functional replaceValue for string-pattern replace/replaceAll (test262-bug-corpus RC-4 replace A1_T4)"
+    },
+    {
+      "hash": "c33c2623",
+      "subject": "fix: may-throw analysis records IIFE and chained-call callees (test262-bug-corpus RC-4 arguments-object)"
+    },
+    {
+      "hash": "bfd1886b",
+      "subject": "fix: pad missing trailing any args on indirect closure/fnsig calls (test262-bug-corpus RC-4 arguments-object)"
+    },
+    {
+      "hash": "52db096a",
+      "subject": "chore(dashboard): session snapshot @ 58ac6ea6 — rotation 33 (595-601: test262-bug-corpus RC-4 F4 freeze-any, F5 array-len rangeerror, F6 capture shared-stake UAF, F1a exec nullable retype+guard, codegen frame shifted-imm, multiline-dollar vm gate; gate 1234 -> 1240, crash corpus 17 pass / 5 loud / 2 left)"
+    },
+    {
       "hash": "58ac6ea6",
       "subject": "fix: multiline $ patterns run on the pike vm, not the dfa (test262-bug-corpus RC-4 engine face)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "337a66a3",
       "subject": "fix: closure captures take a shared +1 stake instead of moving the outer binding's (test262-bug-corpus RC-4 F6)"
-    },
-    {
-      "hash": "118aa0fa",
-      "subject": "fix: new Array(len) throws RangeError for lengths outside [0, 2^32-1] (test262-bug-corpus RC-4 F5)"
-    },
-    {
-      "hash": "13ff558c",
-      "subject": "fix: route Object.freeze Any receivers through nan-box-aware helper (test262-bug-corpus RC-4 F4)"
-    },
-    {
-      "hash": "0cab2842",
-      "subject": "chore(dashboard): session snapshot @ 7de0634d — rotation 32 (591-594: test262-bug-corpus RC-4 crash-corpus F1b voidfix+null-str-slots, F2 weakmap anyvalue lane, F3 iife arg boxing, F1c reflection runtime props; gate 1230 -> 1234, 12/24 crashes to pass)"
-    },
-    {
-      "hash": "7de0634d",
-      "subject": "chore: rustfmt module-order fix for define_receivers in torajs-core lib.rs"
-    },
-    {
-      "hash": "648026cb",
-      "subject": "feat: reflection sees runtime-defined properties (test262-bug-corpus RC-4 F1c)"
-    },
-    {
-      "hash": "c59e6184",
-      "subject": "fix: IIFE args box against the callee's Any params (test262-bug-corpus RC-4 F3)"
     }
   ],
-  "headSha": "58ac6ea6",
+  "headSha": "5774f8e1",
   "autorun": {
-    "total": 341,
+    "total": 342,
     "baselineTarget": 10,
-    "bySelf": 336,
+    "bySelf": 337,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783342469-14b1",
-      "at": "2026-07-06T12:54:29Z",
-      "ts": 1783342469,
+      "rotationId": "r-1783348034-066b",
+      "at": "2026-07-06T14:27:14Z",
+      "ts": 1783348034,
       "trigger": "self",
-      "prevHead": "0cab2842",
-      "handoffSha": "sha256:3e154e54c5f2805c3a02ad34b136a316d384cf71542e3f8c49bd61ebf87f0324",
-      "handoffAgeSec": 11,
+      "prevHead": "52db096a",
+      "handoffSha": "sha256:7afa70ed45f96ceeb6f1207824d08b2fbb15b1320f809ce991023ea61680fd6b",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783348034-066b",
+        "at": "2026-07-06T14:27:14Z",
+        "ts": 1783348034,
+        "trigger": "self",
+        "prevHead": "52db096a",
+        "handoffSha": "sha256:7afa70ed45f96ceeb6f1207824d08b2fbb15b1320f809ce991023ea61680fd6b",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783342469-14b1",
         "at": "2026-07-06T12:54:29Z",
@@ -876,17 +887,6 @@
         "prevHead": "0a617970",
         "handoffSha": "sha256:4b8bcc07c91d1aab81801733ef0e2e149f002bde52a059277f2742f18ab23749",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783259787-55ea",
-        "at": "2026-07-05T13:56:27Z",
-        "ts": 1783259787,
-        "trigger": "self",
-        "prevHead": "c81debc0",
-        "handoffSha": "sha256:97cf875b777c9b7870f477b8f271dfe1dbd591273036f49eed22653e7a01bc83",
-        "handoffAgeSec": 37,
         "conformanceBefore": null,
         "commitsInSession": null
       }
