@@ -110,6 +110,9 @@ impl<'a> Analysis<'a> {
                 if let Some(ann) = type_ann {
                     self.alias_ann_union(&key, ann);
                     self.fnsig_ann_union(&key, ann);
+                    // W-ESC — any-annotated binding is an escape
+                    // sink (escape.rs).
+                    self.seed_any_face(&key, ann);
                 }
                 // ②.7 — JSON.parse targets: runtime data, every
                 // number-domain face seeds F64 (see json_seed.rs).

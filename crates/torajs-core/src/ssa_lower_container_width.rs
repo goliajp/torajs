@@ -342,6 +342,15 @@ pub(crate) fn widen_arr_elem(
     let Type::Arr(id) = parsed else {
         return parsed;
     };
+    // W-ESC (RFC 20260706-typed-arr-any-escape) — a container class
+    // that flows into an `any`-annotated slot re-interns with an Any
+    // element: the whole access surface rides the NaN-box any tier,
+    // so an any-side element-kind transition (`u[0] = "s"`) stays
+    // visible to every alias. Checked before the width faces — Any
+    // is the lattice top. Skips already-Any layouts (idempotent).
+    if !matches!(arr_layouts[id.0 as usize], Type::Any) && table.slot_escapes_any(key) {
+        return Type::Arr(intern_arr_layout(arr_layouts, Type::Any));
+    }
     let elem_ann = match ann {
         Some(a) => match a.strip_suffix("[]") {
             Some(inner) => Some(inner),

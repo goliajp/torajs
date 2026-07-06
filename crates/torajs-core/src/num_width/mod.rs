@@ -31,6 +31,7 @@ mod container_lookup;
 mod container_methods;
 mod container_walk;
 mod cycle;
+mod escape;
 mod fnsig;
 mod json_seed;
 mod mono;
@@ -163,6 +164,9 @@ pub(super) struct Analysis<'a> {
     /// stays bit-identical; merged in only for the canonical fixpoint
     /// the D2/D3 lowering wiring will consume.
     pub(super) c_seeds: Vec<SlotKey>,
+    /// W-ESC — any-annotated slot keys collected during the walk
+    /// (escape sinks; see escape.rs).
+    pub(super) any_seeds: Vec<SlotKey>,
     pub(super) c_edges: HashMap<SlotKey, Vec<Dep>>,
     /// W4 — container alias classes. Unconditional unions (element
     /// writes, literal/method plumbing, nominal class hookups) land
@@ -293,6 +297,7 @@ pub(crate) fn analyze(
         edges: HashMap::new(),
         c_seeds: Vec::new(),
         c_edges: HashMap::new(),
+        any_seeds: Vec::new(),
         uf: container::UnionFind::default(),
         guarded_unions: Vec::new(),
         nested_unions: Vec::new(),
@@ -319,6 +324,22 @@ pub(crate) fn analyze(
             name, params, body, ..
         } = stmt
         {
+            // W-ESC — any-annotated param / return faces are escape
+            // sinks (escape.rs).
+            for p in params {
+                if let Some(ann) = &p.type_ann {
+                    let pk = SlotKey::Param(name.clone(), p.name.clone());
+                    a.seed_any_face(&pk, ann);
+                }
+            }
+            if let Stmt::FnDecl {
+                return_type: Some(r),
+                ..
+            } = stmt
+            {
+                let rk = SlotKey::Ret(name.clone());
+                a.seed_any_face(&rk, r);
+            }
             let scope = Scope {
                 fn_name: name,
                 params: params.iter().map(|p| p.name.clone()).collect(),
@@ -367,7 +388,23 @@ pub(crate) fn analyze(
         }
     }
 
-    WidthTable::new(canon_out, a.uf, a.container_poison, a.nominal_aliases)
+    // W-ESC — escape faces resolve to frozen class reps (+ Elem-chain
+    // contagion for nested containers).
+    let any_escaped = escape::propagate(&a.any_seeds, &a.uf);
+    if std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some() {
+        let mut lines: Vec<String> = any_escaped.iter().map(|k| format!("{k:?}")).collect();
+        lines.sort();
+        for l in &lines {
+            eprintln!("[num_width] any-escape class: {l}");
+        }
+    }
+    WidthTable::new(
+        canon_out,
+        any_escaped,
+        a.uf,
+        a.container_poison,
+        a.nominal_aliases,
+    )
 }
 
 /// Poison flows forward along assignment edges until stable.

@@ -81,6 +81,19 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) ->
     if !has_spread && ctx.array_literal_is_heterogeneous(&element_ids) {
         return ctx.lower_array_any_literal(&element_ids);
     }
+    // W-ESC (RFC 20260706-typed-arr-any-escape) — a literal whose
+    // Anon alias class flows into the `any` world lowers as Arr<Any>
+    // directly: return-position / arg-position literals never pass
+    // an annotation-consuming widen site, so the escape re-intern
+    // must fire here. (Escaped spread literals stay typed — the any
+    // side then hits the mark_kind loud fallback, never silent.)
+    if !has_spread
+        && ctx
+            .num_f64_slots
+            .slot_escapes_any(&crate::num_width::SlotKey::Anon(eid.0))
+    {
+        return ctx.lower_array_any_literal(&element_ids);
+    }
     if !has_spread {
         return lower_no_spread(ctx, &element_ids, eid);
     }

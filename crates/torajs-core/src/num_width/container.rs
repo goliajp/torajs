@@ -96,7 +96,7 @@ pub(super) fn canon_key(uf: &mut UnionFind, k: &SlotKey) -> SlotKey {
     uf.find(&rewritten)
 }
 
-fn canon_key_frozen(uf: &UnionFind, k: &SlotKey) -> SlotKey {
+pub(super) fn canon_key_frozen(uf: &UnionFind, k: &SlotKey) -> SlotKey {
     let rewritten = match k {
         SlotKey::Elem(x) => SlotKey::Elem(Box::new(canon_key_frozen(uf, x))),
         SlotKey::Field(x, n) => SlotKey::Field(Box::new(canon_key_frozen(uf, x)), n.clone()),
@@ -111,6 +111,10 @@ fn canon_key_frozen(uf: &UnionFind, k: &SlotKey) -> SlotKey {
 /// a key resolves to its class representative.
 pub(crate) struct WidthTable {
     canon: HashSet<SlotKey>,
+    /// W-ESC — frozen class reps whose containers flow into `any`-
+    /// annotated slots (escape.rs); the widen site re-interns their
+    /// Arr elems as Type::Any.
+    any_escaped: HashSet<SlotKey>,
     uf: UnionFind,
     container_poison: bool,
     /// D5 — cyclic plain-alias names (see `alias.rs`); the TypeDecl
@@ -121,12 +125,14 @@ pub(crate) struct WidthTable {
 impl WidthTable {
     pub(super) fn new(
         canon: HashSet<SlotKey>,
+        any_escaped: HashSet<SlotKey>,
         uf: UnionFind,
         container_poison: bool,
         nominal_aliases: HashSet<String>,
     ) -> Self {
         WidthTable {
             canon,
+            any_escaped,
             uf,
             container_poison,
             nominal_aliases,
@@ -139,6 +145,12 @@ impl WidthTable {
 
     pub(crate) fn slot_is_f64(&self, k: &SlotKey) -> bool {
         self.canon.contains(&canon_key_frozen(&self.uf, k))
+    }
+
+    /// W-ESC — true when the container held in slot `k` flows into
+    /// the `any` world (its frozen class rep carries an escape face).
+    pub(crate) fn slot_escapes_any(&self, k: &SlotKey) -> bool {
+        !self.any_escaped.is_empty() && self.any_escaped.contains(&canon_key_frozen(&self.uf, k))
     }
 
     pub(crate) fn elem_is_f64(&self, holder: &SlotKey) -> bool {

@@ -149,7 +149,7 @@ fn ident_tokens(ann: &str) -> Vec<&str> {
 /// objects, `__fn(..)`, multi-arm unions) returns None — the union is
 /// skipped and the layout keeps its parse width, so a fract write
 /// stays the loud assign-mismatch panic, never silent-wrong.
-fn named_ref(ann: &str) -> Option<(&str, usize)> {
+pub(super) fn named_ref(ann: &str) -> Option<(&str, usize)> {
     let mut base: Option<&str> = None;
     for arm in ann.split('|') {
         let t = arm.trim();
