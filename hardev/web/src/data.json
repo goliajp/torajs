@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-05T22:46:44.456Z",
+  "generatedAt": "2026-07-06T01:13:46.592Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "12b549f6",
-    "commitSubject": "fix: classify string indexing as owned in alias/borrow judgments (L3b #15 residual, chunk 561)",
+    "commit": "b53f765e",
+    "commitSubject": "fix: share container-init elems and console index reads (RFC 20260705 ledger #3, chunk 570)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
+      "hash": "b53f765e",
+      "subject": "fix: share container-init elems and console index reads (RFC 20260705 ledger #3, chunk 570)"
+    },
+    {
+      "hash": "46f39929",
+      "subject": "fix: share indirect and vtable call args instead of inc or consume (RFC 20260705 ledger #3, chunk 569)"
+    },
+    {
+      "hash": "f5181938",
+      "subject": "fix: retire the consuming-params bitmap, fn args always share (RFC 20260705 ledger #3, chunk 568)"
+    },
+    {
+      "hash": "d6cc91cf",
+      "subject": "fix: share index-assign values instead of consuming (RFC 20260705 ledger #3, chunk 567)"
+    },
+    {
+      "hash": "93944f33",
+      "subject": "fix: share member-assign values instead of consuming (RFC 20260705 ledger #3, chunk 566)"
+    },
+    {
+      "hash": "409b2382",
+      "subject": "fix: share borrow-shape values into Arr<Any> push/fill slots (RFC 20260705 ledger #3, chunk 565)"
+    },
+    {
+      "hash": "ba2eeece",
+      "subject": "fix: make ident assignment share instead of move (RFC 20260705 ledger #3, chunk 564)"
+    },
+    {
+      "hash": "22b9077d",
+      "subject": "fix: box concrete values into any slots as owned references (RFC 20260705 ledger #2, chunk 563)"
+    },
+    {
+      "hash": "6f6d7402",
+      "subject": "fix: resolve substr views in str_eq (RFC 20260705 ledger #1, chunk 562)"
+    },
+    {
+      "hash": "5967ffb9",
+      "subject": "chore(dashboard): session snapshot @ 12b549f6 — rotation 25 (557-561: sniff conversion-method rows, mutable str globals L3b #19 + named-fn-refs gate, str-eq fastpath single-eval, substr-view str_drop routing + string-indexing owned/alias 3-site sync L3b #15; gate 1197 → 1202)"
+    },
+    {
       "hash": "12b549f6",
       "subject": "fix: classify string indexing as owned in alias/borrow judgments (L3b #15 residual, chunk 561)"
     },
     {
       "hash": "855ef01c",
       "subject": "fix: route substr views through substr_drop in str_drop (L3b #15)"
-    },
-    {
-      "hash": "2684cee0",
-      "subject": "fix: park declined str-eq fastpath operand for single eval (RFC 20260705 chunk 559)"
-    },
-    {
-      "hash": "549ffad6",
-      "subject": "fix: gate mutable str global promotion on named-fn refs (chunk 558 fix-up)"
-    },
-    {
-      "hash": "88127d52",
-      "subject": "feat: mutable str top-level globals (L3b #19)"
-    },
-    {
-      "hash": "f8a089e9",
-      "subject": "feat: infer conversion-method returns in the closure ann sniff (RFC 20260705 chunk 557)"
-    },
-    {
-      "hash": "9a1b89b4",
-      "subject": "chore(dashboard): session snapshot @ 3999c6b9 — rotation 24 (553-556: RFC 20260705 — keep-escape SIGBUS return-lane retag + rc-gated closure drop, __cls width-class unification, contextual typing for chained receivers + user-fn params, decline-redispatch single-eval, loop-capture return sniff binds; gate 1193 → 1197)"
-    },
-    {
-      "hash": "3999c6b9",
-      "subject": "fix: collect nested let anns for the closure return sniff (RFC 20260705 chunk 556)"
-    },
-    {
-      "hash": "e1bf130b",
-      "subject": "fix: park declined dispatchers' lowered receivers for single-eval redispatch (RFC 20260705 chunk 555)"
-    },
-    {
-      "hash": "139b433b",
-      "subject": "feat: contextual typing for chained receivers + user-fn fn-typed params (RFC 20260705 chunk 554)"
-    },
-    {
-      "hash": "7aa4289c",
-      "subject": "fix: normalize __cls( spellings onto the __fn( width class (chunk 553 fix-up)"
-    },
-    {
-      "hash": "a0485b60",
-      "subject": "fix: retag closure-carrying __fn returns to __cls + rc-gate typed closure drop (RFC 20260705 chunk 553)"
     }
   ],
-  "headSha": "12b549f6",
+  "headSha": "b53f765e",
   "autorun": {
-    "total": 334,
+    "total": 335,
     "baselineTarget": 10,
-    "bySelf": 329,
+    "bySelf": 330,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783286813-1b56",
-      "at": "2026-07-05T21:26:53Z",
-      "ts": 1783286813,
+      "rotationId": "r-1783292241-2199",
+      "at": "2026-07-05T22:57:21Z",
+      "ts": 1783292241,
       "trigger": "self",
-      "prevHead": "9a1b89b4",
-      "handoffSha": "sha256:816f6eb209a3fd0377ff52d79d85a765e731bce9447d2a8c4ffcdd9173e3e340",
-      "handoffAgeSec": 8,
+      "prevHead": "6f6d7402",
+      "handoffSha": "sha256:e07253ad77ae917bfe899b7b05a0ff6056269b18a1a556fbd99d6b1a065a9681",
+      "handoffAgeSec": 89,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783292241-2199",
+        "at": "2026-07-05T22:57:21Z",
+        "ts": 1783292241,
+        "trigger": "self",
+        "prevHead": "6f6d7402",
+        "handoffSha": "sha256:e07253ad77ae917bfe899b7b05a0ff6056269b18a1a556fbd99d6b1a065a9681",
+        "handoffAgeSec": 89,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783286813-1b56",
         "at": "2026-07-05T21:26:53Z",
@@ -876,17 +887,6 @@
         "prevHead": "2030ad26",
         "handoffSha": "sha256:b2882a6253b0d553ab4a5ab108c4be60add8e4105d0694e2215315918a352651",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783170991-05b1",
-        "at": "2026-07-04T13:16:31Z",
-        "ts": 1783170991,
-        "trigger": "self",
-        "prevHead": "e2b56b17",
-        "handoffSha": "sha256:e6aec7cebd5565f2c99115eeea91d734790d3915bbe4075e77c55577b0449515",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
