@@ -126,14 +126,25 @@ pub(crate) fn try_dispatch(
             Operand::Value(len)
         };
         argv.push(end);
+        // Any elem: route through the FLAG_ARR_ANY-aware slice — the
+        // raw arr_slice product is flag-blind (runtime flag-dispatch
+        // walkers — cycle collector, value_drop_heap — go blind on
+        // it) and the helper incs its NaN-box slots itself, so the
+        // raw inc walk below must not run (double-inc).
+        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        let elem_is_any = matches!(elem_ty, Type::Any);
+        let slice_fid = if elem_is_any {
+            ctx.intrinsics.arr_any_slice
+        } else {
+            ctx.intrinsics.arr_slice
+        };
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.arr_slice, argv),
+            InstKind::Call(slice_fid, argv),
             Type::Arr(arr_id),
             None,
         );
-        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-        if elem_ty.is_refcounted() {
+        if elem_ty.is_refcounted() && !elem_is_any {
             let len = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),

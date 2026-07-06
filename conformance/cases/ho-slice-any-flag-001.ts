@@ -1,0 +1,12 @@
+const a: any[] = [1, "x", 2.5, true];
+const f = a.filter((v: any) => true);
+console.log(f);
+const m = a.map((v: any) => v);
+console.log(m);
+const s = a.slice(1, 3);
+console.log(s);
+const s2 = a.slice();
+console.log(s2);
+const s3 = a.slice(-2);
+console.log(s3);
+console.log(a);

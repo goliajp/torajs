@@ -163,12 +163,22 @@ fn prepare_dst_slot(
         Type::I64,
         None,
     );
+    // Any-elem dst allocates through arr_alloc_any so the block
+    // carries FLAG_ARR_ANY — the plain alloc leaves the flag clear
+    // and runtime flag-dispatch walkers (cycle collector,
+    // value_drop_heap) go blind on the product (the lowering-side
+    // static drop still walked it via arr_drop_any, so this was a
+    // walker-visibility hole, not a leak).
+    let dst_is_any = matches!(dst_arr_ty, Type::Arr(id)
+        if matches!(ctx.arr_layouts[id.0 as usize], Type::Any));
+    let alloc_fid = if dst_is_any {
+        ctx.intrinsics.arr_alloc_any
+    } else {
+        ctx.intrinsics.arr_alloc
+    };
     let dst_arr = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_alloc,
-            vec![Operand::Value(src_len_for_cap)],
-        ),
+        InstKind::Call(alloc_fid, vec![Operand::Value(src_len_for_cap)]),
         dst_arr_ty,
         None,
     );
