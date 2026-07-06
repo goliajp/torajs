@@ -229,6 +229,10 @@ fn try_then_undefined(
                 let result_inner = match &**ret {
                     Type::Number | Type::String | Type::Boolean => (**ret).clone(),
                     Type::Void | Type::Undefined => Type::Undefined,
+                    // Chunk 607's ret fallback types un-sniffable cbs
+                    // as `() => Any` — the then-result is Promise<Any>
+                    // (the existing P10.7 Any lane).
+                    Type::Any => Type::Any,
                     other => {
                         return Some(Err(format!(
                             "Promise.{m_name} on Promise<Undefined>: cb return must be Number / String / Boolean / Void / Undefined, got {other:?}"

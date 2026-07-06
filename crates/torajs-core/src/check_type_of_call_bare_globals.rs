@@ -143,7 +143,13 @@ pub(crate) fn try_match(
                     Err(e) => return Some(Err(e)),
                 };
                 match &cb_ty {
-                    Type::Function(params, ret) if params.is_empty() && **ret == Type::Void => {}
+                    // TS void-callback variance — a callback in a
+                    // void-returning position may return anything;
+                    // the value is discarded (bun/tsc accept
+                    // `queueMicrotask(() => order.push(1))`, and the
+                    // chunk-607 ret fallback types un-sniffable cbs
+                    // as `() => Any`). Param count stays exact.
+                    Type::Function(params, _) if params.is_empty() => {}
                     _ => {
                         return Some(Err(format!(
                             "queueMicrotask cb must be `() => void`, got {cb_ty:?}"
