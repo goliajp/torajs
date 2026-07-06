@@ -5,9 +5,9 @@
 //! Strs are read-only and the caller's drops still fire on them.
 //!
 //! Returns NULL only if alloc panics on OOM (matches the IR shape:
-//! str_alloc_pooled abort-on-OOM). Inputs must be valid Str heap
-//! blocks; the IR-side caller always reads STR_LEN before the call
-//! site so a NULL-Str input would have already crashed earlier.
+//! str_alloc_pooled abort-on-OOM). Inputs are valid Str heap blocks
+//! OR NULL — a NULL operand denotes the JS `undefined` value and
+//! concats as the text "undefined" (RC-4 F1b-2, see the fn body).
 //!
 //! ## P11.1-S2.1 encoding-aware
 //!
@@ -82,6 +82,23 @@ fn widen_latin1_into_utf16(src: &[u8], dst: &mut [u8]) {
 /// a fresh refcount=1 Str block owned by the caller.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_concat(a: *const u8, b: *const u8) -> *mut u8 {
+    // RC-4 F1b-2 — a NULL ptr in a Str-typed slot denotes the JS
+    // `undefined` value (uncaptured regex group, `[.., undefined]`
+    // array-literal slot, typed OOB elem load); ES §13.15.3
+    // ToString(undefined) concats the text "undefined". Cold path:
+    // materialize the literal, recurse, drop the temp.
+    if a.is_null() || b.is_null() {
+        let undef = unsafe { crate::literals::__torajs_undefined_to_str() };
+        let r = if a.is_null() && b.is_null() {
+            unsafe { __torajs_str_concat(undef, undef) }
+        } else if a.is_null() {
+            unsafe { __torajs_str_concat(undef, b) }
+        } else {
+            unsafe { __torajs_str_concat(a, undef) }
+        };
+        unsafe { crate::str_drop::__torajs_str_drop(undef) };
+        return r;
+    }
     let a_len = unsafe { str_len(a) };
     let b_len = unsafe { str_len(b) };
     let total_len = a_len + b_len;

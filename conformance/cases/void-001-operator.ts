@@ -2,13 +2,11 @@
 // then yields `undefined`. Per JS spec §13.5.2. Pre-fix the
 // parser bailed with "expected `)`, got Number" on `void 0`.
 //
-// Tora doesn't yet have a separate undefined sentinel distinct
-// from null, so the pragmatic desugar is
-// `Sequence { left: <expr>, right: String("undefined") }`. The
-// surface behavior matches bun for the common shapes
-// (console.log, string concat). `typeof void X` differs because
-// the operand is a Str at runtime — that lands when the implicit-
-// any substrate gives us a real Type::Undefined.
+// RC-4 F1b-1: desugars to `Sequence { left: <expr>, right:
+// Ident("undefined") }` — `void 0` is the same value as the
+// `undefined` Ident (Type::Undefined / ConstPtrNull), not the
+// former String("undefined") stand-in, so identity compares
+// against void 0 behave per spec.
 
 console.log(void 0)
 console.log(void 5)
@@ -23,3 +21,13 @@ console.log(void n)
 let s = "x"
 console.log(void (s + "!"))
 console.log(s)
+
+// RC-4 F1b-1 — identity semantics: `void 0` compares as the
+// undefined value, never as the string "undefined".
+console.log("undefined" === void 0)
+console.log("undefined" !== void 0)
+console.log(void 0 === undefined)
+let m = "ab5".match(/(a)(q)?/)
+console.log(m[2] === void 0)
+console.log(m[2] !== void 0)
+console.log(m[1] === void 0)

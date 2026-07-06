@@ -355,20 +355,20 @@ impl<'a> Parser<'a> {
             return Ok(self.ast.add_expr(Expr::TypeOf { expr: inner }));
         }
         // V3-18 m1.h.30 — `void <expr>` evaluates expr (for side
-        // effects) then yields `undefined`. Tora doesn't yet have
-        // a separate undefined sentinel distinct from null, so the
-        // pragmatic desugar is `Expr::Sequence { left: <expr>,
-        // right: Expr::String("undefined") }`. console.log /
-        // string concat / typeof comparisons all see the literal
-        // "undefined" — the typical usage shapes (`void 0` as a
-        // safe undefined producer, `typeof x === 'undefined'`
-        // comparisons) work end-to-end. A real Type::Undefined
-        // distinct from Type::Null would land alongside the
-        // implicit-any substrate.
+        // effects) then yields `undefined`. Desugars to
+        // `Expr::Sequence { left: <expr>, right: Expr::Ident
+        // ("undefined") }` so `void 0` is the same value as the
+        // `undefined` Ident everywhere: Type::Undefined at check
+        // time (binop undef-id hints fire), ConstPtrNull at SSA.
+        // RC-4 F1b-1: the earlier String("undefined") stand-in
+        // made `x !== void 0` a *content* compare (str_eq) — a
+        // real "undefined" string compared equal to the undefined
+        // literal, and a null-slot Str operand SIGSEGV'd inside
+        // str_eq (test262 S15.5.4.10 family).
         if matches!(self.peek(), Token::Void) {
             self.pos += 1;
             let inner = self.parse_unary()?;
-            let undef = self.ast.add_expr(Expr::String("undefined".into()));
+            let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
             return Ok(self.ast.add_expr(Expr::Sequence {
                 left: inner,
                 right: undef,

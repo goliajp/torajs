@@ -120,8 +120,15 @@ unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
 /// guaranteeing non-null at call sites).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64 {
-    // SAFETY: caller's invariant — Type::Str pointers are
-    // guaranteed non-null at the SSA-emit layer.
+    // RC-4 F1b-2 — a NULL ptr in a Str-typed slot denotes the JS
+    // `undefined` value (uncaptured regex groups, `[.., undefined]`
+    // array-literal slots, typed OOB elem loads). Identity rules:
+    // undefined === undefined → 1, undefined === "s" → 0. Content
+    // resolution below would deref the header (SIGSEGV, test262
+    // S15.5.4.10_A2_T10 family).
+    if a.is_null() || b.is_null() {
+        return (a == b) as i64;
+    }
     //
     // Chunk 562 — either operand can be a Substr VIEW/INLINE cell:
     // dispatch sites holding only the Tag::Str type_tag (the
