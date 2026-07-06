@@ -23,10 +23,14 @@ use core::ffi::c_void;
 
 use torajs_rc::{FLAG_ARR_ANY, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, HeapHeader};
 
+use crate::any::{ANY_SLOT_BYTES, ANY_UNDEF, slot_anyvalue_ptr};
 use crate::layout::{
     ARR_CELL_SIZE, ARR_DATA_PTR_OFF, ARR_LEN_OFF, ARR_PROPS_OFF, TAG_ARR, arr_data_is_inline,
 };
 use crate::pool::{POOL_CAP_MAX, POOL_SLOTS, pop_cap_match, push};
+
+/// Head-offset slot (matches `any.rs`).
+const ARR_HEAD_OFF: usize = 20;
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
@@ -154,4 +158,82 @@ pub unsafe extern "C" fn __torajs_arr_free(p: *mut c_void) {
         }
     }
     unsafe { free(p) };
+}
+
+// ============================================================
+// Array<Any> allocs — moved from `any.rs` (chunk 624 file-size
+// split). Same malloc-only path: Any-arrays bypass the cap-matched
+// pool (8-byte NaN-box stride vs the pool's typed-slot ledger).
+// ============================================================
+
+unsafe extern "C" {
+    /// Cross-tier — torajs-anyvalue NaN-box pack (undefined fill).
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    /// Cross-tier — torajs-throw catchable RangeError.
+    fn __torajs_throw_range_error(msg: *const u8);
+}
+
+#[inline]
+pub(crate) unsafe fn write_header_any(p: *mut u8, len: u64, cap: u32) {
+    unsafe {
+        *(p as *mut u32) = 1; // refcount
+        *(p.add(4) as *mut u16) = TAG_ARR;
+        *(p.add(6) as *mut u16) = FLAG_ARR_ANY;
+        *(p.add(ARR_LEN_OFF) as *mut u64) = len;
+        *(p.add(ARR_CAP_LOW32_OFF) as *mut u32) = cap;
+        *(p.add(ARR_HEAD_OFF) as *mut u32) = 0; // Any-arrays never deque-shift
+        // Round 4 chunk 5a — inline props_dynobj slot initialized to NULL.
+        *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
+        // B1 — data pointer starts self-referential (inline slots).
+        *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
+    }
+}
+
+/// `__torajs_arr_alloc_any(cap)` — fresh empty Array<Any>.
+/// Bypasses the regular Array<T> pool (different slot stride).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_alloc_any(cap: u64) -> *mut u8 {
+    unsafe {
+        let total = ARR_CELL_SIZE + (cap as usize) * ANY_SLOT_BYTES;
+        let p = malloc(total) as *mut u8;
+        write_header_any(p, 0, cap as u32);
+        p
+    }
+}
+
+/// `__torajs_arr_alloc_any_filled(n)` — `new Array(n)` per ES spec
+/// §23.1.2.1. len=cap=n, all slots boxed `ANY_UNDEF` so `arr[i]`
+/// decodes as `undefined` per ES §10.4.2.1 (sparse missing-index
+/// semantics densely emulated; true sparse hole would need an
+/// elem-kind-tag substrate, L3b). Mirrors the hole-fill pattern in
+/// `__torajs_arr_set_at_any`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
+    // §23.1.2.1 step 4.b — a length outside [0, 2^32-1] is a
+    // RangeError (test262-bug-corpus RC-4 F5: `new Array(-1)` arrives
+    // as 0xFFFF..FF u64 and SIGSEGVd through the overflowed malloc).
+    // Message matches bun/JSC for uncaught-print byte parity. The
+    // throw helper RETURNS; ssa_lower's emit_throw_check right after
+    // the call diverts before the NULL is touched.
+    const MAX_ARRAY_LEN: u64 = u32::MAX as u64;
+    if n > MAX_ARRAY_LEN {
+        unsafe {
+            __torajs_throw_range_error(
+                b"Array length must be a positive integer of safe magnitude.\0".as_ptr(),
+            );
+        }
+        return core::ptr::null_mut();
+    }
+    unsafe {
+        let total = ARR_CELL_SIZE + (n as usize) * ANY_SLOT_BYTES;
+        let p = malloc(total) as *mut u8;
+        write_header_any(p, n, n as u32);
+        if n > 0 {
+            let undef = __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0);
+            for k in 0..n {
+                *slot_anyvalue_ptr(p, k) = undef;
+            }
+        }
+        p
+    }
 }

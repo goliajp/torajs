@@ -22,7 +22,8 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ARR_KIND_BOOL, ARR_KIND_F64, ARR_KIND_HEAP, ARR_KIND_I64, ARR_KIND_UNSET, HeapHeader,
+    ARR_KIND_BOOL, ARR_KIND_F64, ARR_KIND_HEAP, ARR_KIND_I64, ARR_KIND_UNSET, FLAG_ARR_ANY,
+    HeapHeader,
 };
 
 use crate::any::{ANY_HEAP, ANY_SLOT_BYTES, ANY_UNDEF, slot_anyvalue_ptr};
@@ -76,6 +77,69 @@ pub(crate) fn coerce_raw_scalar(kind: u16, tag: u64, value: u64) -> Option<u64> 
 pub(crate) unsafe fn drop_pair(tag: u64, value: u64) {
     if tag == 4 {
         unsafe { __torajs_value_drop_heap(value as *mut c_void) };
+    }
+}
+
+/// `ARR_KIND_*` → NaN-box pair tag (`box_to_any`'s scheme), or None
+/// for `ARR_KIND_UNSET` (unmarked block — no tag can be derived).
+pub(crate) fn kind_to_any_tag(kind: u16) -> Option<u64> {
+    match kind {
+        ARR_KIND_I64 => Some(2),
+        ARR_KIND_F64 => Some(3),
+        ARR_KIND_BOOL => Some(1),
+        ARR_KIND_HEAP => Some(4),
+        _ => None,
+    }
+}
+
+/// Chunk 624 — rebox a FRESH typed block's raw slots into NaN-box
+/// AnyValues in place and flip it to `FLAG_ARR_ANY` (slot strides
+/// match at 8 bytes; a HEAP slot's box IS its pointer, so element
+/// ownership is untouched; a NULL heap slot holes to undefined).
+/// Folds a nonzero deque head down to 0 (left-shift is safe in
+/// place — the source index never trails the destination).
+///
+/// ONLY legal on a block with no typed alias — the typed view's raw
+/// loads would misread the boxed slots. The caller guarantees
+/// freshness (e.g. concat's `arr_any_slice` seed, rc=1, private).
+/// UNSET kind raises a catchable TypeError (a missed coercion
+/// boundary — loud, never a silent misread).
+///
+/// # Safety
+/// `arr` is a valid non-Any `Tag::Arr` heap pointer, rc=1, unaliased.
+pub(crate) unsafe fn transition_fresh_to_any(arr: *mut u8) {
+    unsafe {
+        let header = &mut *(arr as *mut HeapHeader);
+        let kind = header.arr_elem_kind();
+        let Some(tag) = kind_to_any_tag(kind) else {
+            debug_assert!(
+                false,
+                "transition_fresh_to_any: UNSET elem kind — an Arr<T> → \
+                 Arr<Any> coercion site missed __torajs_arr_mark_kind"
+            );
+            __torajs_throw_type_error(
+                c"array of unknown element kind reached an any[] concat seed".as_ptr(),
+            );
+            return;
+        };
+        let len = *(arr.add(ARR_LEN_OFF) as *const u64);
+        let head = *(arr.add(ARR_HEAD_OFF) as *const u32) as u64;
+        let data = arr_data(arr);
+        for i in 0..len {
+            let raw = *(data.add(((head + i) as usize) * ANY_SLOT_BYTES) as *const u64);
+            let av = if tag == 4 {
+                if raw == 0 {
+                    __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0)
+                } else {
+                    raw // a heap cell's box encoding is its pointer
+                }
+            } else {
+                __torajs_anyv_box_from_pair(tag as i64, raw as i64)
+            };
+            *(data.add((i as usize) * ANY_SLOT_BYTES) as *mut u64) = av;
+        }
+        *(arr.add(ARR_HEAD_OFF) as *mut u32) = 0;
+        header.flags = (header.flags & !torajs_rc::ARR_ELEM_KIND_MASK) | torajs_rc::FLAG_ARR_ANY;
     }
 }
 
@@ -234,6 +298,14 @@ pub unsafe extern "C" fn __torajs_arr_extend_typed_into_any(
     elem_tag: u64,
 ) -> *mut u8 {
     unsafe {
+        // RFC 20260707 chunk 624 — the concat lowering statically
+        // routes typed args here, but the arr_any_slice seed of a
+        // typed-behind-Arr<Any> receiver is itself a kind-marked
+        // typed COPY (fresh, rc=1) — rebox it in place before
+        // splicing NaN-box values in.
+        if (*(dst as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
+            transition_fresh_to_any(dst);
+        }
         let dst_len = *(dst.add(ARR_LEN_OFF) as *const u64);
         let src_len = *(src.add(ARR_LEN_OFF) as *const u64);
         if src_len == 0 {

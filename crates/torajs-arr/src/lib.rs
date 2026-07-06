@@ -66,11 +66,13 @@ pub mod sum_precise;
 pub mod throw_empty;
 pub mod transform;
 
-pub use alloc::{__torajs_arr_alloc, __torajs_arr_alloc_pooled, __torajs_arr_free};
+pub use alloc::{
+    __torajs_arr_alloc, __torajs_arr_alloc_any, __torajs_arr_alloc_any_filled,
+    __torajs_arr_alloc_pooled, __torajs_arr_free,
+};
 pub use any::{
-    __torajs_arr_alloc_any, __torajs_arr_alloc_any_filled, __torajs_arr_extend_any,
-    __torajs_arr_flat_any, __torajs_arr_get_any_tag, __torajs_arr_get_any_value,
-    __torajs_arr_push_any, __torajs_arr_set_any,
+    __torajs_arr_extend_any, __torajs_arr_flat_any, __torajs_arr_get_any_tag,
+    __torajs_arr_get_any_value, __torajs_arr_push_any, __torajs_arr_set_any,
 };
 pub use any_typed_bridge::__torajs_arr_extend_typed_into_any;
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any, __torajs_arr_drop_heap};
@@ -85,7 +87,7 @@ pub use iter::{
 };
 pub use join::{
     __torajs_arr_join, __torajs_arr_join_bool, __torajs_arr_join_f64, __torajs_arr_join_i64,
-    __torajs_arr_join_substr, __torajs_arr_to_reversed, __torajs_arr_with,
+    __torajs_arr_join_substr,
 };
 pub use join_locale::{__torajs_arr_join_f64_locale, __torajs_arr_join_i64_locale};
 pub use ops::{__torajs_arr_extend_unchecked, __torajs_arr_push_unchecked};
@@ -98,7 +100,8 @@ pub use sort::__torajs_arr_sort_cb;
 pub use throw_empty::{__torajs_arr_throw_reduce_empty, __torajs_arr_throw_reduce_right_empty};
 pub use transform::{
     __torajs_arr_concat, __torajs_arr_copy_within, __torajs_arr_fill, __torajs_arr_flat,
-    __torajs_arr_reverse, __torajs_arr_splice, __torajs_arr_unshift,
+    __torajs_arr_reverse, __torajs_arr_splice, __torajs_arr_to_reversed, __torajs_arr_unshift,
+    __torajs_arr_with,
 };
 
 // `__torajs_str_alloc_pooled` is provided by `libtorajs_str.a` at

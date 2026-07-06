@@ -12,19 +12,17 @@
 //! for the universal heap-walker; `head_offset` stays 0 (Any-arrays
 //! never deque-shift).
 //!
-//! Public surface: `__torajs_arr_alloc_any` / `_alloc_any_filled` /
-//! `_push_any` / `_extend_any` / `_get_any_tag` / `_get_any_value` /
-//! `_set_any` / `_fill_any` / `_set_any_grow` / `_flat_any`
-//! (`_extend_typed_into_any` lives in `any_typed_bridge`).
+//! Public surface: `_push_any` / `_extend_any` / `_get_any_tag` /
+//! `_get_any_value` / `_set_any` / `_fill_any` / `_set_any_grow` /
+//! `_flat_any` (`_alloc_any` / `_alloc_any_filled` live in `alloc`,
+//! `_extend_typed_into_any` in `any_typed_bridge`).
 
 use core::ffi::c_void;
 
 use torajs_rc::{FLAG_ARR_ANY, HeapHeader};
 
 use crate::grow::grow_data_buffer;
-use crate::layout::{
-    ARR_CELL_SIZE, ARR_DATA_PTR_OFF, ARR_LEN_OFF, ARR_PROPS_OFF, TAG_ARR, arr_data,
-};
+use crate::layout::{ARR_LEN_OFF, TAG_ARR, arr_data};
 
 /// Tag value for ANY_UNDEF — returned by OOB get to match JS spec.
 pub(crate) const ANY_UNDEF: u64 = 5;
@@ -42,13 +40,8 @@ pub(crate) const ANY_SLOT_BYTES: usize = 8;
 
 /// Cap slot offset (matches torajs-arr::alloc's `ARR_CAP_LOW32_OFF`).
 const ARR_CAP_LOW32_OFF: usize = 16;
-const ARR_HEAD_OFF: usize = 20;
 
 unsafe extern "C" {
-    /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
-    fn malloc(n: usize) -> *mut c_void;
-
     /// Cross-tier — torajs-rc. Increments refcount; NULL pass-through
     /// (post-7d-A: also no-ops for non-cell NaN-box bit patterns).
     fn __torajs_rc_inc(p: *mut c_void);
@@ -66,76 +59,15 @@ unsafe extern "C" {
     /// Cross-tier — torajs-throw. Raises a catchable RangeError;
     /// the caller's SSA-level emit_throw_check propagates it.
     fn __torajs_throw_range_error(msg: *const u8);
+
+    /// Cross-tier — torajs-throw catchable TypeError (chunk 624,
+    /// unknown-elem-kind concat rejections).
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 #[inline]
 pub(crate) unsafe fn slot_anyvalue_ptr(arr: *mut u8, i: u64) -> *mut u64 {
     unsafe { arr_data(arr).add((i as usize) * ANY_SLOT_BYTES) as *mut u64 }
-}
-
-#[inline]
-unsafe fn write_header_any(p: *mut u8, len: u64, cap: u32) {
-    unsafe {
-        *(p as *mut u32) = 1; // refcount
-        *(p.add(4) as *mut u16) = TAG_ARR;
-        *(p.add(6) as *mut u16) = FLAG_ARR_ANY;
-        *(p.add(ARR_LEN_OFF) as *mut u64) = len;
-        *(p.add(ARR_CAP_LOW32_OFF) as *mut u32) = cap;
-        *(p.add(ARR_HEAD_OFF) as *mut u32) = 0; // Any-arrays never deque-shift
-        // Round 4 chunk 5a — inline props_dynobj slot initialized to NULL.
-        *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
-        // B1 — data pointer starts self-referential (inline slots).
-        *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
-    }
-}
-
-/// `__torajs_arr_alloc_any(cap)` — fresh empty Array<Any>.
-/// Bypasses the regular Array<T> pool (different slot stride).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_alloc_any(cap: u64) -> *mut u8 {
-    unsafe {
-        let total = ARR_CELL_SIZE + (cap as usize) * ANY_SLOT_BYTES;
-        let p = malloc(total) as *mut u8;
-        write_header_any(p, 0, cap as u32);
-        p
-    }
-}
-
-/// `__torajs_arr_alloc_any_filled(n)` — `new Array(n)` per ES spec
-/// §23.1.2.1. len=cap=n, all slots boxed `ANY_UNDEF` so `arr[i]`
-/// decodes as `undefined` per ES §10.4.2.1 (sparse missing-index
-/// semantics densely emulated; true sparse hole would need an
-/// elem-kind-tag substrate, L3b). Mirrors the hole-fill pattern in
-/// `__torajs_arr_set_at_any`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
-    // §23.1.2.1 step 4.b — a length outside [0, 2^32-1] is a
-    // RangeError (test262-bug-corpus RC-4 F5: `new Array(-1)` arrives
-    // as 0xFFFF..FF u64 and SIGSEGVd through the overflowed malloc).
-    // Message matches bun/JSC for uncaught-print byte parity. The
-    // throw helper RETURNS; ssa_lower's emit_throw_check right after
-    // the call diverts before the NULL is touched.
-    const MAX_ARRAY_LEN: u64 = u32::MAX as u64;
-    if n > MAX_ARRAY_LEN {
-        unsafe {
-            __torajs_throw_range_error(
-                b"Array length must be a positive integer of safe magnitude.\0".as_ptr(),
-            );
-        }
-        return core::ptr::null_mut();
-    }
-    unsafe {
-        let total = ARR_CELL_SIZE + (n as usize) * ANY_SLOT_BYTES;
-        let p = malloc(total) as *mut u8;
-        write_header_any(p, n, n as u32);
-        if n > 0 {
-            let undef = __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0);
-            for k in 0..n {
-                *slot_anyvalue_ptr(p, k) = undef;
-            }
-        }
-        p
-    }
 }
 
 /// Append a tagged slot. Grows 2× on `len == cap` (matches C
@@ -180,6 +112,26 @@ pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -> *mut u8 {
     unsafe {
+        // RFC 20260707 chunk 624 — typed blocks on either side of
+        // the concat splice. The dst seed comes from arr_any_slice,
+        // which hands a typed source back as a kind-marked typed
+        // COPY (fresh, rc=1, unaliased) — rebox it in place before
+        // splicing NaN-box values in. A typed src bulk-boxes through
+        // the extend_typed bridge per its recorded kind; UNSET is a
+        // missed coercion boundary (loud TypeError inside).
+        if (*(dst as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
+            crate::any_typed_bridge::transition_fresh_to_any(dst);
+        }
+        if (*(src as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
+            let kind = (*(src as *const HeapHeader)).arr_elem_kind();
+            let Some(tag) = crate::any_typed_bridge::kind_to_any_tag(kind) else {
+                __torajs_throw_type_error(
+                    c"array of unknown element kind reached an any[] concat".as_ptr(),
+                );
+                return dst;
+            };
+            return crate::any_typed_bridge::__torajs_arr_extend_typed_into_any(dst, src, tag);
+        }
         let dst_len = *(dst.add(ARR_LEN_OFF) as *const u64);
         let src_len = *(src.add(ARR_LEN_OFF) as *const u64);
         if src_len == 0 {
@@ -451,7 +403,7 @@ pub unsafe extern "C" fn __torajs_arr_flat_any(outer: *const u8) -> *mut u8 {
     let outer_len = unsafe { *(outer.add(ARR_LEN_OFF) as *const u64) };
     // Start with cap == outer_len; arr_push_any / arr_extend_any
     // grow on demand so over-estimating isn't required.
-    let mut dst = unsafe { __torajs_arr_alloc_any(outer_len) };
+    let mut dst = unsafe { crate::alloc::__torajs_arr_alloc_any(outer_len) };
     let outer_mut = outer as *mut u8;
     for i in 0..outer_len {
         let av = unsafe { *slot_anyvalue_ptr(outer_mut, i) };
@@ -461,8 +413,11 @@ pub unsafe extern "C" fn __torajs_arr_flat_any(outer: *const u8) -> *mut u8 {
             let inner = value as *const u8;
             if !inner.is_null() {
                 let inner_type_tag = unsafe { *(inner.add(4) as *const u16) };
-                let inner_flags = unsafe { *(inner.add(6) as *const u16) };
-                if inner_type_tag == TAG_ARR && (inner_flags & FLAG_ARR_ANY) != 0 {
+                // Chunk 624 — typed inner arrays flatten too:
+                // extend_any's src dispatch bulk-boxes them per
+                // their recorded elem kind (pre-fix they carried
+                // through as a single scalar-looking element).
+                if inner_type_tag == TAG_ARR {
                     dst = unsafe { __torajs_arr_extend_any(dst, inner) };
                     continue;
                 }

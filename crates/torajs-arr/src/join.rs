@@ -1,19 +1,18 @@
-//! `arr.join(sep)` family + ES2023 `toReversed` + `with`. Port of
-//! `runtime_str.c::__torajs_arr_join{,_i64,_f64,_bool,_substr}` +
-//! `_to_reversed` + `_with` (P4.1-h, 2026-05-23). Each join is
-//! two-pass (sum lengths, then alloc + memcpy + interleaved sep);
-//! the non-mutating updates are single malloc + deque-aware element
-//! copy. Output Str allocation goes through cross-tier
+//! `arr.join(sep)` family. Port of
+//! `runtime_str.c::__torajs_arr_join{,_i64,_f64,_bool,_substr}`
+//! (P4.1-h, 2026-05-23; ES2023 `toReversed` / `with` moved to
+//! `transform.rs` in the chunk 624 file-size split). Each join is
+//! two-pass (sum lengths, then alloc + memcpy + interleaved sep).
+//! Output Str allocation goes through cross-tier
 //! [`crate::str_bridge::alloc_str_raw`] (wraps
 //! `__torajs_str_alloc_pooled` from libtorajs_str.a).
 
 use core::ffi::c_void;
 
-use crate::layout::{ARR_CELL_SIZE, ARR_DATA_PTR_OFF, ARR_LEN_OFF, TAG_ARR, arr_data};
+use crate::layout::{ARR_LEN_OFF, arr_data};
 use crate::str_bridge::str_alloc_pooled;
 
 const ARR_HEAD_OFF: usize = 20;
-const ARR_CAP_LOW32_OFF: usize = 16;
 
 // Str + Substr layout mirrors (Layer-2 cross-tier).
 const STR_LEN_OFF: usize = 8;
@@ -42,11 +41,6 @@ unsafe extern "C" {
     /// `torajs-str::drop` (Layer-2 sibling).
     #[link_name = "__torajs_str_drop"]
     fn str_drop(s: *mut c_void);
-    /// Cross-tier — torajs-throw. Records a pending RangeError via TLS;
-    /// returns normally so the caller's emit_throw_check after the
-    /// call site propagates the throw (non-local via TLS, not stack
-    /// unwind).
-    fn __torajs_throw_range_error(msg: *const u8);
 }
 
 // AnyValue NaN-box constants — match `torajs-anyvalue::nanbox`
@@ -98,28 +92,6 @@ unsafe fn str_data(s: *const u8) -> *const u8 {
 /// precisions loop.
 unsafe fn f64_shortest(d: f64, buf: *mut u8, cap: usize) -> i32 {
     unsafe { __torajs_fmt_dtoa(d, buf, cap) }
-}
-
-/// Internal alloc for `Array<T>` (matches C's `arr_alloc_`).
-/// Bypasses cap-matched pool — to_reversed/with always produce a fresh
-/// right-sized block.
-#[inline]
-unsafe fn arr_alloc_fresh(len: u64, cap: u64) -> *mut u8 {
-    unsafe {
-        let total = ARR_CELL_SIZE + (cap as usize) * 8;
-        let p = malloc(total) as *mut u8;
-        *(p as *mut u32) = 1;
-        *(p.add(4) as *mut u16) = TAG_ARR;
-        *(p.add(6) as *mut u16) = 0;
-        *(p.add(ARR_LEN_OFF) as *mut u64) = len;
-        *(p.add(ARR_CAP_LOW32_OFF) as *mut u32) = cap as u32;
-        *(p.add(ARR_HEAD_OFF) as *mut u32) = 0;
-        // props NULL (chunk 516 slice fix, same latent-garbage class)
-        // + B1 self-referential data pointer.
-        *(p.add(crate::layout::ARR_PROPS_OFF) as *mut u64) = 0;
-        *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
-        p
-    }
 }
 
 // ============================================================
@@ -357,13 +329,21 @@ pub unsafe extern "C" fn __torajs_arr_join_any(arr: *const u8, sep: *const u8) -
         if len == 0 {
             return str_alloc_pooled(0);
         }
+        // RFC 20260707 chunk 624 — a typed block behind the static
+        // Arr<Any> view reboxes per elem kind (a raw bit-1-clear i64
+        // passed anyv_to_str's cell predicate: deref'd, SIGSEGV).
+        let is_any = (*(arr as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_ANY != 0;
         // pass 1: ToString each slot, cache the resulting Str ptrs
         // (NULL for undefined/null which contribute the empty string).
         let tmp_bytes = (len as usize) * core::mem::size_of::<*mut c_void>();
         let tmp = malloc(tmp_bytes) as *mut *mut c_void;
         let mut total: u64 = 0;
         for i in 0..len {
-            let av = *(slot_addr(arr, i) as *const u64);
+            let av = if is_any {
+                *(slot_addr(arr, i) as *const u64)
+            } else {
+                crate::any_typed_bridge::typed_slot_anyvalue_borrowed(arr, i)
+            };
             if av == VALUE_NULL_IMM || av == VALUE_UNDEFINED_IMM {
                 *tmp.add(i as usize) = core::ptr::null_mut();
             } else {
@@ -450,52 +430,6 @@ pub unsafe extern "C" fn __torajs_arr_join_substr(arr: *const u8, sep: *const u8
                 cursor += v_len;
             }
         }
-        p
-    }
-}
-
-// ============================================================
-// arr_to_reversed — ES2023 non-mutating reverse
-// ============================================================
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_to_reversed(arr: *const u8) -> *mut u8 {
-    unsafe {
-        let len = arr_len(arr);
-        let p = arr_alloc_fresh(len, len);
-        let dst = arr_data(p);
-        for i in 0..len {
-            let src = slot_addr(arr, len - 1 - i);
-            *(dst.add(i as usize * 8) as *mut u64) = *(src as *const u64);
-        }
-        p
-    }
-}
-
-// ============================================================
-// arr_with — ES2023 non-mutating index update
-// ============================================================
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_with(arr: *const u8, i: i64, v: i64) -> *mut u8 {
-    unsafe {
-        let len = arr_len(arr);
-        // ES §23.1.3.39 step 7 — `actualIndex = i < 0 ? len + i : i`,
-        // throw RangeError when out-of-range. Pre-fix this fell
-        // through to the unchecked slot store and silently corrupted
-        // adjacent heap (or wrote past the alloc on small caps).
-        let adj = if i < 0 { len as i64 + i } else { i };
-        if adj < 0 || adj >= len as i64 {
-            __torajs_throw_range_error(b"Array index out of range\0".as_ptr());
-            return core::ptr::null_mut();
-        }
-        let p = arr_alloc_fresh(len, len);
-        let dst = arr_data(p);
-        if len > 0 {
-            let src = slot_addr(arr, 0);
-            core::ptr::copy_nonoverlapping(src, dst, (len as usize) * 8);
-        }
-        *(dst.add(adj as usize * 8) as *mut u64) = v as u64;
         p
     }
 }
