@@ -28,7 +28,7 @@
 
 use core::ffi::c_void;
 
-use crate::arr::{arr_len_of, arr_slot_at, arr_slot_clear};
+use crate::arr::{arr_child_at, arr_len_of, arr_slot_clear};
 use crate::buffer;
 use crate::layout::{
     COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED, FLAG_STATIC_LITERAL,
@@ -85,7 +85,7 @@ unsafe fn mark_gray(p: *mut c_void) {
         // TAG_ARR
         let n = unsafe { arr_len_of(p) };
         for i in 0..n {
-            let child = unsafe { arr_slot_at(p, i) };
+            let child = unsafe { arr_child_at(p, i) };
             if !child.is_null() && unsafe { has_walkable_children(child) } {
                 let ch = child as *mut HeapHeader;
                 if unsafe { (*ch).flags } & FLAG_STATIC_LITERAL == 0 {
@@ -129,7 +129,7 @@ unsafe fn scan(p: *mut c_void) {
             // TAG_ARR
             let n = unsafe { arr_len_of(p) };
             for i in 0..n {
-                let child = unsafe { arr_slot_at(p, i) };
+                let child = unsafe { arr_child_at(p, i) };
                 if !child.is_null() {
                     unsafe { scan(child) };
                 }
@@ -169,7 +169,7 @@ unsafe fn scan_black(p: *mut c_void) {
         // TAG_ARR
         let n = unsafe { arr_len_of(p) };
         for i in 0..n {
-            let child = unsafe { arr_slot_at(p, i) };
+            let child = unsafe { arr_child_at(p, i) };
             if !child.is_null() && unsafe { has_walkable_children(child) } {
                 let ch = child as *mut HeapHeader;
                 if unsafe { (*ch).flags } & FLAG_STATIC_LITERAL == 0 {
@@ -238,7 +238,7 @@ unsafe fn collect_white(p: *mut c_void) {
         // TAG_ARR
         let n = unsafe { arr_len_of(p) };
         for i in 0..n {
-            let child = unsafe { arr_slot_at(p, i) };
+            let child = unsafe { arr_child_at(p, i) };
             if !child.is_null() && unsafe { has_walkable_children(child) } {
                 let ch = child as *mut HeapHeader;
                 if color_of(ch) == COLOR_WHITE {
@@ -250,7 +250,7 @@ unsafe fn collect_white(p: *mut c_void) {
             }
         }
         for i in 0..n {
-            let child = unsafe { arr_slot_at(p, i) };
+            let child = unsafe { arr_child_at(p, i) };
             if !child.is_null() {
                 unsafe { __torajs_value_drop_heap(child) };
             }

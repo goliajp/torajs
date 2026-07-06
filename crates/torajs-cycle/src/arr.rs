@@ -14,16 +14,22 @@
 //!   +8  : len  (u64)
 //!   +16 : cap  (u32)
 //!   +20 : head (u32) — physical offset of logical[0] for deque shift
-//!   +24 : slot data (N × 8 bytes)
+//!   +24 : props_dynobj (u64) — inline exec-props slot (Round 4 5a)
+//!   +32 : slot data (N × 8 bytes)
 //! ```
 //!
 //! Logical slot `i` lives at physical byte offset
-//! `24 + (head + i) * 8`.
+//! `32 + (head + i) * 8`. (RFC 20260706 chunk 574 fixed a layout
+//! drift here: Round 4 chunk 5a inserted the +24 props slot but
+//! this mirror kept reading data at +24 — the walk saw the props
+//! pointer as slot 0 and missed the true last slot. The payload-
+//! only fixtures of chunk 534 never noticed.)
 //!
-//! Array<Any> uses a 16-byte slot stride (tag + payload pair) but
-//! isn't on the cycle-collector hot path yet — only Array<T> with
-//! 8-byte slots is exercised. When Array<Any> joins the cycle
-//! walk, a sibling module would mirror this with stride = 16.
+//! Array<Any> uses the same 8-byte slot stride, holding NaN-box
+//! `AnyValue`s (a cell encodes as the raw pointer, immediates
+//! carry nonzero tag bits) — [`arr_child_at`] gates each slot
+//! through the NaN-box cell predicate so both array families share
+//! one walk path (RFC 20260706 Phase C).
 
 use core::ffi::c_void;
 
@@ -34,11 +40,13 @@ pub const ARR_LEN_OFF: usize = 8;
 pub const ARR_HEAD_OFF: usize = 20;
 
 /// Byte offset of slot[0] *before head adjustment* — physical slot
-/// `i` lives at `ARR_DATA_OFF + i * ARR_SLOT_STRIDE`.
-pub const ARR_DATA_OFF: usize = 24;
+/// `i` lives at `ARR_DATA_OFF + i * ARR_SLOT_STRIDE`. Mirrors
+/// torajs-arr `ARR_SLOTS_OFF` (header 8 + len 8 + cap/head 8 +
+/// props_dynobj 8).
+pub const ARR_DATA_OFF: usize = 32;
 
-/// Bytes per slot for Array<T> (typed). Array<Any> uses 16 but
-/// isn't walked here yet.
+/// Bytes per slot — shared by typed Array<T> (raw pointers) and
+/// Array<Any> (NaN-box `AnyValue`s).
 pub const ARR_SLOT_STRIDE: usize = 8;
 
 /// Read the logical `len` of an Array<T> block.
@@ -67,6 +75,34 @@ pub unsafe fn arr_slot_byte_off(p: *mut c_void, i: u64) -> usize {
 pub unsafe fn arr_slot_at(p: *mut c_void, i: u64) -> *mut c_void {
     let off = unsafe { arr_slot_byte_off(p, i) };
     unsafe { *((p as *mut u8).add(off) as *mut *mut c_void) }
+}
+
+/// NaN-box discriminator mirror (torajs-anyvalue `nanbox.rs` —
+/// layout-consumer copy, same pattern as the header constants):
+/// a slot u64 encodes a heap cell iff the top 16 bits are 0, the
+/// sentinel bit (`TAG_BIT_TYPE_OTHER`, bit 1) is clear, and the
+/// value is nonzero. Int32/double/ShortStr immediates all carry
+/// nonzero top-16 tags; Null/Undefined/Bool carry bit 1.
+const NANBOX_TOP16_MASK: u64 = 0xFFFF_0000_0000_0000;
+const NANBOX_TAG_BIT_TYPE_OTHER: u64 = 0x0000_0000_0000_0002;
+
+/// Read logical slot `i` as a heap-cell pointer, or NULL when the
+/// slot holds a NaN-box immediate (RFC 20260706 Phase C — Arr<Any>
+/// slots are 8-byte NaN-box `AnyValue`s; a cell encodes as the raw
+/// pointer). For `ARR_KIND_HEAP` arrays the predicate is equivalent
+/// to the plain NULL check (malloc'd pointers have zero top-16 bits
+/// and clear bit 1), so every walk phase uses this one accessor.
+///
+/// # Safety
+/// Same as `arr_slot_at`.
+#[inline]
+pub unsafe fn arr_child_at(p: *mut c_void, i: u64) -> *mut c_void {
+    let bits = unsafe { arr_slot_at(p, i) } as u64;
+    if bits & NANBOX_TOP16_MASK == 0 && bits & NANBOX_TAG_BIT_TYPE_OTHER == 0 {
+        bits as *mut c_void
+    } else {
+        core::ptr::null_mut()
+    }
 }
 
 /// Zero out logical slot `i`. Used by `collect_white` to break a

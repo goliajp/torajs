@@ -356,15 +356,28 @@ fn lower_struct_field_store(
     // V3-06 — `this.kids = []` in a constructor. Mirrors the K.6
     // LetDecl-global path: empty array literals lack inferable
     // element type on their own, so we allocate from the field's
-    // declared `Type::Arr` here.
+    // declared `Type::Arr` here. An Any-elem field takes the
+    // `arr_alloc_any` variant — the plain alloc left FLAG_ARR_ANY
+    // clear, so every runtime flag-dispatch consumer (drop walker,
+    // cycle collector, any-boxed readers) treated the array as
+    // typed (RFC 20260706 Phase C conviction: an any[] field cycle
+    // was invisible to the collector, and its NaN-box cell elems
+    // were never dec'd on drop).
     let v = if let Expr::Array(els) = ctx.ast.get_expr(value)
         && els.is_empty()
         && matches!(field_ty, Type::Arr(_))
     {
+        let alloc_fn = if let Type::Arr(arr_id) = field_ty
+            && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
+        {
+            ctx.intrinsics.arr_alloc_any
+        } else {
+            ctx.intrinsics.arr_alloc
+        };
         let cur_block = ctx.cur_block;
         let alloc = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+            InstKind::Call(alloc_fn, vec![Operand::ConstI64(0)]),
             field_ty,
             None,
         );

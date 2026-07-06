@@ -66,12 +66,11 @@ pub const FLAG_BUFFERED: u16 = 1 << 5;
 /// right after the universal 8-byte heap header.
 pub const OBJ_CLASS_TAG_OFF: usize = 8;
 
-/// `Array<Any>` marker (torajs-rc `FLAG_ARR_ANY` mirror) — 16-byte
-/// tag/value slots, immediates mixed with cell pointers, so a raw
-/// 8-byte-slot walk would deref garbage. Excluded from the walk in
-/// [`is_visitable_arr`] until the any-slot walker lands (RFC
-/// 20260706 Phase C); the historical color-bit overlap is gone
-/// (color moved to bits 13-14, chunk 573).
+/// `Array<Any>` marker (torajs-rc `FLAG_ARR_ANY` mirror) — 8-byte
+/// NaN-box `AnyValue` slots, immediates mixed with cell pointers.
+/// Walkable since RFC 20260706 Phase C (chunk 574): `arr_child_at`
+/// filters immediates per slot; the historical color-bit overlap is
+/// gone (color moved to bits 13-14, chunk 573).
 pub const FLAG_ARR_ANY: u16 = 1 << 3;
 
 /// Shift/mask of the 3-bit elem-kind field (torajs-rc `arr_kind`
@@ -232,19 +231,22 @@ pub unsafe fn is_visitable_arr(p: *mut c_void) -> bool {
     if header.type_tag != TAG_ARR {
         return false;
     }
-    // L3b #16 — only ARR_KIND_HEAP arrays have 8-byte slots that are
-    // guaranteed cell pointers. Scalar kinds (raw i64/f64/bool) have
-    // no children and their slot bits would deref as garbage
-    // (`has_walkable_children(1)` = SIGSEGV); UNSET means the array
-    // never crossed a marking boundary — conservatively treat it as
-    // a leaf (a missed descent under-collects a cycle, never
-    // corrupts). Arr<Any> is excluded for its 16-byte tag/value
-    // slots mixing immediates with cells — joining the walk needs
-    // the any-slot walker (RFC 20260706 Phase C; the color-bit
-    // overlap that also blocked it moved away in chunk 573).
+    // RFC 20260706 Phase C (chunk 574) — Arr<Any> joins the walk:
+    // its 8-byte slots are NaN-box `AnyValue`s where a cell encodes
+    // as the raw pointer, so `arr_child_at`'s NaN-box gate filters
+    // immediates per slot (the chunk-573 color-bit migration removed
+    // the flag-clobber blocker).
     if header.flags & FLAG_ARR_ANY != 0 {
-        return false;
+        return true;
     }
+    // L3b #16 — of the typed kinds, only ARR_KIND_HEAP arrays have
+    // 8-byte slots that are guaranteed cell pointers. Scalar kinds
+    // (raw i64/f64/bool) have no children and their slot bits would
+    // deref as garbage; UNSET means the array never crossed a marking
+    // boundary — conservatively treat it as a leaf (a missed descent
+    // under-collects a cycle, never corrupts; a typed heap-elem array
+    // that never crosses into `any` therefore still hides a cycle —
+    // recorded residual, needs an alloc-site kind mark).
     (header.flags & ARR_ELEM_KIND_MASK) >> ARR_ELEM_KIND_SHIFT == ARR_KIND_HEAP
 }
 
@@ -326,10 +328,10 @@ mod tests {
         assert_ne!(h.flags & FLAG_BUFFERED, 0);
     }
 
-    // L3b #16 — the walk only descends into ARR_KIND_HEAP arrays:
-    // scalar-kind and UNSET slots are not cell pointers, Arr<Any>
-    // slots are NaN-box immediates (and its flag bit-shares with
-    // the color field).
+    // L3b #16 + RFC 20260706 Phase C — the walk descends into
+    // ARR_KIND_HEAP arrays and Arr<Any> (per-slot NaN-box gate in
+    // `arr_child_at`); scalar-kind and UNSET slots are not cell
+    // pointers and stay leaves.
     #[test]
     fn visitable_arr_gates_on_elem_kind() {
         fn arr_header(flags: u16) -> HeapHeader {
@@ -346,7 +348,7 @@ mod tests {
         let i64_kind = arr_header(1 << ARR_ELEM_KIND_SHIFT);
         assert!(!unsafe { is_visitable_arr(&i64_kind as *const _ as *mut c_void) });
         let any_arr = arr_header(FLAG_ARR_ANY);
-        assert!(!unsafe { is_visitable_arr(&any_arr as *const _ as *mut c_void) });
+        assert!(unsafe { is_visitable_arr(&any_arr as *const _ as *mut c_void) });
         let static_heap = arr_header(FLAG_STATIC_LITERAL | (ARR_KIND_HEAP << ARR_ELEM_KIND_SHIFT));
         assert!(!unsafe { is_visitable_arr(&static_heap as *const _ as *mut c_void) });
     }
