@@ -280,6 +280,18 @@ fn scan_expr(
             }
             scan_expr(ast, *callee, out, direct, fn_values, expr_types);
             for a in args {
+                // RC-4 replace A1_T4 — a closure literal passed as a
+                // call argument is a callback the callee invokes
+                // (stdlib protocols: replace / map / forEach / ...);
+                // record its lifted FnDecl name so its throw bit
+                // propagates into this fn. A callee that never
+                // invokes it over-approximates by at most one
+                // cold-path throw-check.
+                if let Expr::Closure { fn_name, .. } = ast.get_expr(*a)
+                    && !out.contains(fn_name)
+                {
+                    out.push(fn_name.clone());
+                }
                 scan_expr(ast, *a, out, direct, fn_values, expr_types);
             }
         }

@@ -86,6 +86,8 @@ pub(crate) struct Intrinsics {
     pub(crate) str_at: FuncId,
     pub(crate) str_replace: FuncId,
     pub(crate) str_replace_all: FuncId,
+    pub(crate) str_replace_fn: FuncId,
+    pub(crate) str_replace_all_fn: FuncId,
     pub(crate) num_to_fixed_f: FuncId,
     pub(crate) num_to_fixed_i: FuncId,
     pub(crate) num_to_string_radix_i: FuncId,

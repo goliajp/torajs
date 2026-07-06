@@ -431,6 +431,7 @@ pub(crate) mod ssa_lower_str_arr_sort;
 pub(crate) mod ssa_lower_str_byte_helpers;
 pub(crate) mod ssa_lower_str_charat_wedges;
 pub(crate) mod ssa_lower_str_concat_dispatch;
+pub(crate) mod ssa_lower_str_replace_fn;
 pub(crate) mod ssa_lower_str_short_circuits;
 pub(crate) mod ssa_lower_str_str_argv;
 pub(crate) mod ssa_lower_str_str_defaults;

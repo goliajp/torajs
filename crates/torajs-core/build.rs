@@ -53,6 +53,8 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_intrinsics_arr.rs",
     "src/ssa_lower_intrinsics_arr_any.rs",
     "src/ssa_lower_intrinsics_table.rs",
+    "src/ssa_lower_intrinsics_str_a.rs",
+    "src/ssa_lower_str_replace_fn.rs",
     "src/ssa_lower_str_concat_dispatch.rs",
     "src/ssa_lower_fn_meta.rs",
     "src/ssa_lower_parse_type.rs",

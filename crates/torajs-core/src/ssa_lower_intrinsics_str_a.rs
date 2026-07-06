@@ -42,6 +42,8 @@ pub(crate) struct StrAIds {
     pub str_at: FuncId,
     pub str_replace: FuncId,
     pub str_replace_all: FuncId,
+    pub str_replace_fn: FuncId,
+    pub str_replace_all_fn: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> StrAIds {
@@ -142,6 +144,20 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_str_replace_all",
             &[Type::Str, Type::Str, Type::Str],
+            Type::Str,
+        ),
+        str_replace_fn: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_replace_fn",
+            &[Type::Str, Type::Str, Type::Ptr],
+            Type::Str,
+        ),
+        str_replace_all_fn: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_replace_all_fn",
+            &[Type::Str, Type::Str, Type::Ptr],
             Type::Str,
         ),
     }

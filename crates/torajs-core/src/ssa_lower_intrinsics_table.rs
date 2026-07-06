@@ -76,6 +76,8 @@ pub(crate) fn build(
         str_at: init_a.str_a.str_at,
         str_replace: init_a.str_a.str_replace,
         str_replace_all: init_a.str_a.str_replace_all,
+        str_replace_fn: init_a.str_a.str_replace_fn,
+        str_replace_all_fn: init_a.str_a.str_replace_all_fn,
         num_to_fixed_f: init_a.num.num_to_fixed_f,
         num_to_fixed_i: init_a.num.num_to_fixed_i,
         num_to_string_radix_i: init_a.num.num_to_string_radix_i,

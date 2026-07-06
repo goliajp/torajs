@@ -65,6 +65,13 @@ pub(crate) fn try_dispatch(
                 | "search"
         )
     {
+        // RC-4 replace A1_T4 — `s.{replace|replaceAll}(pat, cb)`
+        // functional-replaceValue lane claims the call before the
+        // (Str, Str, Str) argv tower below misroutes the closure
+        // into a Str param slot.
+        if let Some(op) = crate::ssa_lower_str_replace_fn::try_lower(ctx, method, args, recv_op) {
+            return Some(op);
+        }
         let mut argv = Vec::with_capacity(args.len() + 1);
         argv.push(recv_op);
         // Per-arg lowering with the full spec-carve-out tower

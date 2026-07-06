@@ -46,7 +46,7 @@ use torajs_rc::HeapHeader;
 /// Read a Str's `(payload_bytes, code_unit_count, is_latin1)` view.
 /// `payload` length = `length × (1 for Latin-1 | 2 for UTF-16)`.
 #[inline]
-unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
+pub(super) unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
     let length = unsafe { (p.add(STR_LEN_OFF) as *const u32).read() };
     let header = unsafe { &*(p as *const HeapHeader) };
     let is_latin1 = (header.flags & STR_FLAG_IS_LATIN1) != 0;
@@ -71,7 +71,7 @@ fn widen_latin1_to_utf16(src: &[u8]) -> Vec<u8> {
 
 /// Cow-shaped owned-or-borrowed byte view used by replace's
 /// per-operand encoding coercion.
-enum PayloadBuf<'a> {
+pub(super) enum PayloadBuf<'a> {
     Borrowed(&'a [u8]),
     Owned(Vec<u8>),
 }
@@ -86,7 +86,11 @@ impl<'a> AsRef<[u8]> for PayloadBuf<'a> {
 }
 
 #[inline]
-fn coerce_payload<'a>(src: &'a [u8], src_is_latin1: bool, out_is_latin1: bool) -> PayloadBuf<'a> {
+pub(super) fn coerce_payload<'a>(
+    src: &'a [u8],
+    src_is_latin1: bool,
+    out_is_latin1: bool,
+) -> PayloadBuf<'a> {
     if src_is_latin1 == out_is_latin1 {
         PayloadBuf::Borrowed(src)
     } else {
@@ -101,7 +105,12 @@ fn coerce_payload<'a>(src: &'a [u8], src_is_latin1: bool, out_is_latin1: bool) -
 /// Build a fresh Str carrying the requested code-unit length and
 /// encoding, then write `byte_count` bytes (≤ payload capacity)
 /// via the provided closure.
-fn build_result_with<F>(length: u32, byte_count: u32, is_latin1: bool, write: F) -> *mut u8
+pub(super) fn build_result_with<F>(
+    length: u32,
+    byte_count: u32,
+    is_latin1: bool,
+    write: F,
+) -> *mut u8
 where
     F: FnOnce(&mut [u8]),
 {
@@ -116,7 +125,7 @@ where
 /// Fresh copy of `s_payload` under the source's own encoding.
 /// Mirrors `__torajs_str_alloc`'s shape for callers that already
 /// have an encoded payload in-hand.
-fn alloc_str_copy(s_payload: &[u8], s_latin1: bool) -> *mut u8 {
+pub(super) fn alloc_str_copy(s_payload: &[u8], s_latin1: bool) -> *mut u8 {
     let stride: u32 = if s_latin1 { 1 } else { 2 };
     let byte_cnt = s_payload.len() as u32;
     let length = byte_cnt / stride;

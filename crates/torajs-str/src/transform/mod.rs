@@ -26,5 +26,6 @@ pub mod case;
 pub mod construct;
 pub mod pad;
 pub mod replace;
+pub mod replace_fn;
 pub mod replace_subst;
 pub mod trim;
