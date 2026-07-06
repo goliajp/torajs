@@ -317,6 +317,12 @@ pub(crate) struct LowerCtx<'a> {
     /// lane (binding type `any`), mirroring the checker's
     /// `dynobj_degraded` so the two sides can't drift.
     pub(crate) dynobj_degraded: std::collections::HashSet<String>,
+    /// RC-4 F1a — binding names whose let-init is an exec/match
+    /// method call (Nullable<Array<Str>> per the checker). Filled
+    /// in declaration order by the LetDecl arm; `.length` / index
+    /// loads on these receivers emit the `arr_null_check` guard so
+    /// a miss (null) is a catchable TypeError, not a SIGSEGV.
+    pub(crate) nullable_arr_lets: std::collections::HashSet<String>,
     /// 11-A2-a — set of binding names whose backing storage was
     /// allocated on the stack (`AllocaBytes`) instead of the heap.
     /// `emit_drops_for_owned_locals` and sibling drop emitters skip

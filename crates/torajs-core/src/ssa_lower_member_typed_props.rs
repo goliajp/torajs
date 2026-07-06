@@ -60,6 +60,9 @@ pub(crate) fn try_lower(
         return Some(Operand::Value(v));
     }
     if matches!(obj_ty, Type::Arr(_)) && name == "length" {
+        // RC-4 F1a — a nullable-arr receiver (exec/match result)
+        // may be null on miss; guard before the inline len load.
+        crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, obj, &obj_val);
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,

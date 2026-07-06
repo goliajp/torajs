@@ -78,6 +78,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
         ctx.emit_throw_check(None);
         return Operand::Value(v);
     }
+    // RC-4 F1a — a nullable-arr receiver (exec/match result) may be
+    // null on miss; guard before the element load (both Arr<Any>
+    // and typed Arr<T> lanes).
+    crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, obj, &arr_val);
     let elem_ty = match arr_ty {
         Type::Arr(arr_id) => ctx.arr_layouts[arr_id.0 as usize],
         other => panic!("ssa-lower: index access on non-array type {other:?}"),

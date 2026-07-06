@@ -373,6 +373,7 @@ pub(crate) mod ssa_lower_micro_helpers;
 pub(crate) mod ssa_lower_module_metadata;
 pub(crate) mod ssa_lower_new;
 pub(crate) mod ssa_lower_new_arr_init;
+pub(crate) mod ssa_lower_nullable_guard;
 pub(crate) mod ssa_lower_nullish;
 pub(crate) mod ssa_lower_number_coerce;
 pub mod ssa_lower_obj_escape;

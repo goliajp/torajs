@@ -176,6 +176,7 @@ pub(crate) fn lower_fn(
         deque_arrs: std::collections::HashSet::new(),
         escape_obj_lets: std::collections::HashSet::new(),
         dynobj_degraded: std::collections::HashSet::new(),
+        nullable_arr_lets: std::collections::HashSet::new(),
         stack_alloced_locals: std::collections::HashSet::new(),
         let_stack_alloc_hint: None,
         redispatch_lowered: None,

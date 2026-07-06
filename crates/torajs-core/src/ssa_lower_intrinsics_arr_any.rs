@@ -44,6 +44,7 @@ pub(crate) struct ArrAnyIds {
     pub arr_set_any: FuncId,
     pub arr_set_any_grow: FuncId,
     pub arr_oob_write_reject: FuncId,
+    pub arr_null_check: FuncId,
     pub arr_get_any_tag: FuncId,
     pub arr_get_any_value: FuncId,
 }
@@ -128,6 +129,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_arr_oob_write_reject",
             &[Type::I64],
+            Type::Void,
+        ),
+        arr_null_check: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_null_check",
+            &[Type::Ptr],
             Type::Void,
         ),
         arr_get_any_tag: declare_intrinsic(

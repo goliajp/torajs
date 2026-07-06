@@ -119,6 +119,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     {
         ty = Type::Any;
     }
+    // RC-4 F1a — record exec/match-shaped let-inits so member/index
+    // loads on this binding emit the null guard (miss is null per
+    // the checker's Nullable<Array<Str>> typing).
+    if crate::ssa_lower_nullable_guard::is_nullable_arr_source(ctx, init) {
+        ctx.nullable_arr_lets.insert(name.to_string());
+    }
     let cur_depth = ctx.scope_stack.len() - 1;
     let is_alias_init = match ctx.ast.get_expr(init) {
         // L3b #15 residual (chunk 561) — string indexing (`s[i]` on
