@@ -1,0 +1,60 @@
+{
+  "started_at": "2026-07-06T09:05:20Z",
+  "host": "mini",
+  "git_sha": "62fa6fb4e08e6f6e6fa5f3855bb7bab13a65f430",
+  "runs": 1,
+  "rows": [
+    {
+      "case": "array-sort-100k",
+      "runtime": "bun-aot",
+      "runtime_version": "1.3.14",
+      "status": "ok",
+      "compile_ms": 64.150709,
+      "run_ms": 15.156229,
+      "run_stddev_ms": 0.14260537192546455,
+      "artifact_bytes": 63446114,
+      "artifact_sha256": "6032c9e6e7a284368fea7e2d64ee65f5e0e4e425db1b19e6d52deebac9833529",
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "array-sort-100k",
+      "runtime": "rust",
+      "runtime_version": null,
+      "status": "skipped",
+      "compile_ms": null,
+      "run_ms": null,
+      "run_stddev_ms": null,
+      "artifact_bytes": null,
+      "artifact_sha256": null,
+      "stdout_match": null,
+      "error": "no source file: /Users/doracawl/workspace/goliajp/torajs/bench/cases/array-sort-100k/main.rs"
+    },
+    {
+      "case": "array-sort-100k",
+      "runtime": "torajs-run",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 54.066958,
+      "run_stddev_ms": 0.948578456426534,
+      "artifact_bytes": null,
+      "artifact_sha256": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "array-sort-100k",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 47.448542,
+      "run_ms": 5.563979,
+      "run_stddev_ms": 0.06938768432478166,
+      "artifact_bytes": 1613609,
+      "artifact_sha256": "327e01410e7d1b750c3f8e68dbd29dbfb3a564d88d48fb92681b786ff2679cc9",
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}
