@@ -31,6 +31,11 @@ pub(super) fn free_vars_of_arrow(
     // and don't fall into the captures set.
     let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
     bound.extend(global_fn_names.iter().cloned());
+    // `arguments` is every function's own quasi-binding (rewritten by
+    // desugar_arguments_object AFTER the lift) — never a capture.
+    // Pre-613 it leaked into the captures set and the checker rejected
+    // the closure with "unknown identifier `arguments`".
+    bound.push("arguments".into());
     let mut out: Vec<String> = Vec::new();
     for s in body {
         walk_stmt(ast, s, &mut bound, &mut out);

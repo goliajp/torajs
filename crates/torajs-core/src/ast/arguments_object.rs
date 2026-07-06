@@ -15,6 +15,20 @@
 
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
+/// How `arguments.length` rewrites inside a given fn body (chunk 613).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ArgcMode {
+    /// Fn has the synthetic `__torajs_real_argc` param — read it.
+    Real,
+    /// Fold to the declared arity (legacy fallback; still serves
+    /// class methods, whose ABI is untouched — recorded face).
+    FoldArity,
+    /// Leave the node alone so the checker rejects it loudly — a
+    /// closure VALUE's real argc needs the ABI face (recorded);
+    /// folding the declared arity would be silent-wrong.
+    KeepLoud,
+}
+
 pub fn desugar_arguments_object(ast: &mut Ast) {
     // Snapshot per-fn user-param names, indexed by FnDecl name. The
     // walk below mutates expression nodes in place using these
@@ -29,6 +43,10 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // direct-Ident-callee Call to it gets `Number(args.len())`
     // prepended below.
     let mut uses_real_argc: HashSet<String> = HashSet::new();
+    // Chunk 613 — lifted closures (hidden `__env` first param); their
+    // `arguments.length` is only foldable through the IIFE static-argc
+    // path, otherwise it stays loud (ArgcMode::KeepLoud).
+    let mut env_fns: HashSet<String> = HashSet::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl {
             name, params, body, ..
@@ -48,9 +66,39 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 .map(|p| p.name.clone())
                 .collect();
             fn_params.insert(name.clone(), names);
+            if params.first().is_some_and(|p| p.name == "__env") {
+                env_fns.insert(name.clone());
+            }
             if user_start == 0 && body_has_arguments_length(ast, body) {
                 uses_real_argc.insert(name.clone());
             }
+        }
+    }
+
+    // Chunk 613 — IIFE closure form: `(function (a, b) { ...
+    // arguments.length ... })(1)` lifts to a `__closure_N` FnDecl
+    // (with the hidden `__env` param) whose ONLY call site is the
+    // Call wrapping the Closure placeholder — so the real argc is
+    // statically that call's arg count. Same T-31 shape: inject
+    // `__torajs_real_argc: number` as the first USER param (after
+    // `__env`) and prepend the static count at the call site.
+    let mut iife_real_argc: HashSet<String> = HashSet::new();
+    let mut iife_call_sites: Vec<usize> = Vec::new();
+    for i in 0..ast.exprs.len() {
+        let Expr::Call { callee, .. } = &ast.exprs[i] else {
+            continue;
+        };
+        let Expr::Closure { fn_name, .. } = ast.get_expr(*callee) else {
+            continue;
+        };
+        let fn_name = fn_name.clone();
+        let has_len = ast.stmts.iter().any(|s| {
+            matches!(s, Stmt::FnDecl { name, body, .. }
+                if *name == fn_name && body_has_arguments_length(ast, body))
+        });
+        if has_len {
+            iife_real_argc.insert(fn_name);
+            iife_call_sites.push(i);
         }
     }
 
@@ -59,13 +107,20 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // typechecker (which runs after desugar) sees the new signature
     // and so the recursive `arguments.length` rewrite below can resolve
     // `Ident("__torajs_real_argc")` cleanly.
-    if !uses_real_argc.is_empty() {
+    if !uses_real_argc.is_empty() || !iife_real_argc.is_empty() {
         for s in ast.stmts.iter_mut() {
-            if let Stmt::FnDecl { name, params, .. } = s
-                && uses_real_argc.contains(name)
-            {
+            if let Stmt::FnDecl { name, params, .. } = s {
+                // Chunk 613 — IIFE closures put the synthetic param
+                // AFTER the hidden `__env` (first USER param slot).
+                let at = if iife_real_argc.contains(name) {
+                    1
+                } else if uses_real_argc.contains(name) {
+                    0
+                } else {
+                    continue;
+                };
                 params.insert(
-                    0,
+                    at,
                     Param {
                         name: "__torajs_real_argc".into(),
                         type_ann: Some("number".into()),
@@ -84,7 +139,13 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 continue;
             };
             let params = params.clone();
-            let real_argc_here = uses_real_argc.contains(name);
+            let argc_mode = if uses_real_argc.contains(name) || iife_real_argc.contains(name) {
+                ArgcMode::Real
+            } else if env_fns.contains(name) && body_has_arguments_length(ast, body) {
+                ArgcMode::KeepLoud
+            } else {
+                ArgcMode::FoldArity
+            };
             // T-11 — pre-pass: detect any dynamic `arguments[<non-
             // literal>]` use. If found, prepend a synthesized
             // `let __torajs_arguments: any[] = [p0, p1, ...]` before
@@ -102,10 +163,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 .iter()
                 .map(|s| {
                     crate::ast::arguments_object_rewrite::rewrite_arguments_in_stmt(
-                        ast,
-                        s,
-                        &params,
-                        real_argc_here,
+                        ast, s, &params, argc_mode,
                     )
                 })
                 .collect();
@@ -161,6 +219,25 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 args: new_args,
             };
         }
+    }
+
+    // Chunk 613 — prepend the static argc at each qualifying IIFE
+    // call site (the closure's `__env` is not part of the Call args,
+    // so the count lands in the injected first-USER-param slot).
+    for i in iife_call_sites {
+        let Expr::Call { callee, args } = &ast.exprs[i] else {
+            continue;
+        };
+        let callee = *callee;
+        let args_clone = args.clone();
+        let argc_lit = ast.add_expr(Expr::Number(args_clone.len() as f64));
+        let mut new_args = Vec::with_capacity(args_clone.len() + 1);
+        new_args.push(argc_lit);
+        new_args.extend(args_clone);
+        ast.exprs[i] = Expr::Call {
+            callee,
+            args: new_args,
+        };
     }
 }
 

@@ -301,7 +301,23 @@ pub(crate) fn run(ast: &mut Ast) {
         } else if return_type.is_none() && body_has_value_return(body) {
             if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params, &fn_sigs) {
                 *return_type = Some(inferred);
+            } else {
+                // Chunk 613 — mirror the closure arms: a value return
+                // the sniff can't type must not stay None (the checker
+                // then expects Void and rejects `return f(...)` chains
+                // through untyped fns). Fall back to `any`.
+                *return_type = Some("any".to_string());
             }
+        }
+
+        // Chunk 613 — publish the inferred ret so LATER fns in source
+        // order can sniff a `return <this-fn>(...)` chain (the a2d
+        // shape: untyped inner + outer returning inner's call). Skip
+        // auto-generic `__T*` rets — meaningless outside this fn.
+        if let Some(rt) = return_type.as_ref()
+            && !rt.starts_with("__T")
+        {
+            fn_sigs.insert(name.clone(), rt.clone());
         }
 
         if !new_type_params.is_empty() {
