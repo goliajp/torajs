@@ -17,6 +17,19 @@ impl<'a> Parser<'a> {
                 Token::Dot => {
                     self.pos += 1;
                     let name = self.expect_member_name(".")?;
+                    // RC-3 (RFC 20260706-test262-bug-corpus) — member
+                    // access on a class-expression alias binding
+                    // (`const/var C = class {…}; C.method(…)`) swaps
+                    // the receiver to the synth class Ident so the
+                    // named-class static machinery applies unchanged.
+                    // Same linear-parse-order contract as the P8.5
+                    // `new F()` rewrite in parse_new.
+                    if let Expr::Ident(n) = self.ast.get_expr(node)
+                        && let Some(target) = self.class_value_aliases.get(n)
+                    {
+                        let target = target.clone();
+                        node = self.add_expr_at(start_pos, Expr::Ident(target));
+                    }
                     node = self.add_expr_at(start_pos, Expr::Member { obj: node, name });
                 }
                 Token::QuestionDot => {

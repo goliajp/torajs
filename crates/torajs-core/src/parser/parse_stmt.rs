@@ -411,27 +411,37 @@ impl<'a> Parser<'a> {
             }
             let init = self.parse_expr()?;
             // P8.5 — narrow-surface class-value alias registration.
-            // For const-bindings only, peek the init expr:
+            // Peek the init expr:
             //   (i) `const F = class { ... }` → init is the synth
             //       Ident emitted by parse_primary's Class branch
             //       (`__ClassExpr_<id>`). Register F → that name.
             //   (ii) `const G = F` where F is already an alias →
             //        propagate so G also maps to the underlying
             //        synth class.
-            // The map is read by parse_new to rewrite `new F()` /
-            // `new G()` into a static factory call against the
-            // synth name. let/var bindings and reassignment are
-            // intentionally skipped (those need real dynamic-ctor
-            // dispatch, parked as L3b).
-            if !mutable && !is_var {
+            // The map is read by parse_new (`new F()` → the synth
+            // class's static factory) and by parse_postfix's Dot arm
+            // (`F.method(...)` → the synth class's static-method
+            // machinery). RC-3 (RFC 20260706-test262-bug-corpus):
+            // let/var bindings register too — the map is linear
+            // parse-order (not scoped), so any later rebinding or
+            // reassignment of the name drops the alias and falls
+            // back to the dynamic path instead of silently binding
+            // the old class.
+            {
+                let mut aliased = false;
                 if let Expr::Ident(init_name) = self.ast.get_expr(init) {
                     if init_name.starts_with("__ClassExpr_") {
                         self.class_value_aliases
                             .insert(name.clone(), init_name.clone());
+                        aliased = true;
                     } else if let Some(target) = self.class_value_aliases.get(init_name) {
                         let target = target.clone();
                         self.class_value_aliases.insert(name.clone(), target);
+                        aliased = true;
                     }
+                }
+                if !aliased {
+                    self.class_value_aliases.remove(&name);
                 }
             }
             decls.push(Stmt::LetDecl {

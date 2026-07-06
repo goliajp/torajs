@@ -115,6 +115,19 @@ impl<'a> Parser<'a> {
         self.parse_assign()
     }
 
+    /// RC-3 (RFC 20260706-test262-bug-corpus) — any reassignment of a
+    /// class-value alias binding drops the P8.5 static alias; later
+    /// `C.m()` / `new C()` fall back to the dynamic path instead of
+    /// silently binding the old class.
+    fn drop_class_alias_on_assign(&mut self, target: ExprId) {
+        if let Expr::Ident(n) = self.ast.get_expr(target)
+            && self.class_value_aliases.contains_key(n)
+        {
+            let n = n.clone();
+            self.class_value_aliases.remove(&n);
+        }
+    }
+
     pub(super) fn parse_assign(&mut self) -> Result<ExprId, String> {
         let target = self.parse_ternary()?;
         // V3-18 wedge — ES2021 logical assignment: `??=` / `||=` /
@@ -131,6 +144,7 @@ impl<'a> Parser<'a> {
             };
         if let Some(op_name) = logical_assign {
             self.pos += 2;
+            self.drop_class_alias_on_assign(target);
             let value = self.parse_assign()?;
             let lhs = self.clone_expr_for_compound(target);
             let rhs = match op_name {
@@ -166,6 +180,7 @@ impl<'a> Parser<'a> {
             };
         if let Some(op) = bit_assign {
             self.pos += 2;
+            self.drop_class_alias_on_assign(target);
             let value = self.parse_assign()?;
             let lhs = self.clone_expr_for_compound(target);
             let rhs = self.ast.add_expr(Expr::BinOp {
@@ -189,6 +204,7 @@ impl<'a> Parser<'a> {
             _ => return Ok(target),
         };
         self.pos += 1;
+        self.drop_class_alias_on_assign(target);
         let value = self.parse_assign()?; // right-associative
         if let Some(op) = compound_op {
             // For idents we re-use the same target ExprId on the rhs;
