@@ -1,0 +1,15 @@
+const a: any[] = ["b", 2, "a", 1];
+a.sort();
+console.log(a);
+const b: any[] = [10, 2, 33, 4];
+b.sort();
+console.log(b);
+const c: any[] = ["cherry", "apple", "banana"];
+c.sort();
+console.log(c);
+const d: any[] = [2.5, 1, "1.5", true];
+d.sort();
+console.log(d);
+const e: any[] = [3, 1, 2];
+e.sort((x: any, y: any) => (x as number) - (y as number));
+console.log(e);

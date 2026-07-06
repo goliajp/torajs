@@ -86,6 +86,38 @@ pub(super) fn emit_sort_pred(
                     ),
                     true,
                 )),
+                // Any elem (Arr<Any> receiver): unbox the NaN-box
+                // pair and route through the runtime tag-dispatched
+                // ToString — same fresh-owned contract as the
+                // coerce_to_str Any arm. Without this arm the
+                // fallback ICmp compares raw NaN-box bits (string
+                // elements order by pointer value — silent wrong).
+                Type::Any => {
+                    let tag = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![Operand::Value(v)]),
+                        Type::I64,
+                        None,
+                    );
+                    let raw = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.any_unbox_value, vec![Operand::Value(v)]),
+                        Type::I64,
+                        None,
+                    );
+                    Some((
+                        ctx.f.append_inst(
+                            ctx.cur_block,
+                            InstKind::Call(
+                                ctx.intrinsics.any_to_str,
+                                vec![Operand::Value(tag), Operand::Value(raw)],
+                            ),
+                            Type::Str,
+                            None,
+                        ),
+                        true,
+                    ))
+                }
                 _ => None,
             };
             let prev_s = to_str(ctx, prev, elem_ty);
