@@ -131,11 +131,11 @@ impl LowerCtx<'_> {
         );
         let r_value = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(self.intrinsics.any_unbox_value, vec![v]),
+            InstKind::Call(self.intrinsics.any_unbox_value, vec![v.clone()]),
             Type::I64,
             None,
         );
-        if matches!(op, crate::ast::UnaryOp::Neg) {
+        let result = if matches!(op, crate::ast::UnaryOp::Neg) {
             // 0 - x via any_arith op=0
             let r = self.f.append_inst(
                 self.cur_block,
@@ -173,7 +173,17 @@ impl LowerCtx<'_> {
                 None,
             );
             Operand::Value(r)
-        }
+        };
+        // any_arith only borrowed the pair — reclaim a ShortStr-
+        // materialized temp (no-op for every other input).
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.any_unbox_settle,
+                vec![v, Operand::Value(r_value)],
+            ),
+        );
+        result
     }
 
     /// V3-18 m1.f / m1.h.4 — coerce Bool / null / Str before unary

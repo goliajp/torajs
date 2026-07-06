@@ -55,7 +55,7 @@ fn decode_any_to_str(ctx: &mut LowerCtx<'_>, raw: Operand) -> Operand {
     );
     let val = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.any_unbox_value, vec![raw]),
+        InstKind::Call(ctx.intrinsics.any_unbox_value, vec![raw.clone()]),
         Type::I64,
         None,
     );
@@ -67,6 +67,15 @@ fn decode_any_to_str(ctx: &mut LowerCtx<'_>, raw: Operand) -> Operand {
         ),
         Type::Str,
         None,
+    );
+    // any_to_str only borrowed the pair — reclaim a ShortStr-
+    // materialized temp (no-op otherwise).
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_unbox_settle,
+            vec![raw, Operand::Value(val)],
+        ),
     );
     Operand::Value(s_val)
 }

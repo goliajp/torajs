@@ -151,7 +151,7 @@ fn lower_parse_float(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         );
         let val = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_unbox_value, vec![raw]),
+            InstKind::Call(ctx.intrinsics.any_unbox_value, vec![raw.clone()]),
             Type::I64,
             None,
         );
@@ -163,6 +163,15 @@ fn lower_parse_float(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             ),
             Type::Str,
             None,
+        );
+        // any_to_str only borrowed the pair — reclaim a ShortStr-
+        // materialized temp (no-op otherwise).
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_unbox_settle,
+                vec![raw, Operand::Value(val)],
+            ),
         );
         Operand::Value(s_val)
     } else {
@@ -215,7 +224,7 @@ fn lower_is_predicate(ctx: &mut LowerCtx<'_>, m_name: &str, args: &[ExprId]) -> 
             None,
         );
         if ctx.expr_is_fresh_owned(args[0]) {
-            ctx.emit_drop_value(arg_op, Type::Any);
+            ctx.emit_drop_value(arg_op.clone(), Type::Any);
         }
         let target = match m_name {
             "isInteger" => ctx.intrinsics.num_is_integer_any,
@@ -229,6 +238,17 @@ fn lower_is_predicate(ctx: &mut LowerCtx<'_>, m_name: &str, args: &[ExprId]) -> 
             InstKind::Call(target, vec![Operand::Value(tag), Operand::Value(val)]),
             Type::Bool,
             None,
+        );
+        // the helper only borrowed the pair — reclaim a ShortStr-
+        // materialized temp (no-op otherwise; arg_op's drop above
+        // was a no-op for the ShortStr immediate so the bit
+        // pattern is still a valid tag probe here).
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_unbox_settle,
+                vec![arg_op, Operand::Value(val)],
+            ),
         );
         return Operand::Value(v);
     }

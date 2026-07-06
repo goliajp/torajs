@@ -123,7 +123,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let raw = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_value, vec![val]),
+                    InstKind::Call(self.intrinsics.any_unbox_value, vec![val.clone()]),
                     Type::I64,
                     None,
                 );
@@ -135,6 +135,15 @@ impl<'a> LowerCtx<'a> {
                     ),
                     Type::Str,
                     None,
+                );
+                // any_to_str only borrowed the pair — reclaim a
+                // ShortStr-materialized temp (no-op otherwise).
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.any_unbox_settle,
+                        vec![val, Operand::Value(raw)],
+                    ),
                 );
                 Operand::Value(s)
             }

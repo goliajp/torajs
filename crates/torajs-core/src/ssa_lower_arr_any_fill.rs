@@ -120,6 +120,11 @@ impl<'a> LowerCtx<'a> {
         for &a in args.iter().skip(3) {
             let _ = self.lower_expr(a);
         }
+        let settle_raw = if matches!(v_ty, Type::Any) {
+            Some(val_op.clone())
+        } else {
+            None
+        };
         let v = self.f.append_inst(
             self.cur_block,
             InstKind::Call(
@@ -129,6 +134,15 @@ impl<'a> LowerCtx<'a> {
             recv_ty,
             None,
         );
+        // the fill helper only borrowed the pair (per-slot inc on
+        // the runtime side) — reclaim a ShortStr-materialized temp
+        // (no-op otherwise).
+        if let Some(raw) = settle_raw {
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Call(self.intrinsics.any_unbox_settle, vec![v_keep.clone(), raw]),
+            );
+        }
         // An owned-temp fill value has served its purpose — the
         // slots hold their own refs from the runtime helper; the
         // temp's surplus reference releases here (chunk 565).

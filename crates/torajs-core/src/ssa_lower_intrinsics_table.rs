@@ -298,6 +298,7 @@ pub(crate) fn build(
         any_method_call: init_c.any_substrate.any_method_call,
         any_unbox_tag: init_c.any_substrate.any_unbox_tag,
         any_unbox_value: init_c.any_substrate.any_unbox_value,
+        any_unbox_settle: init_c.any_substrate.any_unbox_settle,
         any_box_drop: init_c.any_substrate.any_box_drop,
         any_box_rc_inc: init_c.any_substrate.any_box_rc_inc,
         print_any: init_c.print_freeze.print_any,

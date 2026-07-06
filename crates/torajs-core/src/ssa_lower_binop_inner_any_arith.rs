@@ -52,55 +52,61 @@ pub(crate) fn try_lower(
     if !matches!(a_ty, Type::Any) && !matches!(b_ty, Type::Any) {
         return None;
     }
-    let pack = |this: &mut LowerCtx, op_v: Operand, op_ty: Type| -> (Operand, Operand) {
-        if matches!(op_ty, Type::Any) {
-            // Any-typed operand: read tag + value via shim.
-            // Step 7c: shim Call (was inline +8/+16 direct-offset
-            // Load — see ssa_lower.rs head of file for the
-            // layout-decoupling rationale).
-            let tag = this.f.append_inst(
-                this.cur_block,
-                InstKind::Call(this.intrinsics.any_unbox_tag, vec![op_v.clone()]),
-                Type::I64,
-                None,
-            );
-            let value = this.f.append_inst(
-                this.cur_block,
-                InstKind::Call(this.intrinsics.any_unbox_value, vec![op_v]),
-                Type::I64,
-                None,
-            );
-            return (Operand::Value(tag), Operand::Value(value));
-        }
-        // Concrete: same tag/value packing as box_to_any.
-        let (tag, value): (i64, Operand) = match op_ty {
-            Type::I64 | Type::I32 => (2, op_v),
-            Type::F64 => {
-                let bits = this.f.append_inst(
+    // Third slot carries the original Any operand when the pair
+    // came from an unbox — the consuming helper only borrows the
+    // pair, so a ShortStr-materialized temp needs an
+    // `any_unbox_settle` after the call to reclaim its rc.
+    let pack =
+        |this: &mut LowerCtx, op_v: Operand, op_ty: Type| -> (Operand, Operand, Option<Operand>) {
+            if matches!(op_ty, Type::Any) {
+                // Any-typed operand: read tag + value via shim.
+                // Step 7c: shim Call (was inline +8/+16 direct-offset
+                // Load — see ssa_lower.rs head of file for the
+                // layout-decoupling rationale).
+                let tag = this.f.append_inst(
                     this.cur_block,
-                    InstKind::BitCastF64ToI64(op_v),
+                    InstKind::Call(this.intrinsics.any_unbox_tag, vec![op_v.clone()]),
                     Type::I64,
                     None,
                 );
-                (3, Operand::Value(bits))
-            }
-            Type::Bool => {
-                let zext = this.f.append_inst(
+                let value = this.f.append_inst(
                     this.cur_block,
-                    InstKind::ZExtBoolToI64(op_v),
+                    InstKind::Call(this.intrinsics.any_unbox_value, vec![op_v.clone()]),
                     Type::I64,
                     None,
                 );
-                (1, Operand::Value(zext))
+                return (Operand::Value(tag), Operand::Value(value), Some(op_v));
             }
-            Type::Ptr if matches!(op_v, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
-            t if t.is_refcounted() => (4, op_v),
-            _ => (0, Operand::ConstI64(0)),
+            // Concrete: same tag/value packing as box_to_any.
+            let (tag, value): (i64, Operand) = match op_ty {
+                Type::I64 | Type::I32 => (2, op_v),
+                Type::F64 => {
+                    let bits = this.f.append_inst(
+                        this.cur_block,
+                        InstKind::BitCastF64ToI64(op_v),
+                        Type::I64,
+                        None,
+                    );
+                    (3, Operand::Value(bits))
+                }
+                Type::Bool => {
+                    let zext = this.f.append_inst(
+                        this.cur_block,
+                        InstKind::ZExtBoolToI64(op_v),
+                        Type::I64,
+                        None,
+                    );
+                    (1, Operand::Value(zext))
+                }
+                Type::Ptr if matches!(op_v, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
+                t if t.is_refcounted() => (4, op_v),
+                _ => (0, Operand::ConstI64(0)),
+            };
+            (Operand::ConstI64(tag), value, None)
         };
-        (Operand::ConstI64(tag), value)
-    };
-    let (lt, lv) = pack(ctx, a, a_ty);
-    let (rt, rv) = pack(ctx, b, b_ty);
+    let (lt, lv, l_src) = pack(ctx, a, a_ty);
+    let (rt, rv, r_src) = pack(ctx, b, b_ty);
+    let settles = [(l_src, lv.clone()), (r_src, rv.clone())];
     let r = match op {
         AstBinOp::Add => ctx.f.append_inst(
             ctx.cur_block,
@@ -146,5 +152,13 @@ pub(crate) fn try_lower(
         }
         _ => unreachable!(),
     };
+    for (src, raw) in settles {
+        if let Some(orig) = src {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_unbox_settle, vec![orig, raw]),
+            );
+        }
+    }
     Some(Operand::Value(r))
 }

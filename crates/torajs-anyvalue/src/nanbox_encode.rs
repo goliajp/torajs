@@ -28,7 +28,7 @@ use crate::nanbox::{
     is_short_str, is_undefined,
 };
 use crate::nanbox_ffi::__torajs_anyv_strict_eq;
-use crate::nanbox_ffi_materialize::materialize_short_str;
+use crate::nanbox_ffi_materialize::{drop_materialized_str, materialize_short_str};
 use crate::payload_rc_inc;
 
 // ============================================================
@@ -196,6 +196,44 @@ pub extern "C" fn __torajs_anyv_unbox_value(v: AnyValue) -> i64 {
         v as i64
     } else {
         0
+    }
+}
+
+/// Owned variant of [`__torajs_anyv_unbox_value`] — the caller
+/// receives its own stake on the decoded payload:
+///
+/// - `Cell` → pointer + rc_inc (the pair carries a +1 the
+///   consumer's storage keeps, mirroring what the separate
+///   `any_payload_rc_inc` follow-up call used to add).
+/// - `ShortStr` → materialized Heap+Str (refcount=1 — the
+///   materialization itself IS the caller's stake, so no
+///   follow-up inc; this closes the pre-existing leak where
+///   `unbox_value` + `payload_rc_inc` left the materialized
+///   block at rc=2 with only one reclaiming drop).
+/// - Inline tags → same raw value as `unbox_value`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_anyv_unbox_value_owned(v: AnyValue) -> i64 {
+    if is_cell(v) {
+        payload_rc_inc(AnySlotTag::Heap as i64, v as i64);
+        v as i64
+    } else {
+        __torajs_anyv_unbox_value(v)
+    }
+}
+
+/// Settle the temporary a borrow-shaped [`__torajs_anyv_unbox_value`]
+/// may have created: when `v` was a ShortStr the decode
+/// materialized a fresh refcount=1 Heap+Str (`raw`), which the
+/// pair-consuming helper only borrowed — the caller emits this
+/// after the consuming call to reclaim that stake. For every
+/// non-ShortStr `v` (heap cells included) this is a tag test +
+/// no-op, keeping the true-heap fast path free of rc traffic.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_anyv_unbox_settle(v: AnyValue, raw: i64) {
+    if is_short_str(v) {
+        // SAFETY: for a ShortStr input, `raw` is the freshly-owned
+        // materialized Str `__torajs_anyv_unbox_value` returned.
+        unsafe { drop_materialized_str(raw as *mut u8) };
     }
 }
 
@@ -429,6 +467,47 @@ mod tests {
         assert_eq!(__torajs_anyv_unbox_value(box_int32(-7)), -7);
         let bits = __torajs_anyv_unbox_value(box_double(3.14));
         assert_eq!(f64::from_bits(bits as u64), 3.14);
+    }
+
+    #[test]
+    fn anyv_unbox_value_owned_matches_unbox_for_inline_tags() {
+        for v in [
+            VALUE_NULL,
+            VALUE_UNDEFINED,
+            VALUE_TRUE,
+            VALUE_FALSE,
+            box_int32(42),
+            box_int32(-7),
+            box_double(3.14),
+        ] {
+            assert_eq!(
+                __torajs_anyv_unbox_value_owned(v),
+                __torajs_anyv_unbox_value(v)
+            );
+        }
+    }
+
+    #[test]
+    fn anyv_unbox_value_owned_bumps_cell_refcount() {
+        let mut cell = torajs_rc::HeapHeader::new(torajs_rc::Tag::Str);
+        let ptr = &mut cell as *mut torajs_rc::HeapHeader;
+        let any = unsafe { __torajs_anyv_box_pointer(ptr as *mut c_void) };
+        let initial = cell.refcount;
+        let raw = __torajs_anyv_unbox_value_owned(any);
+        assert_eq!(raw, ptr as i64);
+        assert_eq!(cell.refcount, initial + 1);
+    }
+
+    #[test]
+    fn anyv_unbox_settle_no_op_on_non_short_str() {
+        let mut cell = torajs_rc::HeapHeader::new(torajs_rc::Tag::Str);
+        let ptr = &mut cell as *mut torajs_rc::HeapHeader;
+        let any = unsafe { __torajs_anyv_box_pointer(ptr as *mut c_void) };
+        let initial = cell.refcount;
+        __torajs_anyv_unbox_settle(any, ptr as i64);
+        assert_eq!(cell.refcount, initial, "cell input must not be dropped");
+        __torajs_anyv_unbox_settle(box_int32(9), 9);
+        __torajs_anyv_unbox_settle(VALUE_NULL, 0);
     }
 
     #[test]

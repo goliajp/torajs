@@ -70,6 +70,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_method_call: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
+    pub any_unbox_settle: FuncId,
     pub any_box_drop: FuncId,
     pub any_box_rc_inc: FuncId,
 }
@@ -367,6 +368,16 @@ pub(crate) fn declare(
             "__torajs_anyv_unbox_value",
             &[Type::Any],
             Type::I64,
+        ),
+        // Reclaims the materialized temp a ShortStr unbox_value
+        // left behind — emitted after every borrow-shaped pair
+        // consumer (args: original AnyValue, raw unboxed value).
+        any_unbox_settle: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_unbox_settle",
+            &[Type::Any, Type::I64],
+            Type::Void,
         ),
         any_box_drop: declare_intrinsic(
             module,
