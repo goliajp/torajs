@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T19:04:02.518Z",
+  "generatedAt": "2026-07-06T20:39:49.515Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "80b8534e",
-    "commitSubject": "fix: collect_white notifies weakref registry before freeing a named-class obj (test262-bug-corpus RC-4, chunk 620)",
+    "commit": "183cc235",
+    "commitSubject": "fix: inline-emitted Arr<Any> consumers read kind-aware (RFC 20260707, chunk 625)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "183cc235",
+      "subject": "fix: inline-emitted Arr<Any> consumers read kind-aware (RFC 20260707, chunk 625)"
+    },
+    {
+      "hash": "5af7a9e8",
+      "subject": "fix: join/concat/flat over typed blocks behind Arr<Any> views (RFC 20260707, chunk 624)"
+    },
+    {
+      "hash": "a724288f",
+      "subject": "fix: dropping a typed array through its Arr<Any> owner routes per elem kind (RFC 20260707, chunk 623)"
+    },
+    {
+      "hash": "1a400318",
+      "subject": "fix: writes through a static Arr<Any> view kind-coerce into typed slots (RFC 20260707, chunk 622)"
+    },
+    {
+      "hash": "9865ba44",
+      "subject": "fix: typed arrays behind a static Arr<Any> view read correctly (RFC 20260707, chunk 621)"
+    },
+    {
+      "hash": "d1c0a4bf",
+      "subject": "chore(dashboard): session snapshot @ 80b8534e — rotation 36 final (614-620: arr-cycle collection five faces, registered-symbol weak key, indexOf null needle pair, named-fn replace cb forwarder, heap-ref nullish ptr-cmp eq + void-call undefined binding, nullish x any loose admit, collect_white weakref notify; gate 1250 -> 1257 seven green)"
+    },
+    {
       "hash": "80b8534e",
       "subject": "fix: collect_white notifies weakref registry before freeing a named-class obj (test262-bug-corpus RC-4, chunk 620)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "24c65011",
       "subject": "feat: indexOf-family null-literal needle admit + tostring fold (test262-bug-corpus RC-4, chunk 616)"
-    },
-    {
-      "hash": "bbcedc50",
-      "subject": "feat: reject Symbol.for-registered symbols as weak keys (test262-bug-corpus RC-4, chunk 615)"
-    },
-    {
-      "hash": "5a4b3c11",
-      "subject": "fix: cycle collector reclaims arr-participating cycles (test262-bug-corpus RC-4, chunk 614)"
-    },
-    {
-      "hash": "70171d94",
-      "subject": "chore(dashboard): session snapshot @ 52041b58 — rotation 35 (609-613: RC-4 pair-unbox leak both faces via settle protocol + owned unbox fuse, B1 grow-spilled buffer free retrofit in arr_drop_any + cycle collect_white, type-based nullish equality folds, arguments.length real argc for iife closures + untyped named-fn ret chains; gate 1246 -> 1250 all green, all leak probes flat at ~6.4MB baseline)"
-    },
-    {
-      "hash": "52041b58",
-      "subject": "feat: arguments.length real argc for iife closures + untyped named-fn ret chains (test262-bug-corpus RC-4, chunk 613)"
-    },
-    {
-      "hash": "7a4262e0",
-      "subject": "fix: nullish equality folds are type-based, not operand-shape based (test262-bug-corpus RC-4 undefined sentinel face, chunk 612)"
-    },
-    {
-      "hash": "45592e88",
-      "subject": "fix: release the grow-spilled data buffer in arr_drop_any and cycle collect_white (B1 retrofit miss, chunk 611)"
     }
   ],
-  "headSha": "80b8534e",
+  "headSha": "183cc235",
   "autorun": {
-    "total": 344,
+    "total": 345,
     "baselineTarget": 10,
-    "bySelf": 339,
+    "bySelf": 340,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783359270-6144",
-      "at": "2026-07-06T17:34:30Z",
-      "ts": 1783359270,
+      "rotationId": "r-1783364682-63f4",
+      "at": "2026-07-06T19:04:42Z",
+      "ts": 1783364682,
       "trigger": "self",
-      "prevHead": "70171d94",
-      "handoffSha": "sha256:81068be7246d73ff181e2343d099868e849ba1681c1a563855bd776fbb7cc551",
-      "handoffAgeSec": 7,
+      "prevHead": "d1c0a4bf",
+      "handoffSha": "sha256:5a1975bd27b81645ba84de5f1e3442c372eb7ac13815f8a7e161f3e18bcad988",
+      "handoffAgeSec": 50,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783364682-63f4",
+        "at": "2026-07-06T19:04:42Z",
+        "ts": 1783364682,
+        "trigger": "self",
+        "prevHead": "d1c0a4bf",
+        "handoffSha": "sha256:5a1975bd27b81645ba84de5f1e3442c372eb7ac13815f8a7e161f3e18bcad988",
+        "handoffAgeSec": 50,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783359270-6144",
         "at": "2026-07-06T17:34:30Z",
@@ -876,17 +887,6 @@
         "prevHead": "2c160a5e",
         "handoffSha": "sha256:5fca777139590e49e36a2f00829e93392a6a61dfc2cf1189da22974e94378996",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783292241-2199",
-        "at": "2026-07-05T22:57:21Z",
-        "ts": 1783292241,
-        "trigger": "self",
-        "prevHead": "6f6d7402",
-        "handoffSha": "sha256:e07253ad77ae917bfe899b7b05a0ff6056269b18a1a556fbd99d6b1a065a9681",
-        "handoffAgeSec": 89,
         "conformanceBefore": null,
         "commitsInSession": null
       }
