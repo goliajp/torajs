@@ -21,9 +21,10 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// `xs.pop()` / `xs.shift()` / `xs.unshift(v)` on Ident receivers
-    /// (local or const-global Array<T>). Returns None when the callee
-    /// is some other member-call shape — the caller's dispatch chain
-    /// continues.
+    /// (local or const-global Array<T>) and Arr-typed Member
+    /// receivers (`b.arr.shift()`, chunk 628). Returns None when the
+    /// callee is some other member-call shape — the caller's dispatch
+    /// chain continues.
     pub(crate) fn try_lower_arr_pop_shift_unshift(
         &mut self,
         callee: ExprId,
@@ -36,6 +37,69 @@ impl<'a> LowerCtx<'a> {
             return Some(r);
         }
         self.try_arr_unshift(callee, args)
+    }
+
+    /// Chunk 628 — mutator receiver resolution shared by pop / shift /
+    /// unshift. Three receiver shapes:
+    ///
+    /// - Ident bound to a local `Array<T>` — load the stack slot.
+    /// - Ident bound to a K.3 const-global `Array<T>` — GlobalRef +
+    ///   load.
+    /// - Arr-typed Member expr (`b.arr.shift()`) — the field read is
+    ///   a +0 borrow and the mutators work in place (pop/shift) or on
+    ///   the B1 fixed cell (unshift), so no write-back is needed. The
+    ///   checker's expr type gates BEFORE lowering so a decline emits
+    ///   nothing.
+    fn resolve_mutator_arr_receiver(&mut self, recv_id: ExprId) -> Option<(Operand, Type)> {
+        match self.ast.get_expr(recv_id) {
+            Expr::Ident(recv_name) => {
+                let recv_name = recv_name.clone();
+                if let Some(info) = self.locals.get(&recv_name).copied()
+                    && matches!(info.ty, Type::Arr(_))
+                {
+                    let cur_arr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                        info.ty,
+                        None,
+                    );
+                    return Some((Operand::Value(cur_arr), info.ty));
+                }
+                if let Some(gty) = self.globals.get(&recv_name).copied()
+                    && matches!(gty, Type::Arr(_))
+                {
+                    let gref = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::GlobalRef(recv_name.clone()),
+                        Type::Ptr,
+                        None,
+                    );
+                    let cur_arr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(gty, Operand::Value(gref), 0),
+                        gty,
+                        None,
+                    );
+                    return Some((Operand::Value(cur_arr), gty));
+                }
+                None
+            }
+            Expr::Member { .. } => {
+                if !matches!(
+                    self.expr_types.get(&recv_id),
+                    Some(crate::check::Type::Array(_))
+                ) {
+                    return None;
+                }
+                let v = self.lower_expr(recv_id);
+                let ty = self.operand_ty(&v);
+                if matches!(ty, Type::Arr(_)) {
+                    return Some((v, ty));
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
     /// bug-327 C1 — shared empty-array guard for `pop` / `shift`.
@@ -127,20 +191,17 @@ impl<'a> LowerCtx<'a> {
 
     /// `xs.pop()` — in-place len decrement + tail-slot load.
     fn try_arr_pop(&mut self, callee: ExprId, args: &[ExprId]) -> Option<Operand> {
-        // `xs.pop()` — receiver is either an Ident bound to a
-        // typed Array<T> local OR an Ident bound to a K.3
-        // const-global Array<T>. Pop reads-and-mutates the
-        // slot in place (decrements len, no realloc) so the
-        // global-receiver path is safe: the in-place len
-        // mutation persists on the global heap object even
-        // without a write-back of the array pointer.
-        // Empty-array `pop` is UB in this subset (no
-        // undefined element type) — matches the unchecked
-        // convention used elsewhere.
+        // `xs.pop()` — any receiver resolve_mutator_arr_receiver
+        // admits. Pop reads-and-mutates the block in place
+        // (decrements len, no realloc), so no receiver shape
+        // needs a write-back of the array pointer.
         if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(callee)
             && name == "pop"
-            && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
         {
+            let recv_id = *recv_id;
+            let Some((arr_op, arr_ty)) = self.resolve_mutator_arr_receiver(recv_id) else {
+                return None;
+            };
             // S288 — accept any trailing operands per ES §23.1.3.20
             // trailing-arg ignore; lower-and-drop before the in-place
             // pop emit so step()-style side-effect exprs fire (S272
@@ -148,43 +209,26 @@ impl<'a> LowerCtx<'a> {
             for &a in args.iter() {
                 let _ = self.lower_expr(a);
             }
-            let recv_name = recv_name.clone();
-            let resolved_arr: Option<(Operand, Type)> = if let Some(info) =
-                self.locals.get(&recv_name).copied()
-                && matches!(info.ty, Type::Arr(_))
             {
-                let cur_arr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                    info.ty,
-                    None,
-                );
-                Some((Operand::Value(cur_arr), info.ty))
-            } else if let Some(gty) = self.globals.get(&recv_name).copied()
-                && matches!(gty, Type::Arr(_))
-            {
-                let gref = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::GlobalRef(recv_name.clone()),
-                    Type::Ptr,
-                    None,
-                );
-                let cur_arr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(gty, Operand::Value(gref), 0),
-                    gty,
-                    None,
-                );
-                Some((Operand::Value(cur_arr), gty))
-            } else {
-                None
-            };
-            if let Some((arr_op, arr_ty)) = resolved_arr {
                 let arr_id = match arr_ty {
                     Type::Arr(id) => id,
                     _ => unreachable!(),
                 };
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                // Chunk 628 — static Arr<Any> receivers go through the
+                // kind-aware runtime pop (typed-behind-any blocks rebox
+                // per elem kind; empty → undefined built in). The old
+                // static LoadDyn read NaN-box-misread a typed block's
+                // raw slots (SIGSEGV on heap-kind deref).
+                if elem_ty == Type::Any {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.arr_any_pop, vec![arr_op]),
+                        Type::Any,
+                        None,
+                    );
+                    return Some(Operand::Value(v));
+                }
                 let cur_arr = match arr_op {
                     Operand::Value(v) => v,
                     _ => unreachable!(),
@@ -246,8 +290,11 @@ impl<'a> LowerCtx<'a> {
         // for the global-receiver path.
         if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(callee)
             && name == "shift"
-            && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
         {
+            let recv_id = *recv_id;
+            let Some((arr_op, arr_ty)) = self.resolve_mutator_arr_receiver(recv_id) else {
+                return None;
+            };
             // S288 — accept any trailing operands per ES §23.1.3.24
             // trailing-arg ignore; lower-and-drop before the head-
             // bump emit so step()-style side-effect exprs fire (S272
@@ -255,43 +302,24 @@ impl<'a> LowerCtx<'a> {
             for &a in args.iter() {
                 let _ = self.lower_expr(a);
             }
-            let recv_name = recv_name.clone();
-            let resolved_arr: Option<(Operand, Type)> = if let Some(info) =
-                self.locals.get(&recv_name).copied()
-                && matches!(info.ty, Type::Arr(_))
             {
-                let cur_arr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                    info.ty,
-                    None,
-                );
-                Some((Operand::Value(cur_arr), info.ty))
-            } else if let Some(gty) = self.globals.get(&recv_name).copied()
-                && matches!(gty, Type::Arr(_))
-            {
-                let gref = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::GlobalRef(recv_name.clone()),
-                    Type::Ptr,
-                    None,
-                );
-                let cur_arr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(gty, Operand::Value(gref), 0),
-                    gty,
-                    None,
-                );
-                Some((Operand::Value(cur_arr), gty))
-            } else {
-                None
-            };
-            if let Some((arr_op, arr_ty)) = resolved_arr {
                 let arr_id = match arr_ty {
                     Type::Arr(id) => id,
                     _ => unreachable!(),
                 };
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                // Chunk 628 — static Arr<Any> receivers go through the
+                // kind-aware runtime shift (pop's deque twin; see the
+                // pop arm above).
+                if elem_ty == Type::Any {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.arr_any_shift, vec![arr_op]),
+                        Type::Any,
+                        None,
+                    );
+                    return Some(Operand::Value(v));
+                }
                 // bug-327 C1 — empty-array guard, same shape as pop.
                 // The pre-guard emit ran the head-bump helper with
                 // len==0: `*len_p -= 1` underflowed the u64 length to
@@ -340,131 +368,61 @@ impl<'a> LowerCtx<'a> {
     fn try_arr_unshift(&mut self, callee: ExprId, args: &[ExprId]) -> Option<Operand> {
         // `xs.unshift(v)` — same realloc-and-store-back shape
         // as push, but the runtime helper memmoves slots right
-        // + writes slot[0] before returning the new ptr.
+        // + writes slot[0] before returning the new ptr. Chunk
+        // 628 collapsed the duplicated local/global receiver
+        // arms into resolve_mutator_arr_receiver (which also
+        // admits Arr-typed Member receivers) — B1 fixed the
+        // cell across grow, so no receiver shape needs a
+        // write-back and the value-form emit serves all three.
         if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(callee)
             && name == "unshift"
             && args.len() == 1
-            && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
         {
-            let recv_name = recv_name.clone();
-            // (a) Local-Ident receiver — load from stack slot,
-            // unshift, store the new ptr back into the same slot.
-            if let Some(info) = self.locals.get(&recv_name).copied()
-                && let Type::Arr(arr_id) = info.ty
-            {
-                let arr_ty = info.ty;
-                let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                // Array<Any> — (tag, value) pair prepend through the
-                // adopt-contract helper (push twin); the typed flow
-                // below would raw-write the value over a NaN-box slot.
-                if matches!(elem_ty, Type::Any) {
-                    return Some(self.emit_arr_any_unshift_at_slot(
-                        Operand::Value(info.slot),
-                        0,
-                        args[0],
-                        arr_ty,
-                    ));
-                }
-                let cur_arr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
-                    arr_ty,
-                    None,
-                );
-                let mut val = self.lower_expr(args[0]);
-                // Chunk 575 — stored arrays chain-mark (push twin).
-                self.emit_arr_mark_kind(&val);
-                // W4 — align with the elem width (mirrors push).
-                if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
-                    val = self.coerce_to_f64(val);
-                }
-                let unshift_arg = self.raw_slot_arg(val);
-                let new_arr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.arr_unshift,
-                        vec![Operand::Value(cur_arr), unshift_arg],
-                    ),
-                    arr_ty,
-                    None,
-                );
-                if elem_ty.is_refcounted() {
-                    self.emit_rc_inc(val);
-                }
-                // B1 — cell fixed across grow; slot write-back +
-                // captured-env mirror retired.
-                // chunk 9c — JS spec: unshift returns new length.
-                // Runtime helper bumps `len + 1` into arr[#8] before
-                // returning; mirror the .length getter.
-                let new_len = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
-                    Type::I64,
-                    None,
-                );
-                return Some(Operand::Value(new_len));
+            let recv_id = *recv_id;
+            let Some((arr_op, arr_ty)) = self.resolve_mutator_arr_receiver(recv_id) else {
+                return None;
+            };
+            let arr_id = match arr_ty {
+                Type::Arr(id) => id,
+                _ => unreachable!(),
+            };
+            let elem_ty = self.arr_layouts[arr_id.0 as usize];
+            // Array<Any> — (tag, value) pair prepend through the
+            // adopt-contract helper (push twin); the typed flow
+            // below would raw-write the value over a NaN-box slot.
+            // The helper kind-dispatches typed-behind-any blocks.
+            if matches!(elem_ty, Type::Any) {
+                return Some(self.emit_arr_any_unshift_at_value(arr_op, args[0], arr_ty));
             }
-            // (b) K.3 const-global Array<T> receiver. Mirrors push's
-            // K.8 path at ssa_lower.rs:19708: load the cur ptr via
-            // GlobalRef, run the unshift helper, store back into the
-            // same global slot. Without this, `const a: number[] = ...`
-            // (top-level explicit-annotation const → registered as a
-            // global by K.6) panicked "unsupported member call shape:
-            // unshift" — the locals-only guard above missed it.
-            if let Some(slot_ty) = self.globals.get(&recv_name).copied()
-                && let Type::Arr(arr_id) = slot_ty
-            {
-                let arr_ty = slot_ty;
-                let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                let slot_ptr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::GlobalRef(recv_name.clone()),
-                    Type::Ptr,
-                    None,
-                );
-                // Array<Any> — pair prepend, mirror of push's K.8 arm.
-                if matches!(elem_ty, Type::Any) {
-                    return Some(self.emit_arr_any_unshift_at_slot(
-                        Operand::Value(slot_ptr),
-                        0,
-                        args[0],
-                        arr_ty,
-                    ));
-                }
-                let cur_arr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(arr_ty, Operand::Value(slot_ptr), 0),
-                    arr_ty,
-                    None,
-                );
-                let mut val = self.lower_expr(args[0]);
-                // Chunk 575 — stored arrays chain-mark (push twin).
-                self.emit_arr_mark_kind(&val);
-                if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
-                    val = self.coerce_to_f64(val);
-                }
-                let unshift_arg = self.raw_slot_arg(val);
-                let new_arr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.arr_unshift,
-                        vec![Operand::Value(cur_arr), unshift_arg],
-                    ),
-                    arr_ty,
-                    None,
-                );
-                if elem_ty.is_refcounted() {
-                    self.emit_rc_inc(val);
-                }
-                // B1 — cell fixed across grow; global write-back retired.
-                let new_len = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
-                    Type::I64,
-                    None,
-                );
-                return Some(Operand::Value(new_len));
+            let mut val = self.lower_expr(args[0]);
+            // Chunk 575 — stored arrays chain-mark (push twin).
+            self.emit_arr_mark_kind(&val);
+            // W4 — align with the elem width (mirrors push).
+            if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
+                val = self.coerce_to_f64(val);
             }
+            let unshift_arg = self.raw_slot_arg(val);
+            let new_arr = self.f.append_inst(
+                self.cur_block,
+                InstKind::Call(self.intrinsics.arr_unshift, vec![arr_op, unshift_arg]),
+                arr_ty,
+                None,
+            );
+            if elem_ty.is_refcounted() {
+                self.emit_rc_inc(val);
+            }
+            // B1 — cell fixed across grow; slot write-back +
+            // captured-env mirror retired.
+            // chunk 9c — JS spec: unshift returns new length.
+            // Runtime helper bumps `len + 1` into arr[#8] before
+            // returning; mirror the .length getter.
+            let new_len = self.f.append_inst(
+                self.cur_block,
+                InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
+                Type::I64,
+                None,
+            );
+            return Some(Operand::Value(new_len));
         }
         None
     }

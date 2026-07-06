@@ -34,19 +34,18 @@ impl<'a> LowerCtx<'a> {
         self.emit_arr_any_grow_at_slot(base, offset, arg_id, arr_ty, fid)
     }
 
-    /// `xs.unshift(v)` for `Array<Any>` — same pack + adopt + store-
-    /// back shape as push (both runtime helpers share the (arr, tag,
-    /// value) → new-ptr adopt contract), prepending via
-    /// `__torajs_arr_unshift_any`. Returns the new length.
-    pub(crate) fn emit_arr_any_unshift_at_slot(
+    /// Chunk 628 — `xs.unshift(v)` for an already-loaded `Array<Any>`
+    /// receiver value (Member-expr receivers like `b.arr.unshift(v)`
+    /// have no slot to hand over; B1 fixed the cell across grow so
+    /// the slot was only ever used for the initial load anyway).
+    pub(crate) fn emit_arr_any_unshift_at_value(
         &mut self,
-        base: Operand,
-        offset: u64,
+        cur_arr: Operand,
         arg_id: ExprId,
         arr_ty: Type,
     ) -> Operand {
         let fid = self.intrinsics.arr_unshift_any;
-        self.emit_arr_any_grow_at_slot(base, offset, arg_id, arr_ty, fid)
+        self.emit_arr_any_grow_at_value(cur_arr, arg_id, arr_ty, fid)
     }
 
     /// Shared pack + call + store-back core for the Array<Any> grow
@@ -66,6 +65,18 @@ impl<'a> LowerCtx<'a> {
             arr_ty,
             None,
         );
+        self.emit_arr_any_grow_at_value(Operand::Value(cur_arr), arg_id, arr_ty, grow_fid)
+    }
+
+    /// Value-receiver core — pack the arg into a (tag, value) pair
+    /// and invoke the adopt-contract grow helper on `cur_arr`.
+    fn emit_arr_any_grow_at_value(
+        &mut self,
+        cur_arr: Operand,
+        arg_id: ExprId,
+        arr_ty: Type,
+        grow_fid: crate::ssa::FuncId,
+    ) -> Operand {
         let v_raw = self.lower_expr(arg_id);
         // Chunk 565 — pushing a value is a SHARE of the source
         // binding, never a move: no consume. Borrow-shape args take
@@ -127,15 +138,15 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Call(
                         grow_fid,
-                        vec![
-                            Operand::Value(cur_arr),
-                            Operand::Value(tag_v),
-                            Operand::Value(val_v),
-                        ],
+                        vec![cur_arr, Operand::Value(tag_v), Operand::Value(val_v)],
                     ),
                     arr_ty,
                     None,
                 );
+                // Chunk 628 — a typed block behind the Arr<Any> view
+                // records a pending TypeError on kind mismatch;
+                // propagate it (pre-fix the throw sat silently).
+                self.emit_throw_check(None);
                 // B1 — cell fixed across grow; slot write-back retired.
                 let new_len = self.f.append_inst(
                     self.cur_block,
@@ -166,13 +177,13 @@ impl<'a> LowerCtx<'a> {
         };
         let new_arr = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(
-                grow_fid,
-                vec![Operand::Value(cur_arr), Operand::ConstI64(tag), push_val],
-            ),
+            InstKind::Call(grow_fid, vec![cur_arr, Operand::ConstI64(tag), push_val]),
             arr_ty,
             None,
         );
+        // Chunk 628 — kind-mismatch pending TypeError propagation
+        // (see the Any arm above).
+        self.emit_throw_check(None);
         // B1 — cell fixed across grow; slot write-back retired.
         let new_len = self.f.append_inst(
             self.cur_block,

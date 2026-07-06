@@ -298,6 +298,14 @@ unsafe fn any_unshift_adopt(p: *mut u8, av: u64) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_unshift_any(arr: *mut u8, tag: i64, value: i64) -> *mut u8 {
     unsafe {
+        // Chunk 628 — a typed block behind a static Arr<Any> view
+        // (T-11 container widen) kind-coerces into a raw slot instead
+        // of adopting NaN-box bits (622's push twin, the station that
+        // pass missed).
+        let header = &*(arr as *const HeapHeader);
+        if header.flags & FLAG_ARR_ANY == 0 {
+            return crate::any_typed_bridge::typed_unshift_pair(arr, tag as u64, value as u64);
+        }
         let av = __torajs_anyv_box_from_pair(tag, value);
         any_unshift_adopt(arr, av)
     }

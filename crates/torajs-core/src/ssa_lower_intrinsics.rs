@@ -250,6 +250,8 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_get_any_tag: FuncId,
     pub(crate) arr_get_any_boxed: FuncId,
     pub(crate) arr_get_any_value: FuncId,
+    pub(crate) arr_any_pop: FuncId,
+    pub(crate) arr_any_shift: FuncId,
     pub(crate) dynobj_alloc: FuncId,
     pub(crate) get_builtin_prototype: FuncId,
     pub(crate) instanceof_class_any_tag: FuncId,

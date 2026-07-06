@@ -174,6 +174,37 @@ pub(crate) unsafe fn typed_push_pair(arr: *mut u8, tag: u64, value: u64) -> *mut
     }
 }
 
+/// Chunk 628 — `unshift_any`'s typed arm ([`typed_push_pair`]'s
+/// prepend twin, the station chunk 622 missed): kind-coerce the pair
+/// into a raw slot and prepend via the typed `__torajs_arr_unshift`.
+/// A HEAP slot takes the transferred reference directly; a kind
+/// mismatch releases the transferred rc and raises a catchable
+/// TypeError.
+///
+/// # Safety
+/// Same contract as [`typed_push_pair`].
+pub(crate) unsafe fn typed_unshift_pair(arr: *mut u8, tag: u64, value: u64) -> *mut u8 {
+    unsafe {
+        let kind = (*(arr as *const HeapHeader)).arr_elem_kind();
+        let raw = if kind == ARR_KIND_HEAP && tag == 4 {
+            value // ownership transfers straight into the raw slot
+        } else {
+            match coerce_raw_scalar(kind, tag, value) {
+                Some(r) => r,
+                None => {
+                    drop_pair(tag, value);
+                    __torajs_throw_type_error(
+                        c"unshift through an any[] view would change the typed array's element kind"
+                            .as_ptr(),
+                    );
+                    return arr;
+                }
+            }
+        };
+        crate::transform::__torajs_arr_unshift(arr, raw as i64)
+    }
+}
+
 /// Chunk 622 — `set_any_grow`'s typed arm. In-bounds writes delegate
 /// to the kind-aware `arr_index_set` (same transfer ABI); `i == len`
 /// is an append (`a[a.length] = v`) through [`typed_push_pair`]; a

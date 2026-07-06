@@ -48,6 +48,8 @@ pub(crate) struct ArrAnyIds {
     pub arr_get_any_tag: FuncId,
     pub arr_get_any_value: FuncId,
     pub arr_get_any_boxed: FuncId,
+    pub arr_any_pop: FuncId,
+    pub arr_any_shift: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ArrAnyIds {
@@ -158,6 +160,24 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_arr_get_any_boxed",
             &[Type::Ptr, Type::I64],
+            Type::Any,
+        ),
+        // Chunk 628 — kind-aware pop/shift for static Arr<Any>
+        // receivers (boxed result, empty → undefined, typed-behind-
+        // any blocks rebox per elem kind; the any-method-call RFC's
+        // runtime pair).
+        arr_any_pop: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_any_pop",
+            &[Type::Ptr],
+            Type::Any,
+        ),
+        arr_any_shift: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_any_shift",
+            &[Type::Ptr],
             Type::Any,
         ),
     }

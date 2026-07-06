@@ -223,6 +223,8 @@ pub(crate) fn build(
         arr_get_any_tag: init_b.arr_any.arr_get_any_tag,
         arr_get_any_boxed: init_b.arr_any.arr_get_any_boxed,
         arr_get_any_value: init_b.arr_any.arr_get_any_value,
+        arr_any_pop: init_b.arr_any.arr_any_pop,
+        arr_any_shift: init_b.arr_any.arr_any_shift,
         dynobj_alloc: init_b.object.dynobj_alloc,
         get_builtin_prototype: init_b.object.get_builtin_prototype,
         instanceof_class_any_tag: init_b.object.instanceof_class_any_tag,
