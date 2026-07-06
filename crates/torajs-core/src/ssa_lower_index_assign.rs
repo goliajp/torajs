@@ -171,7 +171,7 @@ impl<'a> LowerCtx<'a> {
         // any-box boundaries chain-mark whatever is nested at that
         // moment, but a LATER stored array was born UNSET and broke
         // the cycle walk there (86MB probe). No-op for non-Arr elems.
-        self.emit_arr_mark_kind(&v, &elem_ty);
+        self.emit_arr_mark_kind(&v);
         // Chunk 567 — a typed-tier elem store SHARES the rhs: a
         // borrow-shape value takes +1 so the slot owns its stake
         // while the source binding keeps its own (re-assign

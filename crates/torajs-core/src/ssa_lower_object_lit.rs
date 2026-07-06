@@ -77,9 +77,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
         // same as the `any`-boxing boundary (RFC 20260704 S1) —
         // without the mark a raw-i64 array walks as NaN-box cells
         // and SIGSEGVs on the first small-int deref. No-op for
-        // non-Arr fields.
-        let fty = field_tys[i].1;
-        ctx.emit_arr_mark_kind(val, &fty);
+        // non-Arr fields; chunk 621 derives the chain from the
+        // value's own type inside the helper (an `any[]` field
+        // taking a typed array marked chain 0 off the field type).
+        ctx.emit_arr_mark_kind(val);
         let offset = OBJ_HEADER_SIZE + i as u64 * 8;
         let cur_block = ctx.cur_block;
         ctx.f.append_void(

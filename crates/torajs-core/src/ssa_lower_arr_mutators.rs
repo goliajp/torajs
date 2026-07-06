@@ -373,7 +373,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let mut val = self.lower_expr(args[0]);
                 // Chunk 575 — stored arrays chain-mark (push twin).
-                self.emit_arr_mark_kind(&val, &elem_ty);
+                self.emit_arr_mark_kind(&val);
                 // W4 — align with the elem width (mirrors push).
                 if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
                     val = self.coerce_to_f64(val);
@@ -439,7 +439,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let mut val = self.lower_expr(args[0]);
                 // Chunk 575 — stored arrays chain-mark (push twin).
-                self.emit_arr_mark_kind(&val, &elem_ty);
+                self.emit_arr_mark_kind(&val);
                 if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
                     val = self.coerce_to_f64(val);
                 }

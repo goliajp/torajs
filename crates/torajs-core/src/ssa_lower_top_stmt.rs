@@ -135,7 +135,7 @@ impl<'a> LowerCtx<'a> {
             // `lower_single_arg` — unmarked, the walker reads raw i64
             // slots as NaN-box cell pointers and crashes).
             if target == self.intrinsics.print_any && matches!(arg_ty, Type::Arr(_)) {
-                self.emit_arr_mark_kind(&arg, &arg_ty);
+                self.emit_arr_mark_kind(&arg);
             }
             self.f
                 .append_void(self.cur_block, InstKind::Call(target, vec![arg.clone()]));

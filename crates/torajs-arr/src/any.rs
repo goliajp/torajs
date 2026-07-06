@@ -14,12 +14,12 @@
 //!
 //! Public surface: `__torajs_arr_alloc_any` / `_alloc_any_filled` /
 //! `_push_any` / `_extend_any` / `_get_any_tag` / `_get_any_value` /
-//! `_set_any` / `_fill_any` / `_set_any_grow` /
-//! `_extend_typed_into_any` / `_flat_any`.
+//! `_set_any` / `_fill_any` / `_set_any_grow` / `_flat_any`
+//! (`_extend_typed_into_any` lives in `any_typed_bridge`).
 
 use core::ffi::c_void;
 
-use torajs_rc::FLAG_ARR_ANY;
+use torajs_rc::{FLAG_ARR_ANY, HeapHeader};
 
 use crate::grow::grow_data_buffer;
 use crate::layout::{
@@ -27,18 +27,18 @@ use crate::layout::{
 };
 
 /// Tag value for ANY_UNDEF — returned by OOB get to match JS spec.
-const ANY_UNDEF: u64 = 5;
+pub(crate) const ANY_UNDEF: u64 = 5;
 
 /// AnyValue tag for a heap-pointer-wrapped cell (Array<Any> elem
 /// can wrap any heap value behind this tag — String, Array, Obj,
 /// Closure, ...). Mirrors `torajs_rc::AnySlotTag` ANY_HEAP=4 (kept
 /// inline here to avoid a crate-wide use just for one constant —
 /// same shape as iter.rs / drop.rs).
-const ANY_HEAP: u64 = 4;
+pub(crate) const ANY_HEAP: u64 = 4;
 
 /// 8 bytes — Array<Any> slot stride (Step 7e-A: NaN-box `AnyValue`
 /// per slot; tag + value packed into one u64).
-const ANY_SLOT_BYTES: usize = 8;
+pub(crate) const ANY_SLOT_BYTES: usize = 8;
 
 /// Cap slot offset (matches torajs-arr::alloc's `ARR_CAP_LOW32_OFF`).
 const ARR_CAP_LOW32_OFF: usize = 16;
@@ -69,7 +69,7 @@ unsafe extern "C" {
 }
 
 #[inline]
-unsafe fn slot_anyvalue_ptr(arr: *mut u8, i: u64) -> *mut u64 {
+pub(crate) unsafe fn slot_anyvalue_ptr(arr: *mut u8, i: u64) -> *mut u64 {
     unsafe { arr_data(arr).add((i as usize) * ANY_SLOT_BYTES) as *mut u64 }
 }
 
@@ -206,7 +206,8 @@ pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -
 
 /// OOB-safe read of slot `i`'s tag. NULL arr or `i >= len` returns
 /// `ANY_UNDEF=5` per ES spec §10.4.2.1 (sparse array missing-index
-/// semantics).
+/// semantics). A typed block behind the static `Arr<Any>` view
+/// reboxes per elem kind (chunk 621).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) -> u64 {
     if arr.is_null() {
@@ -218,6 +219,11 @@ pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) ->
         if i >= len {
             return ANY_UNDEF;
         }
+        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
+            return __torajs_anyv_unbox_tag(crate::any_typed_bridge::typed_slot_anyvalue_borrowed(
+                arr_u8, i,
+            )) as u64;
+        }
         let av = *slot_anyvalue_ptr(arr_u8 as *mut u8, i);
         __torajs_anyv_unbox_tag(av) as u64
     }
@@ -225,7 +231,9 @@ pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) ->
 
 /// OOB-safe read of slot `i`'s value. NULL arr or `i >= len` returns
 /// 0 (paired with ANY_UNDEF tag from `get_any_tag` to spec-match
-/// sparse-array reads).
+/// sparse-array reads). A typed block behind the static `Arr<Any>`
+/// view reboxes per elem kind (chunk 621); the heap-kind arm stays
+/// a borrow, same as the FLAG_ARR_ANY path.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) -> u64 {
     if arr.is_null() {
@@ -236,6 +244,11 @@ pub unsafe extern "C" fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) 
         let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
         if i >= len {
             return 0;
+        }
+        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
+            return __torajs_anyv_unbox_value(crate::any_typed_bridge::typed_slot_anyvalue_borrowed(
+                arr_u8, i,
+            )) as u64;
         }
         let av = *slot_anyvalue_ptr(arr_u8 as *mut u8, i);
         __torajs_anyv_unbox_value(av) as u64
@@ -385,69 +398,6 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
         *slot_anyvalue_ptr(arr, i) = __torajs_anyv_box_from_pair(tag as i64, value as i64);
         *(arr.add(ARR_LEN_OFF) as *mut u64) = i + 1;
         arr
-    }
-}
-
-/// `dst.concat(src, elem_tag)` append step — extends the Array<Any>
-/// `dst` in place with `src`'s typed slots, each paired with
-/// `elem_tag` and NaN-boxed. Same in-place + self-inc contract as
-/// `__torajs_arr_extend_any`: grows via realloc when needed (caller
-/// must adopt the returned pointer) and rc_incs each appended heap
-/// cell itself, so the concat lowering never runs a raw inc walk
-/// over NaN-box slots. `dst` must already be detached from the
-/// receiver (the concat lowering seeds it with `arr_any_slice`).
-///
-/// The tag mirrors `box_to_any`'s scheme — 1=ANY_BOOL, 2=ANY_I64,
-/// 3=ANY_F64, 4=ANY_HEAP. F64 src slots already hold raw IEEE bits
-/// in u64 form (BitCastF64ToI64 form box_to_any uses); Bool src
-/// slots hold 0/1 as i1 / u8 (ssa-lower `store i1` emits 1B; the
-/// helper reads 1B to skip the upper 7 bytes of arr_alloc garbage).
-///
-/// # Safety
-/// `dst` must be Array<Any> (FLAG_ARR_ANY, 8-byte AnyValue slots).
-/// `src` must be a typed Array<T> with 8-byte slot stride (every
-/// elem type — I64/F64/Bool/Heap — stores in 8B per slot, confirmed
-/// via ssa-lower emit). `elem_tag` must match T's actual SSA type.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_extend_typed_into_any(
-    dst: *mut u8,
-    src: *const u8,
-    elem_tag: u64,
-) -> *mut u8 {
-    unsafe {
-        let dst_len = *(dst.add(ARR_LEN_OFF) as *const u64);
-        let src_len = *(src.add(ARR_LEN_OFF) as *const u64);
-        if src_len == 0 {
-            return dst;
-        }
-        let cap = *(dst.add(ARR_CAP_LOW32_OFF) as *const u32);
-        let needed = dst_len + src_len;
-        if needed > cap as u64 {
-            let mut new_cap: u32 = if cap == 0 { 4 } else { cap };
-            while (new_cap as u64) < needed {
-                new_cap *= 2;
-            }
-            grow_data_buffer(dst, new_cap as u64);
-        }
-        // Box each typed src slot per the tag scheme. src is a typed
-        // deque — fold its head offset in (a shifted src otherwise
-        // reads slack slots).
-        let src_head = *(src.add(ARR_HEAD_OFF) as *const u32) as usize;
-        for i in 0..src_len {
-            let slot_ptr = arr_data(src).add((src_head + i as usize) * 8);
-            let raw = match elem_tag {
-                1 => (slot_ptr as *const u8).read() as u64, // Bool — 1B store
-                _ => (slot_ptr as *const u64).read(),       // I64 / F64 / Heap — 8B
-            };
-            let av = __torajs_anyv_box_from_pair(elem_tag as i64, raw as i64);
-            // NaN-box-safe — no-op for immediates, bumps the wrapped
-            // heap cell for ANY_HEAP (the slot takes an owning ref,
-            // the source array keeps its own).
-            __torajs_rc_inc(av as *mut c_void);
-            *slot_anyvalue_ptr(dst, dst_len + i) = av;
-        }
-        *(dst.add(ARR_LEN_OFF) as *mut u64) = dst_len + src_len;
-        dst
     }
 }
 

@@ -37,6 +37,7 @@ extern crate torajs_mmalloc as _;
 
 pub mod alloc;
 pub mod any;
+pub mod any_typed_bridge;
 pub mod drop;
 pub mod from_string;
 pub mod grow;
@@ -68,9 +69,10 @@ pub mod transform;
 pub use alloc::{__torajs_arr_alloc, __torajs_arr_alloc_pooled, __torajs_arr_free};
 pub use any::{
     __torajs_arr_alloc_any, __torajs_arr_alloc_any_filled, __torajs_arr_extend_any,
-    __torajs_arr_extend_typed_into_any, __torajs_arr_flat_any, __torajs_arr_get_any_tag,
-    __torajs_arr_get_any_value, __torajs_arr_push_any, __torajs_arr_set_any,
+    __torajs_arr_flat_any, __torajs_arr_get_any_tag, __torajs_arr_get_any_value,
+    __torajs_arr_push_any, __torajs_arr_set_any,
 };
+pub use any_typed_bridge::__torajs_arr_extend_typed_into_any;
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any, __torajs_arr_drop_heap};
 pub use from_string::__torajs_arr_from_string;
 pub use grow::{

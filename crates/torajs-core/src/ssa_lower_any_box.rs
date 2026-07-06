@@ -107,7 +107,15 @@ impl<'a> LowerCtx<'a> {
     /// `ARR_KIND_HEAP` levels with a remaining chain. No-op emit for
     /// non-array types and for `Arr<Any>` (FLAG_ARR_ANY blocks are
     /// NaN-box self-describing → chain 0).
-    pub(crate) fn emit_arr_mark_kind(&mut self, val: &Operand, val_ty: &Type) {
+    ///
+    /// RFC 20260707 chunk 621 — the chain derives from the VALUE's
+    /// own SSA type (the block's physical layout), never from the
+    /// destination slot's static view: a typed array shared into an
+    /// `Arr<Any>` slot (T-11 container widen) keeps its raw-slot
+    /// layout, and the slot-typed chain (Any → 0) skipped the mark
+    /// the kind-aware readers rely on.
+    pub(crate) fn emit_arr_mark_kind(&mut self, val: &Operand) {
+        let val_ty = self.operand_ty(val);
         let Type::Arr(id) = val_ty else { return };
         let elem = self.arr_layouts[id.0 as usize].clone();
         let chain = self.arr_kind_chain(&elem, 0);
@@ -205,7 +213,7 @@ impl<'a> LowerCtx<'a> {
                 self.emit_rc_inc(val.clone());
                 // RFC 20260704 S1 — typed arr crossing into `any`
                 // records its element kind on the heap header.
-                self.emit_arr_mark_kind(&val, &val_ty);
+                self.emit_arr_mark_kind(&val);
                 (Operand::ConstI64(4), val)
             }
             Type::Ptr if matches!(val, Operand::ConstPtrNull) => {
@@ -244,7 +252,7 @@ impl<'a> LowerCtx<'a> {
                 // share the same machine word.
                 // RFC 20260704 S1 — typed arr crossing into `any`
                 // records its element kind on the heap header.
-                self.emit_arr_mark_kind(&val, &val_ty);
+                self.emit_arr_mark_kind(&val);
                 (4, val)
             }
             Type::Ptr => {

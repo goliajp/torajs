@@ -90,7 +90,7 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     // walker reads raw i64 slots as NaN-box values and dereferences
     // small ints as cell pointers (SIGSEGV).
     if target == ctx.intrinsics.print_any && matches!(arg_ty, Type::Arr(_)) {
-        ctx.emit_arr_mark_kind(&arg, &arg_ty);
+        ctx.emit_arr_mark_kind(&arg);
     }
     ctx.f
         .append_void(cur_block, InstKind::Call(target, vec![arg.clone()]));

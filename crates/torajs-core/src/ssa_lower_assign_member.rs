@@ -437,8 +437,11 @@ fn lower_struct_field_store(
     // L3b #6 crash fix — mirror the ObjectLit field-store mark: a
     // typed Array entering a struct field must carry its elem kind
     // for the runtime walkers (inspect / cycle collector). No-op for
-    // non-Arr fields.
-    ctx.emit_arr_mark_kind(&v, &field_ty);
+    // non-Arr fields. Chunk 621 — the chain now derives from the
+    // value's own type inside the helper: an `any[]` field taking a
+    // typed array (T-11 widen) marked chain 0 off the field type and
+    // left the block invisible to the kind-aware readers.
+    ctx.emit_arr_mark_kind(&v);
     let cur_block = ctx.cur_block;
     ctx.f
         .append_void(cur_block, InstKind::Store(v, obj_val, offset));

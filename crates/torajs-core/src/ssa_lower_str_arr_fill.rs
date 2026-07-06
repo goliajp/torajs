@@ -191,7 +191,7 @@ pub(crate) fn try_dispatch(
         }
         let mut value = ctx.lower_expr(args[0]);
         // Chunk 575 — stored arrays chain-mark (push twin).
-        ctx.emit_arr_mark_kind(&value, &fill_elem);
+        ctx.emit_arr_mark_kind(&value);
         // W4 — align with the elem width, then cross the i64-param
         // intrinsic boundary as raw bits.
         if fill_elem == Type::F64 && ctx.operand_ty(&value) == Type::I64 {

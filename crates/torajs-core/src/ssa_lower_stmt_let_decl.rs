@@ -208,6 +208,16 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
         init_val
     };
     let init_ty = ctx.operand_ty(&init_val);
+    // RFC 20260707 chunk 621 — a typed array shared into an `any[]`
+    // binding (T-11 container widen) keeps its raw-slot layout; mark
+    // its elem kind so the kind-aware Arr<Any> readers can rebox the
+    // raw slots (mirror of the assign_member field-store mark). Gated
+    // on the binding's Any elem so typed→typed decls pay no call.
+    if let (Type::Arr(ann_id), Type::Arr(_)) = (&ty, &init_ty)
+        && ctx.arr_layouts[ann_id.0 as usize] == Type::Any
+    {
+        ctx.emit_arr_mark_kind(&init_val);
+    }
     if ty == Type::Str && init_ty == Type::Substr {
         ty = Type::Substr;
     } else if let (Type::Arr(ann_id), Type::Arr(init_id)) = (ty, init_ty)

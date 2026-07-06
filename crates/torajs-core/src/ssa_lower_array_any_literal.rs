@@ -213,7 +213,7 @@ impl<'a> LowerCtx<'a> {
                 // box_to_any: record its elem kind so the runtime
                 // readers (index / print / drop walkers) don't
                 // NaN-box-walk raw scalar slots. No-op for non-Arr.
-                self.emit_arr_mark_kind(&val, &val_ty);
+                self.emit_arr_mark_kind(&val);
                 self.emit_rc_inc(val.clone());
                 (Operand::ConstI64(4), val)
             }

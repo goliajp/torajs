@@ -1,0 +1,144 @@
+//! Typed-array ↔ `Array<Any>` bridge helpers.
+//!
+//! Two crossings of the raw-slot / NaN-box boundary live here:
+//!
+//! - [`typed_slot_anyvalue_borrowed`] — RFC 20260707 chunk 621: a
+//!   typed array shared into a static `Arr<Any>` slot (T-11
+//!   container widen) keeps its raw-slot layout; the static any-arr
+//!   readers rebox each slot per the elem kind recorded at the
+//!   coercion boundary.
+//! - [`__torajs_arr_extend_typed_into_any`] — concat's bulk append
+//!   of typed src slots into an `Array<Any>` dst.
+//!
+//! Split out of `any.rs` (chunk 621) when the reader arm pushed the
+//! file over the 500-line limit.
+
+use core::ffi::c_void;
+
+use torajs_rc::{
+    ARR_KIND_BOOL, ARR_KIND_F64, ARR_KIND_HEAP, ARR_KIND_I64, ARR_KIND_UNSET, HeapHeader,
+};
+
+use crate::any::{ANY_HEAP, ANY_SLOT_BYTES, ANY_UNDEF, slot_anyvalue_ptr};
+use crate::grow::grow_data_buffer;
+use crate::layout::{ARR_LEN_OFF, arr_data};
+
+/// Head-offset slot (matches `any.rs` / `index_any.rs`).
+const ARR_HEAD_OFF: usize = 20;
+/// Cap slot offset (matches `any.rs`).
+const ARR_CAP_LOW32_OFF: usize = 16;
+
+unsafe extern "C" {
+    /// Cross-tier — torajs-anyvalue NaN-box pack. Tag scheme:
+    /// 0=Null, 1=Bool, 2=I64, 3=F64 (bits), 4=Heap, 5=Undef.
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    /// Cross-tier — torajs-rc. NaN-box-safe refcount bump (no-ops
+    /// for non-cell bit patterns and NULL).
+    fn __torajs_rc_inc(p: *mut c_void);
+}
+
+/// RFC 20260707 chunk 621 — borrowed AnyValue view of slot `i` on a
+/// TYPED array (no FLAG_ARR_ANY) reached through a static `Arr<Any>`
+/// view: the T-11 container widen shares the block without reboxing,
+/// so it keeps its raw-slot layout and records its elem kind at the
+/// coercion boundary (`emit_arr_mark_kind`). Rebox table mirrors
+/// `index_any::__torajs_arr_index_get` — keep the two in sync.
+/// Contract is BORROW: heap slots return without an rc bump (the
+/// slot keeps its own reference), matching `any.rs`'s FLAG_ARR_ANY
+/// read path — which is why this can't delegate to the +1-returning
+/// `__torajs_arr_index_get`. Unlike Any-arrays, typed blocks can
+/// have deque-shifted (`head_offset != 0`) data.
+///
+/// # Safety
+/// `arr` is a valid non-Any `Tag::Arr` heap pointer with `i < len`.
+pub(crate) unsafe fn typed_slot_anyvalue_borrowed(arr: *const u8, i: u64) -> u64 {
+    unsafe {
+        let head = *(arr.add(ARR_HEAD_OFF) as *const u32) as u64;
+        let raw = *(arr_data(arr).add(((head + i) as usize) * ANY_SLOT_BYTES) as *const u64);
+        let header = &*(arr as *const HeapHeader);
+        match header.arr_elem_kind() {
+            ARR_KIND_I64 => __torajs_anyv_box_from_pair(2, raw as i64),
+            ARR_KIND_F64 => __torajs_anyv_box_from_pair(3, raw as i64),
+            ARR_KIND_BOOL => __torajs_anyv_box_from_pair(1, raw as i64),
+            // A NULL heap slot is a hole — undefined per spec, never
+            // a boxed null pointer.
+            ARR_KIND_HEAP if raw == 0 => __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0),
+            ARR_KIND_HEAP => __torajs_anyv_box_from_pair(ANY_HEAP as i64, raw as i64),
+            kind => {
+                debug_assert!(
+                    kind == ARR_KIND_UNSET,
+                    "arr_get_any: invalid elem kind {kind}"
+                );
+                debug_assert!(
+                    false,
+                    "arr_get_any: UNSET elem kind — an Arr<T> → Arr<Any> \
+                     coercion site missed __torajs_arr_mark_kind"
+                );
+                __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0)
+            }
+        }
+    }
+}
+
+/// `dst.concat(src, elem_tag)` append step — extends the Array<Any>
+/// `dst` in place with `src`'s typed slots, each paired with
+/// `elem_tag` and NaN-boxed. Same in-place + self-inc contract as
+/// `__torajs_arr_extend_any`: grows via realloc when needed (caller
+/// must adopt the returned pointer) and rc_incs each appended heap
+/// cell itself, so the concat lowering never runs a raw inc walk
+/// over NaN-box slots. `dst` must already be detached from the
+/// receiver (the concat lowering seeds it with `arr_any_slice`).
+///
+/// The tag mirrors `box_to_any`'s scheme — 1=ANY_BOOL, 2=ANY_I64,
+/// 3=ANY_F64, 4=ANY_HEAP. F64 src slots already hold raw IEEE bits
+/// in u64 form (BitCastF64ToI64 form box_to_any uses); Bool src
+/// slots hold 0/1 as i1 / u8 (ssa-lower `store i1` emits 1B; the
+/// helper reads 1B to skip the upper 7 bytes of arr_alloc garbage).
+///
+/// # Safety
+/// `dst` must be Array<Any> (FLAG_ARR_ANY, 8-byte AnyValue slots).
+/// `src` must be a typed Array<T> with 8-byte slot stride (every
+/// elem type — I64/F64/Bool/Heap — stores in 8B per slot, confirmed
+/// via ssa-lower emit). `elem_tag` must match T's actual SSA type.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_extend_typed_into_any(
+    dst: *mut u8,
+    src: *const u8,
+    elem_tag: u64,
+) -> *mut u8 {
+    unsafe {
+        let dst_len = *(dst.add(ARR_LEN_OFF) as *const u64);
+        let src_len = *(src.add(ARR_LEN_OFF) as *const u64);
+        if src_len == 0 {
+            return dst;
+        }
+        let cap = *(dst.add(ARR_CAP_LOW32_OFF) as *const u32);
+        let needed = dst_len + src_len;
+        if needed > cap as u64 {
+            let mut new_cap: u32 = if cap == 0 { 4 } else { cap };
+            while (new_cap as u64) < needed {
+                new_cap *= 2;
+            }
+            grow_data_buffer(dst, new_cap as u64);
+        }
+        // Box each typed src slot per the tag scheme. src is a typed
+        // deque — fold its head offset in (a shifted src otherwise
+        // reads slack slots).
+        let src_head = *(src.add(ARR_HEAD_OFF) as *const u32) as usize;
+        for i in 0..src_len {
+            let slot_ptr = arr_data(src).add((src_head + i as usize) * 8);
+            let raw = match elem_tag {
+                1 => (slot_ptr as *const u8).read() as u64, // Bool — 1B store
+                _ => (slot_ptr as *const u64).read(),       // I64 / F64 / Heap — 8B
+            };
+            let av = __torajs_anyv_box_from_pair(elem_tag as i64, raw as i64);
+            // NaN-box-safe — no-op for immediates, bumps the wrapped
+            // heap cell for ANY_HEAP (the slot takes an owning ref,
+            // the source array keeps its own).
+            __torajs_rc_inc(av as *mut c_void);
+            *slot_anyvalue_ptr(dst, dst_len + i) = av;
+        }
+        *(dst.add(ARR_LEN_OFF) as *mut u64) = dst_len + src_len;
+        dst
+    }
+}
