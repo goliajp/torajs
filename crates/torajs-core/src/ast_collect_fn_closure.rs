@@ -21,6 +21,12 @@
 //! - `return name` inside a fn whose declared return type is `any`
 //!   (L3b #8; closure-typed returns ride the older
 //!   `ast/forwarders.rs` pass).
+//! - `s.replace(pat, name)` / `s.replaceAll(pat, name)` (chunk 617)
+//!   — the functional-replaceValue runtime invokes the callback
+//!   through the closure boxed entry; a bare FnSig has neither env
+//!   nor boxed entry (604-era loud panic). A user-class `.replace`
+//!   method hit by the same shape only costs the unnecessary wrap
+//!   (closure values are legal fn-param arguments).
 //!
 //! Without the wrap these positions hold a raw FnSig value: the
 //! any-boxing site has no FnSig arm ("box_to_any element type FnSig
@@ -245,6 +251,15 @@ impl<'a> FnToClosureCollector<'a> {
                             self.try_mark(*arg);
                         }
                     }
+                }
+                // Chunk 617 — replace-cb argument site (see module
+                // doc): the runtime's functional-replaceValue lane
+                // needs a closure cell, so a named top fn wraps.
+                if let Expr::Member { name: mname, .. } = self.ast.get_expr(*callee)
+                    && matches!(mname.as_str(), "replace" | "replaceAll")
+                    && args.len() >= 2
+                {
+                    self.try_mark(args[1]);
                 }
                 self.walk_expr(*callee);
                 for arg in args {
