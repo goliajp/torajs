@@ -69,11 +69,19 @@ pub(crate) fn try_lower(
     }
     let arg_op = ctx.lower_expr(args[0]);
     let arg_ty = ctx.operand_ty(&arg_op);
-    ctx.consume_if_ident(args[0]);
+    // RFC 20260705 ledger #3 — every coerce helper below borrows its
+    // arg (str_to_number / coerce_any / arr_join read without rc
+    // traffic), so an Ident source keeps its stake and its scope drop;
+    // owned temps are released after the read. `String(str)` passes
+    // the value through and shares instead (see emit_to_string).
     Some(match n_kind.as_str() {
-        "Number" => emit_to_number(ctx, arg_op, arg_ty),
-        "Boolean" => ctx.coerce_to_bool(arg_op),
-        "String" => emit_to_string(ctx, arg_op, arg_ty),
+        "Number" => emit_to_number(ctx, args[0], arg_op, arg_ty),
+        "Boolean" => {
+            let v = ctx.coerce_to_bool(arg_op.clone());
+            ctx.release_owned_temp(args[0], &arg_op);
+            v
+        }
+        "String" => emit_to_string(ctx, args[0], arg_op, arg_ty),
         _ => unreachable!(),
     })
 }
@@ -82,7 +90,12 @@ pub(crate) fn try_lower(
 /// through; Bool → I64; null → 0; Str/Substr → str_to_number (strtod);
 /// Any → coerce_any_to_number; Arr → join(",") then str_to_number
 /// (Number([1,2]) === NaN).
-fn emit_to_number(ctx: &mut LowerCtx<'_>, arg_op: Operand, arg_ty: Type) -> Operand {
+fn emit_to_number(
+    ctx: &mut LowerCtx<'_>,
+    arg_eid: ExprId,
+    arg_op: Operand,
+    arg_ty: Type,
+) -> Operand {
     match arg_ty {
         Type::I64 | Type::F64 => arg_op,
         Type::Bool => ctx.coerce_bool_to_i64(arg_op),
@@ -90,18 +103,24 @@ fn emit_to_number(ctx: &mut LowerCtx<'_>, arg_op: Operand, arg_ty: Type) -> Oper
         Type::Str | Type::Substr => {
             // V3-18 m1.h.9 — String → ToNumber via runtime helper
             // (strtod-based, NaN on parse failure). Returns f64 since
-            // NaN can't fit i64.
+            // NaN can't fit i64. The helper borrows; release an owned
+            // temp arg after the read.
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.str_to_number, vec![arg_op]),
+                InstKind::Call(ctx.intrinsics.str_to_number, vec![arg_op.clone()]),
                 Type::F64,
                 None,
             );
+            ctx.release_owned_temp(arg_eid, &arg_op);
             Operand::Value(v)
         }
         // S133-2 — `Number(Any)`: tag-dispatched ToNumber via runtime
-        // helper. Returns f64 (NaN passes through).
-        Type::Any => ctx.coerce_any_to_number(arg_op, Type::F64),
+        // helper. Returns f64 (NaN passes through). The helper borrows.
+        Type::Any => {
+            let v = ctx.coerce_any_to_number(arg_op.clone(), Type::F64);
+            ctx.release_owned_temp(arg_eid, &arg_op);
+            v
+        }
         // S172 — `Number(Array<T>)` per ES §7.1.4 ToNumber(Array) =
         // ToNumber(ToString(Array)) = ToNumber(arr.join(",")). Mirrors
         // String(Arr) join path below; the resulting Str feeds
@@ -119,10 +138,11 @@ fn emit_to_number(ctx: &mut LowerCtx<'_>, arg_op: Operand, arg_ty: Type) -> Oper
             let sep = ctx.intern_string_literal(",");
             let s = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(join_fid, vec![arg_op, Operand::Value(sep)]),
+                InstKind::Call(join_fid, vec![arg_op.clone(), Operand::Value(sep)]),
                 Type::Str,
                 None,
             );
+            ctx.release_owned_temp(arg_eid, &arg_op);
             let n = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.str_to_number, vec![Operand::Value(s)]),
@@ -144,9 +164,26 @@ fn emit_to_number(ctx: &mut LowerCtx<'_>, arg_op: Operand, arg_ty: Type) -> Oper
 /// null_to_str; Any → coerce_to_str (tag-dispatched); Arr → join(",")
 /// (same dispatch as `arr.toString()`); Obj → "[object Object]" per
 /// §20.1.4.4 generic Object toString.
-fn emit_to_string(ctx: &mut LowerCtx<'_>, arg_op: Operand, arg_ty: Type) -> Operand {
+fn emit_to_string(
+    ctx: &mut LowerCtx<'_>,
+    arg_eid: ExprId,
+    arg_op: Operand,
+    arg_ty: Type,
+) -> Operand {
     match arg_ty {
-        Type::Str | Type::Substr => arg_op,
+        Type::Str | Type::Substr => {
+            // Identity pass-through: the result IS the arg value, and
+            // the owned-result invariant makes the consumer release it.
+            // A borrow-shaped arg (Ident / Member) therefore shares —
+            // +1 here so the source binding keeps its own stake; the
+            // old consume path stole the source's single stake (UAF
+            // once the result's owner dropped it, reuse-window probe).
+            // Owned temps (concat results) transfer their fresh ref.
+            if !ctx.expr_transfers_ownership(arg_eid) {
+                ctx.emit_rc_inc(arg_op.clone());
+            }
+            arg_op
+        }
         Type::I64 => Operand::Value(ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.i64_to_str, vec![arg_op]),
@@ -173,8 +210,13 @@ fn emit_to_string(ctx: &mut LowerCtx<'_>, arg_op: Operand, arg_ty: Type) -> Oper
         )),
         // S133-2 — `String(Any)`: tag-dispatched ToString via runtime
         // helper (reuses the existing `coerce_to_str(_, Type::Any)`
-        // path used by console.log multi-arg).
-        Type::Any => ctx.coerce_to_str(arg_op, Type::Any),
+        // path used by console.log multi-arg). Borrows the Any box;
+        // release an owned temp arg after the read.
+        Type::Any => {
+            let v = ctx.coerce_to_str(arg_op.clone(), Type::Any);
+            ctx.release_owned_temp(arg_eid, &arg_op);
+            v
+        }
         // S137 — `String(arr)` per ES §22.1.3.30 ToString of Array =
         // `arr.join(",")`. Element type picks the matching arr_join
         // intrinsic (same dispatch table as `arr.toString()` in
@@ -190,17 +232,23 @@ fn emit_to_string(ctx: &mut LowerCtx<'_>, arg_op: Operand, arg_ty: Type) -> Oper
                 _ => ctx.intrinsics.arr_join,
             };
             let sep = ctx.intern_string_literal(",");
-            Operand::Value(ctx.f.append_inst(
+            let s = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(join_fid, vec![arg_op, Operand::Value(sep)]),
+                InstKind::Call(join_fid, vec![arg_op.clone(), Operand::Value(sep)]),
                 Type::Str,
                 None,
-            ))
+            );
+            ctx.release_owned_temp(arg_eid, &arg_op);
+            Operand::Value(s)
         }
         // S137 — `String(struct)` per ES §20.1.4.4 generic Object
         // toString = `"[object Object]"`. Typed Obj has no per-instance
-        // toString slot; the literal is the spec-correct emit.
-        Type::Obj(_) => Operand::Value(ctx.intern_string_literal("[object Object]")),
+        // toString slot; the literal is the spec-correct emit. An owned
+        // temp receiver (Call result) still needs its release.
+        Type::Obj(_) => {
+            ctx.release_owned_temp(arg_eid, &arg_op);
+            Operand::Value(ctx.intern_string_literal("[object Object]"))
+        }
         _ => panic!("ssa-lower: String() with arg type {arg_ty:?} not yet supported"),
     }
 }

@@ -35,9 +35,7 @@ pub(crate) fn try_lower(
     let desc_op: Operand = if args.is_empty() {
         Operand::ConstPtrNull
     } else {
-        let v = ctx.lower_expr(args[0]);
-        ctx.consume_if_ident(args[0]);
-        v
+        ctx.lower_expr(args[0])
     };
     // S308 — lower-and-drop trailing args[1..] per S272 idiom so
     // step()-style side-effect exprs fire per ES §20.4.1 trailing-
@@ -48,9 +46,16 @@ pub(crate) fn try_lower(
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.symbol_alloc, vec![desc_op]),
+        InstKind::Call(ctx.intrinsics.symbol_alloc, vec![desc_op.clone()]),
         Type::Symbol,
         None,
     );
+    // `symbol_alloc` SHARES the desc (internal rc_inc + store, its own
+    // drop dec's it), so an Ident desc keeps its stake and its scope
+    // drop — the old consume path orphaned that stake (RFC 20260705
+    // ledger #3, 32B/iter probe). An owned temp desc releases here.
+    if !args.is_empty() {
+        ctx.release_owned_temp(args[0], &desc_op);
+    }
     Some(Operand::Value(v))
 }

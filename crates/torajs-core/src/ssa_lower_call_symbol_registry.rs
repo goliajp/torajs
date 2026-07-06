@@ -43,7 +43,6 @@ pub(crate) fn try_lower(
         return None;
     }
     let arg_op = ctx.lower_expr(args[0]);
-    ctx.consume_if_ident(args[0]);
     // S302 — lower-and-drop trailing args[1..] per S272 idiom so
     // step()-style side-effect exprs fire per ES eval-then-discard
     // (check.rs S259 already typecheck-dropped). Mirrors S255/S277/
@@ -57,8 +56,17 @@ pub(crate) fn try_lower(
         (ctx.intrinsics.symbol_key_for, Type::Str)
     };
     let cur_block = ctx.cur_block;
-    let v = ctx
-        .f
-        .append_inst(cur_block, InstKind::Call(fid, vec![arg_op]), ret_ty, None);
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(fid, vec![arg_op.clone()]),
+        ret_ty,
+        None,
+    );
+    // `symbol_for` shares the key on registry miss (delegates to
+    // symbol_alloc's internal inc) and borrows on hit; `symbol_key_for`
+    // borrows the sym. Either way the caller keeps its stake — the old
+    // consume path orphaned an Ident arg's stake (RFC 20260705 ledger
+    // #3, 32B/iter probe). Owned temp args release here.
+    ctx.release_owned_temp(args[0], &arg_op);
     Some(Operand::Value(v))
 }

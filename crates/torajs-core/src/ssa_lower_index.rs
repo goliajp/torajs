@@ -171,15 +171,21 @@ fn lower_array_any_index(ctx: &mut LowerCtx<'_>, arr_val: Operand, idx_val: Oper
 fn lower_any_index_str_key(ctx: &mut LowerCtx<'_>, obj_val: Operand, index: ExprId) -> Operand {
     let k_raw = ctx.lower_expr(index);
     let k_ty = ctx.operand_ty(&k_raw);
-    ctx.consume_if_ident(index);
     let owned = k_ty == Type::Substr;
-    let key_op = ctx.coerce_to_str(k_raw, k_ty);
+    let key_op = ctx.coerce_to_str(k_raw.clone(), k_ty);
     let Operand::Value(key_v) = key_op else {
         panic!("ssa-lower: string index key lowered to a non-value operand");
     };
     let out = crate::ssa_lower_any_member::emit_any_member_probe(ctx, &obj_val, key_v);
     if owned {
         ctx.emit_drop_value(key_op, Type::Str);
+    }
+    // The probe borrows the key (dynobj/arrprops hash lookup — no rc
+    // traffic, no storage), so an Ident key keeps its stake and its
+    // scope drop; an owned temp key (concat result / fresh view) is
+    // released here (RFC 20260705 ledger #3, 32B/iter probe).
+    if k_ty.is_refcounted() && ctx.expr_transfers_ownership(index) {
+        ctx.emit_drop_value(k_raw, k_ty);
     }
     out
 }

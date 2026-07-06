@@ -14,7 +14,8 @@
 //! - **S314** — ES §21.2.2.{1,2} silently ignore trailing args past
 //!   `(bits, value)`. Trailing args still get `lower_expr`'d (S272
 //!   idiom) so step()-style side-effect exprs fire left-to-right.
-//! - `consume_if_ident` on both leading args honours move-out.
+//! - args share: the helper borrows the value BigInt; owned temps
+//!   release post-call (RFC 20260705 ledger #3).
 //!
 //! Returns `Some(op)` on hit; `None` on miss (callee not the
 //! `BigInt.{asIntN|asUintN}` Member-Ident shape, or args.len < 2).
@@ -50,7 +51,6 @@ pub(crate) fn try_lower(
         return None;
     }
     let bits_op = ctx.lower_expr(args[0]);
-    ctx.consume_if_ident(args[0]);
     let bits_ty = ctx.operand_ty(&bits_op);
     let bits_i64 = match bits_ty {
         Type::I64 => bits_op,
@@ -64,7 +64,6 @@ pub(crate) fn try_lower(
         _ => bits_op,
     };
     let val_op = ctx.lower_expr(args[1]);
-    ctx.consume_if_ident(args[1]);
     for &a in args.iter().skip(2) {
         let _ = ctx.lower_expr(a);
     }
@@ -76,10 +75,15 @@ pub(crate) fn try_lower(
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(target, vec![bits_i64, val_op]),
+        InstKind::Call(target, vec![bits_i64, val_op.clone()]),
         Type::BigInt,
         None,
     );
+    // The helper borrows the value BigInt (reads words into a fresh
+    // result), so an Ident arg keeps its stake and its scope drop —
+    // the old consume path orphaned that stake (RFC 20260705 ledger
+    // #3). Owned temps release here.
+    ctx.release_owned_temp(args[1], &val_op);
     ctx.emit_throw_check(None);
     Some(Operand::Value(v))
 }

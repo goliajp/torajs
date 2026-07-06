@@ -140,7 +140,6 @@ fn emit_bigint_to_string(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprI
         return Operand::Value(v);
     }
     let radix_op = ctx.lower_expr(args[0]);
-    ctx.consume_if_ident(args[0]);
     let radix_ty = ctx.operand_ty(&radix_op);
     let radix_i64 = match radix_ty {
         Type::I64 => radix_op,

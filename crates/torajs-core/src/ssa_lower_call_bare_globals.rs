@@ -242,10 +242,12 @@ fn lower_is_nan_or_finite(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -
             Operand::Value(f)
         }
         Type::Str | Type::Substr => {
-            // Drop responsibility: fresh-owned strings (literals / concat
-            // results) need to dec after the helper reads them.
-            // ConsumIfIdent handled implicitly — same pattern as Number(s)
-            // ctor.
+            // Drop responsibility: fresh-owned strings (concat results)
+            // dec after the helper reads them. `str_to_number` borrows
+            // its arg (reads len + bytes, no rc traffic), so an Ident
+            // source keeps its own stake and its normal scope drop —
+            // the old consume path orphaned that stake (RFC 20260705
+            // ledger #3, 32B/iter probe).
             let v = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.str_to_number, vec![arg_op.clone()]),
@@ -254,8 +256,6 @@ fn lower_is_nan_or_finite(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -
             );
             if ctx.expr_is_fresh_owned(args[0]) {
                 ctx.emit_drop_value(arg_op, arg_ty);
-            } else {
-                ctx.consume_if_ident(args[0]);
             }
             Operand::Value(v)
         }

@@ -40,7 +40,6 @@ pub(crate) fn try_lower(
     }
     let arg_op = ctx.lower_expr(args[0]);
     let arg_ty = ctx.operand_ty(&arg_op);
-    ctx.consume_if_ident(args[0]);
     // S308 — lower-and-drop trailing args[1..] per S272 idiom so
     // step()-style side-effect exprs fire per ES §21.2.1 trailing-
     // arg ignore (check.rs S308 already typecheck-dropped).
@@ -51,26 +50,26 @@ pub(crate) fn try_lower(
     let v = match arg_ty {
         Type::BigInt => ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.bigint_clone, vec![arg_op]),
+            InstKind::Call(ctx.intrinsics.bigint_clone, vec![arg_op.clone()]),
             Type::BigInt,
             None,
         ),
         Type::Str => ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.bigint_from_str, vec![arg_op]),
+            InstKind::Call(ctx.intrinsics.bigint_from_str, vec![arg_op.clone()]),
             Type::BigInt,
             None,
         ),
         Type::F64 => ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.bigint_from_number, vec![arg_op]),
+            InstKind::Call(ctx.intrinsics.bigint_from_number, vec![arg_op.clone()]),
             Type::BigInt,
             None,
         ),
         Type::I64 => {
             let f = ctx
                 .f
-                .append_inst(cur_block, InstKind::SiToFp(arg_op), Type::F64, None);
+                .append_inst(cur_block, InstKind::SiToFp(arg_op.clone()), Type::F64, None);
             ctx.f.append_inst(
                 cur_block,
                 InstKind::Call(ctx.intrinsics.bigint_from_number, vec![Operand::Value(f)]),
@@ -80,5 +79,10 @@ pub(crate) fn try_lower(
         }
         _ => panic!("ssa-lower: BigInt() expects bigint / string / number arg, got {arg_ty:?}"),
     };
+    // `bigint_from_str` / `bigint_clone` borrow their arg (pure reads
+    // into a fresh BigInt), so an Ident arg keeps its stake and its
+    // scope drop — the old consume path orphaned that stake (RFC
+    // 20260705 ledger #3, 32B/iter probe). Owned temps release here.
+    ctx.release_owned_temp(args[0], &arg_op);
     Some(Operand::Value(v))
 }
