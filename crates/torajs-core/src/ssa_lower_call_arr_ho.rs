@@ -99,6 +99,9 @@ fn lower_higher_order(
             _ => None,
         } {
         let ret = ctx.fn_sigs[sig_id.0 as usize].1;
+        // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret callback
+        // maps every element to `undefined`; the dst holds Any boxes.
+        let ret = if ret == Type::Void { Type::Any } else { ret };
         let arr_id = intern_arr_layout(ctx.arr_layouts, ret);
         Type::Arr(arr_id)
     } else {
@@ -109,6 +112,9 @@ fn lower_higher_order(
     // it every iter), not receiver's elem: i64 elems + f64-widened
     // callback left the acc slot narrow → GPR/FPR mismatch (array-007).
     let acc_ty = match fn_ty {
+        // RC-1 — Void-ret callback: the fed-back accumulator is the
+        // boxed `undefined`, so the acc slot must hold an Any.
+        Type::FnSig(s) | Type::Closure(s) if ctx.fn_sigs[s.0 as usize].1 == Type::Void => Type::Any,
         Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].1,
         _ => elem_ty,
     };

@@ -202,14 +202,31 @@ fn emit_map(
     fn_ty: Type,
     sig_params: &[Type],
 ) {
-    let mapped = emit_do_call(
-        ctx,
-        sig_params,
-        known_fid,
-        fn_val,
-        fn_ty,
-        vec![Operand::Value(elem)],
-    );
+    // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret callback
+    // returns `undefined`: emit the call for side effects, push a
+    // boxed ANY_UNDEF per element (dst is Arr<Any> — the dispatch
+    // entry maps a Void callback ret to an Any dst elem).
+    let mapped_arg = if ctx.callback_ret_ty(fn_ty) == Some(Type::Void) {
+        let _ = emit_do_call(
+            ctx,
+            sig_params,
+            known_fid,
+            fn_val,
+            fn_ty,
+            vec![Operand::Value(elem)],
+        );
+        Operand::Value(emit_undef_any_box(ctx))
+    } else {
+        let mapped = emit_do_call(
+            ctx,
+            sig_params,
+            known_fid,
+            fn_val,
+            fn_ty,
+            vec![Operand::Value(elem)],
+        );
+        ctx.raw_slot_arg(Operand::Value(mapped))
+    };
     // M6.2 fast-path — dst was reserve'd above the loop, so the unchecked
     // push elides the per-call capacity check.
     let cur_dst = ctx.f.append_inst(
@@ -218,7 +235,6 @@ fn emit_map(
         dst_arr_ty,
         None,
     );
-    let mapped_arg = ctx.raw_slot_arg(Operand::Value(mapped));
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Call(
@@ -239,6 +255,19 @@ fn emit_filter(
     fn_ty: Type,
     sig_params: &[Type],
 ) {
+    // RC-1 — Void-ret predicate: ToBoolean(undefined) = false, so no
+    // element is ever kept. Emit the call for side effects only.
+    if ctx.callback_ret_ty(fn_ty) == Some(Type::Void) {
+        let _ = emit_do_call(
+            ctx,
+            sig_params,
+            known_fid,
+            fn_val,
+            fn_ty,
+            vec![Operand::Value(elem)],
+        );
+        return;
+    }
     let keep = emit_do_call(
         ctx,
         sig_params,
@@ -293,14 +322,29 @@ fn emit_reduce(
         acc_ty,
         None,
     );
-    let new_acc = emit_do_call(
-        ctx,
-        sig_params,
-        known_fid,
-        fn_val,
-        fn_ty,
-        vec![Operand::Value(acc_now), Operand::Value(elem)],
-    );
+    // RC-1 — Void-ret callback: the new accumulator is `undefined`
+    // (boxed ANY_UNDEF; the dispatch entry maps a Void callback ret
+    // to an Any acc slot).
+    let new_acc = if ctx.callback_ret_ty(fn_ty) == Some(Type::Void) {
+        let _ = emit_do_call(
+            ctx,
+            sig_params,
+            known_fid,
+            fn_val,
+            fn_ty,
+            vec![Operand::Value(acc_now), Operand::Value(elem)],
+        );
+        emit_undef_any_box(ctx)
+    } else {
+        emit_do_call(
+            ctx,
+            sig_params,
+            known_fid,
+            fn_val,
+            fn_ty,
+            vec![Operand::Value(acc_now), Operand::Value(elem)],
+        )
+    };
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(
@@ -309,6 +353,20 @@ fn emit_reduce(
             0,
         ),
     );
+}
+
+/// RC-1 — a boxed `undefined` AnyValue (`any_box(ANY_UNDEF=5, 0)`),
+/// the JS result of calling a callback that never returns a value.
+fn emit_undef_any_box(ctx: &mut LowerCtx<'_>) -> ValueId {
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_box,
+            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+        ),
+        Type::Any,
+        None,
+    )
 }
 
 /// W4 / devirt dispatch — align arg widths with callback sig (f64-param

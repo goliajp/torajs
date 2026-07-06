@@ -43,6 +43,19 @@ impl<'a> LowerCtx<'a> {
         Some(self.fn_sigs[sig_id.0 as usize].0.clone())
     }
 
+    /// RC-1 (RFC 20260706-test262-bug-corpus) — a callable's declared
+    /// return type. The HO array arms use this to detect Void-returning
+    /// callbacks: their call produces no value, so the consumers fold
+    /// the use to the JS `undefined` semantic (ToBoolean → false /
+    /// boxed ANY_UNDEF) instead of reading the void call's result.
+    pub(crate) fn callback_ret_ty(&self, fn_ty: Type) -> Option<Type> {
+        let sig_id = match fn_ty {
+            Type::FnSig(s) | Type::Closure(s) => s,
+            _ => return None,
+        };
+        Some(self.fn_sigs[sig_id.0 as usize].1)
+    }
+
     /// Phase Substr.B — boundary materialization. If the callee expects
     /// `Type::Str` for an arg position and the actual operand is
     /// `Type::Substr`, allocate an owned Str via substr_to_owned and

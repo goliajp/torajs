@@ -112,6 +112,21 @@ fn setup_result_slot(ctx: &mut LowerCtx<'_>, method: &str, elem_ty: Type) -> (Ty
             Type::I64 => Operand::ConstI64(0),
             Type::F64 => Operand::ConstF64(0.0),
             Type::Bool => Operand::ConstBool(false),
+            // RC-1 — an Any slot must default to the boxed `undefined`
+            // (ES no-match result); raw null-ptr bits are not a valid
+            // NaN-box and render as [unknown-any-tag] downstream.
+            Type::Any => {
+                let undef = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.any_box,
+                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                    ),
+                    Type::Any,
+                    None,
+                );
+                Operand::Value(undef)
+            }
             _ => Operand::ConstPtrNull,
         },
         _ => unreachable!(),
@@ -258,19 +273,30 @@ fn emit_body_and_step(
         elem_ty,
         None,
     );
-    let pred_v = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)]);
+    // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret predicate
+    // returns `undefined`; ToBoolean folds every hit test to false
+    // (ES §23.1.3.{8-11,30}). Emit the call for its side effects
+    // only — consuming the void call's value is the SIGTRAP lane.
+    let cb_ret_void = ctx.callback_ret_ty(fn_ty) == Some(Type::Void);
+    let pred_op: Operand = if cb_ret_void {
+        let _ = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)]);
+        Operand::ConstBool(false)
+    } else {
+        let pred_v = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)]);
+        Operand::Value(pred_v)
+    };
     // some + findIndex break on `pred == true`; every breaks on
     // `pred == false`.
     let break_cond = if method == "every" {
         let inv = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::ICmp(IPred::Eq, Operand::Value(pred_v), Operand::ConstBool(false)),
+            InstKind::ICmp(IPred::Eq, pred_op, Operand::ConstBool(false)),
             Type::Bool,
             None,
         );
         Operand::Value(inv)
     } else {
-        Operand::Value(pred_v)
+        pred_op
     };
     let hit_blk = ctx.f.add_block();
     let next_blk = ctx.f.add_block();

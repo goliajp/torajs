@@ -155,5 +155,13 @@ pub(crate) fn try_route(
     ) {
         return Some(r);
     }
+    // RC-1 (RFC 20260706-test262-bug-corpus) — Array predicate
+    // methods × Void-ret callback ToBoolean acceptance wedge —
+    // see [`crate::check_type_of_call_arr_pred_void_cb`].
+    if let Some(r) =
+        crate::check_type_of_call_arr_pred_void_cb::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     None
 }

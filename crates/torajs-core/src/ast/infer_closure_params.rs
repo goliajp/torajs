@@ -357,6 +357,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             name,
             params,
             return_type,
+            body,
             ..
         } = stmt
             && let Some((new_param_anns, new_ret_ann)) = updates.get(name)
@@ -376,9 +377,58 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
                     p.type_ann = Some(ann.clone());
                 }
             }
-            if return_type.is_none() {
+            if return_type.is_none() && body_returns_value(body) {
                 *return_type = Some(new_ret_ann.clone());
             }
         }
     }
+}
+
+/// True when any statement in `body` (recursing through control-flow
+/// constructs) is a `return <expr>;`. A closure whose body never
+/// produces a value must keep its `Void` return type — seeding a value
+/// ret ann onto it makes the lowered fn fall off the end of a value-
+/// returning signature, which codegen terminates with `unreachable`
+/// (SIGTRAP at the first call). JS-wise such a callback returns
+/// `undefined`; the Void-ret callback arms in check / ssa_lower carry
+/// that semantic instead.
+fn body_returns_value(body: &[Stmt]) -> bool {
+    body.iter().any(|s| match s {
+        Stmt::Return(ret) => ret.is_some(),
+        Stmt::Block(inner) | Stmt::Multi(inner) => body_returns_value(inner),
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            body_returns_value(std::slice::from_ref(then_branch.as_ref()))
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|eb| body_returns_value(std::slice::from_ref(eb.as_ref())))
+        }
+        Stmt::While { body, .. }
+        | Stmt::DoWhile { body, .. }
+        | Stmt::ForOfSplitIter { body, .. }
+        | Stmt::ForOf { body, .. } => body_returns_value(std::slice::from_ref(body.as_ref())),
+        Stmt::For { init, body, .. } => {
+            init.as_ref()
+                .is_some_and(|i| body_returns_value(std::slice::from_ref(i.as_ref())))
+                || body_returns_value(std::slice::from_ref(body.as_ref()))
+        }
+        Stmt::Switch { cases, default, .. } => {
+            cases.iter().any(|c| body_returns_value(&c.body))
+                || default.as_ref().is_some_and(|d| body_returns_value(d))
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            body_returns_value(body)
+                || body_returns_value(catch_body)
+                || finally_body.as_ref().is_some_and(|f| body_returns_value(f))
+        }
+        _ => false,
+    })
 }
