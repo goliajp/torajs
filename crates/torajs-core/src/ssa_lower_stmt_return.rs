@@ -95,6 +95,22 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
         if actual == Type::Any && matches!(ctx.f.ret, Type::I64 | Type::F64) {
             return ctx.coerce_any_to_number(op, ctx.f.ret);
         }
+        if actual == Type::Any && ctx.f.ret == Type::Str {
+            // RC-4 — Any-typed value returned where the declared
+            // return is Str: `anyv_to_str` materializes (fresh
+            // owned; a short-str immediate box would otherwise be
+            // deref'd as a Str pointer by the caller — heap results
+            // only survived because a cell box IS the raw pointer).
+            // The Any box's own stake settles via the box drop.
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_to_str_box, vec![op]),
+                Type::Str,
+                None,
+            );
+            ctx.emit_drop_value(op, Type::Any);
+            return Operand::Value(v);
+        }
         if ctx.f.ret == Type::F64 && actual == Type::I64 {
             ctx.coerce_to_f64(op)
         } else if ctx.f.ret == Type::I64 && actual == Type::F64 {

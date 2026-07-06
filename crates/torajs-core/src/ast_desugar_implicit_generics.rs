@@ -229,6 +229,13 @@ pub(crate) fn run(ast: &mut Ast) {
                     infer_return_ann_seeded(ast_exprs_view, body, params, &outer_binds, &fn_sigs)
                 {
                     *return_type = Some(inferred);
+                } else if name.starts_with("__closure_") {
+                    // RC-4 — a value return the static sniff can't
+                    // type (any-param method call / any arith) must
+                    // not silently become Void: the callee then
+                    // DROPPED its return value and every call read 0.
+                    // Fall back to `any`, mirroring the param default.
+                    *return_type = Some("any".to_string());
                 }
             }
             if first_kind.as_deref() == Some("__this")
@@ -252,6 +259,10 @@ pub(crate) fn run(ast: &mut Ast) {
             if return_type.is_none() && body_has_value_return(body) {
                 if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params, &fn_sigs) {
                     *return_type = Some(inferred);
+                } else {
+                    // RC-4 — un-typeable value return falls back to
+                    // `any` instead of Void (see the __env arm above).
+                    *return_type = Some("any".to_string());
                 }
             }
             continue;
@@ -339,6 +350,10 @@ fn preinfer_closure_sigs(
             };
             if let Some(ann) = inferred {
                 *return_type = Some(ann);
+            } else {
+                // RC-4 — un-typeable value return falls back to `any`
+                // instead of Void (dropped return, every call read 0).
+                *return_type = Some("any".to_string());
             }
         }
     }
