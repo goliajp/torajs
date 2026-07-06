@@ -158,6 +158,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.arr_flat
             || fid == i.arr_flat_any
             || fid == i.arr_extend_typed_into_any
+            || fid == i.arr_any_slice
             || fid == i.arr_concat
             || fid == i.arr_reverse
             || fid == i.arr_fill

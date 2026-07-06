@@ -59,12 +59,18 @@ pub(crate) fn try_match(
     }
     // ES §23.1.3.2 — every arg is either an Array<T> (spread
     // into the result) or a single T value (appended as one
-    // element). Mixed shapes are valid.
+    // element). Mixed shapes are valid. An Any-elem receiver
+    // accepts every value / array shape (the Any concat lane
+    // NaN-boxes per slot), so no narrowing applies there.
+    let recv_any = matches!(expected, Type::Any);
     for a in args {
         let a_ty = match checker.type_of(ast, *a) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
+        if recv_any {
+            continue;
+        }
         let is_arr_t = a_ty == Type::Array(Box::new(expected.clone()));
         let is_scalar_t = a_ty == expected;
         if !is_arr_t && !is_scalar_t {

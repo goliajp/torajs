@@ -212,6 +212,7 @@ pub(crate) fn build(
         arr_push_any: init_b.arr_any.arr_push_any,
         arr_fill_any: init_b.arr_any.arr_fill_any,
         arr_extend_any: init_b.arr_any.arr_extend_any,
+        arr_any_slice: init_b.arr_any.arr_any_slice,
         arr_set_any: init_b.arr_any.arr_set_any,
         arr_set_any_grow: init_b.arr_any.arr_set_any_grow,
         arr_oob_write_reject: init_b.arr_any.arr_oob_write_reject,

@@ -39,6 +39,7 @@ pub(crate) struct ArrAnyIds {
     pub arr_push_any: FuncId,
     pub arr_fill_any: FuncId,
     pub arr_extend_any: FuncId,
+    pub arr_any_slice: FuncId,
     pub arr_set_any: FuncId,
     pub arr_set_any_grow: FuncId,
     pub arr_oob_write_reject: FuncId,
@@ -87,6 +88,17 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_arr_extend_any",
             &[Type::Ptr, Type::Ptr],
+            Type::Ptr,
+        ),
+        // Flag-aware slice (concat's fresh-copy seed): FLAG_ARR_ANY
+        // propagates onto the fresh header + per-slot NaN-box-safe
+        // rc_inc — unlike raw arr_slice, whose product is flag-blind
+        // (the drop walker then never decs the elements).
+        arr_any_slice: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_any_slice",
+            &[Type::Ptr, Type::I64, Type::I64],
             Type::Ptr,
         ),
         arr_set_any: declare_intrinsic(

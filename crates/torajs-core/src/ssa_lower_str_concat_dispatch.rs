@@ -86,6 +86,13 @@ pub(crate) fn try_dispatch(
     if let Type::Arr(arr_id) = recv_ty
         && method == "concat"
     {
+        // Any receiver — every step must stay FLAG_ARR_ANY-aware
+        // (raw arr_slice / arr_concat products are flag-blind and a
+        // scalar arg would be deref'd as an array pointer). Dedicated
+        // lane below.
+        if matches!(ctx.arr_layouts[arr_id.0 as usize], Type::Any) {
+            return Some(lower_concat_any_recv(ctx, recv_op, arr_id, args));
+        }
         // 0-arg form ≡ shallow copy. Lower as
         // `arr_slice(recv, 0, len)` — the refcount-inc
         // walk below handles non-Copy elements the
@@ -153,52 +160,15 @@ pub(crate) fn try_dispatch(
                 acc = Operand::Value(v);
                 continue;
             }
-            // S129-4 Array<Any>.concat(Array<typed>) — receiver elem
-            // is Any (NaN-box AnyValue per slot), arg is a typed
-            // Array<T>. The classic arr_concat is a raw 8B-stride
-            // memcpy which would copy T's raw bits straight into
-            // Array<Any> slots — wrong (NaN-box expects tag/value
-            // pairs). Route to arr_extend_typed_into_any with the
-            // T-derived elem_tag so the runtime pairs each raw slot
-            // with the right ANY_* tag before append. Heap T's
-            // rc_inc is handled inside the helper. Same Array<Any>
-            // mixed-typed escape series as S128-1..3 push / fill.
-            let typed_into_any = matches!(recv_elem, Type::Any)
-                && matches!(other_ty, Type::Arr(oid) if !matches!(ctx.arr_layouts[oid.0 as usize], Type::Any));
-            let v = if typed_into_any {
-                let Type::Arr(oid) = other_ty else {
-                    unreachable!()
-                };
-                let oet = ctx.arr_layouts[oid.0 as usize];
-                let elem_tag = match oet {
-                    Type::Bool => 1,
-                    Type::I64 | Type::I32 => 2,
-                    Type::F64 => 3,
-                    t if t.is_refcounted() => 4,
-                    other => panic!(
-                        "ssa-lower: Array<Any>.concat typed-arg elem {other:?} not supported"
-                    ),
-                };
-                ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.arr_extend_typed_into_any,
-                        vec![acc, other, Operand::ConstI64(elem_tag)],
-                    ),
-                    Type::Arr(arr_id),
-                    None,
-                )
-            } else {
-                ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.arr_concat, vec![acc, other]),
-                    Type::Arr(arr_id),
-                    None,
-                )
-            };
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.arr_concat, vec![acc, other]),
+                Type::Arr(arr_id),
+                None,
+            );
             acc = Operand::Value(v);
-            // arr_concat / arr_extend_typed_into_any both return new
-            // ptrs — acc is now detached from the receiver buffer.
+            // arr_concat returns a new ptr — acc is now detached
+            // from the receiver buffer.
             acc_is_fresh = true;
         }
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
@@ -214,4 +184,100 @@ pub(crate) fn try_dispatch(
         return Some(acc);
     }
     None
+}
+
+/// `<Arr<Any>>.concat(...)` — dedicated lane over the
+/// FLAG_ARR_ANY-aware runtime family. The typed lane's helpers are
+/// flag-blind (`arr_slice` / `arr_concat` products lose FLAG_ARR_ANY
+/// → the drop walker never decs the NaN-box elements; a scalar arg
+/// reaches `arr_concat` as a fake array pointer → SIGSEGV).
+///
+/// rc ledger — every step incs the slots it writes itself
+/// (`arr_any_slice` seed, `arr_extend_any`, the in-place
+/// `arr_extend_typed_into_any`, `pack_any_elem`), so no trailing raw
+/// inc walk runs here (it would double-inc, and raw `rc_inc` over
+/// NaN-box bits only survives via the cell-like guard). Owned-temp
+/// args release their own stake post-step (share contract, RFC
+/// 20260705).
+fn lower_concat_any_recv(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    arr_id: crate::ssa::ArrId,
+    args: &[ExprId],
+) -> Operand {
+    // Seed: fresh flag-aware shallow copy — ES §23.1.3.2 concat
+    // never mutates the receiver, and the extend helpers below
+    // append in place.
+    let len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, recv_op.clone(), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let seed = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_any_slice,
+            vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
+        ),
+        Type::Arr(arr_id),
+        None,
+    );
+    let mut acc = Operand::Value(seed);
+    for &a in args {
+        let other = ctx.lower_expr(a);
+        let other_ty = ctx.operand_ty(&other);
+        let transfers = ctx.expr_transfers_ownership(a);
+        let v = match other_ty {
+            Type::Arr(oid) => {
+                let oet = ctx.arr_layouts[oid.0 as usize];
+                if matches!(oet, Type::Any) {
+                    ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.arr_extend_any, vec![acc, other.clone()]),
+                        Type::Arr(arr_id),
+                        None,
+                    )
+                } else {
+                    let elem_tag = match oet {
+                        Type::Bool => 1,
+                        Type::I64 | Type::I32 => 2,
+                        Type::F64 => 3,
+                        t if t.is_refcounted() => 4,
+                        other => panic!(
+                            "ssa-lower: Array<Any>.concat typed-arg elem {other:?} not supported"
+                        ),
+                    };
+                    ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(
+                            ctx.intrinsics.arr_extend_typed_into_any,
+                            vec![acc, other.clone(), Operand::ConstI64(elem_tag)],
+                        ),
+                        Type::Arr(arr_id),
+                        None,
+                    )
+                }
+            }
+            _ => {
+                // ES §23.1.3.2 — non-array arg appends as a single
+                // element. pack_any_elem incs refcounted values /
+                // unboxes Any pairs; arr_push_any adopts the pair.
+                let (tag_op, value_op) = ctx.pack_any_elem(other.clone(), other_ty, Some(a));
+                ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.arr_push_any, vec![acc, tag_op, value_op]),
+                    Type::Arr(arr_id),
+                    None,
+                )
+            }
+        };
+        acc = Operand::Value(v);
+        // Owned-temp arg: the slot took its own inc'd stake above —
+        // release the temp's stake so it doesn't orphan.
+        if transfers && other_ty.is_refcounted() {
+            ctx.emit_drop_value(other, other_ty);
+        }
+    }
+    acc
 }
