@@ -57,6 +57,16 @@ pub(crate) fn check(
             }
         }
     };
+    // Chunk 618 — a void-call init binds undefined (the call runs
+    // for effect; a fn that produces no value returns undefined).
+    // Void is not a value type: pre-fix the binding carried Void
+    // and every consumer (print / any-box) panicked at lower time
+    // ("box_to_any element type Void", p1 probe).
+    let init_ty = if init_ty == Type::Void {
+        Type::Undefined
+    } else {
+        init_ty
+    };
     let final_ty = match type_ann {
         None => init_ty,
         Some(ann) => {

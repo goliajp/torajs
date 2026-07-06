@@ -360,6 +360,16 @@ fn try_lower_fn_addr_let(ctx: &mut LowerCtx, name: &str, init: ExprId) -> bool {
 /// annotation), Arr<Any> literal, P3.2 `any`-annotated ObjectLit → dynobj
 /// / Array → any-literal, else plain `lower_expr`
 fn lower_let_init_val(ctx: &mut LowerCtx, ty: Type, init: ExprId) -> Operand {
+    // Chunk 618 — a void-call init evaluates for effect and binds
+    // undefined (the checker typed the binding Undefined;
+    // ConstPtrNull is the same representation an uninitialized
+    // `let w;` binding carries). Keyed on the CHECKER type of the
+    // init expr — the ssa `ty` param uses Void as its no-annotation
+    // sentinel and can't discriminate.
+    if matches!(ctx.expr_types.get(&init), Some(crate::check::Type::Void)) {
+        let _ = ctx.lower_expr(init);
+        return Operand::ConstPtrNull;
+    }
     if let Expr::Array(els) = ctx.ast.get_expr(init)
         && els.is_empty()
     {

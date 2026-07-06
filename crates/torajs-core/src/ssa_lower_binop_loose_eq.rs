@@ -46,9 +46,33 @@ pub(crate) fn try_lower(
     let b_nullish =
         b_is_null || ctx.binop_right_undef_id.is_some() || ctx.binop_right_null_id.is_some();
     if a_nullish ^ b_nullish
-        && let Some(v) = try_lower_any_loose_eq_null(ctx, op, a, b, a_nullish)
+        && let Some(v) = try_lower_any_loose_eq_null(ctx, op, a.clone(), b.clone(), a_nullish)
     {
         return Some(v);
+    }
+    // Chunk 618 — heap-reference × nullish compares the POINTER at
+    // runtime: a Nullable narrow can leak a nullish value into a
+    // bare heap-typed binding (p2 probe), and a NULL Str slot means
+    // undefined by the 591 convention — one icmp is correct in
+    // every case, while the static cross-type-false fold below is
+    // only sound for value types.
+    if a_nullish ^ b_nullish {
+        let ptr_op = if a_nullish { b.clone() } else { a.clone() };
+        if is_heap_ref(&ctx.operand_ty(&ptr_op)) {
+            let pred = if matches!(op, AstBinOp::LooseEq) {
+                IPred::Eq
+            } else {
+                IPred::Ne
+            };
+            let cur_block = ctx.cur_block;
+            let v = ctx.f.append_inst(
+                cur_block,
+                InstKind::ICmp(pred, ptr_op, Operand::ConstPtrNull),
+                Type::Bool,
+                None,
+            );
+            return Some(Operand::Value(v));
+        }
     }
     if a_nullish || b_nullish {
         let result = a_nullish && b_nullish;
@@ -68,6 +92,35 @@ pub(crate) fn try_lower(
         return Some(v);
     }
     None
+}
+
+/// Heap-pointer SSA types whose loose-eq-vs-nullish is a runtime
+/// `ptr == null` icmp (chunk 618). `Str` rides along — the 591
+/// convention stores undefined in a Str slot as NULL, and
+/// `undefined == null` is true. FnSig stays out (raw fn addresses
+/// are never null; the checker doesn't admit the pair yet).
+fn is_heap_ref(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Str
+            | Type::Substr
+            | Type::Obj(_)
+            | Type::Arr(_)
+            | Type::Closure(_)
+            | Type::RegExp
+            | Type::Date
+            | Type::Symbol
+            | Type::Promise
+            | Type::BigInt
+            | Type::WeakRef
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::Map
+            | Type::Set
+            | Type::MapIter
+            | Type::ArrIter
+            | Type::Ptr
+    )
 }
 
 fn try_lower_any_loose_eq_null(

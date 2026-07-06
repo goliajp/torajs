@@ -144,6 +144,35 @@ pub(crate) fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
     if (nullish(l) && primitive(r)) || (nullish(r) && primitive(l)) {
         return true;
     }
+    // Chunk 618 — nullish × heap-reference (`arr == null`, `obj !=
+    // null`, ...) is everyday JS null-probing (§7.2.13 steps 2-3:
+    // an object never loose-equals nullish, but the VALUE may be
+    // nullish — a Nullable narrow can leak a null into a bare
+    // heap-typed binding, p2 probe). ssa_lower emits a runtime
+    // `ptr == null` icmp, correct in both cases.
+    let heap_ref = |t: &Type| {
+        matches!(
+            t,
+            Type::Array(_)
+                | Type::Struct(_)
+                | Type::Object(_)
+                | Type::ClassRef(_)
+                | Type::Map
+                | Type::Set
+                | Type::MapIter
+                | Type::ArrIter
+                | Type::Date
+                | Type::RegExp
+                | Type::Symbol
+                | Type::Promise(_)
+                | Type::WeakRef
+                | Type::WeakMap
+                | Type::WeakSet
+        )
+    };
+    if (nullish(l) && heap_ref(r)) || (nullish(r) && heap_ref(l)) {
+        return true;
+    }
     // ES §7.2.13 step 6 — String <-> Number cross-pair coerces the
     // string side via ToNumber + numeric compare. ssa_lower
     // (loose-eq arm following the nullish fold) emits
