@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T18:55:27.445Z",
+  "generatedAt": "2026-07-06T19:04:02.518Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c17a79b5",
-    "commitSubject": "feat: admit nullish x any loose equality (test262-bug-corpus RC-4, chunk 619)",
+    "commit": "80b8534e",
+    "commitSubject": "fix: collect_white notifies weakref registry before freeing a named-class obj (test262-bug-corpus RC-4, chunk 620)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "80b8534e",
+      "subject": "fix: collect_white notifies weakref registry before freeing a named-class obj (test262-bug-corpus RC-4, chunk 620)"
+    },
+    {
+      "hash": "2e67c6ae",
+      "subject": "chore(dashboard): session snapshot @ c17a79b5 — rotation 36 (614-619: cycle collector reclaims arr-participating cycles via drop-site buffering + collect_white re-drop guard + buffer realloc safety, any[] field literal alloc routing, registered-symbol weak key rejection, indexOf-family null needle admit+fold pair, named-fn replace cb forwarder, heap-ref nullish loose eq via ptr cmp, void-call init binds undefined, nullish x any loose admit; gate 1250 -> 1256 six green, RC-4 queue explicit items + 612 admit faces all closed)"
+    },
+    {
       "hash": "c17a79b5",
       "subject": "feat: admit nullish x any loose equality (test262-bug-corpus RC-4, chunk 619)"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "45592e88",
       "subject": "fix: release the grow-spilled data buffer in arr_drop_any and cycle collect_white (B1 retrofit miss, chunk 611)"
-    },
-    {
-      "hash": "4d6ea119",
-      "subject": "fix: owning pair sites take the slot stake via owned unbox (test262-bug-corpus RC-4 pair-unbox leak, chunk 610)"
-    },
-    {
-      "hash": "6882e0d4",
-      "subject": "fix: borrow-shaped pair consumers settle shortstr materialized temps (test262-bug-corpus RC-4 pair-unbox leak, chunk 609)"
     }
   ],
-  "headSha": "c17a79b5",
+  "headSha": "80b8534e",
   "autorun": {
     "total": 344,
     "baselineTarget": 10,
