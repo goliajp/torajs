@@ -134,10 +134,7 @@ impl<'a> LowerCtx<'a> {
                     arr_ty,
                     None,
                 );
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(new_arr), base, offset),
-                );
+                // B1 — cell fixed across grow; slot write-back retired.
                 let new_len = self.f.append_inst(
                     self.cur_block,
                     InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
@@ -174,10 +171,7 @@ impl<'a> LowerCtx<'a> {
             arr_ty,
             None,
         );
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(Operand::Value(new_arr), base, offset),
-        );
+        // B1 — cell fixed across grow; slot write-back retired.
         let new_len = self.f.append_inst(
             self.cur_block,
             InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),

@@ -105,7 +105,6 @@ pub(crate) fn synthesize_main(
             closure_captures,
             call_retargets,
             may_throw_fns,
-            captured_arr_writeback: HashMap::new(),
             escape_captured_lets: std::collections::HashSet::new(),
             push_unchecked_for: std::collections::HashMap::new(),
             regex_lit_cache: std::collections::HashMap::new(),

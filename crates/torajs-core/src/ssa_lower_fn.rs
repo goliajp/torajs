@@ -163,7 +163,6 @@ pub(crate) fn lower_fn(
         closure_captures,
         call_retargets,
         may_throw_fns,
-        captured_arr_writeback: HashMap::new(),
         escape_captured_lets: std::collections::HashSet::new(),
         push_unchecked_for: std::collections::HashMap::new(),
         regex_lit_cache: std::collections::HashMap::new(),
@@ -372,10 +371,6 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
                 );
-                if matches!(cap_ty, Type::Arr(_)) {
-                    self.captured_arr_writeback
-                        .insert(local, (env_slot, offset));
-                }
                 local
             };
             self.locals.insert(

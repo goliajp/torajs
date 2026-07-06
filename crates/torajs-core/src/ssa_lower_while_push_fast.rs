@@ -111,10 +111,7 @@ pub(crate) fn lower_while_inner(
                 info.ty,
                 None,
             );
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(reserved), Operand::Value(info.slot), 0),
-            );
+            // B1 — reserve never moves the cell; write-back retired.
             let head_x8 = ctx.emit_arr_head_x8(Operand::Value(reserved));
             let head_off = match head_x8 {
                 Operand::Value(v) => v,

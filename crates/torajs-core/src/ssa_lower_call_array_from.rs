@@ -189,10 +189,8 @@ fn emit_map_loop(ctx: &mut LowerCtx<'_>, src_arr_op: Operand, args: &[ExprId]) -
         dst_arr_ty,
         None,
     );
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(reserved), Operand::Value(dst_slot), 0),
-    );
+    // B1 — reserve never moves the cell; write-back retired.
+    let _ = reserved;
     let header_blk = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
     let after_blk = ctx.f.add_block();

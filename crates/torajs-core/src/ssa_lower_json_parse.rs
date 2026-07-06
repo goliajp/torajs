@@ -164,10 +164,8 @@ impl LowerCtx<'_> {
                 slot_ty,
                 None,
             );
-            self.f.append_void(
-                self.cur_block,
-                InstKind::Store(Operand::Value(new_arr), Operand::Value(arr_slot), 0),
-            );
+            // B1 — push never moves the cell; write-back retired.
+            let _ = new_arr;
             self.f.set_term(self.cur_block, Terminator::Br(header));
             self.cur_block = header;
             let step = self.f.append_inst(

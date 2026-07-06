@@ -90,10 +90,8 @@ pub(crate) fn begin_loop(
             dst_arr_ty,
             None,
         );
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::Value(reserved), Operand::Value(slot), 0),
-        );
+        // B1 — reserve never moves the cell; write-back retired.
+        let _ = reserved;
     }
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
     ctx.cur_block = header_blk;

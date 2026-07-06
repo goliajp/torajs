@@ -26,12 +26,16 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
-/// Where the (possibly realloc'd) array pointer can be stored back.
+/// Receiver shapes that historically had a slot to store a
+/// realloc'd pointer back into — B1 retired the store itself (the
+/// cell is fixed across grow); the enum survives purely as the
+/// "may grow" gate. Widening non-receiver shapes to grow too is a
+/// semantic change parked in the RFC.
 enum WriteBack {
-    /// Ident bound to a mutable local — `info.slot` alloca.
-    Local(crate::ssa::ValueId),
+    /// Ident bound to a mutable local.
+    Local,
     /// Ident bound to a K.3 const-global array.
-    Global(String),
+    Global,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -129,10 +133,10 @@ impl<'a> LowerCtx<'a> {
         // helper; absent → the plain entry whose OOB path is a loud
         // RangeError.
         let writeback: Option<WriteBack> = if let Expr::Ident(name) = self.ast.get_expr(obj) {
-            if let Some(info) = self.locals.get(name).copied() {
-                Some(WriteBack::Local(info.slot))
+            if self.locals.contains_key(name) {
+                Some(WriteBack::Local)
             } else if self.globals.contains_key(name) {
-                Some(WriteBack::Global(name.clone()))
+                Some(WriteBack::Global)
             } else {
                 None
             }
@@ -328,26 +332,8 @@ impl<'a> LowerCtx<'a> {
                     arr_ty,
                     None,
                 );
-                match wb {
-                    WriteBack::Local(slot) => {
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(new_arr), Operand::Value(slot), 0),
-                        );
-                    }
-                    WriteBack::Global(name) => {
-                        let gref = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::GlobalRef(name),
-                            Type::Ptr,
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(new_arr), Operand::Value(gref), 0),
-                        );
-                    }
-                }
+                // B1 — cell fixed across grow; write-back retired.
+                let _ = (wb, new_arr);
             }
             None => {
                 self.f.append_void(

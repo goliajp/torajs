@@ -161,29 +161,9 @@ fn try_lower_ident_local(
     if elem_ty.is_refcounted() && !val_owned_from_substr {
         ctx.emit_rc_inc(val);
     }
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(new_arr), Operand::Value(info.slot), 0),
-    );
-    // M2 — if this ident is a captured array, the env block holds the
-    // pre-realloc ptr value. Mirror the new ptr to env+offset so the next
-    // invocation of the same closure sees the live buffer (body's prologue
-    // re-loads from env every call). This does NOT propagate back to the
-    // outer scope's slot — value-shape capture means the outer slot keeps
-    // its original ptr; capturing-and-mutating + outer-scope-reads is a
-    // documented limitation.
-    if let Some((env_slot, env_offset)) = ctx.captured_arr_writeback.get(&info.slot).copied() {
-        let env_ptr = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
-            Type::Ptr,
-            None,
-        );
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::Value(new_arr), Operand::Value(env_ptr), env_offset),
-        );
-    }
+    // B1 (RFC 20260706-arr-grow-alias-stability): the cell never
+    // moves, so the historical slot write-back + captured-env mirror
+    // are retired — every alias already sees the grown buffer.
     // chunk 9c — push spec parity: ret new length per JS spec §22.1.3.20.
     let new_len = ctx.f.append_inst(
         ctx.cur_block,
@@ -248,10 +228,7 @@ fn try_lower_ident_global(
     if elem_ty.is_refcounted() && !val_owned_from_substr {
         ctx.emit_rc_inc(val);
     }
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(new_arr), Operand::Value(slot_ptr), 0),
-    );
+    // B1 — cell fixed across grow; global-slot write-back retired.
     let new_len = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
@@ -321,10 +298,7 @@ fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
     if elem_ty.is_refcounted() {
         ctx.emit_rc_inc(val);
     }
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(new_arr), obj_val, offset),
-    );
+    // B1 — cell fixed across grow; field write-back retired.
     let new_len = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),

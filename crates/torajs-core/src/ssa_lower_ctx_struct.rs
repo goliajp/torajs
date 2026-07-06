@@ -206,17 +206,6 @@ pub(crate) struct LowerCtx<'a> {
     /// `Expr::Call` arm rewrites the callee Ident to the mono name from
     /// this map before falling through to the regular call lowering.
     pub(crate) call_retargets: &'a CallRetargets,
-    /// M2 — env-write-back map for captured-array mutability. When a
-    /// closure captures a `Type::Arr` binding and pushes into it, the
-    /// element buffer may realloc; the local cap_slot stores the new
-    /// pointer, but the env block still holds the stale one. Each
-    /// captured-array slot is registered here as
-    /// `cap_slot_value -> (env_slot, env_offset)`; the push special-case
-    /// mirrors every Store-to-cap_slot to env_ptr+offset, so subsequent
-    /// captures (or re-entries of the same closure body) see the live
-    /// pointer. Empty for non-closure fns; populated only by the
-    /// closure prologue.
-    pub(crate) captured_arr_writeback: HashMap<ValueId, (ValueId, u64)>,
     /// Names of `let` bindings in the current fn body that are
     /// captured by an escape closure (one whose env outlives the
     /// construction frame — detected via the enclosing fn's return

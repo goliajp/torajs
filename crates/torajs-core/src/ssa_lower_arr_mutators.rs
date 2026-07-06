@@ -391,28 +391,8 @@ impl<'a> LowerCtx<'a> {
                 if elem_ty.is_refcounted() {
                     self.emit_rc_inc(val);
                 }
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(new_arr), Operand::Value(info.slot), 0),
-                );
-                if let Some((env_slot, env_offset)) =
-                    self.captured_arr_writeback.get(&info.slot).copied()
-                {
-                    let env_ptr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
-                        Type::Ptr,
-                        None,
-                    );
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(
-                            Operand::Value(new_arr),
-                            Operand::Value(env_ptr),
-                            env_offset,
-                        ),
-                    );
-                }
+                // B1 — cell fixed across grow; slot write-back +
+                // captured-env mirror retired.
                 // chunk 9c — JS spec: unshift returns new length.
                 // Runtime helper bumps `len + 1` into arr[#8] before
                 // returning; mirror the .length getter.
@@ -476,10 +456,7 @@ impl<'a> LowerCtx<'a> {
                 if elem_ty.is_refcounted() {
                     self.emit_rc_inc(val);
                 }
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(new_arr), Operand::Value(slot_ptr), 0),
-                );
+                // B1 — cell fixed across grow; global write-back retired.
                 let new_len = self.f.append_inst(
                     self.cur_block,
                     InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
