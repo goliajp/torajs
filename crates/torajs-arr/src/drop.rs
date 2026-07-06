@@ -137,6 +137,22 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
         return;
     }
     let header = unsafe { &*(arr as *const HeapHeader) };
+    if header.flags & FLAG_ARR_ANY == 0 {
+        // RFC 20260707 chunk 623 — typed block behind a static
+        // Arr<Any> slot (T-11 widen): the NaN-box slot walk below
+        // misreads raw scalars (a small bit-1-clear i64 like 4
+        // passes the cell predicate → deref + free, SIGSEGV), and
+        // typed blocks pool-free via arr_free, not the libc bypass.
+        // Route per elem kind: HEAP walks children (the only place
+        // elements release when the last ref dies through the any
+        // world), scalar frees straight. UNSET = unmarked scalar or
+        // a missed coercion boundary — no walk keeps it a leak at
+        // worst, never a bad deref.
+        if header.arr_elem_kind() == ARR_KIND_HEAP {
+            return unsafe { __torajs_arr_drop_heap(arr) };
+        }
+        return unsafe { __torajs_arr_drop(arr) };
+    }
     if header.flags & FLAG_STATIC_LITERAL != 0 {
         return;
     }
