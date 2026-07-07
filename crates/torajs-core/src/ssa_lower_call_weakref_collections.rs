@@ -265,14 +265,27 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> Opera
             Type::Ptr,
             None,
         );
+        // Chunk 630 — an owned-shape key temp (`wm.has(Symbol())`)
+        // settles after the borrowed classification.
+        if ctx.expr_owned_shape(eid) {
+            ctx.release_owned_temp(eid, &raw);
+        }
         return Operand::Value(p);
     }
     let cur_block = ctx.cur_block;
     let av = if matches!(ty, Type::Any) {
         raw
     } else {
+        // Chunk 630 — the classifier only READS the key (a legal
+        // key it keeps is the fast-path early return above; every
+        // key reaching here is rejected-or-primitive), so the pair
+        // is a +0 borrow. The old box_to_tag_value owning inc had
+        // no consumer-side drop — probe-proven ~32B/call leak on
+        // `wm.has("key" + i)` churn (l11, 16.1MB vs 6.4MB flat).
         let (tag, val) = if is_undef && matches!(ty, Type::Ptr) {
             (Operand::ConstI64(5), Operand::ConstI64(0))
+        } else if ty.is_refcounted() {
+            (Operand::ConstI64(4), raw)
         } else {
             ctx.box_to_tag_value(raw)
         };
@@ -295,5 +308,10 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> Opera
         Type::Ptr,
         None,
     );
+    // Chunk 630 — settle an owned-shape key temp (the `"key" + i`
+    // concat result) after the borrowed classification.
+    if ctx.expr_owned_shape(eid) {
+        ctx.release_owned_temp(eid, &raw);
+    }
     Operand::Value(p)
 }
