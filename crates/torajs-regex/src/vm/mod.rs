@@ -208,10 +208,7 @@ mod tests {
         // production callers always set it; tests that build a
         // Program manually must set it too so `prog_has_save` reflects
         // truth (attack #J reads this field, not the live insts).
-        prog.has_save = prog
-            .insts
-            .iter()
-            .any(|ins| ins.op == crate::program::Op::Save as u8);
+        prog.has_save = prog.any_save();
         prog
     }
 

@@ -83,12 +83,7 @@ impl SavesArena {
 /// keeps `alloc_*` from degenerating into no-op rows for the
 /// never-takes-this-branch case.
 pub(super) fn detect_stride(prog: &Program) -> usize {
-    let mut max_slot: i32 = -1;
-    for inst in &prog.insts {
-        if inst.op == crate::program::Op::Save as u8 && inst.a > max_slot {
-            max_slot = inst.a;
-        }
-    }
+    let max_slot = max_save_slot(prog);
     let stride = if max_slot < 0 {
         2
     } else {
@@ -103,4 +98,26 @@ pub(super) fn detect_stride(prog: &Program) -> usize {
         "saves stride {stride} exceeds REGEX_SAVE_SLOTS"
     );
     stride
+}
+
+/// Highest `OP_SAVE` slot referenced by `prog` INCLUDING its
+/// lookaround sub-programs — capture indices are global across the
+/// whole pattern (ES §22.2.2), so `/(?=(a+))/` SAVEs slots 2/3 inside
+/// the sub-program while the parent has no SAVE of its own. The
+/// parent's arena rows must be wide enough for the lookaround merge
+/// (`merge_sub_saves`) to land those slots.
+fn max_save_slot(prog: &Program) -> i32 {
+    let mut max_slot: i32 = -1;
+    for inst in &prog.insts {
+        if inst.op == crate::program::Op::Save as u8 && inst.a > max_slot {
+            max_slot = inst.a;
+        }
+    }
+    for sub in &prog.sub_progs {
+        let m = max_save_slot(sub);
+        if m > max_slot {
+            max_slot = m;
+        }
+    }
+    max_slot
 }

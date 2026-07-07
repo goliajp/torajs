@@ -13,6 +13,7 @@
 //! workspace because they recurse — they can't share the parent's.
 
 use super::{SavesArena, ThreadList, VisitedTable, Workspace};
+use crate::node::REGEX_SAVE_SLOTS;
 use crate::parser::{RE_FLAG_M, is_word_byte};
 use crate::program::{Op, Program};
 use crate::vm::Thread;
@@ -96,8 +97,14 @@ pub(super) fn add_thread(
         }
         Op::Lookahead => {
             let sub = &prog.sub_progs[ins.a as usize];
-            if sub_probe(sub, s, pos, flags) {
-                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
+            let mut sub_saves = [-1i64; REGEX_SAVE_SLOTS];
+            if sub_probe_saving(sub, s, pos, flags, &mut sub_saves) {
+                // ES §22.2.2 — a successful lookahead KEEPS the
+                // captures its body wrote (`/(?=(a+))/` answers
+                // group 1). Slots are global, so merge them into
+                // this thread's row.
+                let merged = merge_sub_saves(arena, saves_id, &sub_saves);
+                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, merged);
             }
         }
         Op::NegLookahead => {
@@ -107,6 +114,16 @@ pub(super) fn add_thread(
             }
         }
         Op::Lookbehind => {
+            // Captures inside a lookbehind body are NOT merged (they
+            // stay undefined): the body matches REVERSE per ES
+            // §22.2.2 MatchReverse, and the forward probe's start-
+            // position scan can't reproduce that order for variable-
+            // length bodies (`(?<=(\d+))px` must capture "30", a
+            // shortest-j scan answers "0"; an increasing-j scan
+            // breaks alternation priority). The faithful fix is a
+            // backwards-compiled body (V8 irregexp shape) — L3b
+            // ledger; answering a plausible-but-wrong capture here
+            // would be silent-wrong.
             let sub = &prog.sub_progs[ins.a as usize];
             if sub_probe_ending_at(sub, s, pos, flags) {
                 add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
@@ -132,7 +149,8 @@ pub(super) fn add_thread(
 }
 
 /// `sub_probe` — does the sub-program have ANY match starting at
-/// `pos`? Used by lookahead. Allocates its own workspace.
+/// `pos`? Used by the NEGATIVE lookahead (a failed assertion never
+/// contributes captures per ES §22.2.2). Allocates its own workspace.
 pub fn sub_probe(sub: &Program, s: &[u8], pos: i64, flags: u8) -> bool {
     if sub.is_empty() {
         return true;
@@ -140,6 +158,50 @@ pub fn sub_probe(sub: &Program, s: &[u8], pos: i64, flags: u8) -> bool {
     let mut ws = Workspace::for_program(sub);
     let end = vm_match_at(sub, s, pos, flags, &mut ws, None, -1);
     end >= 0
+}
+
+/// [`sub_probe`] with capture write-back — the positive lookahead
+/// keeps its body's SAVEs. `out` must be pre-filled with `-1`.
+fn sub_probe_saving(
+    sub: &Program,
+    s: &[u8],
+    pos: i64,
+    flags: u8,
+    out: &mut [i64; REGEX_SAVE_SLOTS],
+) -> bool {
+    if sub.is_empty() {
+        return true;
+    }
+    let mut ws = Workspace::for_program(sub);
+    vm_match_at(sub, s, pos, flags, &mut ws, Some(out), -1) >= 0
+}
+
+/// Merge the written (non-`-1`) slots of a successful lookaround
+/// body into `saves_id`, forking a fresh row on the first hit so
+/// sibling threads keep their own snapshots. Bodies without
+/// captures (all `-1`) forward the original handle — zero cost.
+/// Slot indices are global (parser-assigned across the whole
+/// pattern) and `detect_stride` counts sub-program SAVEs, so every
+/// written slot fits the parent row.
+fn merge_sub_saves(
+    arena: &mut SavesArena,
+    saves_id: u32,
+    sub_saves: &[i64; REGEX_SAVE_SLOTS],
+) -> u32 {
+    let stride = arena.stride;
+    let mut merged = saves_id;
+    let mut forked = false;
+    for (slot, &val) in sub_saves.iter().enumerate().take(stride) {
+        if val < 0 {
+            continue;
+        }
+        if !forked {
+            merged = arena.alloc_clone(saves_id);
+            forked = true;
+        }
+        arena.write_slot(merged, slot, val);
+    }
+    merged
 }
 
 /// `sub_probe_ending_at` — does the sub-program have ANY match

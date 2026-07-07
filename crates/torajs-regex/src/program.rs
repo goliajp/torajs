@@ -246,6 +246,19 @@ impl Program {
         idx
     }
 
+    /// Does this program — or any lookaround sub-program — emit
+    /// [`Op::Save`]? Capture indices are global across the pattern,
+    /// and a successful lookaround merges its body's SAVEs into the
+    /// parent thread (`vm::dispatch::merge_sub_saves`), so
+    /// `/(?=(a+))/` must count as save-carrying even though the
+    /// parent instruction stream has no SAVE of its own. The
+    /// parent-only scan left `has_save` false and the no-saves
+    /// search fast path answered all-`-1` captures.
+    pub fn any_save(&self) -> bool {
+        self.insts.iter().any(|ins| ins.op == Op::Save as u8)
+            || self.sub_progs.iter().any(|sub| sub.any_save())
+    }
+
     /// Index of the next instruction that `emit` will produce — used
     /// by the compiler to backpatch `JMP` / `SPLIT` targets after a
     /// sub-tree has been emitted.
