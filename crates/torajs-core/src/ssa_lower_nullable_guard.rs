@@ -56,3 +56,34 @@ pub(crate) fn emit_nullable_arr_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, arr_v
     );
     ctx.emit_throw_check(None);
 }
+
+/// RFC 20260707-undefined-sentinel-repr chunk 1 — true when a
+/// Str-typed expression may legally hold NULL (missed exec/match
+/// capture slot per the 591 NULL-means-undefined convention):
+/// an element load off a nullable-arr source (`m[1]`), or a
+/// binding recorded in `ctx.nullable_str_lets` (let-init of that
+/// shape, alias-propagated).
+pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    match ctx.ast.get_expr(eid) {
+        Expr::Ident(n) => ctx.nullable_str_lets.contains(n),
+        Expr::Index { obj, .. } => is_nullable_arr_source(ctx, *obj),
+        _ => false,
+    }
+}
+
+/// Emit the Str null guard when `obj` is a nullable-str source;
+/// no-op otherwise. `str_val` must be the already-lowered receiver.
+/// Same shape as [`emit_nullable_arr_guard`]: `str_null_check`
+/// arms a catchable TypeError on NULL, the throw-check right after
+/// diverts before the inline `.length` load dereferences.
+pub(crate) fn emit_nullable_str_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, str_val: &Operand) {
+    if !is_nullable_str_source(ctx, obj) {
+        return;
+    }
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.str_null_check, vec![str_val.clone()]),
+    );
+    ctx.emit_throw_check(None);
+}

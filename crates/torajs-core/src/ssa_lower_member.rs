@@ -108,6 +108,11 @@ fn lower_with_val(
         return op;
     }
     if (obj_ty == Type::Str || obj_ty == Type::Substr) && name == "length" {
+        // RFC 20260707-undefined-sentinel-repr chunk 1 — a missed
+        // exec/match capture slot is NULL; the inline length load
+        // below would SIGSEGV. Guard arms a catchable TypeError
+        // (no-op for non-nullable receivers).
+        crate::ssa_lower_nullable_guard::emit_nullable_str_guard(ctx, obj, &obj_val);
         return crate::ssa_lower_str::load_str_or_substr_length(ctx, obj_val, obj_ty);
     }
     if matches!(obj_ty, Type::Any) {

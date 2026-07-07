@@ -42,6 +42,7 @@ pub(crate) struct StrBIds {
     pub str_locale_compare: FuncId,
     pub str_includes: FuncId,
     pub str_eq: FuncId,
+    pub str_null_check: FuncId,
     pub str_split: FuncId,
     pub str_split_no_sep: FuncId,
 }
@@ -117,6 +118,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_str_eq",
             &[Type::Str, Type::Str],
             Type::Bool,
+        ),
+        str_null_check: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_null_check",
+            &[Type::Ptr],
+            Type::Void,
         ),
         str_split: declare_intrinsic(
             module,

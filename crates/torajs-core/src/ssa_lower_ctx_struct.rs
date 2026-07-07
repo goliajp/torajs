@@ -331,6 +331,14 @@ pub(crate) struct LowerCtx<'a> {
     /// loads on these receivers emit the `arr_null_check` guard so
     /// a miss (null) is a catchable TypeError, not a SIGSEGV.
     pub(crate) nullable_arr_lets: std::collections::HashSet<String>,
+    /// RFC 20260707-undefined-sentinel-repr chunk 1 — binding names
+    /// whose let-init is an element load off a nullable-arr source
+    /// (`const c = m[1]` with m an exec/match binding) or an alias
+    /// of such a binding. The slot may hold NULL (missed capture);
+    /// `.length` loads emit the `str_null_check` guard and the
+    /// inline str-eq-with-literal fast path declines to the
+    /// null-guarded `str_eq` runtime call.
+    pub(crate) nullable_str_lets: std::collections::HashSet<String>,
     /// 11-A2-a — set of binding names whose backing storage was
     /// allocated on the stack (`AllocaBytes`) instead of the heap.
     /// `emit_drops_for_owned_locals` and sibling drop emitters skip

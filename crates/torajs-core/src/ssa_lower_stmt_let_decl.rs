@@ -125,6 +125,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     if crate::ssa_lower_nullable_guard::is_nullable_arr_source(ctx, init) {
         ctx.nullable_arr_lets.insert(name.to_string());
     }
+    // RFC 20260707-undefined-sentinel-repr chunk 1 — record
+    // element-load-off-nullable-arr let-inits (`const c = m[1]`)
+    // and their aliases so `.length` loads and the inline
+    // str-eq-with-literal fast path treat the binding as
+    // possibly-NULL (missed capture slot).
+    if crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, init) {
+        ctx.nullable_str_lets.insert(name.to_string());
+    }
     let cur_depth = ctx.scope_stack.len() - 1;
     let is_alias_init = match ctx.ast.get_expr(init) {
         // L3b #15 residual (chunk 561) — string indexing (`s[i]` on

@@ -121,6 +121,15 @@ impl<'a> LowerCtx<'a> {
         if lit_bytes.iter().any(|&b| b > 0x7F) {
             return None;
         }
+        // RFC 20260707-undefined-sentinel-repr chunk 1 — a
+        // nullable-str operand (missed exec/match capture slot may
+        // be NULL) must not reach the inline byte walk (raw len
+        // load at offset 8 SIGSEGVs). Decline pre-lower so the
+        // generic path calls the null-guarded `__torajs_str_eq`
+        // (identity compare on NULL → false vs any literal).
+        if crate::ssa_lower_nullable_guard::is_nullable_str_source(self, other_eid) {
+            return None;
+        }
         let other = self.lower_expr(other_eid);
         let other_ty = self.operand_ty(&other);
         if other_ty != Type::Str && other_ty != Type::Substr {

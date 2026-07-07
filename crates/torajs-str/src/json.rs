@@ -118,10 +118,20 @@ fn write_escaped(s: &[u8], dst: &mut [u8]) {
 ///
 /// # Safety
 ///
-/// `s` must be a valid Str heap block (non-null, layout per
-/// [`crate::layout`]).
+/// `s` must be a valid Str heap block (layout per [`crate::layout`])
+/// or NULL (nullish slot — see below).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_quote_str(s: *const u8) -> *mut u8 {
+    // Nullish Str slot (missed exec/match capture = JS undefined per
+    // the 591 convention; real null shares the bits). Inside an
+    // array/object both stringify to `null` per ES §25.5.2 — the
+    // JSON composite lane routes per-element Str through here.
+    // (Top-level `JSON.stringify(undefinedStr)` should answer the
+    // undefined VALUE, not "null" — ambiguous until the sentinel
+    // repr lands, RFC 20260707 chunk 2.)
+    if s.is_null() {
+        return unsafe { crate::literals::__torajs_null_to_str() };
+    }
     let len = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() };
     let bytes = unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), len as usize) };
     // V0.2 P14-S4 — single-pass fast path for strings that need no

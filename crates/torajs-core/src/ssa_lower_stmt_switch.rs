@@ -69,7 +69,13 @@ pub(crate) fn lower(
             Type::Str | Type::Substr => {
                 if let Expr::String(s) = ctx.ast.get_expr(c.value).clone() {
                     let bytes = s.into_bytes();
-                    let inline_eligible = bytes.len() <= 16 && bytes.iter().all(|&b| b <= 0x7F);
+                    // RFC 20260707-undefined-sentinel-repr chunk 1 —
+                    // a nullable-str scrutinee (missed exec/match
+                    // capture may be NULL) declines the inline byte
+                    // walk; the runtime `str_eq` has the null guard.
+                    let inline_eligible = bytes.len() <= 16
+                        && bytes.iter().all(|&b| b <= 0x7F)
+                        && !crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, scrutinee);
                     if inline_eligible {
                         let r = ctx.emit_inline_str_eq_bytes(scrut_val, &bytes);
                         if let Operand::Value(vid) = r {

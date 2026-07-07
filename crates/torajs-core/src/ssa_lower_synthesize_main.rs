@@ -121,6 +121,7 @@ pub(crate) fn synthesize_main(
             escape_obj_lets: std::collections::HashSet::new(),
             dynobj_degraded: crate::define_receivers::collect_defineproperty_receivers(ast),
             nullable_arr_lets: std::collections::HashSet::new(),
+            nullable_str_lets: std::collections::HashSet::new(),
             stack_alloced_locals: std::collections::HashSet::new(),
             let_stack_alloc_hint: None,
             redispatch_lowered: None,

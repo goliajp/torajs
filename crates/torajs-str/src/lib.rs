@@ -126,6 +126,7 @@ pub mod lookup_ffi;
 pub mod method_any;
 pub mod norm_table;
 pub mod normalize;
+pub mod null_guard;
 pub mod pool;
 pub mod print;
 pub mod slice;
@@ -166,6 +167,7 @@ pub use lookup::{
     __torajs_str_locale_compare, __torajs_str_starts_with, __torajs_str_starts_with_from,
 };
 pub use normalize::__torajs_str_normalize;
+pub use null_guard::__torajs_str_null_check;
 pub use print::{__torajs_str_print, __torajs_str_print_err, __torajs_substr_print};
 pub use slice::__torajs_str_slice;
 pub use split::iter::{
