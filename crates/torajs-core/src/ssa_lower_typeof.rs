@@ -63,7 +63,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::check::{self as check_mod};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
@@ -225,6 +225,13 @@ fn lower_by_ssa_type(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
     let s: &str = match ty {
         Type::I64 | Type::F64 | Type::I32 => "number",
         Type::Bool => "boolean",
+        // RFC 20260707 chunk 3 — a nullable-str source (missed
+        // exec/match capture slot) may hold the undefined sentinel
+        // ("undefined") or NULL (JS null → "object"); everything
+        // else keeps the zero-cost static fold.
+        Type::Str if crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, expr) => {
+            return emit_str_typeof_runtime(ctx, v);
+        }
         Type::Str | Type::Substr => "string",
         Type::Symbol => "symbol",
         Type::BigInt => "bigint",
@@ -254,4 +261,84 @@ fn lower_by_ssa_type(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
         }
     };
     Operand::Value(ctx.intern_string_literal(s))
+}
+
+/// Three-state `typeof` for a Str slot that may hold a nullish repr
+/// (RFC 20260707 chunk 3): NULL → "object" (JS null), the undefined
+/// sentinel cell → "undefined", a real Str → "string". Branch chain
+/// over interned literals, same alloca/merge shape as
+/// `coerce_to_bool`'s Str arm.
+fn emit_str_typeof_runtime(ctx: &mut LowerCtx<'_>, v: Operand) -> Operand {
+    let result_slot = ctx.alloca_in_entry(Type::Str, Some("__typeof_r"));
+    let null_blk = ctx.f.add_block();
+    let chk_undef_blk = ctx.f.add_block();
+    let undef_blk = ctx.f.add_block();
+    let str_blk = ctx.f.add_block();
+    let merge = ctx.f.add_block();
+    let is_null = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, v.clone(), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(is_null),
+            then_blk: null_blk,
+            else_blk: chk_undef_blk,
+        },
+    );
+    ctx.cur_block = null_blk;
+    let obj_lit = ctx.intern_string_literal("object");
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(obj_lit), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = chk_undef_blk;
+    let sentinel = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.str_undef, vec![]),
+        Type::Str,
+        None,
+    );
+    let is_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, v, Operand::Value(sentinel)),
+        Type::Bool,
+        None,
+    );
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(is_undef),
+            then_blk: undef_blk,
+            else_blk: str_blk,
+        },
+    );
+    ctx.cur_block = undef_blk;
+    let undef_lit = ctx.intern_string_literal("undefined");
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(undef_lit), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = str_blk;
+    let str_lit = ctx.intern_string_literal("string");
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(str_lit), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = merge;
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Str, Operand::Value(result_slot), 0),
+        Type::Str,
+        None,
+    );
+    Operand::Value(r)
 }

@@ -364,6 +364,14 @@ mod tests {
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_str_drop(_s: *mut c_void) {}
+    /// RFC 20260707 chunk 3 — the shipped binary resolves the
+    /// undefined sentinel cell from libtorajs_str.a; tests get a
+    /// stable dummy address (identity compares still behave).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_undef() -> *mut u8 {
+        static DUMMY: u8 = 0;
+        &DUMMY as *const u8 as *mut u8
+    }
 
     #[test]
     fn payload_rc_inc_no_op_on_inline_tags() {

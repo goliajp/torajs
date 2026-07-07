@@ -263,6 +263,26 @@ impl<'a> LowerCtx<'a> {
                 );
                 (Operand::Value(tag_v), Operand::Value(val_v))
             }
+            // RFC 20260707 chunk 3 — a Str slot carries three shapes
+            // (NULL = JS null, the undefined sentinel cell, a heap
+            // Str); the pair helpers decode at runtime. The value
+            // half takes the stake (rc_inc inside, mirrors the
+            // emit_rc_inc this arm used to emit).
+            Type::Str => {
+                let tag_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.anyv_str_slot_tag, vec![val.clone()]),
+                    Type::I64,
+                    None,
+                );
+                let val_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.anyv_str_slot_value, vec![val]),
+                    Type::I64,
+                    None,
+                );
+                (Operand::Value(tag_v), Operand::Value(val_v))
+            }
             _ if val_ty.is_refcounted() => {
                 self.emit_rc_inc(val.clone());
                 // RFC 20260704 S1 — typed arr crossing into `any`
@@ -298,6 +318,18 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 (1, Operand::Value(zext))
+            }
+            // RFC 20260707 chunk 3 — a Str slot decodes its three
+            // shapes (NULL = null / sentinel = undefined / heap Str)
+            // inside the box helper; heap rc_inc happens there too.
+            Type::Str => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.anyv_box_str_slot, vec![val]),
+                    Type::Any,
+                    None,
+                );
+                return Operand::Value(v);
             }
             _ if val_ty.is_refcounted() => {
                 // Heap-typed value: pass the ptr as i64. The any_box

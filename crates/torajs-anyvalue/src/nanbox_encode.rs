@@ -72,6 +72,60 @@ pub unsafe extern "C" fn __torajs_anyv_box_pointer(p: *mut c_void) -> AnyValue {
     box_void_ptr(p)
 }
 
+unsafe extern "C" {
+    /// RFC 20260707 chunk 3 — the immortal `undefined` sentinel Str
+    /// cell (torajs-str undef_sentinel.rs). A Str slot crossing into
+    /// the Any world decodes against its address.
+    fn __torajs_str_undef() -> *mut u8;
+}
+
+/// Encode a Str-typed slot value as an [`AnyValue`] (RFC 20260707
+/// chunk 3). A Str slot carries three shapes: NULL (JS null), the
+/// undefined sentinel cell, or a real heap Str. Rc-neutral exactly
+/// like [`__torajs_anyv_box_from_pair`] tag-4, which the ssa_lower
+/// `box_to_any` Str arm called before — ownership of the heap case
+/// stays whatever the call site arranged.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_box_str_slot(p: *mut c_void) -> AnyValue {
+    if p.is_null() {
+        return VALUE_NULL;
+    }
+    if p == unsafe { __torajs_str_undef() } as *mut c_void {
+        return VALUE_UNDEFINED;
+    }
+    box_void_ptr(p)
+}
+
+/// `(tag, …)` half of the Str-slot pair decode (RFC 20260707
+/// chunk 3): 0=Null for NULL, 5=Undef for the sentinel cell,
+/// 4=Heap otherwise. Pure read — the companion
+/// [`__torajs_anyv_str_slot_value`] takes the stake.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_str_slot_tag(p: *mut c_void) -> i64 {
+    if p.is_null() {
+        AnySlotTag::Null as i64
+    } else if p == unsafe { __torajs_str_undef() } as *mut c_void {
+        AnySlotTag::Undef as i64
+    } else {
+        AnySlotTag::Heap as i64
+    }
+}
+
+/// `(…, value)` half of the Str-slot pair decode: 0 for both
+/// nullish shapes (an Undef/Null pair's value MUST be 0 — strict-eq
+/// compares the reconstructed box bit-for-bit), the pointer +
+/// rc_inc for a heap Str (mirrors the explicit `emit_rc_inc` the
+/// ssa_lower `box_to_tag_value` arm used to emit).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_str_slot_value(p: *mut c_void) -> i64 {
+    if p.is_null() || p == unsafe { __torajs_str_undef() } as *mut c_void {
+        0
+    } else {
+        payload_rc_inc(AnySlotTag::Heap as i64, p as i64);
+        p as i64
+    }
+}
+
 /// Encode an `i64` as an [`AnyValue`]. Values that fit in `i32`
 /// become tagged Int32 immediates; values outside that range
 /// promote to `f64` (lossless for ±2^53; precision loss beyond

@@ -197,6 +197,25 @@ impl<'a> LowerCtx<'a> {
                 );
                 (Operand::Value(tag_v), Operand::Value(val_v))
             }
+            // RFC 20260707 chunk 3 — a Str slot decodes its three
+            // shapes at runtime (NULL = null / undefined sentinel /
+            // heap Str); the value half takes the slot's +1 (heap
+            // case only), replacing the catch-all's emit_rc_inc.
+            Type::Str => {
+                let tag_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.anyv_str_slot_tag, vec![val.clone()]),
+                    Type::I64,
+                    None,
+                );
+                let val_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.anyv_str_slot_value, vec![val]),
+                    Type::I64,
+                    None,
+                );
+                (Operand::Value(tag_v), Operand::Value(val_v))
+            }
             _ if val_ty.is_refcounted() => {
                 // Heap-typed value: rc_inc to hold an owning ref
                 // for the array slot. push_any's third param is

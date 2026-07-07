@@ -126,6 +126,47 @@ impl<'a> LowerCtx<'a> {
                     }
                     continue;
                 }
+                // RFC 20260707 chunk 3 — a Str slot decodes its
+                // three shapes at runtime (NULL = null / undefined
+                // sentinel / heap Str), so the tag is not static;
+                // same continue shape as the Any arm. The value
+                // half takes the bucket's +1 (heap case only).
+                Type::Str => {
+                    let tag_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.anyv_str_slot_tag, vec![v_raw.clone()]),
+                        Type::I64,
+                        None,
+                    );
+                    let val_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.anyv_str_slot_value, vec![v_raw.clone()]),
+                        Type::I64,
+                        None,
+                    );
+                    let key_str = self.intern_string_literal(&fname);
+                    let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.dynobj_set,
+                            vec![
+                                Operand::Value(slot),
+                                Operand::Value(key_str),
+                                Operand::Value(tag_v),
+                                Operand::Value(val_v),
+                            ],
+                        ),
+                    );
+                    if transfers {
+                        self.emit_drop_value(v_keep, Type::Str);
+                    }
+                    continue;
+                }
                 _ if v_ty.is_refcounted() => {
                     self.emit_rc_inc(v_raw.clone());
                     (4, v_raw)
