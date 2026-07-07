@@ -202,7 +202,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // accessor / Str.length / Type::Any class member /
             // Closure props / FnSig+Arr props / Obj struct field
             // terminal). See [`crate::ssa_lower_member::lower`].
-            crate::ssa_lower_member::lower(ctx, *obj, name)
+            crate::ssa_lower_member::lower(ctx, eid, *obj, name)
         }
         Expr::Array(elements) => {
             // M1.2 — array literal (empty / heterogeneous /

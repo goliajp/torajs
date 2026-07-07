@@ -151,6 +151,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     }
     let init_val = lower_let_init_val(ctx, ty, init);
     ctx.let_stack_alloc_hint = None;
+    // Chunk 637 — the alias classification above ran BEFORE the init
+    // lowering, so it can't see a Member read whose owned-receiver
+    // lowering detached the result (`const v = mk(i).s` — see
+    // `ssa_lower_member::lower`). Re-check: a detached result is
+    // owned by this binding, which must keep its stake and drop at
+    // scope end (probe l16o: the alias path stranded the field's
+    // +1, 25.6 MB churn vs 6.4 MB flat).
+    let is_alias_init = is_alias_init && !ctx.owned_member_reads.contains(&init);
     // RFC 20260705 ledger #2 (chunk 563) — a concrete value boxed into
     // an `any` slot is ALWAYS owned by the slot: `anyv_box_from_pair`
     // transfers one reference (NaN-box contract), and every any-slot

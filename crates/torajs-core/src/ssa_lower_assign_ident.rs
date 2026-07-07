@@ -178,7 +178,11 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
         Expr::Index { obj, .. } => {
             !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
         }
-        Expr::Member { .. } => true,
+        // Chunk 637 — a Member read whose owned-receiver lowering
+        // detached the result already carries this consumer's stake;
+        // inc'ing again would strand the original (mirror of the
+        // let-decl alias re-check).
+        Expr::Member { .. } => !ctx.owned_member_reads.contains(&value),
         // Reading a named binding for an assignment is always a SHARE
         // (TS has no move semantics): the source keeps its stake and
         // stays readable, the target takes +1. This holds for alias

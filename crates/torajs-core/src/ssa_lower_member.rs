@@ -45,7 +45,7 @@ use crate::ast::ExprId;
 use crate::ssa::{Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Operand {
+pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str) -> Operand {
     if let Some(op) = crate::ssa_lower_member_fn_intro::try_lower(ctx, obj, name) {
         return op;
     }
@@ -66,6 +66,39 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Operand 
     }
     let obj_val = ctx.lower_expr(obj);
     let obj_ty = ctx.operand_ty(&obj_val);
+    let result = lower_with_val(ctx, obj, obj_val, obj_ty, name);
+    // Chunk 637 — an owned receiver temp (`f().x`, `new K(i).x`,
+    // `(wr.deref() as K).x`) had no release site: the field READ
+    // itself only borrows, so probe l16f leaked every receiver
+    // (300k `new K(i).x` churn: 25.5 MB vs 6.4 MB flat). A non-Copy
+    // result borrows receiver memory — detach it with an owned inc
+    // BEFORE the receiver drop (rc math: field 1 → inc 2 → receiver
+    // teardown dec 1 → independent), and record the Member eid so
+    // consumers take the ref over (`expr_owned_shape`) instead of
+    // stacking their own. Copy results (i64/f64/bool loads) need
+    // no detach. Known cold-face residue: a lane that already
+    // answers a fresh value (RegExp .source/.flags mints a Str)
+    // gets one extra inc — its own +1 was stranded pre-637 too, so
+    // the leak volume is unchanged, not worsened (L3b ledger).
+    if ctx.expr_owned_shape(obj) && !obj_ty.is_copy() {
+        let res_ty = ctx.operand_ty(&result);
+        if !res_ty.is_copy() {
+            ctx.emit_owned_result_inc(result, res_ty);
+            ctx.owned_member_reads.insert(eid);
+        }
+        ctx.emit_drop_value(obj_val, obj_ty);
+    }
+    result
+}
+
+/// Post-receiver dispatch ladder (layers 7-13 of the module doc).
+fn lower_with_val(
+    ctx: &mut LowerCtx<'_>,
+    obj: ExprId,
+    obj_val: Operand,
+    obj_ty: Type,
+    name: &str,
+) -> Operand {
     if let Some(op) =
         crate::ssa_lower_member_typed_props::try_lower(ctx, obj, obj_val, obj_ty, name)
     {

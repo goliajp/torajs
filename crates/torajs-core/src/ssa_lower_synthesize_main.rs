@@ -124,6 +124,7 @@ pub(crate) fn synthesize_main(
             stack_alloced_locals: std::collections::HashSet::new(),
             let_stack_alloc_hint: None,
             redispatch_lowered: None,
+            owned_member_reads: std::collections::HashSet::new(),
         };
         // T-15.g.5 fix: prime escape_captured_lets BEFORE lowering any
         // top-level let-decl. Without this, top-level `let x = 10` in

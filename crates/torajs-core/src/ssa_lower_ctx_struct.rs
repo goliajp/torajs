@@ -357,4 +357,14 @@ pub(crate) struct LowerCtx<'a> {
     /// keeps unrelated lowerings untouched; unconsumed entries are
     /// dead values, never re-emitted.
     pub(crate) redispatch_lowered: Option<(ExprId, Operand)>,
+    /// Chunk 637 — Member-read ExprIds whose lowering answered an
+    /// OWNED value: the receiver was itself an owned temp (Call /
+    /// New / As-of-Call shape), so `ssa_lower_member::lower` inc'd
+    /// the non-Copy field result to detach it from the receiver and
+    /// released the receiver before returning. Consumers consult
+    /// this via `expr_owned_shape` / `expr_is_fresh_owned` so they
+    /// take the ref over instead of adding their own (double inc)
+    /// or ignoring it (leak). ExprIds are arena-unique, so entries
+    /// never need eviction.
+    pub(crate) owned_member_reads: std::collections::HashSet<ExprId>,
 }

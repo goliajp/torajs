@@ -125,6 +125,11 @@ impl<'a> LowerCtx<'a> {
             Expr::Call { .. } | Expr::New { .. } | Expr::Closure { .. } => true,
             Expr::BinOp { op, .. } => !matches!(op, AstBinOp::LAnd | AstBinOp::LOr),
             Expr::As { expr, .. } => self.expr_owned_shape(*expr),
+            // Chunk 637 — a Member read is normally a receiver
+            // borrow, but `ssa_lower_member::lower` detaches the
+            // result (owned inc) when the receiver was itself an
+            // owned temp; those eids are recorded and answer owned.
+            Expr::Member { .. } => self.owned_member_reads.contains(&eid),
             _ => false,
         }
     }

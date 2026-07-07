@@ -60,10 +60,15 @@ impl<'a> LowerCtx<'a> {
     /// clobbers caller-saved X0 and silently destroyed `n + "x"`-style
     /// ret values). Used by Expr::BinOp's post-call drop pass.
     pub(crate) fn expr_is_fresh_owned(&self, eid: ExprId) -> bool {
+        // Chunk 637 — a Member read whose owned-receiver lowering
+        // detached the result (see `ssa_lower_member::lower`) IS
+        // fresh-owned; every other Member stays a borrow.
+        if matches!(self.ast.get_expr(eid), Expr::Member { .. }) {
+            return self.owned_member_reads.contains(&eid);
+        }
         !matches!(
             self.ast.get_expr(eid),
             Expr::Ident(_)
-                | Expr::Member { .. }
                 | Expr::Index { .. }
                 | Expr::OptChain { .. }
                 | Expr::This
