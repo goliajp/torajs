@@ -232,7 +232,15 @@ fn lower_by_ssa_type(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
         Type::Str if crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, expr) => {
             return emit_str_typeof_runtime(ctx, v);
         }
-        Type::Str | Type::Substr => "string",
+        // RFC 20260707 residual — a Substr slot may hold the
+        // Substr-shaped undefined sentinel (string index OOB read),
+        // so every Substr typeof takes the two-state runtime branch
+        // (sentinel address → "undefined", else "string"). Substr
+        // typeof is cold; Str keeps its infection-gated static fold.
+        Type::Substr => {
+            return emit_substr_typeof_runtime(ctx, v);
+        }
+        Type::Str => "string",
         Type::Symbol => "symbol",
         Type::BigInt => "bigint",
         Type::Closure(_) | Type::FnSig(_) => "function",
@@ -302,6 +310,61 @@ fn emit_str_typeof_runtime(ctx: &mut LowerCtx<'_>, v: Operand) -> Operand {
         ctx.cur_block,
         InstKind::Call(ctx.intrinsics.str_undef, vec![]),
         Type::Str,
+        None,
+    );
+    let is_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, v, Operand::Value(sentinel)),
+        Type::Bool,
+        None,
+    );
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(is_undef),
+            then_blk: undef_blk,
+            else_blk: str_blk,
+        },
+    );
+    ctx.cur_block = undef_blk;
+    let undef_lit = ctx.intern_string_literal("undefined");
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(undef_lit), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = str_blk;
+    let str_lit = ctx.intern_string_literal("string");
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(str_lit), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = merge;
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Str, Operand::Value(result_slot), 0),
+        Type::Str,
+        None,
+    );
+    Operand::Value(r)
+}
+
+/// Two-state `typeof` for a Substr slot (RFC 20260707 residual):
+/// the Substr-shaped undefined sentinel → "undefined", any real
+/// view → "string". Same alloca/merge shape as the Str three-state
+/// chain minus the NULL arm (the index-get producers never answer
+/// NULL — nullish inputs propagate the sentinel).
+fn emit_substr_typeof_runtime(ctx: &mut LowerCtx<'_>, v: Operand) -> Operand {
+    let result_slot = ctx.alloca_in_entry(Type::Str, Some("__typeof_r"));
+    let undef_blk = ctx.f.add_block();
+    let str_blk = ctx.f.add_block();
+    let merge = ctx.f.add_block();
+    let sentinel = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.substr_undef, vec![]),
+        Type::Substr,
         None,
     );
     let is_undef = ctx.f.append_inst(

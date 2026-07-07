@@ -51,6 +51,9 @@ pub(crate) struct SubstrIds {
     pub substr_index_of: FuncId,
     pub substr_slice: FuncId,
     pub substr_substring: FuncId,
+    pub substr_undef: FuncId,
+    pub str_index_view: FuncId,
+    pub substr_index_view: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> SubstrIds {
@@ -159,6 +162,32 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_substr_substring",
             &[Type::Ptr, Type::I64, Type::I64],
+            Type::Substr,
+        ),
+        // RFC 20260707 residual — string INDEX reads (`s[i]`) answer
+        // the immortal Substr-shaped undefined sentinel on OOB
+        // (unlike charAt / slice which answer ""/empty view per
+        // spec); `substr_undef` materializes the sentinel for
+        // identity-compare emit sites (strict-eq / typeof).
+        substr_undef: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_substr_undef",
+            &[],
+            Type::Substr,
+        ),
+        str_index_view: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_index_view",
+            &[Type::Str, Type::I64],
+            Type::Substr,
+        ),
+        substr_index_view: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_substr_index_view",
+            &[Type::Substr, Type::I64],
             Type::Substr,
         ),
     }

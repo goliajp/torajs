@@ -130,6 +130,14 @@ impl<'a> LowerCtx<'a> {
         if crate::ssa_lower_nullable_guard::is_nullable_str_source(self, other_eid) {
             return None;
         }
+        // RFC 20260707 residual chunk — a string-index operand
+        // (`s[i] === "lit"`) may hold the Substr-shaped undefined
+        // sentinel, whose view text is "undefined": the inline byte
+        // walk would content-match it. Decline to the generic path
+        // (identity-aware `substr_eq_str`).
+        if crate::ssa_lower_nullable_guard::is_undefable_substr_source(self, other_eid) {
+            return None;
+        }
         let other = self.lower_expr(other_eid);
         let other_ty = self.operand_ty(&other);
         if other_ty != Type::Str && other_ty != Type::Substr {

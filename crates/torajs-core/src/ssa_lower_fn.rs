@@ -180,6 +180,7 @@ pub(crate) fn lower_fn(
         dynobj_degraded: std::collections::HashSet::new(),
         nullable_arr_lets: std::collections::HashSet::new(),
         nullable_str_lets: std::collections::HashSet::new(),
+        undefable_substr_lets: std::collections::HashSet::new(),
         stack_alloced_locals: std::collections::HashSet::new(),
         let_stack_alloc_hint: None,
         redispatch_lowered: None,

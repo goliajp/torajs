@@ -209,15 +209,16 @@ pub unsafe extern "C" fn __torajs_substr_char_code_at(v: *const u8, i: i64) -> i
 /// `v` is a live `*const Substr`, `s` is a live `*const Str`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_eq_str(v: *const u8, s: *const u8) -> i64 {
-    // RFC 20260707 chunk 2 — nullish operands (NULL or the
-    // undefined sentinel cell) compare by identity, never content
-    // (see eq.rs).
-    if v.is_null()
-        || s.is_null()
-        || crate::undef_sentinel::is_undef(v)
-        || crate::undef_sentinel::is_undef(s)
-    {
-        return (v == s) as i64;
+    // RFC 20260707 chunk 2 (+ residual chunk) — nullish operands
+    // (NULL, the Str sentinel, or the Substr-shaped sentinel)
+    // compare by identity, never content (see eq.rs). `undefined`
+    // equals `undefined` ACROSS reprs: a materialized Substr
+    // sentinel (substr_to_owned answers the Str cell) must still
+    // equal a Substr-slot sentinel.
+    let v_undef = crate::undef_sentinel::is_undef(v) || crate::undef_sentinel::is_substr_undef(v);
+    let s_undef = crate::undef_sentinel::is_undef(s) || crate::undef_sentinel::is_substr_undef(s);
+    if v.is_null() || s.is_null() || v_undef || s_undef {
+        return (v == s || (v_undef && s_undef)) as i64;
     }
     let (v_payload, _v_cu_len, v_latin1) = unsafe { substr_view(v) };
     let (s_payload, _, s_latin1) = unsafe { str_view(s) };
@@ -249,6 +250,13 @@ pub unsafe extern "C" fn __torajs_substr_eq_str(v: *const u8, s: *const u8) -> i
 /// (rc=1).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_to_owned(v: *const u8) -> *mut c_void {
+    // The undefined sentinel materializes as the Str sentinel —
+    // identity propagates across the repr change so every Str-lane
+    // consumer (eq / json / typeof / nullish probes) keeps seeing
+    // `undefined`, not a fresh "undefined" text copy.
+    if crate::undef_sentinel::is_substr_undef(v) {
+        return crate::undef_sentinel::undef_ptr() as *mut c_void;
+    }
     let length = unsafe { substr_len(v) } as u32;
     let is_latin1 = unsafe { substr_parent_is_latin1(v) };
     let stride: u32 = if is_latin1 { 1 } else { 2 };
@@ -412,6 +420,30 @@ pub unsafe extern "C" fn __torajs_substr_slice(v: *const u8, start: i64, end: i6
     let parent = unsafe { substr_parent(v) };
     let v_off = unsafe { substr_offset(v) };
     unsafe { __torajs_substr_create(parent as *mut c_void, v_off + s as u64, (e - s) as u64) }
+}
+
+/// `v[i]` — Substr INDEX read (ES §10.4.3 [[Get]]). Unlike the
+/// slice family (which clamps OOB to an empty view), an
+/// out-of-range index answers JS `undefined` — the immortal
+/// Substr-shaped sentinel. A sentinel receiver propagates itself
+/// (deref-safe; the spec TypeError guard face is ledgered
+/// separately). In-range reads mint a fresh 1-code-unit view on
+/// the same root parent, exactly like `substr_slice(v, i, i+1)`.
+///
+/// # Safety
+/// `v` is a live `*const Substr` or the Substr sentinel.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_substr_index_view(v: *const u8, i: i64) -> *mut u8 {
+    if crate::undef_sentinel::is_substr_undef(v) {
+        return crate::undef_sentinel::substr_undef_ptr();
+    }
+    let cu_len = unsafe { substr_len(v) } as i64;
+    if i < 0 || i >= cu_len {
+        return crate::undef_sentinel::substr_undef_ptr();
+    }
+    let parent = unsafe { substr_parent(v) };
+    let v_off = unsafe { substr_offset(v) };
+    unsafe { __torajs_substr_create(parent as *mut c_void, v_off + i as u64, 1) as *mut u8 }
 }
 
 /// `substr.substring(start, end)` — clamps + swaps (no wrap on

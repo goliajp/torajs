@@ -183,13 +183,13 @@ pub use substr::{
 pub use to_number::{__torajs_str_to_number, parse_number};
 pub use transform::case::{__torajs_str_to_lower, __torajs_str_to_upper};
 pub use transform::construct::{
-    __torajs_str_at, __torajs_str_char_at, __torajs_str_from_char_code, __torajs_str_repeat,
-    __torajs_str_substr, __torajs_str_substring,
+    __torajs_str_at, __torajs_str_char_at, __torajs_str_from_char_code, __torajs_str_index_view,
+    __torajs_str_repeat, __torajs_str_substr, __torajs_str_substring,
 };
 pub use transform::pad::{__torajs_str_pad_end, __torajs_str_pad_start};
 pub use transform::replace::{__torajs_str_replace, __torajs_str_replace_all};
 pub use transform::trim::{__torajs_str_trim, __torajs_str_trim_end, __torajs_str_trim_start};
-pub use undef_sentinel::{__torajs_str_is_nullish, __torajs_str_undef};
+pub use undef_sentinel::{__torajs_str_is_nullish, __torajs_str_undef, __torajs_substr_undef};
 
 // torajs-rc's `__torajs_rc_dec` calls into a WeakRef hook whenever
 // a block reaches refcount = 0. At `tr build` link time, the

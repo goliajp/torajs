@@ -22,8 +22,11 @@
 //!   `slice`).
 //! - **`substr`** (annexB legacy) wraps negative `start` to `max
 //!   (size + start, 0)`; `length` clamps to remaining.
-//! - **`at` / `charAt`** OOB returns an empty 0-len value (not
-//!   undefined — would require `Nullable<string>`).
+//! - **`charAt`** OOB returns an empty 0-len value per §22.1.3.2;
+//!   **`at`** OOB answers the immortal undefined sentinel per
+//!   §22.1.3.1 step 6 (RFC 20260707); **`s[i]`** index reads route
+//!   through [`__torajs_str_index_view`] and answer the
+//!   Substr-shaped sentinel on OOB (ES §10.4.3 [[Get]]).
 //! - **`fromCharCode`** truncates `n` to 1 code unit
 //!   (`n & 0xFFFF`) per spec §22.1.2.1; picks Latin-1 / UTF-16 LE
 //!   encoding canonically.
@@ -256,8 +259,34 @@ pub unsafe extern "C" fn __torajs_str_char_at(s: *mut u8, i: i64) -> *mut u8 {
     unsafe { __torajs_substr_create(parent, i as u64, 1) as *mut u8 }
 }
 
-/// `s.at(i)` — ES2022 single-char Str. Negative `i` wraps;
-/// OOB returns the empty Str.
+/// `s[i]` — string INDEX read (ES §10.4.3 [[Get]]). Unlike charAt
+/// (§22.1.3.2, which answers "" — see [`__torajs_str_char_at`]),
+/// an out-of-range index answers JS `undefined`: the immortal
+/// Substr-shaped sentinel (RFC 20260707 residual chunk). A nullish
+/// receiver (NULL / the Str sentinel) also answers the sentinel —
+/// nullish-propagating and deref-safe; the spec TypeError guard
+/// face is ledgered separately.
+///
+/// # Safety
+///
+/// `s` may be null; when non-null it must be a valid Str heap
+/// block or the Str sentinel.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_index_view(s: *mut u8, i: i64) -> *mut u8 {
+    if s.is_null() || crate::undef_sentinel::is_undef(s) {
+        return crate::undef_sentinel::substr_undef_ptr();
+    }
+    let (_, length, _is_latin1) = unsafe { str_view(s) };
+    if i < 0 || (i as u64) >= length as u64 {
+        return crate::undef_sentinel::substr_undef_ptr();
+    }
+    unsafe { __torajs_substr_create(s as *mut c_void, i as u64, 1) as *mut u8 }
+}
+
+/// `s.at(i)` — ES2022 single-char Str. Negative `i` wraps; OOB
+/// answers JS `undefined` per §22.1.3.1 step 6 — the immortal Str
+/// sentinel (RFC 20260707; pre-fix answered "" which bun prints as
+/// an empty line).
 ///
 /// # Safety
 ///
@@ -266,7 +295,7 @@ pub unsafe extern "C" fn __torajs_str_char_at(s: *mut u8, i: i64) -> *mut u8 {
 pub unsafe extern "C" fn __torajs_str_at(s: *const u8, i: i64) -> *mut u8 {
     let (payload, length, is_latin1) = unsafe { str_view(s) };
     match at_resolve(i, length) {
-        None => alloc_empty_str(),
+        None => crate::undef_sentinel::undef_ptr(),
         Some(idx) => {
             let stride = if is_latin1 { 1usize } else { 2usize };
             let byte_off = (idx as usize) * stride;
@@ -573,13 +602,34 @@ mod tests {
         let s = make_str(b"hello");
         let r0 = unsafe { __torajs_str_at(s, 0) };
         let rn = unsafe { __torajs_str_at(s, -1) };
+        // OOB answers the immortal undefined sentinel per §22.1.3.1
+        // step 6 (RFC 20260707) — identity, never freed.
         let roob = unsafe { __torajs_str_at(s, 100) };
         assert_eq!(read_str(r0), b"h");
         assert_eq!(read_str(rn), b"o");
-        assert_eq!(read_str(roob), b"");
+        assert!(crate::undef_sentinel::is_undef(roob));
         unsafe { __torajs_str_free(s) };
         unsafe { __torajs_str_free(r0) };
         unsafe { __torajs_str_free(rn) };
-        unsafe { __torajs_str_free(roob) };
+    }
+
+    #[test]
+    fn ffi_str_index_view_in_range_and_oob() {
+        let s = make_str(b"ab");
+        let hit = unsafe { __torajs_str_index_view(s, 1) };
+        let (payload, len, _) = unsafe { crate::substr_methods::substr_view(hit as *const u8) };
+        assert_eq!(len, 1);
+        assert_eq!(payload, b"b");
+        unsafe { crate::substr::__torajs_substr_drop(hit as *mut core::ffi::c_void) };
+        // OOB / negative / nullish receiver → the Substr sentinel.
+        let oob = unsafe { __torajs_str_index_view(s, 5) };
+        assert!(crate::undef_sentinel::is_substr_undef(oob));
+        let neg = unsafe { __torajs_str_index_view(s, -1) };
+        assert!(crate::undef_sentinel::is_substr_undef(neg));
+        let on_null = unsafe { __torajs_str_index_view(core::ptr::null_mut(), 0) };
+        assert!(crate::undef_sentinel::is_substr_undef(on_null));
+        let on_undef = unsafe { __torajs_str_index_view(crate::undef_sentinel::undef_ptr(), 0) };
+        assert!(crate::undef_sentinel::is_substr_undef(on_undef));
+        unsafe { __torajs_str_free(s) };
     }
 }

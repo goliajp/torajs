@@ -339,6 +339,13 @@ pub(crate) struct LowerCtx<'a> {
     /// inline str-eq-with-literal fast path declines to the
     /// null-guarded `str_eq` runtime call.
     pub(crate) nullable_str_lets: std::collections::HashSet<String>,
+    /// RFC 20260707 residual chunk — binding names whose let-init
+    /// is a string INDEX read (`const c = s[i]`) or an alias of
+    /// such a binding. The Substr slot may hold the Substr-shaped
+    /// undefined sentinel (OOB read); the inline
+    /// str-eq-with-literal fast path declines to the
+    /// identity-aware `substr_eq_str` runtime call for these.
+    pub(crate) undefable_substr_lets: std::collections::HashSet<String>,
     /// 11-A2-a — set of binding names whose backing storage was
     /// allocated on the stack (`AllocaBytes`) instead of the heap.
     /// `emit_drops_for_owned_locals` and sibling drop emitters skip

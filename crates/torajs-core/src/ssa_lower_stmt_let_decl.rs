@@ -133,6 +133,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     if crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, init) {
         ctx.nullable_str_lets.insert(name.to_string());
     }
+    // RFC 20260707 residual chunk — record string-index let-inits
+    // (`const c = s[i]`) and their aliases: the Substr slot may
+    // hold the undefined sentinel (OOB read), so the inline
+    // str-eq-with-literal fast path declines to the identity-aware
+    // runtime compare.
+    if crate::ssa_lower_nullable_guard::is_undefable_substr_source(ctx, init) {
+        ctx.undefable_substr_lets.insert(name.to_string());
+    }
     let cur_depth = ctx.scope_stack.len() - 1;
     let is_alias_init = match ctx.ast.get_expr(init) {
         // L3b #15 residual (chunk 561) — string indexing (`s[i]` on

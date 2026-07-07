@@ -71,6 +71,23 @@ pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     }
 }
 
+/// RFC 20260707 residual chunk — true when a Substr-typed
+/// expression may hold the Substr-shaped undefined sentinel
+/// (string INDEX read, OOB → sentinel): `s[i]` on a string-typed
+/// receiver, or a binding recorded in `ctx.undefable_substr_lets`
+/// (let-init of that shape, alias-propagated). Over-broad for
+/// in-range reads — one runtime call instead of the inline byte
+/// walk, never wrong.
+pub(crate) fn is_undefable_substr_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    match ctx.ast.get_expr(eid) {
+        Expr::Ident(n) => ctx.undefable_substr_lets.contains(n),
+        Expr::Index { obj, .. } => {
+            matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
+        }
+        _ => false,
+    }
+}
+
 /// Emit the Str null guard when `obj` is a nullable-str source;
 /// no-op otherwise. `str_val` must be the already-lowered receiver.
 /// Same shape as [`emit_nullable_arr_guard`]: `str_null_check`

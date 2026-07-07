@@ -59,12 +59,14 @@ pub(crate) fn try_lower(
     if a_nullish ^ b_nullish {
         let ptr_op = if a_nullish { b.clone() } else { a.clone() };
         let ptr_ty = ctx.operand_ty(&ptr_op);
-        // RFC 20260707 chunk 2 — a Str slot has TWO nullish reprs:
-        // NULL (JS null) and the undefined sentinel cell (missed
-        // exec/match capture). `s == null` / `s == undefined` is
-        // true for both (§7.2.13 steps 2-3) — probe via the
-        // runtime `str_is_nullish` (ptr==0 || ptr==sentinel).
-        if ptr_ty == Type::Str {
+        // RFC 20260707 chunk 2 (+ residual chunk) — a Str slot has
+        // TWO nullish reprs: NULL (JS null) and the undefined
+        // sentinel cell (missed exec/match capture); a Substr slot
+        // has the Substr-shaped sentinel (string index OOB read).
+        // `s == null` / `s == undefined` is true for all of them
+        // (§7.2.13 steps 2-3) — probe via the runtime
+        // `str_is_nullish` (ptr==0 || either sentinel address).
+        if matches!(ptr_ty, Type::Str | Type::Substr) {
             let cur_block = ctx.cur_block;
             let v = ctx.f.append_inst(
                 cur_block,

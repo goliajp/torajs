@@ -52,26 +52,32 @@ pub(crate) fn try_lower(
         };
         return Some(Operand::ConstBool(answer));
     }
-    // RFC 20260707 chunk 2 — one nullish side vs a Str-typed value.
-    // A Str slot can hold the undefined sentinel cell (missed
-    // exec/match capture) or NULL (JS null): `x === undefined`
-    // compares against the sentinel ADDRESS, `x === null` against
-    // NULL. Substr stays on the raw-ptr fall-through (its OOB
-    // producer still uses NULL-means-undefined; flips in chunk 4).
+    // RFC 20260707 chunk 2 (+ residual chunk) — one nullish side vs
+    // a Str- or Substr-typed value. A Str slot can hold the Str
+    // undefined sentinel cell (missed exec/match capture) or NULL
+    // (JS null); a Substr slot can hold the Substr-shaped sentinel
+    // (string index OOB read): `x === undefined` compares against
+    // the matching sentinel ADDRESS, `x === null` against NULL.
     if a_nullish ^ b_nullish {
         let (val, nullish_is_undef) = if a_nullish {
             (b, a_undef)
         } else {
             (a, b_undef)
         };
-        if ctx.operand_ty(&val) != Type::Str {
+        let val_ty = ctx.operand_ty(&val);
+        if !matches!(val_ty, Type::Str | Type::Substr) {
             return None;
         }
         let rhs = if nullish_is_undef {
+            let (fid, sentinel_ty) = if val_ty == Type::Str {
+                (ctx.intrinsics.str_undef, Type::Str)
+            } else {
+                (ctx.intrinsics.substr_undef, Type::Substr)
+            };
             let u = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.str_undef, vec![]),
-                Type::Str,
+                InstKind::Call(fid, vec![]),
+                sentinel_ty,
                 None,
             );
             Operand::Value(u)

@@ -37,7 +37,7 @@
 //! `Expr::Index` match arm bottoms out here, no None fall-through).
 
 use crate::ast::ExprId;
-use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Operand {
@@ -102,6 +102,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
     Operand::Value(v)
 }
 
+/// `s[i]` — string INDEX read, routed through the index-get runtime
+/// pair (RFC 20260707 residual). Unlike the charAt / slice method
+/// family (empty result on OOB per §22.1.3.2), `s[i]` OOB answers
+/// JS `undefined` per §10.4.3 [[Get]] — the immortal Substr-shaped
+/// sentinel, whose view walks to "undefined" (ToString consumers
+/// branch-free) while identity consumers (strict-eq / typeof /
+/// nullish probes) compare its address.
 fn lower_string_index(
     ctx: &mut LowerCtx<'_>,
     arr_val: Operand,
@@ -110,32 +117,18 @@ fn lower_string_index(
 ) -> Operand {
     let idx_raw = ctx.lower_expr(index);
     let idx_val = ctx.coerce_to_i64(idx_raw);
-    let cur_block = ctx.cur_block;
-    let v = if arr_ty == Type::Str {
-        ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.str_char_at, vec![arr_val, idx_val]),
-            Type::Substr,
-            None,
-        )
+    let fid = if arr_ty == Type::Str {
+        ctx.intrinsics.str_index_view
     } else {
-        let end = ctx.f.append_inst(
-            cur_block,
-            InstKind::BinOp(SsaBinOp::Add, idx_val, Operand::ConstI64(1)),
-            Type::I64,
-            None,
-        );
-        let cur_block = ctx.cur_block;
-        ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(
-                ctx.intrinsics.substr_slice,
-                vec![arr_val, idx_val, Operand::Value(end)],
-            ),
-            Type::Substr,
-            None,
-        )
+        ctx.intrinsics.substr_index_view
     };
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(fid, vec![arr_val, idx_val]),
+        Type::Substr,
+        None,
+    );
     Operand::Value(v)
 }
 
