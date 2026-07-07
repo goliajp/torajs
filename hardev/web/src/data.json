@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T00:18:59.017Z",
+  "generatedAt": "2026-07-07T08:37:31.209Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "868a3168",
-    "commitSubject": "fix: weak-collection primitive keys classify borrowed, owned key temps settle (chunk 630)",
+    "commit": "ffd28faf",
+    "commitSubject": "fix: weak-collection owned-temp keys settle after the kernel call (test262-bug-corpus RC-4, chunk 635)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "ffd28faf",
+      "subject": "fix: weak-collection owned-temp keys settle after the kernel call (test262-bug-corpus RC-4, chunk 635)"
+    },
+    {
+      "hash": "c2970b6d",
+      "subject": "fix: mmalloc span pools grow without a per-class cap (chunk 634)"
+    },
+    {
+      "hash": "80212742",
+      "subject": "fix: chained-fixups page_count covers file-backed pages only, not zerofill (chunk 633)"
+    },
+    {
+      "hash": "edcdafca",
+      "subject": "fix: backward param marking closes fnsig-into-marked-param crash (test262-bug-corpus RC-4, chunk 632)"
+    },
+    {
+      "hash": "b8734c04",
+      "subject": "feat: fnsig-typed param as replace callback via param-tag replace-cb axis (test262-bug-corpus RC-4, chunk 631)"
+    },
+    {
+      "hash": "b600a350",
+      "subject": "chore(dashboard): session snapshot @ 868a3168 — rotation 38 final (626-630: RFC 20260707 admit tail + mutator tail + filed-face cleanup — any[] param admit x6 lowering stations, K.4 ident-alias global init, kind-aware pop/shift/unshift + member receivers + mismatch throw propagation, WeakRef<T> generic ann + boxed deref + undefined-narrow, weak-key borrowed classification leak fix 16.1MB->6.47MB; gate 1262 -> 1267 five green)"
+    },
+    {
       "hash": "868a3168",
       "subject": "fix: weak-collection primitive keys classify borrowed, owned key temps settle (chunk 630)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "ce2d11ee",
       "subject": "chore(dashboard): session snapshot @ 183cc235 — rotation 37 final (621-625: RFC 20260707 typed-arr-behind-Arr<Any> read/write/drop/consume-tail all closed — mark_kind signature collapse + let-decl/return widen arms, get_any pair + boxed kind-aware readers, coerce_raw_scalar writers, kind-routed drop, join/concat/flat runtime dispatch, inline HOF/sort/flatMap boxed reads; gate 1257 -> 1262 five green)"
-    },
-    {
-      "hash": "183cc235",
-      "subject": "fix: inline-emitted Arr<Any> consumers read kind-aware (RFC 20260707, chunk 625)"
-    },
-    {
-      "hash": "5af7a9e8",
-      "subject": "fix: join/concat/flat over typed blocks behind Arr<Any> views (RFC 20260707, chunk 624)"
-    },
-    {
-      "hash": "a724288f",
-      "subject": "fix: dropping a typed array through its Arr<Any> owner routes per elem kind (RFC 20260707, chunk 623)"
-    },
-    {
-      "hash": "1a400318",
-      "subject": "fix: writes through a static Arr<Any> view kind-coerce into typed slots (RFC 20260707, chunk 622)"
-    },
-    {
-      "hash": "9865ba44",
-      "subject": "fix: typed arrays behind a static Arr<Any> view read correctly (RFC 20260707, chunk 621)"
-    },
-    {
-      "hash": "d1c0a4bf",
-      "subject": "chore(dashboard): session snapshot @ 80b8534e — rotation 36 final (614-620: arr-cycle collection five faces, registered-symbol weak key, indexOf null needle pair, named-fn replace cb forwarder, heap-ref nullish ptr-cmp eq + void-call undefined binding, nullish x any loose admit, collect_white weakref notify; gate 1250 -> 1257 seven green)"
     }
   ],
-  "headSha": "868a3168",
+  "headSha": "ffd28faf",
   "autorun": {
-    "total": 346,
+    "total": 347,
     "baselineTarget": 10,
-    "bySelf": 341,
+    "bySelf": 342,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783370469-0774",
-      "at": "2026-07-06T20:41:09Z",
-      "ts": 1783370469,
+      "rotationId": "r-1783383576-5859",
+      "at": "2026-07-07T00:19:36Z",
+      "ts": 1783383576,
       "trigger": "self",
-      "prevHead": "ce2d11ee",
-      "handoffSha": "sha256:d147bd187dab89a598afcc448e54b903e02ce515c5eac0e9bd0bae46805922d5",
-      "handoffAgeSec": 7,
+      "prevHead": "b600a350",
+      "handoffSha": "sha256:f4c46ab0f9b592bb55f7610a16d6b7a49d6d3c14d498f86969f20d550886923a",
+      "handoffAgeSec": 58,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783383576-5859",
+        "at": "2026-07-07T00:19:36Z",
+        "ts": 1783383576,
+        "trigger": "self",
+        "prevHead": "b600a350",
+        "handoffSha": "sha256:f4c46ab0f9b592bb55f7610a16d6b7a49d6d3c14d498f86969f20d550886923a",
+        "handoffAgeSec": 58,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783370469-0774",
         "at": "2026-07-06T20:41:09Z",
@@ -876,17 +887,6 @@
         "prevHead": "cc48fea2",
         "handoffSha": "sha256:89b896ddcb0f4b8c5bbd93000def50244587c203eb9d2830b7260455ee2ea4f9",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783306224-0425",
-        "at": "2026-07-06T02:50:24Z",
-        "ts": 1783306224,
-        "trigger": "self",
-        "prevHead": "0df5cfe5",
-        "handoffSha": "sha256:6c1817e4682ba188405a5430fb6fa45f447bb38f11e1f3b12a666872f09423c2",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
