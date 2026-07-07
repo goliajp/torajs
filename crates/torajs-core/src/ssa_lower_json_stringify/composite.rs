@@ -8,7 +8,57 @@ use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE};
 
 /// `[<e0>,<e1>,...]` — concat-loop accumulator over
 /// `arr_layouts[arr_id]`-typed slots (see module doc of the parent).
+///
+/// A NULL Arr slot (exec/match miss result, `Nullable<Arr>`) is JS
+/// `null` and stringifies to `"null"` per §25.5.2 — the walk below
+/// is gated behind a null branch (pre-fix the `len` load
+/// dereferenced NULL, SIGSEGV; same family as the 642
+/// `json_quote_str` NULL arm on the Str lane).
 pub(super) fn lower_arr(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> Operand {
+    let out_slot = ctx.alloca_in_entry(Type::Str, Some("__json_arr_out"));
+    let is_null = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, val_op.clone(), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    let null_blk = ctx.f.add_block();
+    let walk_blk = ctx.f.add_block();
+    let done_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_null),
+            then_blk: null_blk,
+            else_blk: walk_blk,
+        },
+    );
+    ctx.cur_block = null_blk;
+    let null_str = ctx.intern_string_literal("null");
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(null_str), Operand::Value(out_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(done_blk));
+    ctx.cur_block = walk_blk;
+    let walked = lower_arr_walk(ctx, val_op, arr_id);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(walked, Operand::Value(out_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(done_blk));
+    ctx.cur_block = done_blk;
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Str, Operand::Value(out_slot), 0),
+        Type::Str,
+        None,
+    );
+    Operand::Value(v)
+}
+
+/// The non-null walk body of [`lower_arr`] (verbatim pre-655 arm).
+fn lower_arr_walk(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> Operand {
     let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
     let arr_ptr = match val_op {
         Operand::Value(v) => v,
