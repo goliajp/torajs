@@ -52,7 +52,12 @@ pub(crate) fn try_lower(
         return None;
     }
 
-    let cur_block = ctx.cur_block;
+    // The Call must land in `ctx.cur_block` AS OF after the args are
+    // lowered — a branching arg expression (ternary) splits blocks and
+    // moves cur_block to the merge block. A pre-lower snapshot appended
+    // the call into the already-terminated pre-branch block: the call
+    // then executed before the branch with the merge block's operand —
+    // garbage haystack pointer (per-iter leak + SIGBUS, chunk 656).
     match method.as_str() {
         "toString" => {
             // S266 — trailing args silent-drop per ES §22.2.6.16.
@@ -60,7 +65,7 @@ pub(crate) fn try_lower(
                 let _ = ctx.lower_expr(*a);
             }
             let v = ctx.f.append_inst(
-                cur_block,
+                ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.regex_to_string, vec![recv_op]),
                 Type::Str,
                 None,
@@ -75,7 +80,7 @@ pub(crate) fn try_lower(
                 let _ = ctx.lower_expr(*a);
             }
             let v = ctx.f.append_inst(
-                cur_block,
+                ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.regex_test, vec![recv_op, s]),
                 Type::Bool,
                 None,
@@ -91,7 +96,7 @@ pub(crate) fn try_lower(
             }
             let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
             let v = ctx.f.append_inst(
-                cur_block,
+                ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.regex_exec, vec![recv_op, s]),
                 Type::Arr(arr_id),
                 None,
