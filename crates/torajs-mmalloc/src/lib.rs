@@ -43,6 +43,7 @@ pub mod large;
 pub mod page;
 pub mod size_class;
 pub mod span;
+pub mod span_registry;
 pub mod tlab;
 
 pub use global_alloc::TorajsAllocator;
