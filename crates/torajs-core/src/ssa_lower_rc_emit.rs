@@ -125,6 +125,15 @@ impl<'a> LowerCtx<'a> {
             Expr::Call { .. } | Expr::New { .. } | Expr::Closure { .. } => true,
             Expr::BinOp { op, .. } => !matches!(op, AstBinOp::LAnd | AstBinOp::LOr),
             Expr::As { expr, .. } => self.expr_owned_shape(*expr),
+            // Chunk 640 — array / object literals mint a fresh heap
+            // block (every lower_array / ObjectLit lane answers
+            // rc=1). Off this predicate, a literal consumed as a
+            // call argument had no release site (`g([1,2,3])` churn
+            // leaked every block — probe l22 44.8MB / l22b 25.5MB
+            // vs 6.4MB flat) and owning consumers (any-box, push,
+            // field store) added their own inc on top of the
+            // stranded +1.
+            Expr::Array(_) | Expr::ObjectLit { .. } => true,
             // Chunk 637 — a Member read is normally a receiver
             // borrow, but `ssa_lower_member::lower` detaches the
             // result (owned inc) when the receiver was itself an
