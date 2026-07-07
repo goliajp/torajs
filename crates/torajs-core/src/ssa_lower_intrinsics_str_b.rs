@@ -31,6 +31,16 @@ use std::collections::HashMap;
 use crate::ssa::{FuncId, Module, Type};
 use crate::ssa_lower::declare_intrinsic;
 
+/// Mach-O symbol of the immortal Str `undefined` sentinel cell
+/// (`#[unsafe(no_mangle)] pub static __TORAJS_STR_UNDEF_CELL` in
+/// torajs-str `undef_sentinel.rs`; the leading `_` is the Mach-O
+/// C-symbol prefix, matching the archive nlist key verbatim).
+/// Emit sites materialize the sentinel address with
+/// `InstKind::GlobalRef(...)` — ADRP+ADD, zero calls — resolved by
+/// the linker's member defined-extern table, which indexes DATA
+/// symbols alongside text ones.
+pub(crate) const STR_UNDEF_CELL_SYM: &str = "___TORAJS_STR_UNDEF_CELL";
+
 pub(crate) struct StrBIds {
     pub str_slice: FuncId,
     pub str_char_code_at: FuncId,
@@ -45,7 +55,6 @@ pub(crate) struct StrBIds {
     pub str_includes: FuncId,
     pub str_eq: FuncId,
     pub str_null_check: FuncId,
-    pub str_undef: FuncId,
     pub str_is_nullish: FuncId,
     pub str_is_undef: FuncId,
     pub str_split: FuncId,
@@ -150,7 +159,6 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             &[Type::Ptr],
             Type::Void,
         ),
-        str_undef: declare_intrinsic(module, fn_table, "__torajs_str_undef", &[], Type::Str),
         str_is_nullish: declare_intrinsic(
             module,
             fn_table,

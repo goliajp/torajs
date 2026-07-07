@@ -52,6 +52,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, ARR_PROPS_OFF, LowerCtx, intern_arr_layout};
+use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) -> Operand {
     if elements.is_empty() {
@@ -135,7 +136,7 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
             let cur_block = ctx.cur_block;
             let u = ctx.f.append_inst(
                 cur_block,
-                InstKind::Call(ctx.intrinsics.str_undef, vec![]),
+                InstKind::GlobalRef(STR_UNDEF_CELL_SYM.to_string()),
                 Type::Str,
                 None,
             );

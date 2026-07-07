@@ -27,6 +27,8 @@
 use crate::ast::BinOp as AstBinOp;
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
+use crate::ssa_lower_intrinsics_substr::SUBSTR_UNDEF_CELL_SYM;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -69,14 +71,14 @@ pub(crate) fn try_lower(
             return None;
         }
         let rhs = if nullish_is_undef {
-            let (fid, sentinel_ty) = if val_ty == Type::Str {
-                (ctx.intrinsics.str_undef, Type::Str)
+            let (sym, sentinel_ty) = if val_ty == Type::Str {
+                (STR_UNDEF_CELL_SYM, Type::Str)
             } else {
-                (ctx.intrinsics.substr_undef, Type::Substr)
+                (SUBSTR_UNDEF_CELL_SYM, Type::Substr)
             };
             let u = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(fid, vec![]),
+                InstKind::GlobalRef(sym.to_string()),
                 sentinel_ty,
                 None,
             );

@@ -35,6 +35,14 @@ use std::collections::HashMap;
 use crate::ssa::{FuncId, Module, Type};
 use crate::ssa_lower::declare_intrinsic;
 
+/// Mach-O symbol of the immortal Substr-shaped `undefined` sentinel
+/// cell (`#[unsafe(no_mangle)] pub static __TORAJS_SUBSTR_UNDEF_CELL`
+/// in torajs-str `undef_sentinel.rs`) — the Substr mirror of
+/// `STR_UNDEF_CELL_SYM`, see that const's doc for the GlobalRef
+/// resolution path. Identity-compare emit sites (strict-eq / typeof
+/// on a Substr slot) materialize the address with zero calls.
+pub(crate) const SUBSTR_UNDEF_CELL_SYM: &str = "___TORAJS_SUBSTR_UNDEF_CELL";
+
 pub(crate) struct SubstrIds {
     pub object_is_f64: FuncId,
     pub split_iter_init: FuncId,
@@ -51,7 +59,6 @@ pub(crate) struct SubstrIds {
     pub substr_index_of: FuncId,
     pub substr_slice: FuncId,
     pub substr_substring: FuncId,
-    pub substr_undef: FuncId,
     pub str_index_view: FuncId,
     pub substr_index_view: FuncId,
 }
@@ -167,15 +174,8 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         // RFC 20260707 residual — string INDEX reads (`s[i]`) answer
         // the immortal Substr-shaped undefined sentinel on OOB
         // (unlike charAt / slice which answer ""/empty view per
-        // spec); `substr_undef` materializes the sentinel for
-        // identity-compare emit sites (strict-eq / typeof).
-        substr_undef: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_substr_undef",
-            &[],
-            Type::Substr,
-        ),
+        // spec); identity-compare emit sites materialize the
+        // sentinel via `GlobalRef(SUBSTR_UNDEF_CELL_SYM)`.
         str_index_view: declare_intrinsic(
             module,
             fn_table,

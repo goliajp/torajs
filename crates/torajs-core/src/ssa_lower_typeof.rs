@@ -65,6 +65,8 @@ use crate::ast::{Expr, ExprId};
 use crate::check::{self as check_mod};
 use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
+use crate::ssa_lower_intrinsics_substr::SUBSTR_UNDEF_CELL_SYM;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
     if let Some(check_mod::Type::Undefined) = ctx.expr_types.get(&expr) {
@@ -308,7 +310,7 @@ fn emit_str_typeof_runtime(ctx: &mut LowerCtx<'_>, v: Operand) -> Operand {
     ctx.cur_block = chk_undef_blk;
     let sentinel = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.str_undef, vec![]),
+        InstKind::GlobalRef(STR_UNDEF_CELL_SYM.to_string()),
         Type::Str,
         None,
     );
@@ -363,7 +365,7 @@ fn emit_substr_typeof_runtime(ctx: &mut LowerCtx<'_>, v: Operand) -> Operand {
     let merge = ctx.f.add_block();
     let sentinel = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.substr_undef, vec![]),
+        InstKind::GlobalRef(SUBSTR_UNDEF_CELL_SYM.to_string()),
         Type::Substr,
         None,
     );

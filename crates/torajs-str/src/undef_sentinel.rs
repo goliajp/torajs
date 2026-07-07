@@ -37,7 +37,10 @@ pub struct UndefSentinelCell {
 /// The one immortal `undefined` cell. Read-only after link; the
 /// refcount field is never touched (`FLAG_STATIC_LITERAL` short-
 /// circuits every rc/drop path), so sharing it across threads is
-/// sound.
+/// sound. Exported unmangled so ssa_lower can materialize the
+/// address with a `GlobalRef` (ADRP+ADD, zero calls) — the Mach-O
+/// symbol is `___TORAJS_STR_UNDEF_CELL`.
+#[unsafe(no_mangle)]
 pub static __TORAJS_STR_UNDEF_CELL: UndefSentinelCell = UndefSentinelCell {
     header: HeapHeader {
         refcount: 1,
@@ -94,6 +97,9 @@ unsafe impl Sync for SubstrUndefSentinelCell {}
 
 /// The one immortal `undefined` Substr view. `s[oob]` answers this
 /// (ES §10.4.3 [[Get]] — unlike charAt §22.1.3.2 which answers "").
+/// Exported unmangled for the same `GlobalRef` reason as the Str
+/// cell — the Mach-O symbol is `___TORAJS_SUBSTR_UNDEF_CELL`.
+#[unsafe(no_mangle)]
 pub static __TORAJS_SUBSTR_UNDEF_CELL: SubstrUndefSentinelCell = SubstrUndefSentinelCell {
     header: HeapHeader {
         refcount: 1,
