@@ -168,9 +168,11 @@ pub fn vm_match_at(
 /// Schedule `pc` at `pos_next` into `ws.nxt`, marking the scheduled
 /// thread(s) with `u_skip = adv - 1` when the consumed unit was a
 /// multi-byte code point (u-flag cp step) — they sit (adv-1) outer
-/// steps before dispatching.
+/// steps before dispatching. Direction-neutral (`pos_next` is
+/// computed by the caller), so the reverse VM
+/// ([`super::match_at_rev`]) reuses it as-is.
 #[allow(clippy::too_many_arguments)]
-fn add_thread_adv(
+pub(super) fn add_thread_adv(
     ws: &mut Workspace,
     pc: i32,
     prog: &Program,

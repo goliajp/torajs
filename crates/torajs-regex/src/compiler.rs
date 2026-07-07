@@ -28,6 +28,23 @@ use alloc::{boxed::Box, vec::Vec};
 /// flag bits (parsed by [`crate::flags::parse_flags`]) so the u-flag
 /// path can rewrite unsafe classes into byte-level alternatives.
 pub fn compile(prog: &mut Program, node: &Node, flags: u8) {
+    compile_dir(prog, node, flags, false);
+}
+
+/// [`compile`] in reverse mode — emits bytecode for the reverse Pike
+/// VM ([`crate::vm::match_at_rev`], lookbehind bodies per ES §22.2.2
+/// MatchReverse; V8 irregexp `read_backward` shape). Concat children
+/// emit in reverse order, capture SAVE slots swap (end slot at group
+/// entry, start slot at exit — walking backwards enters a group at
+/// its end position), and consuming ops emit unchanged: direction is
+/// an execution property of the VM, not of the instruction.
+/// Alternation / repeat structure — and thus priority order — is
+/// preserved.
+pub fn compile_rev(prog: &mut Program, node: &Node, flags: u8) {
+    compile_dir(prog, node, flags, true);
+}
+
+fn compile_dir(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
     match node.kind {
         NodeKind::Char => {
             prog.emit(Inst::char_lit(node.ch));
@@ -50,7 +67,11 @@ pub fn compile(prog: &mut Program, node: &Node, flags: u8) {
                 let cidx = prog.intern_class(&node.cc);
                 prog.emit(Inst::class_ref(cidx));
             } else if let Some(expansion) = expand_unsafe_class(&node.cc, uflag) {
-                compile(prog, &expansion, flags);
+                // rev threads through: the expansion is an Alt of
+                // per-length Concats of byte-level ops, and reversing
+                // those Concats makes the reverse VM consume the
+                // multi-byte sequence right-to-left byte by byte.
+                compile_dir(prog, &expansion, flags, rev);
             } else {
                 let cidx = prog.intern_class(&node.cc);
                 prog.emit(Inst::class_ref(cidx));
@@ -69,13 +90,19 @@ pub fn compile(prog: &mut Program, node: &Node, flags: u8) {
             prog.emit(Inst::simple(Op::NWBound));
         }
         NodeKind::Concat => {
-            for kid in &node.kids {
-                compile(prog, kid, flags);
+            if rev {
+                for kid in node.kids.iter().rev() {
+                    compile_dir(prog, kid, flags, rev);
+                }
+            } else {
+                for kid in &node.kids {
+                    compile_dir(prog, kid, flags, rev);
+                }
             }
         }
-        NodeKind::Alt => compile_alt(prog, node, flags),
-        NodeKind::Repeat => compile_repeat(prog, node, flags),
-        NodeKind::Group => compile_group(prog, node, flags),
+        NodeKind::Alt => compile_alt(prog, node, flags, rev),
+        NodeKind::Repeat => compile_repeat(prog, node, flags, rev),
+        NodeKind::Group => compile_group(prog, node, flags, rev),
         NodeKind::Backref => {
             prog.emit(Inst::backref(node.capture_idx));
         }
@@ -96,7 +123,7 @@ pub fn compile(prog: &mut Program, node: &Node, flags: u8) {
 ///   Lalt2: compile(c)
 ///   Lend:
 /// ```
-fn compile_alt(prog: &mut Program, node: &Node, flags: u8) {
+fn compile_alt(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
     let n_alts = node.kids.len();
     if n_alts == 0 {
         return; // defensive — parser doesn't produce empty Alt
@@ -105,7 +132,7 @@ fn compile_alt(prog: &mut Program, node: &Node, flags: u8) {
     for kid in &node.kids[..n_alts - 1] {
         let sidx = prog.emit(Inst::split(0, 0));
         let branch_start = prog.next_idx();
-        compile(prog, kid, flags);
+        compile_dir(prog, kid, flags, rev);
         let jmp_idx = prog.emit(Inst::jmp(0));
         jmps.push(jmp_idx as usize);
         let next = prog.next_idx();
@@ -113,7 +140,7 @@ fn compile_alt(prog: &mut Program, node: &Node, flags: u8) {
         prog.insts[sidx as usize].b = next;
     }
     // Last alternative — no trailing JMP; falls through to Lend.
-    compile(prog, &node.kids[n_alts - 1], flags);
+    compile_dir(prog, &node.kids[n_alts - 1], flags, rev);
     let end = prog.next_idx();
     for jidx in jmps {
         prog.insts[jidx].a = end;
@@ -126,28 +153,28 @@ fn compile_alt(prog: &mut Program, node: &Node, flags: u8) {
 /// - For unbounded (`max == -1`), a SPLIT-loop Kleene star tail.
 /// - For bounded (`max - min` extras), a chain of `SPLIT (body, skip)`
 ///   wrappers — each loop iteration may exit early via `skip`.
-fn compile_repeat(prog: &mut Program, node: &Node, flags: u8) {
+fn compile_repeat(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
     let Some(child) = node.child.as_deref() else {
         return;
     };
     // Unrolled mandatory prefix.
     for _ in 0..node.min {
-        compile(prog, child, flags);
+        compile_dir(prog, child, flags, rev);
     }
     if node.max == -1 {
-        compile_kleene_tail(prog, child, node.lazy, flags);
+        compile_kleene_tail(prog, child, node.lazy, flags, rev);
     } else {
         let extra = node.max - node.min;
-        compile_bounded_extras(prog, child, extra, node.lazy, flags);
+        compile_bounded_extras(prog, child, extra, node.lazy, flags, rev);
     }
 }
 
 /// SPLIT-loop tail for unbounded repeats (`*` / `+` / `{n,}`).
 /// Greedy: `SPLIT body, after`; lazy: targets swapped.
-fn compile_kleene_tail(prog: &mut Program, child: &Node, lazy: bool, flags: u8) {
+fn compile_kleene_tail(prog: &mut Program, child: &Node, lazy: bool, flags: u8, rev: bool) {
     let split_idx = prog.emit(Inst::split(0, 0));
     let body_start = prog.next_idx();
-    compile(prog, child, flags);
+    compile_dir(prog, child, flags, rev);
     prog.emit(Inst::jmp(split_idx));
     let after = prog.next_idx();
     if lazy {
@@ -162,7 +189,14 @@ fn compile_kleene_tail(prog: &mut Program, child: &Node, lazy: bool, flags: u8) 
 /// `extra` bounded optional iterations of `child`, each wrapped in a
 /// SPLIT that can fall through to `after_loop`. Backpatched once the
 /// extras are emitted.
-fn compile_bounded_extras(prog: &mut Program, child: &Node, extra: i32, lazy: bool, flags: u8) {
+fn compile_bounded_extras(
+    prog: &mut Program,
+    child: &Node,
+    extra: i32,
+    lazy: bool,
+    flags: u8,
+    rev: bool,
+) {
     if extra <= 0 {
         return;
     }
@@ -171,7 +205,7 @@ fn compile_bounded_extras(prog: &mut Program, child: &Node, extra: i32, lazy: bo
         let sidx = prog.emit(Inst::split(0, 0));
         splits.push(sidx as usize);
         let body_start = prog.next_idx();
-        compile(prog, child, flags);
+        compile_dir(prog, child, flags, rev);
         if lazy {
             prog.insts[sidx as usize].a = -1; // skip — patched below
             prog.insts[sidx as usize].b = body_start;
@@ -193,16 +227,25 @@ fn compile_bounded_extras(prog: &mut Program, child: &Node, extra: i32, lazy: bo
 
 /// `(...)` or `(?:...)`. Capturing groups bracket the child with two
 /// `SAVE` instructions writing `pos` to slots `2*idx` and `2*idx+1`.
-fn compile_group(prog: &mut Program, node: &Node, flags: u8) {
+/// In reverse mode the slots swap: walking backwards enters a group
+/// at its END position in the string and exits at its START, so the
+/// entry SAVE writes `2*idx+1` and the exit SAVE writes `2*idx` —
+/// the recorded `[start, end)` pair stays forward-oriented either way.
+fn compile_group(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
     let Some(child) = node.child.as_deref() else {
         return;
     };
     if node.capture_idx > 0 {
-        prog.emit(Inst::save(2 * node.capture_idx));
-        compile(prog, child, flags);
-        prog.emit(Inst::save(2 * node.capture_idx + 1));
+        let (enter, exit) = if rev {
+            (2 * node.capture_idx + 1, 2 * node.capture_idx)
+        } else {
+            (2 * node.capture_idx, 2 * node.capture_idx + 1)
+        };
+        prog.emit(Inst::save(enter));
+        compile_dir(prog, child, flags, rev);
+        prog.emit(Inst::save(exit));
     } else {
-        compile(prog, child, flags);
+        compile_dir(prog, child, flags, rev);
     }
 }
 
@@ -430,6 +473,59 @@ mod tests {
             .filter(|i| i.op == Op::Class as u8)
             .count();
         assert!(class_count >= 2, "expected >=2 OP_CLASS, got {class_count}");
+    }
+
+    fn compile_pattern_rev(pat: &str) -> Program {
+        let mut p = Parser::new(pat.as_bytes(), 0);
+        let root = p.parse().expect("parse failed");
+        let mut prog = Program::new();
+        compile_rev(&mut prog, &root, 0);
+        prog.emit(Inst::match_accept());
+        prog
+    }
+
+    #[test]
+    fn rev_concat_emits_reversed_sequence() {
+        let prog = compile_pattern_rev("abc");
+        assert_eq!(ops(&prog), vec![Op::Char, Op::Char, Op::Char, Op::Match]);
+        assert_eq!(prog.insts[0].ch, b'c');
+        assert_eq!(prog.insts[1].ch, b'b');
+        assert_eq!(prog.insts[2].ch, b'a');
+    }
+
+    #[test]
+    fn rev_group_swaps_save_slots() {
+        let prog = compile_pattern_rev("(a)");
+        let o = ops(&prog);
+        assert_eq!(o, vec![Op::Save, Op::Char, Op::Save, Op::Match]);
+        assert_eq!(prog.insts[0].a, 3); // entry = end slot (2*idx+1)
+        assert_eq!(prog.insts[2].a, 2); // exit = start slot (2*idx)
+    }
+
+    #[test]
+    fn rev_alt_keeps_branch_order_reverses_contents() {
+        // `ab|c` reversed: SPLIT, [b, a], JMP, [c], MATCH — branch
+        // priority order unchanged, each branch's Concat reversed.
+        let prog = compile_pattern_rev("ab|c");
+        let o = ops(&prog);
+        assert_eq!(
+            o,
+            vec![Op::Split, Op::Char, Op::Char, Op::Jmp, Op::Char, Op::Match]
+        );
+        assert_eq!(prog.insts[1].ch, b'b');
+        assert_eq!(prog.insts[2].ch, b'a');
+        assert_eq!(prog.insts[4].ch, b'c');
+    }
+
+    #[test]
+    fn rev_repeat_structure_preserved_child_reversed() {
+        // `(?:ab)*` reversed: SPLIT, [b, a], JMP → SPLIT, MATCH.
+        let prog = compile_pattern_rev("(?:ab)*");
+        let o = ops(&prog);
+        assert_eq!(o, vec![Op::Split, Op::Char, Op::Char, Op::Jmp, Op::Match]);
+        assert_eq!(prog.insts[0].a, 1); // greedy: body first
+        assert_eq!(prog.insts[1].ch, b'b');
+        assert_eq!(prog.insts[2].ch, b'a');
     }
 
     #[test]

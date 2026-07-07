@@ -23,9 +23,12 @@
 //!   (lookahead) + `sub_probe_ending_at` (lookbehind).
 //! - [`match_at`] — `vm_match_at` inner loop (operand dispatch on
 //!   the input-consuming op set).
+//! - [`match_at_rev`] — `vm_match_at_rev` reverse inner loop
+//!   (lookbehind bodies, reverse-compiled; ES §22.2.2 MatchReverse).
 
 pub mod dispatch;
 pub mod match_at;
+pub mod match_at_rev;
 pub mod result;
 pub mod saves_arena;
 pub mod search;

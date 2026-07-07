@@ -88,6 +88,36 @@ pub fn utf8_decode_cp(s: &[u8]) -> (i32, usize) {
     }
 }
 
+/// Decode the code point ENDING at byte offset `pos` (exclusive) —
+/// i.e. the code point occupying `s[pos-len..pos]`. Returns
+/// `(code_point, length_in_bytes)`. Used by the reverse Pike VM
+/// (lookbehind bodies) to step one code point leftwards under the
+/// u flag.
+///
+/// Caller must guarantee `1 <= pos <= s.len()`. Scans back over at
+/// most 3 continuation bytes to the leading byte; malformed
+/// sequences (continuation run with no lead in range, or a lead
+/// whose declared length doesn't land exactly at `pos`) degrade to
+/// a single-byte step with the raw byte value as the code point —
+/// same defensive posture as [`utf8_decode_cp`].
+pub fn utf8_decode_cp_before(s: &[u8], pos: usize) -> (i32, usize) {
+    let last = s[pos - 1];
+    if last & 0x80 == 0 {
+        return (last as i32, 1);
+    }
+    let mut start = pos - 1;
+    let mut steps = 0;
+    while steps < 3 && start > 0 && s[start] & 0xC0 == 0x80 {
+        start -= 1;
+        steps += 1;
+    }
+    let lead = s[start];
+    if lead & 0xC0 == 0x80 || start + utf8_len_for(lead) != pos {
+        return (last as i32, 1); // malformed — defensive
+    }
+    utf8_decode_cp(&s[start..])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +195,33 @@ mod tests {
         let (cp, n) = utf8_decode_cp(&[0xF0, 0x9F, 0x98, 0x80]);
         assert_eq!(cp, 0x1F600);
         assert_eq!(n, 4);
+    }
+
+    #[test]
+    fn decode_before_ascii() {
+        let s = b"ab";
+        assert_eq!(utf8_decode_cp_before(s, 1), (b'a' as i32, 1));
+        assert_eq!(utf8_decode_cp_before(s, 2), (b'b' as i32, 1));
+    }
+
+    #[test]
+    fn decode_before_all_lengths() {
+        // "a" + © (2B) + 中 (3B) + 😀 (4B) — decode each cp by its
+        // exclusive end offset.
+        let s: &[u8] = &[b'a', 0xC2, 0xA9, 0xE4, 0xB8, 0xAD, 0xF0, 0x9F, 0x98, 0x80];
+        assert_eq!(utf8_decode_cp_before(s, 1), (b'a' as i32, 1));
+        assert_eq!(utf8_decode_cp_before(s, 3), (0x00A9, 2));
+        assert_eq!(utf8_decode_cp_before(s, 6), (0x4E2D, 3));
+        assert_eq!(utf8_decode_cp_before(s, 10), (0x1F600, 4));
+    }
+
+    #[test]
+    fn decode_before_malformed_is_single_byte() {
+        // Bare continuation byte at the start — no lead in range.
+        assert_eq!(utf8_decode_cp_before(&[0x80], 1), (0x80, 1));
+        // Continuation whose scanned-back lead declares a length that
+        // doesn't end at pos (truncated 4-byte seq read at offset 3).
+        assert_eq!(utf8_decode_cp_before(&[0xF0, 0x9F, 0x98], 3), (0x98, 1));
     }
 
     #[test]
