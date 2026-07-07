@@ -59,6 +59,10 @@ unsafe extern "C" {
     fn __torajs_arr_alloc(initial_cap: u64) -> *mut u8;
     fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8;
     fn __torajs_panic(msg: *const u8) -> !;
+    // RFC 20260707 chunk 2 fix-up — the immortal `undefined`
+    // sentinel Str cell (torajs-str undef_sentinel.rs); a missing
+    // env var IS JS undefined, not null.
+    fn __torajs_str_undef() -> *mut u8;
 }
 
 #[cfg(test)]
@@ -79,6 +83,11 @@ unsafe extern "C" fn __torajs_arr_push(_arr: *mut u8, _val: i64) -> *mut u8 {
 #[cfg(test)]
 unsafe extern "C" fn __torajs_panic(_msg: *const u8) -> ! {
     panic!("torajs-process test stub: __torajs_panic");
+}
+
+#[cfg(test)]
+unsafe extern "C" fn __torajs_str_undef() -> *mut u8 {
+    panic!("torajs-process test stub: __torajs_str_undef");
 }
 
 #[inline]
@@ -192,7 +201,9 @@ fn env_find(name: &[u8]) -> Option<(*const u8, usize)> {
 pub unsafe extern "C" fn __torajs_process_getenv(name_str: *const u8) -> *mut u8 {
     let nlen = unsafe { str_len(name_str) } as usize;
     if nlen == 0 {
-        return core::ptr::null_mut();
+        // Empty name never matches — same undefined answer as a
+        // missing variable.
+        return unsafe { __torajs_str_undef() };
     }
     let name = unsafe { core::slice::from_raw_parts(str_data(name_str), nlen) };
     match env_find(name) {
@@ -200,7 +211,9 @@ pub unsafe extern "C" fn __torajs_process_getenv(name_str: *const u8) -> *mut u8
             let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
             unsafe { alloc_str(bytes) }
         }
-        None => core::ptr::null_mut(),
+        // Missing env var = JS undefined (the sentinel cell, RFC
+        // 20260707 chunk 2), so `missing === undefined` holds.
+        None => unsafe { __torajs_str_undef() },
     }
 }
 

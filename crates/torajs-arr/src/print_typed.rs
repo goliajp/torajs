@@ -33,6 +33,10 @@ unsafe extern "C" {
     /// escape trunk) — handles the Substr-view flag internally and
     /// accounts the quote-free payload width.
     fn __torajs_print_str_cell_quoted(cell: *const c_void);
+    /// RFC 20260707 chunk 2 — the immortal `undefined` sentinel Str
+    /// cell (torajs-str undef_sentinel.rs). An elem slot holding it
+    /// prints bare `undefined`, never a quoted string.
+    fn __torajs_str_undef() -> *mut u8;
 }
 
 /// Element kind selector for [`print_typed_at`] — one arm per
@@ -77,9 +81,11 @@ unsafe fn emit_elem(kind: TypedKind, slot: *const u8) {
             }
             TypedKind::Str | TypedKind::Substr => {
                 let s = *(slot as *const *const c_void);
-                if s.is_null() {
-                    // NULL slot = non-participating capture (regex
-                    // exec / match) — bun prints `undefined`.
+                if s.is_null() || s == __torajs_str_undef() as *const c_void {
+                    // Nullish slot — the undefined sentinel cell
+                    // (non-participating regex capture, RFC 20260707
+                    // chunk 2) or NULL — prints bare `undefined`,
+                    // never the quoted payload.
                     put_bytes(b"undefined");
                     __torajs_inspect_line_add(9);
                     return;
