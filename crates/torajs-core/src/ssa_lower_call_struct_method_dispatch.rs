@@ -78,24 +78,29 @@ fn emit_fnsig_call(
     sig_id: SigId,
     args: &[ExprId],
 ) -> Operand {
-    let cur_block = ctx.cur_block;
     let fn_ptr = ctx.f.append_inst(
-        cur_block,
+        ctx.cur_block,
         InstKind::Load(Type::Ptr, recv_op, offset),
         Type::Ptr,
         None,
     );
+    // The call lands in cur_block AS OF after the args are lowered —
+    // a branching arg (ternary) moves cur_block to its merge block;
+    // a pre-lower snapshot put the call in the terminated pre-branch
+    // block with the merge block's operands (chunk 659, same family
+    // as the chunk-656 regex-method fix). The fn_ptr load above
+    // dominates the merge block, so the cross-block use is sound.
     let argv: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
     let (_params, ret_ty) = ctx.fn_sigs[sig_id.0 as usize].clone();
     if ret_ty == Type::Void {
         ctx.f.append_void(
-            cur_block,
+            ctx.cur_block,
             InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
         );
         return Operand::ConstI64(0);
     }
     let v = ctx.f.append_inst(
-        cur_block,
+        ctx.cur_block,
         InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
         ret_ty,
         None,
@@ -110,15 +115,14 @@ fn emit_closure_call(
     user_sig_id: SigId,
     args: &[ExprId],
 ) -> Operand {
-    let cur_block = ctx.cur_block;
     let closure_env = ctx.f.append_inst(
-        cur_block,
+        ctx.cur_block,
         InstKind::Load(Type::Ptr, recv_op, offset),
         Type::Ptr,
         None,
     );
     let fn_ptr = ctx.f.append_inst(
-        cur_block,
+        ctx.cur_block,
         InstKind::Load(Type::Ptr, Operand::Value(closure_env), CLOSURE_FN_ADDR_OFF),
         Type::Ptr,
         None,
@@ -130,18 +134,20 @@ fn emit_closure_call(
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first_params, ret_ty);
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
     argv.push(Operand::Value(closure_env));
+    // Same post-lower cur_block rule as emit_fnsig_call above — a
+    // branching arg moves cur_block; the loads dominate the merge.
     for a in args {
         argv.push(ctx.lower_expr(*a));
     }
     if ret_ty == Type::Void {
         ctx.f.append_void(
-            cur_block,
+            ctx.cur_block,
             InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
         );
         return Operand::ConstI64(0);
     }
     let v = ctx.f.append_inst(
-        cur_block,
+        ctx.cur_block,
         InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
         ret_ty,
         None,
