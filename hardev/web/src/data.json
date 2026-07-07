@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T08:37:31.209Z",
+  "generatedAt": "2026-07-07T10:57:11.583Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "ffd28faf",
-    "commitSubject": "fix: weak-collection owned-temp keys settle after the kernel call (test262-bug-corpus RC-4, chunk 635)",
+    "commit": "9764e0b5",
+    "commitSubject": "feat: empty array literal argument admits any typed array param (test262-bug-corpus RC-4, chunk 641)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "9764e0b5",
+      "subject": "feat: empty array literal argument admits any typed array param (test262-bug-corpus RC-4, chunk 641)"
+    },
+    {
+      "hash": "8d97d091",
+      "subject": "fix: array and object literals are owned temps (test262-bug-corpus RC-4, chunk 640)"
+    },
+    {
+      "hash": "fa39fcbc",
+      "subject": "fix: positive lookahead keeps its body's captures (test262-bug-corpus RC-4, chunk 639)"
+    },
+    {
+      "hash": "f42edd9d",
+      "subject": "test: sibling closures over a grown array stay coherent post-B1 (RFC 20260705 phase 2 close-out, chunk 638)"
+    },
+    {
+      "hash": "34c04113",
+      "subject": "fix: member read on an owned receiver detaches the result and releases the receiver (test262-bug-corpus RC-4, chunk 637)"
+    },
+    {
+      "hash": "46c39d24",
+      "subject": "fix: owned condition temps release after the truthiness test + as-cast ownership pass-through (test262-bug-corpus RC-4, chunk 636)"
+    },
+    {
+      "hash": "7e7c702f",
+      "subject": "chore(dashboard): session snapshot @ ffd28faf — rotation 39 final (631-635: FnSig-param replace cb via param-tag replace-cb axis, backward param marking closes fnsig-into-marked-slot crash, chained-fixups page_count file-backed-only fix for kernel page-in zerofill overwrite, mmalloc growable span pools remove 64MB per-class wall, weak owned-temp keys settle post-kernel 87.6MB->6.24MB flat; gate 1269 -> 1270 five green)"
+    },
+    {
       "hash": "ffd28faf",
       "subject": "fix: weak-collection owned-temp keys settle after the kernel call (test262-bug-corpus RC-4, chunk 635)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "b8734c04",
       "subject": "feat: fnsig-typed param as replace callback via param-tag replace-cb axis (test262-bug-corpus RC-4, chunk 631)"
-    },
-    {
-      "hash": "b600a350",
-      "subject": "chore(dashboard): session snapshot @ 868a3168 — rotation 38 final (626-630: RFC 20260707 admit tail + mutator tail + filed-face cleanup — any[] param admit x6 lowering stations, K.4 ident-alias global init, kind-aware pop/shift/unshift + member receivers + mismatch throw propagation, WeakRef<T> generic ann + boxed deref + undefined-narrow, weak-key borrowed classification leak fix 16.1MB->6.47MB; gate 1262 -> 1267 five green)"
-    },
-    {
-      "hash": "868a3168",
-      "subject": "fix: weak-collection primitive keys classify borrowed, owned key temps settle (chunk 630)"
-    },
-    {
-      "hash": "ba48615c",
-      "subject": "feat: WeakRef<T> generic annotations + boxed deref + undefined-narrow (RFC 20260707 tail, chunk 629)"
-    },
-    {
-      "hash": "9455da20",
-      "subject": "fix: pop/shift/unshift over typed-behind-Arr<Any> + member receivers (RFC 20260707, chunk 628)"
-    },
-    {
-      "hash": "d097993e",
-      "subject": "feat: top-level refcount globals accept ident-alias init (RFC 20260707, chunk 627)"
-    },
-    {
-      "hash": "75008292",
-      "subject": "fix: any[] params admit typed array args at every call boundary (RFC 20260707, chunk 626)"
-    },
-    {
-      "hash": "ce2d11ee",
-      "subject": "chore(dashboard): session snapshot @ 183cc235 — rotation 37 final (621-625: RFC 20260707 typed-arr-behind-Arr<Any> read/write/drop/consume-tail all closed — mark_kind signature collapse + let-decl/return widen arms, get_any pair + boxed kind-aware readers, coerce_raw_scalar writers, kind-routed drop, join/concat/flat runtime dispatch, inline HOF/sort/flatMap boxed reads; gate 1257 -> 1262 five green)"
     }
   ],
-  "headSha": "ffd28faf",
+  "headSha": "9764e0b5",
   "autorun": {
-    "total": 347,
+    "total": 348,
     "baselineTarget": 10,
-    "bySelf": 342,
+    "bySelf": 343,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783383576-5859",
-      "at": "2026-07-07T00:19:36Z",
-      "ts": 1783383576,
+      "rotationId": "r-1783413531-779d",
+      "at": "2026-07-07T08:38:51Z",
+      "ts": 1783413531,
       "trigger": "self",
-      "prevHead": "b600a350",
-      "handoffSha": "sha256:f4c46ab0f9b592bb55f7610a16d6b7a49d6d3c14d498f86969f20d550886923a",
-      "handoffAgeSec": 58,
+      "prevHead": "7e7c702f",
+      "handoffSha": "sha256:4392148e9fe51e080ad51be7db6d1a3c64b2336cbd2fae1bd2384caf57e24b89",
+      "handoffAgeSec": 9,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783413531-779d",
+        "at": "2026-07-07T08:38:51Z",
+        "ts": 1783413531,
+        "trigger": "self",
+        "prevHead": "7e7c702f",
+        "handoffSha": "sha256:4392148e9fe51e080ad51be7db6d1a3c64b2336cbd2fae1bd2384caf57e24b89",
+        "handoffAgeSec": 9,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783383576-5859",
         "at": "2026-07-07T00:19:36Z",
@@ -876,17 +887,6 @@
         "prevHead": "60f91bac",
         "handoffSha": "sha256:7a97c38412adc0ac4408cd35c45620abe96385a5a2ee03a9a0b617129fc56c0e",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783323196-244c",
-        "at": "2026-07-06T07:33:16Z",
-        "ts": 1783323196,
-        "trigger": "self",
-        "prevHead": "cc48fea2",
-        "handoffSha": "sha256:89b896ddcb0f4b8c5bbd93000def50244587c203eb9d2830b7260455ee2ea4f9",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
