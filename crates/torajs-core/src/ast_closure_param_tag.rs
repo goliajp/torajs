@@ -95,6 +95,12 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     // verbatim into another fn's fn-typed param or returned), and a
     // ret-marked fn's call results are closure-shaped in turn.
     let mut marked: HashSet<(String, usize)> = HashSet::new();
+    // chunk 631 — usage-axis seed: params consumed as functional
+    // replaceValues need the env-first shape regardless of what value
+    // shape their call sites pass (see ast_closure_param_tag_axes).
+    marked.extend(crate::ast_closure_param_tag_axes::replace_cb_param_seeds(
+        ast, &fn_params,
+    ));
     let mut ret_marked: HashSet<String> = HashSet::new();
     loop {
         let mut changed = false;
@@ -635,6 +641,41 @@ mod tests {
                 .unwrap()
                 .starts_with("__cls(")
         );
+    }
+
+    #[test]
+    fn replace_cb_param_retags_and_wraps_named_arg() {
+        // chunk 631 — a fn-typed param consumed as a functional
+        // replaceValue retags even though its only call site passes a
+        // named fn, and that arg gets the forwarder wrap.
+        let ast = pass_output(
+            "function up(s: string): string { return s; }\nfunction g(cb: (s: string) => string): void { \"a\".replace(\"a\", cb); }\ng(up);\n",
+        );
+        let ann = fn_param_ann(&ast, "g", 0).unwrap();
+        assert!(ann.starts_with("__cls("), "expected __cls retag, got {ann}");
+        assert!(
+            ast.stmts.iter().any(|s| matches!(
+                s,
+                Stmt::FnDecl { name, .. } if name == "__forward_up"
+            )),
+            "expected __forward_up decl"
+        );
+        let has_fwd_arg = ast
+            .exprs
+            .iter()
+            .any(|e| matches!(e, Expr::Closure { fn_name, .. } if fn_name == "__forward_up"));
+        assert!(has_fwd_arg, "g(up) arg should be rewritten");
+    }
+
+    #[test]
+    fn replace_cb_name_elsewhere_leaves_unrelated_param() {
+        // A replace cb that is a plain local (not any fn's param name)
+        // seeds nothing — unrelated fn-typed params keep direct dispatch.
+        let ast = pass_output(
+            "function f(thunk: () => void): void { thunk(); }\nfunction id(s: string): string { return s; }\nf(id);\nlet r = (m: string): string => m;\n\"a\".replace(\"a\", r);\n",
+        );
+        let ann = fn_param_ann(&ast, "f", 0).unwrap();
+        assert!(ann.starts_with("__fn("), "no seed expected, got {ann}");
     }
 
     #[test]
