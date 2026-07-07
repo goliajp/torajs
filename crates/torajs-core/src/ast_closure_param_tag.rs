@@ -48,6 +48,7 @@
 //!    the residue.
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
+use crate::ast_closure_param_tag_axes::{backward_param_marks, replace_cb_param_seeds};
 use std::collections::{HashMap, HashSet};
 
 /// Does this annotation parse to `Type::FnSig` at the SSA layer?
@@ -95,12 +96,9 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     // verbatim into another fn's fn-typed param or returned), and a
     // ret-marked fn's call results are closure-shaped in turn.
     let mut marked: HashSet<(String, usize)> = HashSet::new();
-    // chunk 631 — usage-axis seed: params consumed as functional
-    // replaceValues need the env-first shape regardless of what value
-    // shape their call sites pass (see ast_closure_param_tag_axes).
-    marked.extend(crate::ast_closure_param_tag_axes::replace_cb_param_seeds(
-        ast, &fn_params,
-    ));
+    // chunk 631 — usage-axis seed: replace-cb params need the
+    // env-first shape (see ast_closure_param_tag_axes doc).
+    marked.extend(replace_cb_param_seeds(ast, &fn_params));
     let mut ret_marked: HashSet<String> = HashSet::new();
     loop {
         let mut changed = false;
@@ -154,6 +152,13 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
                 changed = true;
             }
             push_child_stmts(s, &mut stack);
+        }
+        // chunk 632 — backward round: params handed into an already-
+        // marked slot carry the closure shape too (see axes sibling).
+        for m in backward_param_marks(ast, &fn_params, &marked) {
+            if marked.insert(m) {
+                changed = true;
+            }
         }
         if !changed {
             break;
@@ -676,6 +681,35 @@ mod tests {
         );
         let ann = fn_param_ann(&ast, "f", 0).unwrap();
         assert!(ann.starts_with("__fn("), "no seed expected, got {ann}");
+    }
+
+    #[test]
+    fn fnsig_param_into_marked_param_backward_marks() {
+        // chunk 632 / probe p631c shape: g3 marked by a closure call
+        // site; h passes its own fn-typed param into g3 — the backward
+        // round marks h's param and h(up) gets the forwarder wrap.
+        let ast = pass_output(
+            "function up(s: string): string { return s; }\nfunction g3(cb: (s: string) => string): void { cb(\"x\"); }\nfunction h(cb2: (s: string) => string): void { g3(cb2); }\ng3((s: string): string => s + \"!\");\nh(up);\n",
+        );
+        assert!(fn_param_ann(&ast, "g3", 0).unwrap().starts_with("__cls("));
+        assert!(fn_param_ann(&ast, "h", 0).unwrap().starts_with("__cls("));
+        assert!(
+            ast.exprs
+                .iter()
+                .any(|e| matches!(e, Expr::Closure { fn_name, .. } if fn_name == "__forward_up")),
+            "h(up) arg should be rewritten"
+        );
+    }
+
+    #[test]
+    fn pure_named_fn_chain_stays_direct_dispatch() {
+        // No marked slot anywhere — the backward round must not touch
+        // a named-fn-only forwarding chain.
+        let ast = pass_output(
+            "function up(s: string): string { return s; }\nfunction g3(cb: (s: string) => string): void { cb(\"x\"); }\nfunction h(cb2: (s: string) => string): void { g3(cb2); }\nh(up);\n",
+        );
+        assert!(fn_param_ann(&ast, "g3", 0).unwrap().starts_with("__fn("));
+        assert!(fn_param_ann(&ast, "h", 0).unwrap().starts_with("__fn("));
     }
 
     #[test]
