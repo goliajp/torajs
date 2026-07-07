@@ -98,6 +98,26 @@ unsafe fn f64_shortest(d: f64, buf: *mut u8, cap: usize) -> i32 {
 // arr_join — Array<Str>
 // ============================================================
 
+unsafe extern "C" {
+    /// RFC 20260707 chunk 4 — the immortal `undefined` sentinel Str
+    /// cell (torajs-str undef_sentinel.rs). A nullish elem slot
+    /// joins as the empty string per ES §23.1.3.18 step 8.c, never
+    /// its payload text.
+    fn __torajs_str_undef() -> *mut u8;
+}
+
+/// Join length of one Str slot: nullish (NULL = JS null, the
+/// undefined sentinel cell) contributes nothing per §23.1.3.18;
+/// anything else is its length.
+#[inline]
+unsafe fn elem_join_len(elem: *const u8) -> u64 {
+    if elem.is_null() || elem == unsafe { __torajs_str_undef() } as *const u8 {
+        0
+    } else {
+        unsafe { str_len(elem) }
+    }
+}
+
 /// `Array<Str>.join(sep)`. Each slot is a `*Str`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *mut u8 {
@@ -111,7 +131,7 @@ pub unsafe extern "C" fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *m
         let mut total: u64 = 0;
         for i in 0..len {
             let elem = *(slot_addr(arr, i) as *const *const u8);
-            total += str_len(elem);
+            total += elem_join_len(elem);
         }
         total += sep_len * (len - 1);
         let p = str_alloc_pooled(total);
@@ -127,7 +147,7 @@ pub unsafe extern "C" fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *m
                 cursor += sep_len;
             }
             let elem = *(slot_addr(arr, i) as *const *const u8);
-            let elem_len = str_len(elem);
+            let elem_len = elem_join_len(elem);
             if elem_len > 0 {
                 core::ptr::copy_nonoverlapping(
                     str_data(elem),
