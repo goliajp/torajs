@@ -47,7 +47,7 @@ fn main() {
 
     // Full production archive set. The worklist closure decides which
     // members actually get pulled in based on the user's reloc graph,
-    // so listing all 32 doesn't necessarily integrate all 32.
+    // so listing all archives doesn't necessarily integrate them all.
     let archive_names = [
         "libtorajs_abort.a",
         "libtorajs_anyvalue.a",
@@ -58,7 +58,6 @@ fn main() {
         "libtorajs_cycle.a",
         "libtorajs_date.a",
         "libtorajs_dynobj.a",
-        "libtorajs_embed.a",
         "libtorajs_fetch.a",
         "libtorajs_fmt.a",
         "libtorajs_fs.a",

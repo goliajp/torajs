@@ -22,7 +22,9 @@ use crate::user_vtables_layout::vtable_rebase_targets_from_fn_vaddrs;
 pub struct ChainedFixupsInputs<'a> {
     pub dyld_imports: &'a BTreeMap<String, u8>,
     pub data_seg_vmaddr_offset: u64,
-    pub data_seg_vmsize: u64,
+    /// `__DATA` FILESIZE (file-backed only — chunk 633: page_count
+    /// must not cover zerofill pages; see chained_fixups_starts.rs).
+    pub data_seg_filesize: u64,
     pub tlv_thunk_offsets: &'a [u64],
     pub segment_count: u32,
     pub data_seg_idx: u32,
@@ -65,7 +67,7 @@ pub fn compute_chained_fixups_outputs(
         input.dyld_imports,
         input.data_seg_vmaddr_offset,
         0,
-        input.data_seg_vmsize,
+        input.data_seg_filesize,
         input.tlv_thunk_offsets,
         input.segment_count,
         input.data_seg_idx,
@@ -151,7 +153,7 @@ pub fn recompute_chained_fixups_with_data_rebase(
         compute_chained_fixups_outputs(ChainedFixupsInputs {
             dyld_imports: &layout.dyld_imports,
             data_seg_vmaddr_offset: layout.data_vmaddr.saturating_sub(TEXT_VMADDR_BASE),
-            data_seg_vmsize: layout.data_vmsize,
+            data_seg_filesize: layout.data_filesize,
             tlv_thunk_offsets: &tlv_thunk_offsets,
             segment_count,
             data_seg_idx,

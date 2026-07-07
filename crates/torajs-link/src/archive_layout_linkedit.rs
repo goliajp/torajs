@@ -70,7 +70,7 @@ pub(crate) fn compute_linkedit_plan(
     ) = compute_chained_fixups_outputs(ChainedFixupsInputs {
         dyld_imports: &required.dyld_imports,
         data_seg_vmaddr_offset: dp.data_vmaddr.saturating_sub(TEXT_VMADDR_BASE),
-        data_seg_vmsize: dp.data_vmsize,
+        data_seg_filesize: dp.data_filesize,
         tlv_thunk_offsets: &tlv_thunk_offsets,
         segment_count: tp.segment_count,
         data_seg_idx,

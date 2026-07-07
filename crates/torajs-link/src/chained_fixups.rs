@@ -245,11 +245,12 @@ pub fn encode_rebase_link(target_offset_in_image: u64, next_stride: u32, high8: 
 /// blob format stays decoupled from `compute_archive_layout`'s
 /// numeric choices.
 ///
-/// `data_segment_vmsize` is the `__DATA` segment's vmsize (file
-/// region + zerofill), used to determine `page_count` for the
-/// `dyld_chained_starts_in_segment.page_start[]` table. The
-/// total vmsize is rounded up to whole pages; pages with no
-/// chained slot get the `DYLD_CHAINED_PTR_START_NONE` sentinel.
+/// `data_segment_filesize` is the `__DATA` segment's FILESIZE
+/// (file-backed region only, NO zerofill), used to determine
+/// `page_count` for the `dyld_chained_starts_in_segment.page_start[]`
+/// table. Chunk 633: covering the zerofill pages made the kernel
+/// page-in linker fault them in from the file (LINKEDIT bytes)
+/// instead of zero-filling — see chained_fixups_starts.rs.
 ///
 /// `tlv_thunk_offsets` is the list of `__DATA`-relative byte
 /// offsets at which TLV descriptor `thunk` slots live. The
@@ -273,7 +274,7 @@ pub fn build_chained_fixups(
     la_ptr_imports: &BTreeMap<String, u8>,
     data_segment_vmaddr_offset: u64,
     la_ptr_offset_in_segment: u64,
-    data_segment_vmsize: u64,
+    data_segment_filesize: u64,
     tlv_thunk_offsets: &[u64],
     seg_count: u32,
     data_seg_idx: u32,
@@ -295,8 +296,8 @@ pub fn build_chained_fixups(
         "data_seg_idx {data_seg_idx} must be < seg_count {seg_count}"
     );
     debug_assert!(
-        data_segment_vmsize > 0,
-        "data_segment_vmsize must be non-zero when chain participants exist"
+        data_segment_filesize > 0,
+        "data_segment_filesize must be non-zero when chain participants exist"
     );
     if let Some(r) = text_rebase {
         debug_assert!(
@@ -348,7 +349,7 @@ pub fn build_chained_fixups(
         la_ptr_imports,
         la_ptr_offset_in_segment,
         data_segment_vmaddr_offset,
-        data_segment_vmsize,
+        data_segment_filesize,
         tlv_thunk_offsets,
         tlv_import_ordinal,
         data_rebase_targets,

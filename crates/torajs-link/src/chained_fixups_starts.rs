@@ -56,7 +56,7 @@ pub(crate) fn build_starts_in_segment(
     la_ptr_imports: &BTreeMap<String, u8>,
     la_ptr_offset_in_segment: u64,
     data_segment_vmaddr_offset: u64,
-    data_segment_vmsize: u64,
+    segment_file_size: u64,
     tlv_thunk_offsets: &[u64],
     tlv_import_ordinal: u32,
     rebase_targets: &[RebaseTarget],
@@ -97,14 +97,22 @@ pub(crate) fn build_starts_in_segment(
     slots.sort_by_key(|&(off, _, _)| off);
 
     // Bucket sorted slots by __DATA page. page_count covers the
-    // full vmsize so trailing zerofill pages still appear (with
-    // the empty-page sentinel) — dyld walks all page_start[]
-    // entries up to page_count regardless of where slots live.
-    let page_count_u64 = data_segment_vmsize.div_ceil(PAGE_SIZE);
+    // FILE-BACKED pages only — chunk 633: the kernel page-in
+    // linker treats every page up to page_count as fixup-bearing
+    // and faults it in from the file, so declaring the trailing
+    // zerofill pages here replaced their kernel zero-fill with
+    // whatever file bytes sit past filesize (the next segment's
+    // LINKEDIT content — probe-proven: __bss statics read symtab
+    // nlist bytes and a Mutex lock word came up nonzero → startup
+    // hang). ld64 ground truth agrees: bun's __DATA is 410 vm
+    // pages / 12 file pages and its page_count is 12. Chain slots
+    // all live in the file region (asserted per-slot below), so
+    // no coverage is lost.
+    let page_count_u64 = segment_file_size.div_ceil(PAGE_SIZE);
     debug_assert!(
         page_count_u64 <= u64::from(u16::MAX),
-        "page_count {page_count_u64} overflows u16 — __DATA vmsize \
-         {data_segment_vmsize} too large for the chained-fixups encoding",
+        "page_count {page_count_u64} overflows u16 — __DATA filesize \
+         {segment_file_size} too large for the chained-fixups encoding",
     );
     let page_count: u16 = page_count_u64 as u16;
     let mut page_starts: Vec<u16> = vec![DYLD_CHAINED_PTR_START_NONE; page_count as usize];
