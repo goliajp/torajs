@@ -18,14 +18,18 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
-/// Arm a TypeError when `s` is nullish — NULL or the undefined
-/// sentinel cell (bun/JSC wording; both report the undefined
-/// wording until the remaining NULL-means-undefined producers flip
-/// and NULL can be attributed to JS null, RFC 20260707 chunk 4).
-/// Anything else passes through untouched.
+/// Arm a TypeError when `s` is nullish — NULL, the undefined
+/// sentinel cell, or the Substr-shaped sentinel (string index OOB
+/// read; bun/JSC wording; all report the undefined wording until
+/// the remaining NULL-means-undefined producers flip and NULL can
+/// be attributed to JS null, RFC 20260707 chunk 4). Anything else
+/// passes through untouched.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_null_check(s: *const c_void) {
-    if s.is_null() || crate::undef_sentinel::is_undef(s as *const u8) {
+    if s.is_null()
+        || crate::undef_sentinel::is_undef(s as *const u8)
+        || crate::undef_sentinel::is_substr_undef(s as *const u8)
+    {
         unsafe {
             __torajs_throw_type_error(b"undefined is not an object\0".as_ptr() as *const _);
         }

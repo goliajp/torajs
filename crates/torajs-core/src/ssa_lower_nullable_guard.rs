@@ -67,6 +67,22 @@ pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     match ctx.ast.get_expr(eid) {
         Expr::Ident(n) => ctx.nullable_str_lets.contains(n),
         Expr::Index { obj, .. } => is_nullable_arr_source(ctx, *obj),
+        // RFC 20260707 residual chunk — `process.env.X` answers the
+        // undefined sentinel on a missing var (chunk 644 producer),
+        // so a `.length` load on it (direct or via a let alias)
+        // must guard.
+        Expr::Member { obj, .. } => {
+            if let Expr::Member { obj: inner, name } = ctx.ast.get_expr(*obj) {
+                name == "env"
+                    && matches!(ctx.ast.get_expr(*inner), Expr::Ident(n) if n == "process")
+            } else {
+                false
+            }
+        }
+        // `x!` / `x as T` are type-side identities (`!` encodes as
+        // `As { ty_ann: "__nonnull__" }`) — the runtime value flows
+        // through unchanged, so nullability does too.
+        Expr::As { expr, .. } => is_nullable_str_source(ctx, *expr),
         _ => false,
     }
 }
@@ -84,17 +100,20 @@ pub(crate) fn is_undefable_substr_source(ctx: &LowerCtx<'_>, eid: ExprId) -> boo
         Expr::Index { obj, .. } => {
             matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
         }
+        Expr::As { expr, .. } => is_undefable_substr_source(ctx, *expr),
         _ => false,
     }
 }
 
-/// Emit the Str null guard when `obj` is a nullable-str source;
-/// no-op otherwise. `str_val` must be the already-lowered receiver.
-/// Same shape as [`emit_nullable_arr_guard`]: `str_null_check`
-/// arms a catchable TypeError on NULL, the throw-check right after
+/// Emit the Str null guard when `obj` is a nullable-str source or
+/// an undefable-substr source (string index read — its slot may
+/// hold the Substr-shaped sentinel); no-op otherwise. `str_val`
+/// must be the already-lowered receiver. Same shape as
+/// [`emit_nullable_arr_guard`]: `str_null_check` arms a catchable
+/// TypeError on any nullish repr, the throw-check right after
 /// diverts before the inline `.length` load dereferences.
 pub(crate) fn emit_nullable_str_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, str_val: &Operand) {
-    if !is_nullable_str_source(ctx, obj) {
+    if !is_nullable_str_source(ctx, obj) && !is_undefable_substr_source(ctx, obj) {
         return;
     }
     let cur_block = ctx.cur_block;
