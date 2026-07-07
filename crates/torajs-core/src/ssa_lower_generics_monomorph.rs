@@ -196,16 +196,39 @@ pub(crate) fn monomorphize_generics(
         // `check<T=Number>(Math.abs(-1), 1)` (F64 mono) cleanly.
         let widths: Vec<crate::num_width::NumWidth> =
             crate::num_width::compute_typevar_widths(ast, *eid, callee_name, type_args, &generics);
+        // Closure-shape-aware ann selection (same mechanism as the
+        // width pass): `check::Type::Function` carries no
+        // closure-vs-bare-fn distinction, so `type_to_ann` always
+        // answers `__fn(` — but a closure ARG instantiating that
+        // type-param needs a `__cls(` slot (env-block ptr, env-first
+        // CallIndirect). Without the flip the mono body's call arm
+        // treats the env ptr as a bare fn ptr and jumps into it
+        // (SIGBUS). The 153-pass `__fn(`→`__cls(` infection can't
+        // see these anns — monomorphization runs after typecheck.
+        let cls_shapes: Vec<bool> =
+            crate::ssa_lower_generics_mono_shapes::compute_typevar_closure_shapes(
+                ast,
+                *eid,
+                callee_name,
+                type_args,
+                &generics,
+            );
         let arg_anns: Vec<String> = type_args
             .iter()
             .zip(widths.iter())
-            .map(|(ty, w)| {
+            .zip(cls_shapes.iter())
+            .map(|((ty, w), is_cls)| {
                 if matches!(ty, check_mod::Type::Number)
                     && matches!(w, crate::num_width::NumWidth::F64)
                 {
                     "f64".into()
                 } else {
-                    type_to_ann(ty)
+                    let ann = type_to_ann(ty);
+                    if *is_cls && ann.starts_with("__fn(") {
+                        format!("__cls({}", &ann["__fn(".len()..])
+                    } else {
+                        ann
+                    }
                 }
             })
             .collect();
