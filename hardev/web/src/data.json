@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T15:36:55.603Z",
+  "generatedAt": "2026-07-07T15:46:13.873Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "78edd61e",
-    "commitSubject": "fix: json stringify skips the key of undefined object fields (25.5.2.4 step 8.b)",
+    "commit": "7569ffa0",
+    "commitSubject": "fix: struct-field method calls land after branching args (fnsig + closure slots)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "7569ffa0",
+      "subject": "fix: struct-field method calls land after branching args (fnsig + closure slots)"
+    },
+    {
+      "hash": "7e4513a9",
+      "subject": "chore(dashboard): session snapshot @ 78edd61e — rotation 43 final (652-658: undefined-sentinel residuals four faces closed — top-level json stringify undefined value, array-literal substr materialize, user-cmp sort undefined pre-probe, object-field key skip; two root-cause flips: regex churn leak was a wrong-block ssa call on branching args, non-ascii exec slice was the json quote helper misreading utf-16; gate 1283 -> 1290 seven green)"
+    },
+    {
       "hash": "78edd61e",
       "subject": "fix: json stringify skips the key of undefined object fields (25.5.2.4 step 8.b)"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "699a9131",
       "subject": "fix: nullish .length guards cover env-miss bindings and index-OOB slots (RFC 20260707 residual, us7 face 2)"
-    },
-    {
-      "hash": "1e748af1",
-      "subject": "feat: string index OOB reads answer the undefined sentinel (RFC 20260707 residual, us7 face 1)"
-    },
-    {
-      "hash": "609860d6",
-      "subject": "feat: lookbehind bodies keep their captures via reverse probes (RFC 20260707-lookbehind-reverse-compile chunk 2)"
     }
   ],
-  "headSha": "78edd61e",
+  "headSha": "7569ffa0",
   "autorun": {
     "total": 351,
     "baselineTarget": 10,
