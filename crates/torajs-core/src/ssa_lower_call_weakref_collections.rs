@@ -144,7 +144,7 @@ fn try_lower_weak_collection_method(
     // (set/add record a pending TypeError for an illegal key,
     // has/get/delete read it as absent). The kernels no-op on the
     // helper's NULL result.
-    let key_op = lower_weak_key(ctx, args[0], is_setter);
+    let (key_op, key_raw) = lower_weak_key(ctx, args[0], is_setter);
     let mut arg_ops: Vec<Operand> = vec![key_op];
     // RC-4 F2 — the WeakMap value slot is an AnyValue lane: encode
     // the value to borrowed bits (undef-aware pair extraction; the
@@ -199,11 +199,19 @@ fn try_lower_weak_collection_method(
         if is_setter {
             ctx.emit_throw_check(None);
         }
+        // Chunk 634 — settle an owned-shape key temp AFTER the
+        // kernel consumed it. On a setter the entry never holds a
+        // stake (the key is observed weakly), so releasing the
+        // temp's only ref here fires the dying broadcast and the
+        // fresh entry evicts immediately — the ES-observable state
+        // for a key nobody else references.
+        settle_owned_key(ctx, args[0], &key_raw);
         return Some(Operand::ConstI64(0));
     }
     let v = ctx
         .f
         .append_inst(cur_block, InstKind::Call(target, full_args), ret_ty, None);
+    settle_owned_key(ctx, args[0], &key_raw);
     if matches!(m_name.as_str(), "has" | "delete") {
         let b = ctx.f.append_inst(
             cur_block,
@@ -216,6 +224,21 @@ fn try_lower_weak_collection_method(
     Some(Operand::Value(v))
 }
 
+/// Chunk 634 — release an owned-shape key temp (`new K()`, a
+/// concat result, `Symbol(...)`) after the weak-collection kernel
+/// call. Chunk 630 settled the Symbol / boxed lanes BEFORE the
+/// kernel ran — for a setter with a legal Symbol key that freed
+/// the temp and then stored a dangling pointer in the entry (and
+/// registered a dying observer against freed memory). The
+/// object-like fast path never settled at all — probe l12/l13:
+/// 300k `wm.set(new K(i), i)` churn leaked every key (78 MB vs
+/// 6.4 MB flat).
+fn settle_owned_key(ctx: &mut LowerCtx<'_>, eid: ExprId, raw: &Operand) {
+    if ctx.expr_owned_shape(eid) {
+        ctx.release_owned_temp(eid, raw);
+    }
+}
+
 /// RC-4 F2 — route a weak-collection KEY operand per ES
 /// `CanBeHeldWeakly`. A statically object-like key (Obj / Arr /
 /// Closure / Symbol / Promise / RegExp / Date / weak-family / Map /
@@ -226,7 +249,13 @@ fn try_lower_weak_collection_method(
 /// `or_throw` (set/add) records a pending TypeError for an illegal
 /// key, `from_any` (has/get/delete) reads it as absent. Both return
 /// NULL on rejection and the kernels no-op on a NULL key.
-fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> Operand {
+///
+/// Returns `(key_op, raw_op)` — `raw_op` is the pre-classifier
+/// lowered operand the caller settles via [`settle_owned_key`]
+/// AFTER the kernel call (chunk 634: the chunk-630 shape settled
+/// before the kernel ran, freeing a legal Symbol key temp the
+/// setter kernel then stored dangling).
+fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> (Operand, Operand) {
     let is_undef = matches!(ctx.expr_types.get(&eid), Some(check_mod::Type::Undefined));
     let raw = ctx.lower_expr(eid);
     let ty = ctx.operand_ty(&raw);
@@ -244,7 +273,7 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> Opera
             | Type::Map
             | Type::Set
     ) {
-        return raw;
+        return (raw.clone(), raw);
     }
     // A Symbol key is legal only while NOT in the `Symbol.for`
     // registry (`CanBeHeldWeakly` — a registered symbol lives
@@ -261,20 +290,15 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> Opera
         };
         let p = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(helper, vec![raw]),
+            InstKind::Call(helper, vec![raw.clone()]),
             Type::Ptr,
             None,
         );
-        // Chunk 630 — an owned-shape key temp (`wm.has(Symbol())`)
-        // settles after the borrowed classification.
-        if ctx.expr_owned_shape(eid) {
-            ctx.release_owned_temp(eid, &raw);
-        }
-        return Operand::Value(p);
+        return (Operand::Value(p), raw);
     }
     let cur_block = ctx.cur_block;
     let av = if matches!(ty, Type::Any) {
-        raw
+        raw.clone()
     } else {
         // Chunk 630 — the classifier only READS the key (a legal
         // key it keeps is the fast-path early return above; every
@@ -285,9 +309,9 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> Opera
         let (tag, val) = if is_undef && matches!(ty, Type::Ptr) {
             (Operand::ConstI64(5), Operand::ConstI64(0))
         } else if ty.is_refcounted() {
-            (Operand::ConstI64(4), raw)
+            (Operand::ConstI64(4), raw.clone())
         } else {
-            ctx.box_to_tag_value(raw)
+            ctx.box_to_tag_value(raw.clone())
         };
         let v = ctx.f.append_inst(
             cur_block,
@@ -308,10 +332,5 @@ fn lower_weak_key(ctx: &mut LowerCtx<'_>, eid: ExprId, is_setter: bool) -> Opera
         Type::Ptr,
         None,
     );
-    // Chunk 630 — settle an owned-shape key temp (the `"key" + i`
-    // concat result) after the borrowed classification.
-    if ctx.expr_owned_shape(eid) {
-        ctx.release_owned_temp(eid, &raw);
-    }
-    Operand::Value(p)
+    (Operand::Value(p), raw)
 }
