@@ -41,8 +41,12 @@ pub(crate) fn lower(
     then_branch: ExprId,
     else_branch: ExprId,
 ) -> Operand {
-    let cond_op = ctx.lower_expr(cond);
-    let cond_op = ctx.coerce_to_bool(cond_op);
+    let raw = ctx.lower_expr(cond);
+    let cond_op = ctx.coerce_to_bool(raw.clone());
+    // Chunk 636 — release an owned condition temp after the
+    // truthiness test (see ssa_lower_stmt_if.rs); emitted in the
+    // pre-branch block, before the CondBr splits control flow.
+    ctx.release_owned_temp(cond, &raw);
     let then_blk = ctx.f.add_block();
     let else_blk = ctx.f.add_block();
     let after_blk = ctx.f.add_block();

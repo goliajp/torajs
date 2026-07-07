@@ -110,7 +110,13 @@ impl<'a> LowerCtx<'a> {
     /// alloc, +1 return retain, or the borrow sites' owned-result
     /// inc); BinOp results are fresh too (str concat) except the
     /// short-circuit LAnd/LOr which answer an operand borrow;
-    /// Closure literals mint a fresh env block. Every other
+    /// Closure literals mint a fresh env block. An `as` cast is a
+    /// pass-through at the value layer (lower_as_cast answers the
+    /// inner operand for the heap-typed cases), so ownership follows
+    /// the inner expression — without the recursion `f() as K`
+    /// looked like a borrow and every consumer's release turned
+    /// no-op (probe l16d: `(wr.deref() as K).x` churn kept the
+    /// target alive after its only strong ref died). Every other
     /// expression shape (Ident / Member / Index / literal) answers
     /// a borrow — except the minted-closure Ident caught by
     /// [`Self::release_owned_temp`]'s operand-type check.
@@ -118,6 +124,7 @@ impl<'a> LowerCtx<'a> {
         match self.ast.get_expr(eid) {
             Expr::Call { .. } | Expr::New { .. } | Expr::Closure { .. } => true,
             Expr::BinOp { op, .. } => !matches!(op, AstBinOp::LAnd | AstBinOp::LOr),
+            Expr::As { expr, .. } => self.expr_owned_shape(*expr),
             _ => false,
         }
     }

@@ -33,8 +33,14 @@ pub(crate) fn lower(
     then_branch: &Stmt,
     else_branch: Option<&Stmt>,
 ) {
-    let c = ctx.lower_expr(cond);
-    let c = ctx.coerce_to_bool(c);
+    let raw = ctx.lower_expr(cond);
+    let c = ctx.coerce_to_bool(raw.clone());
+    // Chunk 636 — the condition value is consumed by the truthiness
+    // test alone; an owned temp (`if (wr.deref())`, `if (f())`) has
+    // no other release site (probe l16d: the deref target stayed
+    // alive after its only strong ref died). coerce_to_bool only
+    // reads the operand, so releasing after it is safe.
+    ctx.release_owned_temp(cond, &raw);
     let then_blk = ctx.f.add_block();
     let after_blk = ctx.f.add_block();
 

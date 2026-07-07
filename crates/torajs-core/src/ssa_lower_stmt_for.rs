@@ -130,7 +130,11 @@ pub(crate) fn lower(
     let c = match cond {
         Some(eid) => {
             let raw = ctx.lower_expr(eid);
-            ctx.coerce_to_bool(raw)
+            let c = ctx.coerce_to_bool(raw.clone());
+            // Chunk 636 — release an owned condition temp after the
+            // truthiness test (see ssa_lower_stmt_if.rs).
+            ctx.release_owned_temp(eid, &raw);
+            c
         }
         None => Operand::ConstBool(true),
     };

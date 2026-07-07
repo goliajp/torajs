@@ -65,7 +65,12 @@ impl LowerCtx<'_> {
             crate::ast::UnaryOp::Not => {
                 // V3-18 m1.h.2 — coerce truthy first; the
                 // existing xor-with-true path then flips.
+                let raw = v.clone();
                 let v = self.coerce_to_bool(v);
+                // Chunk 636 — `!f()` consumes the operand by the
+                // truthiness test alone; release an owned temp
+                // (see ssa_lower_stmt_if.rs).
+                self.release_owned_temp(expr, &raw);
                 let r = self.f.append_inst(
                     self.cur_block,
                     InstKind::BinOp(SsaBinOp::Xor, v, Operand::ConstBool(true)),
