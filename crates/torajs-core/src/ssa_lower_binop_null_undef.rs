@@ -13,22 +13,26 @@
 //!   false / `!==` true (spec §6.1.1/§6.1.2 distinct types).
 //! - Undefined vs Undefined / Null vs Null → `===` true (both are
 //!   single-value types).
-//! - Anything else (one side not statically nullish) → fall
-//!   through (`None`) to the Any lane / same-family cmp paths.
+//! - One nullish side vs a Str-typed value (RFC 20260707 chunk 2)
+//!   → runtime identity cmp against the undefined sentinel cell
+//!   (`=== undefined`) or NULL (`=== null`) — a Str slot can hold
+//!   either nullish repr.
+//! - Anything else → fall through (`None`) to the Any lane /
+//!   same-family cmp paths.
 //!
 //! The pre-612 operand-shape version mistook the `undefined`
 //! LITERAL (also ConstPtrNull) for `null`, folding
 //! `y === undefined` to false for an Undefined-typed `y`.
 
 use crate::ast::BinOp as AstBinOp;
-use crate::ssa::Operand;
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
-    ctx: &LowerCtx<'_>,
+    ctx: &mut LowerCtx<'_>,
     op: AstBinOp,
-    _a: Operand,
-    _b: Operand,
+    a: Operand,
+    b: Operand,
 ) -> Option<Operand> {
     if !matches!(op, AstBinOp::Eq | AstBinOp::Neq) {
         return None;
@@ -37,14 +41,59 @@ pub(crate) fn try_lower(
     let b_undef = ctx.binop_right_undef_id.is_some();
     let a_null = ctx.binop_left_null_id.is_some();
     let b_null = ctx.binop_right_null_id.is_some();
-    if !((a_undef || a_null) && (b_undef || b_null)) {
-        return None;
+    let a_nullish = a_undef || a_null;
+    let b_nullish = b_undef || b_null;
+    if a_nullish && b_nullish {
+        let eq = (a_undef && b_undef) || (a_null && b_null);
+        let answer = match op {
+            AstBinOp::Eq => eq,
+            AstBinOp::Neq => !eq,
+            _ => unreachable!(),
+        };
+        return Some(Operand::ConstBool(answer));
     }
-    let eq = (a_undef && b_undef) || (a_null && b_null);
-    let answer = match op {
-        AstBinOp::Eq => eq,
-        AstBinOp::Neq => !eq,
-        _ => unreachable!(),
-    };
-    Some(Operand::ConstBool(answer))
+    // RFC 20260707 chunk 2 — one nullish side vs a Str-typed value.
+    // A Str slot can hold the undefined sentinel cell (missed
+    // exec/match capture) or NULL (JS null): `x === undefined`
+    // compares against the sentinel ADDRESS, `x === null` against
+    // NULL. Substr stays on the raw-ptr fall-through (its OOB
+    // producer still uses NULL-means-undefined; flips in chunk 4).
+    if a_nullish ^ b_nullish {
+        let (val, nullish_is_undef) = if a_nullish {
+            (b, a_undef)
+        } else {
+            (a, b_undef)
+        };
+        if ctx.operand_ty(&val) != Type::Str {
+            return None;
+        }
+        let rhs = if nullish_is_undef {
+            let u = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.str_undef, vec![]),
+                Type::Str,
+                None,
+            );
+            Operand::Value(u)
+        } else {
+            Operand::ConstPtrNull
+        };
+        let cmp = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Eq, val, rhs),
+            Type::Bool,
+            None,
+        );
+        if matches!(op, AstBinOp::Neq) {
+            let r = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::BinOp(SsaBinOp::Xor, Operand::Value(cmp), Operand::ConstBool(true)),
+                Type::Bool,
+                None,
+            );
+            return Some(Operand::Value(r));
+        }
+        return Some(Operand::Value(cmp));
+    }
+    None
 }

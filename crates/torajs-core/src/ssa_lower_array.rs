@@ -119,11 +119,32 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
     let data = ctx.emit_arr_data_ptr(Operand::Value(arr_ptr));
     for (i, val) in elem_vals.iter().enumerate() {
         let off = (i as u64) * 8;
+        // RFC 20260707 chunk 2 — an `undefined` element in a
+        // Str-typed array literal (`["a", undefined]`) stores the
+        // undefined sentinel cell, not NULL, so eq/print/JSON agree
+        // with the flipped exec/match miss-capture slots.
+        let val = if elem_ty == Type::Str
+            && matches!(val, Operand::ConstPtrNull)
+            && matches!(
+                ctx.expr_types.get(&element_ids[i]),
+                Some(crate::check::Type::Undefined)
+            ) {
+            let cur_block = ctx.cur_block;
+            let u = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(ctx.intrinsics.str_undef, vec![]),
+                Type::Str,
+                None,
+            );
+            Operand::Value(u)
+        } else {
+            *val
+        };
         let cur_block = ctx.cur_block;
         ctx.f
-            .append_void(cur_block, InstKind::Store(*val, data.clone(), off));
+            .append_void(cur_block, InstKind::Store(val, data.clone(), off));
         if elem_inc_after[i] {
-            ctx.emit_rc_inc(*val);
+            ctx.emit_rc_inc(val);
         }
     }
     Operand::Value(arr_ptr)

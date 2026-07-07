@@ -139,6 +139,7 @@ pub mod substr_trim;
 pub mod symbol;
 pub mod to_number;
 pub mod transform;
+pub mod undef_sentinel;
 
 // Re-export the small surface the rest of the workspace (and the
 // FFI consumers) reach for most often. Keeping this list tight
@@ -188,6 +189,7 @@ pub use transform::construct::{
 pub use transform::pad::{__torajs_str_pad_end, __torajs_str_pad_start};
 pub use transform::replace::{__torajs_str_replace, __torajs_str_replace_all};
 pub use transform::trim::{__torajs_str_trim, __torajs_str_trim_end, __torajs_str_trim_start};
+pub use undef_sentinel::{__torajs_str_is_nullish, __torajs_str_undef};
 
 // torajs-rc's `__torajs_rc_dec` calls into a WeakRef hook whenever
 // a block reaches refcount = 0. At `tr build` link time, the

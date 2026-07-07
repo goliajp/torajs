@@ -123,6 +123,8 @@ pub(crate) struct Intrinsics {
     pub(crate) str_includes: FuncId,
     pub(crate) str_eq: FuncId,
     pub(crate) str_null_check: FuncId,
+    pub(crate) str_undef: FuncId,
+    pub(crate) str_is_nullish: FuncId,
     pub(crate) str_split: FuncId,
     pub(crate) str_split_no_sep: FuncId,
     /// Phase Substr.A — substring view runtime helpers.

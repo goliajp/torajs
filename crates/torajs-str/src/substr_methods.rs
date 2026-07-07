@@ -209,9 +209,14 @@ pub unsafe extern "C" fn __torajs_substr_char_code_at(v: *const u8, i: i64) -> i
 /// `v` is a live `*const Substr`, `s` is a live `*const Str`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_eq_str(v: *const u8, s: *const u8) -> i64 {
-    // RC-4 F1b-2 — NULL in a Str/Substr-typed slot denotes JS
-    // `undefined` (see eq.rs); identity compare, never content.
-    if v.is_null() || s.is_null() {
+    // RFC 20260707 chunk 2 — nullish operands (NULL or the
+    // undefined sentinel cell) compare by identity, never content
+    // (see eq.rs).
+    if v.is_null()
+        || s.is_null()
+        || crate::undef_sentinel::is_undef(v)
+        || crate::undef_sentinel::is_undef(s)
+    {
         return (v == s) as i64;
     }
     let (v_payload, _v_cu_len, v_latin1) = unsafe { substr_view(v) };

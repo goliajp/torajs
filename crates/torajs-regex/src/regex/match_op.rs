@@ -8,8 +8,9 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_arrprops_attach_exec3, __torajs_arrprops_set,
     __torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_rc_inc,
-    __torajs_str_drop, ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, abort_unsupported, as_regex_mut,
-    byte_to_utf16_units, str_from_bytes, str_slice, str_slice_ascii_view, utf16_units_to_byte,
+    __torajs_str_drop, __torajs_str_undef, ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, abort_unsupported,
+    as_regex_mut, byte_to_utf16_units, str_from_bytes, str_slice, str_slice_ascii_view,
+    utf16_units_to_byte,
 };
 use crate::node::{REGEX_MAX_CAPTURES, REGEX_SAVE_SLOTS};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -353,7 +354,9 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
                 let gs = m.saves()[2 * i];
                 let ge = m.saves()[2 * i + 1];
                 if gs < 0 || ge < 0 {
-                    out = unsafe { __torajs_arr_push(out, 0) };
+                    // Non-participating group = JS undefined (RFC
+                    // 20260707 chunk 2: the sentinel cell, not NULL).
+                    out = unsafe { __torajs_arr_push(out, __torajs_str_undef() as i64) };
                 } else {
                     let grp = unsafe { str_from_bytes(&s[gs as usize..ge as usize]) };
                     out = unsafe { __torajs_arr_push(out, grp as i64) };
@@ -463,7 +466,9 @@ pub unsafe extern "C" fn __torajs_regex_exec(
         let gs = m.saves()[2 * i];
         let ge = m.saves()[2 * i + 1];
         if gs < 0 || ge < 0 {
-            out = unsafe { __torajs_arr_push(out, 0) };
+            // Non-participating group = JS undefined (RFC 20260707
+            // chunk 2: the sentinel cell, not NULL).
+            out = unsafe { __torajs_arr_push(out, __torajs_str_undef() as i64) };
         } else {
             let grp = unsafe { str_from_bytes(&s[gs as usize..ge as usize]) };
             out = unsafe { __torajs_arr_push(out, grp as i64) };

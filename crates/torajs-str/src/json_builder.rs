@@ -123,11 +123,10 @@ pub unsafe extern "C" fn __torajs_jsb_push_str_raw(sb: *mut JsonBuilder, str_ptr
 /// bit-for-bit.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_push_str_quoted(sb: *mut JsonBuilder, str_ptr: *const u8) {
-    // Nullish Str slot (missed exec/match capture = JS undefined per
-    // the 591 convention; a real null in a Nullable<Str> slot shares
-    // the bits). Both stringify to `null` inside an array/object per
-    // ES §25.5.2, so the shared NULL repr is unambiguous here.
-    if str_ptr.is_null() {
+    // Nullish Str slot — the undefined sentinel (missed exec/match
+    // capture) or NULL (JS null / not-yet-flipped producers). Both
+    // stringify to `null` inside an array/object per ES §25.5.2.
+    if str_ptr.is_null() || crate::undef_sentinel::is_undef(str_ptr) {
         unsafe { (*sb).buf.extend_from_slice(b"null") };
         return;
     }

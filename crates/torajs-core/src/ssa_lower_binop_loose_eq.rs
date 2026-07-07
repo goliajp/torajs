@@ -58,7 +58,32 @@ pub(crate) fn try_lower(
     // only sound for value types.
     if a_nullish ^ b_nullish {
         let ptr_op = if a_nullish { b.clone() } else { a.clone() };
-        if is_heap_ref(&ctx.operand_ty(&ptr_op)) {
+        let ptr_ty = ctx.operand_ty(&ptr_op);
+        // RFC 20260707 chunk 2 — a Str slot has TWO nullish reprs:
+        // NULL (JS null) and the undefined sentinel cell (missed
+        // exec/match capture). `s == null` / `s == undefined` is
+        // true for both (§7.2.13 steps 2-3) — probe via the
+        // runtime `str_is_nullish` (ptr==0 || ptr==sentinel).
+        if ptr_ty == Type::Str {
+            let cur_block = ctx.cur_block;
+            let v = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(ctx.intrinsics.str_is_nullish, vec![ptr_op]),
+                Type::Bool,
+                None,
+            );
+            if matches!(op, AstBinOp::LooseNeq) {
+                let r = ctx.f.append_inst(
+                    cur_block,
+                    InstKind::BinOp(SsaBinOp::Xor, Operand::Value(v), Operand::ConstBool(true)),
+                    Type::Bool,
+                    None,
+                );
+                return Some(Operand::Value(r));
+            }
+            return Some(Operand::Value(v));
+        }
+        if is_heap_ref(&ptr_ty) {
             let pred = if matches!(op, AstBinOp::LooseEq) {
                 IPred::Eq
             } else {

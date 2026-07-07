@@ -39,6 +39,7 @@
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use crate::substr::{FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW};
 use crate::substr_methods::substr_view;
+use crate::undef_sentinel::is_undef;
 use torajs_rc::HeapHeader;
 
 /// Bytewise equality on two slices. Same as `a == b` for `&[u8]`
@@ -120,13 +121,14 @@ unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
 /// guaranteeing non-null at call sites).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64 {
-    // RC-4 F1b-2 — a NULL ptr in a Str-typed slot denotes the JS
-    // `undefined` value (uncaptured regex groups, `[.., undefined]`
-    // array-literal slots, typed OOB elem loads). Identity rules:
-    // undefined === undefined → 1, undefined === "s" → 0. Content
-    // resolution below would deref the header (SIGSEGV, test262
+    // RFC 20260707 chunk 2 — nullish operands compare by IDENTITY,
+    // never content: the undefined sentinel cell (uncaptured regex
+    // groups, `[.., undefined]` array-literal slots) carries the
+    // TEXT "undefined" but `undefined === "undefined"` is false;
+    // NULL (JS null, or a not-yet-flipped undefined producer)
+    // would SIGSEGV in the content walk below (test262
     // S15.5.4.10_A2_T10 family).
-    if a.is_null() || b.is_null() {
+    if a.is_null() || b.is_null() || is_undef(a) || is_undef(b) {
         return (a == b) as i64;
     }
     //

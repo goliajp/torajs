@@ -204,16 +204,17 @@ impl LowerCtx<'_> {
                 self.fcmp(FPred::One, op, Operand::ConstF64(0.0))
             }
             Type::Str | Type::Substr => {
-                // ToBoolean(string) per spec §7.1.2 — falsy iff "" or
-                // null. Pre-fix tora unconditionally loaded len at
-                // offset 8 (segfault on null). Truthy-narrow on
-                // Nullable<String> in check.rs hands us a Str operand
-                // that may be NULL when the runtime branch isn't taken
-                // (e.g. `if (s)` on `s: string | null`), so guard the
-                // length load with an explicit null-check.
+                // ToBoolean(string) per spec §7.1.2 — falsy iff "",
+                // null, or undefined. A Str slot may hold NULL (JS
+                // null via a Nullable<String> truthy-narrow) or the
+                // undefined sentinel cell (missed exec/match capture,
+                // RFC 20260707 chunk 2 — its payload is "undefined"
+                // so the len>0 walk would wrongly answer true); the
+                // runtime nullish probe covers both before the
+                // length load.
                 let is_null = self.f.append_inst(
                     self.cur_block,
-                    InstKind::ICmp(IPred::Eq, op.clone(), Operand::ConstPtrNull),
+                    InstKind::Call(self.intrinsics.str_is_nullish, vec![op.clone()]),
                     Type::Bool,
                     None,
                 );

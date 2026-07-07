@@ -122,14 +122,13 @@ fn write_escaped(s: &[u8], dst: &mut [u8]) {
 /// or NULL (nullish slot — see below).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_quote_str(s: *const u8) -> *mut u8 {
-    // Nullish Str slot (missed exec/match capture = JS undefined per
-    // the 591 convention; real null shares the bits). Inside an
-    // array/object both stringify to `null` per ES §25.5.2 — the
+    // Nullish Str slot — the undefined sentinel (missed exec/match
+    // capture) or NULL (JS null / not-yet-flipped producers). Inside
+    // an array/object both stringify to `null` per ES §25.5.2 — the
     // JSON composite lane routes per-element Str through here.
-    // (Top-level `JSON.stringify(undefinedStr)` should answer the
-    // undefined VALUE, not "null" — ambiguous until the sentinel
-    // repr lands, RFC 20260707 chunk 2.)
-    if s.is_null() {
+    // (Top-level `JSON.stringify(undefined)` should answer the
+    // undefined VALUE, not "null" — recorded RFC 20260707 chunk 4.)
+    if s.is_null() || crate::undef_sentinel::is_undef(s) {
         return unsafe { crate::literals::__torajs_null_to_str() };
     }
     let len = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() };

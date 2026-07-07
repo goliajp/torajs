@@ -43,6 +43,8 @@ pub(crate) struct StrBIds {
     pub str_includes: FuncId,
     pub str_eq: FuncId,
     pub str_null_check: FuncId,
+    pub str_undef: FuncId,
+    pub str_is_nullish: FuncId,
     pub str_split: FuncId,
     pub str_split_no_sep: FuncId,
 }
@@ -125,6 +127,14 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_str_null_check",
             &[Type::Ptr],
             Type::Void,
+        ),
+        str_undef: declare_intrinsic(module, fn_table, "__torajs_str_undef", &[], Type::Str),
+        str_is_nullish: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_is_nullish",
+            &[Type::Str],
+            Type::Bool,
         ),
         str_split: declare_intrinsic(
             module,
