@@ -98,11 +98,14 @@ fn lower_empty(ctx: &mut LowerCtx<'_>) -> Operand {
 fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) -> Operand {
     let n = element_ids.len() as i64;
     let (anchor_ty, probed) = probe_anchor_ty(ctx, element_ids);
-    let (mut elem_vals, elem_inc_after) =
+    let (mut elem_vals, mut elem_inc_after) =
         lower_no_spread_elements(ctx, element_ids, anchor_ty, probed);
     let elem_ty = compute_elem_ty(ctx, anchor_ty, &elem_vals, eid);
     if elem_ty == Type::F64 {
         coerce_elem_vals_to_f64(ctx, &mut elem_vals);
+    }
+    if elem_ty == Type::Str {
+        coerce_elem_vals_substr_to_str(ctx, &mut elem_vals, &mut elem_inc_after, element_ids);
     }
     let arr_id = intern_arr_layout(ctx.arr_layouts, elem_ty);
     let on_stack = ctx.ast.stack_array_literals.contains(&eid) && !elem_ty.is_refcounted();
@@ -233,6 +236,12 @@ fn compute_elem_ty(
     {
         elem_ty = Type::F64;
     }
+    // A Substr anchor (`[s[1], ...]`) never mints an Arr<Substr> —
+    // array slots hold owned Str; the element loop materializes
+    // every view (`coerce_elem_vals_substr_to_str`).
+    if elem_ty == Type::Substr {
+        elem_ty = Type::Str;
+    }
     elem_ty
 }
 
@@ -241,6 +250,45 @@ fn coerce_elem_vals_to_f64(ctx: &mut LowerCtx<'_>, elem_vals: &mut [Operand]) {
         if ctx.operand_ty(v) == Type::I64 {
             *v = ctx.coerce_to_f64(v.clone());
         }
+    }
+}
+
+/// A Substr element (`["z", s[1]]`) must not store its view pointer
+/// into a Str slot — the two block layouts diverge past the header,
+/// so every downstream Str-layout read (join / print / sort) walks
+/// garbage. Materialize each view to an owned Str
+/// (`substr_to_owned`; the undefined sentinel propagates identity).
+/// The owned block transfers into the slot, so `inc_after` flips
+/// off; fresh-view producers (index mint / method call) hand us the
+/// view's only ref — drop it — while borrowed views (ident / member
+/// reads off a live binding) stay with their owner.
+fn coerce_elem_vals_substr_to_str(
+    ctx: &mut LowerCtx<'_>,
+    elem_vals: &mut [Operand],
+    elem_inc_after: &mut [bool],
+    element_ids: &[ExprId],
+) {
+    for (i, v) in elem_vals.iter_mut().enumerate() {
+        if ctx.operand_ty(v) != Type::Substr {
+            continue;
+        }
+        let view = v.clone();
+        let cur_block = ctx.cur_block;
+        let owned = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![view.clone()]),
+            Type::Str,
+            None,
+        );
+        let borrowed = matches!(
+            ctx.ast.get_expr(element_ids[i]),
+            Expr::Ident(_) | Expr::Member { .. }
+        );
+        if !borrowed {
+            ctx.emit_drop_value(view, Type::Substr);
+        }
+        *v = Operand::Value(owned);
+        elem_inc_after[i] = false;
     }
 }
 
