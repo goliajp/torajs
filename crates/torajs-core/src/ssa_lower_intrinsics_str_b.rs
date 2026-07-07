@@ -40,6 +40,7 @@ pub(crate) struct StrBIds {
     pub str_index_of: FuncId,
     pub str_last_index_of: FuncId,
     pub str_locale_compare: FuncId,
+    pub str_sort_cmp: FuncId,
     pub str_includes: FuncId,
     pub str_eq: FuncId,
     pub str_null_check: FuncId,
@@ -104,6 +105,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_str_locale_compare",
+            &[Type::Str, Type::Str],
+            Type::I64,
+        ),
+        // ES §23.1.3.30.2 SortCompare (default-comparator sort lane):
+        // undefined (either sentinel repr) sorts last before ToString;
+        // NULL participates as "null".
+        str_sort_cmp: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_sort_cmp",
             &[Type::Str, Type::Str],
             Type::I64,
         ),

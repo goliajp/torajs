@@ -3,7 +3,8 @@
 //! comparator the callee Operand is invoked and its return widened
 //! to a Bool predicate; without one, the ES §23.1.3.30 default
 //! SortCompare (ToString + code-unit lex compare) is emitted via the
-//! `*_to_str` intrinsics feeding `str_locale_compare`.
+//! `*_to_str` intrinsics feeding `str_sort_cmp` (undefined-last +
+//! null-as-"null" per §23.1.3.30.2 before the byte compare).
 
 use crate::ssa::{FPred, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
@@ -126,7 +127,7 @@ pub(super) fn emit_sort_pred(
                 let r = ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::Call(
-                        ctx.intrinsics.str_locale_compare,
+                        ctx.intrinsics.str_sort_cmp,
                         vec![Operand::Value(ps), Operand::Value(cs)],
                     ),
                     Type::I64,

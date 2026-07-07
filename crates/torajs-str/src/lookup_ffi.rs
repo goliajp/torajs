@@ -29,6 +29,36 @@ pub unsafe extern "C" fn __torajs_str_locale_compare(a: *const u8, b: *const u8)
     }
 }
 
+/// ES §23.1.3.30.2 SortCompare for two Str-slot elements on the
+/// default-comparator lane: `undefined` sorts LAST — the check
+/// happens BEFORE ToString (steps 5-8), so the sentinel never
+/// content-compares as the text "undefined" (RFC 20260707
+/// residual). A NULL slot is JS `null`, which ToStrings to "null"
+/// and participates normally.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_sort_cmp(a: *const u8, b: *const u8) -> i64 {
+    let a_undef = crate::undef_sentinel::is_undef(a) || crate::undef_sentinel::is_substr_undef(a);
+    let b_undef = crate::undef_sentinel::is_undef(b) || crate::undef_sentinel::is_substr_undef(b);
+    if a_undef || b_undef {
+        return (a_undef as i64) - (b_undef as i64);
+    }
+    let aa = if a.is_null() {
+        &b"null"[..]
+    } else {
+        unsafe { str_view(a) }.0
+    };
+    let bb = if b.is_null() {
+        &b"null"[..]
+    } else {
+        unsafe { str_view(b) }.0
+    };
+    match locale_compare(aa, bb) {
+        Ordering::Less => -1,
+        Ordering::Equal => 0,
+        Ordering::Greater => 1,
+    }
+}
+
 /// `s.startsWith(needle, pos)` — 1 if matches, 0 otherwise.
 ///
 /// P11.1-S2.4 — encoding-aware: empty needle always matches;
