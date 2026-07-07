@@ -47,6 +47,7 @@ use crate::ssa_lower::declare_intrinsic;
 
 pub(crate) struct JsonMiscIds {
     pub json_quote_str: FuncId,
+    pub json_quote_str_top: FuncId,
     pub jsb_new: FuncId,
     pub jsb_push_byte: FuncId,
     pub jsb_push_str_raw: FuncId,
@@ -84,6 +85,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_json_quote_str",
+            &[Type::Str],
+            Type::Str,
+        ),
+        json_quote_str_top: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_json_quote_str_top",
             &[Type::Str],
             Type::Str,
         ),

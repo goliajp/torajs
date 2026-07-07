@@ -565,6 +565,7 @@ pub(crate) struct Intrinsics {
     pub(crate) math_sum_precise_i64: FuncId,
     pub(crate) math_random: FuncId,
     pub(crate) json_quote_str: FuncId,
+    pub(crate) json_quote_str_top: FuncId,
     /// V0.2 P14-S5 — JSON builder fast path intrinsics for
     /// `JSON.stringify(struct)`. See `crates/torajs-str/src/
     /// json_builder.rs` and the `Type::Obj` arm of

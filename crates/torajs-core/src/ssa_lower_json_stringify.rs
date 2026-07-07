@@ -6,7 +6,12 @@
 //! pub(crate) wrapper because the body recurses on itself + several
 //! ssa-lower sites call it as a method.
 //!
-//! Dispatches on `ty`:
+//! Two entries: [`lower_top`] for the `JSON.stringify(value)` call
+//! itself (Str/Substr lanes route the undefined sentinel to the
+//! undefined VALUE via `__torajs_json_quote_str_top`), [`lower`] for
+//! the composite element/field recursion (undefined → `null`).
+//!
+//! [`lower`] dispatches on `ty`:
 //!
 //! - **I64** → `__torajs_i64_to_str`.
 //! - **F64** → ES §25.5.2.1 SerializeJSONNumber: `!IsFinite(x)` →
@@ -32,6 +37,49 @@ mod composite;
 
 use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
+
+/// Top-level `JSON.stringify(value)` entry (the `Expr::Call` arm).
+/// Differs from the recursive [`lower`] only on the Str / Substr
+/// lanes: the undefined sentinel answers the undefined VALUE per ES
+/// §25.5.1 step 12 (`__torajs_json_quote_str_top`), while inside an
+/// array/object undefined stringifies to `null` (§25.5.2.4) — the
+/// composite element recursion keeps going through [`lower`].
+pub(crate) fn lower_top(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
+    match ty {
+        Type::Str => {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.json_quote_str_top, vec![val_op]),
+                Type::Str,
+                None,
+            );
+            Operand::Value(v)
+        }
+        Type::Substr => {
+            // substr_to_owned materializes the Substr sentinel as the
+            // Str sentinel (identity propagates), so the _top probe
+            // sees it; drop of the sentinel intermediate is a no-op.
+            let owned = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![val_op]),
+                Type::Str,
+                None,
+            );
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.json_quote_str_top,
+                    vec![Operand::Value(owned)],
+                ),
+                Type::Str,
+                None,
+            );
+            ctx.emit_drop_value(Operand::Value(owned), Type::Str);
+            Operand::Value(v)
+        }
+        _ => lower(ctx, val_op, ty),
+    }
+}
 
 pub(crate) fn lower(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
     match ty {

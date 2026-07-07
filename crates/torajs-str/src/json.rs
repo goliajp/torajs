@@ -125,9 +125,9 @@ pub unsafe extern "C" fn __torajs_json_quote_str(s: *const u8) -> *mut u8 {
     // Nullish Str slot — the undefined sentinel (missed exec/match
     // capture) or NULL (JS null / not-yet-flipped producers). Inside
     // an array/object both stringify to `null` per ES §25.5.2 — the
-    // JSON composite lane routes per-element Str through here.
-    // (Top-level `JSON.stringify(undefined)` should answer the
-    // undefined VALUE, not "null" — recorded RFC 20260707 chunk 4.)
+    // JSON composite lane routes per-element Str through here. The
+    // top-level lane goes through `__torajs_json_quote_str_top`
+    // below, where the sentinel answers the undefined VALUE.
     if s.is_null() || crate::undef_sentinel::is_undef(s) {
         return unsafe { crate::literals::__torajs_null_to_str() };
     }
@@ -160,6 +160,25 @@ pub unsafe extern "C" fn __torajs_json_quote_str(s: *const u8) -> *mut u8 {
     let dst = unsafe { block.as_bytes_mut(out_len) };
     write_escaped(bytes, dst);
     block.into_raw()
+}
+
+/// Top-level `JSON.stringify(str-slot)` — the undefined sentinel
+/// answers the undefined VALUE itself (ES §25.5.1 step 12:
+/// SerializeJSONProperty absent → stringify returns undefined),
+/// unlike the composite per-element lane where undefined stringifies
+/// to `null` (§25.5.2.4 step 8.b / 9.b). NULL (JS null) still
+/// delegates to the `"null"` arm — `JSON.stringify(null)` IS the
+/// string `null`. Everything else is the plain quote helper.
+///
+/// # Safety
+///
+/// Same contract as [`__torajs_json_quote_str`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_json_quote_str_top(s: *const u8) -> *mut u8 {
+    if crate::undef_sentinel::is_undef(s) {
+        return crate::undef_sentinel::undef_ptr();
+    }
+    unsafe { __torajs_json_quote_str(s) }
 }
 
 #[cfg(test)]
