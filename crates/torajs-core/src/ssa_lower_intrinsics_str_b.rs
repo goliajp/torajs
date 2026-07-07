@@ -47,6 +47,7 @@ pub(crate) struct StrBIds {
     pub str_null_check: FuncId,
     pub str_undef: FuncId,
     pub str_is_nullish: FuncId,
+    pub str_is_undef: FuncId,
     pub str_split: FuncId,
     pub str_split_no_sep: FuncId,
 }
@@ -154,6 +155,15 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_str_is_nullish",
+            &[Type::Str],
+            Type::Bool,
+        ),
+        // Undefined-ONLY probe (either sentinel repr; NULL answers
+        // false) — the JSON object key-skip lane (§25.5.2.4 8.b).
+        str_is_undef: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_is_undef",
             &[Type::Str],
             Type::Bool,
         ),

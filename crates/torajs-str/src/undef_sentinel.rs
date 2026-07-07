@@ -127,6 +127,15 @@ pub extern "C" fn __torajs_substr_undef() -> *mut u8 {
     substr_undef_ptr()
 }
 
+/// `p == undefined` ONLY (either sentinel repr) — the JSON object
+/// slow lane's key-skip probe (§25.5.2.4 step 8.b: undefined fields
+/// skip their key, while NULL is JS `null` and keeps it — so the
+/// nullish probe below is the wrong tool there).
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_str_is_undef(p: *const u8) -> i64 {
+    (is_undef(p) || is_substr_undef(p)) as i64
+}
+
 /// `p == null || p == undefined` for a Str- or Substr-typed value —
 /// the loose-eq `s == null` / `s == undefined` runtime probe
 /// (§7.2.13 steps 2-3: nullish loose-equals nullish only) and the

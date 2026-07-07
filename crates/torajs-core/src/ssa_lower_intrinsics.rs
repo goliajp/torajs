@@ -125,6 +125,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_null_check: FuncId,
     pub(crate) str_undef: FuncId,
     pub(crate) str_is_nullish: FuncId,
+    pub(crate) str_is_undef: FuncId,
     pub(crate) str_sort_cmp: FuncId,
     pub(crate) str_sort_undef_pre: FuncId,
     pub(crate) str_split: FuncId,
@@ -578,6 +579,9 @@ pub(crate) struct Intrinsics {
     pub(crate) jsb_push_i64: FuncId,
     pub(crate) jsb_push_bool: FuncId,
     pub(crate) jsb_finalize: FuncId,
+    pub(crate) jsb_begin_field: FuncId,
+    pub(crate) jsb_push_field_str: FuncId,
+    pub(crate) json_obj_sep: FuncId,
     /// M6.3 — JSON.parse runtime helpers. See `runtime_str.c` for the
     /// per-helper contract. Cursor is `int64_t *`, threaded by the
     /// caller via an alloca slot; helpers advance it past the

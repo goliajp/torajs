@@ -53,6 +53,11 @@ pub struct JsonBuilder {
     /// `finalize` then routes through the canonical-encoding
     /// classifier instead of the ASCII/Latin-1 verbatim copy.
     saw_non_ascii: bool,
+    /// Runtime comma protocol (chunk 658 — §25.5.2.4 step 8.b key
+    /// skip): true once a field has been emitted, so the next
+    /// `begin_field` writes the `,` separator. An undefined Str
+    /// field skips its key without touching this flag.
+    pending_sep: bool,
 }
 
 /// Read the `IS_LATIN1` bit out of a Str heap header (same shape as
@@ -121,6 +126,7 @@ pub unsafe extern "C" fn __torajs_jsb_new(initial_cap: u32) -> *mut JsonBuilder 
     Box::into_raw(Box::new(JsonBuilder {
         buf: Vec::with_capacity(cap),
         saw_non_ascii: false,
+        pending_sep: false,
     }))
 }
 
@@ -236,6 +242,44 @@ pub unsafe extern "C" fn __torajs_jsb_push_null(sb: *mut JsonBuilder) {
 /// byte fits (all `< 0x80`); UTF-16 otherwise. JSON output is ASCII
 /// by construction (escapes use `\u00XX` hex which is ASCII), so
 /// the common case takes the Latin-1 single-byte path.
+/// Open the next object field: write the `,` separator when a
+/// field was already emitted (runtime comma protocol — a skipped
+/// undefined field must not leave a stray comma, §25.5.2.4).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_jsb_begin_field(sb: *mut JsonBuilder) {
+    let sb = unsafe { &mut *sb };
+    if sb.pending_sep {
+        sb.buf.push(b',');
+    }
+    sb.pending_sep = true;
+}
+
+/// Emit one Str-typed object field (`<sep?>"key":<quoted val>`), or
+/// NOTHING when `val` is the undefined sentinel — §25.5.2.4 step
+/// 8.b: SerializeJSONProperty returning undefined skips the key.
+/// NULL is JS `null` and keeps the key (quoted lane prints `null`).
+///
+/// # Safety
+///
+/// `sb` is a live builder; `key_raw` is a live Str block holding the
+/// pre-quoted `"key":` bytes; `val` is NULL, the sentinel, or a live
+/// Str block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_jsb_push_field_str(
+    sb: *mut JsonBuilder,
+    key_raw: *const u8,
+    val: *const u8,
+) {
+    if crate::undef_sentinel::is_undef(val) {
+        return;
+    }
+    unsafe {
+        __torajs_jsb_begin_field(sb);
+        __torajs_jsb_push_str_raw(sb, key_raw);
+        __torajs_jsb_push_str_quoted(sb, val);
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_finalize(sb: *mut JsonBuilder) -> *mut u8 {
     let sb = unsafe { Box::from_raw(sb) };

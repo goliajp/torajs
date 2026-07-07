@@ -240,6 +240,29 @@ pub unsafe extern "C" fn __torajs_json_quote_str(s: *const u8) -> *mut u8 {
     block.into_raw()
 }
 
+/// Runtime `,` separator for the JSON object str_concat slow lane
+/// (chunk 658 — undefined fields skip their key, so the separator
+/// decision moves from compile-time `i > 0` to "has any field been
+/// emitted", observable as `acc` longer than the opening `{`).
+/// Returns `acc` unchanged (borrow-through) at length ≤ 1, else a
+/// fresh `acc + ","` — same borrow-in/fresh-out shape as the
+/// surrounding str_concat chain.
+///
+/// # Safety
+///
+/// `acc` is a live Str block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_json_obj_sep(acc: *mut u8) -> *mut u8 {
+    let len = unsafe { (acc.add(STR_LEN_OFF) as *const u32).read() };
+    if len <= 1 {
+        return acc;
+    }
+    let comma = unsafe { crate::block::__torajs_str_alloc(b",".as_ptr(), 1) };
+    let out = unsafe { crate::concat::__torajs_str_concat(acc, comma) };
+    unsafe { crate::__torajs_str_drop(comma) };
+    out
+}
+
 /// Top-level `JSON.stringify(str-slot)` — the undefined sentinel
 /// answers the undefined VALUE itself (ES §25.5.1 step 12:
 /// SerializeJSONProperty absent → stringify returns undefined),

@@ -55,6 +55,9 @@ pub(crate) struct JsonMiscIds {
     pub jsb_push_i64: FuncId,
     pub jsb_push_bool: FuncId,
     pub jsb_finalize: FuncId,
+    pub jsb_begin_field: FuncId,
+    pub jsb_push_field_str: FuncId,
+    pub json_obj_sep: FuncId,
     pub json_eat_char: FuncId,
     pub json_parse_int: FuncId,
     pub json_parse_float: FuncId,
@@ -138,6 +141,29 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             Type::Void,
         ),
         jsb_finalize: declare_intrinsic(module, fn_table, "__torajs_jsb_finalize", ptr1, Type::Str),
+        // Chunk 658 — runtime comma protocol + Str-field key skip
+        // (§25.5.2.4 step 8.b: undefined fields don't emit a key).
+        jsb_begin_field: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_jsb_begin_field",
+            ptr1,
+            Type::Void,
+        ),
+        jsb_push_field_str: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_jsb_push_field_str",
+            &[Type::Ptr, Type::Str, Type::Str],
+            Type::Void,
+        ),
+        json_obj_sep: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_json_obj_sep",
+            &[Type::Str],
+            Type::Str,
+        ),
         json_eat_char: declare_intrinsic(
             module,
             fn_table,
