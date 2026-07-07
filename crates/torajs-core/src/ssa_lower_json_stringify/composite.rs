@@ -145,6 +145,10 @@ fn lower_arr_walk(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> Operand
         ctx.cur_block,
         InstKind::Store(Operand::Value(with_sep), Operand::Value(acc), 0),
     );
+    // 642 ledger — release the pre-concat accumulator (str_concat
+    // answers a fresh Str; the first-iteration "[" literal is a
+    // FLAG_STATIC_LITERAL no-op through the same drop).
+    ctx.emit_drop_value(Operand::Value(acc_now), Type::Str);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(no_sep_blk));
     ctx.cur_block = no_sep_blk;
     let (off_base, off) =
@@ -175,6 +179,11 @@ fn lower_arr_walk(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> Operand
         ctx.cur_block,
         InstKind::Store(Operand::Value(with_elem), Operand::Value(acc), 0),
     );
+    // 642 ledger — release the pre-concat accumulator and the
+    // element's stringified temp (every per-elem lane answers a
+    // fresh Str or an interned literal whose drop is a no-op).
+    ctx.emit_drop_value(Operand::Value(acc_now2), Type::Str);
+    ctx.emit_drop_value(elem_str.clone(), Type::Str);
     let i_next = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
@@ -202,6 +211,9 @@ fn lower_arr_walk(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> Operand
         Type::Str,
         None,
     );
+    // 642 ledger — release the final accumulator (a zero-element
+    // array's acc is still the "[" literal: no-op drop).
+    ctx.emit_drop_value(Operand::Value(acc_final), Type::Str);
     Operand::Value(result)
 }
 
@@ -415,6 +427,12 @@ fn lower_obj_concat(
             Type::Str,
             None,
         );
+        // 642 ledger — every str_concat answers a fresh Str, so each
+        // consumed link releases right after its concat (json_obj_sep
+        // is owned-in/owned-out and already settled acc_now; interned
+        // literals no-op through the same drop).
+        ctx.emit_drop_value(Operand::Value(acc_sep), Type::Str);
+        ctx.emit_drop_value(Operand::Value(key_quoted), Type::Str);
         let v2 = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
@@ -424,6 +442,7 @@ fn lower_obj_concat(
             Type::Str,
             None,
         );
+        ctx.emit_drop_value(Operand::Value(v1), Type::Str);
         let field_str = super::lower(ctx, Operand::Value(field_v), *fty);
         let v3 = ctx.f.append_inst(
             ctx.cur_block,
@@ -434,6 +453,8 @@ fn lower_obj_concat(
             Type::Str,
             None,
         );
+        ctx.emit_drop_value(Operand::Value(v2), Type::Str);
+        ctx.emit_drop_value(field_str.clone(), Type::Str);
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Store(Operand::Value(v3), Operand::Value(acc_slot), 0),
@@ -458,5 +479,8 @@ fn lower_obj_concat(
         Type::Str,
         None,
     );
+    // 642 ledger — release the final accumulator (an all-skipped
+    // object's acc is still the "{" literal: no-op drop).
+    ctx.emit_drop_value(Operand::Value(acc_final), Type::Str);
     Operand::Value(result)
 }

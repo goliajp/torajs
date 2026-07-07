@@ -244,13 +244,16 @@ pub unsafe extern "C" fn __torajs_json_quote_str(s: *const u8) -> *mut u8 {
 /// (chunk 658 — undefined fields skip their key, so the separator
 /// decision moves from compile-time `i > 0` to "has any field been
 /// emitted", observable as `acc` longer than the opening `{`).
-/// Returns `acc` unchanged (borrow-through) at length ≤ 1, else a
-/// fresh `acc + ","` — same borrow-in/fresh-out shape as the
-/// surrounding str_concat chain.
+///
+/// Owned-in, owned-out (642-ledger leak account): the caller hands
+/// over its accumulator stake. The length ≤ 1 arm transfers `acc`
+/// straight back; the concat arm releases the consumed input (a
+/// first-field `{` literal is a FLAG_STATIC_LITERAL no-op) and
+/// answers the fresh `acc + ","`.
 ///
 /// # Safety
 ///
-/// `acc` is a live Str block.
+/// `acc` is a live Str block whose stake the caller relinquishes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_obj_sep(acc: *mut u8) -> *mut u8 {
     let len = unsafe { (acc.add(STR_LEN_OFF) as *const u32).read() };
@@ -260,6 +263,7 @@ pub unsafe extern "C" fn __torajs_json_obj_sep(acc: *mut u8) -> *mut u8 {
     let comma = unsafe { crate::block::__torajs_str_alloc(b",".as_ptr(), 1) };
     let out = unsafe { crate::concat::__torajs_str_concat(acc, comma) };
     unsafe { crate::__torajs_str_drop(comma) };
+    unsafe { crate::__torajs_str_drop(acc) };
     out
 }
 
