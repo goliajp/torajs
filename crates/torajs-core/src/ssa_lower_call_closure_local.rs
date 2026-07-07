@@ -72,7 +72,8 @@ pub(crate) fn try_lower(
     // declared list still lower (ES §13.3.6.1 ArgumentListEvaluation
     // side effects) but don't enter argv — the length-only tier
     // never reads their values.
-    let needs_argc = ctx.ast.closure_argc_locals.contains(callee_name);
+    let needs_argc =
+        ctx.ast.closure_argc_locals.contains(callee_name) || ctx.argc_locals.contains(callee_name);
 
     // P0.5 mirror — Type::Any param boxes the concrete arg.
     // S126-3 see direct fn-call P0.9 in ssa_lower.

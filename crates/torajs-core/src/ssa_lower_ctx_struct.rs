@@ -151,6 +151,12 @@ pub(crate) struct LowerCtx<'a> {
     /// `emit_drops_for_owned_locals` in `ssa_lower_drops.rs`), or the
     /// `tr build` output becomes non-reproducible.
     pub(crate) locals: HashMap<String, LocalInfo>,
+    /// RFC 20260708-closure-argc-abi chunk 2 — params of THIS fn
+    /// whose ann carried the `__clsargc(` prefix (mono-instantiated
+    /// real-argc closure slot). The closure-local call arm prepends
+    /// `ConstI64(user arg count)` for these names, same as the
+    /// chunk-1 `ast.closure_argc_locals` binding set.
+    pub(crate) argc_locals: std::collections::HashSet<String>,
     /// Stack of names declared in each enclosing lexical scope, with the
     /// fn-root scope as `scope_stack[0]`. M1.3 — at `}` close we pop the
     /// top frame and emit drops for owners declared at that depth, then

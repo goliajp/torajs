@@ -205,7 +205,7 @@ pub(crate) fn monomorphize_generics(
         // treats the env ptr as a bare fn ptr and jumps into it
         // (SIGBUS). The 153-pass `__fn(`→`__cls(` infection can't
         // see these anns — monomorphization runs after typecheck.
-        let cls_shapes: Vec<bool> =
+        let cls_shapes: Vec<crate::ssa_lower_generics_mono_shapes::ClsShape> =
             crate::ssa_lower_generics_mono_shapes::compute_typevar_closure_shapes(
                 ast,
                 *eid,
@@ -217,17 +217,22 @@ pub(crate) fn monomorphize_generics(
             .iter()
             .zip(widths.iter())
             .zip(cls_shapes.iter())
-            .map(|((ty, w), is_cls)| {
+            .map(|((ty, w), shape)| {
+                use crate::ssa_lower_generics_mono_shapes::ClsShape;
                 if matches!(ty, check_mod::Type::Number)
                     && matches!(w, crate::num_width::NumWidth::F64)
                 {
                     "f64".into()
                 } else {
                     let ann = type_to_ann(ty);
-                    if *is_cls && ann.starts_with("__fn(") {
-                        format!("__cls({}", &ann["__fn(".len()..])
-                    } else {
-                        ann
+                    match shape {
+                        ClsShape::Closure if ann.starts_with("__fn(") => {
+                            format!("__cls({}", &ann["__fn(".len()..])
+                        }
+                        ClsShape::ClosureArgc if ann.starts_with("__fn(") => {
+                            format!("__clsargc({}", &ann["__fn(".len()..])
+                        }
+                        _ => ann,
                     }
                 }
             })

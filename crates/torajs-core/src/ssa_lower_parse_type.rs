@@ -143,6 +143,25 @@ pub(crate) fn parse_type(
             inst_memo,
         );
     }
+    // RFC 20260708-closure-argc-abi chunk 2 — `__clsargc(P)->R` is a
+    // `__cls(` slot whose closure carries the synthetic real-argc
+    // first param (mono-instantiated, see
+    // ssa_lower_generics_mono_shapes). The TYPE parses identically
+    // (Closure sig, argc slot is params[0]); the argc-prepend signal
+    // rides the ann prefix — lower_fn's param walk marks the param
+    // name into `LowerCtx::argc_locals`.
+    if let Some(rest) = s.strip_prefix("__clsargc(") {
+        return markers::parse_cls(
+            s,
+            rest,
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        );
+    }
     // M3.4 — generic struct instantiation `Foo<arg1|arg2|...>`. Same
     // depth-aware split as `__fn(...)`. Substitute type-params into each
     // field annotation (string-level word-boundary substitution) and

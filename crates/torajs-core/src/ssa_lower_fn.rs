@@ -101,7 +101,17 @@ pub(crate) fn lower_fn(
     let mut f = ssa::Function::new(name, ret_ty);
 
     let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
+    // RFC 20260708-closure-argc-abi chunk 2 — `__clsargc(`-annotated
+    // params (mono-instantiated real-argc closure slots) register for
+    // the call arm's argc prepend.
+    let mut argc_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
     for p in params {
+        if p.type_ann
+            .as_deref()
+            .is_some_and(|a| a.starts_with("__clsargc("))
+        {
+            argc_locals.insert(p.name.clone());
+        }
         let pty = promote_and_widen(
             parse_type(
                 p.type_ann.as_deref(),
@@ -154,6 +164,7 @@ pub(crate) fn lower_fn(
         pending_break_flag: None,
         pending_continue_flag: None,
         locals: HashMap::new(),
+        argc_locals,
         scope_stack: vec![Vec::new()],
         shadow_stack: vec![Vec::new()],
         loop_stack: Vec::new(),

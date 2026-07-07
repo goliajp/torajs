@@ -252,6 +252,43 @@ fn collect_value_argc(
             }
         }
     }
+    // RFC chunk 2 (mono track) — a length-only closure passed
+    // DIRECTLY as an argument to a fn whose receiving param is
+    // unannotated: that param goes through implicit generics (__T),
+    // and the monomorphizer instantiates the slot as `__clsargc(`
+    // (see ssa_lower_generics_mono_shapes), whose param-call arm
+    // prepends the runtime argc. Two gates: the receiving param must
+    // be unannotated (mono track — a typed param never sees the
+    // argc-shaped signature), and the receiving body must consume it
+    // by DIRECT CALL only (any other use — alias, re-pass, store —
+    // reaches sites that don't know the argc slot).
+    let mut hof_arg_fns: HashSet<String> = HashSet::new();
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Ident(g) = ast.get_expr(*callee) else {
+            continue;
+        };
+        for (pi, a) in args.iter().enumerate() {
+            let Expr::Closure { fn_name, .. } = ast.get_expr(*a) else {
+                continue;
+            };
+            if !value_real_argc.contains(fn_name) {
+                continue;
+            }
+            let ok = ast.stmts.iter().any(|s| {
+                matches!(s, Stmt::FnDecl { name, params, body, .. }
+                    if name == g
+                        && params.get(pi).is_some_and(|p| p.type_ann.is_none())
+                        && param_uses_are_direct_calls(ast, body, &params[pi].name))
+            });
+            if ok {
+                hof_arg_fns.insert(fn_name.clone());
+            }
+        }
+    }
+
     // Direct bindings (`const f = function(){...}`), then alias
     // closure (`const g = f`) — top-level stmts only in chunk 1;
     // nested-scope aliases fail the safety walk below and kill the
@@ -321,13 +358,15 @@ fn collect_value_argc(
         argc_candidates.retain(|_, f| !killed_fns.contains(f));
     }
     // Only fns whose closure value is consumed EXCLUSIVELY through a
-    // surviving binding chain get the argc injection — a closure
-    // passed directly as an argument (HOF form, RFC chunk 2), stored
-    // in a container, etc. must NOT be reshaped: its call sites don't
-    // know about the argc slot and would feed the body garbage.
-    value_real_argc = argc_candidates.values().cloned().collect();
+    // surviving binding chain get the argc injection — plus the
+    // RFC-chunk-2 mono-track form below. A closure stored in a
+    // container, returned, etc. must NOT be reshaped: its call
+    // sites don't know about the argc slot and would feed the body
+    // garbage.
+    let mut injected: HashSet<String> = argc_candidates.values().cloned().collect();
+    injected.extend(hof_arg_fns);
     let argc_locals: HashSet<String> = argc_candidates.keys().cloned().collect();
-    (value_real_argc, argc_locals)
+    (injected, argc_locals)
 }
 
 /// T-31 + chunk 613 — prepend the argc argument at static call
@@ -393,4 +432,24 @@ fn prepend_static_argc(
             args: new_args,
         };
     }
+}
+
+/// RFC 20260708-closure-argc-abi chunk 2 — every arena occurrence of
+/// `Ident(pname)` must be a Call callee. Conservative: same-named
+/// idents anywhere in the program count, so an unrelated binding
+/// with the param's name fails the gate (stays loud, never silent).
+fn param_uses_are_direct_calls(ast: &Ast, _body: &[Stmt], pname: &str) -> bool {
+    use std::collections::HashSet;
+    let p_eids: HashSet<u32> = (0..ast.exprs.len() as u32)
+        .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == pname))
+        .collect();
+    let mut legal: HashSet<u32> = HashSet::new();
+    for e in &ast.exprs {
+        if let Expr::Call { callee, .. } = e
+            && p_eids.contains(&callee.0)
+        {
+            legal.insert(callee.0);
+        }
+    }
+    p_eids.difference(&legal).next().is_none()
 }
