@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T14:19:11.589Z",
+  "generatedAt": "2026-07-07T15:36:55.603Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "880272fa",
-    "commitSubject": "fix: default sort puts undefined last, before tostring (RFC 20260707 residual, us7 face 3)",
+    "commit": "78edd61e",
+    "commitSubject": "fix: json stringify skips the key of undefined object fields (25.5.2.4 step 8.b)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "78edd61e",
+      "subject": "fix: json stringify skips the key of undefined object fields (25.5.2.4 step 8.b)"
+    },
+    {
+      "hash": "ac2c6cae",
+      "subject": "fix: json stringify quotes utf-16 strings in-encoding instead of leaking payload bytes"
+    },
+    {
+      "hash": "f3a311d2",
+      "subject": "fix: regex method calls land after branching args instead of the pre-branch block"
+    },
+    {
+      "hash": "a06b27ac",
+      "subject": "fix: json stringify of a null arr slot answers the string null instead of crashing"
+    },
+    {
+      "hash": "b5baa4e5",
+      "subject": "fix: user-comparator sort never passes undefined to the callback (§23.1.3.30.2 steps 5-8)"
+    },
+    {
+      "hash": "c9b4b8ae",
+      "subject": "fix: array-literal substr elements materialize to owned str before the slot store"
+    },
+    {
+      "hash": "bb2a675b",
+      "subject": "feat: top-level JSON.stringify(undefined) answers the undefined value (RFC 20260707 residual, us7 face 4)"
+    },
+    {
+      "hash": "f68d1e75",
+      "subject": "chore(dashboard): session snapshot @ 880272fa — rotation 42 final (647-651: lookbehind reverse-compile RFC both chunks — reverse pike vm + capture merge retiring the forward start-scan; undefined-sentinel residuals: string index OOB substr-shaped sentinel with first data-to-data linker reloc, nullish length guards over env-miss and index slots, default sort undefined-last; gate 1279 -> 1283 five green)"
+    },
+    {
       "hash": "880272fa",
       "subject": "fix: default sort puts undefined last, before tostring (RFC 20260707 residual, us7 face 3)"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "609860d6",
       "subject": "feat: lookbehind bodies keep their captures via reverse probes (RFC 20260707-lookbehind-reverse-compile chunk 2)"
-    },
-    {
-      "hash": "ea94cbfb",
-      "subject": "feat: reverse-compile mode + reverse pike vm for lookbehind bodies (RFC 20260707-lookbehind-reverse-compile chunk 1)"
-    },
-    {
-      "hash": "cad74d47",
-      "subject": "chore(dashboard): session snapshot @ d5cc1de5 — rotation 41 final (642-646: RFC 20260707-undefined-sentinel-repr all four chunks — null-deref guard lanes, immortal undefined sentinel cell atomic flip + env/pretty-print fix-up, Any-crossing + three-state typeof, join empty-string; gate 1276 -> 1279 with one gate-caught regression pair fixed)"
-    },
-    {
-      "hash": "d5cc1de5",
-      "subject": "fix: nullish Str slot joins as the empty string (RFC 20260707-undefined-sentinel-repr chunk 4)"
-    },
-    {
-      "hash": "bda34671",
-      "subject": "feat: sentinel crosses into Any as a real undefined + three-state typeof (RFC 20260707-undefined-sentinel-repr chunk 3)"
-    },
-    {
-      "hash": "5cef9915",
-      "subject": "fix: env miss answers the undefined sentinel + typed-arr printer prints it bare (RFC 20260707 chunk 2 gate fix-up)"
-    },
-    {
-      "hash": "2810b528",
-      "subject": "feat: undefined sentinel repr for Str slots (RFC 20260707-undefined-sentinel-repr chunk 2)"
-    },
-    {
-      "hash": "b40cb84b",
-      "subject": "fix: missed exec/match capture Str slot is deref-safe (RFC 20260707-undefined-sentinel-repr chunk 1)"
-    },
-    {
-      "hash": "81fbf335",
-      "subject": "chore(dashboard): session snapshot @ 9764e0b5 — rotation 40 final (636-641: owned condition temps release + as-cast ownership pass-through, member read on owned receiver detaches result, RFC 20260705 phase 2 + L3b #16 probe-refuted close-outs, positive lookahead keeps body captures, array/object literals are owned temps, empty array literal arg admits typed array params; gate 1270 -> 1275 six green)"
     }
   ],
-  "headSha": "880272fa",
+  "headSha": "78edd61e",
   "autorun": {
-    "total": 350,
+    "total": 351,
     "baselineTarget": 10,
-    "bySelf": 345,
+    "bySelf": 346,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783427429-1ad4",
-      "at": "2026-07-07T12:30:29Z",
-      "ts": 1783427429,
+      "rotationId": "r-1783434042-72c5",
+      "at": "2026-07-07T14:20:42Z",
+      "ts": 1783434042,
       "trigger": "self",
-      "prevHead": "cad74d47",
-      "handoffSha": "sha256:d9f7bdf34875fc39e3e20179280dca23693b325aecf3f8e64bb22e1ee543050a",
-      "handoffAgeSec": 7,
+      "prevHead": "f68d1e75",
+      "handoffSha": "sha256:cbeb47574841b7b0a428d7a4ceca58660b81f9b1727b7e0d6eece5c607f8e7f4",
+      "handoffAgeSec": 20,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783434042-72c5",
+        "at": "2026-07-07T14:20:42Z",
+        "ts": 1783434042,
+        "trigger": "self",
+        "prevHead": "f68d1e75",
+        "handoffSha": "sha256:cbeb47574841b7b0a428d7a4ceca58660b81f9b1727b7e0d6eece5c607f8e7f4",
+        "handoffAgeSec": 20,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783427429-1ad4",
         "at": "2026-07-07T12:30:29Z",
@@ -876,17 +887,6 @@
         "prevHead": "52db096a",
         "handoffSha": "sha256:7afa70ed45f96ceeb6f1207824d08b2fbb15b1320f809ce991023ea61680fd6b",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783342469-14b1",
-        "at": "2026-07-06T12:54:29Z",
-        "ts": 1783342469,
-        "trigger": "self",
-        "prevHead": "0cab2842",
-        "handoffSha": "sha256:3e154e54c5f2805c3a02ad34b136a316d384cf71542e3f8c49bd61ebf87f0324",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
