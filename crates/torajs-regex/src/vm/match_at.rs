@@ -22,7 +22,8 @@ use crate::vm::dispatch::add_thread;
 /// `end_target` gates the leftmost-first MATCH semantics:
 /// - `< 0` → normal: any MATCH at any pos wins
 /// - `>= 0` → length-restricted: only MATCH at `pos == end_target`
-///   commits (used by lookbehind probing).
+///   commits (used by the DFA hit path's second-pass capture
+///   extraction, `search::dfa_hit_result`).
 #[allow(clippy::too_many_arguments)]
 pub fn vm_match_at(
     prog: &Program,
@@ -129,10 +130,11 @@ pub fn vm_match_at(
                 }
                 Op::Match => {
                     // Normal mode: leftmost-first wins; stop scanning
-                    // this step. Length-restricted (lookbehind): only
-                    // commit if pos meets end_target; otherwise the
-                    // thread is dead but keep scanning — other threads
-                    // may extend further via nxt and MATCH later.
+                    // this step. Length-restricted (DFA capture
+                    // extraction): only commit if pos meets
+                    // end_target; otherwise the thread is dead but
+                    // keep scanning — other threads may extend
+                    // further via nxt and MATCH later.
                     if end_target < 0 || pos == end_target {
                         saw_match_this_step = true;
                         end_pos = pos;

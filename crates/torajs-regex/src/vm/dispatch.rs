@@ -7,9 +7,11 @@
 //! the capture-save state; SPLIT forks each get a fresh copy so a
 //! SAVE in one branch doesn't leak into the other.
 //!
-//! `sub_probe` / `sub_probe_ending_at` run a sub-Program (the body
-//! of a lookahead / lookbehind) to satisfy the zero-width assertion
-//! at the parent's add_thread call site. Both allocate their own
+//! `sub_probe` / `sub_probe_rev` run a sub-Program (the body of a
+//! lookahead / lookbehind) to satisfy the zero-width assertion at
+//! the parent's add_thread call site. Lookbehind bodies are
+//! reverse-compiled ([`crate::compiler::compile_rev`]) and probed
+//! leftwards by the reverse Pike VM. All probes allocate their own
 //! workspace because they recurse — they can't share the parent's.
 
 use super::{SavesArena, ThreadList, VisitedTable, Workspace};
@@ -18,6 +20,7 @@ use crate::parser::{RE_FLAG_M, is_word_byte};
 use crate::program::{Op, Program};
 use crate::vm::Thread;
 use crate::vm::match_at::vm_match_at;
+use crate::vm::match_at_rev::vm_match_at_rev;
 
 /// Transitively expand epsilon ops reachable from `pc` and enqueue
 /// the resulting waiting threads into `tl`. Visited-table dedup
@@ -114,24 +117,21 @@ pub(super) fn add_thread(
             }
         }
         Op::Lookbehind => {
-            // Captures inside a lookbehind body are NOT merged (they
-            // stay undefined): the body matches REVERSE per ES
-            // §22.2.2 MatchReverse, and the forward probe's start-
-            // position scan can't reproduce that order for variable-
-            // length bodies (`(?<=(\d+))px` must capture "30", a
-            // shortest-j scan answers "0"; an increasing-j scan
-            // breaks alternation priority). The faithful fix is a
-            // backwards-compiled body (V8 irregexp shape) — L3b
-            // ledger; answering a plausible-but-wrong capture here
-            // would be silent-wrong.
+            // The body is reverse-compiled (ES §22.2.2 MatchReverse;
+            // V8 irregexp shape) and probed leftwards from `pos`. A
+            // successful lookbehind KEEPS the captures its body wrote
+            // (`/(?<=(\d+))px/` answers group 1) — merged into this
+            // thread's row exactly like the lookahead arm.
             let sub = &prog.sub_progs[ins.a as usize];
-            if sub_probe_ending_at(sub, s, pos, flags) {
-                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
+            let mut sub_saves = [-1i64; REGEX_SAVE_SLOTS];
+            if sub_probe_rev_saving(sub, s, pos, flags, &mut sub_saves) {
+                let merged = merge_sub_saves(arena, saves_id, &sub_saves);
+                add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, merged);
             }
         }
         Op::NegLookbehind => {
             let sub = &prog.sub_progs[ins.a as usize];
-            if !sub_probe_ending_at(sub, s, pos, flags) {
+            if !sub_probe_rev(sub, s, pos, flags) {
                 add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }
         }
@@ -204,24 +204,32 @@ fn merge_sub_saves(
     merged
 }
 
-/// `sub_probe_ending_at` — does the sub-program have ANY match
-/// `s[j..pos]` for some `0 ≤ j ≤ pos`? Used by lookbehind. O(pos ×
-/// sub_len) worst case; in practice the body is short and the loop
-/// bails on the first feasible j. Future P14+ perf path: compile
-/// the body backwards and scan reverse (same approach as V8) —
-/// localized to this fn; AST / op / parser stay put.
-pub fn sub_probe_ending_at(sub: &Program, s: &[u8], pos: i64, flags: u8) -> bool {
+/// `sub_probe_rev` — does the reverse-compiled sub-program have ANY
+/// match ENDING at `pos`? Used by the NEGATIVE lookbehind (a failed
+/// assertion never contributes captures per ES §22.2.2). Replaces
+/// the retired `sub_probe_ending_at` forward start-scan (O(pos ×
+/// sub_len)) with a single leftwards run (O(sub_len)).
+pub fn sub_probe_rev(sub: &Program, s: &[u8], pos: i64, flags: u8) -> bool {
     if sub.is_empty() {
         return true;
     }
     let mut ws = Workspace::for_program(sub);
-    let mut j = pos;
-    while j >= 0 {
-        let end = vm_match_at(sub, s, j, flags, &mut ws, None, pos);
-        if end == pos {
-            return true;
-        }
-        j -= 1;
+    vm_match_at_rev(sub, s, pos, flags, &mut ws, None) >= 0
+}
+
+/// [`sub_probe_rev`] with capture write-back — the positive
+/// lookbehind keeps its body's SAVEs. `out` must be pre-filled with
+/// `-1`.
+fn sub_probe_rev_saving(
+    sub: &Program,
+    s: &[u8],
+    pos: i64,
+    flags: u8,
+    out: &mut [i64; REGEX_SAVE_SLOTS],
+) -> bool {
+    if sub.is_empty() {
+        return true;
     }
-    false
+    let mut ws = Workspace::for_program(sub);
+    vm_match_at_rev(sub, s, pos, flags, &mut ws, Some(out)) >= 0
 }

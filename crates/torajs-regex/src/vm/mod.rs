@@ -20,7 +20,7 @@
 //!   [`search_from_with_ws`] / [`match_anchor`] (outer scan loop:
 //!   prefix anchor + DFA fast path + Pike-VM fallback).
 //! - [`dispatch`] — `add_thread` (epsilon expansion) + `sub_probe`
-//!   (lookahead) + `sub_probe_ending_at` (lookbehind).
+//!   (lookahead) + `sub_probe_rev` (lookbehind, reverse-compiled).
 //! - [`match_at`] — `vm_match_at` inner loop (operand dispatch on
 //!   the input-consuming op set).
 //! - [`match_at_rev`] — `vm_match_at_rev` reverse inner loop

@@ -252,11 +252,16 @@ fn compile_group(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
 /// `(?=...)` / `(?!...)` / `(?<=...)` / `(?<!...)`. The body compiles
 /// into a fresh sub-Program (with its own `OP_MATCH` terminator); the
 /// parent emits the appropriate `OP_*_LOOKAHEAD/BEHIND` op pointing at
-/// the sub-Program's index.
+/// the sub-Program's index. Lookbehind bodies compile in REVERSE mode
+/// (ES §22.2.2 MatchReverse) and are probed leftwards by
+/// [`crate::vm::match_at_rev`]; the body's own kind decides its
+/// direction regardless of any enclosing lookaround, which is exactly
+/// the spec's per-assertion direction reset.
 fn compile_lookaround(prog: &mut Program, node: &Node, flags: u8) {
+    let body_rev = matches!(node.kind, NodeKind::Lookbehind | NodeKind::NegLookbehind);
     let mut sub = Program::new();
     if let Some(child) = node.child.as_deref() {
-        compile(&mut sub, child, flags);
+        compile_dir(&mut sub, child, flags, body_rev);
     }
     sub.emit(Inst::match_accept());
     let sub_idx = prog.add_sub(Box::new(sub));
@@ -439,6 +444,35 @@ mod tests {
     fn negative_lookahead_emits_correct_op() {
         let prog = compile_pattern("(?!a)b");
         assert_eq!(prog.insts[0].op, Op::NegLookahead as u8);
+    }
+
+    #[test]
+    fn lookbehind_body_compiles_reversed() {
+        // `(?<=ab)c` — the lookbehind body sub-program is reverse-
+        // compiled: CHAR b, CHAR a, MATCH.
+        let prog = compile_pattern("(?<=ab)c");
+        assert_eq!(prog.insts[0].op, Op::Lookbehind as u8);
+        let sub = &prog.sub_progs[0];
+        assert_eq!(sub.insts[0].op, Op::Char as u8);
+        assert_eq!(sub.insts[0].ch, b'b');
+        assert_eq!(sub.insts[1].op, Op::Char as u8);
+        assert_eq!(sub.insts[1].ch, b'a');
+        assert_eq!(sub.insts[2].op, Op::Match as u8);
+    }
+
+    #[test]
+    fn lookahead_nested_in_lookbehind_body_stays_forward() {
+        // `(?<=a(?=bc))b` — the inner lookahead's own body compiles
+        // FORWARD (per-assertion direction reset) even though the
+        // enclosing lookbehind body is reversed.
+        let prog = compile_pattern("(?<=a(?=bc))b");
+        let behind = &prog.sub_progs[0];
+        // Reversed body: [Lookahead, Char a, Match].
+        assert_eq!(behind.insts[0].op, Op::Lookahead as u8);
+        assert_eq!(behind.insts[1].ch, b'a');
+        let ahead = &behind.sub_progs[behind.insts[0].a as usize];
+        assert_eq!(ahead.insts[0].ch, b'b');
+        assert_eq!(ahead.insts[1].ch, b'c');
     }
 
     #[test]
