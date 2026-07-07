@@ -16,6 +16,10 @@
 //! - bit 0: element slots are f64 (else i64 / pointer bits)
 //! - bit 1: comparator returns f64 (else i64)
 //! - bit 2: env pointer present (Closure) vs absent (FnSig)
+//! - bit 3: element slots are Str pointers — every compare runs the
+//!   §23.1.3.30.2 steps 5-8 undefined pre-probe (sentinel sorts last
+//!   WITHOUT calling the comparator). Str-only: an i64/f64 element's
+//!   raw bits could collide with the sentinel address.
 //!
 //! Ordering predicate is `is_gt` = "comparator said strictly greater
 //! than zero"; an f64 NaN return compares false which matches the ES
@@ -46,6 +50,11 @@ unsafe extern "C" {
     /// Non-zero iff a throw is pending in the TLS throw slot.
     fn __torajs_throw_check() -> i64;
 
+    /// Cross-tier — torajs-str. §23.1.3.30.2 steps 5-8 pre-probe:
+    /// `1`/`-1`/`0` when either side is the undefined sentinel
+    /// (SortCompare answer, comparator skipped), `2` otherwise.
+    fn __torajs_str_sort_undef_pre(a: *const u8, b: *const u8) -> i64;
+
     /// torajs-mmalloc libc-compat malloc / free — merge scratch buffer.
     #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
@@ -59,6 +68,9 @@ const MODE_ELEM_F64: i64 = 1;
 const MODE_RET_F64: i64 = 2;
 /// `mode` bit 2 — comparator is a Closure (env pointer prepended).
 const MODE_HAS_ENV: i64 = 4;
+/// `mode` bit 3 — element slots are Str pointers (undefined
+/// sentinel pre-probe runs before every comparator call).
+const MODE_ELEM_STR: i64 = 8;
 
 /// Runs at or below this length sort via binary-free insertion —
 /// same base-case cutoff family as JSC / std sorts.
@@ -76,10 +88,18 @@ struct Cmp {
 impl Cmp {
     /// Call the user comparator with raw slot bits `a`, `b`.
     /// Returns `true` iff the comparator result is strictly greater
-    /// than zero (f64 NaN → false, i.e. treated as 0).
+    /// than zero (f64 NaN → false, i.e. treated as 0). Str elements
+    /// run the §23.1.3.30.2 undefined pre-probe first — an undefined
+    /// side sorts last and the comparator is never called.
     #[inline]
     unsafe fn is_gt(&self, a: u64, b: u64) -> bool {
         unsafe {
+            if self.mode & MODE_ELEM_STR != 0 {
+                let pre = __torajs_str_sort_undef_pre(a as *const u8, b as *const u8);
+                if pre != 2 {
+                    return pre > 0;
+                }
+            }
             let f = self.fn_ptr;
             let e = self.env;
             let elem_f64 = self.mode & MODE_ELEM_F64 != 0;

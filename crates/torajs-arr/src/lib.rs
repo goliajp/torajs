@@ -159,6 +159,17 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
     );
 }
 
+// `__torajs_str_sort_undef_pre` (called from sort.rs's is_gt when
+// mode bit 3 = Str elements) lives in libtorajs_str.a at `tr build`
+// link time; stubbed for cargo test (no sort unit test sets bit 3).
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_str_sort_undef_pre(_a: *const u8, _b: *const u8) -> i64 {
+    panic!(
+        "torajs-arr unit-test stub: __torajs_str_sort_undef_pre should not be called from cargo test paths"
+    );
+}
+
 // `__torajs_split_block_free_push` (called from `__torajs_arr_free`
 // in alloc.rs) is defined in runtime_str.c at `tr build` link time;
 // no rlib provider, so a stub is required for cargo test linking.

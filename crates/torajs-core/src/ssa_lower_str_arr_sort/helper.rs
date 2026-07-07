@@ -82,7 +82,10 @@ pub(super) fn try_emit_sort_helper(
 ///   i64 parameter.
 ///
 /// `mode` bit layout mirrors torajs-arr/src/sort.rs: bit 0 elem-f64,
-/// bit 1 ret-f64, bit 2 has-env (Closure vs FnSig).
+/// bit 1 ret-f64, bit 2 has-env (Closure vs FnSig), bit 3 elem-Str
+/// (the runtime runs the §23.1.3.30.2 undefined pre-probe before
+/// every comparator call — sentinel elements sort last, never
+/// reaching the callback).
 fn sort_helper_mode(ctx: &LowerCtx<'_>, cmp_ty: Type, elem_ty: Type) -> Option<i64> {
     let sig_id = match cmp_ty {
         Type::Closure(s) | Type::FnSig(s) => s,
@@ -103,5 +106,11 @@ fn sort_helper_mode(ctx: &LowerCtx<'_>, cmp_ty: Type, elem_ty: Type) -> Option<i
         _ => return None,
     };
     let has_env = matches!(cmp_ty, Type::Closure(_));
-    Some((elem_f64 as i64) | ((ret_f64 as i64) << 1) | ((has_env as i64) << 2))
+    let elem_str = elem_ty == Type::Str;
+    Some(
+        (elem_f64 as i64)
+            | ((ret_f64 as i64) << 1)
+            | ((has_env as i64) << 2)
+            | ((elem_str as i64) << 3),
+    )
 }

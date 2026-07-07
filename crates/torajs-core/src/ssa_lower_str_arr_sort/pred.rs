@@ -6,7 +6,7 @@
 //! `*_to_str` intrinsics feeding `str_sort_cmp` (undefined-last +
 //! null-as-"null" per §23.1.3.30.2 before the byte compare).
 
-use crate::ssa::{FPred, IPred, InstKind, Operand, Type, ValueId};
+use crate::ssa::{FPred, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// Emit the `cmp(prev, cur) > 0` (or default-compare `prev > cur`)
@@ -21,26 +21,14 @@ pub(super) fn emit_sort_pred(
 ) -> ValueId {
     match (cmp_val, cmp_ty) {
         (Some(cv), Some(ct)) => {
-            let cmp_ret = ctx.call_fn_value(
-                cv.clone(),
-                *ct,
-                vec![Operand::Value(prev), Operand::Value(cur)],
-            );
-            let cmp_ret_ty = ctx.f.value_type(cmp_ret);
-            match cmp_ret_ty {
-                Type::F64 => ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::FCmp(FPred::Ogt, Operand::Value(cmp_ret), Operand::ConstF64(0.0)),
-                    Type::Bool,
-                    None,
-                ),
-                _ => ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::ICmp(IPred::Sgt, Operand::Value(cmp_ret), Operand::ConstI64(0)),
-                    Type::Bool,
-                    None,
-                ),
+            // §23.1.3.30.2 steps 5-8 fire BEFORE the comparator — an
+            // undefined element in a Str slot (either sentinel repr)
+            // sorts last without ever reaching the callback. Only
+            // the Str slot shape can hold the sentinel.
+            if matches!(elem_ty, Type::Str | Type::Substr) {
+                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur);
             }
+            emit_user_cmp_pred(ctx, cv, ct, prev, cur)
         }
         _ => {
             // ES §23.1.3.30 SortCompare with no comparator =
@@ -155,4 +143,101 @@ pub(super) fn emit_sort_pred(
             }
         }
     }
+}
+
+/// `cmp(prev, cur) > 0` — invoke the user comparator and widen its
+/// return to the Bool predicate (F64 return compares against 0.0).
+fn emit_user_cmp_pred(
+    ctx: &mut LowerCtx<'_>,
+    cv: &Operand,
+    ct: &Type,
+    prev: ValueId,
+    cur: ValueId,
+) -> ValueId {
+    let cmp_ret = ctx.call_fn_value(
+        cv.clone(),
+        *ct,
+        vec![Operand::Value(prev), Operand::Value(cur)],
+    );
+    let cmp_ret_ty = ctx.f.value_type(cmp_ret);
+    match cmp_ret_ty {
+        Type::F64 => ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::FCmp(FPred::Ogt, Operand::Value(cmp_ret), Operand::ConstF64(0.0)),
+            Type::Bool,
+            None,
+        ),
+        _ => ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Sgt, Operand::Value(cmp_ret), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        ),
+    }
+}
+
+/// User-comparator predicate wrapped in the §23.1.3.30.2 undefined
+/// pre-probe: `str_sort_undef_pre` answers `1`/`-1`/`0` (SortCompare
+/// result — an undefined side sorts last, the comparator is NOT
+/// called) or `2` (no undefined — fall through to the call).
+fn emit_user_cmp_undef_pre(
+    ctx: &mut LowerCtx<'_>,
+    cv: &Operand,
+    ct: &Type,
+    prev: ValueId,
+    cur: ValueId,
+) -> ValueId {
+    let slot = ctx.alloca_in_entry(Type::Bool, Some("__sort_pred"));
+    let pre = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.str_sort_undef_pre,
+            vec![Operand::Value(prev), Operand::Value(cur)],
+        ),
+        Type::I64,
+        None,
+    );
+    let has_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(pre), Operand::ConstI64(2)),
+        Type::Bool,
+        None,
+    );
+    let pre_blk = ctx.f.add_block();
+    let cb_blk = ctx.f.add_block();
+    let after_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(has_undef),
+            then_blk: pre_blk,
+            else_blk: cb_blk,
+        },
+    );
+    ctx.cur_block = pre_blk;
+    let pre_pred = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Sgt, Operand::Value(pre), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(pre_pred), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
+    ctx.cur_block = cb_blk;
+    let cb_pred = emit_user_cmp_pred(ctx, cv, ct, prev, cur);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(cb_pred), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
+    ctx.cur_block = after_blk;
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Bool, Operand::Value(slot), 0),
+        Type::Bool,
+        None,
+    )
 }
