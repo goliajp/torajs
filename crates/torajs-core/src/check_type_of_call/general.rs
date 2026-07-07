@@ -159,10 +159,23 @@ pub(crate) fn general_call(
         // callee's kind-aware Arr<Any> readers decode the raw block.
         let t11_arr_any = matches!(param_ty, Type::Array(el) if matches!(**el, Type::Any))
             && matches!(arg_ty, Type::Array(_));
+        // Chunk 641 — an empty `[]` literal argument has no element
+        // to infer from and types Array(Any); any Array(T) param
+        // admits it contextually (`take([])`, `new N([])` — bun
+        // accepts, l17b/l17e). The lowering side pairs this with a
+        // param-typed empty alloc (`try_lower_empty_array_arg`) so
+        // the callee never sees a FLAG_ARR_ANY block behind a typed
+        // param slot.
+        let empty_lit_into_arr = matches!(param_ty, Type::Array(_))
+            && matches!(
+                ast.get_expr(*arg_id),
+                crate::ast::Expr::Array(els) if els.is_empty()
+            );
         if !skip_type_check
             && !nullable_match
             && !callback_subtype
             && !t11_arr_any
+            && !empty_lit_into_arr
             && param_ty != &Type::Any
             && &arg_ty != param_ty
         {

@@ -44,7 +44,22 @@ pub(crate) fn emit(
     args: &[ExprId],
 ) -> Operand {
     let mut target = resolve_target(ctx, eid, callee);
-    let mut argv: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
+    // Chunk 641 — an empty `[]` arg allocs with the PARAM's layout
+    // (checker admit `empty_lit_into_arr` pairs here); every other
+    // arg lowers plain.
+    let param_tys: Option<Vec<Type>> = ctx
+        .fn_sig_ids
+        .get(&target)
+        .map(|sid| ctx.fn_sigs[sid.0 as usize].0.clone());
+    let mut argv: Vec<Operand> = args
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let expected = param_tys.as_ref().and_then(|ps| ps.get(i));
+            ctx.try_lower_empty_array_arg(*a, expected)
+                .unwrap_or_else(|| ctx.lower_expr(*a))
+        })
+        .collect();
     // RC-4 — a Nullable<Array> arg decayed against a generic Array
     // param at the checker (generic_ident decay_nullable_arr); guard
     // the runtime null before it enters the monomorphized callee as

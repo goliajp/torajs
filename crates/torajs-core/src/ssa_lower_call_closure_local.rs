@@ -70,7 +70,10 @@ pub(crate) fn try_lower(
     argv.push(Operand::Value(env_ptr));
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     for (i, a) in args.iter().enumerate() {
-        let raw = ctx.lower_expr(*a);
+        // Chunk 641 — empty `[]` arg allocs with the param's layout.
+        let raw = ctx
+            .try_lower_empty_array_arg(*a, user_params.get(i))
+            .unwrap_or_else(|| ctx.lower_expr(*a));
         // Chunk 569 — snapshot pre-box owned temps for the
         // post-call release; borrow-shape args pass +0 and keep
         // their stake (no inc: the body never drops params, no

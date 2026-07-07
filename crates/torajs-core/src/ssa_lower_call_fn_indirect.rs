@@ -85,7 +85,10 @@ fn try_lower_local_fnsig(
         .iter()
         .enumerate()
         .map(|(i, a)| {
-            let raw = ctx.lower_expr(*a);
+            // Chunk 641 — empty `[]` arg allocs with the param's layout.
+            let raw = ctx
+                .try_lower_empty_array_arg(*a, target_params.get(i))
+                .unwrap_or_else(|| ctx.lower_expr(*a));
             owned_temps.push((*a, raw));
             // RFC 20260707 chunk 626 — typed array into an Arr<Any>
             // param marks the block's elem kind (self-gating).
@@ -191,7 +194,10 @@ fn emit_closure_callee(
     argv.push(Operand::Value(env_ptr));
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     for (i, a) in args.iter().enumerate() {
-        let raw = ctx.lower_expr(*a);
+        // Chunk 641 — empty `[]` arg allocs with the param's layout.
+        let raw = ctx
+            .try_lower_empty_array_arg(*a, user_params.get(i))
+            .unwrap_or_else(|| ctx.lower_expr(*a));
         owned_temps.push((*a, raw));
         // RC-4 F3 — Type::Any target param boxes a concrete arg
         // (arm-1 P0.5 mirror): an untyped IIFE param is Type::Any at
@@ -265,7 +271,10 @@ fn emit_fnsig_callee(
         .iter()
         .enumerate()
         .map(|(i, a)| {
-            let raw = ctx.lower_expr(*a);
+            // Chunk 641 — empty `[]` arg allocs with the param's layout.
+            let raw = ctx
+                .try_lower_empty_array_arg(*a, target_params.get(i))
+                .unwrap_or_else(|| ctx.lower_expr(*a));
             owned_temps.push((*a, raw));
             // RFC 20260707 chunk 626 — typed array into an Arr<Any>
             // param marks the block's elem kind (self-gating).
