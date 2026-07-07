@@ -64,29 +64,46 @@ pub(crate) fn try_lower(
     env_first_params.extend(user_params.iter().copied());
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first_params, ret_ty);
 
+    // RFC 20260708-closure-argc-abi chunk 1 — a length-only
+    // real-argc closure binding (safety-walked in
+    // desugar_arguments_object): prepend ConstI64(user arg count)
+    // into the synthetic `__torajs_real_argc` slot (user_params[0]),
+    // and shift the arg↔param pairing by one. Args beyond the
+    // declared list still lower (ES §13.3.6.1 ArgumentListEvaluation
+    // side effects) but don't enter argv — the length-only tier
+    // never reads their values.
+    let needs_argc = ctx.ast.closure_argc_locals.contains(callee_name);
+
     // P0.5 mirror — Type::Any param boxes the concrete arg.
     // S126-3 see direct fn-call P0.9 in ssa_lower.
-    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
+    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 2);
     argv.push(Operand::Value(env_ptr));
+    if needs_argc {
+        argv.push(Operand::ConstI64(args.len() as i64));
+    }
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     for (i, a) in args.iter().enumerate() {
+        let param_idx = if needs_argc { i + 1 } else { i };
         // Chunk 641 — empty `[]` arg allocs with the param's layout.
         let raw = ctx
-            .try_lower_empty_array_arg(*a, user_params.get(i))
+            .try_lower_empty_array_arg(*a, user_params.get(param_idx))
             .unwrap_or_else(|| ctx.lower_expr(*a));
         // Chunk 569 — snapshot pre-box owned temps for the
         // post-call release; borrow-shape args pass +0 and keep
         // their stake (no inc: the body never drops params, no
         // consume: TS args share).
         owned_temps.push((*a, raw));
+        if needs_argc && param_idx >= user_params.len() {
+            continue; // beyond-arity: evaluated, value unused
+        }
         // RFC 20260707 chunk 626 — typed array into an Arr<Any>
         // param marks the block's elem kind (T-11 call-boundary
         // widen; self-gating no-op for other type pairs).
-        if let Some(p) = user_params.get(i) {
+        if let Some(p) = user_params.get(param_idx) {
             ctx.mark_arr_arg_for_any_param(*p, &raw);
         }
-        let boxed = if i < user_params.len()
-            && matches!(user_params[i], Type::Any)
+        let boxed = if param_idx < user_params.len()
+            && matches!(user_params[param_idx], Type::Any)
             && !matches!(ctx.operand_ty(&raw), Type::Any)
         {
             ctx.box_to_any_from_expr(*a, raw)

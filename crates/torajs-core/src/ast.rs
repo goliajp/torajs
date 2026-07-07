@@ -3,6 +3,7 @@
 mod apply_args;
 mod arguments_object;
 mod arguments_object_rewrite;
+mod arguments_object_walkers;
 mod array_isarray_value;
 mod class_globals;
 mod desugar_async;
@@ -137,6 +138,13 @@ pub struct Ast {
     /// a direct field Load / Store at offset.
     pub accessor_getters: std::collections::HashMap<(String, String), String>,
     pub accessor_setters: std::collections::HashMap<(String, String), String>,
+    /// RFC 20260708-closure-argc-abi — bindings that hold a
+    /// length-only real-argc closure VALUE and passed the
+    /// direct-call-or-alias safety walk. Populated by
+    /// `desugar_arguments_object`; the checker's closure-argc call
+    /// wedge admits beyond-arity calls through these names and the
+    /// ssa_lower closure-local call arm prepends the runtime argc.
+    pub closure_argc_locals: std::collections::HashSet<String>,
     /// Phase L.2 — names of `async function` declarations recorded by
     /// the parser. desugar_async iterates ast.stmts and, for any
     /// FnDecl whose name is in this set, wraps the return value in a

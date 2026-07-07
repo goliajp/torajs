@@ -1,0 +1,332 @@
+//! T-11 / T-31 walker + builder helpers for
+//! [`super::arguments_object::desugar_arguments_object`] — split out
+//! as a sibling (rotation 44) when the main pass crossed the 500-line
+//! file limit: `stmt/expr_uses_dynamic_arguments` (materialize gate),
+//! `body_has_arguments_length` (T-31 argc seed, via the shared
+//! `stmt_scan`/`expr_scan` pair),
+//! `body_has_non_length_arguments_touch` (RFC 20260708-closure-
+//! argc-abi length-only classifier), and `synth_arguments_local` (the
+//! `__torajs_arguments: any[]` builder).
+
+use super::{Ast, Expr, ExprId, Stmt};
+
+/// What the shared scan walker below is looking for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScanFor {
+    /// `arguments.length` member read (T-31 argc seed).
+    Length,
+    /// Any `arguments` touch OTHER than `arguments.length` (RFC
+    /// 20260708-closure-argc-abi length-only classifier): the
+    /// `.length` member read is absorbed (its `obj` is not
+    /// recursed), so a hit means the body reads `arguments[i]`,
+    /// spreads `...arguments`, aliases it, or touches any other
+    /// member — all of which need the arg VALUES (the argv face)
+    /// and disqualify the runtime-argc-only tier.
+    NonLengthTouch,
+}
+
+/// True if the body touches `arguments` in any form other than
+/// `arguments.length`.
+pub(super) fn body_has_non_length_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter()
+        .any(|s| stmt_scan(ast, s, ScanFor::NonLengthTouch))
+}
+
+pub(super) fn stmt_uses_dynamic_arguments(ast: &Ast, s: &Stmt) -> bool {
+    match s {
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
+            expr_uses_dynamic_arguments(ast, *eid)
+        }
+        Stmt::Return(opt) => opt.is_some_and(|e| expr_uses_dynamic_arguments(ast, e)),
+        Stmt::LetDecl { init, .. } => expr_uses_dynamic_arguments(ast, *init),
+        Stmt::YieldInto { value, .. } => expr_uses_dynamic_arguments(ast, *value),
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_uses_dynamic_arguments(ast, *cond)
+                || stmt_uses_dynamic_arguments(ast, then_branch)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| stmt_uses_dynamic_arguments(ast, e))
+        }
+        Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
+            expr_uses_dynamic_arguments(ast, *cond) || stmt_uses_dynamic_arguments(ast, body)
+        }
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            init.as_ref()
+                .is_some_and(|s| stmt_uses_dynamic_arguments(ast, s))
+                || cond.is_some_and(|c| expr_uses_dynamic_arguments(ast, c))
+                || step.is_some_and(|st| expr_uses_dynamic_arguments(ast, st))
+                || stmt_uses_dynamic_arguments(ast, body)
+        }
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
+            expr_uses_dynamic_arguments(ast, *parent)
+                || expr_uses_dynamic_arguments(ast, *sep)
+                || stmt_uses_dynamic_arguments(ast, body)
+        }
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => expr_uses_dynamic_arguments(ast, *elem_expr) || stmt_uses_dynamic_arguments(ast, body),
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            stmts.iter().any(|s| stmt_uses_dynamic_arguments(ast, s))
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            body.iter().any(|s| stmt_uses_dynamic_arguments(ast, s))
+                || catch_body
+                    .iter()
+                    .any(|s| stmt_uses_dynamic_arguments(ast, s))
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|fb| fb.iter().any(|s| stmt_uses_dynamic_arguments(ast, s)))
+        }
+        _ => false,
+    }
+}
+
+pub(super) fn expr_uses_dynamic_arguments(ast: &Ast, eid: ExprId) -> bool {
+    match ast.get_expr(eid) {
+        Expr::Index { obj, index } => {
+            // Match `arguments[<non-Number-literal>]`. Number-literal
+            // case is already handled inline by the existing rewrite
+            // (param-name substitution; no array materialization).
+            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") {
+                if !matches!(ast.get_expr(*index), Expr::Number(_)) {
+                    return true;
+                }
+                // Number index but out-of-range fall-through still
+                // materializes — bun returns undefined; tr maps to
+                // null in the boxed Any read. Conservative: treat as
+                // dynamic so the array is available.
+                if let Expr::Number(n) = ast.get_expr(*index)
+                    && (n.fract() != 0.0 || (*n as usize) >= count_user_params(ast, eid))
+                {
+                    return true;
+                }
+            }
+            expr_uses_dynamic_arguments(ast, *obj) || expr_uses_dynamic_arguments(ast, *index)
+        }
+        Expr::Member { obj, name } => {
+            // `arguments.callee` — currently unhandled; will need its
+            // own materialization later. Bare `arguments.<other>`
+            // also forces materialize so stuff like
+            // `arguments.length.toString()` keeps walking.
+            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") && name != "length"
+            {
+                return true;
+            }
+            expr_uses_dynamic_arguments(ast, *obj)
+        }
+        Expr::Ident(n) if n == "arguments" => {
+            // Bare `arguments` reference (not Index / Member / spread —
+            // those have their own arms). E.g. `let xs = arguments;`
+            // or passing `arguments` to a fn that's not the spread
+            // form. Forces materialize.
+            true
+        }
+        Expr::Call { callee, args } => {
+            expr_uses_dynamic_arguments(ast, *callee)
+                || args.iter().any(|a| {
+                    // `f(...arguments)` is handled by the inline-spread
+                    // rewrite — no materialize needed.
+                    if let Expr::Spread { expr } = ast.get_expr(*a)
+                        && let Expr::Ident(n) = ast.get_expr(*expr)
+                        && n == "arguments"
+                    {
+                        return false;
+                    }
+                    expr_uses_dynamic_arguments(ast, *a)
+                })
+        }
+        Expr::BinOp { left, right, .. } => {
+            expr_uses_dynamic_arguments(ast, *left) || expr_uses_dynamic_arguments(ast, *right)
+        }
+        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } => {
+            expr_uses_dynamic_arguments(ast, *expr)
+        }
+        Expr::Assign { target, value } => {
+            expr_uses_dynamic_arguments(ast, *target) || expr_uses_dynamic_arguments(ast, *value)
+        }
+        Expr::Array(items) => items.iter().any(|e| {
+            // `[...arguments]` — handled inline by spread rewrite.
+            if let Expr::Spread { expr } = ast.get_expr(*e)
+                && let Expr::Ident(n) = ast.get_expr(*expr)
+                && n == "arguments"
+            {
+                return false;
+            }
+            expr_uses_dynamic_arguments(ast, *e)
+        }),
+        Expr::ObjectLit { fields } => fields
+            .iter()
+            .any(|(_, e)| expr_uses_dynamic_arguments(ast, *e)),
+        Expr::Spread { expr } => expr_uses_dynamic_arguments(ast, *expr),
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_uses_dynamic_arguments(ast, *cond)
+                || expr_uses_dynamic_arguments(ast, *then_branch)
+                || expr_uses_dynamic_arguments(ast, *else_branch)
+        }
+        Expr::Nullish { lhs, rhs } => {
+            expr_uses_dynamic_arguments(ast, *lhs) || expr_uses_dynamic_arguments(ast, *rhs)
+        }
+        Expr::OptChain { obj, .. } => expr_uses_dynamic_arguments(ast, *obj),
+        _ => false,
+    }
+}
+
+pub(super) fn count_user_params(_ast: &Ast, _eid: ExprId) -> usize {
+    // Caller's params count is captured during the FnDecl walk and
+    // not threaded through expr_uses_dynamic_arguments today; default
+    // to a large value so the literal-bounds-check arm never trips.
+    // The bounds-aware materialize is a follow-up.
+    usize::MAX
+}
+
+/// T-31 — returns true if the fn body references `arguments.length`
+/// (i.e. an `Expr::Member { obj: Ident("arguments"), name: "length" }`)
+/// anywhere. Used by `desugar_arguments_object` to decide whether to
+/// inject the `__torajs_real_argc` synthetic param.
+pub(super) fn body_has_arguments_length(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_scan(ast, s, ScanFor::Length))
+}
+
+fn stmt_scan(ast: &Ast, s: &Stmt, what: ScanFor) -> bool {
+    match s {
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => expr_scan(ast, *eid, what),
+        Stmt::Return(opt) => opt.is_some_and(|e| expr_scan(ast, e, what)),
+        Stmt::LetDecl { init, .. } => expr_scan(ast, *init, what),
+        Stmt::YieldInto { value, .. } => expr_scan(ast, *value, what),
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_scan(ast, *cond, what)
+                || stmt_scan(ast, then_branch, what)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| stmt_scan(ast, e, what))
+        }
+        Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
+            expr_scan(ast, *cond, what) || stmt_scan(ast, body, what)
+        }
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            init.as_ref().is_some_and(|s| stmt_scan(ast, s, what))
+                || cond.is_some_and(|c| expr_scan(ast, c, what))
+                || step.is_some_and(|st| expr_scan(ast, st, what))
+                || stmt_scan(ast, body, what)
+        }
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
+            expr_scan(ast, *parent, what)
+                || expr_scan(ast, *sep, what)
+                || stmt_scan(ast, body, what)
+        }
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => expr_scan(ast, *elem_expr, what) || stmt_scan(ast, body, what),
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().any(|s| stmt_scan(ast, s, what)),
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            body.iter().any(|s| stmt_scan(ast, s, what))
+                || catch_body.iter().any(|s| stmt_scan(ast, s, what))
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|fb| fb.iter().any(|s| stmt_scan(ast, s, what)))
+        }
+        // Nested FnDecl is an independent scope; its `arguments`
+        // refers to the inner fn, not the outer one we're scanning.
+        // desugar_nested_fns lifts these to top-level before us, so
+        // this arm is mostly defensive.
+        _ => false,
+    }
+}
+
+fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
+    match ast.get_expr(eid) {
+        Expr::Member { obj, name } if name == "length" => {
+            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") {
+                // `arguments.length` — the Length target hit; the
+                // NonLengthTouch scan absorbs it (obj not recursed).
+                return what == ScanFor::Length;
+            }
+            expr_scan(ast, *obj, what)
+        }
+        Expr::Member { obj, .. } => expr_scan(ast, *obj, what),
+        Expr::Index { obj, index } => expr_scan(ast, *obj, what) || expr_scan(ast, *index, what),
+        Expr::BinOp { left, right, .. } => {
+            expr_scan(ast, *left, what) || expr_scan(ast, *right, what)
+        }
+        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } => {
+            expr_scan(ast, *expr, what)
+        }
+        Expr::Assign { target, value } => {
+            expr_scan(ast, *target, what) || expr_scan(ast, *value, what)
+        }
+        Expr::Call { callee, args } => {
+            expr_scan(ast, *callee, what) || args.iter().any(|a| expr_scan(ast, *a, what))
+        }
+        Expr::Array(items) => items.iter().any(|e| expr_scan(ast, *e, what)),
+        Expr::ObjectLit { fields } => fields.iter().any(|(_, e)| expr_scan(ast, *e, what)),
+        Expr::Spread { expr } => expr_scan(ast, *expr, what),
+        Expr::Ident(n) if n == "arguments" => what == ScanFor::NonLengthTouch,
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_scan(ast, *cond, what)
+                || expr_scan(ast, *then_branch, what)
+                || expr_scan(ast, *else_branch, what)
+        }
+        Expr::Nullish { lhs, rhs } => expr_scan(ast, *lhs, what) || expr_scan(ast, *rhs, what),
+        Expr::OptChain { obj, .. } => expr_scan(ast, *obj, what),
+        _ => false,
+    }
+}
+
+/// T-11 — synthesize `let __torajs_arguments: any[] = [p0, p1, ...]`
+/// for prepending to a fn body. Each param Ident becomes one array
+/// element; the LetDecl arm in ssa_lower routes through the forced-
+/// Any path because the annotation is `any[]`.
+pub(super) fn synth_arguments_local(ast: &mut Ast, params: &[String]) -> Stmt {
+    let elems: Vec<ExprId> = params
+        .iter()
+        .map(|p| ast.add_expr(Expr::Ident(p.clone())))
+        .collect();
+    let init = ast.add_expr(Expr::Array(elems));
+    Stmt::LetDecl {
+        mutable: false,
+        name: "__torajs_arguments".into(),
+        type_ann: Some("any[]".into()),
+        init,
+        is_var: false,
+    }
+}

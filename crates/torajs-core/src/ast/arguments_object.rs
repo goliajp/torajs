@@ -13,7 +13,11 @@
 //! The cross-sibling call to the actual rewriters lives at
 //! `crate::ast::arguments_object_rewrite::rewrite_arguments_in_stmt`.
 
-use super::{Ast, Expr, ExprId, Param, Stmt};
+use super::arguments_object_walkers::{
+    body_has_arguments_length, body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
+    synth_arguments_local,
+};
+use super::{Ast, Expr, Param, Stmt};
 
 /// How `arguments.length` rewrites inside a given fn body (chunk 613).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -102,17 +106,23 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         }
     }
 
+    // RFC 20260708-closure-argc-abi chunk 1 — closure VALUE form
+    // seed + binding safety walk (see collect_value_argc).
+    let (value_real_argc, argc_locals) = collect_value_argc(ast, &env_fns, &iife_real_argc);
+    ast.closure_argc_locals = argc_locals;
+
     // T-31 — inject `__torajs_real_argc: number` at param[0] for each
     // uses_real_argc fn. Done before the body-rewrite walk so the
     // typechecker (which runs after desugar) sees the new signature
     // and so the recursive `arguments.length` rewrite below can resolve
     // `Ident("__torajs_real_argc")` cleanly.
-    if !uses_real_argc.is_empty() || !iife_real_argc.is_empty() {
+    if !uses_real_argc.is_empty() || !iife_real_argc.is_empty() || !value_real_argc.is_empty() {
         for s in ast.stmts.iter_mut() {
             if let Stmt::FnDecl { name, params, .. } = s {
                 // Chunk 613 — IIFE closures put the synthetic param
-                // AFTER the hidden `__env` (first USER param slot).
-                let at = if iife_real_argc.contains(name) {
+                // AFTER the hidden `__env` (first USER param slot);
+                // RFC 20260708 value-form closures share that slot.
+                let at = if iife_real_argc.contains(name) || value_real_argc.contains(name) {
                     1
                 } else if uses_real_argc.contains(name) {
                     0
@@ -139,7 +149,10 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 continue;
             };
             let params = params.clone();
-            let argc_mode = if uses_real_argc.contains(name) || iife_real_argc.contains(name) {
+            let argc_mode = if uses_real_argc.contains(name)
+                || iife_real_argc.contains(name)
+                || value_real_argc.contains(name)
+            {
                 ArgcMode::Real
             } else if env_fns.contains(name) && body_has_arguments_length(ast, body) {
                 ArgcMode::KeepLoud
@@ -187,6 +200,147 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         }
     }
 
+    prepend_static_argc(ast, &uses_real_argc, iife_call_sites);
+}
+
+/// RFC 20260708-closure-argc-abi chunk 1 — collect the closure
+/// VALUE form seed: length-only lifted closures whose value is
+/// consumed exclusively through a safe binding chain. Returns
+/// `(value_real_argc fns, argc-local binding names)` — see the
+/// gate rationale in the body comments.
+fn collect_value_argc(
+    ast: &Ast,
+    env_fns: &std::collections::HashSet<String>,
+    iife_real_argc: &std::collections::HashSet<String>,
+) -> (
+    std::collections::HashSet<String>,
+    std::collections::HashSet<String>,
+) {
+    use std::collections::{HashMap, HashSet};
+    // RFC 20260708-closure-argc-abi chunk 1 — closure VALUE form: a
+    // lifted closure that reads `arguments.length` and is NOT an IIFE
+    // has no static call site, so the real argc travels at runtime
+    // (the ssa_lower closure-local call arm prepends
+    // ConstI64(user-arg count) for bindings in `argc_locals`). Two
+    // gates keep this zero-silent-wrong:
+    //
+    // 1. Only the length-only tier qualifies: a body that also reads
+    //    `arguments[dynamic]` / spreads `...arguments` needs the arg
+    //    VALUES (the argv face, recorded follow-up) and stays
+    //    KeepLoud — admitting a beyond-arity call whose values are
+    //    unreachable would be silent-wrong.
+    // 2. Every binding the closure value can reach must be
+    //    direct-call-or-alias only (`f(...)` / `const g = f`). Any
+    //    other use — passed as an argument, stored in a container,
+    //    returned, reassigned — kills the whole chain back to the
+    //    fn, which then stays KeepLoud (checker rejects `arguments`
+    //    loudly, today's behavior): a call-emit site that doesn't
+    //    know about the argc slot would feed the callee garbage.
+    //    The HOF/param-infection face is the RFC's chunk 2.
+    let mut value_real_argc: HashSet<String> = HashSet::new();
+    // binding name → source lifted-closure fn name (aliases share
+    // the source fn).
+    let mut argc_candidates: HashMap<String, String> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, body, .. } = s {
+            if env_fns.contains(name)
+                && !iife_real_argc.contains(name)
+                && body_has_arguments_length(ast, body)
+                && !body_has_non_length_arguments_touch(ast, body)
+            {
+                value_real_argc.insert(name.clone());
+            }
+        }
+    }
+    // Direct bindings (`const f = function(){...}`), then alias
+    // closure (`const g = f`) — top-level stmts only in chunk 1;
+    // nested-scope aliases fail the safety walk below and kill the
+    // chain (conservative, stays loud).
+    for s in &ast.stmts {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && let Expr::Closure { fn_name, .. } = ast.get_expr(*init)
+            && value_real_argc.contains(fn_name)
+        {
+            argc_candidates.insert(name.clone(), fn_name.clone());
+        }
+    }
+    loop {
+        let mut grew = false;
+        for s in &ast.stmts {
+            if let Stmt::LetDecl { name, init, .. } = s
+                && let Expr::Ident(src) = ast.get_expr(*init)
+                && argc_candidates.contains_key(src)
+                && !argc_candidates.contains_key(name)
+            {
+                argc_candidates.insert(name.clone(), argc_candidates[src].clone());
+                grew = true;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    // Safety walk: for each candidate binding b, every arena
+    // occurrence of `Ident(b)` must be a Call callee or a
+    // still-candidate alias init. Kill rounds run to a fixpoint
+    // because removing an alias invalidates its source's legality.
+    loop {
+        let mut killed: HashSet<String> = HashSet::new();
+        for b in argc_candidates.keys() {
+            let b_eids: HashSet<u32> = (0..ast.exprs.len() as u32)
+                .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == b))
+                .collect();
+            let mut legal: HashSet<u32> = HashSet::new();
+            for e in &ast.exprs {
+                if let Expr::Call { callee, .. } = e
+                    && b_eids.contains(&callee.0)
+                {
+                    legal.insert(callee.0);
+                }
+            }
+            for s in &ast.stmts {
+                if let Stmt::LetDecl { name, init, .. } = s
+                    && b_eids.contains(&init.0)
+                    && argc_candidates.contains_key(name)
+                {
+                    legal.insert(init.0);
+                }
+            }
+            if b_eids.difference(&legal).next().is_some() {
+                killed.insert(b.clone());
+            }
+        }
+        if killed.is_empty() {
+            break;
+        }
+        let killed_fns: HashSet<String> = argc_candidates
+            .iter()
+            .filter(|(b, _)| killed.contains(*b))
+            .map(|(_, f)| f.clone())
+            .collect();
+        argc_candidates.retain(|_, f| !killed_fns.contains(f));
+    }
+    // Only fns whose closure value is consumed EXCLUSIVELY through a
+    // surviving binding chain get the argc injection — a closure
+    // passed directly as an argument (HOF form, RFC chunk 2), stored
+    // in a container, etc. must NOT be reshaped: its call sites don't
+    // know about the argc slot and would feed the body garbage.
+    value_real_argc = argc_candidates.values().cloned().collect();
+    let argc_locals: HashSet<String> = argc_candidates.keys().cloned().collect();
+    (value_real_argc, argc_locals)
+}
+
+/// T-31 + chunk 613 — prepend the argc argument at static call
+/// sites: every direct-Ident call to a `uses_real_argc` top-level
+/// fn gets `Number(args.len())` as new arg[0], and each qualifying
+/// IIFE call site gets its static count (the closure's `__env` is
+/// not part of the Call args, so the count lands in the injected
+/// first-USER-param slot).
+fn prepend_static_argc(
+    ast: &mut Ast,
+    uses_real_argc: &std::collections::HashSet<String>,
+    iife_call_sites: Vec<usize>,
+) {
     // T-31 — arena walk: every Call whose callee is a direct Ident to
     // a uses_real_argc fn gets `Number(args.len())` prepended as new
     // arg[0]. args.len() at this point is the user-passed count BEFORE
@@ -238,318 +392,5 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             callee,
             args: new_args,
         };
-    }
-}
-
-/// T-11 — returns true if any `arguments[<non-literal>]` index access
-/// (or bare `arguments` reference outside the literal-index /
-/// `arguments.length` / spread forms the existing rewrite handles)
-/// appears in the stmt subtree. Used to gate the synthesized
-/// `let __torajs_arguments: any[] = [...]` prepend.
-fn stmt_uses_dynamic_arguments(ast: &Ast, s: &Stmt) -> bool {
-    match s {
-        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
-            expr_uses_dynamic_arguments(ast, *eid)
-        }
-        Stmt::Return(opt) => opt.is_some_and(|e| expr_uses_dynamic_arguments(ast, e)),
-        Stmt::LetDecl { init, .. } => expr_uses_dynamic_arguments(ast, *init),
-        Stmt::YieldInto { value, .. } => expr_uses_dynamic_arguments(ast, *value),
-        Stmt::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_uses_dynamic_arguments(ast, *cond)
-                || stmt_uses_dynamic_arguments(ast, then_branch)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|e| stmt_uses_dynamic_arguments(ast, e))
-        }
-        Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
-            expr_uses_dynamic_arguments(ast, *cond) || stmt_uses_dynamic_arguments(ast, body)
-        }
-        Stmt::For {
-            init,
-            cond,
-            step,
-            body,
-        } => {
-            init.as_ref()
-                .is_some_and(|s| stmt_uses_dynamic_arguments(ast, s))
-                || cond.is_some_and(|c| expr_uses_dynamic_arguments(ast, c))
-                || step.is_some_and(|st| expr_uses_dynamic_arguments(ast, st))
-                || stmt_uses_dynamic_arguments(ast, body)
-        }
-        Stmt::ForOfSplitIter {
-            parent, sep, body, ..
-        } => {
-            expr_uses_dynamic_arguments(ast, *parent)
-                || expr_uses_dynamic_arguments(ast, *sep)
-                || stmt_uses_dynamic_arguments(ast, body)
-        }
-        Stmt::ForOf {
-            elem_expr, body, ..
-        } => expr_uses_dynamic_arguments(ast, *elem_expr) || stmt_uses_dynamic_arguments(ast, body),
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            stmts.iter().any(|s| stmt_uses_dynamic_arguments(ast, s))
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            body.iter().any(|s| stmt_uses_dynamic_arguments(ast, s))
-                || catch_body
-                    .iter()
-                    .any(|s| stmt_uses_dynamic_arguments(ast, s))
-                || finally_body
-                    .as_ref()
-                    .is_some_and(|fb| fb.iter().any(|s| stmt_uses_dynamic_arguments(ast, s)))
-        }
-        _ => false,
-    }
-}
-
-fn expr_uses_dynamic_arguments(ast: &Ast, eid: ExprId) -> bool {
-    match ast.get_expr(eid) {
-        Expr::Index { obj, index } => {
-            // Match `arguments[<non-Number-literal>]`. Number-literal
-            // case is already handled inline by the existing rewrite
-            // (param-name substitution; no array materialization).
-            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") {
-                if !matches!(ast.get_expr(*index), Expr::Number(_)) {
-                    return true;
-                }
-                // Number index but out-of-range fall-through still
-                // materializes — bun returns undefined; tr maps to
-                // null in the boxed Any read. Conservative: treat as
-                // dynamic so the array is available.
-                if let Expr::Number(n) = ast.get_expr(*index)
-                    && (n.fract() != 0.0 || (*n as usize) >= count_user_params(ast, eid))
-                {
-                    return true;
-                }
-            }
-            expr_uses_dynamic_arguments(ast, *obj) || expr_uses_dynamic_arguments(ast, *index)
-        }
-        Expr::Member { obj, name } => {
-            // `arguments.callee` — currently unhandled; will need its
-            // own materialization later. Bare `arguments.<other>`
-            // also forces materialize so stuff like
-            // `arguments.length.toString()` keeps walking.
-            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") && name != "length"
-            {
-                return true;
-            }
-            expr_uses_dynamic_arguments(ast, *obj)
-        }
-        Expr::Ident(n) if n == "arguments" => {
-            // Bare `arguments` reference (not Index / Member / spread —
-            // those have their own arms). E.g. `let xs = arguments;`
-            // or passing `arguments` to a fn that's not the spread
-            // form. Forces materialize.
-            true
-        }
-        Expr::Call { callee, args } => {
-            expr_uses_dynamic_arguments(ast, *callee)
-                || args.iter().any(|a| {
-                    // `f(...arguments)` is handled by the inline-spread
-                    // rewrite — no materialize needed.
-                    if let Expr::Spread { expr } = ast.get_expr(*a)
-                        && let Expr::Ident(n) = ast.get_expr(*expr)
-                        && n == "arguments"
-                    {
-                        return false;
-                    }
-                    expr_uses_dynamic_arguments(ast, *a)
-                })
-        }
-        Expr::BinOp { left, right, .. } => {
-            expr_uses_dynamic_arguments(ast, *left) || expr_uses_dynamic_arguments(ast, *right)
-        }
-        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } => {
-            expr_uses_dynamic_arguments(ast, *expr)
-        }
-        Expr::Assign { target, value } => {
-            expr_uses_dynamic_arguments(ast, *target) || expr_uses_dynamic_arguments(ast, *value)
-        }
-        Expr::Array(items) => items.iter().any(|e| {
-            // `[...arguments]` — handled inline by spread rewrite.
-            if let Expr::Spread { expr } = ast.get_expr(*e)
-                && let Expr::Ident(n) = ast.get_expr(*expr)
-                && n == "arguments"
-            {
-                return false;
-            }
-            expr_uses_dynamic_arguments(ast, *e)
-        }),
-        Expr::ObjectLit { fields } => fields
-            .iter()
-            .any(|(_, e)| expr_uses_dynamic_arguments(ast, *e)),
-        Expr::Spread { expr } => expr_uses_dynamic_arguments(ast, *expr),
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_uses_dynamic_arguments(ast, *cond)
-                || expr_uses_dynamic_arguments(ast, *then_branch)
-                || expr_uses_dynamic_arguments(ast, *else_branch)
-        }
-        Expr::Nullish { lhs, rhs } => {
-            expr_uses_dynamic_arguments(ast, *lhs) || expr_uses_dynamic_arguments(ast, *rhs)
-        }
-        Expr::OptChain { obj, .. } => expr_uses_dynamic_arguments(ast, *obj),
-        _ => false,
-    }
-}
-
-fn count_user_params(_ast: &Ast, _eid: ExprId) -> usize {
-    // Caller's params count is captured during the FnDecl walk and
-    // not threaded through expr_uses_dynamic_arguments today; default
-    // to a large value so the literal-bounds-check arm never trips.
-    // The bounds-aware materialize is a follow-up.
-    usize::MAX
-}
-
-/// T-31 — returns true if the fn body references `arguments.length`
-/// (i.e. an `Expr::Member { obj: Ident("arguments"), name: "length" }`)
-/// anywhere. Used by `desugar_arguments_object` to decide whether to
-/// inject the `__torajs_real_argc` synthetic param.
-fn body_has_arguments_length(ast: &Ast, body: &[Stmt]) -> bool {
-    body.iter().any(|s| stmt_has_arguments_length(ast, s))
-}
-
-fn stmt_has_arguments_length(ast: &Ast, s: &Stmt) -> bool {
-    match s {
-        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
-            expr_has_arguments_length(ast, *eid)
-        }
-        Stmt::Return(opt) => opt.is_some_and(|e| expr_has_arguments_length(ast, e)),
-        Stmt::LetDecl { init, .. } => expr_has_arguments_length(ast, *init),
-        Stmt::YieldInto { value, .. } => expr_has_arguments_length(ast, *value),
-        Stmt::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_has_arguments_length(ast, *cond)
-                || stmt_has_arguments_length(ast, then_branch)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|e| stmt_has_arguments_length(ast, e))
-        }
-        Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
-            expr_has_arguments_length(ast, *cond) || stmt_has_arguments_length(ast, body)
-        }
-        Stmt::For {
-            init,
-            cond,
-            step,
-            body,
-        } => {
-            init.as_ref()
-                .is_some_and(|s| stmt_has_arguments_length(ast, s))
-                || cond.is_some_and(|c| expr_has_arguments_length(ast, c))
-                || step.is_some_and(|st| expr_has_arguments_length(ast, st))
-                || stmt_has_arguments_length(ast, body)
-        }
-        Stmt::ForOfSplitIter {
-            parent, sep, body, ..
-        } => {
-            expr_has_arguments_length(ast, *parent)
-                || expr_has_arguments_length(ast, *sep)
-                || stmt_has_arguments_length(ast, body)
-        }
-        Stmt::ForOf {
-            elem_expr, body, ..
-        } => expr_has_arguments_length(ast, *elem_expr) || stmt_has_arguments_length(ast, body),
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            stmts.iter().any(|s| stmt_has_arguments_length(ast, s))
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            body.iter().any(|s| stmt_has_arguments_length(ast, s))
-                || catch_body.iter().any(|s| stmt_has_arguments_length(ast, s))
-                || finally_body
-                    .as_ref()
-                    .is_some_and(|fb| fb.iter().any(|s| stmt_has_arguments_length(ast, s)))
-        }
-        // Nested FnDecl is an independent scope; its `arguments`
-        // refers to the inner fn, not the outer one we're scanning.
-        // desugar_nested_fns lifts these to top-level before us, so
-        // this arm is mostly defensive.
-        _ => false,
-    }
-}
-
-fn expr_has_arguments_length(ast: &Ast, eid: ExprId) -> bool {
-    match ast.get_expr(eid) {
-        Expr::Member { obj, name } if name == "length" => {
-            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") {
-                return true;
-            }
-            expr_has_arguments_length(ast, *obj)
-        }
-        Expr::Member { obj, .. } => expr_has_arguments_length(ast, *obj),
-        Expr::Index { obj, index } => {
-            expr_has_arguments_length(ast, *obj) || expr_has_arguments_length(ast, *index)
-        }
-        Expr::BinOp { left, right, .. } => {
-            expr_has_arguments_length(ast, *left) || expr_has_arguments_length(ast, *right)
-        }
-        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } => {
-            expr_has_arguments_length(ast, *expr)
-        }
-        Expr::Assign { target, value } => {
-            expr_has_arguments_length(ast, *target) || expr_has_arguments_length(ast, *value)
-        }
-        Expr::Call { callee, args } => {
-            expr_has_arguments_length(ast, *callee)
-                || args.iter().any(|a| expr_has_arguments_length(ast, *a))
-        }
-        Expr::Array(items) => items.iter().any(|e| expr_has_arguments_length(ast, *e)),
-        Expr::ObjectLit { fields } => fields
-            .iter()
-            .any(|(_, e)| expr_has_arguments_length(ast, *e)),
-        Expr::Spread { expr } => expr_has_arguments_length(ast, *expr),
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_has_arguments_length(ast, *cond)
-                || expr_has_arguments_length(ast, *then_branch)
-                || expr_has_arguments_length(ast, *else_branch)
-        }
-        Expr::Nullish { lhs, rhs } => {
-            expr_has_arguments_length(ast, *lhs) || expr_has_arguments_length(ast, *rhs)
-        }
-        Expr::OptChain { obj, .. } => expr_has_arguments_length(ast, *obj),
-        _ => false,
-    }
-}
-
-/// T-11 — synthesize `let __torajs_arguments: any[] = [p0, p1, ...]`
-/// for prepending to a fn body. Each param Ident becomes one array
-/// element; the LetDecl arm in ssa_lower routes through the forced-
-/// Any path because the annotation is `any[]`.
-fn synth_arguments_local(ast: &mut Ast, params: &[String]) -> Stmt {
-    let elems: Vec<ExprId> = params
-        .iter()
-        .map(|p| ast.add_expr(Expr::Ident(p.clone())))
-        .collect();
-    let init = ast.add_expr(Expr::Array(elems));
-    Stmt::LetDecl {
-        mutable: false,
-        name: "__torajs_arguments".into(),
-        type_ann: Some("any[]".into()),
-        init,
-        is_var: false,
     }
 }
