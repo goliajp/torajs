@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T15:46:13.873Z",
+  "generatedAt": "2026-07-07T17:47:29.170Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "7569ffa0",
-    "commitSubject": "fix: struct-field method calls land after branching args (fnsig + closure slots)",
+    "commit": "6c28428c",
+    "commitSubject": "fix: json stringify concat lanes release their intermediate accumulators",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "6c28428c",
+      "subject": "fix: json stringify concat lanes release their intermediate accumulators"
+    },
+    {
+      "hash": "8368f085",
+      "subject": "feat: arguments.length closure into untyped hof params carries real argc"
+    },
+    {
+      "hash": "38f2d4f6",
+      "subject": "fix: mono instantiates closure args as __cls slots instead of __fn"
+    },
+    {
+      "hash": "bac51290",
+      "subject": "feat: closure-value arguments.length real argc through safe binding chains"
+    },
+    {
+      "hash": "e1776607",
+      "subject": "perf: materialize undefined sentinel via globalref to staticlib data symbol"
+    },
+    {
+      "hash": "50d52e14",
+      "subject": "chore(dashboard): session snapshot @ 7569ffa0 — rotation 43 final (652-659: undefined-sentinel residuals four faces closed, two root-cause flips on the 648 ledger entries — wrong-block ssa call behind the regex churn leak and utf-16 misread behind the non-ascii json output — plus the cur-block snapshot family audit closed with the struct-method dispatch fix; gate 1283 -> 1291 eight green)"
+    },
+    {
       "hash": "7569ffa0",
       "subject": "fix: struct-field method calls land after branching args (fnsig + closure slots)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "a06b27ac",
       "subject": "fix: json stringify of a null arr slot answers the string null instead of crashing"
-    },
-    {
-      "hash": "b5baa4e5",
-      "subject": "fix: user-comparator sort never passes undefined to the callback (§23.1.3.30.2 steps 5-8)"
-    },
-    {
-      "hash": "c9b4b8ae",
-      "subject": "fix: array-literal substr elements materialize to owned str before the slot store"
-    },
-    {
-      "hash": "bb2a675b",
-      "subject": "feat: top-level JSON.stringify(undefined) answers the undefined value (RFC 20260707 residual, us7 face 4)"
-    },
-    {
-      "hash": "f68d1e75",
-      "subject": "chore(dashboard): session snapshot @ 880272fa — rotation 42 final (647-651: lookbehind reverse-compile RFC both chunks — reverse pike vm + capture merge retiring the forward start-scan; undefined-sentinel residuals: string index OOB substr-shaped sentinel with first data-to-data linker reloc, nullish length guards over env-miss and index slots, default sort undefined-last; gate 1279 -> 1283 five green)"
-    },
-    {
-      "hash": "880272fa",
-      "subject": "fix: default sort puts undefined last, before tostring (RFC 20260707 residual, us7 face 3)"
-    },
-    {
-      "hash": "699a9131",
-      "subject": "fix: nullish .length guards cover env-miss bindings and index-OOB slots (RFC 20260707 residual, us7 face 2)"
     }
   ],
-  "headSha": "7569ffa0",
+  "headSha": "6c28428c",
   "autorun": {
-    "total": 351,
+    "total": 352,
     "baselineTarget": 10,
-    "bySelf": 346,
+    "bySelf": 347,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783434042-72c5",
-      "at": "2026-07-07T14:20:42Z",
-      "ts": 1783434042,
+      "rotationId": "r-1783439447-494c",
+      "at": "2026-07-07T15:50:47Z",
+      "ts": 1783439447,
       "trigger": "self",
-      "prevHead": "f68d1e75",
-      "handoffSha": "sha256:cbeb47574841b7b0a428d7a4ceca58660b81f9b1727b7e0d6eece5c607f8e7f4",
-      "handoffAgeSec": 20,
+      "prevHead": "50d52e14",
+      "handoffSha": "sha256:687712fbd080a282f4c99fca92e49b52d0fc8f947958c8909566d1e1d9ca9964",
+      "handoffAgeSec": 246,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783439447-494c",
+        "at": "2026-07-07T15:50:47Z",
+        "ts": 1783439447,
+        "trigger": "self",
+        "prevHead": "50d52e14",
+        "handoffSha": "sha256:687712fbd080a282f4c99fca92e49b52d0fc8f947958c8909566d1e1d9ca9964",
+        "handoffAgeSec": 246,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783434042-72c5",
         "at": "2026-07-07T14:20:42Z",
@@ -876,17 +887,6 @@
         "prevHead": "cb6be8c4",
         "handoffSha": "sha256:9c7a12c39e61e2f8eac4d0fb65c96f016ffce0ea55c7c91baef64d75b43beea1",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783348034-066b",
-        "at": "2026-07-06T14:27:14Z",
-        "ts": 1783348034,
-        "trigger": "self",
-        "prevHead": "52db096a",
-        "handoffSha": "sha256:7afa70ed45f96ceeb6f1207824d08b2fbb15b1320f809ce991023ea61680fd6b",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
