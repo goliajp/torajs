@@ -28,9 +28,11 @@
 //! escapes, etc).
 
 use crate::block::StrBlock;
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::print::{iter_utf16_codepoints, write_utf8_for_codepoint};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use torajs_rc::HeapHeader;
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
 const INITIAL_CAP: usize = 64;
@@ -42,7 +44,27 @@ const INITIAL_CAP: usize = 64;
 /// builder). Caller must not double-finalize or use the handle
 /// after finalize.
 pub struct JsonBuilder {
+    /// Accumulated output, UTF-8 byte semantics. ASCII-only inputs
+    /// (the overwhelmingly common case) keep it byte == codepoint;
+    /// a UTF-16 Str argument decodes into multi-byte UTF-8 here and
+    /// flips `saw_non_ascii` so `finalize` re-classifies.
     buf: Vec<u8>,
+    /// True once any pushed content decoded to a codepoint > 0x7F —
+    /// `finalize` then routes through the canonical-encoding
+    /// classifier instead of the ASCII/Latin-1 verbatim copy.
+    saw_non_ascii: bool,
+}
+
+/// Read the `IS_LATIN1` bit out of a Str heap header (same shape as
+/// the eq / concat / json siblings).
+///
+/// # Safety
+///
+/// `p` must point at a valid Str block.
+#[inline]
+unsafe fn str_is_latin1(p: *const u8) -> bool {
+    let header = unsafe { &*(p as *const HeapHeader) };
+    (header.flags & STR_FLAG_IS_LATIN1) != 0
 }
 
 #[inline]
@@ -98,6 +120,7 @@ pub unsafe extern "C" fn __torajs_jsb_new(initial_cap: u32) -> *mut JsonBuilder 
     let cap = (initial_cap as usize).max(INITIAL_CAP);
     Box::into_raw(Box::new(JsonBuilder {
         buf: Vec::with_capacity(cap),
+        saw_non_ascii: false,
     }))
 }
 
@@ -114,8 +137,20 @@ pub unsafe extern "C" fn __torajs_jsb_push_byte(sb: *mut JsonBuilder, b: u8) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_push_str_raw(sb: *mut JsonBuilder, str_ptr: *const u8) {
     let len = unsafe { (str_ptr.add(STR_LEN_OFF) as *const u32).read() };
+    let sb = unsafe { &mut *sb };
+    if !unsafe { str_is_latin1(str_ptr) } {
+        // UTF-16 key literal (chunk 657): decode to UTF-8 — `len`
+        // is code units, the payload is LE pairs.
+        let payload =
+            unsafe { core::slice::from_raw_parts(str_ptr.add(STR_DATA_OFF), (len as usize) * 2) };
+        iter_utf16_codepoints(payload, |cp| {
+            write_utf8_for_codepoint(cp, |b| sb.buf.push(b));
+        });
+        sb.saw_non_ascii = true;
+        return;
+    }
     let bytes = unsafe { core::slice::from_raw_parts(str_ptr.add(STR_DATA_OFF), len as usize) };
-    unsafe { (*sb).buf.extend_from_slice(bytes) };
+    sb.buf.extend_from_slice(bytes);
 }
 
 /// Append a Str value as a JSON string (surrounding quotes + JSON
@@ -131,8 +166,34 @@ pub unsafe extern "C" fn __torajs_jsb_push_str_quoted(sb: *mut JsonBuilder, str_
         return;
     }
     let len = unsafe { (str_ptr.add(STR_LEN_OFF) as *const u32).read() };
-    let bytes = unsafe { core::slice::from_raw_parts(str_ptr.add(STR_DATA_OFF), len as usize) };
     let sb = unsafe { &mut *sb };
+    if !unsafe { str_is_latin1(str_ptr) } {
+        // UTF-16 payload (chunk 657): the byte walk below would read
+        // `len` bytes of LE pairs as garbage. Decode per codepoint,
+        // escape the ASCII set, UTF-8-encode the rest.
+        let payload =
+            unsafe { core::slice::from_raw_parts(str_ptr.add(STR_DATA_OFF), (len as usize) * 2) };
+        sb.buf.push(b'"');
+        iter_utf16_codepoints(payload, |cp| match cp {
+            0x22 => sb.buf.extend_from_slice(b"\\\""),
+            0x5C => sb.buf.extend_from_slice(b"\\\\"),
+            0x0A => sb.buf.extend_from_slice(b"\\n"),
+            0x0D => sb.buf.extend_from_slice(b"\\r"),
+            0x09 => sb.buf.extend_from_slice(b"\\t"),
+            0x08 => sb.buf.extend_from_slice(b"\\b"),
+            0x0C => sb.buf.extend_from_slice(b"\\f"),
+            c if c < 0x20 => {
+                sb.buf.extend_from_slice(b"\\u00");
+                sb.buf.push(HEX[(c >> 4) as usize]);
+                sb.buf.push(HEX[(c & 0xf) as usize]);
+            }
+            c => write_utf8_for_codepoint(c, |b| sb.buf.push(b)),
+        });
+        sb.buf.push(b'"');
+        sb.saw_non_ascii = true;
+        return;
+    }
+    let bytes = unsafe { core::slice::from_raw_parts(str_ptr.add(STR_DATA_OFF), len as usize) };
     if !needs_escape(bytes) {
         sb.buf.push(b'"');
         sb.buf.extend_from_slice(bytes);
@@ -179,6 +240,13 @@ pub unsafe extern "C" fn __torajs_jsb_push_null(sb: *mut JsonBuilder) {
 pub unsafe extern "C" fn __torajs_jsb_finalize(sb: *mut JsonBuilder) -> *mut u8 {
     let sb = unsafe { Box::from_raw(sb) };
     let bytes = sb.buf;
+    if sb.saw_non_ascii {
+        // Chunk 657 — a UTF-16 Str argument decoded into multi-byte
+        // UTF-8 above; classify to the canonical encoding (Latin-1
+        // vs UTF-16) like every other UTF-8-input alloc site. The
+        // ASCII-only common case below keeps the scan-free path.
+        return unsafe { crate::block::__torajs_str_alloc(bytes.as_ptr(), bytes.len() as i64) };
+    }
     // V0.2 P14-S7 — JSON output is ASCII by construction (per ES
     // §25.5.2: non-ASCII string-content code points are escaped to
     // `\u00XX` which is itself ASCII; braces/commas/colons/quotes

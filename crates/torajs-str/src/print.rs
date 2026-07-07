@@ -67,7 +67,7 @@ use crate::substr::{SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF};
 /// instead of one putchar per UTF-8 byte plus the helper's own
 /// call.
 #[inline]
-fn write_utf8_for_codepoint<F: FnMut(u8)>(cp: u32, mut put: F) {
+pub(crate) fn write_utf8_for_codepoint<F: FnMut(u8)>(cp: u32, mut put: F) {
     if cp <= 0x7F {
         put(cp as u8);
     } else if cp <= 0x7FF {
@@ -96,7 +96,7 @@ fn write_utf8_for_codepoint<F: FnMut(u8)>(cp: u32, mut put: F) {
 /// non-well-formed UTF-16 and downstream consumers should
 /// preserve the bits.
 #[inline]
-fn iter_utf16_codepoints(bytes: &[u8], mut yield_cp: impl FnMut(u32)) {
+pub(crate) fn iter_utf16_codepoints(bytes: &[u8], mut yield_cp: impl FnMut(u32)) {
     let mut i = 0;
     while i + 1 < bytes.len() {
         let cu = u16::from_le_bytes([bytes[i], bytes[i + 1]]) as u32;

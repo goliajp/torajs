@@ -27,9 +27,79 @@
 //! bit-for-bit).
 
 use crate::block::StrBlock;
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use torajs_rc::HeapHeader;
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
+
+/// Read the `IS_LATIN1` bit out of a Str heap header (same shape as
+/// the eq / concat / print siblings).
+///
+/// # Safety
+///
+/// `p` must point at a valid Str block.
+#[inline]
+unsafe fn str_is_latin1(p: *const u8) -> bool {
+    let header = unsafe { &*(p as *const HeapHeader) };
+    (header.flags & STR_FLAG_IS_LATIN1) != 0
+}
+
+/// Quote + escape a UTF-16 payload, staying in UTF-16 (chunk 657 —
+/// the byte-walk below mis-read UTF-16 blocks: `length` is code
+/// units, the payload is LE pairs, so `"中"` came out as its LE
+/// bytes `2d 4e` = `-N`). Escapes are the same ASCII set per
+/// §25.5.2.2 QuoteJSONString — code units ≥ 0x20 (incl. surrogate
+/// halves) pass through, so the walk is per-u16 with no pair
+/// decoding needed.
+fn quote_utf16(payload: &[u8]) -> *mut u8 {
+    let unit = |i: usize| u16::from_le_bytes([payload[2 * i], payload[2 * i + 1]]);
+    let n = payload.len() / 2;
+    let mut out_units: u32 = 2;
+    for i in 0..n {
+        out_units += match unit(i) {
+            0x22 | 0x5C | 0x0A | 0x0D | 0x09 | 0x08 | 0x0C => 2,
+            u if u < 0x20 => 6,
+            _ => 1,
+        };
+    }
+    let mut block = StrBlock::alloc_with_encoding(out_units, false);
+    // SAFETY: block was just allocated with 2×out_units payload bytes.
+    let dst = unsafe { block.as_bytes_mut(out_units * 2) };
+    let mut cur = 0usize;
+    let put = |dst: &mut [u8], cur: &mut usize, u: u16| {
+        dst[*cur..*cur + 2].copy_from_slice(&u.to_le_bytes());
+        *cur += 2;
+    };
+    put(dst, &mut cur, b'"' as u16);
+    for i in 0..n {
+        let u = unit(i);
+        let esc: Option<u8> = match u {
+            0x22 => Some(b'"'),
+            0x5C => Some(b'\\'),
+            0x0A => Some(b'n'),
+            0x0D => Some(b'r'),
+            0x09 => Some(b't'),
+            0x08 => Some(b'b'),
+            0x0C => Some(b'f'),
+            _ => None,
+        };
+        if let Some(e) = esc {
+            put(dst, &mut cur, b'\\' as u16);
+            put(dst, &mut cur, e as u16);
+        } else if u < 0x20 {
+            put(dst, &mut cur, b'\\' as u16);
+            put(dst, &mut cur, b'u' as u16);
+            put(dst, &mut cur, b'0' as u16);
+            put(dst, &mut cur, b'0' as u16);
+            put(dst, &mut cur, HEX[(u >> 4) as usize] as u16);
+            put(dst, &mut cur, HEX[(u & 0xf) as usize] as u16);
+        } else {
+            put(dst, &mut cur, u);
+        }
+    }
+    put(dst, &mut cur, b'"' as u16);
+    block.into_raw()
+}
 
 /// True iff `s` contains any byte that JSON.stringify must escape:
 /// the quote `"`, the backslash `\`, or any control byte `< 0x20`.
@@ -132,6 +202,14 @@ pub unsafe extern "C" fn __torajs_json_quote_str(s: *const u8) -> *mut u8 {
         return unsafe { crate::literals::__torajs_null_to_str() };
     }
     let len = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() };
+    if !unsafe { str_is_latin1(s) } {
+        // UTF-16 payload: `len` is code units, data is LE pairs —
+        // the Latin-1 byte walk below would read half the payload
+        // as garbage bytes. Quote in-encoding (chunk 657).
+        let payload =
+            unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), (len as usize) * 2) };
+        return quote_utf16(payload);
+    }
     let bytes = unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), len as usize) };
     // V0.2 P14-S4 — single-pass fast path for strings that need no
     // escape (common in `JSON.stringify` of user data: field names,
