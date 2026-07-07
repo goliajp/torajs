@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T12:29:26.984Z",
+  "generatedAt": "2026-07-07T14:19:11.589Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "d5cc1de5",
-    "commitSubject": "fix: nullish Str slot joins as the empty string (RFC 20260707-undefined-sentinel-repr chunk 4)",
+    "commit": "880272fa",
+    "commitSubject": "fix: default sort puts undefined last, before tostring (RFC 20260707 residual, us7 face 3)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "880272fa",
+      "subject": "fix: default sort puts undefined last, before tostring (RFC 20260707 residual, us7 face 3)"
+    },
+    {
+      "hash": "699a9131",
+      "subject": "fix: nullish .length guards cover env-miss bindings and index-OOB slots (RFC 20260707 residual, us7 face 2)"
+    },
+    {
+      "hash": "1e748af1",
+      "subject": "feat: string index OOB reads answer the undefined sentinel (RFC 20260707 residual, us7 face 1)"
+    },
+    {
+      "hash": "609860d6",
+      "subject": "feat: lookbehind bodies keep their captures via reverse probes (RFC 20260707-lookbehind-reverse-compile chunk 2)"
+    },
+    {
+      "hash": "ea94cbfb",
+      "subject": "feat: reverse-compile mode + reverse pike vm for lookbehind bodies (RFC 20260707-lookbehind-reverse-compile chunk 1)"
+    },
+    {
+      "hash": "cad74d47",
+      "subject": "chore(dashboard): session snapshot @ d5cc1de5 — rotation 41 final (642-646: RFC 20260707-undefined-sentinel-repr all four chunks — null-deref guard lanes, immortal undefined sentinel cell atomic flip + env/pretty-print fix-up, Any-crossing + three-state typeof, join empty-string; gate 1276 -> 1279 with one gate-caught regression pair fixed)"
+    },
+    {
       "hash": "d5cc1de5",
       "subject": "fix: nullish Str slot joins as the empty string (RFC 20260707-undefined-sentinel-repr chunk 4)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "81fbf335",
       "subject": "chore(dashboard): session snapshot @ 9764e0b5 — rotation 40 final (636-641: owned condition temps release + as-cast ownership pass-through, member read on owned receiver detaches result, RFC 20260705 phase 2 + L3b #16 probe-refuted close-outs, positive lookahead keeps body captures, array/object literals are owned temps, empty array literal arg admits typed array params; gate 1270 -> 1275 six green)"
-    },
-    {
-      "hash": "9764e0b5",
-      "subject": "feat: empty array literal argument admits any typed array param (test262-bug-corpus RC-4, chunk 641)"
-    },
-    {
-      "hash": "8d97d091",
-      "subject": "fix: array and object literals are owned temps (test262-bug-corpus RC-4, chunk 640)"
-    },
-    {
-      "hash": "fa39fcbc",
-      "subject": "fix: positive lookahead keeps its body's captures (test262-bug-corpus RC-4, chunk 639)"
-    },
-    {
-      "hash": "f42edd9d",
-      "subject": "test: sibling closures over a grown array stay coherent post-B1 (RFC 20260705 phase 2 close-out, chunk 638)"
-    },
-    {
-      "hash": "34c04113",
-      "subject": "fix: member read on an owned receiver detaches the result and releases the receiver (test262-bug-corpus RC-4, chunk 637)"
-    },
-    {
-      "hash": "46c39d24",
-      "subject": "fix: owned condition temps release after the truthiness test + as-cast ownership pass-through (test262-bug-corpus RC-4, chunk 636)"
     }
   ],
-  "headSha": "d5cc1de5",
+  "headSha": "880272fa",
   "autorun": {
-    "total": 349,
+    "total": 350,
     "baselineTarget": 10,
-    "bySelf": 344,
+    "bySelf": 345,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783421892-3a81",
-      "at": "2026-07-07T10:58:12Z",
-      "ts": 1783421892,
+      "rotationId": "r-1783427429-1ad4",
+      "at": "2026-07-07T12:30:29Z",
+      "ts": 1783427429,
       "trigger": "self",
-      "prevHead": "81fbf335",
-      "handoffSha": "sha256:d1366c157842e3c364036e2e2a2c138917c7d2f85f656742dd3b406d1ad9f3ee",
-      "handoffAgeSec": 6,
+      "prevHead": "cad74d47",
+      "handoffSha": "sha256:d9f7bdf34875fc39e3e20179280dca23693b325aecf3f8e64bb22e1ee543050a",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783427429-1ad4",
+        "at": "2026-07-07T12:30:29Z",
+        "ts": 1783427429,
+        "trigger": "self",
+        "prevHead": "cad74d47",
+        "handoffSha": "sha256:d9f7bdf34875fc39e3e20179280dca23693b325aecf3f8e64bb22e1ee543050a",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783421892-3a81",
         "at": "2026-07-07T10:58:12Z",
@@ -876,17 +887,6 @@
         "prevHead": "0cab2842",
         "handoffSha": "sha256:3e154e54c5f2805c3a02ad34b136a316d384cf71542e3f8c49bd61ebf87f0324",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783335678-6ff6",
-        "at": "2026-07-06T11:01:18Z",
-        "ts": 1783335678,
-        "trigger": "self",
-        "prevHead": "a161ddea",
-        "handoffSha": "sha256:5c488437773d5014511f2f16bfbb0089233e78fc61982b8062f399663d69025b",
-        "handoffAgeSec": 19,
         "conformanceBefore": null,
         "commitsInSession": null
       }
