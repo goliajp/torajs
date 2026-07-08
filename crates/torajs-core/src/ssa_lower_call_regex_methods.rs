@@ -75,7 +75,7 @@ pub(crate) fn try_lower(
         "test" => {
             // S266 — trailing args silent-drop per ES §22.2.6.16.
             debug_assert!(!args.is_empty());
-            let s = ctx.lower_expr(args[0]);
+            let (s, s_owned) = lower_haystack(ctx, args[0]);
             for a in args.iter().skip(1) {
                 let _ = ctx.lower_expr(*a);
             }
@@ -85,12 +85,15 @@ pub(crate) fn try_lower(
                 Type::Bool,
                 None,
             );
+            if s_owned {
+                ctx.emit_drop_value(s, Type::Str);
+            }
             Some(Operand::Value(v))
         }
         "exec" => {
             // S266 — trailing args silent-drop per ES §22.2.6.2.
             debug_assert!(!args.is_empty());
-            let s = ctx.lower_expr(args[0]);
+            let (s, s_owned) = lower_haystack(ctx, args[0]);
             for a in args.iter().skip(1) {
                 let _ = ctx.lower_expr(*a);
             }
@@ -101,8 +104,32 @@ pub(crate) fn try_lower(
                 Type::Arr(arr_id),
                 None,
             );
+            if s_owned {
+                ctx.emit_drop_value(s, Type::Str);
+            }
             Some(Operand::Value(v))
         }
         _ => unreachable!("regex method `{method}` not yet wired"),
     }
+}
+
+/// Chunk 699 — lower the haystack arg for test/exec. A Substr view
+/// (a for-of-str binding, an exec capture) is a 16-byte
+/// parent-pointer block the regex byte reader would misread as an
+/// owned Str (probe: `/a/.test(ch)` answered false on a matching
+/// char; the recorded risk was a UTF-16 SIGBUS on the same shape),
+/// so it materializes through substr_to_owned — a fresh rc=1 temp
+/// the caller drops after the call. Owned-Str args pass through.
+fn lower_haystack(ctx: &mut LowerCtx<'_>, arg: ExprId) -> (Operand, bool) {
+    let s = ctx.lower_expr(arg);
+    if ctx.operand_ty(&s) != Type::Substr {
+        return (s, false);
+    }
+    let owned = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.substr_to_owned, vec![s]),
+        Type::Str,
+        None,
+    );
+    (Operand::Value(owned), true)
 }
