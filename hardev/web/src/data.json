@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T15:17:38.439Z",
+  "generatedAt": "2026-07-08T15:36:14.229Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "0529b243",
-    "commitSubject": "feat: admit any-to-typed array ident alias in the K.4 global lane",
+    "commit": "0997f17d",
+    "commitSubject": "feat: builtin methods dispatch through ?.() on any receivers",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "0997f17d",
+      "subject": "feat: builtin methods dispatch through ?.() on any receivers"
+    },
+    {
+      "hash": "801e3329",
+      "subject": "chore(dashboard): refresh @ 0529b243 — rotation 52 (704-708: dynobj literal field elem-kind mark closes the any-index undefined read; optional call ?.() completes the ES2020 optional-chain trio; Object.values/entries walk dynobj receivers closing the 594 keys family; object destructuring rest rides a spread-omit sentinel; any-to-typed ident alias admitted in the K.4 global lane; gate 1333 -> 1338 five green)"
+    },
+    {
       "hash": "0529b243",
       "subject": "feat: admit any-to-typed array ident alias in the K.4 global lane"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "82fbb846",
       "subject": "chore(bench): 3-run @ d5b917bb — chunk 701 throw-check face verified neutral"
-    },
-    {
-      "hash": "d5b917bb",
-      "subject": "fix: method calls count as may-throw so runtime throws cross fn boundaries"
-    },
-    {
-      "hash": "02eb6554",
-      "subject": "feat: pop/shift/unshift accept index-read receivers"
     }
   ],
-  "headSha": "0529b243",
+  "headSha": "0997f17d",
   "autorun": {
     "total": 360,
     "baselineTarget": 10,
