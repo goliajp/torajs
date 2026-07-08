@@ -440,16 +440,23 @@ fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId) -> bool {
             // RFC 20260707 chunk 627 — Ident-shaped init (alias of
             // another binding, a guaranteed +0 borrow): the global
             // slot takes its own stake; the source binding keeps its
-            // own. Only same-type and Arr↔Arr (T-11 container widen)
-            // aliases are admitted — an Any↔concrete mismatch needs a
-            // box/unbox station and stays loud rather than storing
+            // own. Only same-type, Arr↔Arr (T-11 container widen)
+            // and Any→Arr (chunk 708 — the JS reference-alias shape
+            // `const t: number[] = src` with `src: any`; a heap box
+            // is the raw cell ptr bits, elem reads are kind-aware,
+            // same lane the fn-scope path rides) aliases are
+            // admitted — other Any↔concrete mismatches need a
+            // box/unbox station and stay loud rather than storing
             // wrong-repr bits. Member/Index inits stay loud too:
             // their ownership shape is lane-dependent (arr_index_get
             // answers +1), so a blanket inc would double-count.
             let got = ctx.operand_ty(&init_val);
             let ident_alias = matches!(ctx.ast.get_expr(init), Expr::Ident(_));
-            let compatible =
-                got == slot_ty || matches!((slot_ty, got), (Type::Arr(_), Type::Arr(_)));
+            let compatible = got == slot_ty
+                || matches!(
+                    (&slot_ty, &got),
+                    (Type::Arr(_), Type::Arr(_)) | (Type::Arr(_), Type::Any)
+                );
             if !ident_alias || !compatible {
                 panic!(
                     "ssa-lower: K.4 refcount global `{name}` requires fresh-heap or same-type ident-alias init; this init shape is not yet supported"
