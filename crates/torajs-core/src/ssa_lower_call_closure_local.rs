@@ -44,6 +44,14 @@ pub(crate) fn try_lower(
         return None;
     };
 
+    // RFC 20260708-variadic — a `(...args: E[]) => R`-typed binding
+    // never static-dispatches: one binding serves closures of any
+    // declared arity (with or without the real-argc slot), so the
+    // call boxes its args and routes through the boxed dual entry.
+    if ctx.variadic_locals.contains(callee_name) {
+        return Some(lower_variadic_call(ctx, &info, user_sig_id, args));
+    }
+
     let env_ptr = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(info.ty, Operand::Value(info.slot), 0),
@@ -142,4 +150,83 @@ pub(crate) fn try_lower(
         ctx.release_owned_temp(a, &op);
     }
     Some(Operand::Value(v))
+}
+
+/// RFC 20260708-variadic — the boxed-dual-entry call lane for a
+/// `(...args: E[]) => R`-typed binding. Args box into the shared
+/// `pack_any_argv` ledger; the runtime `closure_call_variadic`
+/// invokes the callee's `__boxed_<name>` adapter with the REAL argc
+/// (a missing adapter answers a catchable TypeError). The Any
+/// result coerces to the sig's fixed-prefix return type; heap-typed
+/// returns stay loud until the ownership transfer face lands (RFC
+/// chunk 3).
+fn lower_variadic_call(
+    ctx: &mut LowerCtx<'_>,
+    info: &crate::ssa_lower::LocalInfo,
+    user_sig_id: crate::ssa::SigId,
+    args: &[ExprId],
+) -> Operand {
+    let env_ptr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+        info.ty,
+        None,
+    );
+    let (argv, boxed_slots) = crate::ssa_lower_any_method_call::pack_any_argv(ctx, args);
+    let result = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.closure_call_variadic,
+            vec![
+                Operand::Value(env_ptr),
+                Operand::Value(argv),
+                Operand::ConstI64(args.len() as i64),
+            ],
+        ),
+        Type::Any,
+        None,
+    );
+    for slot in boxed_slots.into_iter().flatten() {
+        ctx.emit_drop_value(slot, Type::Any);
+    }
+    ctx.emit_throw_check(None);
+    let (_, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize];
+    match ret_ty {
+        // A discarded void result and a true Any consumer both take
+        // the box as-is (undefined box for void bodies).
+        Type::Any | Type::Void => Operand::Value(result),
+        Type::F64 => Operand::Value(ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_to_number, vec![Operand::Value(result)]),
+            Type::F64,
+            None,
+        )),
+        // Width-narrowed number returns truncate toward zero — the
+        // same documented width-vs-any boundary as the boxed-entry
+        // param unbox.
+        Type::I64 | Type::I32 => {
+            let d = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_to_number, vec![Operand::Value(result)]),
+                Type::F64,
+                None,
+            );
+            Operand::Value(ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::FpToSi(Operand::Value(d)),
+                Type::I64,
+                None,
+            ))
+        }
+        Type::Bool => Operand::Value(ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_to_bool, vec![Operand::Value(result)]),
+            Type::Bool,
+            None,
+        )),
+        other => panic!(
+            "not yet supported: ssa-lower: variadic call return type {other:?} \
+             (RFC 20260708-variadic chunk 3)"
+        ),
+    }
 }

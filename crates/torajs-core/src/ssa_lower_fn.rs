@@ -105,12 +105,18 @@ pub(crate) fn lower_fn(
     // params (mono-instantiated real-argc closure slots) register for
     // the call arm's argc prepend.
     let mut argc_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // RFC 20260708-variadic — `__rest(`-bearing anns route the
+    // boxed-dual-entry call lane.
+    let mut variadic_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
     for p in params {
         if p.type_ann
             .as_deref()
             .is_some_and(|a| a.starts_with("__clsargc("))
         {
             argc_locals.insert(p.name.clone());
+        }
+        if p.type_ann.as_deref().is_some_and(|a| a.contains("__rest(")) {
+            variadic_locals.insert(p.name.clone());
         }
         let pty = promote_and_widen(
             parse_type(
@@ -165,6 +171,7 @@ pub(crate) fn lower_fn(
         pending_continue_flag: None,
         locals: HashMap::new(),
         argc_locals,
+        variadic_locals,
         scope_stack: vec![Vec::new()],
         shadow_stack: vec![Vec::new()],
         loop_stack: Vec::new(),

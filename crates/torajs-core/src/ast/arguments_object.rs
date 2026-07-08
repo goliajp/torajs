@@ -277,11 +277,22 @@ fn collect_value_argc(
             if !value_real_argc.contains(fn_name) {
                 continue;
             }
+            // RFC 20260708-variadic — a variadic-annotated param
+            // (`(...args: E[]) => R`) also admits: its call lane is
+            // the boxed dual entry whose adapter feeds the REAL
+            // argc, and the checker's rest-tail assignability keeps
+            // the value inside variadic-typed slots (a static
+            // declared-pair site can never receive it), so no
+            // body-use gate is needed for that track.
             let ok = ast.stmts.iter().any(|s| {
                 matches!(s, Stmt::FnDecl { name, params, body, .. }
                     if name == g
-                        && params.get(pi).is_some_and(|p| p.type_ann.is_none())
-                        && param_uses_are_direct_calls(ast, body, &params[pi].name))
+                        && ((params.get(pi).is_some_and(|p| p.type_ann.is_none())
+                            && param_uses_are_direct_calls(ast, body, &params[pi].name))
+                            || params.get(pi).is_some_and(|p| p
+                                .type_ann
+                                .as_deref()
+                                .is_some_and(|a| a.contains("__rest(")))))
             });
             if ok {
                 hof_arg_fns.insert(fn_name.clone());

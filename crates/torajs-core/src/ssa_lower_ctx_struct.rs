@@ -157,6 +157,13 @@ pub(crate) struct LowerCtx<'a> {
     /// `ConstI64(user arg count)` for these names, same as the
     /// chunk-1 `ast.closure_argc_locals` binding set.
     pub(crate) argc_locals: std::collections::HashSet<String>,
+    /// RFC 20260708-variadic — locals (params / let bindings) whose
+    /// ann carried a `__rest(` segment (`(...args: E[]) => R`). The
+    /// closure-local call arm routes these through the boxed dual
+    /// entry (`closure_call_variadic`) instead of the static
+    /// declared-pair ABI — one binding serves closures of any
+    /// declared arity.
+    pub(crate) variadic_locals: std::collections::HashSet<String>,
     /// Stack of names declared in each enclosing lexical scope, with the
     /// fn-root scope as `scope_stack[0]`. M1.3 — at `}` close we pop the
     /// top frame and emit drops for owners declared at that depth, then

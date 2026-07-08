@@ -133,6 +133,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     if crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, init) {
         ctx.nullable_str_lets.insert(name.to_string());
     }
+    // RFC 20260708-variadic — a rest-tail fn-type annotation
+    // (`const t: (...xs: E[]) => R = …`) routes calls through the
+    // boxed dual entry, same as a variadic-annotated param.
+    if type_ann.is_some_and(|a| a.contains("__rest(")) {
+        ctx.variadic_locals.insert(name.to_string());
+    }
     // RFC 20260707 residual chunk — record string-index let-inits
     // (`const c = s[i]`) and their aliases: the Substr slot may
     // hold the undefined sentinel (OOB read), so the inline

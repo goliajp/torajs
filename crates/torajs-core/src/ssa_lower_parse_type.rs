@@ -105,6 +105,27 @@ pub(crate) fn parse_type(
             inst_memo,
         );
     }
+    // RFC 20260708-variadic — a rest-tail fn type
+    // (`__fn(fixed|__rest(E[]))->R`) is Closure-repr regardless of
+    // spelling: the boxed dual entry the variadic call lane
+    // dispatches through lives in the closure env, so the slot can
+    // never be a bare fn ptr. parse_cls skips the `__rest(` segment
+    // (the static sig is the fixed prefix; nothing static-dispatches
+    // a variadic slot — the call arm routes through
+    // `closure_call_variadic`).
+    if s.starts_with("__fn(") && s.contains("__rest(") {
+        let rest = s.strip_prefix("__fn(").expect("guarded by starts_with");
+        return markers::parse_cls(
+            s,
+            rest,
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        );
+    }
     // M2 Phase B Stage 2 — fn type `__fn(P1|P2|...)->R` decoder lives
     // in the sibling `ssa_lower_parse_fn_type` module.
     if let Some(ty) = crate::ssa_lower_parse_fn_type::try_parse_fn_type(

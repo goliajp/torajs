@@ -97,6 +97,7 @@ pub(crate) fn synthesize_main(
             try_finally_loop_depth: Vec::new(),
             locals: HashMap::new(),
             argc_locals: std::collections::HashSet::new(),
+            variadic_locals: std::collections::HashSet::new(),
             scope_stack: vec![Vec::new()],
             shadow_stack: vec![Vec::new()],
             loop_stack: Vec::new(),

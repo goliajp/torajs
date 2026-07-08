@@ -70,6 +70,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_member_set: FuncId,
     pub any_iter_next: FuncId,
     pub any_call: FuncId,
+    pub closure_call_variadic: FuncId,
     pub any_method_call: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
@@ -360,6 +361,17 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_any_call",
             &[Type::Any, Type::Ptr, Type::I64],
+            Type::Any,
+        ),
+        // RFC 20260708-variadic — closure-slot variadic call
+        // `cb(args…)` through a `(...args: E[]) => R`-typed binding:
+        // (env cell, argv, argc) → Any via the boxed dual entry;
+        // a missing adapter raises the same catchable TypeError.
+        closure_call_variadic: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_closure_call_variadic",
+            &[Type::Ptr, Type::Ptr, Type::I64],
             Type::Any,
         ),
         // Any-method-call RFC 20260704 C1 — recv.name(args…) runtime

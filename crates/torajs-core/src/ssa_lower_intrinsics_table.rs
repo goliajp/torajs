@@ -308,6 +308,7 @@ pub(crate) fn build(
         any_member_set: init_c.any_substrate.any_member_set,
         any_iter_next: init_c.any_substrate.any_iter_next,
         any_call: init_c.any_substrate.any_call,
+        closure_call_variadic: init_c.any_substrate.closure_call_variadic,
         any_method_call: init_c.any_substrate.any_method_call,
         any_unbox_tag: init_c.any_substrate.any_unbox_tag,
         any_unbox_value: init_c.any_substrate.any_unbox_value,

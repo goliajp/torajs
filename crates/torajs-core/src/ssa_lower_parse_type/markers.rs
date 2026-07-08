@@ -108,6 +108,11 @@ pub(super) fn parse_cls(
     let ret_str = after
         .strip_prefix("->")
         .unwrap_or_else(|| panic!("ssa-lower: malformed cls-type ret `{s}`"));
+    // RFC 20260708-variadic — a `__rest(E[])` segment (rest-tail
+    // fn type) gets no static param slot: the fixed prefix is the
+    // interned sig, and calls through the slot dispatch via the
+    // boxed dual entry (`closure_call_variadic`) which never reads
+    // the static params.
     let mut params: Vec<Type> = Vec::new();
     let mut depth2: i32 = 0;
     let mut last = 0usize;
@@ -117,30 +122,36 @@ pub(super) fn parse_cls(
             b'(' => depth2 += 1,
             b')' => depth2 -= 1,
             b'|' if depth2 == 0 => {
-                params.push(parse_type(
-                    Some(&params_str[last..i]),
-                    aliases,
-                    arr_layouts,
-                    fn_sigs,
-                    generic_struct_decls,
-                    struct_layouts,
-                    inst_memo,
-                ));
+                let seg = &params_str[last..i];
+                if !seg.starts_with("__rest(") {
+                    params.push(parse_type(
+                        Some(seg),
+                        aliases,
+                        arr_layouts,
+                        fn_sigs,
+                        generic_struct_decls,
+                        struct_layouts,
+                        inst_memo,
+                    ));
+                }
                 last = i + 1;
             }
             _ => {}
         }
     }
     if !params_str.is_empty() {
-        params.push(parse_type(
-            Some(&params_str[last..]),
-            aliases,
-            arr_layouts,
-            fn_sigs,
-            generic_struct_decls,
-            struct_layouts,
-            inst_memo,
-        ));
+        let seg = &params_str[last..];
+        if !seg.starts_with("__rest(") {
+            params.push(parse_type(
+                Some(seg),
+                aliases,
+                arr_layouts,
+                fn_sigs,
+                generic_struct_decls,
+                struct_layouts,
+                inst_memo,
+            ));
+        }
     }
     let ret = parse_type(
         Some(ret_str),

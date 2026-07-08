@@ -320,6 +320,31 @@ pub unsafe extern "C" fn __torajs_any_call(
     }
 }
 
+/// `f(args…)` where `f` is a Closure-typed slot called through a
+/// variadic fn-type annotation (`(...args: E[]) => R`) — the
+/// raw-pointer twin of [`__torajs_any_call`] (RFC 20260708-variadic:
+/// one h body serves closures of any declared arity, so the call
+/// dispatches through the boxed dual entry instead of a static
+/// declared-pair ABI). A missing adapter (>8 params / unboxable
+/// face) is the same catchable TypeError the any-call lane answers.
+///
+/// # Safety
+/// `argv` points at `argc` AnyValue slots the caller keeps alive
+/// across the call; `env` is a (possibly null) closure env cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_call_variadic(
+    env: *mut c_void,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        if let Some((env, entry)) = closure_cell_entry(env) {
+            return invoke_boxed(env, entry, argv, argc);
+        }
+        method_not_a_function()
+    }
+}
+
 /// bool-immediate arm — `toString` answers a fresh "true"/"false"
 /// Str (ES §20.3.3.3); every other id is a TypeError.
 unsafe fn bool_method(recv: AnyValue, mid: i64) -> AnyValue {
