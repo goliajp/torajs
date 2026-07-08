@@ -116,16 +116,20 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Call(
                         self.intrinsics.arr_push_any,
-                        vec![Operand::Value(arr), Operand::ConstI64(4), inner_arr],
+                        vec![Operand::Value(arr), Operand::ConstI64(4), inner_arr.clone()],
                     ),
                     Type::Arr(arr_id),
                     None,
                 );
+                // Chunk 727 — the inner literal is a fresh block
+                // (rc=1) and the slot took its own +1 above; drop
+                // the stranded original stake.
+                self.release_owned_temp(eid, &inner_arr);
                 continue;
             }
             let val = self.lower_expr(eid);
             let val_ty = self.operand_ty(&val);
-            let (tag_op, value_op) = self.pack_any_elem(val, val_ty, Some(eid));
+            let (tag_op, value_op) = self.pack_any_elem(val.clone(), val_ty, Some(eid));
             arr = self.f.append_inst(
                 self.cur_block,
                 InstKind::Call(
@@ -135,6 +139,17 @@ impl<'a> LowerCtx<'a> {
                 Type::Arr(arr_id),
                 None,
             );
+            // Chunk 727 — pack_any_elem gives the slot its own +1
+            // (Str slot-value / refcounted catch-all), so a fresh
+            // owned element's original stake strands: `let a: any =
+            // ["y" + i]` leaked one cell per fresh element (probe
+            // q726fc 15.4MB / r727d two-elem 24.5MB vs 6.2MB flat;
+            // typed-lane twin fixed in chunk 547). Any-typed elems
+            // transfer through the owned unbox (chunk 610) and must
+            // NOT release - the slot holds the box's payload stake.
+            if val_ty != Type::Any {
+                self.release_owned_temp(eid, &val);
+            }
         }
         Operand::Value(arr)
     }
