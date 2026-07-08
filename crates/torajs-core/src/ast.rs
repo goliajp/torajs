@@ -32,6 +32,7 @@ mod desugar_generators_sm;
 mod desugar_variadic_push;
 mod escape_analyze;
 mod expr;
+mod fold_fromentries;
 mod forwarders;
 mod forwarders_object;
 mod free_vars;
@@ -63,6 +64,7 @@ pub(crate) use desugar_generators::{expand_yield_into_in_stmt, lift_lets_in_stmt
 pub use desugar_variadic_push::desugar_variadic_push;
 pub use escape_analyze::escape_analyze_array_literals;
 pub use expr::{BinOp, Expr, ExprId, Param, UnaryOp};
+pub use fold_fromentries::fold_fromentries;
 pub use forwarders::synthesize_forwarders;
 pub use forwarders_object::{synthesize_fn_to_closure_forwarders, tag_struct_field_closure_types};
 pub(crate) use implicit_generics_infer::{

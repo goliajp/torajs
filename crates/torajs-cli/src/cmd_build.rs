@@ -166,6 +166,7 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     ast::apply_default_args(&mut ast);
     ast::apply_rest_args(&mut ast);
     ast::apply_spread_args(&mut ast);
+    ast::fold_fromentries(&mut ast);
 
     let artifacts = check::check_with_arity(&ast).map_err(|e| {
         eprintln!("type error: {e}");

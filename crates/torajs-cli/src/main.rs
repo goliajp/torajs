@@ -233,6 +233,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     ast::apply_default_args(&mut ast);
     ast::apply_rest_args(&mut ast);
     ast::apply_spread_args(&mut ast);
+    ast::fold_fromentries(&mut ast);
     if matches!(stage, Stage::Parse) {
         ast.print();
         return ExitCode::SUCCESS;
