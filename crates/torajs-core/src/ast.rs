@@ -1,6 +1,7 @@
 //! AST — arena-allocated. Children referenced by `ExprId(u32)`, not Box.
 
 mod apply_args;
+mod apply_spread;
 mod arguments_object;
 mod arguments_object_collect;
 mod arguments_object_rewrite;
@@ -46,6 +47,7 @@ mod super_collect;
 mod uninit_let;
 mod var_hoist;
 pub use apply_args::{apply_default_args, apply_rest_args};
+pub use apply_spread::apply_spread_args;
 pub use arguments_object::desugar_arguments_object;
 pub use array_isarray_value::desugar_array_isarray_value;
 pub use class_globals::synthesize_class_globals;

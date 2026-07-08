@@ -200,6 +200,7 @@ fn compute_diagnostics(uri: &Url, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::desugar_implicit_generics(&mut ast);
         torajs_core::ast::apply_default_args(&mut ast);
         torajs_core::ast::apply_rest_args(&mut ast);
+        torajs_core::ast::apply_spread_args(&mut ast);
 
         // T-04 (v0.3.0) — switch to the diagnostic stream so warnings
         // surface alongside errors and per-site spans (where attached)
