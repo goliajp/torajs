@@ -34,6 +34,7 @@
 //! - other → panic.
 
 mod composite;
+mod composite_obj;
 
 use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
@@ -199,7 +200,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
             Operand::Value(v)
         }
         Type::Arr(arr_id) => composite::lower_arr(ctx, val_op, arr_id),
-        Type::Obj(sid) => composite::lower_obj(ctx, val_op, sid),
+        Type::Obj(sid) => composite_obj::lower_obj(ctx, val_op, sid),
         Type::Ptr => {
             let p = ctx.intern_string_literal("null");
             Operand::Value(p)
