@@ -125,6 +125,12 @@ fn collect_closure_captures_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSet<St
             collect_closure_captures_in_expr(ast, *obj, out);
             collect_closure_captures_in_expr(ast, *index, out);
         }
+        Expr::OptCall { callee, args } => {
+            collect_closure_captures_in_expr(ast, *callee, out);
+            for a in args {
+                collect_closure_captures_in_expr(ast, *a, out);
+            }
+        }
         Expr::Call { callee, args } => {
             collect_closure_captures_in_expr(ast, *callee, out);
             for a in args {

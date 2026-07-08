@@ -223,6 +223,12 @@ fn collect_supercall_in_expr(ast: &Ast, eid: ExprId, out: &mut Vec<(ExprId, Stri
             collect_supercall_in_expr(ast, *obj, out);
             collect_supercall_in_expr(ast, *index, out);
         }
+        Expr::OptCall { callee, args } => {
+            collect_supercall_in_expr(ast, *callee, out);
+            for a in args {
+                collect_supercall_in_expr(ast, *a, out);
+            }
+        }
         Expr::PostIncr { target, .. } => collect_supercall_in_expr(ast, *target, out),
         _ => {}
     }
@@ -421,6 +427,12 @@ fn collect_super_in_expr(ast: &Ast, eid: ExprId, out: &mut Vec<(ExprId, Vec<Expr
         Expr::OptIndex { obj, index } => {
             collect_super_in_expr(ast, *obj, out);
             collect_super_in_expr(ast, *index, out);
+        }
+        Expr::OptCall { callee, args } => {
+            collect_super_in_expr(ast, *callee, out);
+            for a in args {
+                collect_super_in_expr(ast, *a, out);
+            }
         }
         Expr::PostIncr { target, .. } => collect_super_in_expr(ast, *target, out),
         Expr::This

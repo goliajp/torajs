@@ -342,6 +342,12 @@ impl<'a> Analysis<'a> {
                 self.walk_expr(*obj, scope);
                 self.walk_expr(*index, scope);
             }
+            Expr::OptCall { callee, args } => {
+                self.walk_expr(*callee, scope);
+                for a in args {
+                    self.walk_expr(*a, scope);
+                }
+            }
             Expr::Array(elems) => {
                 for e in elems {
                     self.walk_expr(*e, scope);

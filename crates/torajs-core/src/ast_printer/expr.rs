@@ -133,6 +133,14 @@ pub(crate) fn print_expr(ast: &Ast, id: ExprId, indent: usize) {
             print_expr(ast, *obj, indent + 1);
             print_expr(ast, *index, indent + 1);
         }
+        Expr::OptCall { callee, args } => {
+            println!("{pad}OptCall");
+            print_expr(ast, *callee, indent + 1);
+            println!("{pad}  args:");
+            for a in args {
+                print_expr(ast, *a, indent + 2);
+            }
+        }
         Expr::PostIncr { target, is_inc } => {
             println!("{pad}PostIncr is_inc={is_inc}");
             print_expr(ast, *target, indent + 1);

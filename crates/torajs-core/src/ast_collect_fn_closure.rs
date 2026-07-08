@@ -284,6 +284,12 @@ impl<'a> FnToClosureCollector<'a> {
                 self.walk_expr(*obj);
                 self.walk_expr(*index);
             }
+            Expr::OptCall { callee, args } => {
+                self.walk_expr(*callee);
+                for a in args.clone() {
+                    self.walk_expr(a);
+                }
+            }
             Expr::Index { obj, index } => {
                 self.walk_expr(*obj);
                 self.walk_expr(*index);

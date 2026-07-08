@@ -437,6 +437,12 @@ fn rewrite_idents_in_expr(ast: &mut Ast, eid: ExprId, renames: &HashMap<String, 
                 stack.push(obj);
                 stack.push(index);
             }
+            Expr::OptCall { callee, args } => {
+                stack.push(callee);
+                for a in args {
+                    stack.push(a);
+                }
+            }
             Expr::Assign { target, value } => {
                 stack.push(target);
                 stack.push(value);

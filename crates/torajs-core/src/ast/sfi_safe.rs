@@ -214,6 +214,12 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
             sfi_expr_x_safe(ast, *obj, x_name, i_name)
                 && sfi_expr_x_safe(ast, *index, x_name, i_name)
         }
+        Expr::OptCall { callee, args } => {
+            sfi_expr_x_safe(ast, *callee, x_name, i_name)
+                && args
+                    .iter()
+                    .all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name))
+        }
         Expr::PostIncr { target, .. } => sfi_expr_x_safe(ast, *target, x_name, i_name),
     }
 }

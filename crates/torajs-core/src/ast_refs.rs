@@ -285,6 +285,12 @@ fn idents_in_expr(ast: &Ast, eid: ExprId, shadow: &HashSet<String>, out: &mut Ha
             idents_in_expr(ast, *obj, shadow, out);
             idents_in_expr(ast, *index, shadow, out);
         }
+        Expr::OptCall { callee, args } => {
+            idents_in_expr(ast, *callee, shadow, out);
+            for a in args {
+                idents_in_expr(ast, *a, shadow, out);
+            }
+        }
         Expr::Assign { target, value } => {
             idents_in_expr(ast, *target, shadow, out);
             idents_in_expr(ast, *value, shadow, out);

@@ -256,6 +256,12 @@ fn collect_escape_obj_let_names_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSe
             collect_escape_obj_let_names_in_expr(ast, *obj, out);
             collect_escape_obj_let_names_in_expr(ast, *index, out);
         }
+        Expr::OptCall { callee, args } => {
+            collect_escape_obj_let_names_in_expr(ast, *callee, out);
+            for a in args {
+                collect_escape_obj_let_names_in_expr(ast, *a, out);
+            }
+        }
         Expr::Index { obj, index } => {
             collect_escape_obj_let_names_in_expr(ast, *obj, out);
             collect_escape_obj_let_names_in_expr(ast, *index, out);

@@ -67,7 +67,7 @@ impl<'a> LowerCtx<'a> {
                     stack.push(obj);
                     stack.push(index);
                 }
-                Expr::Call { .. } => {
+                Expr::Call { .. } | Expr::OptCall { .. } => {
                     // RFC 20260705 owned-result invariant: a Call
                     // result owns its own ref (+1-result / fresh
                     // alloc / owned-result inc at the borrow sites),
@@ -75,7 +75,8 @@ impl<'a> LowerCtx<'a> {
                     // and keep their normal scope drops. Descending
                     // here double-counted: `return a.sort()` marked
                     // `a` moved while the lowering now also inc's
-                    // the chaining result.
+                    // the chaining result. OptCall answers a fresh
+                    // owned Any box — same story.
                 }
                 Expr::Assign { target, value } => {
                     stack.push(target);

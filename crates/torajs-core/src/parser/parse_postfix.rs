@@ -36,6 +36,14 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     if matches!(self.peek(), Token::LBracket) {
                         node = self.parse_optchain_index(node, start_pos)?;
+                    } else if matches!(self.peek(), Token::LParen) {
+                        // `callee?.(args…)` — ES2020 optional call
+                        // (chunk 705). Args parse eagerly; lowering
+                        // guards their evaluation behind the nullish
+                        // short-circuit.
+                        self.pos += 1;
+                        let args = self.parse_call_args()?;
+                        node = self.add_expr_at(start_pos, Expr::OptCall { callee: node, args });
                     } else {
                         let name = self.expect_member_name("?.")?;
                         node = self.add_expr_at(start_pos, Expr::OptChain { obj: node, name });

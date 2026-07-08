@@ -172,6 +172,12 @@ pub(super) fn count_refs_expr(ast: &Ast, eid: ExprId, refs: &mut HashMap<String,
             count_refs_expr(ast, *obj, refs);
             count_refs_expr(ast, *index, refs);
         }
+        Expr::OptCall { callee, args } => {
+            count_refs_expr(ast, *callee, refs);
+            for a in args {
+                count_refs_expr(ast, *a, refs);
+            }
+        }
         Expr::Index { obj, index } => {
             count_refs_expr(ast, *obj, refs);
             count_refs_expr(ast, *index, refs);

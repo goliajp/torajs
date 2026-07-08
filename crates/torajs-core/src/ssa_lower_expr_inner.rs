@@ -278,6 +278,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // [`crate::ssa_lower_optindex::lower`].
             crate::ssa_lower_optindex::lower(ctx, *obj, *index)
         }
+        Expr::OptCall { callee, args } => {
+            // Chunk 705 — `callee?.(args…)` optional call (nullish
+            // short-circuit to ANY_UNDEF; args evaluate only on the
+            // hit path; plain callee delegates to the Call
+            // dispatcher). See [`crate::ssa_lower_optcall::lower`].
+            crate::ssa_lower_optcall::lower(ctx, eid, *callee, args)
+        }
         Expr::PostIncr { target, is_inc } => {
             // JS spec: yield OLD value, then mutate. 3 target
             // shapes (Ident global/local + Member + Index)

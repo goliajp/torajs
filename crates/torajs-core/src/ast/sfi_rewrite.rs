@@ -287,6 +287,18 @@ fn sfi_rewrite_expr(
             let i = sfi_rewrite_expr(ast, index, x_name, i_name, v_name);
             ast.add_expr(Expr::OptIndex { obj: o, index: i })
         }
+        Expr::OptCall { callee, args } => {
+            let c = sfi_rewrite_expr(ast, callee, x_name, i_name, v_name);
+            let new_args: Vec<ExprId> = args
+                .clone()
+                .into_iter()
+                .map(|a| sfi_rewrite_expr(ast, a, x_name, i_name, v_name))
+                .collect();
+            ast.add_expr(Expr::OptCall {
+                callee: c,
+                args: new_args,
+            })
+        }
         Expr::Nullish { lhs, rhs } => {
             let l = sfi_rewrite_expr(ast, lhs, x_name, i_name, v_name);
             let r = sfi_rewrite_expr(ast, rhs, x_name, i_name, v_name);

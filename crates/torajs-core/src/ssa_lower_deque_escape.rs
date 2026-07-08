@@ -237,6 +237,12 @@ fn collect_deque_arr_names_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSet<Str
             collect_deque_arr_names_in_expr(ast, *obj, out);
             collect_deque_arr_names_in_expr(ast, *index, out);
         }
+        Expr::OptCall { callee, args } => {
+            collect_deque_arr_names_in_expr(ast, *callee, out);
+            for a in args {
+                collect_deque_arr_names_in_expr(ast, *a, out);
+            }
+        }
         Expr::Index { obj, index } => {
             collect_deque_arr_names_in_expr(ast, *obj, out);
             collect_deque_arr_names_in_expr(ast, *index, out);

@@ -368,6 +368,12 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             walk_expr(ast, *obj, bound, out);
             walk_expr(ast, *index, bound, out);
         }
+        Expr::OptCall { callee, args } => {
+            walk_expr(ast, *callee, bound, out);
+            for a in args {
+                walk_expr(ast, *a, bound, out);
+            }
+        }
         Expr::PostIncr { target, .. } => walk_expr(ast, *target, bound, out),
     }
 }

@@ -277,6 +277,10 @@ pub(super) fn expr_uses_dynamic_arguments(ast: &Ast, eid: ExprId) -> bool {
         Expr::OptIndex { obj, index } => {
             expr_uses_dynamic_arguments(ast, *obj) || expr_uses_dynamic_arguments(ast, *index)
         }
+        Expr::OptCall { callee, args } => {
+            expr_uses_dynamic_arguments(ast, *callee)
+                || args.iter().any(|a| expr_uses_dynamic_arguments(ast, *a))
+        }
         _ => false,
     }
 }
@@ -422,6 +426,9 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
         Expr::Nullish { lhs, rhs } => expr_scan(ast, *lhs, what) || expr_scan(ast, *rhs, what),
         Expr::OptChain { obj, .. } => expr_scan(ast, *obj, what),
         Expr::OptIndex { obj, index } => expr_scan(ast, *obj, what) || expr_scan(ast, *index, what),
+        Expr::OptCall { callee, args } => {
+            expr_scan(ast, *callee, what) || args.iter().any(|a| expr_scan(ast, *a, what))
+        }
         _ => false,
     }
 }

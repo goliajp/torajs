@@ -230,6 +230,13 @@ pub(crate) fn rewrite_inner_generic_calls(
                 walk_expr(ast, o, generics, outer_tp, outer_anns, cache, worklist);
                 walk_expr(ast, i, generics, outer_tp, outer_anns, cache, worklist);
             }
+            Expr::OptCall { callee, args } => {
+                let (c, args) = (*callee, args.clone());
+                walk_expr(ast, c, generics, outer_tp, outer_anns, cache, worklist);
+                for a in args {
+                    walk_expr(ast, a, generics, outer_tp, outer_anns, cache, worklist);
+                }
+            }
             Expr::Assign { target, value } => {
                 let t = *target;
                 let v = *value;

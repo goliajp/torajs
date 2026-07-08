@@ -297,6 +297,11 @@ fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
             }
             eal_expr_safe(ast, *obj, x_name) && eal_expr_safe(ast, *index, x_name)
         }
+        Expr::OptCall { callee, args } => {
+            // X?.(…) — same story as Call: callee + args recurse.
+            eal_expr_safe(ast, *callee, x_name)
+                && args.iter().all(|a| eal_expr_safe(ast, *a, x_name))
+        }
         Expr::PostIncr { target, .. } => eal_expr_safe(ast, *target, x_name),
         Expr::TypeOf { expr } => eal_expr_safe(ast, *expr, x_name),
         Expr::InstanceOf { expr, .. } => eal_expr_safe(ast, *expr, x_name),

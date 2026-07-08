@@ -192,6 +192,13 @@ impl Checker {
                 // [`crate::check_type_of_misc::check_opt_index`].
                 crate::check_type_of_misc::check_opt_index(self, ast, *obj, *index)
             }
+            Expr::OptCall { callee, args } => {
+                // Chunk 705 — `callee?.(args…)` optional call, same
+                // nullish contract; plain callee delegates to the
+                // Call checker. See
+                // [`crate::check_type_of_misc::check_opt_call`].
+                crate::check_type_of_misc::check_opt_call(self, ast, eid, *callee, args)
+            }
             Expr::PostIncr { target, .. } => {
                 // `x++` / `x--` — Number target → Number result.
                 // See [`crate::check_type_of_misc::check_post_incr`].

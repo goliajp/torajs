@@ -95,8 +95,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
 
 /// Nullish test for the receiver: Any → tag ∈ {ANY_NULL=0,
 /// ANY_UNDEF=5}; ptr-typed → `recv == null` (statically non-null
-/// receivers constant-fold the branch away).
-fn emit_nullish_cond(ctx: &mut LowerCtx<'_>, obj_op: &Operand, obj_ty: &Type) -> Operand {
+/// receivers constant-fold the branch away). Shared with the
+/// OptCall lowering (chunk 705).
+pub(crate) fn emit_nullish_cond(
+    ctx: &mut LowerCtx<'_>,
+    obj_op: &Operand,
+    obj_ty: &Type,
+) -> Operand {
     if matches!(obj_ty, Type::Any) {
         let tag = ctx.f.append_inst(
             ctx.cur_block,

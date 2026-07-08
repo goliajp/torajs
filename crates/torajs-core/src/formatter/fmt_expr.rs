@@ -59,6 +59,12 @@ impl<'a> Formatter<'a> {
                 self.fmt_expr(*index);
                 self.write("]");
             }
+            Expr::OptCall { callee, args } => {
+                self.fmt_expr(*callee);
+                self.write("?.(");
+                self.fmt_comma_list(args);
+                self.write(")");
+            }
             Expr::Index { obj, index } => {
                 self.fmt_expr(*obj);
                 self.write("[");

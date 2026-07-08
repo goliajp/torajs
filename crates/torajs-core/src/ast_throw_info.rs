@@ -416,6 +416,22 @@ fn scan_expr(
             scan_expr(ast, *obj, out, direct, fn_values, expr_types);
             scan_expr(ast, *index, out, direct, fn_values, expr_types);
         }
+        // `f?.(…)` — the callee is a dynamic value (any_call raises a
+        // catchable TypeError on non-callables; a statically-plain
+        // callee delegates to the Call lowering): conservative
+        // may-throw, same as the Index/OptChain-callee rule above.
+        Expr::OptCall { callee, args } => {
+            *direct = true;
+            scan_expr(ast, *callee, out, direct, fn_values, expr_types);
+            for a in args {
+                if let Expr::Closure { fn_name, .. } = ast.get_expr(*a)
+                    && !out.contains(fn_name)
+                {
+                    out.push(fn_name.clone());
+                }
+                scan_expr(ast, *a, out, direct, fn_values, expr_types);
+            }
+        }
         Expr::PostIncr { target, .. } => {
             scan_expr(ast, *target, out, direct, fn_values, expr_types)
         }

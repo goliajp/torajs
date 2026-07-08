@@ -164,6 +164,10 @@ fn expr_assigns_to(ast: &Ast, eid: ExprId, name: &str) -> bool {
         Expr::OptIndex { obj, index } => {
             expr_assigns_to(ast, *obj, name) || expr_assigns_to(ast, *index, name)
         }
+        Expr::OptCall { callee, args } => {
+            expr_assigns_to(ast, *callee, name)
+                || args.iter().any(|a| expr_assigns_to(ast, *a, name))
+        }
         Expr::PostIncr { target, .. } => {
             if let Expr::Ident(n) = ast.get_expr(*target) {
                 if n == name {

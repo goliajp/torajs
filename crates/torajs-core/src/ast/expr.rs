@@ -245,6 +245,15 @@ pub enum Expr {
         obj: ExprId,
         index: ExprId,
     },
+    /// `callee?.(args…)` — optional call (ES2020 §13.3.9, chunk 705).
+    /// Same null-guard shape as OptChain/OptIndex: `callee` evaluates
+    /// once; nullish short-circuits to undefined WITHOUT evaluating
+    /// the arguments; otherwise the callee value is invoked (a
+    /// non-callable non-nullish callee is a catchable TypeError).
+    OptCall {
+        callee: ExprId,
+        args: Vec<ExprId>,
+    },
     /// `x++` / `x--` — JS-spec-compliant post-increment / post-decrement.
     /// Yields the OLD value, then mutates the target. ssa_lower captures
     /// `target`'s value into a temp SSA value, computes new = old ± 1,

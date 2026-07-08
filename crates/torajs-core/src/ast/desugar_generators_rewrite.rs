@@ -135,6 +135,12 @@ fn rewrite_params_in_expr(
             rewrite_params_in_expr(ast, obj, pset, visited);
             rewrite_params_in_expr(ast, index, pset, visited);
         }
+        Expr::OptCall { callee, args } => {
+            rewrite_params_in_expr(ast, callee, pset, visited);
+            for a in args {
+                rewrite_params_in_expr(ast, a, pset, visited);
+            }
+        }
         Expr::Call { callee, args } => {
             rewrite_params_in_expr(ast, callee, pset, visited);
             for a in args {

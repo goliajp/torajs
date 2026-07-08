@@ -146,6 +146,33 @@ pub(crate) fn check_opt_index(
     }
 }
 
+/// Chunk 705 — `callee?.(args…)` (ES2020 optional call). Same
+/// nullish contract as [`check_opt_chain`]: a Nullable / Null /
+/// Undefined / Any callee answers Any (nullish short-circuits to
+/// undefined; a non-nullish value invokes through the runtime
+/// any-call dispatch). A plain callee is statically non-nullish, so
+/// `?.()` ≡ `()` and delegates to the Call checker (the lowering
+/// mirrors the delegation). Args typecheck in every branch — they
+/// may not EVALUATE on the short-circuit path.
+pub(crate) fn check_opt_call(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    callee: ExprId,
+    args: &Vec<ExprId>,
+) -> Result<Type, String> {
+    let callee_ty = checker.type_of(ast, callee)?;
+    match &callee_ty {
+        Type::Nullable(_) | Type::Null | Type::Undefined | Type::Any => {
+            for &a in args {
+                let _ = checker.type_of(ast, a)?;
+            }
+            Ok(Type::Any)
+        }
+        _ => crate::check_type_of_call::check(checker, ast, eid, &callee, args),
+    }
+}
+
 pub(crate) fn check_post_incr(
     checker: &mut Checker,
     ast: &Ast,
