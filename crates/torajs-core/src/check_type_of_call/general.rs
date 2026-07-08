@@ -188,11 +188,30 @@ pub(crate) fn general_call(
                 ast.get_expr(*arg_id),
                 crate::ast::Expr::Array(els) if els.is_empty()
             );
+        // RFC 20260708-spread-call chunk 2a — TS any-assignability
+        // at the call boundary: an Any arg into a scalar / String
+        // param is admitted, paired with a caller-side coerce at
+        // every plain-Ident-callee lowering lane (terminal
+        // coerce_args / closure-local / fn-indirect). The admit is
+        // gated to plain Ident callees: `__cm_` class-method calls
+        // route through vtable / sibling-static dispatch and
+        // Member-callee shapes through struct-method dispatch —
+        // none of those lanes has a per-param coerce hook, so they
+        // stay loud. Heap-typed params (Array / struct / Map / …)
+        // also stay loud: there is no caller-side Any→heap unbox
+        // helper (mirrors the let-decl lane's wrong-repr stance).
+        let any_into_scalar = matches!(arg_ty, Type::Any)
+            && matches!(param_ty, Type::Number | Type::String | Type::Boolean)
+            && matches!(
+                ast.get_expr(*callee),
+                crate::ast::Expr::Ident(n) if !crate::check::is_class_method_name(n)
+            );
         if !skip_type_check
             && !nullable_match
             && !callback_subtype
             && !t11_arr_any
             && !empty_lit_into_arr
+            && !any_into_scalar
             && param_ty != &Type::Any
             && &arg_ty != param_ty
         {

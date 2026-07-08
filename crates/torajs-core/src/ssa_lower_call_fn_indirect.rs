@@ -81,6 +81,7 @@ fn try_lower_local_fnsig(
     // call, probe-proven), no consume; owned-shape temps release
     // after the call (call_terminal mirror).
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
+    let mut coerce_owned: Vec<Operand> = Vec::new();
     let mut argv: Vec<Operand> = args
         .iter()
         .enumerate()
@@ -95,11 +96,26 @@ fn try_lower_local_fnsig(
             if let Some(p) = target_params.get(i) {
                 ctx.mark_arr_arg_for_any_param(*p, &raw);
             }
+            let raw_ty = ctx.operand_ty(&raw);
             if i < target_params.len()
                 && matches!(target_params[i], Type::Any)
-                && !matches!(ctx.operand_ty(&raw), Type::Any)
+                && !matches!(raw_ty, Type::Any)
             {
                 ctx.box_to_any_from_expr(*a, raw)
+            } else if matches!(raw_ty, Type::Any) && i < target_params.len() {
+                // RFC 20260708-spread-call chunk 2a — Any arg into a
+                // scalar / Str param (checker `any_into_scalar` admit
+                // pairing, terminal-lane mirror).
+                match target_params[i] {
+                    Type::F64 | Type::I64 => ctx.coerce_any_to_number(raw, target_params[i]),
+                    Type::Bool => ctx.coerce_to_bool(raw),
+                    Type::Str => {
+                        let s = ctx.coerce_to_str(raw, Type::Any);
+                        coerce_owned.push(s);
+                        s
+                    }
+                    _ => raw,
+                }
             } else {
                 raw
             }
@@ -118,6 +134,9 @@ fn try_lower_local_fnsig(
         for (a, op) in owned_temps {
             ctx.release_owned_temp(a, &op);
         }
+        for op in coerce_owned {
+            ctx.emit_drop_value(op, Type::Str);
+        }
         return Some(Operand::ConstI64(0));
     }
     let v = ctx.f.append_inst(
@@ -129,6 +148,9 @@ fn try_lower_local_fnsig(
     ctx.emit_throw_check(None);
     for (a, op) in owned_temps {
         ctx.release_owned_temp(a, &op);
+    }
+    for op in coerce_owned {
+        ctx.emit_drop_value(op, Type::Str);
     }
     Some(Operand::Value(v))
 }

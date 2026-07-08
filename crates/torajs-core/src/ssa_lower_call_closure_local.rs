@@ -91,6 +91,7 @@ pub(crate) fn try_lower(
         argv.push(Operand::ConstI64(args.len() as i64));
     }
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
+    let mut coerce_owned: Vec<Operand> = Vec::new();
     for (i, a) in args.iter().enumerate() {
         let param_idx = if needs_argc { i + 1 } else { i };
         // Chunk 641 — empty `[]` arg allocs with the param's layout.
@@ -111,11 +112,27 @@ pub(crate) fn try_lower(
         if let Some(p) = user_params.get(param_idx) {
             ctx.mark_arr_arg_for_any_param(*p, &raw);
         }
+        let raw_ty = ctx.operand_ty(&raw);
         let boxed = if param_idx < user_params.len()
             && matches!(user_params[param_idx], Type::Any)
-            && !matches!(ctx.operand_ty(&raw), Type::Any)
+            && !matches!(raw_ty, Type::Any)
         {
             ctx.box_to_any_from_expr(*a, raw)
+        } else if matches!(raw_ty, Type::Any) && param_idx < user_params.len() {
+            // RFC 20260708-spread-call chunk 2a — Any arg into a
+            // scalar / Str param (checker `any_into_scalar` admit
+            // pairing, terminal-lane mirror). Str mints a
+            // fresh-owned conversion released after the call.
+            match user_params[param_idx] {
+                Type::F64 | Type::I64 => ctx.coerce_any_to_number(raw, user_params[param_idx]),
+                Type::Bool => ctx.coerce_to_bool(raw),
+                Type::Str => {
+                    let s = ctx.coerce_to_str(raw, Type::Any);
+                    coerce_owned.push(s);
+                    s
+                }
+                _ => raw,
+            }
         } else {
             raw
         };
@@ -137,6 +154,9 @@ pub(crate) fn try_lower(
         for (a, op) in owned_temps {
             ctx.release_owned_temp(a, &op);
         }
+        for op in coerce_owned {
+            ctx.emit_drop_value(op, Type::Str);
+        }
         return Some(Operand::ConstI64(0));
     }
     let v = ctx.f.append_inst(
@@ -148,6 +168,9 @@ pub(crate) fn try_lower(
     ctx.emit_throw_check(None);
     for (a, op) in owned_temps {
         ctx.release_owned_temp(a, &op);
+    }
+    for op in coerce_owned {
+        ctx.emit_drop_value(op, Type::Str);
     }
     Some(Operand::Value(v))
 }

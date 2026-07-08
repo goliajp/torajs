@@ -82,7 +82,7 @@ pub(crate) fn emit(
         .collect();
     target = maybe_swap_math_sum_precise(ctx, target, &argv);
     pad_trailing_undef(ctx, eid, &mut argv);
-    coerce_args(ctx, target, args, &mut argv);
+    let coerce_owned = coerce_args(ctx, target, args, &mut argv);
     let ret_ty = ctx.f_ret_type_hint(target);
     let cur_block = ctx.cur_block;
     let v = ctx
@@ -91,6 +91,12 @@ pub(crate) fn emit(
     ctx.emit_throw_check(Some(target));
     for (i, op) in owned_temps {
         ctx.release_owned_temp(args[i], &op);
+    }
+    // chunk 2a — fresh-owned Any→Str conversions minted by
+    // coerce_args carry their own +1; the callee borrowed them, so
+    // release here.
+    for op in coerce_owned {
+        ctx.emit_drop_value(op, Type::Str);
     }
     Operand::Value(v)
 }
@@ -150,21 +156,26 @@ pub(crate) fn pad_trailing_undef(ctx: &mut LowerCtx<'_>, eid: ExprId, argv: &mut
     }
 }
 
-fn coerce_args(ctx: &mut LowerCtx<'_>, target: FuncId, args: &[ExprId], argv: &mut [Operand]) {
+fn coerce_args(
+    ctx: &mut LowerCtx<'_>,
+    target: FuncId,
+    args: &[ExprId],
+    argv: &mut [Operand],
+) -> Vec<Operand> {
     if ctx.is_math_unary(target) {
         debug_assert_eq!(argv.len(), 1, "Math.* unary takes 1 arg");
         argv[0] = coerce_to_f64_or_any_to_number(ctx, argv[0]);
-        return;
+        return Vec::new();
     }
     if ctx.is_math_binary(target) {
         debug_assert_eq!(argv.len(), 2, "Math.* binary takes 2 args");
         for i in 0..2 {
             argv[i] = coerce_to_f64_or_any_to_number(ctx, argv[i]);
         }
-        return;
+        return Vec::new();
     }
     let Some(sig_id) = ctx.fn_sig_ids.get(&target).copied() else {
-        return;
+        return Vec::new();
     };
     // Width-aware coercion for monomorphized generic calls AND
     // direct intrinsics. Coerce both directions:
@@ -177,6 +188,7 @@ fn coerce_args(ctx: &mut LowerCtx<'_>, target: FuncId, args: &[ExprId], argv: &m
     // `box_to_any_from_expr` reads `args[i]` expr_types so
     // undefined/null literals keep ANY_UNDEF/ANY_NULL tags.
     let param_tys = ctx.fn_sigs[sig_id.0 as usize].0.clone();
+    let mut coerce_owned: Vec<Operand> = Vec::new();
     for (i, expected) in param_tys.iter().enumerate() {
         if i >= argv.len() {
             break;
@@ -196,9 +208,27 @@ fn coerce_args(ctx: &mut LowerCtx<'_>, target: FuncId, args: &[ExprId], argv: &m
             (Type::Any, got_ty) if got_ty != Type::Any => {
                 argv[i] = ctx.box_to_any_from_expr(args[i], argv[i]);
             }
+            // RFC 20260708-spread-call chunk 2a — Any arg into a
+            // scalar / Str param (paired with the checker's
+            // `any_into_scalar` admit). Numbers / bools unbox to
+            // Copy scalars; Str produces a fresh-owned rc=1
+            // conversion released after the Call (the callee's
+            // param is a +0 borrow per the SHARE convention).
+            (Type::F64 | Type::I64, Type::Any) => {
+                argv[i] = ctx.coerce_any_to_number(argv[i], *expected);
+            }
+            (Type::Bool, Type::Any) => {
+                argv[i] = ctx.coerce_to_bool(argv[i]);
+            }
+            (Type::Str, Type::Any) => {
+                let s = ctx.coerce_to_str(argv[i], Type::Any);
+                coerce_owned.push(s);
+                argv[i] = s;
+            }
             _ => {}
         }
     }
+    coerce_owned
 }
 
 fn coerce_to_f64_or_any_to_number(ctx: &mut LowerCtx<'_>, op: Operand) -> Operand {

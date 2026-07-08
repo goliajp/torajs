@@ -375,6 +375,19 @@ pub(crate) fn analyze(
     }
     container::canonicalize(&mut a);
     cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
+    // RFC 20260708-spread-call chunk 2a — any-face slots seed the
+    // F64 fixpoint. A number slot fed from the any world (an `any[]`
+    // elem read into a number param, an `any` param flowing into a
+    // number local) receives ToNumber(undefined) = NaN and
+    // fractional f64s at runtime; an I64 repr would FpToSi-truncate
+    // them (NaN → 0, silent). Conservative direction — repr cost
+    // only, never correctness.
+    let frozen_any: Vec<SlotKey> = a
+        .any_seeds
+        .iter()
+        .map(|k| container::canon_key_frozen(&a.uf, k))
+        .collect();
+    a.seeds.extend(frozen_any);
     let canon_out = fixpoint(std::mem::take(&mut a.seeds), &a.edges);
 
     // TORAJS_NUM_WIDTH_STATS=1 — dump the canonical F64 class set
