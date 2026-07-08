@@ -51,8 +51,24 @@ impl<'a> LowerCtx<'a> {
                     }
                 }
                 Expr::BinOp { left, right, .. } => {
-                    stack.push(left);
-                    stack.push(right);
+                    // Chunk 718 — a BinOp answers a FRESH value
+                    // (arithmetic, concat, fresh any box), never an
+                    // alias of an Index receiver's heap. Descending
+                    // into an Index operand marked its receiver moved
+                    // and stranded the whole container per call
+                    // (`return a[0] + a[1]` leaked the array — probe
+                    // p717b 42.8MB vs 6.4MB flat, chunk-674 residual
+                    // face). Skip Index operands wholesale (the read
+                    // borrows; the receiver keeps its scope drop);
+                    // every other operand shape keeps the
+                    // conservative walk. Root-position `return a[i]`
+                    // is untouched (elem-borrow returns still pin
+                    // their receiver).
+                    for side in [left, right] {
+                        if !matches!(self.ast.get_expr(side), Expr::Index { .. }) {
+                            stack.push(side);
+                        }
+                    }
                 }
                 Expr::Unary { expr, .. }
                 | Expr::TypeOf { expr }
