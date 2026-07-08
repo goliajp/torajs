@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T17:08:10.833Z",
+  "generatedAt": "2026-07-08T19:38:40.166Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "fe8e5cdd",
-    "commitSubject": "feat: Function.prototype.bind on any-world callables",
+    "commit": "ab124ccb",
+    "commitSubject": "fix: console releases owned Any temps; OptCall joins expr_owned_shape",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
+      "hash": "ab124ccb",
+      "subject": "fix: console releases owned Any temps; OptCall joins expr_owned_shape"
+    },
+    {
+      "hash": "e89f4329",
+      "subject": "test: retire the arrow-bound print pin - chunk 720 closed the gap"
+    },
+    {
+      "hash": "9914611b",
+      "subject": "feat: NamedEvaluation - let-bound arrows join the fn-name registry"
+    },
+    {
+      "hash": "ddd2cd7d",
+      "subject": "refactor: split length/size getters out of index_any into len_get"
+    },
+    {
+      "hash": "ccd234d6",
+      "subject": "feat: .name/.length reflection on bound-function cells"
+    },
+    {
+      "hash": "f55c7cca",
+      "subject": "fix: return-consume walk skips index operands under a binop"
+    },
+    {
+      "hash": "758add2f",
+      "subject": "fix: unify any-member fallback ownership - every arm answers owned"
+    },
+    {
+      "hash": "9b4395cf",
+      "subject": "docs: correct the member-get pair ownership contract comment"
+    },
+    {
+      "hash": "1402841d",
+      "subject": "feat: .name/.length reflection on ordinary closures via fn-name registry"
+    },
+    {
+      "hash": "b916e1f5",
+      "subject": "feat: .name/.length reflection on reified builtin method cells"
+    },
+    {
+      "hash": "0749315a",
+      "subject": "chore(dashboard): refresh @ fe8e5cdd — rotation 53 (710-714: Function.prototype call/apply/bind land on any-world callables — the reification trilogy mints interned immortal method cells off builtin receivers and rc-managed bound cells; a pre-existing 32B-per-member-read Str leak falls to a borrow-shaped cell_ptr shim; the wrong-arm optional call stops evaluating its arguments; gate 1339 -> 1344 five green)"
+    },
+    {
       "hash": "fe8e5cdd",
       "subject": "feat: Function.prototype.bind on any-world callables"
-    },
-    {
-      "hash": "315b08b7",
-      "subject": "fix: wrong-arm optional call short-circuits without arg eval"
-    },
-    {
-      "hash": "7cd83c14",
-      "subject": "fix: member read through an any receiver leaked a Str per read"
-    },
-    {
-      "hash": "bc6c50d7",
-      "subject": "feat: builtin method reification on any receivers"
-    },
-    {
-      "hash": "930c117c",
-      "subject": "feat: Function.prototype.call / apply on any-world closures"
-    },
-    {
-      "hash": "21a18f0f",
-      "subject": "chore(dashboard): refresh @ 0997f17d — rotation 52 tail (709: builtin methods through ?.() — the miss funnel splits into a NO_SUCH sentinel float and a not_callable throw, the opt dispatcher flavor answers undefined, the GetV probe gates arg evaluation; gate 1338 -> 1339 six green)"
-    },
-    {
-      "hash": "0997f17d",
-      "subject": "feat: builtin methods dispatch through ?.() on any receivers"
-    },
-    {
-      "hash": "801e3329",
-      "subject": "chore(dashboard): refresh @ 0529b243 — rotation 52 (704-708: dynobj literal field elem-kind mark closes the any-index undefined read; optional call ?.() completes the ES2020 optional-chain trio; Object.values/entries walk dynobj receivers closing the 594 keys family; object destructuring rest rides a spread-omit sentinel; any-to-typed ident alias admitted in the K.4 global lane; gate 1333 -> 1338 five green)"
-    },
-    {
-      "hash": "0529b243",
-      "subject": "feat: admit any-to-typed array ident alias in the K.4 global lane"
-    },
-    {
-      "hash": "c6577350",
-      "subject": "feat: object destructuring rest { p, ...rest }"
-    },
-    {
-      "hash": "688d1760",
-      "subject": "feat: Object.values / Object.entries walk any-typed dynobj receivers"
-    },
-    {
-      "hash": "090821a4",
-      "subject": "feat: optional call callee?.(args)"
     }
   ],
-  "headSha": "fe8e5cdd",
+  "headSha": "ab124ccb",
   "autorun": {
-    "total": 361,
+    "total": 362,
     "baselineTarget": 10,
-    "bySelf": 356,
+    "bySelf": 357,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783525057-1d43",
-      "at": "2026-07-08T15:37:37Z",
-      "ts": 1783525057,
+      "rotationId": "r-1783530596-6ded",
+      "at": "2026-07-08T17:09:56Z",
+      "ts": 1783530596,
       "trigger": "self",
-      "prevHead": "21a18f0f",
-      "handoffSha": "sha256:2e491c0a53a6ad41f75082299ff73b11b0ff640a0c23f71b7feed1bbd85cd8e7",
-      "handoffAgeSec": 14,
+      "prevHead": "0749315a",
+      "handoffSha": "sha256:864686af79d1abfb91dae9ada407c79ed326833463b9b6919d007af01885aa38",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783530596-6ded",
+        "at": "2026-07-08T17:09:56Z",
+        "ts": 1783530596,
+        "trigger": "self",
+        "prevHead": "0749315a",
+        "handoffSha": "sha256:864686af79d1abfb91dae9ada407c79ed326833463b9b6919d007af01885aa38",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783525057-1d43",
         "at": "2026-07-08T15:37:37Z",
@@ -876,17 +887,6 @@
         "prevHead": "03f8c82a",
         "handoffSha": "sha256:d3644c2e08ea5427f1d4670b46cd61ed00ec1b9d89166df86d6a917012d53f8f",
         "handoffAgeSec": 22,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783439447-494c",
-        "at": "2026-07-07T15:50:47Z",
-        "ts": 1783439447,
-        "trigger": "self",
-        "prevHead": "50d52e14",
-        "handoffSha": "sha256:687712fbd080a282f4c99fca92e49b52d0fc8f947958c8909566d1e1d9ca9964",
-        "handoffAgeSec": 246,
         "conformanceBefore": null,
         "commitsInSession": null
       }
