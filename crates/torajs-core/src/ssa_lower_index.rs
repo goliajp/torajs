@@ -30,13 +30,12 @@
 //!   by `emit_arr_slot_byte_offset` (T-13.5 deque: `24 + (idx +
 //!   head) * 8`; non-deque names take the fast path via 11-A1
 //!   `arr_expr_is_non_deque` peek).
-//!   - **Str elems** (RFC 20260708-typed-arr-oob-read chunk 1) —
-//!     bounds-branched: a negative or `>= len` index answers the
-//!     immortal `undefined` Str sentinel (ES §10.4.3 [[Get]] miss)
-//!     instead of reading a garbage/NULL slot. The in-bounds check
-//!     is loop-eliminable (dominated by `i < arr.length` guards).
-//!   - Other concrete elems stay unchecked (UB on OOB) — the F64
-//!     sentinel + I64/Bool decision is the RFC's chunks 2-3.
+//!   - **All concrete elems** are bounds-branched (RFC
+//!     20260708-typed-arr-oob-read chunks 1-2): OOB answers the
+//!     immortal Str sentinel (`Str`), the undefined-NaN sentinel
+//!     bits (`F64`), or a catchable RangeError (I64 / Bool /
+//!     nested heap — no `undefined` representation in the slot).
+//!     See `lower_typed_index_checked`.
 //!
 //! Returns `Operand` directly (terminal arm — caller's
 //! `Expr::Index` match arm bottoms out here, no None fall-through).
@@ -95,46 +94,46 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
     if elem_ty == Type::Any {
         return lower_array_any_index(ctx, arr_val, idx_val);
     }
-    if elem_ty == Type::Str {
-        return lower_typed_str_index(ctx, arr_val, idx_val, is_non_deque);
-    }
-    let (offset_base, offset) =
-        ctx.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
-    let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::LoadDyn(elem_ty, offset_base.clone(), offset),
-        elem_ty,
-        None,
-    );
-    Operand::Value(v)
+    lower_typed_index_checked(ctx, arr_val, idx_val, is_non_deque, elem_ty)
 }
 
-/// `string[]` indexed read with the OOB bounds branch (RFC
-/// 20260708-typed-arr-oob-read chunk 1). A negative or `>= len`
-/// index answers the immortal `undefined` Str sentinel — every
-/// downstream consumer (print / typeof / strict-eq / nullish /
-/// json) already handles it through the chunk 649-667 family, and
-/// the chunk 667 `is_nullable_str_source` Index arm already
-/// two-states `typeof arr[i]` for Array<Str> receivers. The
-/// sentinel is FLAG_STATIC_LITERAL so the borrow-shaped index-read
-/// convention (no rc traffic) holds on both branches.
-fn lower_typed_str_index(
+/// Typed-array indexed read with the OOB bounds branch (RFC
+/// 20260708-typed-arr-oob-read chunks 1-2). A negative or `>= len`
+/// index takes a per-elem-type `undefined` exit instead of reading
+/// a garbage/NULL slot:
+///
+/// - `Str` — the immortal `undefined` Str sentinel (chunk 1); every
+///   consumer rides the chunk 649-667 family, and the sentinel's
+///   FLAG_STATIC_LITERAL keeps the borrow-shaped read convention.
+/// - `F64` — the undefined-NaN sentinel bits (chunk 2); arithmetic
+///   propagates it as a plain NaN, while typeof / strict-eq /
+///   nullish / print / box consumers gate STATICALLY on
+///   `is_undef_f64_source` and re-check the bits at runtime.
+/// - everything else (I64 / Bool / nested heap) — no `undefined`
+///   representation in the slot type: `__torajs_arr_oob_throw`
+///   records a catchable RangeError (loud, never garbage) and the
+///   merge tail propagates it via the throw check.
+///
+/// In-bounds reads keep the direct LoadDyn; the two dominated
+/// compares are loop-eliminable under `i < arr.length` guards.
+fn lower_typed_index_checked(
     ctx: &mut LowerCtx<'_>,
     arr_val: Operand,
     idx_val: Operand,
     is_non_deque: bool,
+    elem_ty: Type,
 ) -> Operand {
     use crate::ssa::{IPred, Terminator};
     use crate::ssa_lower::ARR_LEN_OFF;
     use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
+    use crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS;
     let len = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, arr_val.clone(), ARR_LEN_OFF),
         Type::I64,
         None,
     );
-    let slot = ctx.alloca_in_entry(Type::Str, Some("__oob_str"));
+    let slot = ctx.alloca_in_entry(elem_ty, Some("__oob_elem"));
     let oob_blk = ctx.f.add_block();
     let chk2_blk = ctx.f.add_block();
     let in_blk = ctx.f.add_block();
@@ -159,24 +158,41 @@ fn lower_typed_str_index(
             else_blk: in_blk,
         },
     );
-    let sentinel = ctx.f.append_inst(
-        oob_blk,
-        InstKind::GlobalRef(STR_UNDEF_CELL_SYM.to_string()),
-        Type::Str,
-        None,
-    );
-    ctx.f.append_void(
-        oob_blk,
-        InstKind::Store(Operand::Value(sentinel), Operand::Value(slot), 0),
-    );
+    let mut oob_throws = false;
+    let oob_val: Operand = match elem_ty {
+        Type::Str => {
+            let sentinel = ctx.f.append_inst(
+                oob_blk,
+                InstKind::GlobalRef(STR_UNDEF_CELL_SYM.to_string()),
+                Type::Str,
+                None,
+            );
+            Operand::Value(sentinel)
+        }
+        Type::F64 => Operand::ConstF64(f64::from_bits(F64_UNDEF_SENTINEL_BITS)),
+        _ => {
+            oob_throws = true;
+            ctx.f.append_void(
+                oob_blk,
+                InstKind::Call(ctx.intrinsics.arr_oob_throw, vec![]),
+            );
+            match elem_ty {
+                Type::I64 | Type::I32 => Operand::ConstI64(0),
+                Type::Bool => Operand::ConstBool(false),
+                _ => Operand::ConstPtrNull,
+            }
+        }
+    };
+    ctx.f
+        .append_void(oob_blk, InstKind::Store(oob_val, Operand::Value(slot), 0));
     ctx.f.set_term(oob_blk, Terminator::Br(merge));
     ctx.cur_block = in_blk;
     let (offset_base, offset) = ctx.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
     let cur = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur,
-        InstKind::LoadDyn(Type::Str, offset_base, offset),
-        Type::Str,
+        InstKind::LoadDyn(elem_ty, offset_base, offset),
+        elem_ty,
         None,
     );
     ctx.f.append_void(
@@ -187,10 +203,14 @@ fn lower_typed_str_index(
     ctx.cur_block = merge;
     let out = ctx.f.append_inst(
         merge,
-        InstKind::Load(Type::Str, Operand::Value(slot), 0),
-        Type::Str,
+        InstKind::Load(elem_ty, Operand::Value(slot), 0),
+        elem_ty,
         None,
     );
+    if oob_throws {
+        // propagate the RangeError recorded on the oob path.
+        ctx.emit_throw_check(None);
+    }
     Operand::Value(out)
 }
 

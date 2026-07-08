@@ -100,6 +100,37 @@ pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     }
 }
 
+/// RFC 20260708-typed-arr-oob-read chunk 2 — the F64 `undefined`
+/// sentinel: a quiet NaN whose payload no arithmetic produces (the
+/// hardware default qNaN is 0x7FF8_0000_0000_0000; the low bits
+/// echo VALUE_UNDEFINED=0x0A as a grep anchor). Consumers gate
+/// STATICALLY via [`is_undef_f64_source`] and only then re-check
+/// the bits at runtime — AArch64 (FPCR.DN=0) propagates operand
+/// NaN payloads through arithmetic, so a bits-only global check
+/// would misread `a[oob] + 1` (a plain NaN under JS semantics) as
+/// `undefined`. The static gate keeps arithmetic results out.
+pub(crate) const F64_UNDEF_SENTINEL_BITS: u64 = 0x7FFC_0000_0000_000A;
+
+/// RFC 20260708-typed-arr-oob-read chunk 2 — true when an
+/// F64-typed expression may hold the undefined-NaN sentinel (a
+/// `number[]` index read whose OOB exit produced it), or a binding
+/// recorded in `ctx.undefable_f64_lets` (let-init of that shape).
+/// Over-broad for in-range reads — one predictable bits compare,
+/// never wrong.
+pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    match ctx.ast.get_expr(eid) {
+        Expr::Ident(n) => ctx.undefable_f64_lets.contains(n),
+        Expr::Index { obj, .. } => {
+            matches!(
+                ctx.expr_types.get(obj),
+                Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::Number
+            )
+        }
+        Expr::As { expr, .. } => is_undef_f64_source(ctx, *expr),
+        _ => false,
+    }
+}
+
 /// RFC 20260707 residual chunk — true when a Substr-typed
 /// expression may hold the Substr-shaped undefined sentinel
 /// (string INDEX read, OOB → sentinel): `s[i]` on a string-typed

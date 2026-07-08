@@ -59,6 +59,7 @@ pub(crate) struct ArrStrEtcIds {
     pub arr_set_length_truncate_scalar: FuncId,
     pub arr_to_reversed: FuncId,
     pub arr_with: FuncId,
+    pub arr_oob_throw: FuncId,
     pub arr_join: FuncId,
     pub arr_join_substr: FuncId,
     pub i64_to_str: FuncId,
@@ -155,6 +156,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_arr_with",
             &[Type::Ptr, Type::I64, Type::I64],
             Type::Ptr,
+        ),
+        arr_oob_throw: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_oob_throw",
+            &[],
+            Type::Void,
         ),
         arr_join: declare_intrinsic(module, fn_table, "__torajs_arr_join", ptr_str, Type::Str),
         arr_join_substr: declare_intrinsic(

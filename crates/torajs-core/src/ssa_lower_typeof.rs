@@ -225,6 +225,13 @@ fn lower_by_ssa_type(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
     let v = ctx.lower_expr(expr);
     let ty = ctx.operand_ty(&v);
     let s: &str = match ty {
+        // RFC 20260708-typed-arr-oob-read chunk 2 — an F64 read off
+        // a number[] index (or its let alias) may hold the
+        // undefined-NaN sentinel; take the two-state runtime branch
+        // instead of the static "number" fold.
+        Type::F64 if crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, expr) => {
+            return emit_f64_typeof_runtime(ctx, v);
+        }
         Type::I64 | Type::F64 | Type::I32 => "number",
         Type::Bool => "boolean",
         // RFC 20260707 chunk 3 — a nullable-str source (missed
@@ -406,4 +413,60 @@ fn emit_substr_typeof_runtime(ctx: &mut LowerCtx<'_>, v: Operand) -> Operand {
         None,
     );
     Operand::Value(r)
+}
+
+/// RFC 20260708-typed-arr-oob-read chunk 2 — two-state typeof for
+/// an F64 value that may hold the undefined-NaN sentinel: bits
+/// compare against the sentinel pattern picks "undefined" over
+/// "number". Static gate (is_undef_f64_source) keeps arithmetic
+/// NaNs (payload-propagated on AArch64) out of this branch.
+fn emit_f64_typeof_runtime(ctx: &mut LowerCtx<'_>, v: Operand) -> Operand {
+    let bits = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::BitCastF64ToI64(v), Type::I64, None);
+    let is_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(
+            IPred::Eq,
+            Operand::Value(bits),
+            Operand::ConstI64(crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64),
+        ),
+        Type::Bool,
+        None,
+    );
+    let undef_blk = ctx.f.add_block();
+    let num_blk = ctx.f.add_block();
+    let merge = ctx.f.add_block();
+    let result_slot = ctx.alloca_in_entry(Type::Str, Some("__f64typeof"));
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(is_undef),
+            then_blk: undef_blk,
+            else_blk: num_blk,
+        },
+    );
+    ctx.cur_block = undef_blk;
+    let undef_lit = ctx.intern_string_literal("undefined");
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(undef_lit), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = num_blk;
+    let num_lit = ctx.intern_string_literal("number");
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(num_lit), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = merge;
+    let out = ctx.f.append_inst(
+        merge,
+        InstKind::Load(Type::Str, Operand::Value(result_slot), 0),
+        Type::Str,
+        None,
+    );
+    Operand::Value(out)
 }

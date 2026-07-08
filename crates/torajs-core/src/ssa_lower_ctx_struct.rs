@@ -270,6 +270,12 @@ pub(crate) struct LowerCtx<'a> {
     /// before dispatching to the inner impl, restored after. The Eq/Neq
     /// Any-side packing reads these to pick ANY_UNDEF=5 vs ANY_NULL=0.
     pub(crate) binop_left_undef_id: Option<ExprId>,
+    /// RFC 20260708-typed-arr-oob-read chunk 2 — the left/right
+    /// binop operand is an F64 that may hold the undefined-NaN
+    /// sentinel (number[] index read / alias); `=== undefined`
+    /// compares the bits instead of the cross-type false fold.
+    pub(crate) binop_left_f64_undefable: bool,
+    pub(crate) binop_right_f64_undefable: bool,
     pub(crate) binop_right_undef_id: Option<ExprId>,
     /// Chunk 612 companion — which side (if any) is a frontend
     /// Type::Null source (the `null` literal or a Null-typed
@@ -352,6 +358,11 @@ pub(crate) struct LowerCtx<'a> {
     /// inline str-eq-with-literal fast path declines to the
     /// null-guarded `str_eq` runtime call.
     pub(crate) nullable_str_lets: std::collections::HashSet<String>,
+    /// RFC 20260708-typed-arr-oob-read chunk 2 — bindings whose
+    /// init was a `number[]` index read (may hold the undefined-NaN
+    /// sentinel); typeof / strict-eq / nullish / print / box
+    /// consumers gate on membership.
+    pub(crate) undefable_f64_lets: std::collections::HashSet<String>,
     /// RFC 20260707 residual chunk — binding names whose let-init
     /// is a string INDEX read (`const c = s[i]`) or an alias of
     /// such a binding. The Substr slot may hold the Substr-shaped

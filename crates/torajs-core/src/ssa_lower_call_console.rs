@@ -80,6 +80,13 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
         }
         return Operand::ConstI64(0);
     }
+    // RFC 20260708-typed-arr-oob-read chunk 2 — an F64 read off a
+    // number[] index may hold the undefined-NaN sentinel; branch to
+    // the Str printer with the immortal sentinel cell (payload
+    // "undefined") instead of printing the raw NaN.
+    if arg_ty == Type::F64 && crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, arg_id) {
+        return lower_print_f64_or_undef(ctx, method, arg);
+    }
     let is_str = arg_ty == Type::Str;
     let target = ctx.console_print_target(method, arg_ty);
     // RFC 20260704 L3b #5 — a typed Arr whose elem has no dedicated
@@ -136,5 +143,65 @@ fn lower_multi_arg(ctx: &mut LowerCtx<'_>, method: &'static str, args: &[ExprId]
     ctx.f
         .append_void(cur_block, InstKind::Call(target, vec![final_str.clone()]));
     ctx.emit_drop_value(final_str, Type::Str);
+    Operand::ConstI64(0)
+}
+
+/// RFC 20260708-typed-arr-oob-read chunk 2 — two-state print for a
+/// possibly-sentinel F64: the undefined branch prints the immortal
+/// Str sentinel (payload "undefined", FLAG_STATIC_LITERAL → no rc
+/// traffic), the number branch takes the plain F64 printer.
+pub(crate) fn lower_print_f64_or_undef(
+    ctx: &mut LowerCtx<'_>,
+    method: &'static str,
+    arg: Operand,
+) -> Operand {
+    use crate::ssa::{IPred, Terminator};
+    let bits = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BitCastF64ToI64(arg.clone()),
+        Type::I64,
+        None,
+    );
+    let is_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(
+            IPred::Eq,
+            Operand::Value(bits),
+            Operand::ConstI64(crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64),
+        ),
+        Type::Bool,
+        None,
+    );
+    let undef_blk = ctx.f.add_block();
+    let num_blk = ctx.f.add_block();
+    let merge = ctx.f.add_block();
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(is_undef),
+            then_blk: undef_blk,
+            else_blk: num_blk,
+        },
+    );
+    ctx.cur_block = undef_blk;
+    let sentinel = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::GlobalRef(crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM.to_string()),
+        Type::Str,
+        None,
+    );
+    let str_target = ctx.console_print_target(method, Type::Str);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(str_target, vec![Operand::Value(sentinel)]),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = num_blk;
+    let f64_target = ctx.console_print_target(method, Type::F64);
+    ctx.f
+        .append_void(ctx.cur_block, InstKind::Call(f64_target, vec![arg]));
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = merge;
     Operand::ConstI64(0)
 }

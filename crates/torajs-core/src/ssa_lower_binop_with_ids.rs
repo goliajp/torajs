@@ -49,6 +49,12 @@ impl<'a> LowerCtx<'a> {
         left_id: Option<ExprId>,
         right_id: Option<ExprId>,
     ) -> Operand {
+        let saved_left_f64u = self.binop_left_f64_undefable;
+        let saved_right_f64u = self.binop_right_f64_undefable;
+        self.binop_left_f64_undefable = left_id
+            .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid));
+        self.binop_right_f64_undefable = right_id
+            .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid));
         let saved_left = self.binop_left_undef_id.take();
         let saved_right = self.binop_right_undef_id.take();
         let saved_left_null = self.binop_left_null_id.take();
@@ -79,6 +85,8 @@ impl<'a> LowerCtx<'a> {
         self.binop_right_null_id = right_id
             .filter(|eid| matches!(self.expr_types.get(eid), Some(crate::check::Type::Null)));
         let r = crate::ssa_lower_binop_inner::lower(self, op, a, b);
+        self.binop_left_f64_undefable = saved_left_f64u;
+        self.binop_right_f64_undefable = saved_right_f64u;
         self.binop_left_undef_id = saved_left;
         self.binop_right_undef_id = saved_right;
         self.binop_left_null_id = saved_left_null;

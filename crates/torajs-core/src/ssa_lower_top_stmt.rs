@@ -127,6 +127,16 @@ impl<'a> LowerCtx<'a> {
                 return;
             }
             let is_str = arg_ty == Type::Str;
+            // RFC 20260708-typed-arr-oob-read chunk 2 — a possibly-
+            // sentinel F64 arg branches to the Str printer with the
+            // immortal "undefined" cell (mirror of the in-expr
+            // console lane's gate).
+            if arg_ty == Type::F64
+                && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, args[0])
+            {
+                crate::ssa_lower_call_console::lower_print_f64_or_undef(self, method, arg);
+                return;
+            }
             let target = self.console_print_target(method, arg_ty);
             // RFC 20260704 L3b #5 — typed Arr with no dedicated typed
             // printer routes through the tag-aware print_any; this

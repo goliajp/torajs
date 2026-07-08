@@ -372,3 +372,15 @@ pub unsafe extern "C" fn __torajs_arr_extend_typed_into_any(
         dst
     }
 }
+
+/// RFC 20260708-typed-arr-oob-read chunk 2 — the lower-side OOB
+/// exit for typed element lanes with no `undefined` representation
+/// (I64 / Bool / nested-heap slots; Str answers the immortal
+/// sentinel and F64 the undefined-NaN payload instead). Records a
+/// catchable RangeError; the emit site's throw-check propagates it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_oob_throw() {
+    unsafe {
+        __torajs_throw_range_error(b"array index out of bounds\0".as_ptr());
+    }
+}

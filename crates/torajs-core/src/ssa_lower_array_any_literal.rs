@@ -20,7 +20,7 @@
 //! ObjectLit/LetDecl/etc. paths) need zero edits.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::{LowerCtx, intern_arr_layout};
 
 impl<'a> LowerCtx<'a> {
@@ -165,6 +165,58 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
+                // RFC 20260708-typed-arr-oob-read chunk 2 — a
+                // possibly-sentinel F64 elem packs as ANY_UNDEF
+                // when the bits match. Branch-free select:
+                // z = (bits == SENTINEL); tag = 3 + 2z (3→5);
+                // value = bits & (z - 1) (bits→0 on the sentinel).
+                if let Some(e) = eid
+                    && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, e)
+                {
+                    let is_undef = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ICmp(
+                            crate::ssa::IPred::Eq,
+                            Operand::Value(bits),
+                            Operand::ConstI64(
+                                crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64,
+                            ),
+                        ),
+                        Type::Bool,
+                        None,
+                    );
+                    let z = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ZExtBoolToI64(Operand::Value(is_undef)),
+                        Type::I64,
+                        None,
+                    );
+                    let two_z = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(SsaBinOp::Add, Operand::Value(z), Operand::Value(z)),
+                        Type::I64,
+                        None,
+                    );
+                    let tag = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(SsaBinOp::Add, Operand::ConstI64(3), Operand::Value(two_z)),
+                        Type::I64,
+                        None,
+                    );
+                    let mask = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(SsaBinOp::Sub, Operand::Value(z), Operand::ConstI64(1)),
+                        Type::I64,
+                        None,
+                    );
+                    let value = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(SsaBinOp::And, Operand::Value(bits), Operand::Value(mask)),
+                        Type::I64,
+                        None,
+                    );
+                    return (Operand::Value(tag), Operand::Value(value));
+                }
                 (Operand::ConstI64(3), Operand::Value(bits))
             }
             Type::Bool => {

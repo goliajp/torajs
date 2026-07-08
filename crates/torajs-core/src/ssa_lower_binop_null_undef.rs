@@ -67,6 +67,48 @@ pub(crate) fn try_lower(
             (a, b_undef)
         };
         let val_ty = ctx.operand_ty(&val);
+        // RFC 20260708-typed-arr-oob-read chunk 2 — an undefable F64
+        // side vs the `undefined` literal compares the bits against
+        // the sentinel pattern. Plain F64s (and `=== null`) keep the
+        // cross-type false fold downstream.
+        if val_ty == Type::F64 {
+            let undefable = if a_nullish {
+                ctx.binop_right_f64_undefable
+            } else {
+                ctx.binop_left_f64_undefable
+            };
+            if !undefable || !nullish_is_undef {
+                return None;
+            }
+            let bits = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::BitCastF64ToI64(val),
+                Type::I64,
+                None,
+            );
+            let cmp = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ICmp(
+                    IPred::Eq,
+                    Operand::Value(bits),
+                    Operand::ConstI64(
+                        crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64,
+                    ),
+                ),
+                Type::Bool,
+                None,
+            );
+            if matches!(op, AstBinOp::Neq) {
+                let r = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::BinOp(SsaBinOp::Xor, Operand::Value(cmp), Operand::ConstBool(true)),
+                    Type::Bool,
+                    None,
+                );
+                return Some(Operand::Value(r));
+            }
+            return Some(Operand::Value(cmp));
+        }
         if !matches!(val_ty, Type::Str | Type::Substr) {
             return None;
         }

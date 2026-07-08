@@ -207,6 +207,7 @@ pub(crate) mod ssa_lower_arr_any_fill;
 pub(crate) mod ssa_lower_arr_any_push;
 pub(crate) mod ssa_lower_arr_from_any;
 pub(crate) mod ssa_lower_arr_from_set;
+pub(crate) mod ssa_lower_arr_kind_mark;
 pub(crate) mod ssa_lower_arr_layout;
 pub(crate) mod ssa_lower_arr_mutators;
 pub(crate) mod ssa_lower_array;

@@ -62,7 +62,88 @@ impl<'a> LowerCtx<'a> {
             );
             return Operand::Value(v);
         }
+        // RFC 20260708-typed-arr-oob-read chunk 2 — a possibly-
+        // sentinel F64 (number[] index read / alias) boxes to
+        // ANY_UNDEF when the bits match, so the any world sees a
+        // real `undefined` instead of a NaN with our payload.
+        if val_ty == Type::F64 && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid) {
+            return self.box_f64_or_undef(val);
+        }
         self.box_to_any(val)
+    }
+
+    /// RFC 20260708-typed-arr-oob-read chunk 2 — branch on the
+    /// undefined-NaN sentinel bits: ANY_UNDEF box vs the plain
+    /// F64 box.
+    fn box_f64_or_undef(&mut self, val: Operand) -> Operand {
+        use crate::ssa::{IPred, Terminator};
+        let bits = self.f.append_inst(
+            self.cur_block,
+            InstKind::BitCastF64ToI64(val),
+            Type::I64,
+            None,
+        );
+        let is_undef = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(
+                IPred::Eq,
+                Operand::Value(bits),
+                Operand::ConstI64(crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64),
+            ),
+            Type::Bool,
+            None,
+        );
+        let undef_blk = self.f.add_block();
+        let num_blk = self.f.add_block();
+        let merge = self.f.add_block();
+        let slot = self.alloca_in_entry(Type::Any, Some("__f64box"));
+        let cb = self.cur_block;
+        self.f.set_term(
+            cb,
+            Terminator::CondBr {
+                cond: Operand::Value(is_undef),
+                then_blk: undef_blk,
+                else_blk: num_blk,
+            },
+        );
+        self.cur_block = undef_blk;
+        let u = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.any_box,
+                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(u), Operand::Value(slot), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(merge));
+        self.cur_block = num_blk;
+        let n = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.any_box,
+                vec![Operand::ConstI64(3), Operand::Value(bits)],
+            ),
+            Type::Any,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(n), Operand::Value(slot), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(merge));
+        self.cur_block = merge;
+        let out = self.f.append_inst(
+            merge,
+            InstKind::Load(Type::Any, Operand::Value(slot), 0),
+            Type::Any,
+            None,
+        );
+        Operand::Value(out)
     }
 
     /// Lower an expression to its `(tag, value)` pair, with the same
@@ -114,21 +195,6 @@ impl<'a> LowerCtx<'a> {
     /// `Arr<Any>` slot (T-11 container widen) keeps its raw-slot
     /// layout, and the slot-typed chain (Any → 0) skipped the mark
     /// the kind-aware readers rely on.
-    pub(crate) fn emit_arr_mark_kind(&mut self, val: &Operand) {
-        let val_ty = self.operand_ty(val);
-        let Type::Arr(id) = val_ty else { return };
-        let elem = self.arr_layouts[id.0 as usize].clone();
-        let chain = self.arr_kind_chain(&elem, 0);
-        if chain != 0 {
-            self.f.append_void(
-                self.cur_block,
-                InstKind::Call(
-                    self.intrinsics.arr_mark_kind,
-                    vec![val.clone(), Operand::ConstI64(chain as i64)],
-                ),
-            );
-        }
-    }
 
     /// RFC 20260707 chunk 626 — call-arg admit station. When the
     /// callee's param slot is `Arr<Any>` and the arg's own SSA type
@@ -137,13 +203,6 @@ impl<'a> LowerCtx<'a> {
     /// `Arr<Any>` readers can decode the raw layout. No-op when the
     /// arg is already `Arr<Any>` (chain 0), boxed `Any`, or not an
     /// array — `emit_arr_mark_kind` self-gates on the value's type.
-    pub(crate) fn mark_arr_arg_for_any_param(&mut self, expected: Type, op: &Operand) {
-        if let Type::Arr(pid) = expected
-            && matches!(self.arr_layouts[pid.0 as usize], Type::Any)
-        {
-            self.emit_arr_mark_kind(op);
-        }
-    }
 
     /// Chunk 641 — contextual empty-array-literal call arg. An empty
     /// `[]` has no element to infer from; when the callee's param is
@@ -188,24 +247,6 @@ impl<'a> LowerCtx<'a> {
     /// raw, 3=Bool raw, 4=heap cell ptr; 0=UNSET/no-mark). Depth is
     /// capped at 21 levels (u64 / 3 bits) — deeper nests leave the
     /// tail UNSET, which consumers treat as the pre-RFC fallback.
-    fn arr_kind_chain(&self, elem: &Type, depth: u32) -> u64 {
-        if depth >= 21 {
-            return 0;
-        }
-        match elem {
-            Type::I64 | Type::I32 => 1,
-            Type::F64 => 2,
-            Type::Bool => 3,
-            // Arr<Any> carries FLAG_ARR_ANY — self-describing, no mark.
-            Type::Any => 0,
-            Type::Arr(id) => {
-                let inner = self.arr_layouts[id.0 as usize].clone();
-                4 | (self.arr_kind_chain(&inner, depth + 1) << 3)
-            }
-            t if t.is_refcounted() => 4,
-            _ => 0,
-        }
-    }
 
     /// Extract `(tag_op, value_op)` for a freshly-lowered value, matching
     /// `box_to_any`'s tag scheme. Used by sites that need the unboxed

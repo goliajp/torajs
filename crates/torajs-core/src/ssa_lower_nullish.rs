@@ -63,6 +63,16 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, lhs: ExprId, rhs: ExprId) -> Operand
         return lower_any_lhs(ctx, lhs_op, rhs);
     }
     let lhs_check_ty = ctx.expr_types.get(&lhs).cloned();
+    // RFC 20260708-typed-arr-oob-read chunk 2 — a possibly-sentinel
+    // F64 lhs (number[] index read / alias) branches on the
+    // undefined-NaN bits instead of the non-nullable short-circuit;
+    // gated to a Number-typed rhs so the merged slot stays F64.
+    if lhs_ty == Type::F64
+        && crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, lhs)
+        && matches!(ctx.expr_types.get(&rhs), Some(check_mod::Type::Number))
+    {
+        return lower_f64_undefable_lhs(ctx, lhs_op, rhs);
+    }
     if is_non_nullable(&lhs_check_ty) {
         return lhs_op;
     }
@@ -263,4 +273,60 @@ fn lower_generic_ptr_lhs(
         None,
     );
     Operand::Value(r)
+}
+
+/// RFC 20260708-typed-arr-oob-read chunk 2 — `a[i] ?? d` where the
+/// lhs may hold the undefined-NaN sentinel: bits-compare picks rhs
+/// on the sentinel, lhs otherwise. Both sides are Number-typed
+/// (caller gate), so the result slot is F64; an I64-width rhs
+/// widens with coerce_to_f64.
+fn lower_f64_undefable_lhs(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs: ExprId) -> Operand {
+    let bits = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BitCastF64ToI64(lhs_op.clone()),
+        Type::I64,
+        None,
+    );
+    let is_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(
+            IPred::Eq,
+            Operand::Value(bits),
+            Operand::ConstI64(crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64),
+        ),
+        Type::Bool,
+        None,
+    );
+    let rhs_blk = ctx.f.add_block();
+    let lhs_blk = ctx.f.add_block();
+    let merge = ctx.f.add_block();
+    let slot = ctx.alloca_in_entry(Type::F64, Some("__f64nullish"));
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(is_undef),
+            then_blk: rhs_blk,
+            else_blk: lhs_blk,
+        },
+    );
+    ctx.cur_block = rhs_blk;
+    let rhs_raw = ctx.lower_expr(rhs);
+    let rhs_f64 = ctx.coerce_to_f64(rhs_raw);
+    let cur = ctx.cur_block;
+    ctx.f
+        .append_void(cur, InstKind::Store(rhs_f64, Operand::Value(slot), 0));
+    ctx.f.set_term(cur, Terminator::Br(merge));
+    ctx.cur_block = lhs_blk;
+    ctx.f
+        .append_void(lhs_blk, InstKind::Store(lhs_op, Operand::Value(slot), 0));
+    ctx.f.set_term(lhs_blk, Terminator::Br(merge));
+    ctx.cur_block = merge;
+    let out = ctx.f.append_inst(
+        merge,
+        InstKind::Load(Type::F64, Operand::Value(slot), 0),
+        Type::F64,
+        None,
+    );
+    Operand::Value(out)
 }

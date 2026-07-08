@@ -133,6 +133,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     if crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, init) {
         ctx.nullable_str_lets.insert(name.to_string());
     }
+    // RFC 20260708-typed-arr-oob-read chunk 2 — record `number[]`
+    // index-read let-inits (`const x = a[i]`) so typeof / strict-eq
+    // / nullish / print / box consumers treat the binding as
+    // possibly holding the undefined-NaN sentinel.
+    if crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, init) {
+        ctx.undefable_f64_lets.insert(name.to_string());
+    }
     // RFC 20260708-variadic — a rest-tail fn-type annotation
     // (`const t: (...xs: E[]) => R = …`) routes calls through the
     // boxed dual entry, same as a variadic-annotated param. An
