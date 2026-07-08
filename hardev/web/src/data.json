@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T03:05:46.036Z",
+  "generatedAt": "2026-07-08T04:39:29.711Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "661edfce",
-    "commitSubject": "feat: variadic-typed closure calls dispatch through the boxed dual entry with real argc",
+    "commit": "0b321f3f",
+    "commitSubject": "fix: return of a local any-array element retains instead of stranding the array",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "0b321f3f",
+      "subject": "fix: return of a local any-array element retains instead of stranding the array"
+    },
+    {
+      "hash": "b4dfd56d",
+      "subject": "fix: killed-chain closure bodies stay loud on every arguments touch"
+    },
+    {
+      "hash": "72749509",
+      "subject": "feat: full-arguments closures ride the boxed dual entry with a materialized argv array"
+    },
+    {
+      "hash": "94063587",
+      "subject": "feat: straight-line assignment narrowing for nullable bindings"
+    },
+    {
+      "hash": "418f9e7c",
+      "subject": "feat: variadic fn-type long-tail lanes close — heap ret transfer, named-fn forwarder, struct-field and inferred-binding boxed dispatch"
+    },
+    {
+      "hash": "3e9852bd",
+      "subject": "chore(dashboard): session snapshot @ 661edfce — rotation 45 final (665-669: closures reach promoted globals via capture filtering and globalref, json stringify null-obj gate mirrors the arr lane, str-array index reads route sentinel-aware typeof/eq, and the variadic fn-type rfc lands parser rest sentinel plus the boxed-dual-entry call lane with real argc; gate 1294 -> 1299 five green)"
+    },
+    {
       "hash": "661edfce",
       "subject": "feat: variadic-typed closure calls dispatch through the boxed dual entry with real argc"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "03f8c82a",
       "subject": "chore(dashboard): session snapshot @ 6c28428c — rotation 44 final (660-664: undefined-sentinel materialization goes zero-call via globalref to staticlib data symbols after the linker survey overturned the text-only-index note, the closure-argc rfc closes with arguments.length real argc for binding chains and untyped-hof mono rails plus the mono closure-shape sigbus root fix, and the json stringify concat chains settle their accumulator leaks; gate 1291 -> 1294 five green)"
-    },
-    {
-      "hash": "6c28428c",
-      "subject": "fix: json stringify concat lanes release their intermediate accumulators"
-    },
-    {
-      "hash": "8368f085",
-      "subject": "feat: arguments.length closure into untyped hof params carries real argc"
-    },
-    {
-      "hash": "38f2d4f6",
-      "subject": "fix: mono instantiates closure args as __cls slots instead of __fn"
-    },
-    {
-      "hash": "bac51290",
-      "subject": "feat: closure-value arguments.length real argc through safe binding chains"
-    },
-    {
-      "hash": "e1776607",
-      "subject": "perf: materialize undefined sentinel via globalref to staticlib data symbol"
-    },
-    {
-      "hash": "50d52e14",
-      "subject": "chore(dashboard): session snapshot @ 7569ffa0 — rotation 43 final (652-659: undefined-sentinel residuals four faces closed, two root-cause flips on the 648 ledger entries — wrong-block ssa call behind the regex churn leak and utf-16 misread behind the non-ascii json output — plus the cur-block snapshot family audit closed with the struct-method dispatch fix; gate 1283 -> 1291 eight green)"
     }
   ],
-  "headSha": "661edfce",
+  "headSha": "0b321f3f",
   "autorun": {
-    "total": 353,
+    "total": 354,
     "baselineTarget": 10,
-    "bySelf": 348,
+    "bySelf": 349,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783446536-3bef",
-      "at": "2026-07-07T17:48:56Z",
-      "ts": 1783446536,
+      "rotationId": "r-1783480024-01ca",
+      "at": "2026-07-08T03:07:04Z",
+      "ts": 1783480024,
       "trigger": "self",
-      "prevHead": "03f8c82a",
-      "handoffSha": "sha256:d3644c2e08ea5427f1d4670b46cd61ed00ec1b9d89166df86d6a917012d53f8f",
-      "handoffAgeSec": 22,
+      "prevHead": "3e9852bd",
+      "handoffSha": "sha256:6abf699070b5bdbe63f0a3e96fb2136bda2c12db07da2ac077ef48c7ca001806",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783480024-01ca",
+        "at": "2026-07-08T03:07:04Z",
+        "ts": 1783480024,
+        "trigger": "self",
+        "prevHead": "3e9852bd",
+        "handoffSha": "sha256:6abf699070b5bdbe63f0a3e96fb2136bda2c12db07da2ac077ef48c7ca001806",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783446536-3bef",
         "at": "2026-07-07T17:48:56Z",
@@ -876,17 +887,6 @@
         "prevHead": "d1c0a4bf",
         "handoffSha": "sha256:5a1975bd27b81645ba84de5f1e3442c372eb7ac13815f8a7e161f3e18bcad988",
         "handoffAgeSec": 50,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783359270-6144",
-        "at": "2026-07-06T17:34:30Z",
-        "ts": 1783359270,
-        "trigger": "self",
-        "prevHead": "70171d94",
-        "handoffSha": "sha256:81068be7246d73ff181e2343d099868e849ba1681c1a563855bd776fbb7cc551",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
