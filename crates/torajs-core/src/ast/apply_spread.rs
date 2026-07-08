@@ -38,6 +38,7 @@ const MAXARR_NAME: &str = "__torajs_math_maxarr";
 
 pub fn apply_spread_args(ast: &mut Ast) {
     apply_math_min_max_spread(ast);
+    super::apply_spread_push::apply_spread_push(ast);
     // Map: callee name -> fixed user-param count. Rest-param callees
     // are skipped (apply_rest_args already consumed their spread
     // call sites); closure-shape FnDecls (`__env` first param) are
