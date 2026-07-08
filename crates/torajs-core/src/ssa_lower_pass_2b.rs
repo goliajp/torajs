@@ -23,15 +23,29 @@ use crate::ssa_lower::Intrinsics;
 /// (`lift_arrow_fns`) runs per-expression with no statement context,
 /// so the binding is recovered here by walking every LetDecl whose
 /// init is (possibly `as`-wrapped) the lifted `Expr::Closure`.
-/// Returns `__closure_N` → binding-name. Assign-position
-/// (`f = () => {}`), object-field and default-export
-/// NamedEvaluation sites stay recorded follow-ups.
+/// Returns `__closure_N` → binding-name. Chunk 724 adds the
+/// assign position (`f = () => {}`, ES §13.15.2: an Ident target
+/// names the anonymous rhs), including chained `f = g = () => {}`
+/// where only the innermost assignment names the arrow (the outer
+/// rhs is an Assign expression, not an anonymous fn definition).
+/// Object-field, default-export and deeper expression-position
+/// assigns stay recorded follow-ups.
 fn collect_named_eval(ast: &Ast) -> HashMap<String, String> {
     fn init_closure_name(ast: &Ast, eid: ExprId) -> Option<&str> {
         match ast.get_expr(eid) {
             Expr::Closure { fn_name, .. } if fn_name.starts_with("__closure_") => Some(fn_name),
             Expr::As { expr, .. } => init_closure_name(ast, *expr),
             _ => None,
+        }
+    }
+    fn walk_assign(ast: &Ast, eid: ExprId, map: &mut HashMap<String, String>) {
+        if let Expr::Assign { target, value } = ast.get_expr(eid) {
+            if let (Expr::Ident(n), Some(cn)) =
+                (ast.get_expr(*target), init_closure_name(ast, *value))
+            {
+                map.insert(cn.to_string(), n.clone());
+            }
+            walk_assign(ast, *value, map);
         }
     }
     fn walk(ast: &Ast, s: &Stmt, map: &mut HashMap<String, String>) {
@@ -41,6 +55,7 @@ fn collect_named_eval(ast: &Ast) -> HashMap<String, String> {
                     map.insert(cn.to_string(), name.clone());
                 }
             }
+            Stmt::Expr(eid) => walk_assign(ast, *eid, map),
             Stmt::If {
                 then_branch,
                 else_branch,
