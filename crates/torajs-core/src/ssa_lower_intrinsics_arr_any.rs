@@ -77,6 +77,15 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         &[Type::I64],
         Type::Ptr,
     );
+    // Chunk 698 `__torajs_arr_any_to_typed` — fn_table-only (the
+    // let-decl assign-boundary conversion resolves it by name).
+    let _ = declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_arr_any_to_typed",
+        &[Type::Ptr, Type::I64],
+        Type::Ptr,
+    );
     ArrAnyIds {
         arr_alloc_any,
         arr_any_push: declare_intrinsic(

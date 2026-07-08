@@ -199,6 +199,20 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     // scope end (probe l16o: the alias path stranded the field's
     // +1, 25.6 MB churn vs 6.4 MB flat).
     let is_alias_init = is_alias_init && !ctx.owned_member_reads.contains(&init);
+    // Chunk 698 — the mirror of the chunk-621 crossing below: an
+    // `Array<Any>` value bound to a typed `Array<T>` annotation
+    // (`const a: number[] = Array.from(set)`). The typed raw-slot
+    // readers would misdecode NaN-box bits as element values
+    // (silent-wrong), so decode-copy into a fresh typed block at
+    // the assign boundary (a mismatched slot is a catchable
+    // TypeError); every downstream read stays on the typed fast
+    // path. The conversion runs BEFORE the ownership bookkeeping:
+    // whatever the init's shape, the binding now owns a fresh cell
+    // (no alias, no share-inc), while the source keeps its layout
+    // and its stake untouched (the helper always copies; an owned
+    // temp init releases through release_owned_temp).
+    let (init_val, converted) = maybe_arr_any_to_typed(ctx, ty, init, init_val);
+    let is_alias_init = is_alias_init && !converted;
     // RFC 20260705 ledger #2 (chunk 563) — a concrete value boxed into
     // an `any` slot is ALWAYS owned by the slot: `anyv_box_from_pair`
     // transfers one reference (NaN-box contract), and every any-slot
@@ -213,7 +227,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     if !is_alias_init {
         let pre_ty = ctx.operand_ty(&init_val);
         let shares = if let Expr::Ident(src) = ctx.ast.get_expr(init) {
-            ctx.locals.contains_key(src)
+            // Chunk 698 — a converted init is a fresh cell the
+            // binding owns outright; no share with the source.
+            !converted
+                && ctx.locals.contains_key(src)
                 && pre_ty.is_refcounted()
                 && !(ty == Type::Any && pre_ty != Type::Any)
         } else {
@@ -308,6 +325,70 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     top.push(name.to_string());
 }
 
+/// Chunk 698 — `Array<Any>` init bound to a typed `Array<T>`
+/// annotation: decode-copy into a fresh typed block via
+/// `__torajs_arr_any_to_typed` (mismatch = catchable TypeError).
+/// Answers `(value, converted)`; a `false` flag keeps the caller's
+/// pre-698 bookkeeping. Gated on the init's Any elem + a mappable
+/// target kind so typed→typed decls pay no call.
+fn maybe_arr_any_to_typed(
+    ctx: &mut LowerCtx,
+    ty: Type,
+    init: ExprId,
+    init_val: Operand,
+) -> (Operand, bool) {
+    // Owned shapes only (Call / literal / BinOp): the fresh value
+    // has no other reference, so the decode-copy is unobservable.
+    // A borrow-shape init (`const t: number[] = src`) is a JS
+    // reference alias — copying it would detach `t` from `src`'s
+    // later mutations; those keep the pre-698 behavior (L3b).
+    if !ctx.expr_owned_shape(init) {
+        return (init_val, false);
+    }
+    let init_ty = ctx.operand_ty(&init_val);
+    let (Type::Arr(ann_id), Type::Arr(init_id)) = (&ty, &init_ty) else {
+        return (init_val, false);
+    };
+    if ctx.arr_layouts[init_id.0 as usize] != Type::Any
+        || ctx.arr_layouts[ann_id.0 as usize] == Type::Any
+    {
+        return (init_val, false);
+    }
+    let Some(kind) = arr_elem_kind_const(&ctx.arr_layouts[ann_id.0 as usize]) else {
+        return (init_val, false);
+    };
+    let fid = *ctx
+        .fn_table
+        .get("__torajs_arr_any_to_typed")
+        .expect("__torajs_arr_any_to_typed intrinsic missing");
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(fid, vec![init_val, Operand::ConstI64(kind)]),
+        ty,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    // A fresh owned init (Call / literal) hands its only ref off
+    // here; a borrowed shape (Ident / Member) keeps the source
+    // binding's stake untouched (the helper always copies).
+    ctx.release_owned_temp(init, &init_val);
+    (Operand::Value(v), true)
+}
+
+/// Target elem type → `ARR_KIND_*` constant for the chunk-698
+/// assign-boundary conversion (mirror of `arr_kind_chain`'s low
+/// bits). `None` = no runtime kind can express the elem — the decl
+/// keeps the pre-698 behavior (no conversion).
+fn arr_elem_kind_const(elem: &Type) -> Option<i64> {
+    Some(match elem {
+        Type::I64 | Type::I32 => 1,
+        Type::F64 => 2,
+        Type::Bool => 3,
+        t if t.is_refcounted() => 4,
+        _ => return None,
+    })
+}
+
 /// K.3 / K.4 — top-level data global: main fn + name in `globals` emits
 /// GlobalRef + Store (K.6 empty-array fast path; refcount slots require
 /// fresh-heap init). Returns false when `name` is not a module global.
@@ -345,7 +426,12 @@ fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId) -> bool {
     } else {
         ctx.lower_expr(init)
     };
-    if slot_ty.is_refcounted() {
+    // Chunk 698 — general-path mirror: an `Array<Any>` init bound
+    // to a typed `Array<T>` global decode-copies into a fresh typed
+    // block (the global slot takes the fresh cell's only stake, so
+    // the borrow-inc below is skipped for converted inits).
+    let (init_val, converted) = maybe_arr_any_to_typed(ctx, slot_ty, init, init_val);
+    if slot_ty.is_refcounted() && !converted {
         let init_is_borrow = matches!(
             ctx.ast.get_expr(init),
             Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
