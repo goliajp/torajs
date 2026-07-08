@@ -40,9 +40,10 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
     }
     let first_ty = match first_ty {
         Some(t) => t,
-        None => {
-            return Err("array of all-empty inner literals — cannot infer element type".into());
-        }
+        // All-empty inner literals (`[[]]`, `[[], []]`) — extend the
+        // P0.10 empty-`[]` default one level: each inner `[]` is
+        // `Array<Any>`, so the outer infers `Array<Array<Any>>`.
+        None => Type::Array(Box::new(Type::Any)),
     };
     let mut heterogeneous = false;
     for &eid in ids.iter() {
