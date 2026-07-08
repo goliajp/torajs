@@ -66,7 +66,20 @@ pub(crate) fn emit_nullable_arr_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, arr_v
 pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     match ctx.ast.get_expr(eid) {
         Expr::Ident(n) => ctx.nullable_str_lets.contains(n),
-        Expr::Index { obj, .. } => is_nullable_arr_source(ctx, *obj),
+        // 660 residual — a `string[]` element slot may hold the Str
+        // sentinel (an OOB string-index read pushed/stored into the
+        // array), so any Str-array index read routes the same as a
+        // nullable-arr element load: typeof takes the two-state
+        // runtime branch, the eq fast path declines to the identity-
+        // aware compare, `.length` guards. Over-broad for in-range
+        // reads — one well-predicted runtime call, never wrong.
+        Expr::Index { obj, .. } => {
+            is_nullable_arr_source(ctx, *obj)
+                || matches!(
+                    ctx.expr_types.get(obj),
+                    Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::String
+                )
+        }
         // RFC 20260707 residual chunk — `process.env.X` answers the
         // undefined sentinel on a missing var (chunk 644 producer),
         // so a `.length` load on it (direct or via a let alias)
