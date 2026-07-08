@@ -167,11 +167,17 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * LetDecl arm unfolds per the slot struct schema.
          * MVP: entries are assumed to be in struct field
          * declaration order (matches Object.entries
-         * round-trip), no key-matching scan. */
-        (Type::Object("Object"), "fromEntries") => Type::Function(
-            vec![Type::Array(Box::new(Type::Array(Box::new(Type::Any))))],
-            Box::new(Type::Any),
-        ),
+         * round-trip), no key-matching scan.
+         *
+         * Chunk 693 — the param widens from Array<Array<Any>>
+         * to Any: the runtime dynobj walker takes every pairs
+         * shape (Array<Array<String>>, an Object.entries result
+         * typed Array<Any>, …) kind-aware per slot, and its
+         * ToObject/iterable guard throws the loud TypeError for
+         * non-array receivers. */
+        (Type::Object("Object"), "fromEntries") => {
+            Type::Function(vec![Type::Any], Box::new(Type::Any))
+        }
         /* S258 — Object.values(obj) → Array<Any>. SSA-emit
          * already dispatches Obj/Arr/Str/Any receivers
          * (ssa_lower.rs ~18495); checktime sig was missing.

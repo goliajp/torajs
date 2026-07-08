@@ -269,6 +269,7 @@ pub(crate) mod ssa_lower_call_number_methods;
 pub(crate) mod ssa_lower_call_number_namespace;
 pub(crate) mod ssa_lower_call_object_assign;
 pub(crate) mod ssa_lower_call_object_entries;
+pub(crate) mod ssa_lower_call_object_fromentries;
 pub(crate) mod ssa_lower_call_object_get_property_descriptor;
 pub(crate) mod ssa_lower_call_object_get_prototype_of;
 pub(crate) mod ssa_lower_call_object_integrity;

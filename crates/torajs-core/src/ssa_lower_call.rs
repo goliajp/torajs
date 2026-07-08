@@ -228,6 +228,11 @@ fn try_dispatch_c(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Op
     if let Some(op) = crate::ssa_lower_call_object_entries::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // T-09 chunk 693 — `Object.fromEntries(entries)` runtime dynobj build
+    // (Arr / Any receivers; the annotated-let fast-path ran earlier).
+    if let Some(op) = crate::ssa_lower_call_object_fromentries::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     // v0.2 #3 — `Object.is(a, b)` SameValue dispatch (F64 → object_is_f64; Str → str_eq; ...).
     if let Some(op) = crate::ssa_lower_call_object_is::try_lower(ctx, callee, args) {
         return Some(op);
