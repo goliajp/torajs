@@ -358,23 +358,51 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             // chunk 715 — a reified builtin method cell answers its
             // ES-spec arity; chunk 716 — an ordinary closure walks
             // the fn-addr registry (the entry's former pad slot now
-            // carries the fn-decl arity). A registry miss (arrow /
-            // anon closures never register) stays undefined — the
-            // binding-context NamedEvaluation face is a recorded
-            // follow-up.
-            if let Some(arity) = crate::method_value::builtin_method_arity(ptr) {
-                return crate::nanbox_encode::__torajs_anyv_box_i64(arity as i64);
-            }
-            let fn_addr = *(ptr.cast::<u8>().add(MIRROR_CLOSURE_FN_ADDR_OFF) as *const u64);
-            let mut name_len: u32 = 0;
-            let mut arity: u32 = 0;
-            let name_ptr = __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity);
-            if !name_ptr.is_null() {
-                return crate::nanbox_encode::__torajs_anyv_box_i64(arity as i64);
+            // carries the fn-decl arity); chunk 719 — a bound cell
+            // answers `max(0, targetLength - boundArgc)` recursively
+            // (ES §20.2.3.2 BoundFunctionCreate). A registry miss
+            // (arrow / anon closures never register) stays undefined
+            // — the binding-context NamedEvaluation face is a
+            // recorded follow-up, and a bound-of-unregistered target
+            // inherits the undefined (recorded edge; ES would answer
+            // 0 via the has-length fallback).
+            if let Some(l) = closure_length_of(ptr) {
+                return crate::nanbox_encode::__torajs_anyv_box_i64(l);
             }
         }
     }
     VALUE_UNDEFINED
+}
+
+/// ES `length` of a closure-tagged cell: method-cell arity, bound
+/// cell (recursive over its target, partial args subtract), or the
+/// fn-addr registry's fn-decl arity. `None` = no metadata (arrow /
+/// anon closures off the registry).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+unsafe fn closure_length_of(ptr: *mut c_void) -> Option<i64> {
+    unsafe {
+        if let Some(arity) = crate::method_value::builtin_method_arity(ptr) {
+            return Some(arity as i64);
+        }
+        if let Some((kind, target, bargc)) = crate::method_bind::bound_cell_meta(ptr) {
+            let tlen = if kind == 0 {
+                torajs_rc::any_method_meta(target as i64).map(|(_, a)| a as i64)
+            } else {
+                closure_length_of(target as *mut c_void)
+            };
+            return tlen.map(|l| (l - bargc as i64).max(0));
+        }
+        let fn_addr = *(ptr.cast::<u8>().add(MIRROR_CLOSURE_FN_ADDR_OFF) as *const u64);
+        let mut name_len: u32 = 0;
+        let mut arity: u32 = 0;
+        let name_ptr = __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity);
+        if !name_ptr.is_null() {
+            return Some(arity as i64);
+        }
+        None
+    }
 }
 
 /// `recv.size` where the receiver is an `any` value

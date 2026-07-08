@@ -109,6 +109,28 @@ pub(crate) unsafe fn bind_cell(ptr: *mut c_void, argv: *const u64, argc: i64) ->
     }
 }
 
+/// Bound-cell metadata `(kind, target, bound_argc)` — `None` for
+/// every other closure shape (discriminated by the boxed entry's
+/// address, the `builtin_method_mid` pattern). Chunk 719 — the
+/// `.name` / `.length` reflection reads key off this.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+pub(crate) unsafe fn bound_cell_meta(ptr: *mut c_void) -> Option<(u64, u64, usize)> {
+    unsafe {
+        let cell = ptr.cast::<u8>();
+        let entry = *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
+        if entry != bound_entry as *const () as u64 {
+            return None;
+        }
+        Some((
+            *(cell.add(BOUND_KIND_OFF) as *const u64),
+            *(cell.add(BOUND_TARGET_OFF) as *const u64),
+            *(cell.add(BOUND_ARGC_OFF) as *const u64) as usize,
+        ))
+    }
+}
+
 /// Boxed dual entry of a bound cell — concatenate the partial
 /// arguments with the call's own and dispatch the target.
 unsafe extern "C" fn bound_entry(env: *mut c_void, argv: *const u64, argc: i64) -> u64 {

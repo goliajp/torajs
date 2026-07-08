@@ -103,11 +103,41 @@ unsafe fn closure_name(ptr: *mut c_void) -> AnyValue {
                 return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
             }
         }
+        let cell = closure_name_str(ptr);
+        crate::nanbox_encode::__torajs_anyv_box_from_pair(4, cell as i64)
+    }
+}
+
+/// The name Str cell of a closure-tagged cell, owned protocol:
+/// method cells answer their interned immortal cell (drop no-ops on
+/// the static flag), everything else answers a fresh rc=1 Str.
+/// Recursive over bound-cell targets (chunk 719 — ES §20.2.3.2
+/// SetFunctionName: `"bound " + targetName`, nesting concatenates
+/// outside-in). An expando `name` shadow on a bound TARGET is not
+/// consulted here (recorded edge; the receiving cell's own expando
+/// shadows in `closure_name` before this runs).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+unsafe fn closure_name_str(ptr: *mut c_void) -> *mut u8 {
+    unsafe {
         if let Some(cell) = crate::method_value::builtin_method_name_cell_of(ptr) {
-            // Immortal interned cell — the owned drop no-ops on the
-            // static flag, so handing it out under the owned
-            // protocol needs no extra reference.
-            return crate::nanbox_encode::__torajs_anyv_box_from_pair(4, cell as i64);
+            return cell;
+        }
+        if let Some((kind, target, _)) = crate::method_bind::bound_cell_meta(ptr) {
+            let tname: *mut u8 = if kind == 0 {
+                let name = torajs_rc::any_method_meta(target as i64).map_or("", |(n, _)| n);
+                __torajs_str_alloc(name.as_ptr(), name.len() as i64)
+            } else {
+                closure_name_str(target as *mut c_void)
+            };
+            let prefix = __torajs_str_alloc(c"bound ".as_ptr() as *const u8, 6);
+            let joined = crate::__torajs_str_concat(prefix as *const u8, tname as *const u8);
+            __torajs_str_drop(prefix as *mut c_void);
+            // Fresh target names drop; an interned method-name cell
+            // no-ops on the static flag.
+            __torajs_str_drop(tname as *mut c_void);
+            return joined as *mut u8;
         }
         let fn_addr = *(ptr.cast::<u8>().add(CLOSURE_FN_ADDR_OFF) as *const u64);
         let mut name_len: u32 = 0;
@@ -118,13 +148,11 @@ unsafe fn closure_name(ptr: *mut c_void) -> AnyValue {
             // empty string (arrow / anon closures never register;
             // the binding-name NamedEvaluation face is a recorded
             // follow-up).
-            let s = __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
-            return crate::nanbox_encode::__torajs_anyv_box_from_pair(4, s as i64);
+            return __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
         }
         // Raw rodata bytes → fresh owned Str. ASCII names byte-copy
         // exactly; the non-ASCII UTF-16 payload face shares the
         // fn-print helper's recorded TODO.
-        let s = __torajs_str_alloc(name_ptr, i64::from(name_len));
-        crate::nanbox_encode::__torajs_anyv_box_from_pair(4, s as i64)
+        __torajs_str_alloc(name_ptr, i64::from(name_len))
     }
 }
