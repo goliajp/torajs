@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T11:15:12.957Z",
+  "generatedAt": "2026-07-08T11:25:28.490Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "8737ea85",
-    "commitSubject": "chore(bench): 3-run @ be30d0a9 — rotation 50 close",
+    "commit": "ca01081d",
+    "commitSubject": "fix: regex test/exec materialize substr-view haystacks",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "ca01081d",
+      "subject": "fix: regex test/exec materialize substr-view haystacks"
+    },
+    {
+      "hash": "7324492e",
+      "subject": "chore(dashboard): session snapshot @ 8737ea85 — rotation 50 (694-698: object.fromentries closes the receiver family with map/set hash-storage arms; the wrap-probe sweep marks the W-O-3 line-wrap entry stale — chunks 535-539 already cover it — and chains three fresh gaps to closure: all-empty nested literal inference, array.from array-like length objects, and index-read push receivers unblocked by the B1 cell-stability audit; two pre-existing silent-wrongs fixed en route — the any-dst mapfn array missing FLAG_ARR_ANY and the typed-binding nan-box misdecode via the new arr_any_to_typed decode-copy; gate 1323 -> 1328 five green; bench 3-run at be30d0a9 verifies the push-lane touch neutral)"
+    },
+    {
       "hash": "8737ea85",
       "subject": "chore(bench): 3-run @ be30d0a9 — rotation 50 close"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "d467532c",
       "subject": "feat: object.getownpropertysymbols answers the empty symbol list"
-    },
-    {
-      "hash": "ed5da2a4",
-      "subject": "feat: static object.fromentries folds to an object literal"
-    },
-    {
-      "hash": "611bdb56",
-      "subject": "feat: non-ident spread sources hoist into a compiler temp"
     }
   ],
-  "headSha": "8737ea85",
+  "headSha": "ca01081d",
   "autorun": {
     "total": 358,
     "baselineTarget": 10,
