@@ -174,6 +174,13 @@ pub const ANY_METHOD_REPLACE_ALL: i64 = 74;
 pub const ANY_METHOD_STARTS_WITH: i64 = 75;
 /// `String.prototype.endsWith` (chunk 692).
 pub const ANY_METHOD_ENDS_WITH: i64 = 76;
+/// `Function.prototype.call` (chunk 710) — the `Tag::Closure` arm
+/// drops the thisArg (a torajs closure body cannot reference `this`)
+/// and invokes the boxed dual entry with the remaining arguments.
+pub const ANY_METHOD_CALL: i64 = 77;
+/// `Function.prototype.apply` (chunk 710) — same thisArg drop; the
+/// argument list unpacks from the second argument's Arr cell.
+pub const ANY_METHOD_APPLY: i64 = 78;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -292,6 +299,8 @@ pub fn any_method_id(name: &str) -> i64 {
         "endsWith" => ANY_METHOD_ENDS_WITH,
         "test" => ANY_METHOD_TEST,
         "exec" => ANY_METHOD_EXEC,
+        "call" => ANY_METHOD_CALL,
+        "apply" => ANY_METHOD_APPLY,
         "keys" => ANY_METHOD_KEYS,
         "values" => ANY_METHOD_VALUES,
         "entries" => ANY_METHOD_ENTRIES,

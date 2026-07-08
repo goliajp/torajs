@@ -97,6 +97,8 @@ mod member_get;
 mod member_props_regexp;
 mod member_set;
 mod method_call;
+mod method_call_arr;
+mod method_call_closure;
 mod method_call_date;
 mod method_call_dynobj;
 mod method_call_mapset;
