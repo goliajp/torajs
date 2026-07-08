@@ -21,10 +21,11 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// `xs.pop()` / `xs.shift()` / `xs.unshift(v)` on Ident receivers
-    /// (local or const-global Array<T>) and Arr-typed Member
-    /// receivers (`b.arr.shift()`, chunk 628). Returns None when the
-    /// callee is some other member-call shape — the caller's dispatch
-    /// chain continues.
+    /// (local or const-global Array<T>), Arr-typed Member receivers
+    /// (`b.arr.shift()`, chunk 628), and Arr-typed Index receivers
+    /// (`z[i].pop()`, chunk 700). Returns None when the callee is
+    /// some other member-call shape — the caller's dispatch chain
+    /// continues.
     pub(crate) fn try_lower_arr_pop_shift_unshift(
         &mut self,
         callee: ExprId,
@@ -40,7 +41,7 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// Chunk 628 — mutator receiver resolution shared by pop / shift /
-    /// unshift. Three receiver shapes:
+    /// unshift. Four receiver shapes:
     ///
     /// - Ident bound to a local `Array<T>` — load the stack slot.
     /// - Ident bound to a K.3 const-global `Array<T>` — GlobalRef +
@@ -50,6 +51,10 @@ impl<'a> LowerCtx<'a> {
     ///   the B1 fixed cell (unshift), so no write-back is needed. The
     ///   checker's expr type gates BEFORE lowering so a decline emits
     ///   nothing.
+    /// - Arr-typed Index expr (`z[i].pop()`, chunk 700) — same story:
+    ///   the elem read is a +0 borrow and B1 fixed the cell across
+    ///   grow, so the historical "no place to store a realloc'd
+    ///   pointer" rejection is moot (the chunk-697 push twin).
     fn resolve_mutator_arr_receiver(&mut self, recv_id: ExprId) -> Option<(Operand, Type)> {
         match self.ast.get_expr(recv_id) {
             Expr::Ident(recv_name) => {
@@ -84,7 +89,7 @@ impl<'a> LowerCtx<'a> {
                 }
                 None
             }
-            Expr::Member { .. } => {
+            Expr::Member { .. } | Expr::Index { .. } => {
                 if !matches!(
                     self.expr_types.get(&recv_id),
                     Some(crate::check::Type::Array(_))
