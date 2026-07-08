@@ -15,7 +15,7 @@
 //! - `Type::Str` — per-char Str array (spec §22.1.5.2 + §20.1.2.20) via
 //!   `__torajs_str_to_char_arr`, identical to W-M-rest materialize so the
 //!   resulting Strs round-trip through console.log / dynobj stores.
-//! - `Type::Any` (W-J Phase C2) — `__torajs_anyv_struct_values` runtime
+//! - `Type::Any` (W-J Phase C2) — `__torajs_anyv_own_values` runtime
 //!   helper; struct identity is only known at runtime, so the helper
 //!   reads each field slot and boxes it per its metadata `type_tag`
 //!   into an `Arr<Any>`. Non-struct cells throw loudly — propagated via
@@ -127,7 +127,7 @@ pub(crate) fn try_lower(
     }
 
     // W-J Phase C2 — Any receiver: struct identity is only known at
-    // runtime. Route through `__torajs_anyv_struct_values`, which reads
+    // runtime. Route through `__torajs_anyv_own_values`, which reads
     // each field slot and boxes it per its metadata type_tag into an
     // `Arr<Any>`. A non-struct cell throws loudly inside the helper —
     // propagate it.
@@ -135,7 +135,7 @@ pub(crate) fn try_lower(
         let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.anyv_struct_values, vec![arg_op]),
+            InstKind::Call(ctx.intrinsics.anyv_own_values, vec![arg_op]),
             Type::Arr(arr_id),
             None,
         );
@@ -166,7 +166,7 @@ pub(crate) fn try_lower(
         let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.anyv_struct_values, vec![boxed]),
+            InstKind::Call(ctx.intrinsics.anyv_own_values, vec![boxed]),
             Type::Arr(arr_id),
             None,
         );

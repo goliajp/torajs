@@ -31,7 +31,7 @@
 //! - Object.values / entries (W-O): `str_to_char_arr`,
 //!   `arr_entries_by_tag`, `str_entries`.
 //! - Struct Any reflection (W-J Phase C): `anyv_struct_keys`,
-//!   `anyv_struct_values`, `anyv_struct_entries`.
+//!   `anyv_own_values`, `anyv_own_entries`.
 //! - String index descriptor (W-M-rest): `str_index_descriptor`.
 //! - preventExtensions / seal (RFC C5b): `anyv_prevent_extensions`,
 //!   `anyv_is_extensible`, `anyv_seal`, `anyv_is_sealed`.
@@ -78,8 +78,10 @@ pub(crate) struct ObjectIds {
     pub arr_entries_by_tag: FuncId,
     pub str_entries: FuncId,
     pub anyv_struct_keys: FuncId,
-    pub anyv_struct_values: FuncId,
-    pub anyv_struct_entries: FuncId,
+    /// Chunk 706 — any-receiver values/entries chooser: DynObj
+    /// walk (getter-invoking, ES order) or the struct arm.
+    pub anyv_own_values: FuncId,
+    pub anyv_own_entries: FuncId,
     pub anyv_from_entries: FuncId,
     pub str_index_descriptor: FuncId,
     pub anyv_prevent_extensions: FuncId,
@@ -135,8 +137,8 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_entries_by_tag: decl!("__torajs_arr_entries_by_tag", [Ptr, I64], Ptr),
         str_entries: decl!("__torajs_str_entries", [Ptr], Ptr),
         anyv_struct_keys: decl!("__torajs_anyv_struct_keys", [Any], Ptr),
-        anyv_struct_values: decl!("__torajs_anyv_struct_values", [Any], Ptr),
-        anyv_struct_entries: decl!("__torajs_anyv_struct_entries", [Any], Ptr),
+        anyv_own_values: decl!("__torajs_anyv_own_values", [Any], Ptr),
+        anyv_own_entries: decl!("__torajs_anyv_own_entries", [Any], Ptr),
         anyv_from_entries: decl!("__torajs_anyv_from_entries", [Any], Any),
         str_index_descriptor: decl!("__torajs_anyv_str_index_descriptor", [Ptr, I64], Any),
         anyv_prevent_extensions: decl!("__torajs_anyv_prevent_extensions", [Any], Any),

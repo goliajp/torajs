@@ -14,7 +14,7 @@
 //!   length at `STR_LEN_OFF=8` and looping `__torajs_str_at` to mint
 //!   fresh Strs per code unit (same materialize choice as W-O-2 /
 //!   W-M-rest). Returns `Arr<Arr<2>>` of `[idx_str, char_str]` pairs.
-//! - `Type::Any` (W-J Phase C3) — `__torajs_anyv_struct_entries` runtime
+//! - `Type::Any` (W-J Phase C3) — `__torajs_anyv_own_entries` runtime
 //!   helper; struct identity is only known at runtime, so the helper
 //!   walks `struct_enum` building an `Arr<Arr<Any>>` of `[name, value]`
 //!   pairs. Non-struct cells throw loudly — propagated via
@@ -117,7 +117,7 @@ pub(crate) fn try_lower(
         let outer_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Arr(inner_arr_id));
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.anyv_struct_entries, vec![arg_op]),
+            InstKind::Call(ctx.intrinsics.anyv_own_entries, vec![arg_op]),
             Type::Arr(outer_arr_id),
             None,
         );
