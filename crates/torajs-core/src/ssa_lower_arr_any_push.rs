@@ -34,6 +34,20 @@ impl<'a> LowerCtx<'a> {
         self.emit_arr_any_grow_at_slot(base, offset, arg_id, arr_ty, fid)
     }
 
+    /// Chunk 697 — `xs[i].push(v)` for an already-loaded `Array<Any>`
+    /// receiver value (index-read receivers have no slot to hand
+    /// over; B1 fixed the cell across grow so the slot was only ever
+    /// used for the initial load anyway — the unshift twin below).
+    pub(crate) fn emit_arr_any_push_at_value(
+        &mut self,
+        cur_arr: Operand,
+        arg_id: ExprId,
+        arr_ty: Type,
+    ) -> Operand {
+        let fid = self.intrinsics.arr_push_any;
+        self.emit_arr_any_grow_at_value(cur_arr, arg_id, arr_ty, fid)
+    }
+
     /// Chunk 628 — `xs.unshift(v)` for an already-loaded `Array<Any>`
     /// receiver value (Member-expr receivers like `b.arr.unshift(v)`
     /// have no slot to hand over; B1 fixed the cell across grow so

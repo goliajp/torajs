@@ -3,9 +3,10 @@
 //! of the `Expr::Call` god-arm decomp (chunks 1-3 = Arr higher-order +
 //! Map dispatch + Set dispatch).
 //!
-//! Three legal receiver shapes (other shapes like `getArr().push(v)` are
-//! rejected upstream — there's no place to store a possibly-realloc'd
-//! pointer):
+//! Four legal receiver shapes (other shapes like `getArr().push(v)` are
+//! rejected upstream; B1 fixed the cell across grow so the historical
+//! "no place to store a realloc'd pointer" concern is gone — remaining
+//! rejections are just unwired shapes):
 //! - (a) Ident bound to a mutable `Type::Arr` local — load cur ptr from
 //!   the slot, call `arr_push` (which may realloc), store result back
 //!   into the slot. Includes the v0.6+1 push-loop pre-reserve fast-path:
@@ -37,8 +38,9 @@ use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE};
 
 /// Try to lower `<recv>.push(v)`. Returns `Some(new_len)` when one of the
-/// three legal receiver shapes (local Ident, K.8 global Ident, or
-/// `obj.field`) matches; `None` falls through to the next dispatch arm.
+/// four legal receiver shapes (local Ident, K.8 global Ident, `xs[i]`
+/// index read, or `obj.field`) matches; `None` falls through to the next
+/// dispatch arm.
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
     callee: ExprId,
@@ -57,7 +59,49 @@ pub(crate) fn try_lower(
     if let Some(op) = try_lower_ident_global(ctx, recv_id, args) {
         return Some(op);
     }
+    if let Some(op) = try_lower_index(ctx, recv_id, args) {
+        return Some(op);
+    }
     try_lower_field(ctx, recv_id, args)
+}
+
+/// (c) `xs[i].push(v)` — index-read receiver (chunk 697). B1 fixed
+/// the arr cell across grow (the data pointer indirection absorbs
+/// realloc), so the borrowed elem read IS the receiver and no
+/// outer-slot write-back exists to miss — the historical "no place
+/// to store a possibly-realloc'd pointer" rejection is moot.
+fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> Option<Operand> {
+    if !matches!(ctx.ast.get_expr(recv_id), Expr::Index { .. }) {
+        return None;
+    }
+    let recv_val = ctx.lower_expr(recv_id);
+    let recv_ty = ctx.operand_ty(&recv_val);
+    let arr_id = match recv_ty {
+        Type::Arr(id) => id,
+        _ => return None,
+    };
+    let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+    if matches!(elem_ty, Type::Any) {
+        return Some(ctx.emit_arr_any_push_at_value(recv_val, args[0], recv_ty));
+    }
+    let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
+    let push_arg = ctx.raw_slot_arg(val);
+    let new_arr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.arr_push, vec![recv_val, push_arg]),
+        recv_ty,
+        None,
+    );
+    if elem_ty.is_refcounted() && !val_owned_from_substr {
+        ctx.emit_rc_inc(val);
+    }
+    let new_len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    Some(Operand::Value(new_len))
 }
 
 /// (a) Ident-receiver path: local binding to mutable `Type::Arr`. Includes
