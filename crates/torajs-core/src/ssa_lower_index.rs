@@ -29,9 +29,14 @@
 //!   `LoadDyn(elem_ty, arr_val, offset)` where offset is computed
 //!   by `emit_arr_slot_byte_offset` (T-13.5 deque: `24 + (idx +
 //!   head) * 8`; non-deque names take the fast path via 11-A1
-//!   `arr_expr_is_non_deque` peek). Bounds-checking is deferred
-//!   (currently unchecked — UB on OOB, matches bun's hot-path
-//!   behaviour after JIT).
+//!   `arr_expr_is_non_deque` peek).
+//!   - **Str elems** (RFC 20260708-typed-arr-oob-read chunk 1) —
+//!     bounds-branched: a negative or `>= len` index answers the
+//!     immortal `undefined` Str sentinel (ES §10.4.3 [[Get]] miss)
+//!     instead of reading a garbage/NULL slot. The in-bounds check
+//!     is loop-eliminable (dominated by `i < arr.length` guards).
+//!   - Other concrete elems stay unchecked (UB on OOB) — the F64
+//!     sentinel + I64/Bool decision is the RFC's chunks 2-3.
 //!
 //! Returns `Operand` directly (terminal arm — caller's
 //! `Expr::Index` match arm bottoms out here, no None fall-through).
@@ -90,6 +95,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
     if elem_ty == Type::Any {
         return lower_array_any_index(ctx, arr_val, idx_val);
     }
+    if elem_ty == Type::Str {
+        return lower_typed_str_index(ctx, arr_val, idx_val, is_non_deque);
+    }
     let (offset_base, offset) =
         ctx.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
     let cur_block = ctx.cur_block;
@@ -100,6 +108,90 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
         None,
     );
     Operand::Value(v)
+}
+
+/// `string[]` indexed read with the OOB bounds branch (RFC
+/// 20260708-typed-arr-oob-read chunk 1). A negative or `>= len`
+/// index answers the immortal `undefined` Str sentinel — every
+/// downstream consumer (print / typeof / strict-eq / nullish /
+/// json) already handles it through the chunk 649-667 family, and
+/// the chunk 667 `is_nullable_str_source` Index arm already
+/// two-states `typeof arr[i]` for Array<Str> receivers. The
+/// sentinel is FLAG_STATIC_LITERAL so the borrow-shaped index-read
+/// convention (no rc traffic) holds on both branches.
+fn lower_typed_str_index(
+    ctx: &mut LowerCtx<'_>,
+    arr_val: Operand,
+    idx_val: Operand,
+    is_non_deque: bool,
+) -> Operand {
+    use crate::ssa::{IPred, Terminator};
+    use crate::ssa_lower::ARR_LEN_OFF;
+    use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
+    let len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, arr_val.clone(), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let slot = ctx.alloca_in_entry(Type::Str, Some("__oob_str"));
+    let oob_blk = ctx.f.add_block();
+    let chk2_blk = ctx.f.add_block();
+    let in_blk = ctx.f.add_block();
+    let merge = ctx.f.add_block();
+    let neg = ctx.cmp(IPred::Slt, idx_val.clone(), Operand::ConstI64(0));
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: neg,
+            then_blk: oob_blk,
+            else_blk: chk2_blk,
+        },
+    );
+    ctx.cur_block = chk2_blk;
+    let over = ctx.cmp(IPred::Sge, idx_val.clone(), Operand::Value(len));
+    ctx.f.set_term(
+        chk2_blk,
+        Terminator::CondBr {
+            cond: over,
+            then_blk: oob_blk,
+            else_blk: in_blk,
+        },
+    );
+    let sentinel = ctx.f.append_inst(
+        oob_blk,
+        InstKind::GlobalRef(STR_UNDEF_CELL_SYM.to_string()),
+        Type::Str,
+        None,
+    );
+    ctx.f.append_void(
+        oob_blk,
+        InstKind::Store(Operand::Value(sentinel), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(oob_blk, Terminator::Br(merge));
+    ctx.cur_block = in_blk;
+    let (offset_base, offset) = ctx.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
+    let cur = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur,
+        InstKind::LoadDyn(Type::Str, offset_base, offset),
+        Type::Str,
+        None,
+    );
+    ctx.f.append_void(
+        cur,
+        InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(cur, Terminator::Br(merge));
+    ctx.cur_block = merge;
+    let out = ctx.f.append_inst(
+        merge,
+        InstKind::Load(Type::Str, Operand::Value(slot), 0),
+        Type::Str,
+        None,
+    );
+    Operand::Value(out)
 }
 
 /// `s[i]` — string INDEX read, routed through the index-get runtime
