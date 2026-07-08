@@ -12,6 +12,10 @@
 //! - `Type::Arr(_)` — a raw Arr pointer already satisfies the
 //!   cell encoding; PtrToInt→IntToPtr exposes it as Any bits
 //!   (the any_box writeback idiom).
+//! - `Type::Map` / `Type::Set` (chunk 694) — same raw-pointer
+//!   exposure (the hash cell is self-describing, no kind stamp);
+//!   the walker rides `__torajs_map_iter_next` over the shared
+//!   storage.
 //! - `Type::Any` — passed through; undefined / null / non-array
 //!   cells throw a catchable TypeError inside the helper.
 //!
@@ -55,11 +59,15 @@ pub(crate) fn try_lower(
     let arg_ty = ctx.operand_ty(&arg_op);
     let any_bits = match arg_ty {
         Type::Any => arg_op,
-        Type::Arr(_) => {
-            // Stamp the elem kind (recursively — the chain covers the
-            // inner pair arrays) so the walker's kind-aware borrowed
-            // reads see a self-describing block instead of UNSET.
-            ctx.emit_arr_mark_kind(&arg_op);
+        Type::Arr(_) | Type::Map | Type::Set => {
+            if matches!(arg_ty, Type::Arr(_)) {
+                // Stamp the elem kind (recursively — the chain covers
+                // the inner pair arrays) so the walker's kind-aware
+                // borrowed reads see a self-describing block instead
+                // of UNSET. Hash cells need no stamp (the heap
+                // header's type_tag routes the walker).
+                ctx.emit_arr_mark_kind(&arg_op);
+            }
             let as_i64 =
                 ctx.f
                     .append_inst(ctx.cur_block, InstKind::PtrToInt(arg_op), Type::I64, None);
