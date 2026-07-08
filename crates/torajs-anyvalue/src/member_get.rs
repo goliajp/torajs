@@ -144,13 +144,14 @@ unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
 /// - Arr / Closure expandos → present non-nullish → 1; absent falls
 ///   through to the builtin test (an Arr's `push` is not an expando).
 /// - struct cell (`Tag::Obj`) → class-layout field probe; found → 1;
-///   miss falls through (harmless: the opt dispatcher's no-such arm
-///   answers undefined).
-/// - everything else → OPTIMISTIC: a known builtin method id enters
-///   the call step (there is no per-arm support table); a wrong-arm
-///   id lands on the opt dispatcher's no-such arm and answers
-///   undefined. Residual: the args evaluate where ES would
-///   short-circuit (`(42 as any).slice?.(f())` runs `f`) — recorded.
+///   miss falls through to the support table (a struct has no
+///   builtin methods, so the miss short-circuits to undefined).
+/// - everything else → the exact per-receiver-shape support table
+///   (chunk 711's `builtin_method_supported`): a supported id
+///   enters the call step; a wrong-arm id short-circuits to
+///   undefined without evaluating the arguments (chunk 713 —
+///   closes 709's recorded residual where `(42 as any).slice?.(f())`
+///   ran `f`).
 ///
 /// # Safety
 /// Cell receivers are valid heap pointers; `key` is a live Str cell.
@@ -198,7 +199,12 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
         }
         _ => {}
     }
-    (mid != torajs_rc::ANY_METHOD_UNKNOWN) as i64
+    // chunk 713 — exact per-receiver-shape support table (chunk
+    // 711's reification table) instead of the optimistic known-id
+    // test: a wrong-arm name short-circuits to undefined WITHOUT
+    // evaluating the arguments (`(42 as any).slice?.(f())` no
+    // longer runs `f`, closing chunk 709's recorded residual).
+    crate::method_value::builtin_method_supported(recv, mid) as i64
 }
 
 /// See module doc.
