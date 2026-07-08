@@ -75,7 +75,22 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: Exp
             crate::ssa_lower_index::lower_from_value(ctx, eid, obj, index, obj_op, is_non_deque);
         match ctx.operand_ty(&v) {
             Type::Any => v,
-            _ => ctx.box_to_any(v),
+            vt => {
+                let boxed = ctx.box_to_any(v.clone());
+                // Chunk 726 — a Str/Substr receiver's index read is
+                // a FRESH view (owned, rc=1) and the box helper adds
+                // its own +1: release the original stake so the box
+                // holds the only one, and record the eid owned so
+                // the consumer's release balances (probe q726b:
+                // discarded `s?.[i]` churn 15.2MB vs 6.2MB flat).
+                // The typed-array element arm measures flat as a
+                // borrow (q726e) and stays off the owned track.
+                if matches!(obj_ty, Type::Str | Type::Substr) && vt.is_refcounted() {
+                    ctx.emit_drop_value(v, vt);
+                    ctx.owned_member_reads.insert(eid);
+                }
+                boxed
+            }
         }
     };
     ctx.f.append_void(
@@ -155,8 +170,16 @@ fn lower_any_hit(ctx: &mut LowerCtx<'_>, eid: ExprId, obj_op: Operand, index: Ex
         let lit = lit.clone();
         return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, obj_op, &lit);
     }
+    // Chunk 726 — both dynamic-key lanes answer a fresh owned box
+    // (the runtime getters take +1 on heap payloads); the eid joins
+    // the owned track so the consumer's release balances (probes
+    // q726f numeric / q726g str-key: fresh-element churn 15.3MB vs
+    // 6.2MB flat). The string-literal lane above records inside
+    // `lower_any_member_read` (chunk 717).
     if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::String)) {
-        return crate::ssa_lower_index::lower_any_index_str_key(ctx, obj_op, index);
+        let v = crate::ssa_lower_index::lower_any_index_str_key(ctx, obj_op, index);
+        ctx.owned_member_reads.insert(eid);
+        return v;
     }
     let idx_val = ctx.lower_index_operand(index);
     let v = ctx.f.append_inst(
@@ -166,5 +189,6 @@ fn lower_any_hit(ctx: &mut LowerCtx<'_>, eid: ExprId, obj_op: Operand, index: Ex
         None,
     );
     ctx.emit_throw_check(None);
+    ctx.owned_member_reads.insert(eid);
     Operand::Value(v)
 }
