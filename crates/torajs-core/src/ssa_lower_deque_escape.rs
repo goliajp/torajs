@@ -233,6 +233,10 @@ fn collect_deque_arr_names_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSet<Str
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
             collect_deque_arr_names_in_expr(ast, *obj, out);
         }
+        Expr::OptIndex { obj, index } => {
+            collect_deque_arr_names_in_expr(ast, *obj, out);
+            collect_deque_arr_names_in_expr(ast, *index, out);
+        }
         Expr::Index { obj, index } => {
             collect_deque_arr_names_in_expr(ast, *obj, out);
             collect_deque_arr_names_in_expr(ast, *index, out);

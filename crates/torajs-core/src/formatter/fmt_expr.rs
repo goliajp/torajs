@@ -53,6 +53,12 @@ impl<'a> Formatter<'a> {
                 self.write("?.");
                 self.write(name);
             }
+            Expr::OptIndex { obj, index } => {
+                self.fmt_expr(*obj);
+                self.write("?.[");
+                self.fmt_expr(*index);
+                self.write("]");
+            }
             Expr::Index { obj, index } => {
                 self.fmt_expr(*obj);
                 self.write("[");

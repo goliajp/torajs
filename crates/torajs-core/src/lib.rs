@@ -391,6 +391,7 @@ pub(crate) mod ssa_lower_object_lit;
 pub(crate) mod ssa_lower_objlit_layout;
 pub(crate) mod ssa_lower_optchain;
 pub(crate) mod ssa_lower_optchain_arm;
+pub(crate) mod ssa_lower_optindex;
 pub(crate) mod ssa_lower_parse_fn_type;
 pub(crate) mod ssa_lower_parse_type;
 pub(crate) mod ssa_lower_pass_0_5;

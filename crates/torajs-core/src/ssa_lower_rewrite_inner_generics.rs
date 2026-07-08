@@ -225,6 +225,11 @@ pub(crate) fn rewrite_inner_generic_calls(
                 let o = *obj;
                 walk_expr(ast, o, generics, outer_tp, outer_anns, cache, worklist);
             }
+            Expr::OptIndex { obj, index } => {
+                let (o, i) = (*obj, *index);
+                walk_expr(ast, o, generics, outer_tp, outer_anns, cache, worklist);
+                walk_expr(ast, i, generics, outer_tp, outer_anns, cache, worklist);
+            }
             Expr::Assign { target, value } => {
                 let t = *target;
                 let v = *value;

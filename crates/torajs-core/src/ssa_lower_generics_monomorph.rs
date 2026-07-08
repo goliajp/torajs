@@ -441,6 +441,10 @@ fn rewrite_tvdefault_in_expr(ast: &mut Ast, eid: ExprId, subst: &[(String, Strin
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
             rewrite_tvdefault_in_expr(ast, obj, subst);
         }
+        Expr::OptIndex { obj, index } => {
+            rewrite_tvdefault_in_expr(ast, obj, subst);
+            rewrite_tvdefault_in_expr(ast, index, subst);
+        }
         Expr::Call { callee, args } => {
             rewrite_tvdefault_in_expr(ast, callee, subst);
             for a in args {

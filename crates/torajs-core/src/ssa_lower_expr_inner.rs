@@ -271,6 +271,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // See [`crate::ssa_lower_optchain_arm::lower`].
             crate::ssa_lower_optchain_arm::lower(ctx, *obj, name)
         }
+        Expr::OptIndex { obj, index } => {
+            // Chunk 703 — `obj?.[index]` optional element access
+            // (nullish short-circuit to ANY_UNDEF; index evaluates
+            // only on the hit path). See
+            // [`crate::ssa_lower_optindex::lower`].
+            crate::ssa_lower_optindex::lower(ctx, *obj, *index)
+        }
         Expr::PostIncr { target, is_inc } => {
             // JS spec: yield OLD value, then mutate. 3 target
             // shapes (Ident global/local + Member + Index)

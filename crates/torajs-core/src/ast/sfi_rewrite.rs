@@ -282,6 +282,11 @@ fn sfi_rewrite_expr(
             let o = sfi_rewrite_expr(ast, obj, x_name, i_name, v_name);
             ast.add_expr(Expr::OptChain { obj: o, name })
         }
+        Expr::OptIndex { obj, index } => {
+            let o = sfi_rewrite_expr(ast, obj, x_name, i_name, v_name);
+            let i = sfi_rewrite_expr(ast, index, x_name, i_name, v_name);
+            ast.add_expr(Expr::OptIndex { obj: o, index: i })
+        }
         Expr::Nullish { lhs, rhs } => {
             let l = sfi_rewrite_expr(ast, lhs, x_name, i_name, v_name);
             let r = sfi_rewrite_expr(ast, rhs, x_name, i_name, v_name);

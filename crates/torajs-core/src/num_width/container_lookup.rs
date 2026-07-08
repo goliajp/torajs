@@ -26,7 +26,7 @@ impl<'a> Analysis<'a> {
                 let base = self.container_key_lookup(*obj, scope)?;
                 Some(SlotKey::Field(Box::new(base), name.clone()))
             }
-            Expr::Index { obj, .. } => {
+            Expr::OptIndex { obj, .. } | Expr::Index { obj, .. } => {
                 let base = self.container_key_lookup(*obj, scope)?;
                 Some(SlotKey::Elem(Box::new(base)))
             }

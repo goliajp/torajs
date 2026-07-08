@@ -168,6 +168,10 @@ pub(super) fn count_refs_expr(ast: &Ast, eid: ExprId, refs: &mut HashMap<String,
             *refs.entry(name.clone()).or_insert(0) += 1;
         }
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => count_refs_expr(ast, *obj, refs),
+        Expr::OptIndex { obj, index } => {
+            count_refs_expr(ast, *obj, refs);
+            count_refs_expr(ast, *index, refs);
+        }
         Expr::Index { obj, index } => {
             count_refs_expr(ast, *obj, refs);
             count_refs_expr(ast, *index, refs);

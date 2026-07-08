@@ -123,6 +123,29 @@ pub(crate) fn check_opt_chain(
     }
 }
 
+/// Chunk 703 — `obj?.[index]` (ES2020 optional element access).
+/// Same nullish contract as [`check_opt_chain`]: Nullable / Null /
+/// Undefined / Any obj answers Any (the short-circuit path makes the
+/// static element type unknowable); a plain obj is `?.` ≡ `[]` and
+/// delegates to the Index checker. The index expression typechecks
+/// in every branch — it may not EVALUATE on the short-circuit path
+/// (lowering guards that), but it must still be well-typed.
+pub(crate) fn check_opt_index(
+    checker: &mut Checker,
+    ast: &Ast,
+    obj: ExprId,
+    index: ExprId,
+) -> Result<Type, String> {
+    let obj_ty = checker.type_of(ast, obj)?;
+    match &obj_ty {
+        Type::Nullable(_) | Type::Null | Type::Undefined | Type::Any => {
+            let _ = checker.type_of(ast, index)?;
+            Ok(Type::Any)
+        }
+        _ => crate::check_type_of_index::check(checker, ast, obj, index),
+    }
+}
+
 pub(crate) fn check_post_incr(
     checker: &mut Checker,
     ast: &Ast,

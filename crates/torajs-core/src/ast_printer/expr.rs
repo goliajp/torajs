@@ -128,6 +128,11 @@ pub(crate) fn print_expr(ast: &Ast, id: ExprId, indent: usize) {
             println!("{pad}OptChain .{name}");
             print_expr(ast, *obj, indent + 1);
         }
+        Expr::OptIndex { obj, index } => {
+            println!("{pad}OptIndex");
+            print_expr(ast, *obj, indent + 1);
+            print_expr(ast, *index, indent + 1);
+        }
         Expr::PostIncr { target, is_inc } => {
             println!("{pad}PostIncr is_inc={is_inc}");
             print_expr(ast, *target, indent + 1);

@@ -433,7 +433,7 @@ fn rewrite_idents_in_expr(ast: &mut Ast, eid: ExprId, renames: &HashMap<String, 
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
                 stack.push(obj);
             }
-            Expr::Index { obj, index } => {
+            Expr::OptIndex { obj, index } | Expr::Index { obj, index } => {
                 stack.push(obj);
                 stack.push(index);
             }

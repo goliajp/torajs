@@ -131,6 +131,10 @@ fn rewrite_params_in_expr(
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
             rewrite_params_in_expr(ast, obj, pset, visited);
         }
+        Expr::OptIndex { obj, index } => {
+            rewrite_params_in_expr(ast, obj, pset, visited);
+            rewrite_params_in_expr(ast, index, pset, visited);
+        }
         Expr::Call { callee, args } => {
             rewrite_params_in_expr(ast, callee, pset, visited);
             for a in args {

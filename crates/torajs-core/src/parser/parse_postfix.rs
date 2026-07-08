@@ -34,8 +34,12 @@ impl<'a> Parser<'a> {
                 }
                 Token::QuestionDot => {
                     self.pos += 1;
-                    let name = self.expect_member_name("?.")?;
-                    node = self.add_expr_at(start_pos, Expr::OptChain { obj: node, name });
+                    if matches!(self.peek(), Token::LBracket) {
+                        node = self.parse_optchain_index(node, start_pos)?;
+                    } else {
+                        let name = self.expect_member_name("?.")?;
+                        node = self.add_expr_at(start_pos, Expr::OptChain { obj: node, name });
+                    }
                 }
                 Token::LParen => {
                     self.pos += 1;
@@ -227,6 +231,34 @@ impl<'a> Parser<'a> {
             self.add_expr_at(start_pos, Expr::Member { obj: node, name })
         } else {
             self.add_expr_at(start_pos, Expr::Index { obj: node, index })
+        })
+    }
+
+    /// `obj?.[index]` — ES2020 optional element access (chunk 703).
+    /// Mirrors [`Self::parse_postfix_index`], including the
+    /// string-literal identifier fold: `a?.["k"]` is member access
+    /// spelled as element access, so it folds to the existing
+    /// OptChain shape and rides every field-resolve path.
+    fn parse_optchain_index(&mut self, node: ExprId, start_pos: usize) -> Result<ExprId, String> {
+        self.pos += 1;
+        let index = self.parse_expr()?;
+        match self.peek() {
+            Token::RBracket => self.pos += 1,
+            t => return Err(format!("expected `]`, got {t:?} at {}", self.at())),
+        }
+        let folded = if let Expr::String(name) = self.ast.get_expr(index) {
+            if is_identifier_name(name) {
+                Some(name.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        Ok(if let Some(name) = folded {
+            self.add_expr_at(start_pos, Expr::OptChain { obj: node, name })
+        } else {
+            self.add_expr_at(start_pos, Expr::OptIndex { obj: node, index })
         })
     }
 

@@ -280,6 +280,10 @@ impl<'a> FnToClosureCollector<'a> {
                 }
             }
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj),
+            Expr::OptIndex { obj, index } => {
+                self.walk_expr(*obj);
+                self.walk_expr(*index);
+            }
             Expr::Index { obj, index } => {
                 self.walk_expr(*obj);
                 self.walk_expr(*index);

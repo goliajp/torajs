@@ -281,6 +281,10 @@ fn idents_in_expr(ast: &Ast, eid: ExprId, shadow: &HashSet<String>, out: &mut Ha
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
             idents_in_expr(ast, *obj, shadow, out)
         }
+        Expr::OptIndex { obj, index } => {
+            idents_in_expr(ast, *obj, shadow, out);
+            idents_in_expr(ast, *index, shadow, out);
+        }
         Expr::Assign { target, value } => {
             idents_in_expr(ast, *target, shadow, out);
             idents_in_expr(ast, *value, shadow, out);

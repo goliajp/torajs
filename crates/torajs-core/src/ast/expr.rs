@@ -237,6 +237,14 @@ pub enum Expr {
         obj: ExprId,
         name: String,
     },
+    /// `obj?.[index]` — optional chaining for element access (ES2020
+    /// §13.3.9, chunk 703). Same null-guard shape as OptChain: `obj`
+    /// evaluates once; nullish short-circuits to undefined WITHOUT
+    /// evaluating `index`; otherwise `obj[index]`.
+    OptIndex {
+        obj: ExprId,
+        index: ExprId,
+    },
     /// `x++` / `x--` — JS-spec-compliant post-increment / post-decrement.
     /// Yields the OLD value, then mutates the target. ssa_lower captures
     /// `target`'s value into a temp SSA value, computes new = old ± 1,

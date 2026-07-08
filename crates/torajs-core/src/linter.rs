@@ -400,6 +400,7 @@ fn expr_can_throw(ast: &Ast, eid: ExprId) -> bool {
     match ast.get_expr(eid) {
         Expr::Call { .. } | Expr::New { .. } | Expr::Super { .. } => true,
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => expr_can_throw(ast, *obj),
+        Expr::OptIndex { obj, index } => expr_can_throw(ast, *obj) || expr_can_throw(ast, *index),
         Expr::Index { obj, index } => expr_can_throw(ast, *obj) || expr_can_throw(ast, *index),
         Expr::BinOp { left, right, .. } => {
             expr_can_throw(ast, *left) || expr_can_throw(ast, *right)

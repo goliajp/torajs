@@ -364,6 +364,10 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             walk_expr(ast, *rhs, bound, out);
         }
         Expr::OptChain { obj, .. } => walk_expr(ast, *obj, bound, out),
+        Expr::OptIndex { obj, index } => {
+            walk_expr(ast, *obj, bound, out);
+            walk_expr(ast, *index, bound, out);
+        }
         Expr::PostIncr { target, .. } => walk_expr(ast, *target, bound, out),
     }
 }

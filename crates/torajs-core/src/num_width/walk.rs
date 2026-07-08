@@ -338,7 +338,7 @@ impl<'a> Analysis<'a> {
             | Expr::InstanceOf { expr, .. }
             | Expr::As { expr, .. } => self.walk_expr(*expr, scope),
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj, scope),
-            Expr::Index { obj, index } => {
+            Expr::OptIndex { obj, index } | Expr::Index { obj, index } => {
                 self.walk_expr(*obj, scope);
                 self.walk_expr(*index, scope);
             }

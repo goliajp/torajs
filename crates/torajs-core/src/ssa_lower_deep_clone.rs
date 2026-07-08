@@ -272,6 +272,13 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
                 name,
             }
         }
+        Expr::OptIndex { obj, index } => {
+            let (o, i) = (*obj, *index);
+            Expr::OptIndex {
+                obj: deep_clone_expr(ast, o),
+                index: deep_clone_expr(ast, i),
+            }
+        }
         Expr::PostIncr { target, is_inc } => {
             let t = *target;
             let is_inc = *is_inc;

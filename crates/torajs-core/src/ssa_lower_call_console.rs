@@ -53,6 +53,7 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     // expr_is_fresh_owned's borrow set.
     let is_borrow = match ctx.ast.get_expr(arg_id) {
         Expr::Ident(_) | Expr::Member { .. } | Expr::OptChain { .. } | Expr::This => true,
+        Expr::OptIndex { .. } => true,
         Expr::Index { obj, .. } => {
             !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
         }

@@ -205,6 +205,15 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
             }
             sfi_expr_x_safe(ast, *obj, x_name, i_name)
         }
+        Expr::OptIndex { obj, index } => {
+            if let Expr::Ident(n) = ast.get_expr(*obj)
+                && n == x_name
+            {
+                return false;
+            }
+            sfi_expr_x_safe(ast, *obj, x_name, i_name)
+                && sfi_expr_x_safe(ast, *index, x_name, i_name)
+        }
         Expr::PostIncr { target, .. } => sfi_expr_x_safe(ast, *target, x_name, i_name),
     }
 }

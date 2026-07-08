@@ -63,6 +63,10 @@ impl<'a> LowerCtx<'a> {
                 Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
                     stack.push(obj);
                 }
+                Expr::OptIndex { obj, index } => {
+                    stack.push(obj);
+                    stack.push(index);
+                }
                 Expr::Call { .. } => {
                     // RFC 20260705 owned-result invariant: a Call
                     // result owns its own ref (+1-result / fresh

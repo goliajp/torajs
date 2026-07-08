@@ -186,6 +186,12 @@ impl Checker {
                 // [`crate::check_type_of_misc::check_opt_chain`].
                 crate::check_type_of_misc::check_opt_chain(self, ast, *obj, name)
             }
+            Expr::OptIndex { obj, index } => {
+                // Chunk 703 — `obj?.[index]` element access, same
+                // nullish contract as OptChain. See
+                // [`crate::check_type_of_misc::check_opt_index`].
+                crate::check_type_of_misc::check_opt_index(self, ast, *obj, *index)
+            }
             Expr::PostIncr { target, .. } => {
                 // `x++` / `x--` — Number target → Number result.
                 // See [`crate::check_type_of_misc::check_post_incr`].

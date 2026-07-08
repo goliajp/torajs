@@ -313,7 +313,7 @@ fn scan_expr(
                 }
                 // `xs[i]()` / `a?.b()` — fn-valued targets that are
                 // statically unknown, same conservatism as chained calls.
-                Expr::Index { .. } | Expr::OptChain { .. } => {
+                Expr::Index { .. } | Expr::OptChain { .. } | Expr::OptIndex { .. } => {
                     *direct = true;
                 }
                 _ => {}
@@ -412,6 +412,10 @@ fn scan_expr(
             scan_expr(ast, *rhs, out, direct, fn_values, expr_types);
         }
         Expr::OptChain { obj, .. } => scan_expr(ast, *obj, out, direct, fn_values, expr_types),
+        Expr::OptIndex { obj, index } => {
+            scan_expr(ast, *obj, out, direct, fn_values, expr_types);
+            scan_expr(ast, *index, out, direct, fn_values, expr_types);
+        }
         Expr::PostIncr { target, .. } => {
             scan_expr(ast, *target, out, direct, fn_values, expr_types)
         }

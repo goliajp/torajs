@@ -47,6 +47,22 @@ use crate::ssa_lower::LowerCtx;
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Operand {
     let is_non_deque = ctx.arr_expr_is_non_deque(obj);
     let arr_val = ctx.lower_expr(obj);
+    lower_from_value(ctx, obj, index, arr_val, is_non_deque)
+}
+
+/// Value-based body: the receiver is already lowered (`arr_val`),
+/// `obj` is only consulted for side tables (nullable-guard set /
+/// bounds-proven windows). Chunk 703 — `obj?.[index]`'s hit path
+/// enters here so the receiver evaluates exactly once and the index
+/// expression lowers inside the hit block (ES short-circuit: a
+/// nullish receiver never evaluates `index`).
+pub(crate) fn lower_from_value(
+    ctx: &mut LowerCtx<'_>,
+    obj: ExprId,
+    index: ExprId,
+    arr_val: Operand,
+    is_non_deque: bool,
+) -> Operand {
     let arr_ty = ctx.operand_ty(&arr_val);
     if matches!(arr_ty, Type::Str | Type::Substr) {
         return lower_string_index(ctx, arr_val, arr_ty, index);
@@ -293,7 +309,11 @@ fn lower_array_any_index(ctx: &mut LowerCtx<'_>, arr_val: Operand, idx_val: Oper
 /// Dynamic string key on an `any` receiver — probe by the runtime
 /// Str cell (borrow); a Substr view materializes to an owned temp
 /// released after the probe.
-fn lower_any_index_str_key(ctx: &mut LowerCtx<'_>, obj_val: Operand, index: ExprId) -> Operand {
+pub(crate) fn lower_any_index_str_key(
+    ctx: &mut LowerCtx<'_>,
+    obj_val: Operand,
+    index: ExprId,
+) -> Operand {
     let k_raw = ctx.lower_expr(index);
     let k_ty = ctx.operand_ty(&k_raw);
     let owned = k_ty == Type::Substr;

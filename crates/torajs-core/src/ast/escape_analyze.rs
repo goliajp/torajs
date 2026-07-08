@@ -288,6 +288,15 @@ fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
             }
             eal_expr_safe(ast, *obj, x_name)
         }
+        Expr::OptIndex { obj, index } => {
+            // X?.[i] — same disqualify story as OptChain.
+            if let Expr::Ident(n) = ast.get_expr(*obj)
+                && n == x_name
+            {
+                return false;
+            }
+            eal_expr_safe(ast, *obj, x_name) && eal_expr_safe(ast, *index, x_name)
+        }
         Expr::PostIncr { target, .. } => eal_expr_safe(ast, *target, x_name),
         Expr::TypeOf { expr } => eal_expr_safe(ast, *expr, x_name),
         Expr::InstanceOf { expr, .. } => eal_expr_safe(ast, *expr, x_name),

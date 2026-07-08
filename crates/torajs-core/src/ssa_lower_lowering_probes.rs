@@ -71,6 +71,7 @@ impl<'a> LowerCtx<'a> {
             Expr::Ident(_)
                 | Expr::Index { .. }
                 | Expr::OptChain { .. }
+                | Expr::OptIndex { .. }
                 | Expr::This
                 | Expr::String(_)
         )
