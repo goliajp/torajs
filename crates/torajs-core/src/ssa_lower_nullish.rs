@@ -63,7 +63,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprI
     let lhs_op = ctx.lower_expr(lhs);
     let lhs_ty = ctx.operand_ty(&lhs_op);
     if matches!(lhs_ty, Type::Any) {
-        return lower_any_lhs(ctx, lhs_op, rhs);
+        return lower_any_lhs(ctx, eid, lhs, lhs_op, rhs);
     }
     let lhs_check_ty = ctx.expr_types.get(&lhs).cloned();
     // RFC 20260708-typed-arr-oob-read chunk 2 — a possibly-sentinel
@@ -115,7 +115,24 @@ fn is_always_nullish(check_ty: &Option<check_mod::Type>) -> bool {
     )
 }
 
-fn lower_any_lhs(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs: ExprId) -> Operand {
+/// Chunk 723 — rebuilt on the Ternary join shape: the tag test
+/// branches FIRST and rhs lowers inside the nullish branch, per ES
+/// §13.4.2 (rhs is unevaluated when lhs is neither null nor
+/// undefined — the old pre-branch eval ran `a ?? loud()`'s side
+/// effect unconditionally). The join result is uniformly owned
+/// when refcounted (borrow rhs takes a tail inc; the unbox arms
+/// already detach with +1), and an owned lhs box releases in the
+/// after block: the nullish path holds a null/undef immediate
+/// whose drop no-ops, the unbox path detached its payload first
+/// (probe p723a/b: `mkAny(i) ?? "z"` churn leaked the Call's box
+/// on every path pre-fix).
+fn lower_any_lhs(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    lhs: ExprId,
+    lhs_op: Operand,
+    rhs: ExprId,
+) -> Operand {
     let cur_block = ctx.cur_block;
     let tag = ctx.f.append_inst(
         cur_block,
@@ -123,18 +140,8 @@ fn lower_any_lhs(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs: ExprId) -> Operan
         Type::I64,
         None,
     );
-    let rhs_op = ctx.lower_expr(rhs);
-    let rhs_ty = ctx.operand_ty(&rhs_op);
-    let res_slot = ctx.alloca_in_entry(rhs_ty, Some("__nullish_any"));
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Store(rhs_op, Operand::Value(res_slot), 0),
-    );
-    if rhs_ty.is_refcounted() {
-        ctx.emit_rc_inc(rhs_op);
-    }
     let nullish = emit_nullish_check(ctx, tag);
+    let rhs_blk = ctx.f.add_block();
     let unbox_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
     let cb = ctx.cur_block;
@@ -142,20 +149,38 @@ fn lower_any_lhs(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs: ExprId) -> Operan
         cb,
         Terminator::CondBr {
             cond: Operand::Value(nullish),
-            then_blk: after,
+            then_blk: rhs_blk,
             else_blk: unbox_blk,
         },
     );
+    ctx.cur_block = rhs_blk;
+    let rhs_op = ctx.lower_expr(rhs);
+    let rhs_ty = ctx.operand_ty(&rhs_op);
+    let rhs_end = ctx.cur_block;
+    if rhs_ty.is_refcounted() && !ctx.expr_transfers_ownership(rhs) {
+        ctx.emit_owned_result_inc_in(rhs_end, rhs_op.clone(), rhs_ty);
+    }
     ctx.cur_block = unbox_blk;
-    let unboxed = unbox_lhs_to_rhs_ty(ctx, lhs_op, rhs_ty);
-    let cur_block = ctx.cur_block;
+    let unboxed = unbox_lhs_to_rhs_ty(ctx, lhs_op.clone(), rhs_ty);
+    let unbox_end = ctx.cur_block;
+    let res_slot = ctx.alloca_in_entry(rhs_ty, Some("__nullish_any"));
     ctx.f.append_void(
-        cur_block,
+        rhs_end,
+        InstKind::Store(rhs_op, Operand::Value(res_slot), 0),
+    );
+    ctx.f.set_term(rhs_end, Terminator::Br(after));
+    ctx.f.append_void(
+        unbox_end,
         InstKind::Store(unboxed, Operand::Value(res_slot), 0),
     );
-    let ub = ctx.cur_block;
-    ctx.f.set_term(ub, Terminator::Br(after));
+    ctx.f.set_term(unbox_end, Terminator::Br(after));
     ctx.cur_block = after;
+    if ctx.expr_owned_shape(lhs) {
+        ctx.emit_drop_value(lhs_op, Type::Any);
+    }
+    if rhs_ty.is_refcounted() {
+        ctx.owned_member_reads.insert(eid);
+    }
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(
         cur_block,
