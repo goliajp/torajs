@@ -16,14 +16,14 @@ use crate::ssa_lower::{Intrinsics, synthesize_env_drop};
 
 pub(crate) fn populate_env_drop_bodies(
     env_drop_fids: &[(String, FuncId, ssa::SigId)],
-    closure_captures: &HashMap<String, Vec<(Type, bool)>>,
+    closure_captures: &HashMap<String, Vec<(String, Type, bool)>>,
     intrinsics: &Intrinsics,
     module: &mut Module,
 ) {
     for (closure_name, drop_fid, _drop_sig) in env_drop_fids {
-        let cap_meta = closure_captures
+        let cap_meta: Vec<(Type, bool)> = closure_captures
             .get(closure_name)
-            .cloned()
+            .map(|caps| caps.iter().map(|(_, t, b)| (*t, *b)).collect())
             .unwrap_or_default();
         let f = synthesize_env_drop(&format!("__env_drop_{closure_name}"), &cap_meta, intrinsics);
         module.funcs[drop_fid.0 as usize] = f;

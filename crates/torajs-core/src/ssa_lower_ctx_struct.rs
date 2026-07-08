@@ -205,7 +205,7 @@ pub(crate) struct LowerCtx<'a> {
     /// Construction site (`Expr::Closure`) populates the entry for the
     /// lifted FnDecl name; the lifted body's `lower_fn` reads it to emit
     /// env-load preambles. Outliving any individual lower_fn call.
-    pub(crate) closure_captures: &'a mut HashMap<String, Vec<(Type, bool)>>,
+    pub(crate) closure_captures: &'a mut HashMap<String, Vec<(String, Type, bool)>>,
     /// M3 — per-call-site `ExprId → mono_name` retarget map. The
     /// monomorphization pre-pass produced one specialized FnDecl per
     /// `(generic_name, type_args)`; at each generic call site, the

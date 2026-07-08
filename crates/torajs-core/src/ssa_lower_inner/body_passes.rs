@@ -30,7 +30,7 @@ pub(crate) fn run(
     struct_layouts: &mut Vec<Vec<(String, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    closure_captures: &mut HashMap<String, Vec<(Type, bool)>>,
+    closure_captures: &mut HashMap<String, Vec<(String, Type, bool)>>,
     call_retargets: &HashMap<ExprId, String>,
     may_throw: &std::collections::HashSet<String>,
     class_name_to_tag: &HashMap<String, u32>,

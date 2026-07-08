@@ -68,12 +68,17 @@ pub(crate) fn check_closure(
     let captures = captures.to_vec();
     let mut cap_tys: Vec<(String, Type)> = Vec::with_capacity(captures.len());
     for cap in &captures {
-        let Some(info) = checker.lookup(cap) else {
+        if let Some(info) = checker.lookup(cap) {
+            cap_tys.push((cap.clone(), info.ty));
+        } else if checker.globals.contains_key(cap) {
+            // K.3/K.4/K.6 promoted data global (or hoisted fn) — not a
+            // capture: the body ident resolves through the same globals
+            // fallback named-fn bodies use, so it needs no scope entry.
+        } else {
             return Err(format!(
                 "closure `{fn_name}` references unknown identifier `{cap}`"
             ));
-        };
-        cap_tys.push((cap.clone(), info.ty));
+        }
     }
     checker
         .closure_captures

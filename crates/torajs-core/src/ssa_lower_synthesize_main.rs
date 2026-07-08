@@ -51,7 +51,7 @@ pub(crate) fn synthesize_main(
     inst_memo: &mut HashMap<String, ssa::StructId>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     string_id_base: usize,
-    closure_captures: &mut HashMap<String, Vec<(Type, bool)>>,
+    closure_captures: &mut HashMap<String, Vec<(String, Type, bool)>>,
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
     class_name_to_tag: &HashMap<String, u32>,

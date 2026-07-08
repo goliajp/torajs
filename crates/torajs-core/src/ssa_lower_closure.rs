@@ -63,21 +63,35 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
     let user_sig = intern_fn_sig(ctx.fn_sigs, user_param_tys, user_ret_ty);
     let closure_ty = Type::Closure(user_sig);
 
-    let cap_tys: Vec<Type> = captures
+    // K.3/K.4/K.6 — a capture name that resolves to a promoted data
+    // global is NOT a capture: the lifted body reads it through
+    // GlobalRef + Load exactly like a named-fn body does, so it gets
+    // no env slot. Locals win over a same-named global (shadowing —
+    // the literal site's scope is the ground truth `lift_arrow_fns`
+    // tracked). The filtered list drives the env layout everywhere:
+    // this side channel feeds both the body preamble and the
+    // env-drop synthesis, so all three stay in agreement.
+    let eff_captures: Vec<(String, Type)> = captures
         .iter()
-        .map(|c| {
-            ctx.locals
-                .get(c)
-                .map(|l| l.ty)
-                .unwrap_or_else(|| panic!("ssa-lower: closure capture `{c}` not in scope"))
+        .filter_map(|c| {
+            if let Some(l) = ctx.locals.get(c) {
+                Some((c.clone(), l.ty))
+            } else if ctx.globals.contains_key(c) {
+                None
+            } else {
+                panic!("ssa-lower: closure capture `{c}` not in scope")
+            }
         })
         .collect();
-    let cap_meta: Vec<(Type, bool)> = cap_tys.iter().map(|t| (*t, t.is_copy())).collect();
+    let cap_meta: Vec<(String, Type, bool)> = eff_captures
+        .iter()
+        .map(|(n, t)| (n.clone(), *t, t.is_copy()))
+        .collect();
     ctx.closure_captures.insert(fn_name.clone(), cap_meta);
 
-    let env_v = alloc_env(ctx, closure_ty, captures.len());
+    let env_v = alloc_env(ctx, closure_ty, eff_captures.len());
     init_env_header(ctx, env_v, fid, &fn_name);
-    write_captures(ctx, env_v, &captures, &cap_tys);
+    write_captures(ctx, env_v, &eff_captures);
     Operand::Value(env_v)
 }
 
@@ -194,13 +208,8 @@ fn init_env_header(
     );
 }
 
-fn write_captures(
-    ctx: &mut LowerCtx<'_>,
-    env_v: crate::ssa::ValueId,
-    captures: &[String],
-    cap_tys: &[Type],
-) {
-    for (i, (cap_name, cap_ty)) in captures.iter().zip(cap_tys.iter()).enumerate() {
+fn write_captures(ctx: &mut LowerCtx<'_>, env_v: crate::ssa::ValueId, captures: &[(String, Type)]) {
+    for (i, (cap_name, cap_ty)) in captures.iter().enumerate() {
         let info = *ctx.locals.get(cap_name).expect("capture in scope");
         let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
         if cap_ty.is_copy() {

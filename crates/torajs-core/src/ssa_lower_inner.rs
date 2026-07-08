@@ -171,7 +171,7 @@ pub(crate) fn lower_inner(
     // instructions for each capture. Construction site always runs
     // before its lifted body in ast.stmts ordering: user FnDecls come
     // first, lifted `__closure_N` decls are appended to the end.
-    let mut closure_captures: HashMap<String, Vec<(Type, bool)>> = HashMap::new();
+    let mut closure_captures: HashMap<String, Vec<(String, Type, bool)>> = HashMap::new();
 
     let globals = register_toplevel_globals(
         ast,

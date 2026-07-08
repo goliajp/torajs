@@ -65,7 +65,7 @@ pub(crate) fn lower_fn(
     inst_memo: &mut HashMap<String, ssa::StructId>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     string_id_base: usize,
-    closure_captures: &mut HashMap<String, Vec<(Type, bool)>>,
+    closure_captures: &mut HashMap<String, Vec<(String, Type, bool)>>,
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
     class_name_to_tag: &HashMap<String, u32>,
@@ -339,7 +339,13 @@ impl<'a> LowerCtx<'a> {
         if cap_names.is_empty() {
             return;
         }
-        let cap_meta: Vec<(Type, bool)> = self
+        // The `__env(c1|c2|...)` ann is the PRE-filter capture list —
+        // the construction site drops names that resolved to promoted
+        // data globals (those read via GlobalRef like named-fn bodies,
+        // no env slot), so the side-channel triples are the env-layout
+        // ground truth. A body ident not bound here falls through to
+        // the globals path in ident resolution.
+        let cap_meta: Vec<(String, Type, bool)> = self
             .closure_captures
             .get(fn_name)
             .cloned()
@@ -349,21 +355,13 @@ impl<'a> LowerCtx<'a> {
                      construction site must run before body lowering"
                 )
             });
-        if cap_meta.len() != cap_names.len() {
-            panic!(
-                "ssa-lower: closure `{fn_name}` capture-name count {} != type count {}",
-                cap_names.len(),
-                cap_meta.len()
-            );
-        }
         let env_slot = self
             .locals
             .get("__env")
             .copied()
             .expect("__env param materialized as local")
             .slot;
-        for (i, (cap_name, (cap_ty, is_byref))) in cap_names.iter().zip(cap_meta.iter()).enumerate()
-        {
+        for (i, (cap_name, cap_ty, is_byref)) in cap_meta.iter().enumerate() {
             let cap_ty = *cap_ty;
             let is_byref = *is_byref;
             let env_ptr = self.f.append_inst(
