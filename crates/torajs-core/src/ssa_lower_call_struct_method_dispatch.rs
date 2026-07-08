@@ -23,6 +23,10 @@
 //!   slot; fn ptr lives at `env + CLOSURE_FN_ADDR_OFF`. Widen the
 //!   signature with `Type::Ptr` prepended (M2 closure path
 //!   convention) and pass env as the first arg, then the user args.
+//!   A rest-tail field sig (RFC 20260708-variadic chunk 3) skips the
+//!   static widen and dispatches through the boxed dual entry
+//!   (`emit_variadic_boxed_call`) — one field serves closures of any
+//!   declared arity.
 //!
 //! Returns `Some(op)` on hit; `None` on miss (callee not a
 //! `Member`, expr_types not a `Struct`, field absent / not a
@@ -47,9 +51,15 @@ pub(crate) fn try_lower(
         return None;
     };
     let (_, field_check_ty) = fields.iter().find(|(n, _)| n == name)?;
-    if !matches!(field_check_ty, check_mod::Type::Function(..)) {
+    let check_mod::Type::Function(field_params, _) = field_check_ty else {
         return None;
-    }
+    };
+    // RFC 20260708-variadic chunk 3 — a rest-tail field sig
+    // (`fn: (...args: E[]) => R`) never static-dispatches: the SSA
+    // sig only carries the fixed prefix, so the CallIndirect argv
+    // would mismatch the stored closure's real arity (SIGSEGV).
+    // Route through the boxed dual entry instead.
+    let is_variadic = matches!(field_params.last(), Some(check_mod::Type::Rest(_)));
     let recv_op = ctx.lower_expr(obj);
     let recv_ty = ctx.operand_ty(&recv_op);
     let Type::Obj(sid) = recv_ty else {
@@ -64,6 +74,22 @@ pub(crate) fn try_lower(
     let offset = OBJ_HEADER_SIZE + (field_idx as u64) * 8;
     match ssa_field_ty {
         Type::FnSig(sig_id) => Some(emit_fnsig_call(ctx, recv_op, offset, sig_id, args)),
+        Type::Closure(user_sig_id) if is_variadic => {
+            let closure_env = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::Ptr, recv_op, offset),
+                Type::Ptr,
+                None,
+            );
+            Some(
+                crate::ssa_lower_call_closure_local::emit_variadic_boxed_call(
+                    ctx,
+                    Operand::Value(closure_env),
+                    user_sig_id,
+                    args,
+                ),
+            )
+        }
         Type::Closure(user_sig_id) => {
             Some(emit_closure_call(ctx, recv_op, offset, user_sig_id, args))
         }

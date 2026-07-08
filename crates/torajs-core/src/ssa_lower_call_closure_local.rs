@@ -158,8 +158,7 @@ pub(crate) fn try_lower(
 /// invokes the callee's `__boxed_<name>` adapter with the REAL argc
 /// (a missing adapter answers a catchable TypeError). The Any
 /// result coerces to the sig's fixed-prefix return type; heap-typed
-/// returns stay loud until the ownership transfer face lands (RFC
-/// chunk 3).
+/// returns transfer the box's +1 owned cell out via pointer unbox.
 fn lower_variadic_call(
     ctx: &mut LowerCtx<'_>,
     info: &crate::ssa_lower::LocalInfo,
@@ -172,13 +171,26 @@ fn lower_variadic_call(
         info.ty,
         None,
     );
+    emit_variadic_boxed_call(ctx, Operand::Value(env_ptr), user_sig_id, args)
+}
+
+/// Shared boxed-dual-entry emit for a variadic-annotated callable
+/// slot — the local-binding arm above and the struct-field
+/// member-call arm ([`crate::ssa_lower_call_struct_method_dispatch`])
+/// both land here once they've loaded the closure env.
+pub(crate) fn emit_variadic_boxed_call(
+    ctx: &mut LowerCtx<'_>,
+    env_ptr: Operand,
+    user_sig_id: crate::ssa::SigId,
+    args: &[ExprId],
+) -> Operand {
     let (argv, boxed_slots) = crate::ssa_lower_any_method_call::pack_any_argv(ctx, args);
     let result = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.closure_call_variadic,
             vec![
-                Operand::Value(env_ptr),
+                env_ptr,
                 Operand::Value(argv),
                 Operand::ConstI64(args.len() as i64),
             ],
@@ -224,6 +236,25 @@ fn lower_variadic_call(
             Type::Bool,
             None,
         )),
+        // Heap-typed returns (Str / Arr / Obj / …): the adapter
+        // boxed the body's +1 owned cell (tag 4); unboxing the
+        // pointer bits transfers that reference — the NaN-box is a
+        // value, not a separate heap object, so there is nothing
+        // else to release.
+        other if other.is_refcounted() => {
+            let raw = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_unbox_value, vec![Operand::Value(result)]),
+                Type::I64,
+                None,
+            );
+            Operand::Value(ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::IntToPtr(Operand::Value(raw)),
+                other,
+                None,
+            ))
+        }
         other => panic!(
             "not yet supported: ssa-lower: variadic call return type {other:?} \
              (RFC 20260708-variadic chunk 3)"

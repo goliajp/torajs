@@ -21,6 +21,10 @@
 //! - `return name` inside a fn whose declared return type is `any`
 //!   (L3b #8; closure-typed returns ride the older
 //!   `ast/forwarders.rs` pass).
+//! - `callee(name)` where the matching declared param carries a
+//!   variadic fn-type ann (`__rest(` — RFC 20260708-variadic
+//!   chunk 3): the slot is Closure repr and dispatches through the
+//!   boxed dual entry, which a raw FnSig doesn't carry.
 //! - `s.replace(pat, name)` / `s.replaceAll(pat, name)` (chunk 617)
 //!   — the functional-replaceValue runtime invokes the callback
 //!   through the closure boxed entry; a bare FnSig has neither env
@@ -241,12 +245,21 @@ impl<'a> FnToClosureCollector<'a> {
                 // into the any world; wrap it. Fn-typed params stay
                 // raw FnSig (direct dispatch preserved), and rest /
                 // excess positions fall through untouched.
+                //
+                // RFC 20260708-variadic chunk 3 — a variadic-
+                // annotated param (`(...args: E[]) => R`, encoded
+                // `__rest(` in the fn-like ann) holds a Closure repr
+                // slot and calls through the boxed dual entry; a raw
+                // FnSig there has neither env cell nor adapter, so
+                // it wraps the same way.
                 if let Expr::Ident(cname) = self.ast.get_expr(*callee)
                     && let Some((params, _)) = self.fn_sigs.get(cname)
                 {
                     for (i, arg) in args.iter().enumerate() {
                         if params.get(i).is_some_and(|p| {
-                            p.type_ann.as_deref().is_some_and(|a| a.trim() == "any")
+                            p.type_ann.as_deref().is_some_and(|a| {
+                                a.trim() == "any" || (is_fn_like_ann(a) && a.contains("__rest("))
+                            })
                         }) {
                             self.try_mark(*arg);
                         }

@@ -135,8 +135,19 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
     }
     // RFC 20260708-variadic — a rest-tail fn-type annotation
     // (`const t: (...xs: E[]) => R = …`) routes calls through the
-    // boxed dual entry, same as a variadic-annotated param.
-    if type_ann.is_some_and(|a| a.contains("__rest(")) {
+    // boxed dual entry, same as a variadic-annotated param. An
+    // UNannotated binding whose init the checker typed rest-tail
+    // (`const f = mk()` where `mk(): (...args: E[]) => R` — chunk 3)
+    // registers the same way: the SSA slot only carries the fixed-
+    // prefix sig, so the static lane would mismatch the stored
+    // closure's real arity.
+    if type_ann.is_some_and(|a| a.contains("__rest("))
+        || matches!(
+            ctx.expr_types.get(&init),
+            Some(crate::check::Type::Function(ps, _))
+                if matches!(ps.last(), Some(crate::check::Type::Rest(_)))
+        )
+    {
         ctx.variadic_locals.insert(name.to_string());
     }
     // RFC 20260707 residual chunk — record string-index let-inits
