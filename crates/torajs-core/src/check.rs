@@ -68,6 +68,13 @@ pub enum Type {
     /// Replace with a sum/union type later.
     Any,
     Function(Vec<Type>, Box<Type>),
+    /// RFC 20260708-variadic — rest-param sentinel, legal ONLY as the
+    /// trailing element of a `Function` param vec (from
+    /// `(...args: E[]) => R` annotations, ann marker `__rest(E[])`).
+    /// Holds the ELEMENT type E. Never a value type: call admit
+    /// accepts any arity at/past the fixed prefix and unifies each
+    /// rest-position argument against E.
+    Rest(Box<Type>),
     /// Hardcoded global stand-ins (currently only `console`). Real
     /// user-defined object types use `Type::Struct`.
     Object(&'static str),

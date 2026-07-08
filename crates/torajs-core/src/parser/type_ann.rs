@@ -333,6 +333,37 @@ impl<'a> Parser<'a> {
         let mut params: Vec<String> = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             loop {
+                // `...name: E[]` rest param (RFC 20260708-variadic) —
+                // TS grammar: must be last, must be an array type.
+                // Encodes as `__rest(E[])` in the param slot.
+                if matches!(self.peek(), Token::DotDotDot) {
+                    self.pos += 1;
+                    let name_then_colon = matches!(self.peek(), Token::Ident(_))
+                        && matches!(
+                            self.tokens.get(self.pos + 1).map(|s| &s.token),
+                            Some(Token::Colon)
+                        );
+                    if name_then_colon {
+                        self.pos += 2;
+                    }
+                    let pty = self.parse_type_ann()?;
+                    if !(pty.ends_with("[]") || (pty.starts_with("Array<") && pty.ends_with('>'))) {
+                        return Err(format!(
+                            "rest param type must be an array type, got `{pty}` at {}",
+                            self.at()
+                        ));
+                    }
+                    params.push(format!("__rest({pty})"));
+                    match self.peek() {
+                        Token::RParen => break,
+                        t => {
+                            return Err(format!(
+                                "rest param must be last in fn-type params, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
                 // Optional `name:` prefix on each param. Name is discarded;
                 // we keep only the type. Two shapes accepted:
                 //   `name: T` — TS standard fn-type form.

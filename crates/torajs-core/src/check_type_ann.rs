@@ -42,6 +42,18 @@ fn resolve_type_ann_inner(
     if name == "null" {
         return Some(Type::Null);
     }
+    // Rest-param marker produced by the parser for `...args: E[]`
+    // inside a fn-type annotation (RFC 20260708-variadic). The inner
+    // ann is the ARRAY spelling; the sentinel holds the element.
+    if let Some(rest) = name.strip_prefix("__rest(")
+        && let Some(inner) = rest.strip_suffix(')')
+    {
+        return resolve_type_ann_inner(inner, aliases, type_params, generic_aliases, in_flight)
+            .and_then(|t| match t {
+                Type::Array(elem) => Some(Type::Rest(elem)),
+                _ => None,
+            });
+    }
     // `Head<args>` generic spellings — builtin generics
     // (Array / ReadonlyArray / Iterable / IteratorResult / Iterator /
     // IterableIterator), user generic-alias instantiation, Promise<T>,

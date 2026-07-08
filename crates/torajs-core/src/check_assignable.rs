@@ -76,6 +76,16 @@ fn is_assignable_to_deep(
         }
         return is_assignable_to_deep(to_el, from_el, aliases, generic_aliases, seen);
     }
+    // RFC 20260708-variadic — a rest-tail fn type (`(...args: E[])
+    // => R`) admits any fn value the callback-subtype lattice
+    // accepts (prefix pairs, overflow slots against E, Any
+    // widening). Delegated so the call-arg and let-binding sites
+    // agree on one predicate.
+    if matches!(&to_r, Type::Function(ps, _) if matches!(ps.last(), Some(Type::Rest(_))))
+        && matches!(&from_r, Type::Function(..))
+    {
+        return crate::check_type_of_call_callback_subtype::matches(&to_r, &from_r);
+    }
     // `Promise<T>` is covariant in T, same shape as the Array arm.
     // The load-bearing case is `Promise(Any) ← Promise(Number)`: a
     // default-Any async fn's tail-safety return constructs

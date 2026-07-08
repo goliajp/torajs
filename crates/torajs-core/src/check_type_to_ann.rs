@@ -93,5 +93,8 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::RegExp => "regex".into(),
         Type::Date => "date".into(),
         Type::Promise(inner) => format!("Promise<{}>", type_to_ann(inner)),
+        // RFC 20260708-variadic — re-encode the rest sentinel in its
+        // marker spelling (round-trips through both decode sites).
+        Type::Rest(elem) => format!("__rest({}[])", type_to_ann(elem)),
     }
 }

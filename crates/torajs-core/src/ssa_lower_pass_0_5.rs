@@ -67,6 +67,14 @@ pub(crate) fn run(
             // "__alias__"; skip the placeholder-sid reservation
             // and resolve to the underlying type instead.
             if fields.len() == 1 && fields[0].0 == "__alias__" {
+                // RFC 20260708-variadic chunk 1 — a variadic fn-type
+                // alias has no SSA shape yet (the boxed_entry call
+                // lane is chunk 2): skip registration so a declared-
+                // but-unused alias stays inert while any USE keeps
+                // the loud unknown-type reject.
+                if fields[0].1.contains("__rest(") {
+                    continue;
+                }
                 let ty = parse_type(
                     Some(fields[0].1.as_str()),
                     &aliases,
