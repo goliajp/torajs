@@ -39,6 +39,17 @@ pub fn apply_spread_args(ast: &mut Ast) {
     // are skipped (apply_rest_args already consumed their spread
     // call sites); closure-shape FnDecls (`__env` first param) are
     // skipped — their call sites don't name the FnDecl directly.
+    //
+    // Chunk 684 — `new C(...src)`: desugar_classes runs before this
+    // pass and rewrites user-class News to `__new_<C>(…)` Calls, so
+    // ctor spreads ride this same Call rewrite through the factory's
+    // user-param arity. One carve: an arity-0 FACTORY is skipped —
+    // a ctor-less derived class synthesizes an empty factory (its JS
+    // default ctor forwards args to the parent, a recorded gap that
+    // rejects loud), and expanding its spread to zero args would
+    // flip that loud reject into silently-uninitialized fields. The
+    // cost is that a genuine `constructor()` + spread stays on the
+    // checker's loud reject too.
     let mut fn_arity: HashMap<String, usize> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, params, .. } = s {
@@ -47,6 +58,9 @@ pub fn apply_spread_args(ast: &mut Ast) {
             }
             let user_params: &[Param] = params;
             if user_params.last().is_some_and(|p| p.is_rest) {
+                continue;
+            }
+            if name.starts_with("__new_") && user_params.is_empty() {
                 continue;
             }
             fn_arity.insert(name.clone(), user_params.len());

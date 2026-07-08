@@ -209,12 +209,17 @@ impl<'a> Parser<'a> {
         if has_parens {
             self.pos += 1;
         }
+        // Ctor args ride the same spread-aware arg parser as plain
+        // calls (chunk 684): `...` wraps in Expr::Spread, a static
+        // literal spread (`new C(...[1, 2])`) folds to fixed args
+        // here, and a dynamic trailing spread (`new C(...arr)`) is
+        // desugared by `apply_spread_args`' New arm.
         let mut args: Vec<ExprId> = Vec::new();
         if has_parens && !matches!(self.peek(), Token::RParen) {
-            args.push(self.parse_expr()?);
+            args.push(self.parse_call_arg()?);
             while matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
-                args.push(self.parse_expr()?);
+                args.push(self.parse_call_arg()?);
             }
         }
         if has_parens {
@@ -223,6 +228,7 @@ impl<'a> Parser<'a> {
                 t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
             }
         }
+        let args = self.fold_static_spread(args);
         Ok(self.ast.add_expr(Expr::New { class_name, args }))
     }
 }

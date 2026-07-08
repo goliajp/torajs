@@ -174,7 +174,7 @@ impl<'a> Parser<'a> {
     /// (`f(...someVar)`) only works with rest-param sigs — fixed-arity
     /// dynamic spread requires runtime length checking out of scope
     /// for the typed subset.
-    fn fold_static_spread(&mut self, args: Vec<ExprId>) -> Vec<ExprId> {
+    pub(super) fn fold_static_spread(&mut self, args: Vec<ExprId>) -> Vec<ExprId> {
         let needs_spread_fold = args.iter().any(|a| {
             matches!(self.ast.get_expr(*a), Expr::Spread { expr }
                 if matches!(self.ast.get_expr(*expr), Expr::Array(_)))
