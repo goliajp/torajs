@@ -123,6 +123,21 @@ pub(crate) fn collect_toplevel_globals(
                         struct_layouts,
                         fn_sigs,
                     );
+                    // RFC 20260709-closure-global chunk 1 — a fn-type
+                    // annotation parses to FnSig (direct-dispatch
+                    // repr), but the global slot holds Closure values
+                    // (lifted arrows mint env cells), so re-repr over
+                    // the same interned sig (struct-field `__cls`
+                    // precedent). Variadic anns keep the main-local
+                    // home: the boxed-dual call routing rides the
+                    // fn-local `variadic_locals` table (RFC O2).
+                    let parsed = match parsed {
+                        Type::FnSig(sig) if !ann.contains("__rest(") => Type::Closure(sig),
+                        Type::Closure(_) if ann.contains("__rest(") => {
+                            continue;
+                        }
+                        t => t,
+                    };
                     if ann == "number" {
                         widened(parsed)
                     } else {
@@ -179,6 +194,12 @@ pub(crate) fn collect_toplevel_globals(
             // class via the runtime classes-by-tag side table:
             // factory bodies call `__torajs_my_class_ref("<C>")`
             // which ssa_lower intercepts → class_get(<tag>).
+            // RFC 20260709-closure-global chunk 1 — Closure joins:
+            // the drop machinery dispatches by type (env drop_fn
+            // @+16, chunk 530), init is a fresh lifted env (K.4
+            // fresh-heap-init holds), reads ride the global-closure
+            // CallIndirect lane. Mutable closure globals stay
+            // deferred to the RFC's assign-lane chunk.
             let supported = matches!(
                 ty,
                 Type::I64
@@ -188,6 +209,7 @@ pub(crate) fn collect_toplevel_globals(
                     | Type::Str
                     | Type::Arr(_)
                     | Type::Obj(_)
+                    | Type::Closure(_)
             );
             if !supported {
                 continue;

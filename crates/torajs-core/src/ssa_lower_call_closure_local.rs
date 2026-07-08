@@ -39,7 +39,35 @@ pub(crate) fn try_lower(
     let Expr::Ident(callee_name) = ctx.ast.get_expr(callee) else {
         return None;
     };
-    let info = ctx.locals.get(callee_name).copied()?;
+    let info = match ctx.locals.get(callee_name).copied() {
+        Some(i) => i,
+        None => {
+            // RFC 20260709-closure-global chunk 1 — module-level
+            // closure binding (`const add = (a, b) => a + b` read
+            // from a named-fn body): materialize the slot from the
+            // global ref; the rest of the lane (env load / argc /
+            // arg boxing / CallIndirect) is shape-identical to a
+            // local slot. Variadic globals never promote (collect
+            // gate), so the variadic_locals check below stays
+            // local-only by construction.
+            let Some(&Type::Closure(sig)) = ctx.globals.get(callee_name) else {
+                return None;
+            };
+            let g = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::GlobalRef(callee_name.clone()),
+                Type::Ptr,
+                None,
+            );
+            crate::ssa_lower::LocalInfo {
+                slot: g,
+                ty: Type::Closure(sig),
+                moved: false,
+                borrowed: true,
+                scope_depth: 0,
+            }
+        }
+    };
     let Type::Closure(user_sig_id) = info.ty else {
         return None;
     };
