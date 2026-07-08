@@ -351,6 +351,7 @@ impl Checker {
             fn_defaults: HashMap::new(),
             expr_types: HashMap::new(),
             demoted_cm_rewrites: HashMap::new(),
+            assign_narrows: HashMap::new(),
         }
     }
 
@@ -453,6 +454,12 @@ pub(crate) struct Checker {
     /// Demoted speculative class-method rewrites, `call → alt
     /// member-call` ExprIds (single decision point — see cm_demote.rs).
     pub demoted_cm_rewrites: HashMap<ExprId, ExprId>,
+    /// Straight-line assignment-narrowing ledger — `name → declared
+    /// (pre-narrow) type` for bindings narrowed by a statement-level
+    /// `b = <non-null>` assign (see check_assign_narrow.rs). Flushed
+    /// (restored to declared) at every compound-statement boundary,
+    /// so a narrow never crosses a branch join or a loop back-edge.
+    pub(crate) assign_narrows: HashMap<String, Type>,
 }
 
 // `is_array_method_name` lives in [`crate::check_method_name`]

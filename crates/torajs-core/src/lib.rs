@@ -24,6 +24,7 @@ pub mod ast_refs;
 pub mod ast_throw_info;
 pub mod check;
 pub(crate) mod check_assign_ident;
+pub(crate) mod check_assign_narrow;
 pub(crate) mod check_assign_target;
 pub(crate) mod check_assignable;
 pub(crate) mod check_assigns_to;

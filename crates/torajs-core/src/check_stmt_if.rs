@@ -53,6 +53,9 @@ pub(crate) fn check(
         None
     };
     checker.check_stmt(ast, then_branch);
+    // ut3 — assignment narrows minted inside the then-branch must
+    // not leak into the else walk (only one branch executes).
+    checker.flush_assign_narrows();
     if let (Some((name, _, _)), Some(saved)) = (&narrow, then_narrow) {
         checker.restore_narrow(name, saved);
     }
@@ -70,6 +73,7 @@ pub(crate) fn check(
             None
         };
         checker.check_stmt(ast, eb);
+        checker.flush_assign_narrows();
         if let (Some((name, _, _)), Some(saved)) = (&narrow, else_narrow) {
             checker.restore_narrow(name, saved);
         }

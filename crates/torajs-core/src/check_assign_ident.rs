@@ -59,7 +59,11 @@ pub(crate) fn check(
     if !info.mutable {
         return Err(format!("cannot assign to const `{name}`"));
     }
-    let target_ty = info.ty.clone();
+    // ut3 assignment narrowing — validate against the DECLARED type
+    // (ledger entry when currently narrowed): `b = null` after
+    // `b = "x"` must stay legal, the narrow never shrinks the
+    // assignable surface.
+    let target_ty = checker.assign_declared_ty(&name, &info.ty);
     let value_ty = checker.type_of(ast, value)?;
     if !is_assignable_to_resolved(
         &target_ty,
@@ -71,6 +75,10 @@ pub(crate) fn check(
             "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
         ));
     }
+    // A possibly-null value kills an existing narrow right here
+    // (expression-level assigns included); minting a narrow stays
+    // statement-level (check_stmt's Assign hook).
+    checker.assign_narrow_demote(&name, &value_ty);
     checker.mark_unmoved(&name);
     Ok(target_ty)
 }

@@ -51,6 +51,9 @@ pub(crate) fn check_switch(
             checker.check_stmt(ast, s);
         }
         checker.scopes.pop();
+        // ut3 — only one case body executes; no assignment narrow
+        // crosses case boundaries.
+        checker.flush_assign_narrows();
     }
     if let Some(db) = default {
         checker.scopes.push(HashMap::new());
@@ -58,6 +61,7 @@ pub(crate) fn check_switch(
             checker.check_stmt(ast, s);
         }
         checker.scopes.pop();
+        checker.flush_assign_narrows();
     }
 }
 

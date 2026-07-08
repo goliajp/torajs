@@ -36,6 +36,9 @@ pub(crate) fn check(
         checker.check_stmt(ast, s);
     }
     checker.scopes.pop();
+    // ut3 — the catch entry point is any throw site inside the
+    // body: no body assignment narrow survives into catch.
+    checker.flush_assign_narrows();
     // catch in a fresh scope with `e` injected.
     let e_ty = match catch_type {
         Some(ann) => {
@@ -68,11 +71,13 @@ pub(crate) fn check(
         checker.check_stmt(ast, s);
     }
     checker.scopes.pop();
+    checker.flush_assign_narrows();
     if let Some(fb) = finally_body {
         checker.scopes.push(HashMap::new());
         for s in fb {
             checker.check_stmt(ast, s);
         }
         checker.scopes.pop();
+        checker.flush_assign_narrows();
     }
 }

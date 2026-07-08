@@ -14,15 +14,9 @@ use super::*;
 impl Checker {
     pub(crate) fn check_stmt(&mut self, ast: &Ast, stmt: &Stmt) {
         match stmt {
-            Stmt::Expr(eid) => {
-                if let Err(e) = self.type_of(ast, *eid) {
-                    self.errors.push_err(e);
-                }
-            }
+            Stmt::Expr(eid) => self.check_stmt_expr(ast, *eid),
             Stmt::Yield(_) | Stmt::YieldInto { .. } => {
-                // Phase J — desugar_generators rewrites generator
-                // bodies before typecheck. See
-                // [`crate::check_stmt_misc::check_yield`].
+                // Phase J — see [`crate::check_stmt_misc::check_yield`].
                 crate::check_stmt_misc::check_yield(self);
             }
             Stmt::If {
@@ -34,16 +28,24 @@ impl Checker {
                 // post-if narrow on diverge. See
                 // [`crate::check_stmt_if::check`].
                 crate::check_stmt_if::check(self, ast, *cond, then_branch, else_branch);
+                // ut3 — branch join: branch narrows die here.
+                self.flush_assign_narrows();
             }
             Stmt::While { cond, body } => {
                 // V3-18 narrow wedge (gated on no-reassign body).
                 // See [`crate::check_stmt_while::check_while`].
+                // ut3 — loop back-edge: no narrow crosses in
+                // either direction (same for every loop arm below).
+                self.flush_assign_narrows();
                 crate::check_stmt_while::check_while(self, ast, *cond, body);
+                self.flush_assign_narrows();
             }
             Stmt::DoWhile { body, cond } => {
                 // Body runs first; cond typechecks after.
                 // See [`crate::check_stmt_while::check_do_while`].
+                self.flush_assign_narrows();
                 crate::check_stmt_while::check_do_while(self, ast, body, *cond);
+                self.flush_assign_narrows();
             }
             Stmt::Switch {
                 scrutinee,
@@ -54,6 +56,7 @@ impl Checker {
                 // case body + default. See
                 // [`crate::check_stmt_misc::check_switch`].
                 crate::check_stmt_misc::check_switch(self, ast, *scrutinee, cases, default);
+                self.flush_assign_narrows();
             }
             Stmt::For {
                 init,
@@ -63,7 +66,9 @@ impl Checker {
             } => {
                 // Fresh-scope init / cond / step / body walker. See
                 // [`crate::check_stmt_for::check`].
+                self.flush_assign_narrows();
                 crate::check_stmt_for::check(self, ast, init, cond, step, body);
+                self.flush_assign_narrows();
             }
             Stmt::Throw(eid) => {
                 // M4.3 + P7.2a + P4.7 — accept 8-byte-shaped
@@ -92,6 +97,7 @@ impl Checker {
                     catch_body,
                     finally_body,
                 );
+                self.flush_assign_narrows();
             }
             Stmt::Break | Stmt::Continue => {
                 // No type-side state to track; the lowerer enforces that
@@ -106,23 +112,12 @@ impl Checker {
                 // P-iter — parent/sep typecheck + var_name Substr-
                 // shaped String borrow per iteration. See
                 // [`crate::check_stmt_for_of_split::check`].
+                self.flush_assign_narrows();
                 crate::check_stmt_for_of_split::check(self, ast, var_name, *parent, *sep, body);
+                self.flush_assign_narrows();
             }
-            // P5.3 — generic for-of. The parser hoists src to a fresh
-            // Ident and pre-builds `elem_expr = src[i]`. Typing the
-            // var_name binding goes through Expr::Index lowering on
-            // elem_expr — which already infers the right element type
-            // per source shape (Array<T>.value=T, String[i]=String,
-            // dynobj-backed Any[i]=Any). We also declare `i_ident` as
-            // a Number local so the synthetic counter typechecks.
-            //
-            // P5.3 Phase B exception: when src has Type::Struct (i.e.
-            // a class instance), the protocol path in ssa_lower
-            // bypasses elem_expr entirely — typing `src[i]` here
-            // would error ("can't index into Struct"). We probe src's
-            // type first; if it's a class-shape Struct, defer the
-            // element type to ssa_lower (mark as Any so var_name still
-            // typechecks downstream as opaque).
+            // P5.3 — generic for-of; elem_expr/i_ident typing model
+            // documented in [`crate::check_stmt_for_of`].
             Stmt::ForOf {
                 var_name,
                 var_type_ann,
@@ -134,6 +129,7 @@ impl Checker {
                 // P5.3 generic for-of + P5.3 Phase B Struct skip +
                 // P6.4c Map/Set/MapIter/ArrIter skip. See
                 // [`crate::check_stmt_for_of::check`].
+                self.flush_assign_narrows();
                 crate::check_stmt_for_of::check(
                     self,
                     ast,
@@ -143,6 +139,7 @@ impl Checker {
                     *elem_expr,
                     body,
                 );
+                self.flush_assign_narrows();
             }
             Stmt::Block(stmts) => self.check_block(ast, stmts),
             Stmt::Multi(stmts) => {
@@ -175,7 +172,11 @@ impl Checker {
                 // M-OO.5 class context + fresh-scope body walker +
                 // param declare with declared_class propagation. See
                 // [`crate::check_stmt_fn_decl::check`].
+                // ut3 — a fn body executes at arbitrary times;
+                // no narrow crosses its boundary.
+                self.flush_assign_narrows();
                 crate::check_stmt_fn_decl::check(self, ast, name, params, body);
+                self.flush_assign_narrows();
             }
             Stmt::TypeDecl { .. } => {
                 // Already handled in pass 0; re-encountering it during the
@@ -211,6 +212,24 @@ impl Checker {
             }
         }
     }
+    /// `Stmt::Expr` arm — typecheck for effect, then mint a
+    /// statement-level assignment narrow for `ident = value` shapes
+    /// (execution is certain here, unlike expression-level assigns;
+    /// see check_assign_narrow.rs).
+    fn check_stmt_expr(&mut self, ast: &Ast, eid: ExprId) {
+        match self.type_of(ast, eid) {
+            Err(e) => self.errors.push_err(e),
+            Ok(_) => {
+                if let Expr::Assign { target, value } = ast.get_expr(eid)
+                    && let Expr::Ident(n) = ast.get_expr(*target)
+                    && let Some(vt) = self.expr_types.get(value).cloned()
+                {
+                    self.apply_assign_narrow(n, &vt);
+                }
+            }
+        }
+    }
+
     /// Fresh-scope statement-list walk for `Stmt::Block` — push a
     /// lexical scope, check each statement, pop.
     fn check_block(&mut self, ast: &Ast, stmts: &[Stmt]) {

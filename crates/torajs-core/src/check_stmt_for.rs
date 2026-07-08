@@ -31,6 +31,9 @@ pub(crate) fn check(
     if let Some(i) = init {
         checker.check_stmt(ast, i);
     }
+    // ut3 — init runs once but cond/step/body sit on the loop
+    // back-edge: an init assignment narrow must not reach them.
+    checker.flush_assign_narrows();
     if let Some(c) = cond {
         match checker.type_of(ast, *c) {
             Ok(t) if js_truthy_acceptable(&t) => {}
