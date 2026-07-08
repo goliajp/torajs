@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T19:38:40.166Z",
+  "generatedAt": "2026-07-08T20:57:40.960Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "ab124ccb",
-    "commitSubject": "fix: console releases owned Any temps; OptCall joins expr_owned_shape",
+    "commit": "2c7cfc87",
+    "commitSubject": "fix: optindex str-view and dynamic-key reads join the owned track",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "2c7cfc87",
+      "subject": "fix: optindex str-view and dynamic-key reads join the owned track"
+    },
+    {
+      "hash": "b4d325dd",
+      "subject": "fix: for-loop per-iteration capture environment"
+    },
+    {
+      "hash": "163e6348",
+      "subject": "feat: assign-position NamedEvaluation for lifted arrows"
+    },
+    {
+      "hash": "47afbb51",
+      "subject": "fix: any-lhs nullish evaluates rhs lazily and releases the owned box"
+    },
+    {
+      "hash": "cd32432f",
+      "subject": "fix: ternary/nullish join results carry unified ownership"
+    },
+    {
+      "hash": "34245f67",
+      "subject": "chore(dashboard): refresh @ ab124ccb - rotation 55 (717-721: any-member owned-result unification kills the 32B/read leak across five lanes and six consumer faces; binop-index return-consume and console owned-Any temps close two more churn leaks; bound cells and let-bound arrows gain .name/.length reflection; gate 1346 -> 1351 five green)"
+    },
+    {
       "hash": "ab124ccb",
       "subject": "fix: console releases owned Any temps; OptCall joins expr_owned_shape"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "f55c7cca",
       "subject": "fix: return-consume walk skips index operands under a binop"
-    },
-    {
-      "hash": "758add2f",
-      "subject": "fix: unify any-member fallback ownership - every arm answers owned"
-    },
-    {
-      "hash": "9b4395cf",
-      "subject": "docs: correct the member-get pair ownership contract comment"
-    },
-    {
-      "hash": "1402841d",
-      "subject": "feat: .name/.length reflection on ordinary closures via fn-name registry"
-    },
-    {
-      "hash": "b916e1f5",
-      "subject": "feat: .name/.length reflection on reified builtin method cells"
-    },
-    {
-      "hash": "0749315a",
-      "subject": "chore(dashboard): refresh @ fe8e5cdd — rotation 53 (710-714: Function.prototype call/apply/bind land on any-world callables — the reification trilogy mints interned immortal method cells off builtin receivers and rc-managed bound cells; a pre-existing 32B-per-member-read Str leak falls to a borrow-shaped cell_ptr shim; the wrong-arm optional call stops evaluating its arguments; gate 1339 -> 1344 five green)"
-    },
-    {
-      "hash": "fe8e5cdd",
-      "subject": "feat: Function.prototype.bind on any-world callables"
     }
   ],
-  "headSha": "ab124ccb",
+  "headSha": "2c7cfc87",
   "autorun": {
-    "total": 362,
+    "total": 363,
     "baselineTarget": 10,
-    "bySelf": 357,
+    "bySelf": 358,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783530596-6ded",
-      "at": "2026-07-08T17:09:56Z",
-      "ts": 1783530596,
+      "rotationId": "r-1783539600-74f1",
+      "at": "2026-07-08T19:40:00Z",
+      "ts": 1783539600,
       "trigger": "self",
-      "prevHead": "0749315a",
-      "handoffSha": "sha256:864686af79d1abfb91dae9ada407c79ed326833463b9b6919d007af01885aa38",
+      "prevHead": "34245f67",
+      "handoffSha": "sha256:680a96434ad8d8d4c795ea3f2402eab1fc2ece7de5ced4f0639356c251cb9644",
       "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783539600-74f1",
+        "at": "2026-07-08T19:40:00Z",
+        "ts": 1783539600,
+        "trigger": "self",
+        "prevHead": "34245f67",
+        "handoffSha": "sha256:680a96434ad8d8d4c795ea3f2402eab1fc2ece7de5ced4f0639356c251cb9644",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783530596-6ded",
         "at": "2026-07-08T17:09:56Z",
@@ -876,17 +887,6 @@
         "prevHead": "3e9852bd",
         "handoffSha": "sha256:6abf699070b5bdbe63f0a3e96fb2136bda2c12db07da2ac077ef48c7ca001806",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783446536-3bef",
-        "at": "2026-07-07T17:48:56Z",
-        "ts": 1783446536,
-        "trigger": "self",
-        "prevHead": "03f8c82a",
-        "handoffSha": "sha256:d3644c2e08ea5427f1d4670b46cd61ed00ec1b9d89166df86d6a917012d53f8f",
-        "handoffAgeSec": 22,
         "conformanceBefore": null,
         "commitsInSession": null
       }
