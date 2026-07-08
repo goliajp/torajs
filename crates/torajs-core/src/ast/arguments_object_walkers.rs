@@ -392,7 +392,18 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
         }
         Expr::Array(items) => items.iter().any(|e| expr_scan(ast, *e, what)),
         Expr::ObjectLit { fields } => fields.iter().any(|(_, e)| expr_scan(ast, *e, what)),
-        Expr::Spread { expr } => expr_scan(ast, *expr, what),
+        Expr::Spread { expr } => {
+            // Escaping scan absorbs `...arguments` — the argv face
+            // serves it from the materialized array (the rewrite
+            // Call / Array arms swap the ident to
+            // `__torajs_arguments`). Other spread sources recurse.
+            if what == ScanFor::EscapingTouch
+                && matches!(ast.get_expr(*expr), Expr::Ident(n) if n == "arguments")
+            {
+                return false;
+            }
+            expr_scan(ast, *expr, what)
+        }
         Expr::Ident(n) if n == "arguments" => {
             matches!(what, ScanFor::NonLengthTouch | ScanFor::EscapingTouch)
         }

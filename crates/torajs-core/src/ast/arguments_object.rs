@@ -222,7 +222,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 .iter()
                 .map(|s| {
                     crate::ast::arguments_object_rewrite::rewrite_arguments_in_stmt(
-                        ast, s, &params, argc_mode,
+                        ast, s, &params, argc_mode, is_argv_fn,
                     )
                 })
                 .collect();

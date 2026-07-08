@@ -17,12 +17,17 @@ pub(super) fn rewrite_arguments_in_stmt(
     s: &Stmt,
     params: &[String],
     argc_mode: ArgcMode,
+    is_argv_fn: bool,
 ) -> Stmt {
     match s {
-        Stmt::Expr(eid) => Stmt::Expr(rewrite_arguments_in_expr(ast, *eid, params, argc_mode)),
-        Stmt::Throw(eid) => Stmt::Throw(rewrite_arguments_in_expr(ast, *eid, params, argc_mode)),
+        Stmt::Expr(eid) => Stmt::Expr(rewrite_arguments_in_expr(
+            ast, *eid, params, argc_mode, is_argv_fn,
+        )),
+        Stmt::Throw(eid) => Stmt::Throw(rewrite_arguments_in_expr(
+            ast, *eid, params, argc_mode, is_argv_fn,
+        )),
         Stmt::Return(Some(eid)) => Stmt::Return(Some(rewrite_arguments_in_expr(
-            ast, *eid, params, argc_mode,
+            ast, *eid, params, argc_mode, is_argv_fn,
         ))),
         Stmt::Return(None) => Stmt::Return(None),
         Stmt::LetDecl {
@@ -35,7 +40,7 @@ pub(super) fn rewrite_arguments_in_stmt(
             mutable: *mutable,
             name: name.clone(),
             type_ann: type_ann.clone(),
-            init: rewrite_arguments_in_expr(ast, *init, params, argc_mode),
+            init: rewrite_arguments_in_expr(ast, *init, params, argc_mode, is_argv_fn),
             // preserve `var` flag (hardcoded false dropped var-hoist
             // semantics on rewritten `var` decls; zero-warn surfaced it).
             is_var: *is_var,
@@ -43,13 +48,13 @@ pub(super) fn rewrite_arguments_in_stmt(
         Stmt::Block(stmts) => Stmt::Block(
             stmts
                 .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode))
+                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn))
                 .collect(),
         ),
         Stmt::Multi(stmts) => Stmt::Multi(
             stmts
                 .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode))
+                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn))
                 .collect(),
         ),
         Stmt::If {
@@ -57,24 +62,31 @@ pub(super) fn rewrite_arguments_in_stmt(
             then_branch,
             else_branch,
         } => Stmt::If {
-            cond: rewrite_arguments_in_expr(ast, *cond, params, argc_mode),
+            cond: rewrite_arguments_in_expr(ast, *cond, params, argc_mode, is_argv_fn),
             then_branch: Box::new(rewrite_arguments_in_stmt(
                 ast,
                 then_branch,
                 params,
                 argc_mode,
+                is_argv_fn,
             )),
-            else_branch: else_branch
-                .as_ref()
-                .map(|eb| Box::new(rewrite_arguments_in_stmt(ast, eb, params, argc_mode))),
+            else_branch: else_branch.as_ref().map(|eb| {
+                Box::new(rewrite_arguments_in_stmt(
+                    ast, eb, params, argc_mode, is_argv_fn,
+                ))
+            }),
         },
         Stmt::While { cond, body } => Stmt::While {
-            cond: rewrite_arguments_in_expr(ast, *cond, params, argc_mode),
-            body: Box::new(rewrite_arguments_in_stmt(ast, body, params, argc_mode)),
+            cond: rewrite_arguments_in_expr(ast, *cond, params, argc_mode, is_argv_fn),
+            body: Box::new(rewrite_arguments_in_stmt(
+                ast, body, params, argc_mode, is_argv_fn,
+            )),
         },
         Stmt::DoWhile { cond, body } => Stmt::DoWhile {
-            cond: rewrite_arguments_in_expr(ast, *cond, params, argc_mode),
-            body: Box::new(rewrite_arguments_in_stmt(ast, body, params, argc_mode)),
+            cond: rewrite_arguments_in_expr(ast, *cond, params, argc_mode, is_argv_fn),
+            body: Box::new(rewrite_arguments_in_stmt(
+                ast, body, params, argc_mode, is_argv_fn,
+            )),
         },
         Stmt::For {
             init,
@@ -82,12 +94,16 @@ pub(super) fn rewrite_arguments_in_stmt(
             step,
             body,
         } => Stmt::For {
-            init: init
-                .as_ref()
-                .map(|i| Box::new(rewrite_arguments_in_stmt(ast, i, params, argc_mode))),
-            cond: cond.map(|c| rewrite_arguments_in_expr(ast, c, params, argc_mode)),
-            step: step.map(|u| rewrite_arguments_in_expr(ast, u, params, argc_mode)),
-            body: Box::new(rewrite_arguments_in_stmt(ast, body, params, argc_mode)),
+            init: init.as_ref().map(|i| {
+                Box::new(rewrite_arguments_in_stmt(
+                    ast, i, params, argc_mode, is_argv_fn,
+                ))
+            }),
+            cond: cond.map(|c| rewrite_arguments_in_expr(ast, c, params, argc_mode, is_argv_fn)),
+            step: step.map(|u| rewrite_arguments_in_expr(ast, u, params, argc_mode, is_argv_fn)),
+            body: Box::new(rewrite_arguments_in_stmt(
+                ast, body, params, argc_mode, is_argv_fn,
+            )),
         },
         Stmt::Try {
             body,
@@ -99,18 +115,18 @@ pub(super) fn rewrite_arguments_in_stmt(
         } => Stmt::Try {
             body: body
                 .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode))
+                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn))
                 .collect(),
             had_catch: *had_catch,
             catch_param: catch_param.clone(),
             catch_type: catch_type.clone(),
             catch_body: catch_body
                 .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode))
+                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn))
                 .collect(),
             finally_body: finally_body.as_ref().map(|fb| {
                 fb.iter()
-                    .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode))
+                    .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn))
                     .collect()
             }),
         },
@@ -128,6 +144,7 @@ pub(super) fn rewrite_arguments_in_expr(
     eid: ExprId,
     params: &[String],
     argc_mode: ArgcMode,
+    is_argv_fn: bool,
 ) -> ExprId {
     let e = ast.get_expr(eid).clone();
     match e {
@@ -158,7 +175,7 @@ pub(super) fn rewrite_arguments_in_expr(
             // Recurse through the receiver; non-arguments member access
             // gets a fresh node so nested rewrites still reach the
             // children.
-            let new_obj = rewrite_arguments_in_expr(ast, obj, params, argc_mode);
+            let new_obj = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
             ast.add_expr(Expr::Member { obj: new_obj, name })
         }
         // `arguments[N]` with literal N in [0, arity) → Ident(param[N]).
@@ -190,23 +207,24 @@ pub(super) fn rewrite_arguments_in_expr(
                 }
                 // Dynamic index (or out-of-range literal): route to
                 // the materialized Array<Any> via __torajs_arguments.
-                let new_index = rewrite_arguments_in_expr(ast, index, params, argc_mode);
+                let new_index =
+                    rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn);
                 let synth_obj = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
                 return ast.add_expr(Expr::Index {
                     obj: synth_obj,
                     index: new_index,
                 });
             }
-            let new_obj = rewrite_arguments_in_expr(ast, obj, params, argc_mode);
-            let new_index = rewrite_arguments_in_expr(ast, index, params, argc_mode);
+            let new_obj = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
+            let new_index = rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn);
             ast.add_expr(Expr::Index {
                 obj: new_obj,
                 index: new_index,
             })
         }
         Expr::BinOp { op, left, right } => {
-            let l = rewrite_arguments_in_expr(ast, left, params, argc_mode);
-            let r = rewrite_arguments_in_expr(ast, right, params, argc_mode);
+            let l = rewrite_arguments_in_expr(ast, left, params, argc_mode, is_argv_fn);
+            let r = rewrite_arguments_in_expr(ast, right, params, argc_mode, is_argv_fn);
             ast.add_expr(Expr::BinOp {
                 op,
                 left: l,
@@ -214,26 +232,37 @@ pub(super) fn rewrite_arguments_in_expr(
             })
         }
         Expr::Unary { op, expr } => {
-            let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode);
+            let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
             ast.add_expr(Expr::Unary { op, expr: e2 })
         }
         Expr::Call { callee, args } => {
-            let c = rewrite_arguments_in_expr(ast, callee, params, argc_mode);
-            /* `f(...arguments)` — expand the spread inline into the
-             * call arg list as `f(p0, p1, ...)`. Handles arbitrary
-             * mix of regular args and the spread. */
+            let c = rewrite_arguments_in_expr(ast, callee, params, argc_mode, is_argv_fn);
+            /* `f(...arguments)` — argv-face bodies swap the spread
+             * source to the materialized `__torajs_arguments` array
+             * (apply_spread_args expands it downstream against
+             * fixed-arity callees; rest-callees take it directly);
+             * named-fn / declared-pair bodies expand the spread
+             * inline as `f(p0, p1, ...)` — declared == actual there.
+             * Handles arbitrary mix of regular args and the spread. */
             let mut new_args: Vec<ExprId> = Vec::with_capacity(args.len());
             for a in &args {
                 if let Expr::Spread { expr } = ast.get_expr(*a)
                     && let Expr::Ident(n) = ast.get_expr(*expr)
                     && n == "arguments"
                 {
-                    for p in params {
-                        new_args.push(ast.add_expr(Expr::Ident(p.clone())));
+                    if is_argv_fn {
+                        let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+                        new_args.push(ast.add_expr(Expr::Spread { expr: src }));
+                    } else {
+                        for p in params {
+                            new_args.push(ast.add_expr(Expr::Ident(p.clone())));
+                        }
                     }
                     continue;
                 }
-                new_args.push(rewrite_arguments_in_expr(ast, *a, params, argc_mode));
+                new_args.push(rewrite_arguments_in_expr(
+                    ast, *a, params, argc_mode, is_argv_fn,
+                ));
             }
             ast.add_expr(Expr::Call {
                 callee: c,
@@ -241,33 +270,42 @@ pub(super) fn rewrite_arguments_in_expr(
             })
         }
         Expr::Member { obj, name } => {
-            let o = rewrite_arguments_in_expr(ast, obj, params, argc_mode);
+            let o = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
             ast.add_expr(Expr::Member { obj: o, name })
         }
         Expr::Assign { target, value } => {
-            let t = rewrite_arguments_in_expr(ast, target, params, argc_mode);
-            let v = rewrite_arguments_in_expr(ast, value, params, argc_mode);
+            let t = rewrite_arguments_in_expr(ast, target, params, argc_mode, is_argv_fn);
+            let v = rewrite_arguments_in_expr(ast, value, params, argc_mode, is_argv_fn);
             ast.add_expr(Expr::Assign {
                 target: t,
                 value: v,
             })
         }
         Expr::Array(elems) => {
-            /* `[...arguments]` — expand the spread inline. Same shape
-             * as the Call arm above. Mixed elems (regular + spread)
-             * supported by interleaving. */
+            /* `[...arguments]` — argv-face bodies swap the source to
+             * `[...__torajs_arguments]` (the existing Arr<Any>
+             * literal-spread lane); named-fn / declared-pair bodies
+             * expand inline. Same shape as the Call arm above. Mixed
+             * elems (regular + spread) supported by interleaving. */
             let mut new_elems: Vec<ExprId> = Vec::with_capacity(elems.len());
             for e in &elems {
                 if let Expr::Spread { expr } = ast.get_expr(*e)
                     && let Expr::Ident(n) = ast.get_expr(*expr)
                     && n == "arguments"
                 {
-                    for p in params {
-                        new_elems.push(ast.add_expr(Expr::Ident(p.clone())));
+                    if is_argv_fn {
+                        let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+                        new_elems.push(ast.add_expr(Expr::Spread { expr: src }));
+                    } else {
+                        for p in params {
+                            new_elems.push(ast.add_expr(Expr::Ident(p.clone())));
+                        }
                     }
                     continue;
                 }
-                new_elems.push(rewrite_arguments_in_expr(ast, *e, params, argc_mode));
+                new_elems.push(rewrite_arguments_in_expr(
+                    ast, *e, params, argc_mode, is_argv_fn,
+                ));
             }
             ast.add_expr(Expr::Array(new_elems))
         }
@@ -277,7 +315,7 @@ pub(super) fn rewrite_arguments_in_expr(
                 .map(|(n, e)| {
                     (
                         n.clone(),
-                        rewrite_arguments_in_expr(ast, *e, params, argc_mode),
+                        rewrite_arguments_in_expr(ast, *e, params, argc_mode, is_argv_fn),
                     )
                 })
                 .collect();
