@@ -348,6 +348,15 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             crate::payload_rc_inc(dtag as i64, dval as i64);
             return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
         }
+        if tag == Tag::Closure as u16 {
+            // chunk 715 — a reified builtin method cell answers its
+            // ES-spec arity. An ordinary closure keeps the recorded
+            // boundary (the env cell carries no arity field) and
+            // stays undefined.
+            if let Some(arity) = crate::method_value::builtin_method_arity(ptr) {
+                return crate::nanbox_encode::__torajs_anyv_box_i64(arity as i64);
+            }
+        }
     }
     VALUE_UNDEFINED
 }

@@ -18,9 +18,12 @@
 //!   answers absent).
 //! - `Tag::Closure` (L3b #11 residue, chunk 529) → the lazy
 //!   `props_dynobj` at `CLOSURE_PROPS_OFF` (T-27 Function-as-Object
-//!   expandos; NULL slot answers absent). `length` / `name` fn
-//!   metadata stays a recorded boundary — the env cell carries no
-//!   arity field, only the typed tier's compile-time fold sees it.
+//!   expandos; NULL slot answers absent), then the `.name` /
+//!   `.length` metadata read for a reified method cell (chunk 715
+//!   — interned immortal name Str / ES-spec arity). An ORDINARY
+//!   closure's fn metadata stays the recorded boundary: the env
+//!   cell carries no arity field and the binding name lives only in
+//!   the fn-addr registry, whose entries skip arrow/anon closures.
 //! - every other receiver (and an Arr / Closure expando miss) →
 //!   the builtin-method reification probe (chunk 711,
 //!   `method_value`): a supported method name answers the interned
@@ -109,6 +112,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
                 if tag != 5 {
                     return tag;
                 }
+            }
+            // chunk 715 — `.name` / `.length` metadata off a reified
+            // method cell (the fn-metadata boundary recorded above,
+            // method-cell half).
+            if let Some((tag, _)) = crate::method_value::builtin_method_meta_pair(ptr, key) {
+                return tag;
             }
             reify_tag(recv, key)
         },
@@ -225,6 +234,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             let props = closure_props(ptr);
             if !props.is_null() && __torajs_dynobj_get_tag(props, key) != 5 {
                 return __torajs_dynobj_get_value(props, key);
+            }
+            // chunk 715 — value channel of the method-cell metadata
+            // read (immortal name Str / arity immediate; borrow-
+            // shaped like every other probe answer).
+            if let Some((_, value)) = crate::method_value::builtin_method_meta_pair(ptr, key) {
+                return value;
             }
             reify_value(recv, key)
         },

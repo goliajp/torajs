@@ -13,7 +13,7 @@ use super::formatters::{
     __torajs_io_putc_stdout, __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print,
     __torajs_rc_dec, __torajs_regex_print_inline, __torajs_set_print, __torajs_str_print,
     __torajs_substr_print, __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, alloc_literal,
-    closure_fn_addr, heap_flags, heap_type_tag, print_bool, print_f64, print_i64, put_bytes,
+    heap_flags, heap_type_tag, print_bool, print_f64, print_i64, put_bytes, put_closure_fn_name,
     put_f64_inline, put_i64_inline, put_str_cell_inline, put_str_cell_inline_esc,
     put_substr_cell_inline, put_substr_cell_inline_esc, str_cell_is_bare_key, write_line,
 };
@@ -237,12 +237,10 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else if tag == Tag::Closure as u16 {
             // Phase 2 wire (fn-name registry Step 5) — top-level
-            // closure print. Read fn body vaddr from the closure
-            // cell's `fn_addr@+8` slot, look it up via the rodata
-            // `__torajs_fn_name_table[]`, emit `[Function: <name>]`
-            // (hit) or `[Function (anonymous)]` (miss) + '\n'.
-            let fn_addr = unsafe { closure_fn_addr(child) };
-            unsafe { __torajs_fn_print_inline(fn_addr) };
+            // closure print: fn-addr registry lookup, or the
+            // interned method name for a reified method cell
+            // (chunk 715), + '\n'.
+            unsafe { put_closure_fn_name(child) };
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else if tag == Tag::Obj as u16 {
             // W-J Phase D — Tag::Obj struct-cell pretty print. The
@@ -368,8 +366,7 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_top(v: AnyValue) {
         } else if tag == Tag::Set as u16 {
             unsafe { __torajs_set_print(child) };
         } else if tag == Tag::Closure as u16 {
-            let fn_addr = unsafe { closure_fn_addr(child) };
-            unsafe { __torajs_fn_print_inline(fn_addr) };
+            unsafe { put_closure_fn_name(child) };
         } else if tag == Tag::Obj as u16 {
             unsafe { __torajs_anyv_struct_print_inline(v as u64) };
         } else if tag == Tag::WeakMap as u16 {

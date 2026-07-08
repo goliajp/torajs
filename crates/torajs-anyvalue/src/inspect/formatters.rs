@@ -179,6 +179,28 @@ pub(super) unsafe fn closure_fn_addr(closure: *const c_void) -> u64 {
     unsafe { *((closure as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const u64) }
 }
 
+/// Emit a closure cell's `[Function: <name>]` form, no trailing
+/// newline. A reified builtin method cell (chunk 715) prints its
+/// interned method name directly — its `fn_addr` is the throwing
+/// native entry and never hits the registry; every ordinary closure
+/// keeps the fn-addr table lookup (`__torajs_fn_print_inline`).
+///
+/// # Safety
+/// `closure` is a live `Tag::Closure` cell.
+pub(super) unsafe fn put_closure_fn_name(closure: *const c_void) {
+    if let Some(name) = unsafe { crate::method_value::builtin_method_name(closure as *mut c_void) }
+    {
+        unsafe {
+            put_bytes(b"[Function: ");
+            put_bytes(name.as_bytes());
+            put_bytes(b"]");
+        }
+    } else {
+        let fn_addr = unsafe { closure_fn_addr(closure) };
+        unsafe { __torajs_fn_print_inline(fn_addr) };
+    }
+}
+
 /// True when a Str / Substr cell's code units form a bare object
 /// key in bun's inspect (`isLatin1Identifier`,
 /// src/js_parser/lexer.zig:3186): first `[A-Za-z$_]`, rest

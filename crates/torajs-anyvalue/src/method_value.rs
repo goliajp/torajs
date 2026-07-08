@@ -73,9 +73,11 @@ const CLOSURE_CAP_BASE_OFF: usize = 40;
 const CELL_SIZE: usize = 48;
 
 /// Interned name Str layout — mirror of torajs-str
-/// `layout::{STR_LEN_OFF, STR_DATA_OFF}`.
+/// `layout::{STR_LEN_OFF, STR_DATA_OFF}` + the `IS_LATIN1` flags
+/// bit (`layout::STR_FLAG_IS_LATIN1`; method names are ASCII).
 const STR_LEN_OFF: usize = 8;
 const STR_DATA_OFF: usize = 16;
+const STR_FLAG_IS_LATIN1: u16 = 0x0002;
 
 /// Method-id intern table span (ids are append-only; headroom
 /// beyond the current max keeps future ids table-hits).
@@ -88,6 +90,10 @@ const TABLE_SIZE: usize = 128;
 /// (single-threaded runtime) and a benign double-alloc race later —
 /// both winners are immortal.
 static METHOD_CELLS: [AtomicU64; TABLE_SIZE] = [const { AtomicU64::new(0) }; TABLE_SIZE];
+
+/// Per-mid interned `.name` Str cells (chunk 715) — same
+/// immortal-static shape as [`METHOD_CELLS`].
+static METHOD_NAME_CELLS: [AtomicU64; TABLE_SIZE] = [const { AtomicU64::new(0) }; TABLE_SIZE];
 
 /// Boxed dual entry of every reified method cell — a bare call is
 /// the ES `this = undefined` TypeError.
@@ -137,6 +143,92 @@ pub(crate) fn builtin_method_cell(mid: i64) -> *mut u8 {
         *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = mid as u64;
         slot.store(cell as u64, Ordering::Relaxed);
         cell
+    }
+}
+
+/// The interned `.name` Str cell for a method id — lazily
+/// allocated, immortal (`FLAG_STATIC_LITERAL`), Latin-1 payload
+/// (method names are ASCII).
+fn builtin_method_name_cell(mid: i64, name: &'static str) -> *mut u8 {
+    let slot = &METHOD_NAME_CELLS[mid as usize];
+    let p = slot.load(Ordering::Relaxed);
+    if p != 0 {
+        return p as *mut u8;
+    }
+    // SAFETY: fresh allocation sized for the 16-byte Str prefix +
+    // payload, fully initialized below.
+    unsafe {
+        let layout = core::alloc::Layout::from_size_align(STR_DATA_OFF + name.len(), 8).unwrap();
+        let cell = std::alloc::alloc_zeroed(layout);
+        *(cell as *mut u32) = 1;
+        *(cell.add(4) as *mut u16) = Tag::Str as u16;
+        *(cell.add(6) as *mut u16) = FLAG_STATIC_LITERAL | STR_FLAG_IS_LATIN1;
+        *(cell.add(STR_LEN_OFF) as *mut u32) = name.len() as u32;
+        core::ptr::copy_nonoverlapping(name.as_ptr(), cell.add(STR_DATA_OFF), name.len());
+        slot.store(cell as u64, Ordering::Relaxed);
+        cell
+    }
+}
+
+/// `.name` / `.length` metadata read off a reified method cell
+/// (chunk 715) — `(tag, value)` in the member-get pair protocol
+/// (4 = heap cell, 2 = i64). `None` when the cell is an ordinary
+/// closure or the key is not a metadata name (the caller's probe
+/// keeps its normal answer).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell; `key` is NULL or a live Str
+/// cell.
+pub(crate) unsafe fn builtin_method_meta_pair(
+    ptr: *mut c_void,
+    key: *const c_void,
+) -> Option<(u64, u64)> {
+    let mid = unsafe { builtin_method_mid(ptr) }?;
+    let (name, arity) = torajs_rc::any_method_meta(mid)?;
+    match unsafe { key_bytes(key) }? {
+        b"name" => Some((4, builtin_method_name_cell(mid, name) as u64)),
+        b"length" => Some((2, arity as u64)),
+        _ => None,
+    }
+}
+
+/// The reflection name of a reified method cell, `None` for
+/// ordinary closures — the inspect Closure arms print
+/// `[Function: <name>]` from this ahead of the fn-addr registry
+/// lookup (a method cell's `fn_addr` is the throwing native entry,
+/// never a table hit).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+pub(crate) unsafe fn builtin_method_name(ptr: *mut c_void) -> Option<&'static str> {
+    let mid = unsafe { builtin_method_mid(ptr) }?;
+    torajs_rc::any_method_meta(mid).map(|(name, _)| name)
+}
+
+/// The ES-spec `length` of a reified method cell, `None` for
+/// ordinary closures (the env cell carries no arity field — that
+/// side stays the recorded boundary).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+pub(crate) unsafe fn builtin_method_arity(ptr: *mut c_void) -> Option<u32> {
+    let mid = unsafe { builtin_method_mid(ptr) }?;
+    torajs_rc::any_method_meta(mid).map(|(_, arity)| arity)
+}
+
+/// The key Str's payload bytes — `None` for a NULL key. A UTF-16
+/// key reads its first `length` bytes, which never equal an ASCII
+/// metadata name, so the comparison stays conservatively exact.
+unsafe fn key_bytes<'a>(key: *const c_void) -> Option<&'a [u8]> {
+    if key.is_null() {
+        return None;
+    }
+    unsafe {
+        let len = (key.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() as usize;
+        Some(core::slice::from_raw_parts(
+            key.cast::<u8>().add(STR_DATA_OFF),
+            len,
+        ))
     }
 }
 

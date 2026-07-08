@@ -14,10 +14,10 @@ use core::ffi::c_void;
 
 use super::formatters::{
     __torajs_anyv_struct_print_inline_at, __torajs_arr_print_any_at, __torajs_bigint_print_inline,
-    __torajs_date_to_iso_string, __torajs_fn_print_inline, __torajs_inspect_line_add,
-    __torajs_map_print_at, __torajs_obj_print_any_at, __torajs_promise_print, __torajs_rc_dec,
+    __torajs_date_to_iso_string, __torajs_inspect_line_add, __torajs_map_print_at,
+    __torajs_obj_print_any_at, __torajs_promise_print, __torajs_rc_dec,
     __torajs_regex_print_inline, __torajs_set_print_at, __torajs_symbol_print_inline,
-    SUBSTR_VIEW_FLAG, closure_fn_addr, heap_flags, heap_type_tag, put_byte, put_bytes,
+    SUBSTR_VIEW_FLAG, heap_flags, heap_type_tag, put_byte, put_bytes, put_closure_fn_name,
     put_cp_json_escaped, put_f64_inline, put_i64_inline, put_str_cell_inline,
     put_str_cell_inline_esc, put_substr_cell_inline_esc,
 };
@@ -165,11 +165,10 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
             unsafe { __torajs_promise_print(child) };
         } else if tag == Tag::Closure as u16 {
             // Phase 2 wire (fn-name registry Step 5) — nested
-            // closure print. Same table lookup as top-level
-            // (Tag::Closure top-level arm above) but the trailing
-            // '\n' is owned by the nested-format outer walker.
-            let fn_addr = unsafe { closure_fn_addr(child) };
-            unsafe { __torajs_fn_print_inline(fn_addr) };
+            // closure print, method-cell name aware (chunk 715);
+            // the trailing '\n' is owned by the nested-format
+            // outer walker.
+            unsafe { put_closure_fn_name(child) };
         } else if tag == Tag::Map as u16 {
             // Runtime Tag::Set substrate — nested Map cell prints
             // inline (`Map {}` / `Map(N) {…}` form, no trailing
