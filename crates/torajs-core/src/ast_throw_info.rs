@@ -31,6 +31,22 @@
 //! call through an ident whose binding is fn-typed, and builtin ctor
 //! names (parseInt, Number, ...) are neither params nor body lets, so
 //! hot conversion calls stay unmarked.
+//!
+//! Chunk 701 — `direct_throw` is ALSO set for method calls
+//! (`Expr::Call { callee: Member { .. } }`, console.* exempt): the
+//! method lowerings bottom out in runtime helpers that record pending
+//! throws (kind-mismatch mutators, arr_any_to_typed, JSON.parse, OOB
+//! index-assign, any-receiver dispatch, ...). Before this rule a
+//! runtime TypeError raised inside a named fn unwound the fn body but
+//! the caller's throw-check was M4.3.b-skipped: try/catch around the
+//! call printed "no throw", a non-void callee answered the ret
+//! sentinel 0, and top-level execution continued with exit code 0.
+//! Method names are NOT mirrored per-shape (68 in-body throw-check
+//! sites across the lowerers; a missed mirror is a silent swallow) —
+//! the default is conservative and the exempt list carries the
+//! never-throwing hot surfaces instead, because the two directions
+//! fail differently: an over-wide exempt entry swallows, an
+//! over-narrow default costs one cold TLS-load check.
 
 use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 use std::collections::{HashMap, HashSet};
@@ -274,6 +290,30 @@ fn scan_expr(
                 // is statically unknown: conservative may-throw (mirrors
                 // the fn-valued-binding rule above).
                 Expr::Call { .. } | Expr::ArrowFn { .. } => {
+                    *direct = true;
+                }
+                // Chunk 701 — method calls: many method lowerings bottom
+                // out in runtime helpers that record pending throws
+                // (kind-mismatch mutators / any_to_typed / JSON.parse /
+                // index-assign OOB / any member dispatch — 68 in-body
+                // throw-check sites across the lowerers). Mirroring each
+                // dispatch condition here is unmaintainable and a missed
+                // entry is a silent swallow, so the default flips to
+                // may-throw with an exempt-list of known never-throwing
+                // hot surfaces (an over-wide exempt entry is a swallow;
+                // an over-narrow one is a single cold throw-check —
+                // exemption is the safe direction). Pure-arithmetic hot
+                // fns (fib / gcd / mandelbrot) have no method calls and
+                // keep the M4.3.b skip.
+                Expr::Member { obj, .. } => {
+                    let exempt = matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "console");
+                    if !exempt {
+                        *direct = true;
+                    }
+                }
+                // `xs[i]()` / `a?.b()` — fn-valued targets that are
+                // statically unknown, same conservatism as chained calls.
+                Expr::Index { .. } | Expr::OptChain { .. } => {
                     *direct = true;
                 }
                 _ => {}
