@@ -8,10 +8,10 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_CHAR_AT, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_MATCH,
-    ANY_METHOD_REPLACE, ANY_METHOD_REPLACE_ALL, ANY_METHOD_SLICE, ANY_METHOD_SPLIT,
-    ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END,
-    ANY_METHOD_TRIM_START, Tag,
+    ANY_METHOD_CHAR_AT, ANY_METHOD_ENDS_WITH, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF,
+    ANY_METHOD_MATCH, ANY_METHOD_REPLACE, ANY_METHOD_REPLACE_ALL, ANY_METHOD_SLICE,
+    ANY_METHOD_SPLIT, ANY_METHOD_STARTS_WITH, ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_UPPER_CASE,
+    ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START, Tag,
 };
 
 use crate::method_call::{method_not_a_function, to_index};
@@ -28,6 +28,10 @@ unsafe extern "C" {
     fn __torajs_str_any_index_of(s: *const u8, needle: *const u8, from: i64) -> i64;
     /// torajs-str — slice glue (missing end rides as i64::MAX).
     fn __torajs_str_any_slice(s: *const u8, start: i64, end: i64) -> u64;
+    /// torajs-str — startsWith glue (1/0; kernel clamps pos).
+    fn __torajs_str_any_starts_with(s: *const u8, needle: *const u8, pos: i64) -> i64;
+    /// torajs-str — endsWith glue (1/0; missing end rides as i64::MAX).
+    fn __torajs_str_any_ends_with(s: *const u8, needle: *const u8, end: i64) -> i64;
     /// torajs-str — split glue (NULL sep = no separator argument).
     fn __torajs_str_any_split(s: *const u8, sep: *const u8) -> u64;
     /// torajs-str — trim glue (mode: 0 both, 1 start, 2 end).
@@ -80,6 +84,21 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 let start = to_index(arg_at(0), 0);
                 let end = to_index(arg_at(1), i64::MAX);
                 __torajs_str_any_slice(s, start, end)
+            }
+            m if m == ANY_METHOD_STARTS_WITH || m == ANY_METHOD_ENDS_WITH => {
+                // ToString the needle (owned temp), test, drop.
+                // startsWith defaults pos to 0; endsWith's missing
+                // end rides as i64::MAX (kernel clamps to length).
+                let needle = __torajs_anyv_to_str(arg_at(0));
+                let hit = if m == ANY_METHOD_STARTS_WITH {
+                    let pos = to_index(arg_at(1), 0);
+                    __torajs_str_any_starts_with(s, needle as *const u8, pos)
+                } else {
+                    let end = to_index(arg_at(1), i64::MAX);
+                    __torajs_str_any_ends_with(s, needle as *const u8, end)
+                };
+                __torajs_str_drop(needle);
+                __torajs_anyv_box_from_pair(1, hit)
             }
             m if m == ANY_METHOD_SPLIT => {
                 let sep_av = arg_at(0);

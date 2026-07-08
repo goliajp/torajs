@@ -21,7 +21,9 @@ use torajs_rc::HeapHeader;
 
 use crate::block::__torajs_str_alloc;
 use crate::index_any::__torajs_str_index_get;
-use crate::lookup_ffi::__torajs_str_index_of_from;
+use crate::lookup_ffi::{
+    __torajs_str_ends_with_from, __torajs_str_index_of_from, __torajs_str_starts_with_from,
+};
 use crate::slice::__torajs_str_slice;
 use crate::split::ops::{__torajs_str_split, __torajs_str_split_no_sep};
 use crate::str_drop::__torajs_str_drop;
@@ -288,5 +290,50 @@ pub unsafe extern "C" fn __torajs_str_any_replace_regex(
         drop_tmp(t1);
         drop_tmp(t0);
         out as u64
+    }
+}
+
+/// `s.startsWith(needle, pos)` per ES §22.1.3.23 — 1/0. Clamping
+/// and the empty-needle always-match live in the typed-tier kernel;
+/// this glue only materializes Substr views (same shape as the
+/// indexOf glue).
+///
+/// # Safety
+/// `s` and `needle` are valid heap Str/Substr pointers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_starts_with(
+    s: *const u8,
+    needle: *const u8,
+    pos: i64,
+) -> i64 {
+    unsafe {
+        let (src, s_tmp) = owned_src(s);
+        let (nn, n_tmp) = owned_src(needle);
+        let out = __torajs_str_starts_with_from(src, nn, pos);
+        drop_tmp(n_tmp);
+        drop_tmp(s_tmp);
+        out
+    }
+}
+
+/// `s.endsWith(needle, endPos)` per ES §22.1.3.7 — 1/0. The
+/// dispatcher encodes a missing `endPos` as `i64::MAX` (the kernel
+/// clamps to `s.length`).
+///
+/// # Safety
+/// `s` and `needle` are valid heap Str/Substr pointers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_ends_with(
+    s: *const u8,
+    needle: *const u8,
+    end: i64,
+) -> i64 {
+    unsafe {
+        let (src, s_tmp) = owned_src(s);
+        let (nn, n_tmp) = owned_src(needle);
+        let out = __torajs_str_ends_with_from(src, nn, end);
+        drop_tmp(n_tmp);
+        drop_tmp(s_tmp);
+        out
     }
 }

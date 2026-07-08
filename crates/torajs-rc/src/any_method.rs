@@ -169,6 +169,11 @@ pub const ANY_METHOD_MATCH: i64 = 72;
 pub const ANY_METHOD_REPLACE: i64 = 73;
 /// `String.prototype.replaceAll` (RC-2c).
 pub const ANY_METHOD_REPLACE_ALL: i64 = 74;
+/// `String.prototype.startsWith` (chunk 692) — the `Tag::Str` arm
+/// wraps the typed tier's encoding-aware prefix kernel.
+pub const ANY_METHOD_STARTS_WITH: i64 = 75;
+/// `String.prototype.endsWith` (chunk 692).
+pub const ANY_METHOD_ENDS_WITH: i64 = 76;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -283,6 +288,8 @@ pub fn any_method_id(name: &str) -> i64 {
         "match" => ANY_METHOD_MATCH,
         "replace" => ANY_METHOD_REPLACE,
         "replaceAll" => ANY_METHOD_REPLACE_ALL,
+        "startsWith" => ANY_METHOD_STARTS_WITH,
+        "endsWith" => ANY_METHOD_ENDS_WITH,
         "test" => ANY_METHOD_TEST,
         "exec" => ANY_METHOD_EXEC,
         "keys" => ANY_METHOD_KEYS,
