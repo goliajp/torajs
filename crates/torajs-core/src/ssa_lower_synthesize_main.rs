@@ -127,6 +127,7 @@ pub(crate) fn synthesize_main(
             undefable_f64_lets: std::collections::HashSet::new(),
             binop_left_f64_undefable: false,
             binop_right_f64_undefable: false,
+            bounds_proven: Vec::new(),
             undefable_substr_lets: std::collections::HashSet::new(),
             stack_alloced_locals: std::collections::HashSet::new(),
             let_stack_alloc_hint: None,

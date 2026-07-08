@@ -94,6 +94,21 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
     if elem_ty == Type::Any {
         return lower_array_any_index(ctx, arr_val, idx_val);
     }
+    // Guard-dominated bounds elision — `xs[i]` under an enclosing
+    // `i < xs.length` guard (untainted window) keeps the direct
+    // load; see [`crate::ssa_lower_bounds_proven`].
+    if crate::ssa_lower_bounds_proven::is_proven(ctx, obj, index) {
+        let (offset_base, offset) =
+            ctx.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::LoadDyn(elem_ty, offset_base, offset),
+            elem_ty,
+            None,
+        );
+        return Operand::Value(v);
+    }
     lower_typed_index_checked(ctx, arr_val, idx_val, is_non_deque, elem_ty)
 }
 

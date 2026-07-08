@@ -228,6 +228,7 @@ pub(crate) mod ssa_lower_binop_loose_eq;
 pub(crate) mod ssa_lower_binop_null_undef;
 pub(crate) mod ssa_lower_binop_with_ids;
 pub mod ssa_lower_body_returns_closure;
+pub(crate) mod ssa_lower_bounds_proven;
 pub(crate) mod ssa_lower_boxed_entry;
 pub(crate) mod ssa_lower_call;
 pub(crate) mod ssa_lower_call_arr_flat_map;

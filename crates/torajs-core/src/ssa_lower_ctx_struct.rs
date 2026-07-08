@@ -276,6 +276,11 @@ pub(crate) struct LowerCtx<'a> {
     /// compares the bits instead of the cross-type false fold.
     pub(crate) binop_left_f64_undefable: bool,
     pub(crate) binop_right_f64_undefable: bool,
+    /// Guard-dominated bounds-check elision — `(i, xs)` pairs
+    /// proven in-bounds by an enclosing `i < xs.length` loop guard
+    /// (see [`crate::ssa_lower_bounds_proven`]). Loop lowerers push
+    /// / pop; the Block arm evicts tainted pairs per statement.
+    pub(crate) bounds_proven: Vec<(String, String)>,
     pub(crate) binop_right_undef_id: Option<ExprId>,
     /// Chunk 612 companion — which side (if any) is a frontend
     /// Type::Null source (the `null` literal or a Null-typed
