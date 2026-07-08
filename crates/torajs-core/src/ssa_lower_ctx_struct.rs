@@ -415,6 +415,9 @@ pub(crate) struct LowerCtx<'a> {
     /// this via `expr_owned_shape` / `expr_is_fresh_owned` so they
     /// take the ref over instead of adding their own (double inc)
     /// or ignoring it (leak). ExprIds are arena-unique, so entries
-    /// never need eviction.
+    /// never need eviction. Chunk 722 — Ternary / Nullish joins
+    /// whose branches were unified to owned ride the same track
+    /// (the set carries every "this eid's result is owned" verdict
+    /// decided at lowering time, not just member reads).
     pub(crate) owned_member_reads: std::collections::HashSet<ExprId>,
 }

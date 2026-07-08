@@ -37,6 +37,7 @@ use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     cond: ExprId,
     then_branch: ExprId,
     else_branch: ExprId,
@@ -57,7 +58,36 @@ pub(crate) fn lower(
     ctx.cur_block = else_blk;
     let else_val = ctx.lower_expr(else_branch);
     let else_end = ctx.cur_block;
-    let (then_val, else_val, res_ty) = widen_branches(ctx, then_val, else_val, then_end, else_end);
+    let (then_val, else_val, res_ty, then_boxed, else_boxed) = widen_branches(
+        ctx,
+        then_val,
+        else_val,
+        then_end,
+        else_end,
+        then_branch,
+        else_branch,
+    );
+    // Chunk 722 — owned unification: when either branch answers an
+    // owned value (Call / New / fresh Any box from the widen), the
+    // join result must be owned on BOTH paths so the consumer's
+    // single release balances (probe p722a: discarded
+    // `c ? mk(i) : mk2(i)` had no release site, 15.3MB churn vs
+    // 6.2MB flat). The borrow branch takes a tail-block inc; the
+    // eid joins the owned track `expr_owned_shape` consults. A
+    // join over two borrows stays a borrow — zero rc traffic.
+    if res_ty.is_refcounted() {
+        let then_owned = then_boxed || ctx.expr_owned_shape(then_branch);
+        let else_owned = else_boxed || ctx.expr_owned_shape(else_branch);
+        if then_owned || else_owned {
+            if !then_owned {
+                ctx.emit_owned_result_inc_in(then_end, then_val.clone(), res_ty);
+            }
+            if !else_owned {
+                ctx.emit_owned_result_inc_in(else_end, else_val.clone(), res_ty);
+            }
+            ctx.owned_member_reads.insert(eid);
+        }
+    }
     let res_slot = ctx.alloca_in_entry(res_ty, Some("__tern"));
     ctx.f.append_void(
         then_end,
@@ -87,37 +117,52 @@ pub(crate) fn lower(
     Operand::Value(r)
 }
 
+/// The two trailing bools flag a branch whose value was NaN-boxed
+/// here (mixed-Any wedge) — the box is fresh, so that branch is
+/// owned by construction regardless of the source expression's
+/// shape. Chunk 722: `box_to_any` transfers one reference into the
+/// box (chunk-563 contract), so a borrow-shape branch takes +1
+/// before boxing — without it the box stole the source binding's
+/// stake and the owned-join release turned that into a double-dec.
 fn widen_branches(
     ctx: &mut LowerCtx<'_>,
     then_val: Operand,
     else_val: Operand,
     then_end: crate::ssa::BlockId,
     else_end: crate::ssa::BlockId,
-) -> (Operand, Operand, Type) {
+    then_branch: ExprId,
+    else_branch: ExprId,
+) -> (Operand, Operand, Type, bool, bool) {
     let tt = ctx.operand_ty(&then_val);
     let et = ctx.operand_ty(&else_val);
     if tt == Type::F64 && et == Type::I64 {
         ctx.cur_block = else_end;
         let e = ctx.coerce_to_f64(else_val);
-        return (then_val, e, Type::F64);
+        return (then_val, e, Type::F64, false, false);
     }
     if tt == Type::I64 && et == Type::F64 {
         ctx.cur_block = then_end;
         let t = ctx.coerce_to_f64(then_val);
-        return (t, else_val, Type::F64);
+        return (t, else_val, Type::F64, false, false);
     }
     if tt == Type::Any || et == Type::Any {
         if tt != Type::Any {
             ctx.cur_block = then_end;
+            if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
+                ctx.emit_rc_inc(then_val.clone());
+            }
             let t = ctx.box_to_any(then_val);
-            return (t, else_val, Type::Any);
+            return (t, else_val, Type::Any, true, false);
         }
         if et != Type::Any {
             ctx.cur_block = else_end;
+            if et.is_refcounted() && !ctx.expr_transfers_ownership(else_branch) {
+                ctx.emit_rc_inc(else_val.clone());
+            }
             let e = ctx.box_to_any(else_val);
-            return (then_val, e, Type::Any);
+            return (then_val, e, Type::Any, false, true);
         }
-        return (then_val, else_val, Type::Any);
+        return (then_val, else_val, Type::Any, false, false);
     }
-    (then_val, else_val, tt)
+    (then_val, else_val, tt, false, false)
 }

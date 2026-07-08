@@ -238,7 +238,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // Lower as `let __tmp; if (cond) __tmp = T else __tmp = E; __tmp`
             // with W3 S8 i64/f64 widen + S129-1 mixed-Any widen wedges. See
             // [`crate::ssa_lower_ternary::lower`].
-            crate::ssa_lower_ternary::lower(ctx, *cond, *then_branch, *else_branch)
+            crate::ssa_lower_ternary::lower(ctx, eid, *cond, *then_branch, *else_branch)
         }
         Expr::TypeOf { expr } => {
             // `typeof <expr>` (ES §13.5.3) — 6-layer compile-time
@@ -262,7 +262,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // (Any lhs box-tag unbox + non-nullable short-circuit
             // + always-nullish lhs + generic Ptr CondBr). See
             // [`crate::ssa_lower_nullish::lower`].
-            crate::ssa_lower_nullish::lower(ctx, *lhs, *rhs)
+            crate::ssa_lower_nullish::lower(ctx, eid, *lhs, *rhs)
         }
         Expr::OptChain { obj, name } => {
             // P3.5 — `obj?.field` returns Type::Any (Any receiver

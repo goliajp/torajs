@@ -8,10 +8,13 @@
 //! as Ternary but the cond comes from a pointer null-compare and
 //! the lhs value is reused on the non-null path without re-eval.
 //!
-//! **Phase B refcount**: the result is borrowed from one of lhs /
-//! rhs without consuming either's local. To keep the caller's drop
-//! and the source's drop balanced, inc the chosen value's refcount
-//! in both branches.
+//! **Refcount (chunk 722)**: the generic-ptr join answers an OWNED
+//! value — an owned-shape side (Call / New) transfers its fresh
+//! reference into the result slot, a borrow-shape side (Ident /
+//! Member) takes +1 in its branch tail — and the eid joins the
+//! owned track (`expr_owned_shape`), so the consumer's single
+//! release balances either way. The short-circuit lanes forward
+//! the surviving side's ownership verdict instead.
 //!
 //! Four dispatch layers tried in source order:
 //!
@@ -56,7 +59,7 @@ use crate::check::{self as check_mod};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, lhs: ExprId, rhs: ExprId) -> Operand {
+pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) -> Operand {
     let lhs_op = ctx.lower_expr(lhs);
     let lhs_ty = ctx.operand_ty(&lhs_op);
     if matches!(lhs_ty, Type::Any) {
@@ -74,12 +77,25 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, lhs: ExprId, rhs: ExprId) -> Operand
         return lower_f64_undefable_lhs(ctx, lhs_op, rhs);
     }
     if is_non_nullable(&lhs_check_ty) {
+        // Chunk 722 — the short-circuit forwards lhs's value, so it
+        // forwards lhs's ownership too: `mkStr(i) ?? d` discarded /
+        // let-bound must release the Call's owned result.
+        if ctx.expr_owned_shape(lhs) {
+            ctx.owned_member_reads.insert(eid);
+        }
         return lhs_op;
     }
     if is_always_nullish(&lhs_check_ty) {
-        return ctx.lower_expr(rhs);
+        // Chunk 722 — mirror: result IS rhs, ownership follows it
+        // (the shape query runs AFTER the lowering so member-read
+        // owned verdicts recorded during it are visible).
+        let rhs_op = ctx.lower_expr(rhs);
+        if ctx.expr_owned_shape(rhs) {
+            ctx.owned_member_reads.insert(eid);
+        }
+        return rhs_op;
     }
-    lower_generic_ptr_lhs(ctx, lhs_op, lhs_ty, rhs)
+    lower_generic_ptr_lhs(ctx, eid, lhs_op, lhs_ty, lhs, rhs)
 }
 
 fn is_non_nullable(check_ty: &Option<check_mod::Type>) -> bool {
@@ -220,20 +236,22 @@ fn unbox_lhs_to_rhs_ty(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs_ty: Type) ->
 
 fn lower_generic_ptr_lhs(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     lhs_op: Operand,
     lhs_ty: Type,
+    lhs: ExprId,
     rhs: ExprId,
 ) -> Operand {
     let res_slot = ctx.alloca_in_entry(lhs_ty, Some("__nullish"));
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
-        InstKind::Store(lhs_op, Operand::Value(res_slot), 0),
+        InstKind::Store(lhs_op.clone(), Operand::Value(res_slot), 0),
     );
     let cur_block = ctx.cur_block;
     let cond = ctx.f.append_inst(
         cur_block,
-        InstKind::ICmp(IPred::Eq, lhs_op, Operand::ConstPtrNull),
+        InstKind::ICmp(IPred::Eq, lhs_op.clone(), Operand::ConstPtrNull),
         Type::Bool,
         None,
     );
@@ -254,15 +272,25 @@ fn lower_generic_ptr_lhs(
     let then_end = ctx.cur_block;
     ctx.f.append_void(
         then_end,
-        InstKind::Store(rhs_op, Operand::Value(res_slot), 0),
+        InstKind::Store(rhs_op.clone(), Operand::Value(res_slot), 0),
     );
+    // Chunk 722 — the join result is uniformly OWNED: an owned
+    // shape transfers its fresh reference into the slot, a borrow
+    // takes +1 in its branch tail; the eid joins the owned track
+    // so the consumer's release balances (pre-fix both branches
+    // inc'd unconditionally while the predicate answered borrow —
+    // `mk(i) ?? "z"` leaked rc=2 per iteration on discard AND let,
+    // probes p722d/e 15.3MB vs 6.2MB flat).
     if lhs_ty.is_refcounted() {
-        ctx.emit_rc_inc_in(then_end, rhs_op);
+        if !ctx.expr_transfers_ownership(rhs) {
+            ctx.emit_rc_inc_in(then_end, rhs_op);
+        }
+        if !ctx.expr_transfers_ownership(lhs) {
+            ctx.emit_rc_inc_in(else_blk, lhs_op);
+        }
+        ctx.owned_member_reads.insert(eid);
     }
     ctx.f.set_term(then_end, Terminator::Br(after));
-    if lhs_ty.is_refcounted() {
-        ctx.emit_rc_inc_in(else_blk, lhs_op);
-    }
     ctx.f.set_term(else_blk, Terminator::Br(after));
     ctx.cur_block = after;
     let cur_block = ctx.cur_block;

@@ -56,13 +56,21 @@ impl<'a> LowerCtx<'a> {
     /// are no-ops); other refcounted types take the plain header
     /// inc; Copy types need none.
     pub(crate) fn emit_owned_result_inc(&mut self, op: Operand, ty: Type) {
+        let block = self.cur_block;
+        self.emit_owned_result_inc_in(block, op, ty);
+    }
+
+    /// Same as [`emit_owned_result_inc`] but emits into an explicit
+    /// `block`. Used by control-flow joins (Ternary / Nullish) that
+    /// unify a borrow branch to owned in that branch's tail block.
+    pub(crate) fn emit_owned_result_inc_in(&mut self, block: BlockId, op: Operand, ty: Type) {
         if ty == Type::Any {
             self.f.append_void(
-                self.cur_block,
+                block,
                 InstKind::Call(self.intrinsics.any_box_rc_inc, vec![op]),
             );
         } else if ty.is_refcounted() {
-            self.emit_rc_inc(op);
+            self.emit_rc_inc_in(block, op);
         }
     }
 
@@ -154,6 +162,14 @@ impl<'a> LowerCtx<'a> {
             | Expr::Index { .. }
             | Expr::OptChain { .. }
             | Expr::OptIndex { .. } => self.owned_member_reads.contains(&eid),
+            // Chunk 722 — a Ternary / Nullish join whose lowering
+            // unified the branches to owned (any branch was an
+            // owned shape; the borrow branch got a tail-block inc)
+            // records its eid the same way; joins over pure borrows
+            // (`cond ? a : b` over idents) stay borrows with zero
+            // rc traffic (probe p722a ternary-discard 15.3MB /
+            // p722d-e nullish 15.3MB vs 6.2MB flat).
+            Expr::Ternary { .. } | Expr::Nullish { .. } => self.owned_member_reads.contains(&eid),
             _ => false,
         }
     }
