@@ -13,9 +13,10 @@
 //! The cross-sibling call to the actual rewriters lives at
 //! `crate::ast::arguments_object_rewrite::rewrite_arguments_in_stmt`.
 
+use super::arguments_object_collect::{collect_value_argc, collect_value_argv};
 use super::arguments_object_walkers::{
-    body_has_arguments_length, body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
-    synth_arguments_local,
+    body_has_arguments_length, stmt_uses_dynamic_arguments, synth_arguments_local,
+    synth_arguments_local_argv,
 };
 use super::{Ast, Expr, Param, Stmt};
 
@@ -111,18 +112,31 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     let (value_real_argc, argc_locals) = collect_value_argc(ast, &env_fns, &iife_real_argc);
     ast.closure_argc_locals = argc_locals;
 
+    // RFC 20260708-closure-argv-face — full-arguments tier seed +
+    // the same binding safety walk (see collect_value_argv).
+    let (value_argv_fns, argv_locals) = collect_value_argv(ast, &env_fns, &iife_real_argc);
+    ast.closure_argv_fns = value_argv_fns.clone();
+    ast.closure_argv_locals = argv_locals;
+
     // T-31 — inject `__torajs_real_argc: number` at param[0] for each
     // uses_real_argc fn. Done before the body-rewrite walk so the
     // typechecker (which runs after desugar) sees the new signature
     // and so the recursive `arguments.length` rewrite below can resolve
     // `Ident("__torajs_real_argc")` cleanly.
-    if !uses_real_argc.is_empty() || !iife_real_argc.is_empty() || !value_real_argc.is_empty() {
+    if !uses_real_argc.is_empty()
+        || !iife_real_argc.is_empty()
+        || !value_real_argc.is_empty()
+        || !value_argv_fns.is_empty()
+    {
         for s in ast.stmts.iter_mut() {
             if let Stmt::FnDecl { name, params, .. } = s {
                 // Chunk 613 — IIFE closures put the synthetic param
                 // AFTER the hidden `__env` (first USER param slot);
                 // RFC 20260708 value-form closures share that slot.
-                let at = if iife_real_argc.contains(name) || value_real_argc.contains(name) {
+                let at = if iife_real_argc.contains(name)
+                    || value_real_argc.contains(name)
+                    || value_argv_fns.contains(name)
+                {
                     1
                 } else if uses_real_argc.contains(name) {
                     0
@@ -138,6 +152,19 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                         is_rest: false,
                     },
                 );
+                // argv-face bodies also take the adapter's raw argv
+                // pointer right after the argc slot.
+                if value_argv_fns.contains(name) {
+                    params.insert(
+                        at + 1,
+                        Param {
+                            name: "__torajs_argv".into(),
+                            type_ann: Some("__argvptr()".into()),
+                            default: None,
+                            is_rest: false,
+                        },
+                    );
+                }
             }
         }
     }
@@ -149,9 +176,11 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 continue;
             };
             let params = params.clone();
+            let is_argv_fn = value_argv_fns.contains(name);
             let argc_mode = if uses_real_argc.contains(name)
                 || iife_real_argc.contains(name)
                 || value_real_argc.contains(name)
+                || is_argv_fn
             {
                 ArgcMode::Real
             } else if env_fns.contains(name) && body_has_arguments_length(ast, body) {
@@ -165,11 +194,17 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             // the body and rewrite the dynamic indices to read from it.
             // Literal-index rewrites (the existing path) take priority
             // and don't materialize the array — they stay zero-cost.
-            let mut needs_materialize = false;
-            for s in body {
-                if stmt_uses_dynamic_arguments(ast, s) {
-                    needs_materialize = true;
-                    break;
+            // argv-face bodies always materialize (from the
+            // adapter's argv — beyond-declared values included);
+            // named-fn bodies keep the declared-params builder,
+            // gated on a dynamic use.
+            let mut needs_materialize = is_argv_fn;
+            if !needs_materialize {
+                for s in body {
+                    if stmt_uses_dynamic_arguments(ast, s) {
+                        needs_materialize = true;
+                        break;
+                    }
                 }
             }
             let new_body: Vec<Stmt> = body
@@ -182,7 +217,9 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 .collect();
             // Synthesize the local OUTSIDE the &mut ast.stmts borrow
             // (synth_arguments_local also takes &mut ast for add_expr).
-            let synth_opt = if needs_materialize {
+            let synth_opt = if is_argv_fn {
+                Some(synth_arguments_local_argv(ast))
+            } else if needs_materialize {
                 Some(synth_arguments_local(ast, &params))
             } else {
                 None
@@ -201,183 +238,6 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     }
 
     prepend_static_argc(ast, &uses_real_argc, iife_call_sites);
-}
-
-/// RFC 20260708-closure-argc-abi chunk 1 — collect the closure
-/// VALUE form seed: length-only lifted closures whose value is
-/// consumed exclusively through a safe binding chain. Returns
-/// `(value_real_argc fns, argc-local binding names)` — see the
-/// gate rationale in the body comments.
-fn collect_value_argc(
-    ast: &Ast,
-    env_fns: &std::collections::HashSet<String>,
-    iife_real_argc: &std::collections::HashSet<String>,
-) -> (
-    std::collections::HashSet<String>,
-    std::collections::HashSet<String>,
-) {
-    use std::collections::{HashMap, HashSet};
-    // RFC 20260708-closure-argc-abi chunk 1 — closure VALUE form: a
-    // lifted closure that reads `arguments.length` and is NOT an IIFE
-    // has no static call site, so the real argc travels at runtime
-    // (the ssa_lower closure-local call arm prepends
-    // ConstI64(user-arg count) for bindings in `argc_locals`). Two
-    // gates keep this zero-silent-wrong:
-    //
-    // 1. Only the length-only tier qualifies: a body that also reads
-    //    `arguments[dynamic]` / spreads `...arguments` needs the arg
-    //    VALUES (the argv face, recorded follow-up) and stays
-    //    KeepLoud — admitting a beyond-arity call whose values are
-    //    unreachable would be silent-wrong.
-    // 2. Every binding the closure value can reach must be
-    //    direct-call-or-alias only (`f(...)` / `const g = f`). Any
-    //    other use — passed as an argument, stored in a container,
-    //    returned, reassigned — kills the whole chain back to the
-    //    fn, which then stays KeepLoud (checker rejects `arguments`
-    //    loudly, today's behavior): a call-emit site that doesn't
-    //    know about the argc slot would feed the callee garbage.
-    //    The HOF/param-infection face is the RFC's chunk 2.
-    let mut value_real_argc: HashSet<String> = HashSet::new();
-    // binding name → source lifted-closure fn name (aliases share
-    // the source fn).
-    let mut argc_candidates: HashMap<String, String> = HashMap::new();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl { name, body, .. } = s {
-            if env_fns.contains(name)
-                && !iife_real_argc.contains(name)
-                && body_has_arguments_length(ast, body)
-                && !body_has_non_length_arguments_touch(ast, body)
-            {
-                value_real_argc.insert(name.clone());
-            }
-        }
-    }
-    // RFC chunk 2 (mono track) — a length-only closure passed
-    // DIRECTLY as an argument to a fn whose receiving param is
-    // unannotated: that param goes through implicit generics (__T),
-    // and the monomorphizer instantiates the slot as `__clsargc(`
-    // (see ssa_lower_generics_mono_shapes), whose param-call arm
-    // prepends the runtime argc. Two gates: the receiving param must
-    // be unannotated (mono track — a typed param never sees the
-    // argc-shaped signature), and the receiving body must consume it
-    // by DIRECT CALL only (any other use — alias, re-pass, store —
-    // reaches sites that don't know the argc slot).
-    let mut hof_arg_fns: HashSet<String> = HashSet::new();
-    for e in &ast.exprs {
-        let Expr::Call { callee, args } = e else {
-            continue;
-        };
-        let Expr::Ident(g) = ast.get_expr(*callee) else {
-            continue;
-        };
-        for (pi, a) in args.iter().enumerate() {
-            let Expr::Closure { fn_name, .. } = ast.get_expr(*a) else {
-                continue;
-            };
-            if !value_real_argc.contains(fn_name) {
-                continue;
-            }
-            // RFC 20260708-variadic — a variadic-annotated param
-            // (`(...args: E[]) => R`) also admits: its call lane is
-            // the boxed dual entry whose adapter feeds the REAL
-            // argc, and the checker's rest-tail assignability keeps
-            // the value inside variadic-typed slots (a static
-            // declared-pair site can never receive it), so no
-            // body-use gate is needed for that track.
-            let ok = ast.stmts.iter().any(|s| {
-                matches!(s, Stmt::FnDecl { name, params, body, .. }
-                    if name == g
-                        && ((params.get(pi).is_some_and(|p| p.type_ann.is_none())
-                            && param_uses_are_direct_calls(ast, body, &params[pi].name))
-                            || params.get(pi).is_some_and(|p| p
-                                .type_ann
-                                .as_deref()
-                                .is_some_and(|a| a.contains("__rest(")))))
-            });
-            if ok {
-                hof_arg_fns.insert(fn_name.clone());
-            }
-        }
-    }
-
-    // Direct bindings (`const f = function(){...}`), then alias
-    // closure (`const g = f`) — top-level stmts only in chunk 1;
-    // nested-scope aliases fail the safety walk below and kill the
-    // chain (conservative, stays loud).
-    for s in &ast.stmts {
-        if let Stmt::LetDecl { name, init, .. } = s
-            && let Expr::Closure { fn_name, .. } = ast.get_expr(*init)
-            && value_real_argc.contains(fn_name)
-        {
-            argc_candidates.insert(name.clone(), fn_name.clone());
-        }
-    }
-    loop {
-        let mut grew = false;
-        for s in &ast.stmts {
-            if let Stmt::LetDecl { name, init, .. } = s
-                && let Expr::Ident(src) = ast.get_expr(*init)
-                && argc_candidates.contains_key(src)
-                && !argc_candidates.contains_key(name)
-            {
-                argc_candidates.insert(name.clone(), argc_candidates[src].clone());
-                grew = true;
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-    // Safety walk: for each candidate binding b, every arena
-    // occurrence of `Ident(b)` must be a Call callee or a
-    // still-candidate alias init. Kill rounds run to a fixpoint
-    // because removing an alias invalidates its source's legality.
-    loop {
-        let mut killed: HashSet<String> = HashSet::new();
-        for b in argc_candidates.keys() {
-            let b_eids: HashSet<u32> = (0..ast.exprs.len() as u32)
-                .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == b))
-                .collect();
-            let mut legal: HashSet<u32> = HashSet::new();
-            for e in &ast.exprs {
-                if let Expr::Call { callee, .. } = e
-                    && b_eids.contains(&callee.0)
-                {
-                    legal.insert(callee.0);
-                }
-            }
-            for s in &ast.stmts {
-                if let Stmt::LetDecl { name, init, .. } = s
-                    && b_eids.contains(&init.0)
-                    && argc_candidates.contains_key(name)
-                {
-                    legal.insert(init.0);
-                }
-            }
-            if b_eids.difference(&legal).next().is_some() {
-                killed.insert(b.clone());
-            }
-        }
-        if killed.is_empty() {
-            break;
-        }
-        let killed_fns: HashSet<String> = argc_candidates
-            .iter()
-            .filter(|(b, _)| killed.contains(*b))
-            .map(|(_, f)| f.clone())
-            .collect();
-        argc_candidates.retain(|_, f| !killed_fns.contains(f));
-    }
-    // Only fns whose closure value is consumed EXCLUSIVELY through a
-    // surviving binding chain get the argc injection — plus the
-    // RFC-chunk-2 mono-track form below. A closure stored in a
-    // container, returned, etc. must NOT be reshaped: its call
-    // sites don't know about the argc slot and would feed the body
-    // garbage.
-    let mut injected: HashSet<String> = argc_candidates.values().cloned().collect();
-    injected.extend(hof_arg_fns);
-    let argc_locals: HashSet<String> = argc_candidates.keys().cloned().collect();
-    (injected, argc_locals)
 }
 
 /// T-31 + chunk 613 — prepend the argc argument at static call
@@ -443,24 +303,4 @@ fn prepend_static_argc(
             args: new_args,
         };
     }
-}
-
-/// RFC 20260708-closure-argc-abi chunk 2 — every arena occurrence of
-/// `Ident(pname)` must be a Call callee. Conservative: same-named
-/// idents anywhere in the program count, so an unrelated binding
-/// with the param's name fails the gate (stays loud, never silent).
-fn param_uses_are_direct_calls(ast: &Ast, _body: &[Stmt], pname: &str) -> bool {
-    use std::collections::HashSet;
-    let p_eids: HashSet<u32> = (0..ast.exprs.len() as u32)
-        .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == pname))
-        .collect();
-    let mut legal: HashSet<u32> = HashSet::new();
-    for e in &ast.exprs {
-        if let Expr::Call { callee, .. } = e
-            && p_eids.contains(&callee.0)
-        {
-            legal.insert(callee.0);
-        }
-    }
-    p_eids.difference(&legal).next().is_none()
 }

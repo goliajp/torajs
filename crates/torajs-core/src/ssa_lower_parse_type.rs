@@ -72,6 +72,11 @@ pub(crate) fn parse_type(
     if s.starts_with("__env(") && s.ends_with(')') {
         return Type::Ptr;
     }
+    // RFC 20260708-closure-argv-face — raw argv pointer marker on
+    // the synthetic `__torajs_argv` param (boxed adapter feeds it).
+    if s == "__argvptr()" {
+        return Type::Ptr;
+    }
     // M3 fix — structural struct annotation `__struct(name:T|...)`,
     // produced by `check::type_to_ann` for monomorphized generics that
     // bind a struct type. Decode each field, intern the layout, return

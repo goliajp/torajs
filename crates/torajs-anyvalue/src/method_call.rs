@@ -285,13 +285,25 @@ pub(crate) unsafe fn invoke_boxed(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        let n = argc.max(0) as usize;
+        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+            core::mem::transmute(entry as usize);
+        // RFC 20260708-closure-argv-face — an argv-face body reads
+        // ALL argc slots off the pointer it receives (the
+        // `__torajs_arguments` materializer), so a beyond-buf call
+        // takes a heap-sized copy instead of silently truncating;
+        // the common ≤ MAX_BOXED_ARGS shape stays on the stack.
+        if n > MAX_BOXED_ARGS {
+            let mut big = vec![VALUE_UNDEFINED; n];
+            for (i, slot) in big.iter_mut().enumerate() {
+                *slot = *argv.add(i);
+            }
+            return call(env, big.as_ptr(), argc);
+        }
         let mut buf = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
-        let n = (argc.max(0) as usize).min(MAX_BOXED_ARGS);
         for (i, slot) in buf.iter_mut().enumerate().take(n) {
             *slot = *argv.add(i);
         }
-        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
-            core::mem::transmute(entry as usize);
         call(env, buf.as_ptr(), argc)
     }
 }

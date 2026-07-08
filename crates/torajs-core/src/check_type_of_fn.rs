@@ -133,5 +133,17 @@ pub(crate) fn check_closure(
     }
     checker.expected_return = saved_return;
     checker.scopes = saved_scopes;
+    // RFC 20260708-closure-argv-face — a full-arguments closure's
+    // PUBLIC type is `(...args: any[]) => R`: any call arity is
+    // legal and every call must ride the boxed dual entry (whose
+    // adapter feeds real argc + argv into the synthetic params).
+    // The rest-tail type reuses the whole variadic track — call
+    // admit, assignability, and the SSA boxed-lane registration.
+    if ast.closure_argv_fns.contains(&fn_name) {
+        let Type::Function(_, ret) = user_fn_ty else {
+            unreachable!("build_fn_type returned non-Function");
+        };
+        return Ok(Type::Function(vec![Type::Rest(Box::new(Type::Any))], ret));
+    }
     Ok(user_fn_ty)
 }

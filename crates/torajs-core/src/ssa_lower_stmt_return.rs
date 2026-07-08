@@ -68,6 +68,25 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
         if needs_retain {
             ctx.emit_rc_inc(v.clone());
         }
+        // RFC 20260708-closure-argv-face — `return
+        // __torajs_arguments[i]` hands back a box borrowing the
+        // materialized array's elem stake (the array itself keeps
+        // its scope drop — see the consume-walk exemption): retain
+        // the payload so the box leaves self-owned. Non-root reads
+        // feed consuming nodes (fresh results) and need nothing.
+        if let Expr::Index { obj, .. } = ctx.ast.get_expr(eid)
+            && matches!(ctx.ast.get_expr(*obj), Expr::Ident(n) if n == "__torajs_arguments")
+            && ctx.operand_ty(&v) == Type::Any
+        {
+            let retained = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.anyv_retain, vec![v.clone()]),
+                Type::Any,
+                None,
+            );
+            ctx.consume_all_idents_in_return(eid);
+            return Operand::Value(retained);
+        }
         ctx.consume_all_idents_in_return(eid);
         v
     });

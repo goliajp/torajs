@@ -54,6 +54,9 @@ pub(crate) struct AnySubstrateIds {
     pub anyv_str_slot_tag: FuncId,
     pub anyv_str_slot_value: FuncId,
     pub any_payload_rc_inc: FuncId,
+    /// RFC 20260708-closure-argv-face — whole-box heap-payload
+    /// retain (`__torajs_anyv_retain`); immediates no-op.
+    pub anyv_retain: FuncId,
     pub proto_register: FuncId,
     pub register_native_error: FuncId,
     pub proto_get: FuncId,
@@ -224,6 +227,13 @@ pub(crate) fn declare(
             "__torajs_anyv_payload_rc_inc_pair",
             &[Type::I64, Type::I64],
             Type::Void,
+        ),
+        anyv_retain: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_retain",
+            &[Type::Any],
+            Type::Any,
         ),
         proto_register: declare_intrinsic(
             module,

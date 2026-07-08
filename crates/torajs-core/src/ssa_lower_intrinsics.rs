@@ -245,6 +245,9 @@ pub(crate) struct Intrinsics {
     pub(crate) process_stdout_write: FuncId,
     pub(crate) process_stderr_write: FuncId,
     pub(crate) arr_alloc_any: FuncId,
+    /// RFC 20260708-closure-argv-face — bulk any-append over a raw
+    /// argv window (`__torajs_arguments` materializer half 2).
+    pub(crate) arr_any_push: FuncId,
     pub(crate) arr_push_any: FuncId,
     pub(crate) arr_unshift_any: FuncId,
     pub(crate) arr_fill_any: FuncId,
@@ -313,6 +316,7 @@ pub(crate) struct Intrinsics {
     pub(crate) anyv_str_slot_tag: FuncId,
     pub(crate) anyv_str_slot_value: FuncId,
     pub(crate) any_payload_rc_inc: FuncId,
+    pub(crate) anyv_retain: FuncId,
     pub(crate) proto_register: FuncId,
     pub(crate) register_native_error: FuncId,
     pub(crate) proto_get: FuncId,

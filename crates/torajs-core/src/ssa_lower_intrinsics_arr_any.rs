@@ -50,6 +50,11 @@ pub(crate) struct ArrAnyIds {
     pub arr_get_any_boxed: FuncId,
     pub arr_any_pop: FuncId,
     pub arr_any_shift: FuncId,
+    /// RFC 20260708-closure-argv-face — `__torajs_arr_any_push(arr,
+    /// argv, argc, recv_slot)` bulk append (borrow-in, incs stored
+    /// heap cells); the `__torajs_arguments` materializer's second
+    /// half.
+    pub arr_any_push: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ArrAnyIds {
@@ -74,6 +79,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     );
     ArrAnyIds {
         arr_alloc_any,
+        arr_any_push: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_any_push",
+            &[Type::Ptr, Type::Ptr, Type::I64, Type::Ptr],
+            Type::I64,
+        ),
         arr_push_any: declare_intrinsic(
             module,
             fn_table,

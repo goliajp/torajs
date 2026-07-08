@@ -2,6 +2,7 @@
 
 mod apply_args;
 mod arguments_object;
+mod arguments_object_collect;
 mod arguments_object_rewrite;
 mod arguments_object_walkers;
 mod array_isarray_value;
@@ -145,6 +146,20 @@ pub struct Ast {
     /// wedge admits beyond-arity calls through these names and the
     /// ssa_lower closure-local call arm prepends the runtime argc.
     pub closure_argc_locals: std::collections::HashSet<String>,
+    /// RFC 20260708-closure-argv-face — lifted closures whose body
+    /// reads `arguments[i]` (the full-arguments tier) and whose
+    /// value passed the direct-call-or-alias safety walk. These
+    /// bodies carry the synthetic `__torajs_real_argc` +
+    /// `__torajs_argv` params and a materialized
+    /// `__torajs_arguments` local; the checker mints their Function
+    /// type rest-tail (`(...args: any[]) => R`) so every call rides
+    /// the boxed dual entry (which feeds real argc + argv).
+    pub closure_argv_fns: std::collections::HashSet<String>,
+    /// RFC 20260708-closure-argv-face — bindings holding a
+    /// `closure_argv_fns` value (aliases included). Recorded for
+    /// symmetry with `closure_argc_locals`; the SSA variadic
+    /// registration rides the checker's rest-tail type instead.
+    pub closure_argv_locals: std::collections::HashSet<String>,
     /// Phase L.2 — names of `async function` declarations recorded by
     /// the parser. desugar_async iterates ast.stmts and, for any
     /// FnDecl whose name is in this set, wraps the return value in a

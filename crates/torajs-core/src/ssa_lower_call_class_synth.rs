@@ -56,8 +56,40 @@ pub(crate) fn try_lower(
         "__torajs_class_register" => try_lower_class_register(ctx, args),
         "__torajs_register_native_error" => try_lower_register_native_error(ctx, args),
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
+        "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
         _ => None,
     }
+}
+
+/// RFC 20260708-closure-argv-face — expand the synthetic
+/// `__torajs_arguments_materialize(__torajs_argv, __torajs_real_argc)`
+/// call (desugar_arguments_object prepends it to full-arguments
+/// closure bodies) into `arr_alloc_any(argc)` + `arr_any_push(arr,
+/// argv, argc, NULL)`. cap == argc so the push never relocates; the
+/// runtime incs every stored heap cell (argv slots stay borrowed by
+/// the adapter's caller). Result is the fresh Arr<Any> the
+/// `__torajs_arguments: any[]` binding owns (scope drop reclaims).
+fn try_lower_arguments_materialize(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if args.len() != 2 {
+        return None;
+    }
+    let argv = ctx.lower_expr(args[0]);
+    let argc = ctx.lower_expr(args[1]);
+    let arr_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Any);
+    let arr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.arr_alloc_any, vec![argc.clone()]),
+        Type::Arr(arr_id),
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_any_push,
+            vec![Operand::Value(arr), argv, argc, Operand::ConstPtrNull],
+        ),
+    );
+    Some(Operand::Value(arr))
 }
 
 fn try_lower_proto_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {

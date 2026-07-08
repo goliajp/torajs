@@ -34,6 +34,16 @@ impl<'a> LowerCtx<'a> {
             }
             match self.ast.get_expr(id).clone() {
                 Expr::Ident(name) => {
+                    // RFC 20260708-closure-argv-face — the
+                    // materialized `__torajs_arguments` array is
+                    // never transferred by a return (its index
+                    // reads either retain at the return root or
+                    // feed a consuming node); marking it moved
+                    // stranded one array per call. It keeps its
+                    // scope drop unconditionally.
+                    if name == "__torajs_arguments" {
+                        continue;
+                    }
                     if let Some(info) = self.locals.get_mut(&name)
                         && !info.ty.is_copy()
                     {

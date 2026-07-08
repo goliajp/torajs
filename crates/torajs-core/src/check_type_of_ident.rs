@@ -62,6 +62,13 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
         "__torajs_date_from_components" => {
             Ok(Type::Function(vec![Type::Number; 7], Box::new(Type::Date)))
         }
+        // RFC 20260708-closure-argv-face — the synthetic
+        // `__torajs_arguments` materializer (argv ptr + argc →
+        // Array<Any>); lowered in the class-synth lane.
+        "__torajs_arguments_materialize" => Ok(Type::Function(
+            vec![Type::Any, Type::Number],
+            Box::new(Type::Array(Box::new(Type::Any))),
+        )),
         "__torajs_proto_register" => Ok(Type::Function(
             vec![Type::Any, Type::String],
             Box::new(Type::Void),

@@ -275,6 +275,19 @@ pub extern "C" fn __torajs_anyv_unbox_value_owned(v: AnyValue) -> i64 {
     }
 }
 
+/// Retain the box's heap payload — cell → +1, every immediate
+/// (ShortStr included) a no-op. RFC 20260708-closure-argv-face:
+/// `return __torajs_arguments[i]` hands the caller a box borrowing
+/// the materialized array's elem stake; this retain makes the box
+/// self-owned so the array keeps its normal scope drop.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_anyv_retain(v: AnyValue) -> AnyValue {
+    if is_cell(v) {
+        payload_rc_inc(AnySlotTag::Heap as i64, v as i64);
+    }
+    v
+}
+
 /// Settle the temporary a borrow-shaped [`__torajs_anyv_unbox_value`]
 /// may have created: when `v` was a ShortStr the decode
 /// materialized a fresh refcount=1 Heap+Str (`raw`), which the

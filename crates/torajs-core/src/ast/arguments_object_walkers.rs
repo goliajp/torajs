@@ -23,6 +23,12 @@ enum ScanFor {
     /// member — all of which need the arg VALUES (the argv face)
     /// and disqualify the runtime-argc-only tier.
     NonLengthTouch,
+    /// An `arguments` touch that even the argv face can't serve
+    /// from the materialized array (RFC 20260708-closure-argv-face):
+    /// `arguments[i]` and `arguments.length` are absorbed; a bare
+    /// `arguments` anywhere else (spread, call arg, alias, member)
+    /// hits. A body with such a touch stays KeepLoud.
+    EscapingTouch,
 }
 
 /// True if the body touches `arguments` in any form other than
@@ -30,6 +36,87 @@ enum ScanFor {
 pub(super) fn body_has_non_length_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter()
         .any(|s| stmt_scan(ast, s, ScanFor::NonLengthTouch))
+}
+
+/// RFC 20260708-closure-argv-face — true if any `return` in the
+/// body could hand back an `arguments[i]` elem box through a
+/// pass-through chain (ternary arm / nullish side / sequence tail /
+/// as / assign value) WITHOUT a consuming node in between: the
+/// return-root retain can't see through those, so the box would
+/// leave borrowing the materialized array's stake (UAF once the
+/// array scope-drops). Such bodies stay KeepLoud. A root
+/// `arguments[i]` return is fine (the return lowering retains) and
+/// any read under a consuming node (BinOp / call arg / literal /
+/// member / index position) produces a fresh result.
+pub(super) fn body_has_unsafe_return_arguments(ast: &Ast, body: &[Stmt]) -> bool {
+    fn stmt_walk(ast: &Ast, s: &Stmt) -> bool {
+        match s {
+            Stmt::Return(Some(e)) => {
+                // root arguments-index — retained by the return
+                // lowering, safe.
+                if matches!(ast.get_expr(*e), Expr::Index { obj, .. }
+                    if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
+                {
+                    return false;
+                }
+                passthrough_aliases(ast, *e)
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                stmt_walk(ast, then_branch)
+                    || else_branch.as_ref().is_some_and(|e| stmt_walk(ast, e))
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::For { body, .. } => {
+                stmt_walk(ast, body)
+            }
+            Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().any(|s| stmt_walk(ast, s)),
+            Stmt::Try {
+                body, catch_body, ..
+            } => {
+                body.iter().any(|s| stmt_walk(ast, s))
+                    || catch_body.iter().any(|s| stmt_walk(ast, s))
+            }
+            Stmt::Switch { cases, default, .. } => {
+                cases
+                    .iter()
+                    .any(|c| c.body.iter().any(|s| stmt_walk(ast, s)))
+                    || default
+                        .as_ref()
+                        .is_some_and(|d| d.iter().any(|s| stmt_walk(ast, s)))
+            }
+            _ => false,
+        }
+    }
+    fn passthrough_aliases(ast: &Ast, e: ExprId) -> bool {
+        match ast.get_expr(e) {
+            Expr::Index { obj, .. } if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") => {
+                true
+            }
+            Expr::Ternary {
+                then_branch,
+                else_branch,
+                ..
+            } => passthrough_aliases(ast, *then_branch) || passthrough_aliases(ast, *else_branch),
+            Expr::Nullish { lhs, rhs } => {
+                passthrough_aliases(ast, *lhs) || passthrough_aliases(ast, *rhs)
+            }
+            Expr::Sequence { right, .. } => passthrough_aliases(ast, *right),
+            Expr::As { expr, .. } => passthrough_aliases(ast, *expr),
+            Expr::Assign { value, .. } => passthrough_aliases(ast, *value),
+            _ => false,
+        }
+    }
+    body.iter().any(|s| stmt_walk(ast, s))
+}
+
+/// True if the body touches `arguments` in a form the argv-face
+/// materialized array can't serve (see [`ScanFor::EscapingTouch`]).
+pub(super) fn body_has_escaping_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter()
+        .any(|s| stmt_scan(ast, s, ScanFor::EscapingTouch))
 }
 
 pub(super) fn stmt_uses_dynamic_arguments(ast: &Ast, s: &Stmt) -> bool {
@@ -280,7 +367,17 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
             expr_scan(ast, *obj, what)
         }
         Expr::Member { obj, .. } => expr_scan(ast, *obj, what),
-        Expr::Index { obj, index } => expr_scan(ast, *obj, what) || expr_scan(ast, *index, what),
+        Expr::Index { obj, index } => {
+            // Escaping scan absorbs `arguments[...]` (the argv face
+            // serves it from the materialized array) but still
+            // recurses the index expression.
+            if what == ScanFor::EscapingTouch
+                && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments")
+            {
+                return expr_scan(ast, *index, what);
+            }
+            expr_scan(ast, *obj, what) || expr_scan(ast, *index, what)
+        }
         Expr::BinOp { left, right, .. } => {
             expr_scan(ast, *left, what) || expr_scan(ast, *right, what)
         }
@@ -296,7 +393,9 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
         Expr::Array(items) => items.iter().any(|e| expr_scan(ast, *e, what)),
         Expr::ObjectLit { fields } => fields.iter().any(|(_, e)| expr_scan(ast, *e, what)),
         Expr::Spread { expr } => expr_scan(ast, *expr, what),
-        Expr::Ident(n) if n == "arguments" => what == ScanFor::NonLengthTouch,
+        Expr::Ident(n) if n == "arguments" => {
+            matches!(what, ScanFor::NonLengthTouch | ScanFor::EscapingTouch)
+        }
         Expr::Ternary {
             cond,
             then_branch,
@@ -322,6 +421,31 @@ pub(super) fn synth_arguments_local(ast: &mut Ast, params: &[String]) -> Stmt {
         .map(|p| ast.add_expr(Expr::Ident(p.clone())))
         .collect();
     let init = ast.add_expr(Expr::Array(elems));
+    Stmt::LetDecl {
+        mutable: false,
+        name: "__torajs_arguments".into(),
+        type_ann: Some("any[]".into()),
+        init,
+        is_var: false,
+    }
+}
+
+/// RFC 20260708-closure-argv-face — synthesize
+/// `let __torajs_arguments: any[] =
+///   __torajs_arguments_materialize(__torajs_argv, __torajs_real_argc)`
+/// for a full-arguments closure body. The synthetic call resolves in
+/// the checker's ident special-case and lowers in the class-synth
+/// lane to `arr_alloc_any` + `arr_any_push` over the adapter's argv,
+/// so beyond-declared argument VALUES are reachable (the
+/// `[p0, p1, …]` builder above only covers declared params).
+pub(super) fn synth_arguments_local_argv(ast: &mut Ast) -> Stmt {
+    let argv = ast.add_expr(Expr::Ident("__torajs_argv".into()));
+    let argc = ast.add_expr(Expr::Ident("__torajs_real_argc".into()));
+    let callee = ast.add_expr(Expr::Ident("__torajs_arguments_materialize".into()));
+    let init = ast.add_expr(Expr::Call {
+        callee,
+        args: vec![argv, argc],
+    });
     Stmt::LetDecl {
         mutable: false,
         name: "__torajs_arguments".into(),

@@ -84,6 +84,13 @@ fn resolve_type_ann_inner(
     if name.starts_with("__env(") && name.ends_with(')') {
         return Some(Type::Any);
     }
+    // RFC 20260708-closure-argv-face — raw argv pointer marker on
+    // the synthetic `__torajs_argv` param. Opaque at the checker
+    // layer (only the synthetic materialize call consumes it); the
+    // SSA parse_type maps it to Ptr.
+    if name == "__argvptr()" {
+        return Some(Type::Any);
+    }
     // V3-18 P2.4.c.2 — inline obj type `__inlobj(name1:T1|name2:T2|...)`
     // decoded in markers::resolve_inlobj.
     if let Some(rest) = name.strip_prefix("__inlobj(") {
