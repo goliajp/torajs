@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T14:05:51.935Z",
+  "generatedAt": "2026-07-08T15:17:38.439Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "26fd366f",
-    "commitSubject": "feat: optional element access obj?.[index]",
+    "commit": "0529b243",
+    "commitSubject": "feat: admit any-to-typed array ident alias in the K.4 global lane",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "0529b243",
+      "subject": "feat: admit any-to-typed array ident alias in the K.4 global lane"
+    },
+    {
+      "hash": "c6577350",
+      "subject": "feat: object destructuring rest { p, ...rest }"
+    },
+    {
+      "hash": "688d1760",
+      "subject": "feat: Object.values / Object.entries walk any-typed dynobj receivers"
+    },
+    {
+      "hash": "090821a4",
+      "subject": "feat: optional call callee?.(args)"
+    },
+    {
+      "hash": "6423785e",
+      "subject": "fix: mark typed-array elem kind on dynobj literal field store"
+    },
+    {
+      "hash": "60e7f902",
+      "subject": "chore(dashboard): refresh @ 26fd366f — rotation 51 (700-703: mutator index-receiver trio completes the 697 family; method-call may-throw closes the fn-boundary runtime-throw swallow; contextual typing mints any-flavor literals with a side-set fix-up after the infer-widen collision; obj?.[index] lands with the 30-walker OptIndex cascade; gate 1329 -> 1333 four green)"
+    },
+    {
       "hash": "26fd366f",
       "subject": "feat: optional element access obj?.[index]"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "02eb6554",
       "subject": "feat: pop/shift/unshift accept index-read receivers"
-    },
-    {
-      "hash": "ad3d72eb",
-      "subject": "chore(dashboard): refresh @ ca01081d — chunk 699 folds into rotation 50 (regex substr-view haystack materialize closes latent-debt #1, /gy sticky entry re-verified stale; gate 1329 six green)"
-    },
-    {
-      "hash": "ca01081d",
-      "subject": "fix: regex test/exec materialize substr-view haystacks"
-    },
-    {
-      "hash": "7324492e",
-      "subject": "chore(dashboard): session snapshot @ 8737ea85 — rotation 50 (694-698: object.fromentries closes the receiver family with map/set hash-storage arms; the wrap-probe sweep marks the W-O-3 line-wrap entry stale — chunks 535-539 already cover it — and chains three fresh gaps to closure: all-empty nested literal inference, array.from array-like length objects, and index-read push receivers unblocked by the B1 cell-stability audit; two pre-existing silent-wrongs fixed en route — the any-dst mapfn array missing FLAG_ARR_ANY and the typed-binding nan-box misdecode via the new arr_any_to_typed decode-copy; gate 1323 -> 1328 five green; bench 3-run at be30d0a9 verifies the push-lane touch neutral)"
-    },
-    {
-      "hash": "8737ea85",
-      "subject": "chore(bench): 3-run @ be30d0a9 — rotation 50 close"
-    },
-    {
-      "hash": "be30d0a9",
-      "subject": "fix: typed array binding of an array<any> value decode-copies at the assign boundary"
-    },
-    {
-      "hash": "dc7f3225",
-      "subject": "feat: push accepts index-read receivers"
     }
   ],
-  "headSha": "26fd366f",
+  "headSha": "0529b243",
   "autorun": {
-    "total": 359,
+    "total": 360,
     "baselineTarget": 10,
-    "bySelf": 354,
+    "bySelf": 355,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783510187-40ac",
-      "at": "2026-07-08T11:29:47Z",
-      "ts": 1783510187,
+      "rotationId": "r-1783519655-75fe",
+      "at": "2026-07-08T14:07:35Z",
+      "ts": 1783519655,
       "trigger": "self",
-      "prevHead": "ad3d72eb",
-      "handoffSha": "sha256:ff7ae0481da76628d0554f8af36d072f040b827a467c7c615ecc78810faff43a",
-      "handoffAgeSec": 67,
+      "prevHead": "60e7f902",
+      "handoffSha": "sha256:0351207666b481a0f771efe2f0493bef6a12e11ee33279bd83aaf4f8df80ccdd",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783519655-75fe",
+        "at": "2026-07-08T14:07:35Z",
+        "ts": 1783519655,
+        "trigger": "self",
+        "prevHead": "60e7f902",
+        "handoffSha": "sha256:0351207666b481a0f771efe2f0493bef6a12e11ee33279bd83aaf4f8df80ccdd",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783510187-40ac",
         "at": "2026-07-08T11:29:47Z",
@@ -876,17 +887,6 @@
         "prevHead": "f68d1e75",
         "handoffSha": "sha256:cbeb47574841b7b0a428d7a4ceca58660b81f9b1727b7e0d6eece5c607f8e7f4",
         "handoffAgeSec": 20,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783427429-1ad4",
-        "at": "2026-07-07T12:30:29Z",
-        "ts": 1783427429,
-        "trigger": "self",
-        "prevHead": "cad74d47",
-        "handoffSha": "sha256:d9f7bdf34875fc39e3e20179280dca23693b325aecf3f8e64bb22e1ee543050a",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
