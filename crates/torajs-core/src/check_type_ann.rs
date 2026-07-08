@@ -168,6 +168,17 @@ fn resolve_type_ann_inner(
         // L3b: enforce the no-access-without-narrow at member-access
         // / type-guard checking time.
         "unknown" => Some(Type::Any),
+        // TS `Function` — the top callable type (any signature, any
+        // return). Collapses to `Type::Any` like `object` / `unknown`
+        // above: calls ride the proven any-call runtime dispatch
+        // (RFC 20260704), which handles every closure shape. The
+        // rest-tail alternative (`(...args: any[]) => any`) was
+        // probed and mis-packs a FIXED-arity closure stored into the
+        // variadic slot (no adapter face yet — recorded L3b); the
+        // "only callables assignable" narrowing constraint is the
+        // same independent substrate work as object's non-primitive
+        // check.
+        "Function" => Some(Type::Any),
         // T-13.a (v0.4.0) — `symbol` is a primitive type alias for
         // Type::Symbol. Lower-case `symbol` is the spec spelling
         // (`typeof Symbol() === "symbol"`); `Symbol` is the constructor

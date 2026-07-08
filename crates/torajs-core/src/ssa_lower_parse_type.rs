@@ -110,6 +110,12 @@ pub(crate) fn parse_type(
             inst_memo,
         );
     }
+    // TS `Function` — the top callable type. Mirrors the checker's
+    // collapse (check_type_ann): the slot is `Any`, calls ride the
+    // any-call runtime dispatch.
+    if s == "Function" {
+        return Type::Any;
+    }
     // RFC 20260708-variadic — a rest-tail fn type
     // (`__fn(fixed|__rest(E[]))->R`) is Closure-repr regardless of
     // spelling: the boxed dual entry the variadic call lane
