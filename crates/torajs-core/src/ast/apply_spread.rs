@@ -50,14 +50,24 @@ pub fn apply_spread_args(ast: &mut Ast) {
     // flip that loud reject into silently-uninitialized fields. The
     // cost is that a genuine `constructor()` + spread stays on the
     // checker's loud reject too.
+    // Chunk 685 — closure-value callees (`const f = (a, b) => …;
+    // f(...arr)`): the lifted FnDecl is keyed by the synthetic
+    // `__closure_N` name, so the call site's `f` resolves through a
+    // let-alias walk (the apply_default_args shape). A capturing
+    // closure's `__env` first param is peeled for the user arity;
+    // its FnDecl only enters `closure_arity` (call sites never name
+    // it directly).
     let mut fn_arity: HashMap<String, usize> = HashMap::new();
+    let mut closure_arity: HashMap<String, usize> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, params, .. } = s {
-            if params.first().is_some_and(|p| p.name == "__env") {
+            let is_closure = params.first().is_some_and(|p| p.name == "__env");
+            let user_params: &[Param] = if is_closure { &params[1..] } else { params };
+            if user_params.last().is_some_and(|p| p.is_rest) {
                 continue;
             }
-            let user_params: &[Param] = params;
-            if user_params.last().is_some_and(|p| p.is_rest) {
+            if is_closure {
+                closure_arity.insert(name.clone(), user_params.len());
                 continue;
             }
             if name.starts_with("__new_") && user_params.is_empty() {
@@ -66,8 +76,23 @@ pub fn apply_spread_args(ast: &mut Ast) {
             fn_arity.insert(name.clone(), user_params.len());
         }
     }
-    if fn_arity.is_empty() {
+    if fn_arity.is_empty() && closure_arity.is_empty() {
         return;
+    }
+    // Alias map: `let f = __closure_N` (or `Closure{fn_name}`) — a
+    // call to `f(...)` adopts the lifted closure's arity.
+    let mut let_alias: HashMap<String, String> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::LetDecl { name, init, .. } = s {
+            let target = match ast.get_expr(*init) {
+                Expr::Ident(n) if n.starts_with("__closure_") => Some(n.clone()),
+                Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+                _ => None,
+            };
+            if let Some(t) = target {
+                let_alias.insert(name.clone(), t);
+            }
+        }
     }
     // Collect rewrites first: (call expr index, callee name, fixed
     // prefix args, spread source ident, need).
@@ -85,8 +110,16 @@ pub fn apply_spread_args(ast: &mut Ast) {
         let Expr::Ident(name) = ast.get_expr(*callee) else {
             continue;
         };
-        let Some(&arity) = fn_arity.get(name) else {
-            continue;
+        let arity = match fn_arity.get(name).copied().or_else(|| {
+            let_alias.get(name).and_then(|a| {
+                fn_arity
+                    .get(a)
+                    .copied()
+                    .or_else(|| closure_arity.get(a).copied())
+            })
+        }) {
+            Some(a) => a,
+            None => continue,
         };
         // Exactly one spread, at the last position, over an Ident.
         let spread_count = args
