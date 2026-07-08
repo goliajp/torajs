@@ -50,7 +50,7 @@ pub(crate) fn try_lower(
     // ignore.
     let arg_op = ctx.lower_expr(args[0]);
     let arg_ty = ctx.operand_ty(&arg_op);
-    let src_arr_op = materialize_src(ctx, arg_op, arg_ty);
+    let src_arr_op = materialize_src(ctx, arg_op, arg_ty, args[0]);
     if args.len() == 1 {
         return Some(src_arr_op);
     }
@@ -64,10 +64,15 @@ pub(crate) fn try_lower(
     Some(emit_map_loop(ctx, src_arr_op, args))
 }
 
-/// Materialize `src_arr` from the iter arg per the three accepted shapes
-/// (string / typed Array<T> / Set). Other input types panic at SSA
-/// lower-time per ES §23.1.2.1 subset.
-fn materialize_src(ctx: &mut LowerCtx<'_>, arg_op: Operand, arg_ty: Type) -> Operand {
+/// Materialize `src_arr` from the iter arg per the four accepted shapes
+/// (string / typed Array<T> / Set / array-like `{length: n}` struct).
+/// Other input types panic at SSA lower-time per ES §23.1.2.1 subset.
+fn materialize_src(
+    ctx: &mut LowerCtx<'_>,
+    arg_op: Operand,
+    arg_ty: Type,
+    arg_eid: ExprId,
+) -> Operand {
     if matches!(arg_ty, Type::Str) {
         let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
         let v = ctx.f.append_inst(
@@ -120,7 +125,36 @@ fn materialize_src(ctx: &mut LowerCtx<'_>, arg_op: Operand, arg_ty: Type) -> Ope
         // `ssa_lower_arr_from_set`.
         return crate::ssa_lower_arr_from_set::emit(ctx, arg_op);
     }
-    panic!("ssa-lower: Array.from requires a string, Array<T>, or Set arg, got {arg_ty:?}")
+    if let Type::Obj(sid) = arg_ty {
+        // Array-like `{length: n}` (ES §23.1.2.1 non-iterable branch;
+        // the checker gated on a numeric length field) — every index
+        // read answers undefined, so the src is the same dense
+        // undefined-filled Array<Any> `new Array(n)` mints. ToLength
+        // rides coerce_to_i64; the alloc arms a RangeError for
+        // lengths outside [0, 2^32-1] and returns NULL.
+        let len_op =
+            crate::ssa_lower_member_obj_field::try_lower(ctx, arg_op.clone(), sid, "length");
+        let len_i64 = ctx.coerce_to_i64(len_op);
+        let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
+        let fid = *ctx
+            .fn_table
+            .get("__torajs_arr_alloc_any_filled")
+            .expect("__torajs_arr_alloc_any_filled intrinsic missing");
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(fid, vec![len_i64]),
+            Type::Arr(arr_id),
+            None,
+        );
+        ctx.emit_throw_check(None);
+        // A literal `{length: n}` direct arg is a fresh owned temp
+        // with no other release site; a borrowed Ident is a no-op.
+        ctx.release_owned_temp(arg_eid, &arg_op);
+        return Operand::Value(v);
+    }
+    panic!(
+        "ssa-lower: Array.from requires a string, Array<T>, Set, or array-like arg, got {arg_ty:?}"
+    )
 }
 
 /// S151 — `Array.from(iter, mapFn)` per ES §23.1.2.1. mapFn shape:
@@ -163,9 +197,20 @@ fn emit_map_loop(ctx: &mut LowerCtx<'_>, src_arr_op: Operand, args: &[ExprId]) -
         Type::I64,
         None,
     );
+    // Chunk 625 precedent (flat_map) — an Any dst allocates the
+    // FLAG_ARR_ANY flavor: push_unchecked's 8B store is
+    // layout-correct (any slots ARE box bits), but the block must
+    // self-describe as Any for the kind-aware readers — the old
+    // typed alloc left an unmarked block whose index reads fell to
+    // the UNSET arm (undefined) and whose drop missed the rc walk.
+    let dst_alloc_fn = if dst_elem_ty == Type::Any {
+        ctx.intrinsics.arr_alloc_any
+    } else {
+        ctx.intrinsics.arr_alloc
+    };
     let dst_arr = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::Value(src_len)]),
+        InstKind::Call(dst_alloc_fn, vec![Operand::Value(src_len)]),
         dst_arr_ty,
         None,
     );

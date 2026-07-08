@@ -64,6 +64,12 @@ pub(crate) fn try_match(
             if matches!(arg_ty, Type::Set) {
                 return Some(Ok(Type::Array(Box::new(Type::Any))));
             }
+            // Array-like `{length: n}` (ES §23.1.2.1 non-iterable
+            // branch) — every index read answers undefined, so the
+            // result is a dense undefined-filled `Array<Any>`.
+            if is_arraylike_struct(&arg_ty) {
+                return Some(Ok(Type::Array(Box::new(Type::Any))));
+            }
             // Fall through to the static-sig path; the String
             // overload already covered there throws a sensible
             // arity / type mismatch otherwise.
@@ -87,9 +93,10 @@ pub(crate) fn try_match(
             };
             match &arg_ty {
                 Type::String | Type::Array(_) | Type::Set => {}
+                t if is_arraylike_struct(t) => {}
                 _ => {
                     return Some(Err(format!(
-                        "Array.from(iter, mapFn): iter must be string, Array, or Set; got {arg_ty:?}"
+                        "Array.from(iter, mapFn): iter must be string, Array, Set, or an array-like {{length}} object; got {arg_ty:?}"
                     )));
                 }
             }
@@ -114,4 +121,13 @@ pub(crate) fn try_match(
         }
     }
     None
+}
+
+/// Array-like iter source per ES §23.1.2.1's non-iterable branch —
+/// a structural object with a numeric `length` field
+/// (`{length: n}`; extra fields are irrelevant since every index
+/// read answers undefined).
+fn is_arraylike_struct(t: &Type) -> bool {
+    matches!(t, Type::Struct(fields)
+        if fields.iter().any(|(n, ft)| n == "length" && matches!(ft, Type::Number)))
 }
