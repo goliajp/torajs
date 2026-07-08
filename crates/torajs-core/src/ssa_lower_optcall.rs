@@ -17,15 +17,15 @@
 //! - **Null / Undefined** — statically nullish: the callee lowers
 //!   for side effects, the args never lower, the result is a
 //!   constant ANY_UNDEF box.
-//! - **Any** — NaN-box tag guard (shared `emit_nullish_cond`); the
-//!   hit path packs the argv (`pack_any_argv` three-shape ledger)
-//!   and dispatches `__torajs_any_call`. A Member callee on an any
-//!   receiver reaches this route through the normal member-read
-//!   lowering, so `o.m?.(1)` probes the property once — dynobj
-//!   closure fields invoke, an absent field answers undefined.
-//!   Builtin-method reification (`s.toUpperCase?.()` on an any
-//!   string) inherits the chunk-521 member-read boundary (the read
-//!   answers undefined on non-dynobj receivers) — recorded face.
+//! - **Member callee on an `any` receiver** (chunk 709) — GetV-
+//!   existence probe + `__torajs_any_method_call_opt`: builtin
+//!   methods dispatch (`s.toUpperCase?.()`), no-such answers
+//!   undefined, resolved non-callables throw. See
+//!   [`lower_member_opt`].
+//! - **Any** (non-Member callee) — NaN-box tag guard (shared
+//!   `emit_nullish_cond`); the hit path packs the argv
+//!   (`pack_any_argv` three-shape ledger) and dispatches
+//!   `__torajs_any_call`.
 //! - **Nullable** — raw ptr null guard; the hit path boxes the
 //!   unwrapped value (borrow inc / owned transfer per the pack
 //!   ledger) and dispatches `__torajs_any_call` (a non-closure
@@ -43,6 +43,17 @@ pub(crate) fn lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Operand {
+    // Chunk 709 — a Member callee on an `any` receiver dispatches
+    // through the opt method-call runtime so builtin methods work
+    // (`s.toUpperCase?.()` — a member READ answers undefined for
+    // builtin names, chunk-521 boundary) with correct `this`-style
+    // receiver dispatch and the ES no-such → undefined short-circuit.
+    if let crate::ast::Expr::Member { obj, name } = ctx.ast.get_expr(callee)
+        && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Any))
+    {
+        let (obj, name) = (*obj, name.clone());
+        return lower_member_opt(ctx, obj, &name, args);
+    }
     match ctx.expr_types.get(&callee) {
         Some(crate::check::Type::Null) | Some(crate::check::Type::Undefined) => {
             let v = ctx.lower_expr(callee);
@@ -54,6 +65,123 @@ pub(crate) fn lower(
         }
         _ => crate::ssa_lower_call::lower(ctx, eid, callee, args),
     }
+}
+
+/// `o.m?.(args…)` with `o: any` — GetV-existence probe, then the
+/// opt method-call dispatch. ES §13.3.9 order: the receiver
+/// evaluates once, the probe decides the branch (a nullish receiver
+/// throws inside the probe; a nullish/absent property short-circuits
+/// to undefined WITHOUT evaluating the args), and the hit path packs
+/// the argv and dispatches `__torajs_any_method_call_opt` (a builtin
+/// mid rides the id switch; a residual no-such answers undefined; a
+/// resolved non-callable is the catchable TypeError).
+fn lower_member_opt(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str, args: &[ExprId]) -> Operand {
+    let mid = torajs_rc::any_method_id(name);
+    let name_str = ctx.intern_string_literal(name);
+    let recv = ctx.lower_expr(obj);
+    let res_slot = ctx.alloca_in_entry(Type::Any, Some("__optcall_m"));
+    let exists = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_method_probe,
+            vec![
+                recv.clone(),
+                Operand::ConstI64(mid),
+                Operand::Value(name_str),
+            ],
+        ),
+        Type::I64,
+        None,
+    );
+    // The probe records a catchable TypeError for a nullish
+    // receiver (`o.m` evaluation throws per ES) — propagate before
+    // branching.
+    ctx.emit_throw_check(None);
+    let cond = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(
+            crate::ssa::IPred::Eq,
+            Operand::Value(exists),
+            Operand::ConstI64(0),
+        ),
+        Type::Bool,
+        None,
+    );
+    let null_blk = ctx.f.add_block();
+    let hit_blk = ctx.f.add_block();
+    let after = ctx.f.add_block();
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(cond),
+            then_blk: null_blk,
+            else_blk: hit_blk,
+        },
+    );
+    ctx.cur_block = null_blk;
+    let undef_box = emit_undef_box(ctx);
+    ctx.f.append_void(
+        null_blk,
+        InstKind::Store(undef_box, Operand::Value(res_slot), 0),
+    );
+    ctx.f.set_term(null_blk, Terminator::Br(after));
+    // Hit path — the args lower HERE (short-circuit never evaluates
+    // them). recv_slot mirrors the plain method-call arm: an Ident
+    // receiver rides its variable slot so growth-relocating methods
+    // (push) write the fresh block pointer back.
+    ctx.cur_block = hit_blk;
+    let recv_slot = if let crate::ast::Expr::Ident(n) = ctx.ast.get_expr(obj) {
+        if let Some(info) = ctx.locals.get(n) {
+            Operand::Value(info.slot)
+        } else if ctx.globals.contains_key(n) {
+            let gname = n.clone();
+            let gref =
+                ctx.f
+                    .append_inst(ctx.cur_block, InstKind::GlobalRef(gname), Type::Ptr, None);
+            Operand::Value(gref)
+        } else {
+            Operand::ConstPtrNull
+        }
+    } else {
+        Operand::ConstPtrNull
+    };
+    let (argv, boxed_slots) = pack_any_argv(ctx, args);
+    let result = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_method_call_opt,
+            vec![
+                recv.clone(),
+                Operand::ConstI64(mid),
+                Operand::Value(name_str),
+                recv_slot,
+                Operand::Value(argv),
+                Operand::ConstI64(args.len() as i64),
+            ],
+        ),
+        Type::Any,
+        None,
+    );
+    for slot in boxed_slots.into_iter().flatten() {
+        ctx.emit_drop_value(slot, Type::Any);
+    }
+    ctx.emit_throw_check(None);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(result), Operand::Value(res_slot), 0),
+    );
+    let hb = ctx.cur_block;
+    ctx.f.set_term(hb, Terminator::Br(after));
+    ctx.cur_block = after;
+    ctx.release_owned_temp(obj, &recv);
+    let r = ctx.f.append_inst(
+        after,
+        InstKind::Load(Type::Any, Operand::Value(res_slot), 0),
+        Type::Any,
+        None,
+    );
+    Operand::Value(r)
 }
 
 fn lower_guarded(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Operand {

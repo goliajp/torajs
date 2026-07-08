@@ -32,7 +32,7 @@ use torajs_rc::{
     ANY_METHOD_TO_PRECISION, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF,
 };
 
-use crate::method_call::method_not_a_function;
+use crate::method_call::method_no_such;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_double};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::__torajs_anyv_to_number;
@@ -117,7 +117,7 @@ pub(crate) unsafe fn number_method(
                     boxed(__torajs_num_to_locale_i(n as i64))
                 }
             }
-            _ => method_not_a_function(),
+            _ => method_no_such(),
         }
     }
 }

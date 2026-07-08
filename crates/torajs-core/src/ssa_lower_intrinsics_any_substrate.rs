@@ -75,6 +75,8 @@ pub(crate) struct AnySubstrateIds {
     pub any_call: FuncId,
     pub closure_call_variadic: FuncId,
     pub any_method_call: FuncId,
+    pub any_method_call_opt: FuncId,
+    pub any_method_probe: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
     pub any_unbox_value_owned: FuncId,
@@ -401,6 +403,32 @@ pub(crate) fn declare(
                 Type::I64,
             ],
             Type::Any,
+        ),
+        // Chunk 709 — the `o.m?.(…)` optional flavor: a no-such
+        // method answers undefined instead of the TypeError.
+        // (recv, mid, name ptr, recv slot, argv, argc) → Any.
+        any_method_call_opt: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_method_call_opt",
+            &[
+                Type::Any,
+                Type::I64,
+                Type::Ptr,
+                Type::Ptr,
+                Type::Ptr,
+                Type::I64,
+            ],
+            Type::Any,
+        ),
+        // Chunk 709 — GetV-existence probe deciding whether the
+        // optional call's args evaluate. (recv, mid, key) → 1/0.
+        any_method_probe: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_method_probe",
+            &[Type::Any, Type::I64, Type::Ptr],
+            Type::I64,
         ),
         any_unbox_tag: declare_intrinsic(
             module,

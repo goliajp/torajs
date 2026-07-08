@@ -314,6 +314,8 @@ pub(crate) fn build(
         any_call: init_c.any_substrate.any_call,
         closure_call_variadic: init_c.any_substrate.closure_call_variadic,
         any_method_call: init_c.any_substrate.any_method_call,
+        any_method_call_opt: init_c.any_substrate.any_method_call_opt,
+        any_method_probe: init_c.any_substrate.any_method_probe,
         any_unbox_tag: init_c.any_substrate.any_unbox_tag,
         any_unbox_value: init_c.any_substrate.any_unbox_value,
         any_unbox_value_owned: init_c.any_substrate.any_unbox_value_owned,

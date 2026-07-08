@@ -25,7 +25,7 @@ use torajs_rc::{
     ANY_METHOD_SET,
 };
 
-use crate::method_call::method_not_a_function;
+use crate::method_call::method_no_such;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 
@@ -122,7 +122,7 @@ pub(crate) unsafe fn weak_method(
                 __torajs_rc_inc(ptr);
                 __torajs_anyv_box_from_pair(4, ptr as i64)
             }
-            _ => method_not_a_function(),
+            _ => method_no_such(),
         }
     }
 }

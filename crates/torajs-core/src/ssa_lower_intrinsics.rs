@@ -345,6 +345,8 @@ pub(crate) struct Intrinsics {
     pub(crate) any_call: FuncId,
     pub(crate) closure_call_variadic: FuncId,
     pub(crate) any_method_call: FuncId,
+    pub(crate) any_method_call_opt: FuncId,
+    pub(crate) any_method_probe: FuncId,
     pub(crate) any_unbox_tag: FuncId,
     pub(crate) any_unbox_value: FuncId,
     pub(crate) any_unbox_value_owned: FuncId,

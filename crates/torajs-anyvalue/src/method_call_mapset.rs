@@ -35,7 +35,7 @@ use torajs_rc::{
     ANY_METHOD_VALUES,
 };
 
-use crate::method_call::{MAX_BOXED_ARGS, closure_boxed_entry, method_not_a_function};
+use crate::method_call::{MAX_BOXED_ARGS, closure_boxed_entry, method_no_such, not_callable};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 
@@ -168,7 +168,7 @@ pub(crate) unsafe fn map_set_method(
             }
             m2 if m2 == ANY_METHOD_FOR_EACH => {
                 let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
-                    return method_not_a_function();
+                    return not_callable();
                 };
                 map_set_for_each(m, is_set, cb_env, cb_entry)
             }
@@ -190,7 +190,7 @@ pub(crate) unsafe fn map_set_method(
                 };
                 it as u64
             }
-            _ => method_not_a_function(),
+            _ => method_no_such(),
         }
     }
 }
@@ -204,7 +204,7 @@ pub(crate) unsafe fn map_set_method(
 /// done: true }` forever after.
 pub(crate) unsafe fn map_iter_method(it: *mut c_void, mid: i64) -> AnyValue {
     if mid != ANY_METHOD_NEXT {
-        return unsafe { method_not_a_function() };
+        return unsafe { method_no_such() };
     }
     unsafe {
         let (mut tag, mut payload): (i64, i64) = (5, 0);

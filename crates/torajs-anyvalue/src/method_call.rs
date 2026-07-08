@@ -157,6 +157,46 @@ pub unsafe extern "C" fn __torajs_any_method_call(
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
+    let r = unsafe { any_method_call_inner(recv, mid, name_str, recv_slot, argv, argc) };
+    if r == ANY_METHOD_NO_SUCH {
+        return unsafe { not_callable() };
+    }
+    r
+}
+
+/// `o.m?.(args…)` flavor of the dispatcher (chunk 709) — a method
+/// name the receiver doesn't have answers undefined instead of the
+/// TypeError (ES §13.3.9 short-circuit on a nullish `o.m`); every
+/// resolved-but-not-callable shape still throws.
+///
+/// # Safety
+/// Same contract as [`__torajs_any_method_call`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_method_call_opt(
+    recv: AnyValue,
+    mid: i64,
+    name_str: *const u8,
+    recv_slot: *mut u64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    let r = unsafe { any_method_call_inner(recv, mid, name_str, recv_slot, argv, argc) };
+    if r == ANY_METHOD_NO_SUCH {
+        return VALUE_UNDEFINED;
+    }
+    r
+}
+
+/// Shared dispatch body — a mid-miss floats [`ANY_METHOD_NO_SUCH`]
+/// to the two extern exits above.
+unsafe fn any_method_call_inner(
+    recv: AnyValue,
+    mid: i64,
+    name_str: *const u8,
+    recv_slot: *mut u64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             __torajs_throw_type_error(c"cannot call a method of null or undefined".as_ptr());
@@ -328,7 +368,7 @@ pub unsafe extern "C" fn __torajs_any_call(
         if let Some((env, entry)) = closure_boxed_entry(recv) {
             return invoke_boxed(env, entry, argv, argc);
         }
-        method_not_a_function()
+        not_callable()
     }
 }
 
@@ -353,7 +393,7 @@ pub unsafe extern "C" fn __torajs_closure_call_variadic(
         if let Some((env, entry)) = closure_cell_entry(env) {
             return invoke_boxed(env, entry, argv, argc);
         }
-        method_not_a_function()
+        not_callable()
     }
 }
 
@@ -367,7 +407,7 @@ unsafe fn bool_method(recv: AnyValue, mid: i64) -> AnyValue {
             return __torajs_anyv_box_pointer(p as *mut c_void);
         }
     }
-    unsafe { method_not_a_function() }
+    unsafe { method_no_such() }
 }
 
 /// `Tag::Arr` arm — id-switch onto the torajs-arr glue.
@@ -413,7 +453,7 @@ unsafe fn arr_method(
             }
             m if m == ANY_METHOD_MAP || m == ANY_METHOD_FILTER || m == ANY_METHOD_FOR_EACH => {
                 let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
-                    return method_not_a_function();
+                    return not_callable();
                 };
                 if m == ANY_METHOD_MAP {
                     __torajs_arr_any_map(arr, cb_env, cb_entry)
@@ -443,12 +483,31 @@ unsafe fn arr_method(
                 let p = __torajs_arr_any_slice(arr as *const u8, start, end);
                 __torajs_anyv_box_pointer(p as *mut c_void)
             }
-            _ => method_not_a_function(),
+            _ => method_no_such(),
         }
     }
 }
 
-pub(crate) unsafe fn method_not_a_function() -> AnyValue {
+/// No-such-method sentinel — an impossible AnyValue bit pattern
+/// (same reserved quiet-NaN corner as [`ANY_METHOD_THREW`]). A
+/// per-arm mid-miss returns it up the dispatch chain; the extern
+/// exits decide: [`__torajs_any_method_call`] throws (the pre-709
+/// semantics), [`__torajs_any_method_call_opt`] answers undefined
+/// (`o.m?.()` short-circuit for a method the receiver doesn't have).
+pub(crate) const ANY_METHOD_NO_SUCH: u64 = u64::MAX - 1;
+
+/// A method NAME the receiver's arm doesn't know — floats the
+/// [`ANY_METHOD_NO_SUCH`] sentinel to the extern exit (which throws
+/// or answers undefined per the opt flavor). Only for name misses;
+/// a resolved-but-not-callable value is [`not_callable`].
+pub(crate) unsafe fn method_no_such() -> AnyValue {
+    ANY_METHOD_NO_SUCH
+}
+
+/// A value that resolved but cannot be invoked (non-closure
+/// property, non-fn callback arg, non-callable bare callee) — a
+/// definite catchable TypeError in both call flavors.
+pub(crate) unsafe fn not_callable() -> AnyValue {
     unsafe {
         __torajs_throw_type_error(c"value is not a function on this any receiver".as_ptr());
     }

@@ -48,7 +48,7 @@ use torajs_rc::{
     ANY_METHOD_TO_UTC_STRING, ANY_METHOD_VALUE_OF,
 };
 
-use crate::method_call::method_not_a_function;
+use crate::method_call::method_no_such;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::{__torajs_anyv_box_from_pair, __torajs_anyv_box_i64};
 use crate::nanbox_ffi::__torajs_anyv_to_number;
@@ -174,7 +174,7 @@ pub(crate) unsafe fn date_method(
             }
             m if m == ANY_METHOD_SET_SECONDS => i(__torajs_date_set_seconds(d, field(0), field(1))),
             m if m == ANY_METHOD_SET_MILLISECONDS => i(__torajs_date_set_milliseconds(d, field(0))),
-            _ => method_not_a_function(),
+            _ => method_no_such(),
         }
     }
 }

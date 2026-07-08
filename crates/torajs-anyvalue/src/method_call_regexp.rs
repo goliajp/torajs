@@ -25,7 +25,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{ANY_METHOD_EXEC, ANY_METHOD_TEST, ANY_METHOD_TO_STRING};
 
-use crate::method_call::method_not_a_function;
+use crate::method_call::method_no_such;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::__torajs_anyv_to_str;
@@ -89,7 +89,7 @@ pub(crate) unsafe fn regexp_method(
             m if m == ANY_METHOD_TO_STRING => {
                 __torajs_anyv_box_from_pair(4, __torajs_regex_to_string(re) as i64)
             }
-            _ => method_not_a_function(),
+            _ => method_no_such(),
         }
     }
 }

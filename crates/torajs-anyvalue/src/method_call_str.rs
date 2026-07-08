@@ -14,7 +14,7 @@ use torajs_rc::{
     ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START, Tag,
 };
 
-use crate::method_call::{method_not_a_function, to_index};
+use crate::method_call::{method_no_such, to_index};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_undefined};
 use crate::nanbox_encode::{__torajs_anyv_box_from_pair, __torajs_anyv_box_i64};
 use crate::nanbox_ffi::__torajs_anyv_to_str;
@@ -146,7 +146,7 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
             m if m == ANY_METHOD_TRIM => __torajs_str_any_trim(s, 0),
             m if m == ANY_METHOD_TRIM_START => __torajs_str_any_trim(s, 1),
             m if m == ANY_METHOD_TRIM_END => __torajs_str_any_trim(s, 2),
-            _ => method_not_a_function(),
+            _ => method_no_such(),
         }
     }
 }

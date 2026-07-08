@@ -29,7 +29,7 @@
 
 use core::ffi::c_void;
 
-use crate::method_call::{closure_boxed_entry, closure_cell_entry, method_not_a_function};
+use crate::method_call::{closure_boxed_entry, closure_cell_entry, not_callable};
 use crate::nanbox::AnyValue;
 
 unsafe extern "C" {
@@ -115,7 +115,7 @@ pub(crate) unsafe fn dynobj_method(
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
             }
         }
-        method_not_a_function()
+        not_callable()
     }
 }
 
@@ -153,6 +153,6 @@ pub(crate) unsafe fn struct_method(
                 }
             }
         }
-        method_not_a_function()
+        not_callable()
     }
 }
