@@ -87,6 +87,7 @@ pub(crate) fn check(
                 ));
                 return;
             }
+            apply_contextual_array_ann(checker, ast, init, &ann_ty);
             ann_ty
         }
     };
@@ -122,6 +123,30 @@ pub(crate) fn check(
         },
     ) {
         checker.errors.push_err(e);
+    }
+}
+
+/// Chunk 702 — TS contextual typing for array-literal inits: after the
+/// annotation is verified assignable, the literal's recorded type IS
+/// the annotation, all the way down through nested literals. Before
+/// this, `const anyz: any[][] = [[2]]` left the inner literal typed
+/// `Array<Number>` (pure inference), so lowering minted a
+/// typed-behind-any block and a kind-change mutator
+/// (`anyz[0].unshift("y")`) hit the catchable-TypeError protocol that
+/// exists to protect typed-ALIAS any-views — a literal has no typed
+/// alias, so bun's accept semantics apply. Overwriting is
+/// equal-or-widening only: assignability was just verified, and for a
+/// non-Any annotation the contextual type matches the inference.
+/// Spread elements aren't literals — recursion simply skips them (the
+/// spread lowering keeps its own element-type derivation).
+fn apply_contextual_array_ann(checker: &mut Checker, ast: &Ast, eid: ExprId, ann: &Type) {
+    let Type::Array(elem_ann) = ann else { return };
+    let Expr::Array(elements) = ast.get_expr(eid) else {
+        return;
+    };
+    checker.expr_types.insert(eid, ann.clone());
+    for &el in elements {
+        apply_contextual_array_ann(checker, ast, el, elem_ann);
     }
 }
 
