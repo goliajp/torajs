@@ -72,80 +72,6 @@ impl<'a> LowerCtx<'a> {
         self.box_to_any(val)
     }
 
-    /// RFC 20260708-typed-arr-oob-read chunk 2 — branch on the
-    /// undefined-NaN sentinel bits: ANY_UNDEF box vs the plain
-    /// F64 box.
-    fn box_f64_or_undef(&mut self, val: Operand) -> Operand {
-        use crate::ssa::{IPred, Terminator};
-        let bits = self.f.append_inst(
-            self.cur_block,
-            InstKind::BitCastF64ToI64(val),
-            Type::I64,
-            None,
-        );
-        let is_undef = self.f.append_inst(
-            self.cur_block,
-            InstKind::ICmp(
-                IPred::Eq,
-                Operand::Value(bits),
-                Operand::ConstI64(crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64),
-            ),
-            Type::Bool,
-            None,
-        );
-        let undef_blk = self.f.add_block();
-        let num_blk = self.f.add_block();
-        let merge = self.f.add_block();
-        let slot = self.alloca_in_entry(Type::Any, Some("__f64box"));
-        let cb = self.cur_block;
-        self.f.set_term(
-            cb,
-            Terminator::CondBr {
-                cond: Operand::Value(is_undef),
-                then_blk: undef_blk,
-                else_blk: num_blk,
-            },
-        );
-        self.cur_block = undef_blk;
-        let u = self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(
-                self.intrinsics.any_box,
-                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-            ),
-            Type::Any,
-            None,
-        );
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(Operand::Value(u), Operand::Value(slot), 0),
-        );
-        self.f.set_term(self.cur_block, Terminator::Br(merge));
-        self.cur_block = num_blk;
-        let n = self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(
-                self.intrinsics.any_box,
-                vec![Operand::ConstI64(3), Operand::Value(bits)],
-            ),
-            Type::Any,
-            None,
-        );
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(Operand::Value(n), Operand::Value(slot), 0),
-        );
-        self.f.set_term(self.cur_block, Terminator::Br(merge));
-        self.cur_block = merge;
-        let out = self.f.append_inst(
-            merge,
-            InstKind::Load(Type::Any, Operand::Value(slot), 0),
-            Type::Any,
-            None,
-        );
-        Operand::Value(out)
-    }
-
     /// Lower an expression to its `(tag, value)` pair, with the same
     /// frontend-type awareness as `box_to_any_from_expr`. Used by sites
     /// that need both the unboxed pair *and* the spec-correct ANY_UNDEF
@@ -174,6 +100,16 @@ impl<'a> LowerCtx<'a> {
         let val_ty = self.operand_ty(&val);
         if is_undef && matches!(val_ty, Type::Ptr) {
             return (Operand::ConstI64(5), Operand::ConstI64(0), val, Type::Ptr);
+        }
+        // RFC 20260708-typed-arr-oob-read chunk 3 — a possibly-
+        // sentinel F64 (number[] index read / alias) crossing into
+        // the (tag, value) world (Map.set / Set.add / member-assign
+        // family) resolves to ANY_UNDEF when the bits match, so
+        // `m.get(k)` round-trips a real `undefined` instead of a
+        // NaN with our payload.
+        if val_ty == Type::F64 && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid) {
+            let (tag, v) = self.tag_value_f64_or_undef(val.clone());
+            return (tag, v, val, val_ty);
         }
         let (tag, v) = self.box_to_tag_value(val.clone());
         (tag, v, val, val_ty)

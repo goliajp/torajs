@@ -129,8 +129,10 @@ pub(crate) fn try_lower(
         return Some(Operand::Value(v));
     }
     if mixed_string {
-        let (a_str, a_fresh) = coerce_to_str(ctx, a);
-        let (b_str, b_fresh) = coerce_to_str(ctx, b);
+        let a_undefable = ctx.binop_left_f64_undefable;
+        let b_undefable = ctx.binop_right_f64_undefable;
+        let (a_str, a_fresh) = coerce_to_str(ctx, a, a_undefable);
+        let (b_str, b_fresh) = coerce_to_str(ctx, b, b_undefable);
         let concat = ctx.intrinsics.str_concat;
         let v = ctx.f.append_inst(
             ctx.cur_block,
@@ -142,6 +144,71 @@ pub(crate) fn try_lower(
         return Some(Operand::Value(v));
     }
     None
+}
+
+/// RFC 20260708-typed-arr-oob-read chunk 3 — ToString for a
+/// possibly-sentinel F64: branch on the undefined-NaN sentinel bits
+/// and answer the interned "undefined" literal vs `f64_to_str`.
+/// Answers minted=true for both arms — dropping the STATIC_LITERAL
+/// "undefined" is a no-op, the fresh `f64_to_str` Str needs it.
+fn coerce_undefable_f64(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
+    use crate::ssa::{IPred, Terminator};
+    let bits = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BitCastF64ToI64(v.clone()),
+        Type::I64,
+        None,
+    );
+    let is_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(
+            IPred::Eq,
+            Operand::Value(bits),
+            Operand::ConstI64(crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64),
+        ),
+        Type::Bool,
+        None,
+    );
+    let undef_blk = ctx.f.add_block();
+    let num_blk = ctx.f.add_block();
+    let merge = ctx.f.add_block();
+    let slot = ctx.alloca_in_entry(Type::Str, Some("__custr"));
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(is_undef),
+            then_blk: undef_blk,
+            else_blk: num_blk,
+        },
+    );
+    ctx.cur_block = undef_blk;
+    let lit = ctx.intern_string_literal("undefined");
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(lit), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = num_blk;
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.f64_to_str, vec![v]),
+        Type::Str,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(r), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = merge;
+    let out = ctx.f.append_inst(
+        merge,
+        InstKind::Load(Type::Str, Operand::Value(slot), 0),
+        Type::Str,
+        None,
+    );
+    (Operand::Value(out), true)
 }
 
 /// Release the fresh owned Str temps this lowering minted once the
@@ -160,7 +227,14 @@ fn drop_minted_temps(ctx: &mut LowerCtx, a: Operand, a_temp: bool, b: Operand, b
 /// pre-split `coerce` closure, verbatim). The bool is true when the
 /// Str was minted here (fresh owned — caller drops it post-concat);
 /// pass-throughs and interned literals answer false.
-fn coerce_to_str(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
+///
+/// `undefable` — RFC 20260708-typed-arr-oob-read chunk 3: the F64
+/// side may hold the undefined-NaN sentinel (number[] index read /
+/// alias, per the caller's `binop_*_f64_undefable` flag); its arm
+/// branches on the bits and answers "undefined" instead of "NaN"
+/// (covers `\`${a[i]}\`` templates — the parser desugars them to
+/// this concat chain).
+fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> (Operand, bool) {
     match ctx.operand_ty(&v) {
         Type::Str => (v, false),
         Type::Substr => {
@@ -182,6 +256,9 @@ fn coerce_to_str(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
             (Operand::Value(r), true)
         }
         Type::F64 => {
+            if undefable {
+                return coerce_undefable_f64(ctx, v);
+            }
             let r = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.f64_to_str, vec![v]),

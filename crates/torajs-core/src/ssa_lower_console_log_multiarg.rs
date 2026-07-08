@@ -123,7 +123,18 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
             if is_borrow && arg_ty.is_refcounted() {
                 ctx.emit_rc_inc(arg.clone());
             }
-            (ctx.box_to_any(arg), true)
+            // RFC 20260708-typed-arr-oob-read chunk 3 — a possibly-
+            // sentinel F64 arg (number[] index read / alias) boxes
+            // to ANY_UNDEF when the bits match so this prints
+            // "undefined", not "NaN".
+            let boxed = if arg_ty == Type::F64
+                && crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, aid)
+            {
+                ctx.box_f64_or_undef(arg)
+            } else {
+                ctx.box_to_any(arg)
+            };
+            (boxed, true)
         };
         ctx.f.append_void(
             ctx.cur_block,
