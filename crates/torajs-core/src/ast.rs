@@ -34,6 +34,7 @@ mod forwarders_object;
 mod free_vars;
 mod implicit_generics_infer;
 mod infer_closure_params;
+mod infer_closure_typevars;
 mod inject_builtin_classes;
 mod lift_arrow_fns;
 mod module_passes;

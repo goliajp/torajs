@@ -18,6 +18,7 @@
 //!   `__fn(P|..)->R`-annotated param at a closure arg position
 //!   projects its spellings onto the lifted closure's params/ret.
 
+use super::infer_closure_typevars::{mentions_any_word, resolve_call_site_typevars};
 use super::{Ast, Expr, ExprId, Stmt};
 use crate::num_width::{fn_type_canon, split_fn_type};
 
@@ -126,7 +127,7 @@ fn collect_let_anns(body: &[Stmt], out: &mut std::collections::HashMap<String, S
  * - `Number`          → "number"
  * Anything more exotic falls through unchanged (caller relies on
  * an explicit annotation upstream). */
-fn infer_lit_ann(ast: &Ast, eid: ExprId) -> Option<String> {
+pub(super) fn infer_lit_ann(ast: &Ast, eid: ExprId) -> Option<String> {
     match ast.get_expr(eid) {
         Expr::Number(_) => Some("number".into()),
         Expr::String(_) => Some("string".into()),
@@ -245,13 +246,25 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
 
     // fn name → positional param annotations, for the user-fn callee
     // hint arm (RFC 20260705 chunk 554 — `apply((n) => n + 1, 41)`).
+    // fn name → type params, so a generic callee's hint spellings get
+    // a call-site typevar resolution pass before projection.
     let mut fn_param_pos_anns: HashMap<String, Vec<Option<String>>> = HashMap::new();
+    let mut fn_type_params: HashMap<String, Vec<String>> = HashMap::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { name, params, .. } = s {
+        if let Stmt::FnDecl {
+            name,
+            params,
+            type_params,
+            ..
+        } = s
+        {
             fn_param_pos_anns.insert(
                 name.clone(),
                 params.iter().map(|p| p.type_ann.clone()).collect(),
             );
+            if !type_params.is_empty() {
+                fn_type_params.insert(name.clone(), type_params.clone());
+            }
         }
     }
 
@@ -286,8 +299,22 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         // User-fn callee: an `__fn(P|..)->R`-annotated param at a
         // closure arg position hints the lifted closure's own
         // param/ret annotations (chunk 554 face ②).
+        //
+        // Generic callee (chunk 682) — the hint spellings may mention
+        // the callee's type params (`g<T>(cb: (...args: T[]) => T,
+        // x: T)`); projecting a raw `T` onto the lifted closure trips
+        // `build_fn_type` with "unknown return type `T`" (the typevar
+        // is out of scope there). Resolve typevars from the same call
+        // site first (a bare-typevar param position holding a literal
+        // arg pins it: `x: T` + `21` → T=number); a spelling still
+        // mentioning an unresolved typevar after substitution is not
+        // projected.
         if let Expr::Ident(fname) = ast.get_expr(callee) {
             if let Some(pos_anns) = fn_param_pos_anns.get(fname) {
+                let subst = fn_type_params
+                    .get(fname)
+                    .map(|tps| resolve_call_site_typevars(ast, tps, pos_anns, &args));
+                let tps = fn_type_params.get(fname);
                 for (arg_idx, fn_name) in &closure_args {
                     let Some(Some(pann)) = pos_anns.get(*arg_idx) else {
                         continue;
@@ -298,13 +325,22 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
                     let Some((param_spellings, ret_spelling)) = split_fn_type(&canon) else {
                         continue;
                     };
-                    updates.insert(
-                        fn_name.clone(),
-                        (
-                            param_spellings.iter().map(|s| s.to_string()).collect(),
-                            ret_spelling.to_string(),
-                        ),
-                    );
+                    let mut param_anns: Vec<String> =
+                        param_spellings.iter().map(|s| s.to_string()).collect();
+                    let mut ret_ann = ret_spelling.to_string();
+                    if let (Some(subst), Some(tps)) = (&subst, tps) {
+                        for a in param_anns.iter_mut() {
+                            *a = crate::ssa_lower_generics_monomorph::substitute_in_ann(a, subst);
+                        }
+                        ret_ann =
+                            crate::ssa_lower_generics_monomorph::substitute_in_ann(&ret_ann, subst);
+                        if param_anns.iter().any(|a| mentions_any_word(a, tps))
+                            || mentions_any_word(&ret_ann, tps)
+                        {
+                            continue;
+                        }
+                    }
+                    updates.insert(fn_name.clone(), (param_anns, ret_ann));
                 }
             }
             continue;

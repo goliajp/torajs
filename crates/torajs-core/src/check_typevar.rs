@@ -28,6 +28,31 @@ pub(crate) fn unify_typevar(
         }
         (Type::Array(p_elem), Type::Array(a_elem)) => unify_typevar(p_elem, a_elem, subst),
         (Type::Function(p_args, p_ret), Type::Function(a_args, a_ret)) => {
+            // Rest-tail pattern (`(...args: T[]) => T`, RFC
+            // 20260708-variadic-fn-type-ann): the fixed prefix
+            // unifies positionally, then every remaining actual
+            // param unifies against the rest ELEMENT — a fixed-arity
+            // closure `(a: number) => ...` matches with T=number.
+            if let Some(Type::Rest(elem)) = p_args.last() {
+                let fixed = &p_args[..p_args.len() - 1];
+                if a_args.len() < fixed.len() {
+                    return Err(format!(
+                        "function arity mismatch: pattern needs at least {:?} fixed argument(s), actual has {:?}",
+                        fixed.len(),
+                        a_args.len()
+                    ));
+                }
+                for (pa, aa) in fixed.iter().zip(a_args.iter()) {
+                    unify_typevar(pa, aa, subst)?;
+                }
+                for aa in &a_args[fixed.len()..] {
+                    match aa {
+                        Type::Rest(a_elem) => unify_typevar(elem, a_elem, subst)?,
+                        other => unify_typevar(elem, other, subst)?,
+                    }
+                }
+                return unify_typevar(p_ret, a_ret, subst);
+            }
             if p_args.len() != a_args.len() {
                 return Err(format!(
                     "function arity mismatch: pattern {:?}, actual {:?}",
