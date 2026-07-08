@@ -66,7 +66,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str
     }
     let obj_val = ctx.lower_expr(obj);
     let obj_ty = ctx.operand_ty(&obj_val);
-    let result = lower_with_val(ctx, obj, obj_val, obj_ty, name);
+    let result = lower_with_val(ctx, eid, obj, obj_val, obj_ty, name);
     // Chunk 637 — an owned receiver temp (`f().x`, `new K(i).x`,
     // `(wr.deref() as K).x`) had no release site: the field READ
     // itself only borrows, so probe l16f leaked every receiver
@@ -76,13 +76,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str
     // teardown dec 1 → independent), and record the Member eid so
     // consumers take the ref over (`expr_owned_shape`) instead of
     // stacking their own. Copy results (i64/f64/bool loads) need
-    // no detach. Known cold-face residue: a lane that already
-    // answers a fresh value (RegExp .source/.flags mints a Str)
-    // gets one extra inc — its own +1 was stranded pre-637 too, so
-    // the leak volume is unchanged, not worsened (L3b ledger).
+    // no detach. Chunk 717 — reads that are already owned (the
+    // Any-member / Closure-props lanes record their eid inside
+    // `lower_with_val`) skip the detach inc: the result carries its
+    // own stake independent of the receiver, a second inc would
+    // strand one ref per read. The receiver temp still drops.
     if ctx.expr_owned_shape(obj) && !obj_ty.is_copy() {
         let res_ty = ctx.operand_ty(&result);
-        if !res_ty.is_copy() {
+        if !res_ty.is_copy() && !ctx.owned_member_reads.contains(&eid) {
             ctx.emit_owned_result_inc(result, res_ty);
             ctx.owned_member_reads.insert(eid);
         }
@@ -92,8 +93,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str
 }
 
 /// Post-receiver dispatch ladder (layers 7-13 of the module doc).
+/// `eid` is the Member expression's own id — the Any-member and
+/// Closure-props lanes record it in `owned_member_reads` (chunk 717
+/// owned-result contract).
 fn lower_with_val(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj: ExprId,
     obj_val: Operand,
     obj_ty: Type,
@@ -116,9 +121,14 @@ fn lower_with_val(
         return crate::ssa_lower_str::load_str_or_substr_length(ctx, obj_val, obj_ty);
     }
     if matches!(obj_ty, Type::Any) {
-        return crate::ssa_lower_any_member::lower_any_member_read(ctx, obj_val, name);
+        return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, obj_val, name);
     }
     if matches!(obj_ty, Type::Closure(_)) {
+        // Chunk 717 — the expando read answers owned on every arm
+        // (`emit_dynobj_get_result`'s data arm takes the payload inc;
+        // the NULL-props arm boxes an immediate undef). Record the
+        // eid so consumers release it.
+        ctx.owned_member_reads.insert(eid);
         return ctx.fn_props_get(obj_val, name);
     }
     if let Some(op) = crate::ssa_lower_member_props_read::try_lower(ctx, obj_val, obj_ty, name) {

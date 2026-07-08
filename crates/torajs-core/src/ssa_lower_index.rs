@@ -44,10 +44,10 @@ use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Operand {
+pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: ExprId) -> Operand {
     let is_non_deque = ctx.arr_expr_is_non_deque(obj);
     let arr_val = ctx.lower_expr(obj);
-    lower_from_value(ctx, obj, index, arr_val, is_non_deque)
+    lower_from_value(ctx, eid, obj, index, arr_val, is_non_deque)
 }
 
 /// Value-based body: the receiver is already lowered (`arr_val`),
@@ -55,9 +55,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
 /// bounds-proven windows). Chunk 703 — `obj?.[index]`'s hit path
 /// enters here so the receiver evaluates exactly once and the index
 /// expression lowers inside the hit block (ES short-circuit: a
-/// nullish receiver never evaluates `index`).
+/// nullish receiver never evaluates `index`). `eid` is the consumer-
+/// visible expression id (Index or OptIndex) — the literal-string-key
+/// lane records it as an owned read (chunk 717).
 pub(crate) fn lower_from_value(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj: ExprId,
     index: ExprId,
     arr_val: Operand,
@@ -82,7 +85,7 @@ pub(crate) fn lower_from_value(
         // boundary).
         if let crate::ast::Expr::String(lit) = ctx.ast.get_expr(index) {
             let lit = lit.clone();
-            return crate::ssa_lower_any_member::lower_any_member_read(ctx, arr_val, &lit);
+            return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, arr_val, &lit);
         }
         if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::String)) {
             return lower_any_index_str_key(ctx, arr_val, index);

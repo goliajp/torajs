@@ -222,7 +222,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // `xs[i]` (T-10.d.i Array<Any> / P1.4 bounds-check /
             // T-13.5 deque offset + str/substr char-at fast paths).
             // See [`crate::ssa_lower_index::lower`].
-            crate::ssa_lower_index::lower(ctx, *obj, *index)
+            crate::ssa_lower_index::lower(ctx, eid, *obj, *index)
         }
         Expr::Closure { fn_name, captures } => {
             // M2 — closure env construction (signature derivation +
@@ -269,14 +269,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // delegates to lower_optchain_any; Obj(sid) typed-tier
             // null-check CondBr into ANY_UNDEF box vs box_to_any).
             // See [`crate::ssa_lower_optchain_arm::lower`].
-            crate::ssa_lower_optchain_arm::lower(ctx, *obj, name)
+            crate::ssa_lower_optchain_arm::lower(ctx, eid, *obj, name)
         }
         Expr::OptIndex { obj, index } => {
             // Chunk 703 — `obj?.[index]` optional element access
             // (nullish short-circuit to ANY_UNDEF; index evaluates
             // only on the hit path). See
             // [`crate::ssa_lower_optindex::lower`].
-            crate::ssa_lower_optindex::lower(ctx, *obj, *index)
+            crate::ssa_lower_optindex::lower(ctx, eid, *obj, *index)
         }
         Expr::OptCall { callee, args } => {
             // Chunk 705 — `callee?.(args…)` optional call (nullish

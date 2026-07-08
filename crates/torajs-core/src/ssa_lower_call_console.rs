@@ -45,22 +45,28 @@ pub(crate) fn try_lower(
 /// `console.<m>(v)` — type-specific print target. Substr gets a
 /// one-time own copy; primitives and Str pass straight through.
 fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId) -> Operand {
+    let arg = ctx.lower_expr(arg_id);
+    let arg_ty = ctx.operand_ty(&arg);
     // Chunk 570 — container Index reads are borrows too (the slot
     // owns the elem; dropping the read stole the slot's stake and
     // the array's death then freed the source — UAF, probe-proven).
     // String indexing stays owned: `s[i]` mints a fresh Substr view
     // (chunk 561 family predicate). OptChain / This align with
-    // expr_is_fresh_owned's borrow set.
+    // expr_is_fresh_owned's borrow set. Chunk 717 — reads recorded
+    // in `owned_member_reads` (any-member / literal-key Index /
+    // OptChain / OptIndex / Closure expando lanes) answer owned, so
+    // the predicate runs AFTER the lowering that records them.
     let is_borrow = match ctx.ast.get_expr(arg_id) {
-        Expr::Ident(_) | Expr::Member { .. } | Expr::OptChain { .. } | Expr::This => true,
-        Expr::OptIndex { .. } => true,
+        Expr::Ident(_) | Expr::This => true,
+        Expr::Member { .. } | Expr::OptChain { .. } | Expr::OptIndex { .. } => {
+            !ctx.owned_member_reads.contains(&arg_id)
+        }
         Expr::Index { obj, .. } => {
             !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
+                && !ctx.owned_member_reads.contains(&arg_id)
         }
         _ => false,
     };
-    let arg = ctx.lower_expr(arg_id);
-    let arg_ty = ctx.operand_ty(&arg);
     let cur_block = ctx.cur_block;
     if arg_ty == Type::Substr {
         let substr_to_owned = ctx.intrinsics.substr_to_owned;
@@ -102,8 +108,16 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     }
     ctx.f
         .append_void(cur_block, InstKind::Call(target, vec![arg.clone()]));
-    if is_str && !is_borrow {
-        ctx.emit_drop_value(arg, Type::Str);
+    if !is_borrow {
+        if is_str {
+            ctx.emit_drop_value(arg, Type::Str);
+        } else if arg_ty == Type::Any && ctx.owned_member_reads.contains(&arg_id) {
+            // Chunk 717 — an owned any-member read printed directly
+            // (`console.log(re.source)`): print_any borrows, so the
+            // read's stake releases here. Other owned Any shapes
+            // (Call results) keep their pre-717 path (L3b ledger).
+            ctx.emit_drop_value(arg, Type::Any);
+        }
     }
     Operand::ConstI64(0)
 }
@@ -116,7 +130,13 @@ fn lower_multi_arg(ctx: &mut LowerCtx<'_>, method: &'static str, args: &[ExprId]
     for (i, &aid) in args.iter().enumerate() {
         let arg = ctx.lower_expr(aid);
         let arg_ty = ctx.operand_ty(&arg);
-        let s_op = ctx.coerce_to_str(arg, arg_ty);
+        let s_op = ctx.coerce_to_str(arg.clone(), arg_ty);
+        // Chunk 717 — an owned any-member read consumed by the join:
+        // the Str coercion mints a fresh cell (borrowing the box), so
+        // the read's own stake releases here.
+        if arg_ty == Type::Any && ctx.owned_member_reads.contains(&aid) {
+            ctx.emit_drop_value(arg, Type::Any);
+        }
         if i > 0 {
             let prev = acc.unwrap();
             let str_concat = ctx.intrinsics.str_concat;

@@ -33,11 +33,16 @@
 use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: crate::ast::ExprId, name: &str) -> Operand {
+pub(crate) fn lower(
+    ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
+    obj: crate::ast::ExprId,
+    name: &str,
+) -> Operand {
     let obj_op = ctx.lower_expr(obj);
     let obj_ty = ctx.operand_ty(&obj_op);
     if matches!(obj_ty, Type::Any) {
-        return ctx.lower_optchain_any(obj_op, name);
+        return ctx.lower_optchain_any(eid, obj_op, name);
     }
     let sid = match obj_ty {
         Type::Obj(sid) => sid,

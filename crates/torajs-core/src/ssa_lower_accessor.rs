@@ -33,6 +33,15 @@ const ANY_ACCESSOR_TAG: i64 = 6;
 /// `(tag, value)` as a data property. Emits a 2-way branch, leaves
 /// `ctx.cur_block` at the merge, and returns the `Type::Any` result.
 /// Data-property reads pay one well-predicted `tag == 6` compare.
+///
+/// Chunk 717 — the result is OWNED on every arm: the accessor arm's
+/// getter answer already carries its own ref, and the data arm takes
+/// `any_payload_rc_inc` on the borrowed `(tag, value)` pair before
+/// boxing (heap payloads +1, immediates no-op). Pre-717 the data arm
+/// was borrow-shaped while the accessor arm was owned — the join mixed
+/// ownership and the owned arms' +1 had no release site (32B leaked
+/// per accessor/special-prop read). Consumers key off
+/// `owned_member_reads` to take the release over.
 pub(crate) fn emit_dynobj_get_result(ctx: &mut LowerCtx, tag: ValueId, value: ValueId) -> Operand {
     let is_acc = ctx.f.append_inst(
         ctx.cur_block,
@@ -78,8 +87,18 @@ pub(crate) fn emit_dynobj_get_result(ctx: &mut LowerCtx, tag: ValueId, value: Va
         InstKind::Store(Operand::Value(getr), Operand::Value(res_slot), 0),
     );
     ctx.f.set_term(acc_blk, Terminator::Br(after));
-    // data path: NaN-box `(tag, value)`.
+    // data path: take an owned stake on the heap payload (immediates
+    // no-op), then NaN-box `(tag, value)`. `any_box` itself is a pure
+    // bit-encode (`__torajs_anyv_box_from_pair` takes no ref), so the
+    // inc is what turns the borrowed pair into an owned result.
     ctx.cur_block = data_blk;
+    ctx.f.append_void(
+        data_blk,
+        InstKind::Call(
+            ctx.intrinsics.any_payload_rc_inc,
+            vec![Operand::Value(tag), Operand::Value(value)],
+        ),
+    );
     let box_v = ctx.f.append_inst(
         data_blk,
         InstKind::Call(

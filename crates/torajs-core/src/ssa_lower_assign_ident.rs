@@ -175,8 +175,12 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
         // String indexing emits a fresh owned Substr view, not an
         // element borrow — inc'ing it here left the extra reference
         // undropped (chunk 561, mirror of the let-decl alias fix).
+        // Chunk 717 — a literal-key any-member read (`o["k"]`)
+        // answers owned the same way; its eid is recorded in
+        // `owned_member_reads`.
         Expr::Index { obj, .. } => {
             !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
+                && !ctx.owned_member_reads.contains(&value)
         }
         // Chunk 637 — a Member read whose owned-receiver lowering
         // detached the result already carries this consumer's stake;

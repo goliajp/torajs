@@ -30,7 +30,7 @@ use crate::ast::ExprId;
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Operand {
+pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: ExprId) -> Operand {
     let is_non_deque = ctx.arr_expr_is_non_deque(obj);
     let obj_op = ctx.lower_expr(obj);
     let obj_ty = ctx.operand_ty(&obj_op);
@@ -69,9 +69,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId) -> Opera
     // never evaluates it).
     ctx.cur_block = hit_blk;
     let elem = if matches!(obj_ty, Type::Any) {
-        lower_any_hit(ctx, obj_op, index)
+        lower_any_hit(ctx, eid, obj_op, index)
     } else {
-        let v = crate::ssa_lower_index::lower_from_value(ctx, obj, index, obj_op, is_non_deque);
+        let v =
+            crate::ssa_lower_index::lower_from_value(ctx, eid, obj, index, obj_op, is_non_deque);
         match ctx.operand_ty(&v) {
             Type::Any => v,
             _ => ctx.box_to_any(v),
@@ -149,10 +150,10 @@ pub(crate) fn emit_nullish_cond(
 /// Str cell; everything else is a numeric element read through
 /// `any_index_get` (the receiver is guarded non-nullish here, so the
 /// helper's own nullish TypeError path is dead).
-fn lower_any_hit(ctx: &mut LowerCtx<'_>, obj_op: Operand, index: ExprId) -> Operand {
+fn lower_any_hit(ctx: &mut LowerCtx<'_>, eid: ExprId, obj_op: Operand, index: ExprId) -> Operand {
     if let crate::ast::Expr::String(lit) = ctx.ast.get_expr(index) {
         let lit = lit.clone();
-        return crate::ssa_lower_any_member::lower_any_member_read(ctx, obj_op, &lit);
+        return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, obj_op, &lit);
     }
     if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::String)) {
         return crate::ssa_lower_index::lower_any_index_str_key(ctx, obj_op, index);

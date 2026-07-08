@@ -62,18 +62,23 @@ impl<'a> LowerCtx<'a> {
     pub(crate) fn expr_is_fresh_owned(&self, eid: ExprId) -> bool {
         // Chunk 637 — a Member read whose owned-receiver lowering
         // detached the result (see `ssa_lower_member::lower`) IS
-        // fresh-owned; every other Member stays a borrow.
-        if matches!(self.ast.get_expr(eid), Expr::Member { .. }) {
+        // fresh-owned; every other Member stays a borrow. Chunk 717
+        // — the any-member lanes (literal-key Index, OptChain /
+        // OptIndex hit paths, Closure expando reads) answer owned on
+        // every arm and record their eid the same way; unrecorded
+        // reads of these shapes stay borrows.
+        if matches!(
+            self.ast.get_expr(eid),
+            Expr::Member { .. }
+                | Expr::Index { .. }
+                | Expr::OptChain { .. }
+                | Expr::OptIndex { .. }
+        ) {
             return self.owned_member_reads.contains(&eid);
         }
         !matches!(
             self.ast.get_expr(eid),
-            Expr::Ident(_)
-                | Expr::Index { .. }
-                | Expr::OptChain { .. }
-                | Expr::OptIndex { .. }
-                | Expr::This
-                | Expr::String(_)
+            Expr::Ident(_) | Expr::This | Expr::String(_)
         )
     }
 

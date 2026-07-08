@@ -138,7 +138,15 @@ impl<'a> LowerCtx<'a> {
             // borrow, but `ssa_lower_member::lower` detaches the
             // result (owned inc) when the receiver was itself an
             // owned temp; those eids are recorded and answer owned.
-            Expr::Member { .. } => self.owned_member_reads.contains(&eid),
+            // Chunk 717 — the any-member read lanes (Member on any,
+            // `o["k"]` literal-key Index, OptChain/OptIndex hit
+            // paths, Closure expando reads) answer owned on every
+            // arm and record their eid the same way; unrecorded
+            // Index/OptChain/OptIndex reads stay borrows.
+            Expr::Member { .. }
+            | Expr::Index { .. }
+            | Expr::OptChain { .. }
+            | Expr::OptIndex { .. } => self.owned_member_reads.contains(&eid),
             _ => false,
         }
     }

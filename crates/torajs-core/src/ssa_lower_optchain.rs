@@ -16,9 +16,17 @@ impl crate::ssa_lower::LowerCtx<'_> {
     /// Lower `obj?.field` when `obj` is Type::Any. Returns a fresh
     /// Any-box ptr typed as `Type::Any` — short-circuit branch boxes
     /// ANY_UNDEF=5 / 0; hit branch reuses the Any.Member read
-    /// substrate (`lower_any_member_read`) which already owns the
-    /// per-tag dispatch.
-    pub(crate) fn lower_optchain_any(&mut self, obj_op: Operand, name: &str) -> Operand {
+    /// substrate (`lower_any_member_read`) which holds the per-tag
+    /// dispatch. Chunk 717 — the hit arm records `eid` (the OptChain
+    /// expression) as an owned read; the miss arm's undef box is an
+    /// immediate, so a consumer's release is a no-op there and the
+    /// join is uniformly droppable.
+    pub(crate) fn lower_optchain_any(
+        &mut self,
+        eid: crate::ast::ExprId,
+        obj_op: Operand,
+        name: &str,
+    ) -> Operand {
         let res_slot = self.alloca_in_entry(Type::Any, Some("__optchain"));
         let tag = self.f.append_inst(
             self.cur_block,
@@ -78,7 +86,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
         self.f.set_term(null_blk, Terminator::Br(after));
         // Hit path → reuse Any.Member read substrate.
         self.cur_block = mem_blk;
-        let field_box = crate::ssa_lower_any_member::lower_any_member_read(self, obj_op, name);
+        let field_box = crate::ssa_lower_any_member::lower_any_member_read(self, eid, obj_op, name);
         self.f.append_void(
             self.cur_block,
             InstKind::Store(field_box, Operand::Value(res_slot), 0),

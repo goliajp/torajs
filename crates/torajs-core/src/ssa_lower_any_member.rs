@@ -26,12 +26,33 @@
 //! produces in steady state, without runtime cache slots (AOT-time
 //! monomorphization).
 
+use crate::ast::ExprId;
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE};
 
 /// Lower a `Type::Any` Member read for `name`. `obj_val` is the
-/// already-lowered Any-box operand.
-pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: &str) -> Operand {
+/// already-lowered Any-box operand; `eid` is the consumer-visible
+/// expression id (Member / Index-with-literal-key / OptChain /
+/// OptIndex) this read lowers.
+///
+/// Chunk 717 — the result is OWNED on every arm: the class-candidate
+/// arm's `box_to_any` bumps heap fields, the special-prop helpers
+/// (`any_length_get` / `any_name_get` / `any_size_get` /
+/// `any_regexp_prop`) answer fresh/retained values, and the probe
+/// fallback's data arm takes `any_payload_rc_inc` inside
+/// `emit_dynobj_get_result`. `eid` is recorded in
+/// `owned_member_reads` so every consumer (let-decl slot, discard,
+/// call arg, BinOp temp, console arg, assign) takes the release over
+/// instead of treating the read as a receiver borrow — pre-717 the
+/// owned arms' +1 was stranded (32B leaked per `re.source` /
+/// `t.name` / accessor / class-field read through any).
+pub(crate) fn lower_any_member_read(
+    ctx: &mut LowerCtx,
+    eid: ExprId,
+    obj_val: Operand,
+    name: &str,
+) -> Operand {
+    ctx.owned_member_reads.insert(eid);
     // Compile-time enumerate class candidates whose layout declares
     // `name` as a field. AOT — both maps are stable by this point.
     let mut candidates: Vec<(u32, u64, Type)> = Vec::new();
