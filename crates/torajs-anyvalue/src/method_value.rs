@@ -41,8 +41,8 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use torajs_rc::{
-    ANY_METHOD_ADD, ANY_METHOD_APPLY, ANY_METHOD_CALL, ANY_METHOD_CHAR_AT, ANY_METHOD_CLEAR,
-    ANY_METHOD_DELETE, ANY_METHOD_ENDS_WITH, ANY_METHOD_ENTRIES, ANY_METHOD_EXEC,
+    ANY_METHOD_ADD, ANY_METHOD_APPLY, ANY_METHOD_BIND, ANY_METHOD_CALL, ANY_METHOD_CHAR_AT,
+    ANY_METHOD_CLEAR, ANY_METHOD_DELETE, ANY_METHOD_ENDS_WITH, ANY_METHOD_ENTRIES, ANY_METHOD_EXEC,
     ANY_METHOD_FILTER, ANY_METHOD_FOR_EACH, ANY_METHOD_GET, ANY_METHOD_HAS, ANY_METHOD_INCLUDES,
     ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_KEYS, ANY_METHOD_MAP, ANY_METHOD_MATCH,
     ANY_METHOD_NEXT, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_REPLACE, ANY_METHOD_REPLACE_ALL,
@@ -104,7 +104,7 @@ unsafe extern "C" fn bare_entry(_env: *mut c_void, _argv: *const u64, _argc: i64
 /// instead of jumping to 0. Arguments are ignored (safe under the C
 /// calling convention); the pending throw propagates at the callee
 /// boundary.
-unsafe extern "C" fn native_entry() -> u64 {
+pub(crate) unsafe extern "C" fn native_entry() -> u64 {
     unsafe {
         __torajs_throw_type_error(
             c"builtin method called without a receiver (this is undefined)".as_ptr(),
@@ -259,7 +259,9 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         t if t == Tag::WeakSet as u16 => {
             matches!(mid, ANY_METHOD_ADD | ANY_METHOD_HAS | ANY_METHOD_DELETE)
         }
-        t if t == Tag::Closure as u16 => matches!(mid, ANY_METHOD_CALL | ANY_METHOD_APPLY),
+        t if t == Tag::Closure as u16 => {
+            matches!(mid, ANY_METHOD_CALL | ANY_METHOD_APPLY | ANY_METHOD_BIND)
+        }
         _ => false,
     }
 }

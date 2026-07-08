@@ -181,6 +181,10 @@ pub const ANY_METHOD_CALL: i64 = 77;
 /// `Function.prototype.apply` (chunk 710) — same thisArg drop; the
 /// argument list unpacks from the second argument's Arr cell.
 pub const ANY_METHOD_APPLY: i64 = 78;
+/// `Function.prototype.bind` (chunk 714) — mints a bound-function
+/// cell carrying the target, the bound this and the partial
+/// arguments.
+pub const ANY_METHOD_BIND: i64 = 79;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -301,6 +305,7 @@ pub fn any_method_id(name: &str) -> i64 {
         "exec" => ANY_METHOD_EXEC,
         "call" => ANY_METHOD_CALL,
         "apply" => ANY_METHOD_APPLY,
+        "bind" => ANY_METHOD_BIND,
         "keys" => ANY_METHOD_KEYS,
         "values" => ANY_METHOD_VALUES,
         "entries" => ANY_METHOD_ENTRIES,

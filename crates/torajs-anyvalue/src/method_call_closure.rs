@@ -23,10 +23,11 @@
 //!   `f = s.toUpperCase` runs the string method on `s`. No receiver
 //!   slot travels (a grow-relocating method reached through `.call`
 //!   cannot write the caller's variable back — recorded boundary).
+//! - `bind` (chunk 714) mints a bound-function cell (`method_bind`).
 //! - A closure without a boxed dual entry cannot dispatch
 //!   dynamically ([`not_callable`], same as the bare any-call lane).
 //! - Every other method id floats the no-such sentinel (`toString`
-//!   source text and `bind` are recorded boundaries).
+//!   source text is a recorded boundary).
 //!
 //! Argument ledger: identical to the dispatcher — argv slots are
 //! BORROWED; the apply unpacking's element boxes are this arm's own
@@ -34,7 +35,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{ANY_METHOD_APPLY, ANY_METHOD_CALL, Tag};
+use torajs_rc::{ANY_METHOD_APPLY, ANY_METHOD_BIND, ANY_METHOD_CALL, Tag};
 
 use crate::method_call::{
     MAX_BOXED_ARGS, closure_cell_entry, invoke_boxed, method_no_such, not_callable,
@@ -108,6 +109,7 @@ pub(crate) unsafe fn closure_method(
                 };
                 apply_list(&target, this_arg, list)
             }
+            m if m == ANY_METHOD_BIND => crate::method_bind::bind_cell(ptr, argv, argc),
             _ => method_no_such(),
         }
     }

@@ -27,7 +27,8 @@
 //!   id-switch lives in `method_call_arr`.
 //! - `Tag::Closure` cell (chunk 710) → `Function.prototype.call` /
 //!   `apply` with the thisArg dropped (a torajs closure body cannot
-//!   reference `this`) + expando shadowing (`method_call_closure`).
+//!   reference `this`) + `bind` (chunk 714, `method_bind`) + expando
+//!   shadowing (`method_call_closure`).
 //! - `Tag::DynObj` cell (C3a-2) → probe the property by the interned
 //!   name Str the lowerer now passes; a closure-cell value with a
 //!   non-zero boxed dual entry (`+32`, synthesized per lifted body)

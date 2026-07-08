@@ -1,0 +1,16 @@
+const s: any = "hello";
+const f = s.toUpperCase.bind(s);
+console.log(typeof f);
+console.log(f());
+const g = s.slice.bind(s, 1);
+console.log(g(3));
+const h: any = (x: number, y: number) => x + y;
+const hb = h.bind(null, 10);
+console.log(hb(5));
+console.log(typeof h.bind);
+const arr: any = [1, 2];
+const pushb = arr.push.bind(arr);
+pushb(9);
+console.log(arr.length);
+const nb = h.bind(null);
+console.log(nb(1, 2));
