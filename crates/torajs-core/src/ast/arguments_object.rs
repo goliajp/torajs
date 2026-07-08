@@ -15,8 +15,8 @@
 
 use super::arguments_object_collect::{collect_value_argc, collect_value_argv};
 use super::arguments_object_walkers::{
-    body_has_arguments_length, stmt_uses_dynamic_arguments, synth_arguments_local,
-    synth_arguments_local_argv,
+    body_has_arguments_length, body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
+    synth_arguments_local, synth_arguments_local_argv,
 };
 use super::{Ast, Expr, Param, Stmt};
 
@@ -177,13 +177,24 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             };
             let params = params.clone();
             let is_argv_fn = value_argv_fns.contains(name);
+            // RFC 20260708-closure-argv-face chunk 2 — an env
+            // closure that did NOT qualify for the argv face (killed
+            // binding chain / escaping touch / unsafe return) stays
+            // loud on EVERY arguments touch, index reads included:
+            // the historical FoldArity path rewrote `arguments[i]`
+            // into a declared-params-only array, silently answering
+            // undefined for beyond-declared values reached through
+            // any-call / container dispatch (probe ac6/ac7).
             let argc_mode = if uses_real_argc.contains(name)
                 || iife_real_argc.contains(name)
                 || value_real_argc.contains(name)
                 || is_argv_fn
             {
                 ArgcMode::Real
-            } else if env_fns.contains(name) && body_has_arguments_length(ast, body) {
+            } else if env_fns.contains(name)
+                && (body_has_arguments_length(ast, body)
+                    || body_has_non_length_arguments_touch(ast, body))
+            {
                 ArgcMode::KeepLoud
             } else {
                 ArgcMode::FoldArity
@@ -219,7 +230,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             // (synth_arguments_local also takes &mut ast for add_expr).
             let synth_opt = if is_argv_fn {
                 Some(synth_arguments_local_argv(ast))
-            } else if needs_materialize {
+            } else if needs_materialize && argc_mode != ArgcMode::KeepLoud {
                 Some(synth_arguments_local(ast, &params))
             } else {
                 None

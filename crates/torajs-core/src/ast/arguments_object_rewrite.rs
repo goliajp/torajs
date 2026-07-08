@@ -172,6 +172,15 @@ pub(super) fn rewrite_arguments_in_expr(
                 Expr::Ident(n) if n == "arguments"
             );
             if is_arguments {
+                // KeepLoud — leave every `arguments[...]` node
+                // untouched so the checker rejects the body loudly
+                // (RFC 20260708-closure-argv-face chunk 2: the old
+                // unconditional rewrite fed a declared-params-only
+                // array to bodies whose real argv face was killed,
+                // silently answering undefined beyond declared).
+                if argc_mode == ArgcMode::KeepLoud {
+                    return eid;
+                }
                 if let Expr::Number(n) = ast.get_expr(index)
                     && n.fract() == 0.0
                     && (*n as usize) < params.len()
