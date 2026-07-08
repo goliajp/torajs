@@ -220,11 +220,13 @@ pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: 
 /// Member-read fallback once class-candidate dispatch is exhausted
 /// (or absent). Any-dynamic-access RFC (20260704) S4 — `.length`
 /// routes to `__torajs_any_length_get`, whose tag dispatch answers
-/// strings (UTF-16 units), arrays (element count) and plain-object
-/// `{ length: .. }` probes, and raises a catchable TypeError for a
-/// null/undefined receiver (matching bun; the pre-RFC dynobj path
-/// answered silent `undefined`). Every other member name keeps the
-/// original dynobj-only path.
+/// strings (UTF-16 units), arrays (element count), fn arity
+/// (method cells + registry-hit closures, chunks 715/716) and
+/// plain-object `{ length: .. }` probes, and raises a catchable
+/// TypeError for a null/undefined receiver (matching bun; the
+/// pre-RFC dynobj path answered silent `undefined`). `.name`
+/// routes to `__torajs_any_name_get` (chunk 716, same shape).
+/// Every other member name keeps the original dynobj-only path.
 fn emit_member_fallback(
     ctx: &mut LowerCtx,
     obj_val: &Operand,
@@ -235,6 +237,20 @@ fn emit_member_fallback(
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.any_length_get, vec![obj_val.clone()]),
+            Type::Any,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return Operand::Value(v);
+    }
+    if name == "name" {
+        // chunk 716 — fn reflection metadata (reified method cell
+        // interned name / fn-addr registry / dynobj `{ name: .. }`
+        // probe) rides its own owned-return dispatch, the exact
+        // `.length` shape.
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_name_get, vec![obj_val.clone()]),
             Type::Any,
             None,
         );

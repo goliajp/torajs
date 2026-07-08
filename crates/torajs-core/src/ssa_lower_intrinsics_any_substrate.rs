@@ -66,6 +66,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_index_get: FuncId,
     pub any_index_set: FuncId,
     pub any_length_get: FuncId,
+    pub any_name_get: FuncId,
     pub any_size_get: FuncId,
     pub any_regexp_prop: FuncId,
     pub any_member_get_tag: FuncId,
@@ -303,6 +304,15 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_any_length_get",
+            &[Type::Any],
+            Type::Any,
+        ),
+        // chunk 716 — recv.name runtime dispatch (fn metadata +
+        // dynobj probe; owned return).
+        any_name_get: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_name_get",
             &[Type::Any],
             Type::Any,
         ),

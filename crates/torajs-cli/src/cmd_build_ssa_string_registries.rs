@@ -94,6 +94,7 @@ pub fn build_fn_name_globals(ssa_module: &Module) -> Vec<UserFnNameEntry> {
             fn_addr_sym: format!("__torajs_fn_{}", e.fn_id.0),
             name_ptr_sym: format!("__torajs_str_dyn_{}", e.name_sid.0),
             name_len: e.name.chars().count() as u32,
+            arity: e.arity,
         })
         .collect()
 }

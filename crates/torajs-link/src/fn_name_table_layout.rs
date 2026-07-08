@@ -14,7 +14,7 @@
 //!       +8..15  : name_ptr  *const u8 (link-time chain-fixup target
 //!                                       to __TEXT,__cstring entry)
 //!       +16..19 : name_len  u32
-//!       +20..23 : _pad      u32
+//!       +20..23 : arity     u32 (ES-spec Function.length, chunk 716)
 //!     ```
 //! - `__torajs_fn_name_table_count` — u64 entry count.
 //!
@@ -51,6 +51,10 @@ pub struct FnNameTableEntryLayout {
     /// Code-unit count per ES `String.length`. Lives in the
     /// `name_len: u32` field (NOT a chain-fixup target).
     pub name_len: u32,
+    /// ES-spec `Function.length` (chunk 716) — written into the
+    /// entry's former `_pad: u32` slot (literal value, no chain
+    /// fixup; entry stays 24 bytes).
+    pub arity: u32,
 }
 
 /// Aggregated layout for the single `__torajs_fn_name_table[]` +
@@ -157,6 +161,7 @@ mod tests {
             fn_addr_sym: format!("__torajs_fn_{fid}"),
             name_ptr_sym: format!("__user_string_{sid}"),
             name_len,
+            arity: 0,
         }
     }
 
@@ -214,7 +219,8 @@ mod tests {
 /// Each entry contributes two chain-fixup link values in flat
 /// `entries[*]` walk order — `fn_addr` first, then `name_ptr`.
 /// `name_len: u32` is written directly (no chain fixup needed since
-/// it's a literal value, not a pointer). `_pad: u32` is always 0.
+/// it's a literal value, not a pointer), and so is `arity: u32`
+/// (the entry's former `_pad` slot, chunk 716).
 ///
 /// The trailing `__torajs_fn_name_table_count: u64` global gets the
 /// raw entry count as a little-endian u64.
@@ -258,7 +264,7 @@ pub fn build_fn_name_table_payload(
         buf.extend_from_slice(&fn_addr_lv.to_le_bytes());
         buf.extend_from_slice(&name_ptr_lv.to_le_bytes());
         buf.extend_from_slice(&entry.name_len.to_le_bytes());
-        buf.extend_from_slice(&0u32.to_le_bytes());
+        buf.extend_from_slice(&entry.arity.to_le_bytes());
     }
     // Trailing count global — raw u64 entry count, no chain fixup
     // (the count is a plain immediate, not a pointer).

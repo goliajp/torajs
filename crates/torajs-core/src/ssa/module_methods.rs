@@ -108,6 +108,11 @@ pub struct FnNameEntry {
     /// the `__user_string_<sid>` alias for the rodata table's
     /// name_ptr chain-fixup target.
     pub name_sid: StringId,
+    /// ES-spec `Function.length` — the count of leading params
+    /// before the first default / rest param (chunk 716). Rides the
+    /// rodata entry's former `_pad: u32` slot so the runtime
+    /// `.length` read answers it without an ABI size change.
+    pub arity: u32,
 }
 
 #[derive(Debug, Clone)]

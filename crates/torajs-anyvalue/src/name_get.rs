@@ -1,0 +1,130 @@
+//! `__torajs_any_name_get` — `recv.name` where the receiver is an
+//! `any` value (chunk 716). OWNED return protocol, the exact mirror
+//! of `index_any.rs::__torajs_any_length_get`: the returned box
+//! holds its own reference, the caller's ownership ledger drops it.
+//!
+//! ssa-lower's member fallback routes the compile-time literal name
+//! `"name"` here (third special case after `length` / `size`), so
+//! the borrow-shaped member-get pair never sees the key. Dispatch:
+//!
+//! - `null` / `undefined` → catchable TypeError.
+//! - `Tag::Closure` → the fn-metadata read, in own-property order:
+//!   an expando `f.name = …` answers first (recorded divergence: ES
+//!   makes `name` non-writable so bun ignores the write; tr's
+//!   expando shadow wins); a reified builtin method cell answers
+//!   its interned immortal name Str (chunk 715 metadata, rc no-op
+//!   under the owned protocol); an ordinary closure walks the
+//!   fn-addr registry — hit mints a fresh owned Str, miss answers
+//!   the ES anonymous-function name `""` (arrow / anon closures
+//!   skip the registry; the binding-name NamedEvaluation face is a
+//!   recorded follow-up).
+//! - `Tag::DynObj` → own-property probe for the literal key
+//!   `"name"` (a user `{ name: "x" }` answers its value; absence
+//!   answers `undefined`).
+//! - everything else (primitives, other heap tags) → `undefined`.
+
+use core::ffi::c_void;
+
+use torajs_rc::Tag;
+
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_null, is_undefined};
+
+unsafe extern "C" {
+    /// torajs-str — fresh rc=1 Str from raw bytes.
+    fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
+    fn __torajs_str_drop(s: *mut c_void);
+    /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-fnname — registry walk (chunk 716); NULL = miss.
+    fn __torajs_fn_name_lookup(fn_addr: u64, out_len: *mut u32, out_arity: *mut u32) -> *const u8;
+    /// torajs-throw — record a pending catchable TypeError.
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}
+
+/// Closure-cell layout mirrors (`member_get.rs` / torajs-core
+/// `ssa_lower.rs` constants).
+const CLOSURE_FN_ADDR_OFF: usize = 8;
+const CLOSURE_PROPS_OFF: usize = 24;
+
+/// See module doc.
+///
+/// # Safety
+/// Cell receivers must be valid heap pointers matching their header
+/// tag layout.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_name_get(recv: AnyValue) -> AnyValue {
+    if is_null(recv) || is_undefined(recv) {
+        unsafe {
+            __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());
+        }
+        return VALUE_UNDEFINED;
+    }
+    if !is_cell(recv) {
+        return VALUE_UNDEFINED;
+    }
+    let ptr = as_void_ptr(recv);
+    unsafe {
+        let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
+        if tag == Tag::Closure as u16 {
+            return closure_name(ptr);
+        }
+        if tag == Tag::DynObj as u16 {
+            // Own-property probe for the literal key "name" — the
+            // `__torajs_any_length_get` dynobj-arm shape.
+            let key = __torajs_str_alloc(c"name".as_ptr() as *const u8, 4);
+            let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
+            let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
+            __torajs_str_drop(key as *mut c_void);
+            // The probe pair is a borrow — the returned box owns its
+            // own reference.
+            crate::payload_rc_inc(dtag as i64, dval as i64);
+            return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
+        }
+    }
+    VALUE_UNDEFINED
+}
+
+/// The `Tag::Closure` arm — expando shadow, then method-cell
+/// metadata, then the fn-addr registry.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+unsafe fn closure_name(ptr: *mut c_void) -> AnyValue {
+    unsafe {
+        let props = *(ptr.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64) as *const c_void;
+        if !props.is_null() {
+            let key = __torajs_str_alloc(c"name".as_ptr() as *const u8, 4);
+            let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
+            let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+            __torajs_str_drop(key as *mut c_void);
+            if dtag != 5 {
+                crate::payload_rc_inc(dtag as i64, dval as i64);
+                return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
+            }
+        }
+        if let Some(cell) = crate::method_value::builtin_method_name_cell_of(ptr) {
+            // Immortal interned cell — the owned drop no-ops on the
+            // static flag, so handing it out under the owned
+            // protocol needs no extra reference.
+            return crate::nanbox_encode::__torajs_anyv_box_from_pair(4, cell as i64);
+        }
+        let fn_addr = *(ptr.cast::<u8>().add(CLOSURE_FN_ADDR_OFF) as *const u64);
+        let mut name_len: u32 = 0;
+        let mut arity: u32 = 0;
+        let name_ptr = __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity);
+        if name_ptr.is_null() {
+            // Registry miss — the ES anonymous-function name is the
+            // empty string (arrow / anon closures never register;
+            // the binding-name NamedEvaluation face is a recorded
+            // follow-up).
+            let s = __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
+            return crate::nanbox_encode::__torajs_anyv_box_from_pair(4, s as i64);
+        }
+        // Raw rodata bytes → fresh owned Str. ASCII names byte-copy
+        // exactly; the non-ASCII UTF-16 payload face shares the
+        // fn-print helper's recorded TODO.
+        let s = __torajs_str_alloc(name_ptr, i64::from(name_len));
+        crate::nanbox_encode::__torajs_anyv_box_from_pair(4, s as i64)
+    }
+}

@@ -170,28 +170,6 @@ fn builtin_method_name_cell(mid: i64, name: &'static str) -> *mut u8 {
     }
 }
 
-/// `.name` / `.length` metadata read off a reified method cell
-/// (chunk 715) — `(tag, value)` in the member-get pair protocol
-/// (4 = heap cell, 2 = i64). `None` when the cell is an ordinary
-/// closure or the key is not a metadata name (the caller's probe
-/// keeps its normal answer).
-///
-/// # Safety
-/// `ptr` is a live `Tag::Closure` cell; `key` is NULL or a live Str
-/// cell.
-pub(crate) unsafe fn builtin_method_meta_pair(
-    ptr: *mut c_void,
-    key: *const c_void,
-) -> Option<(u64, u64)> {
-    let mid = unsafe { builtin_method_mid(ptr) }?;
-    let (name, arity) = torajs_rc::any_method_meta(mid)?;
-    match unsafe { key_bytes(key) }? {
-        b"name" => Some((4, builtin_method_name_cell(mid, name) as u64)),
-        b"length" => Some((2, arity as u64)),
-        _ => None,
-    }
-}
-
 /// The reflection name of a reified method cell, `None` for
 /// ordinary closures — the inspect Closure arms print
 /// `[Function: <name>]` from this ahead of the fn-addr registry
@@ -205,6 +183,19 @@ pub(crate) unsafe fn builtin_method_name(ptr: *mut c_void) -> Option<&'static st
     torajs_rc::any_method_meta(mid).map(|(name, _)| name)
 }
 
+/// The interned `.name` Str cell of a reified method cell, `None`
+/// for ordinary closures — `name_get`'s Closure arm hands the
+/// immortal cell out under the owned protocol (drop no-ops on the
+/// static flag).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+pub(crate) unsafe fn builtin_method_name_cell_of(ptr: *mut c_void) -> Option<*mut u8> {
+    let mid = unsafe { builtin_method_mid(ptr) }?;
+    let (name, _) = torajs_rc::any_method_meta(mid)?;
+    Some(builtin_method_name_cell(mid, name))
+}
+
 /// The ES-spec `length` of a reified method cell, `None` for
 /// ordinary closures (the env cell carries no arity field — that
 /// side stays the recorded boundary).
@@ -214,22 +205,6 @@ pub(crate) unsafe fn builtin_method_name(ptr: *mut c_void) -> Option<&'static st
 pub(crate) unsafe fn builtin_method_arity(ptr: *mut c_void) -> Option<u32> {
     let mid = unsafe { builtin_method_mid(ptr) }?;
     torajs_rc::any_method_meta(mid).map(|(_, arity)| arity)
-}
-
-/// The key Str's payload bytes — `None` for a NULL key. A UTF-16
-/// key reads its first `length` bytes, which never equal an ASCII
-/// metadata name, so the comparison stays conservatively exact.
-unsafe fn key_bytes<'a>(key: *const c_void) -> Option<&'a [u8]> {
-    if key.is_null() {
-        return None;
-    }
-    unsafe {
-        let len = (key.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() as usize;
-        Some(core::slice::from_raw_parts(
-            key.cast::<u8>().add(STR_DATA_OFF),
-            len,
-        ))
-    }
 }
 
 /// The method id a reified cell carries — `None` for ordinary

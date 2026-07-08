@@ -63,9 +63,11 @@ pub struct FnNameTableEntry {
     /// branch). For ASCII fn names this also equals `name_ptr`'s
     /// byte length.
     pub name_len: u32,
-    /// Reserved for layout alignment — `compute_fn_name_table_layout`
-    /// zeroes this slot so the entry size stays a round 24 bytes.
-    pub _pad: u32,
+    /// ES-spec `Function.length` (chunk 716) — the former alignment
+    /// pad slot; `build_fn_name_table_payload` writes the arity the
+    /// SSA fn-decl walk computed (leading params before the first
+    /// default / rest).
+    pub arity: u32,
 }
 
 // `*const u8` makes the entry struct non-`Send`/`Sync`, but the
@@ -102,24 +104,52 @@ const ANON: &[u8] = b"[Function (anonymous)]";
 /// the chain-fixed `fn_addr` in some entry IFF that fn was
 /// registered at Pass 2 of ssa_lower. Reads from immutable rodata
 /// only.
+/// Look up `fn_addr` in `__torajs_fn_name_table[]` — the shared
+/// walk behind the print helper and the `.name` / `.length`
+/// reflection reads (chunk 716). Hit: returns the raw name bytes
+/// pointer and stores the code-unit length / ES-spec arity through
+/// the out params. Miss: returns NULL (out params untouched).
+///
+/// # Safety
+/// `fn_addr` is compared, never dereferenced; `out_len` / `out_arity`
+/// are valid writable slots. Reads from immutable rodata only.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_fn_print_inline(fn_addr: u64) {
+pub unsafe extern "C" fn __torajs_fn_name_lookup(
+    fn_addr: u64,
+    out_len: *mut u32,
+    out_arity: *mut u32,
+) -> *const u8 {
     // Safety: `__torajs_fn_name_table_count` lives in __DATA_CONST
     // rodata after the chain-fixup walk completes.
     let count = unsafe { __torajs_fn_name_table_count };
     let entries_base: *const FnNameTableEntry = &raw const __torajs_fn_name_table;
-    let mut hit: Option<(*const u8, u32)> = None;
     let mut i: u64 = 0;
     while i < count {
         // Safety: entries[0..count] live back-to-back in __DATA_CONST
         // per `compute_fn_name_table_layout` so `.add(i)` stays in-bounds.
         let entry = unsafe { &*entries_base.add(i as usize) };
         if entry.fn_addr == fn_addr {
-            hit = Some((entry.name_ptr, entry.name_len));
-            break;
+            unsafe {
+                *out_len = entry.name_len;
+                *out_arity = entry.arity;
+            }
+            return entry.name_ptr;
         }
         i += 1;
     }
+    core::ptr::null()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fn_print_inline(fn_addr: u64) {
+    let mut name_len: u32 = 0;
+    let mut arity: u32 = 0;
+    let name_ptr = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
+    let hit = if name_ptr.is_null() {
+        None
+    } else {
+        Some((name_ptr, name_len))
+    };
     match hit {
         Some((name_ptr, name_len)) => {
             emit_bytes(PREFIX);

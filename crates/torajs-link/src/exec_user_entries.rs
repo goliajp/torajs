@@ -38,6 +38,9 @@ pub struct UserFnNameEntry {
     pub fn_addr_sym: String,
     pub name_ptr_sym: String,
     pub name_len: u32,
+    /// ES-spec `Function.length` (chunk 716) — emitted into the
+    /// entry's former `_pad: u32` slot.
+    pub arity: u32,
 }
 
 /// W-J Phase A3c — one row of the `__torajs_class_name_table[]`

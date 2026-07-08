@@ -170,6 +170,7 @@ pub fn compute_data_const_layout(
             fn_addr_sym: e.fn_addr_sym.clone(),
             name_ptr_sym: e.name_ptr_sym.clone(),
             name_len: e.name_len,
+            arity: e.arity,
         })
         .collect();
     let fn_name_table_layout = compute_fn_name_table_layout(
@@ -294,6 +295,7 @@ mod tests {
             fn_addr_sym: format!("__torajs_fn_{fid}"),
             name_ptr_sym: format!("__user_string_{sid}"),
             name_len,
+            arity: 0,
         }
     }
 

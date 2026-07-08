@@ -31,6 +31,9 @@ use crate::nanbox_ffi_materialize::materialize_short_str;
 use torajs_rc::Tag;
 
 unsafe extern "C" {
+    /// torajs-fnname — registry walk (chunk 716); NULL = miss. The
+    /// `.length` arm reads the arity out param off a fn-decl entry.
+    fn __torajs_fn_name_lookup(fn_addr: u64, out_len: *mut u32, out_arity: *mut u32) -> *const u8;
     /// torajs-str — `s[idx]` (Str or Substr); NULL = OOB.
     fn __torajs_str_index_get(s: *mut u8, idx: i64) -> *mut u8;
     /// torajs-arr — kind-aware `arr[idx]`; returns a balanced
@@ -275,6 +278,9 @@ unsafe fn drop_transferred_pair(tag: u64, value: u64) {
 // units) / torajs-str `SUBSTR_LEN_OFF` (u64 code units) /
 // `FLAG_SUBSTR_INLINE` (HeapHeader flags bit 0).
 const MIRROR_ARR_LEN_OFF: usize = 8;
+// Closure fn body vaddr slot — mirror of `member_get.rs` /
+// torajs-core `ssa_lower.rs` closure-env constants.
+const MIRROR_CLOSURE_FN_ADDR_OFF: usize = 8;
 // Accessor-entry sentinel in the dynobj probe's tag channel — mirror
 // of torajs-core `ssa_lower_accessor.rs::ANY_ACCESSOR_TAG`.
 const INDEX_ANY_ACCESSOR_TAG: u64 = 6;
@@ -350,10 +356,20 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
         }
         if tag == Tag::Closure as u16 {
             // chunk 715 — a reified builtin method cell answers its
-            // ES-spec arity. An ordinary closure keeps the recorded
-            // boundary (the env cell carries no arity field) and
-            // stays undefined.
+            // ES-spec arity; chunk 716 — an ordinary closure walks
+            // the fn-addr registry (the entry's former pad slot now
+            // carries the fn-decl arity). A registry miss (arrow /
+            // anon closures never register) stays undefined — the
+            // binding-context NamedEvaluation face is a recorded
+            // follow-up.
             if let Some(arity) = crate::method_value::builtin_method_arity(ptr) {
+                return crate::nanbox_encode::__torajs_anyv_box_i64(arity as i64);
+            }
+            let fn_addr = *(ptr.cast::<u8>().add(MIRROR_CLOSURE_FN_ADDR_OFF) as *const u64);
+            let mut name_len: u32 = 0;
+            let mut arity: u32 = 0;
+            let name_ptr = __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity);
+            if !name_ptr.is_null() {
                 return crate::nanbox_encode::__torajs_anyv_box_i64(arity as i64);
             }
         }
