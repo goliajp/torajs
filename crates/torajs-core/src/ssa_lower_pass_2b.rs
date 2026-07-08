@@ -12,10 +12,106 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, ExprId, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::num_width::WidthTable;
-use crate::ssa::{self, BakedRegexEntry, FuncId, Module, Type};
+use crate::ssa::{self, BakedRegexEntry, FnNameEntry, FuncId, Module, Type};
 use crate::ssa_lower::Intrinsics;
+
+/// Chunk 720 — ES §8.4.5 NamedEvaluation for lifted arrows: an
+/// anonymous function definition bound by a `let` / `const` / `var`
+/// declaration takes the binding name as its `name`. The lift pass
+/// (`lift_arrow_fns`) runs per-expression with no statement context,
+/// so the binding is recovered here by walking every LetDecl whose
+/// init is (possibly `as`-wrapped) the lifted `Expr::Closure`.
+/// Returns `__closure_N` → binding-name. Assign-position
+/// (`f = () => {}`), object-field and default-export
+/// NamedEvaluation sites stay recorded follow-ups.
+fn collect_named_eval(ast: &Ast) -> HashMap<String, String> {
+    fn init_closure_name(ast: &Ast, eid: ExprId) -> Option<&str> {
+        match ast.get_expr(eid) {
+            Expr::Closure { fn_name, .. } if fn_name.starts_with("__closure_") => Some(fn_name),
+            Expr::As { expr, .. } => init_closure_name(ast, *expr),
+            _ => None,
+        }
+    }
+    fn walk(ast: &Ast, s: &Stmt, map: &mut HashMap<String, String>) {
+        match s {
+            Stmt::LetDecl { name, init, .. } => {
+                if let Some(cn) = init_closure_name(ast, *init) {
+                    map.insert(cn.to_string(), name.clone());
+                }
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk(ast, then_branch, map);
+                if let Some(e) = else_branch {
+                    walk(ast, e, map);
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::DoWhile { body, .. }
+            | Stmt::ForOfSplitIter { body, .. }
+            | Stmt::ForOf { body, .. } => walk(ast, body, map),
+            Stmt::For { init, body, .. } => {
+                if let Some(i) = init {
+                    walk(ast, i, map);
+                }
+                walk(ast, body, map);
+            }
+            Stmt::Switch { cases, default, .. } => {
+                for c in cases {
+                    for cs in &c.body {
+                        walk(ast, cs, map);
+                    }
+                }
+                if let Some(d) = default {
+                    for ds in d {
+                        walk(ast, ds, map);
+                    }
+                }
+            }
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                for bs in body.iter().chain(catch_body.iter()) {
+                    walk(ast, bs, map);
+                }
+                if let Some(f) = finally_body {
+                    for fs in f {
+                        walk(ast, fs, map);
+                    }
+                }
+            }
+            Stmt::Block(v) | Stmt::Multi(v) => {
+                for bs in v {
+                    walk(ast, bs, map);
+                }
+            }
+            Stmt::FnDecl { body, .. } => {
+                for bs in body {
+                    walk(ast, bs, map);
+                }
+            }
+            Stmt::ExportDecl { inner, .. } => {
+                if let Some(i) = inner {
+                    walk(ast, i, map);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut map = HashMap::new();
+    for s in &ast.stmts {
+        walk(ast, s, &mut map);
+    }
+    map
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
@@ -46,6 +142,7 @@ pub(crate) fn run(
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) {
+    let named_eval = collect_named_eval(ast);
     for (stmt_idx, fid) in closure_decls {
         if let Stmt::FnDecl {
             name,
@@ -90,6 +187,31 @@ pub(crate) fn run(
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
                 module.strings.push(s);
+            }
+            // Chunk 720 — NamedEvaluation registry row: a let-bound
+            // arrow answers its binding name / arity through the
+            // fn-addr registry (`.name` / `.length` / fn-print),
+            // mirroring the Pass 2 fn-decl rows in `body_passes`.
+            // The link layer sorts the table by fn_addr, so the
+            // late push order is immaterial.
+            if let Some(binding) = named_eval.get(name) {
+                let lit = ssa::StringLiteral::encode_from_str(binding);
+                let name_sid = ssa::StringId(module.strings.len() as u32);
+                module.strings.push(lit);
+                // ES-spec `Function.length` — leading params before
+                // the first default / rest (§10.2.10), synthetic
+                // `__env` excluded (chunk 716 contract).
+                let arity = params
+                    .iter()
+                    .filter(|p| p.name != "__env")
+                    .take_while(|p| p.default.is_none() && !p.is_rest)
+                    .count() as u32;
+                module.fn_name_globals.push(FnNameEntry {
+                    fn_id: fid,
+                    name: binding.clone(),
+                    name_sid,
+                    arity,
+                });
             }
         }
     }
