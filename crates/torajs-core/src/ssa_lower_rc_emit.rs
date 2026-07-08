@@ -122,7 +122,14 @@ impl<'a> LowerCtx<'a> {
     /// [`Self::release_owned_temp`]'s operand-type check.
     pub(crate) fn expr_owned_shape(&self, eid: ExprId) -> bool {
         match self.ast.get_expr(eid) {
-            Expr::Call { .. } | Expr::New { .. } | Expr::Closure { .. } => true,
+            // Chunk 721 — OptCall answers a fresh owned Any box on
+            // both arms (hit = the call's owned result, miss = an
+            // undef immediate whose drop no-ops), per the chunk-705
+            // contract; it was missing from this predicate, so a
+            // discarded / printed `f?.()` result had no release site.
+            Expr::Call { .. } | Expr::New { .. } | Expr::Closure { .. } | Expr::OptCall { .. } => {
+                true
+            }
             Expr::BinOp { op, .. } => !matches!(op, AstBinOp::LAnd | AstBinOp::LOr),
             Expr::As { expr, .. } => self.expr_owned_shape(*expr),
             // Chunk 640 — array / object literals mint a fresh heap

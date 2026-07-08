@@ -111,11 +111,16 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     if !is_borrow {
         if is_str {
             ctx.emit_drop_value(arg, Type::Str);
-        } else if arg_ty == Type::Any && ctx.owned_member_reads.contains(&arg_id) {
+        } else if arg_ty == Type::Any && ctx.expr_owned_shape(arg_id) {
             // Chunk 717 — an owned any-member read printed directly
             // (`console.log(re.source)`): print_any borrows, so the
-            // read's stake releases here. Other owned Any shapes
-            // (Call results) keep their pre-717 path (L3b ledger).
+            // read's stake releases here. Chunk 721 widened the gate
+            // to every owned shape (Call / OptCall / New / BinOp
+            // results answer fresh boxes per the RFC 20260705
+            // invariant): `console.log(mk(i))` leaked its fresh Str
+            // box per call (probe c721a 24.2MB vs 6.4MB flat).
+            // Ternary / Nullish over owned temps stay on the L3b
+            // ledger (they answer borrows of their branch results).
             ctx.emit_drop_value(arg, Type::Any);
         }
     }
@@ -133,8 +138,10 @@ fn lower_multi_arg(ctx: &mut LowerCtx<'_>, method: &'static str, args: &[ExprId]
         let s_op = ctx.coerce_to_str(arg.clone(), arg_ty);
         // Chunk 717 — an owned any-member read consumed by the join:
         // the Str coercion mints a fresh cell (borrowing the box), so
-        // the read's own stake releases here.
-        if arg_ty == Type::Any && ctx.owned_member_reads.contains(&aid) {
+        // the read's own stake releases here. Chunk 721 widened the
+        // gate to every owned Any shape (probe c721b: a multi-arg
+        // `console.log("pfx", mk(i))` leaked the call's fresh box).
+        if arg_ty == Type::Any && ctx.expr_owned_shape(aid) {
             ctx.emit_drop_value(arg, Type::Any);
         }
         if i > 0 {

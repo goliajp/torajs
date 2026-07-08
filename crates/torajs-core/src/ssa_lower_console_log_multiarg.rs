@@ -80,13 +80,22 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
             ctx.emit_drop_value(boxed, Type::Any);
             continue;
         }
+        let arg = ctx.lower_expr(aid);
+        let arg_ty = ctx.operand_ty(&arg);
         // Same borrow judgement as `lower_single_arg`: Ident / Member
         // lower to a borrowed operand the local (or its container)
         // still owns; everything else (literal / call / new) is a
-        // temp this statement owns.
-        let is_borrow = matches!(ctx.ast.get_expr(aid), Expr::Ident(_) | Expr::Member { .. });
-        let arg = ctx.lower_expr(aid);
-        let arg_ty = ctx.operand_ty(&arg);
+        // temp this statement owns. Chunk 721 — a Member read whose
+        // lowering recorded it owned (chunk 637/717
+        // `owned_member_reads`) carries its own stake, so the
+        // predicate runs AFTER the lowering and skips the inc: the
+        // box transfer consumes the read's reference and the
+        // post-print drop balances it.
+        let is_borrow = match ctx.ast.get_expr(aid) {
+            Expr::Ident(_) => true,
+            Expr::Member { .. } => !ctx.owned_member_reads.contains(&aid),
+            _ => false,
+        };
 
         // typed Arr<primitive> — route to the matching no-\n typed
         // walker (slots are raw bytes, not NaN-box, so the Any path's
@@ -118,7 +127,12 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
         // was masked by the anyv underflow leak; with hit-zero
         // actually freeing, printing a live local freed it).
         let (any_op, drop_after) = if arg_ty == Type::Any {
-            (arg, false)
+            // Chunk 721 — an owned Any temp (Call / OptCall results,
+            // recorded member reads: `expr_owned_shape`) releases
+            // after the print; borrowed Any operands (Ident slots)
+            // pass through. Probe c721b: `console.log("pfx", mk(i))`
+            // leaked the call's fresh box per iteration.
+            (arg, ctx.expr_owned_shape(aid))
         } else {
             if is_borrow && arg_ty.is_refcounted() {
                 ctx.emit_rc_inc(arg.clone());
