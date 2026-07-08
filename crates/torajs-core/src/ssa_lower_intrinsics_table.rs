@@ -263,6 +263,7 @@ pub(crate) fn build(
         arr_index_strs: init_b.object.arr_index_strs,
         obj_own_keys: init_b.object.obj_own_keys,
         anyv_own_keys: init_b.object.anyv_own_keys,
+        anyv_own_symbols: init_b.object.anyv_own_symbols,
         str_index_strs: init_b.object.str_index_strs,
         arr_keys_only: init_b.object.arr_keys_only,
         str_keys_only: init_b.object.str_keys_only,

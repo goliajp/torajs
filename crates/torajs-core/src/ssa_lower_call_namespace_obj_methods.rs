@@ -155,6 +155,7 @@ fn ns_has_own_property(ns: &str, key: &str) -> bool {
                 | "fromEntries"
                 | "is"
                 | "getOwnPropertyNames"
+                | "getOwnPropertySymbols"
                 | "getPrototypeOf"
                 | "setPrototypeOf"
                 | "defineProperty"

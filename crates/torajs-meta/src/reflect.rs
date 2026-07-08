@@ -81,8 +81,9 @@ unsafe fn alloc_str_key(name: &[u8]) -> *mut u8 {
 }
 
 // NaN-box constants mirrored from torajs-anyvalue::nanbox.
-const VALUE_NULL_IMM: u64 = 0x02;
-const VALUE_UNDEFINED_IMM: u64 = 0x0A;
+// null / undefined shared with own_names.rs (W-N-c ToObject guard).
+pub(crate) const VALUE_NULL_IMM: u64 = 0x02;
+pub(crate) const VALUE_UNDEFINED_IMM: u64 = 0x0A;
 const VALUE_FALSE_IMM: u64 = 0x06;
 const VALUE_TRUE_IMM: u64 = 0x07;
 const TAG_TYPE_NUMBER: u64 = 0xFFFE_0000_0000_0000;

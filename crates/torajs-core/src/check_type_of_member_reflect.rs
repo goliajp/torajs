@@ -50,6 +50,14 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         | (Type::Object("Reflect"), "ownKeys") => {
             Type::Function(vec![Type::Any], Box::new(Type::Array(Box::new(Type::String))))
         }
+        // W-N-c — `Object.getOwnPropertySymbols(o)`: tr has no
+        // symbol-keyed property surface (symbol index assignment
+        // rejects loud at typecheck), so the result is statically
+        // the empty array; undefined / null still throw at runtime
+        // per §20.1.2.11 (ToObject).
+        (Type::Object("Object"), "getOwnPropertySymbols") => {
+            Type::Function(vec![Type::Any], Box::new(Type::Array(Box::new(Type::Symbol))))
+        }
         /* v0.2 #3 — Object.hasOwn(obj, key) — compile-time
          * resolved when key is a Str literal (struct layout
          * known at lower time). Boolean result.

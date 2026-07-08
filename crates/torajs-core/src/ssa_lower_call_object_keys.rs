@@ -63,7 +63,10 @@ pub(crate) fn try_lower(
     let Expr::Ident(ns) = ctx.ast.get_expr(ns_id) else {
         return None;
     };
-    let matched = (ns == "Object" && (m_name == "keys" || m_name == "getOwnPropertyNames"))
+    let matched = (ns == "Object"
+        && (m_name == "keys"
+            || m_name == "getOwnPropertyNames"
+            || m_name == "getOwnPropertySymbols"))
         // Reflect.ownKeys aliases the same emit — tr has no symbol keys
         // + no prototype chain so own-string-keys == all-own-keys.
         || (ns == "Reflect" && m_name == "ownKeys");
@@ -84,6 +87,33 @@ pub(crate) fn try_lower(
         let _ = ctx.lower_expr(a);
     }
     let arg_ty = ctx.operand_ty(&arg_op);
+    // W-N-c — `Object.getOwnPropertySymbols`: tr has no symbol-keyed
+    // property surface (a symbol index assignment rejects loud at
+    // typecheck), so the own-symbol list is statically empty for
+    // every receiver. An Any receiver still routes through the
+    // runtime guard (ToObject on undefined / null throws per
+    // §20.1.2.11); statically typed receivers can't be undefined /
+    // null and take the compile-time empty array.
+    if m_name == "getOwnPropertySymbols" {
+        let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
+        if matches!(arg_ty, Type::Any) {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.anyv_own_symbols, vec![arg_op]),
+                Type::Arr(arr_id),
+                None,
+            );
+            ctx.emit_throw_check(None);
+            return Some(Operand::Value(v));
+        }
+        let empty = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+            Type::Arr(arr_id),
+            None,
+        );
+        return Some(Operand::Value(empty));
+    }
     // `Object.keys` filters to enumerable-own per spec §22.1.3.16;
     // Array/String `length` is non-enumerable (§10.4.2.4 step 4 /
     // §22.1.5.1) so it's omitted. `getOwnPropertyNames` / `Reflect.ownKeys`

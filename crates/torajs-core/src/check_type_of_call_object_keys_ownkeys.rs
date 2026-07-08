@@ -43,7 +43,10 @@ pub(crate) fn try_match(
     let Expr::Ident(ns) = ast.get_expr(*ns_id) else {
         return None;
     };
-    let supported = (ns == "Object" && (m_name == "keys" || m_name == "getOwnPropertyNames"))
+    let supported = (ns == "Object"
+        && (m_name == "keys"
+            || m_name == "getOwnPropertyNames"
+            || m_name == "getOwnPropertySymbols"))
         || (ns == "Reflect" && m_name == "ownKeys");
     if !supported {
         return None;
@@ -58,6 +61,11 @@ pub(crate) fn try_match(
         if let Err(e) = checker.type_of(ast, arg) {
             return Some(Err(e));
         }
+    }
+    // getOwnPropertySymbols answers symbols (statically empty in
+    // tr); the string-key surfaces answer Array<string>.
+    if m_name == "getOwnPropertySymbols" {
+        return Some(Ok(Type::Array(Box::new(Type::Symbol))));
     }
     Some(Ok(Type::Array(Box::new(Type::String))))
 }

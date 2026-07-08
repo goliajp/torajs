@@ -8,9 +8,10 @@
 //! +1-rc Arr<Str> ptr (returned through `Type::Arr<Str>` at the SSA
 //! layer; LLVM ABI keeps it interchangeable with `Type::Ptr`).
 
-use core::ffi::c_void;
+use core::ffi::{c_char, c_void};
 
 unsafe extern "C" {
+    fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
     fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8;
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
@@ -210,4 +211,28 @@ pub unsafe extern "C" fn __torajs_str_to_char_arr(str_ptr: *const c_void) -> *mu
         out = unsafe { __torajs_arr_push(out, ch as i64) };
     }
     out as *mut c_void
+}
+
+/// W-N-c — `Object.getOwnPropertySymbols(o)` Any-receiver path.
+/// tr has no symbol-keyed property surface (a symbol index
+/// assignment rejects loud at typecheck), so every object's own
+/// symbol list is the empty array — but ToObject on `undefined` /
+/// `null` still throws per §20.1.2.11 → OrdinaryOwnPropertyKeys
+/// step 1 (gOPD guard shape; pending-throw model, so a valid empty
+/// array is still returned for the caller's value flow).
+///
+/// # Safety
+///
+/// `obj_any` carries a valid AnyValue bit pattern. Returned pointer
+/// owns a fresh `+1`-rc empty `Arr<Str>`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_own_symbols(obj_any: u64) -> *mut c_void {
+    if obj_any == crate::reflect::VALUE_UNDEFINED_IMM {
+        // SAFETY: NUL-terminated static C string.
+        unsafe { __torajs_throw_type_error(c"undefined is not an object".as_ptr()) };
+    } else if obj_any == crate::reflect::VALUE_NULL_IMM {
+        // SAFETY: NUL-terminated static C string.
+        unsafe { __torajs_throw_type_error(c"null is not an object".as_ptr()) };
+    }
+    unsafe { __torajs_arr_alloc(0) as *mut c_void }
 }
