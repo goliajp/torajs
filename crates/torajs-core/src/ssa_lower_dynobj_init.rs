@@ -168,6 +168,14 @@ impl<'a> LowerCtx<'a> {
                     continue;
                 }
                 _ if v_ty.is_refcounted() => {
+                    // A typed Array stored into a dynobj bucket is read
+                    // back through the `any` world (`o.items[1]`), where
+                    // the elem-kind header picks the slot interpretation
+                    // — same boundary as the object_lit field store; a
+                    // raw-i64 array without the mark decodes its cells
+                    // as NaN-boxes and reads undefined. No-op for
+                    // non-Arr values.
+                    self.emit_arr_mark_kind(&v_raw);
                     self.emit_rc_inc(v_raw.clone());
                     (4, v_raw)
                 }
