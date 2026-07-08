@@ -2,6 +2,7 @@
 
 mod apply_args;
 mod apply_spread;
+mod apply_spread_math;
 mod apply_spread_push;
 mod arguments_object;
 mod arguments_object_collect;

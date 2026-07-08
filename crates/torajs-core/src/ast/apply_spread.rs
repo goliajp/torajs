@@ -18,26 +18,44 @@
 //! P1.4 Arr<Any> box read for `any[]`), so checker / ssa-lower /
 //! runtime need no new surface.
 //!
-//! Shapes deliberately left alone (the checker's existing loud
-//! reject — "spread `...` is only valid inside an array literal" —
-//! covers them): Member/builtin callees, closure-value callees,
+//! Closure-value callees resolve through a let-alias walk (chunk
+//! 685); `Math.min/max` and `xs.push` spreads desugar in sibling
+//! walks (chunks 686/687); defaulted callees expand their defaulted
+//! slots as `j < src.length ? src[j] : default` ternaries (chunk
+//! 688). Shapes deliberately left alone (the checker's existing
+//! loud reject — "spread `...` is only valid inside an array
+//! literal" — covers them): other Member/builtin callees,
 //! non-trailing or multiple spreads, non-Ident spread sources,
 //! unknown callees, rest-param callees (consumed earlier by
-//! `apply_rest_args`), and pre-spread fixed args already exceeding
-//! the declared arity.
+//! `apply_rest_args`), pre-spread fixed args already exceeding the
+//! declared arity, and defaulted-param-before-required shapes.
 //!
 //! Runs after `apply_rest_args`, before typecheck; wired at the
 //! same three call sites (cli main / cmd_build / lsp).
 
+use super::apply_args::collect_fn_defaults;
 use super::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 use std::collections::HashMap;
 
 const GUARD_NAME: &str = "__torajs_spread_guard";
-const MINARR_NAME: &str = "__torajs_math_minarr";
-const MAXARR_NAME: &str = "__torajs_math_maxarr";
+
+/// One collected spread call site: expr index, fixed prefix args,
+/// spread source ident, and the spread-covered slot plan.
+struct Rewrite {
+    call_idx: usize,
+    prefix: Vec<ExprId>,
+    src_name: String,
+    need: usize,
+    /// `need` entries: `None` = required slot (guarded constant
+    /// index read), `Some(eid)` = defaulted slot (ternary).
+    slot_defaults: Vec<Option<ExprId>>,
+    /// Required slots among the spread-covered range; the guard
+    /// throws only when `src.length` can't cover these.
+    need_required: usize,
+}
 
 pub fn apply_spread_args(ast: &mut Ast) {
-    apply_math_min_max_spread(ast);
+    super::apply_spread_math::apply_math_min_max_spread(ast);
     super::apply_spread_push::apply_spread_push(ast);
     // Map: callee name -> fixed user-param count. Rest-param callees
     // are skipped (apply_rest_args already consumed their spread
@@ -98,14 +116,21 @@ pub fn apply_spread_args(ast: &mut Ast) {
             }
         }
     }
-    // Collect rewrites first: (call expr index, callee name, fixed
-    // prefix args, spread source ident, need).
-    struct Rewrite {
-        call_idx: usize,
-        prefix: Vec<ExprId>,
-        src_name: String,
-        need: usize,
-    }
+    // Chunk 688 — defaulted callees (`function d(a, b = 5)` +
+    // `d(...arr)`): `apply_default_args` skips spread-carrying calls
+    // (padding would push the spread out of trailing position), so
+    // the defaulted slots are expanded here as runtime length probes:
+    // `j < src.length ? src[j] : <default expr>`. The guard only
+    // covers the required prefix — a source shorter than the
+    // defaulted tail is legal and falls back per slot. Only the
+    // canonical "required prefix + defaulted tail" shape is taken;
+    // a defaulted param followed by a required one stays on the
+    // checker's loud reject. Semantics note (recorded): an `any[]`
+    // source holding an explicit `undefined` element does NOT
+    // trigger the default here (JS would) — the probe is
+    // length-based.
+    let fn_defaults = collect_fn_defaults(ast);
+    // Collect rewrites first (see `Rewrite`), then expand.
     let mut rewrites: Vec<Rewrite> = Vec::new();
     for i in 0..ast.exprs.len() {
         let Expr::Call { callee, args } = &ast.exprs[i] else {
@@ -114,16 +139,18 @@ pub fn apply_spread_args(ast: &mut Ast) {
         let Expr::Ident(name) = ast.get_expr(*callee) else {
             continue;
         };
-        let arity = match fn_arity.get(name).copied().or_else(|| {
-            let_alias.get(name).and_then(|a| {
+        let (arity, resolved) = match fn_arity.get(name).copied() {
+            Some(a) => (a, name.clone()),
+            None => match let_alias.get(name).and_then(|a| {
                 fn_arity
                     .get(a)
                     .copied()
                     .or_else(|| closure_arity.get(a).copied())
-            })
-        }) {
-            Some(a) => a,
-            None => continue,
+                    .map(|n| (n, a.clone()))
+            }) {
+                Some(pair) => pair,
+                None => continue,
+            },
         };
         // Exactly one spread, at the last position, over an Ident.
         let spread_count = args
@@ -146,237 +173,103 @@ pub fn apply_spread_args(ast: &mut Ast) {
         if k > arity {
             continue;
         }
+        let need = arity - k;
+        // Defaults for the spread-covered slots. `first_default` is
+        // the split point R: params[..R] required, params[R..] must
+        // all carry defaults (canonical TS shape) — otherwise skip.
+        let (slot_defaults, need_required) = match fn_defaults.get(&resolved) {
+            Some(defaults) => {
+                let r = defaults.iter().position(|d| d.is_some()).unwrap_or(arity);
+                if defaults[r..].iter().any(|d| d.is_none()) {
+                    continue;
+                }
+                let slots: Vec<Option<ExprId>> = (k..arity).map(|p| defaults[p]).collect();
+                (slots, r.saturating_sub(k))
+            }
+            None => (vec![None; need], need),
+        };
         rewrites.push(Rewrite {
             call_idx: i,
             prefix: prefix.to_vec(),
             src_name: src_name.clone(),
-            need: arity - k,
+            need,
+            slot_defaults,
+            need_required,
         });
     }
     if rewrites.is_empty() {
         return;
     }
-    synthesize_guard(ast);
+    if rewrites.iter().any(|r| r.need_required > 0) {
+        synthesize_guard(ast);
+    }
     for rw in rewrites {
-        let mut new_args = rw.prefix;
-        for j in 0..rw.need {
-            let obj = ast.add_expr(Expr::Ident(rw.src_name.clone()));
-            let index = if j == 0 {
-                // First slot carries the length guard: guard(src.length,
-                // need) returns 0, so `src[guard(...)]` reads slot 0
-                // after the guard has run.
-                let len_obj = ast.add_expr(Expr::Ident(rw.src_name.clone()));
-                let len = ast.add_expr(Expr::Member {
-                    obj: len_obj,
-                    name: "length".into(),
-                });
-                let need_lit = ast.add_expr(Expr::Number(rw.need as f64));
-                let guard_callee = ast.add_expr(Expr::Ident(GUARD_NAME.into()));
-                ast.add_expr(Expr::Call {
-                    callee: guard_callee,
-                    args: vec![len, need_lit],
-                })
-            } else {
-                ast.add_expr(Expr::Number(j as f64))
-            };
-            new_args.push(ast.add_expr(Expr::Index { obj, index }));
-        }
-        let Expr::Call { callee, .. } = &ast.exprs[rw.call_idx] else {
-            unreachable!()
-        };
-        let callee = *callee;
-        ast.exprs[rw.call_idx] = Expr::Call {
-            callee,
-            args: new_args,
-        };
+        expand_call(ast, rw);
     }
 }
 
-/// Chunk 686 (spread longtail #1) — `Math.min(...arr)` /
-/// `Math.max(...arr)`: the pairwise-reduction lane only takes
-/// static args, so a trailing dynamic spread rewrites its Spread
-/// arg into a call to a synthesized whole-array reducer
-/// (`__torajs_math_{min,max}arr(a: number[]): number` — identity
-/// seed + `for` loop over `Math.{min,max}(r, a[i])`). Everything
-/// downstream is existing surface: the loop guard keeps the index
-/// reads bounds-proven, the 2-arg Math lane reduces, an empty
-/// array answers the spec identity (§21.3.2.{24,25}), and NaN
-/// propagates. A prefix stays in place (`Math.max(x, ...arr)` →
-/// `Math.max(x, maxarr(arr))` — associativity holds). Non-number[]
-/// sources stay on the checker's loud reject (the synth param is
-/// `number[]`).
-fn apply_math_min_max_spread(ast: &mut Ast) {
-    struct MathRewrite {
-        call_idx: usize,
-        spread_arg_pos: usize,
-        src_name: String,
-        is_min: bool,
-    }
-    let mut rewrites: Vec<MathRewrite> = Vec::new();
-    for i in 0..ast.exprs.len() {
-        let Expr::Call { callee, args } = &ast.exprs[i] else {
-            continue;
-        };
-        let Expr::Member { obj, name } = ast.get_expr(*callee) else {
-            continue;
-        };
-        let is_min = name == "min";
-        if !is_min && name != "max" {
-            continue;
-        }
-        if !matches!(ast.get_expr(*obj), Expr::Ident(ns) if ns == "Math") {
+/// Rewrite one collected call site: fixed prefix + one expanded
+/// arg per spread-covered slot (required slots as guarded constant
+/// index reads, defaulted slots as length-probe ternaries).
+fn expand_call(ast: &mut Ast, rw: Rewrite) {
+    let mut new_args = rw.prefix;
+    for j in 0..rw.need {
+        let obj = ast.add_expr(Expr::Ident(rw.src_name.clone()));
+        if let Some(default_eid) = rw.slot_defaults[j] {
+            // Defaulted slot: `j < src.length ? src[j] : default`.
+            // The probe branch keeps the read in bounds; the
+            // default expr only evaluates when the source is
+            // short (per-call, matching JS default semantics).
+            let j_lit = ast.add_expr(Expr::Number(j as f64));
+            let len_obj = ast.add_expr(Expr::Ident(rw.src_name.clone()));
+            let len = ast.add_expr(Expr::Member {
+                obj: len_obj,
+                name: "length".into(),
+            });
+            let cond = ast.add_expr(Expr::BinOp {
+                op: BinOp::Lt,
+                left: j_lit,
+                right: len,
+            });
+            let index = ast.add_expr(Expr::Number(j as f64));
+            let read = ast.add_expr(Expr::Index { obj, index });
+            new_args.push(ast.add_expr(Expr::Ternary {
+                cond,
+                then_branch: read,
+                else_branch: default_eid,
+            }));
             continue;
         }
-        let spread_count = args
-            .iter()
-            .filter(|a| matches!(ast.get_expr(**a), Expr::Spread { .. }))
-            .count();
-        if spread_count != 1 {
-            continue;
-        }
-        let Some((&last, _)) = args.split_last() else {
-            continue;
+        let index = if j == 0 {
+            // First slot carries the length guard: guard(src.length,
+            // need_required) returns 0, so `src[guard(...)]` reads
+            // slot 0 after the guard has run. Required slots come
+            // first (canonical shape), so j == 0 is required
+            // whenever any required slot exists.
+            let len_obj = ast.add_expr(Expr::Ident(rw.src_name.clone()));
+            let len = ast.add_expr(Expr::Member {
+                obj: len_obj,
+                name: "length".into(),
+            });
+            let need_lit = ast.add_expr(Expr::Number(rw.need_required as f64));
+            let guard_callee = ast.add_expr(Expr::Ident(GUARD_NAME.into()));
+            ast.add_expr(Expr::Call {
+                callee: guard_callee,
+                args: vec![len, need_lit],
+            })
+        } else {
+            ast.add_expr(Expr::Number(j as f64))
         };
-        let Expr::Spread { expr } = ast.get_expr(last) else {
-            continue;
-        };
-        let Expr::Ident(src_name) = ast.get_expr(*expr) else {
-            continue;
-        };
-        rewrites.push(MathRewrite {
-            call_idx: i,
-            spread_arg_pos: args.len() - 1,
-            src_name: src_name.clone(),
-            is_min,
-        });
+        new_args.push(ast.add_expr(Expr::Index { obj, index }));
     }
-    if rewrites.is_empty() {
-        return;
-    }
-    let (need_min, need_max) = (
-        rewrites.iter().any(|r| r.is_min),
-        rewrites.iter().any(|r| !r.is_min),
-    );
-    if need_min {
-        synthesize_math_reducer(ast, true);
-    }
-    if need_max {
-        synthesize_math_reducer(ast, false);
-    }
-    for rw in rewrites {
-        let reducer = if rw.is_min { MINARR_NAME } else { MAXARR_NAME };
-        let callee = ast.add_expr(Expr::Ident(reducer.into()));
-        let src = ast.add_expr(Expr::Ident(rw.src_name));
-        let reduced = ast.add_expr(Expr::Call {
-            callee,
-            args: vec![src],
-        });
-        let Expr::Call { args, .. } = &mut ast.exprs[rw.call_idx] else {
-            unreachable!()
-        };
-        args[rw.spread_arg_pos] = reduced;
-    }
-}
-
-/// `function __torajs_math_{min,max}arr(a: number[]): number {
-///   let r: number = <identity>;
-///   for (let i: number = 0; i < a.length; i = i + 1) {
-///     r = Math.{min,max}(r, a[i]);
-///   }
-///   return r; }`
-fn synthesize_math_reducer(ast: &mut Ast, is_min: bool) {
-    let (fname, method, identity) = if is_min {
-        (MINARR_NAME, "min", f64::INFINITY)
-    } else {
-        (MAXARR_NAME, "max", f64::NEG_INFINITY)
+    let Expr::Call { callee, .. } = &ast.exprs[rw.call_idx] else {
+        unreachable!()
     };
-    if ast
-        .stmts
-        .iter()
-        .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == fname))
-    {
-        return;
-    }
-    let identity_lit = ast.add_expr(Expr::Number(identity));
-    let r_decl = Stmt::LetDecl {
-        mutable: true,
-        name: "r".into(),
-        type_ann: Some("number".into()),
-        init: identity_lit,
-        is_var: false,
+    let callee = *callee;
+    ast.exprs[rw.call_idx] = Expr::Call {
+        callee,
+        args: new_args,
     };
-    let zero = ast.add_expr(Expr::Number(0.0));
-    let i_decl = Stmt::LetDecl {
-        mutable: true,
-        name: "i".into(),
-        type_ann: Some("number".into()),
-        init: zero,
-        is_var: false,
-    };
-    let i_ref = ast.add_expr(Expr::Ident("i".into()));
-    let a_ref = ast.add_expr(Expr::Ident("a".into()));
-    let len = ast.add_expr(Expr::Member {
-        obj: a_ref,
-        name: "length".into(),
-    });
-    let cond = ast.add_expr(Expr::BinOp {
-        op: BinOp::Lt,
-        left: i_ref,
-        right: len,
-    });
-    let i_ref2 = ast.add_expr(Expr::Ident("i".into()));
-    let one = ast.add_expr(Expr::Number(1.0));
-    let i_plus = ast.add_expr(Expr::BinOp {
-        op: BinOp::Add,
-        left: i_ref2,
-        right: one,
-    });
-    let i_tgt = ast.add_expr(Expr::Ident("i".into()));
-    let step = ast.add_expr(Expr::Assign {
-        target: i_tgt,
-        value: i_plus,
-    });
-    let math_ns = ast.add_expr(Expr::Ident("Math".into()));
-    let math_m = ast.add_expr(Expr::Member {
-        obj: math_ns,
-        name: method.into(),
-    });
-    let r_ref = ast.add_expr(Expr::Ident("r".into()));
-    let a_ref2 = ast.add_expr(Expr::Ident("a".into()));
-    let i_ref3 = ast.add_expr(Expr::Ident("i".into()));
-    let elem = ast.add_expr(Expr::Index {
-        obj: a_ref2,
-        index: i_ref3,
-    });
-    let reduce = ast.add_expr(Expr::Call {
-        callee: math_m,
-        args: vec![r_ref, elem],
-    });
-    let r_tgt = ast.add_expr(Expr::Ident("r".into()));
-    let body_assign = ast.add_expr(Expr::Assign {
-        target: r_tgt,
-        value: reduce,
-    });
-    let r_ret = ast.add_expr(Expr::Ident("r".into()));
-    let for_stmt = Stmt::For {
-        init: Some(Box::new(i_decl)),
-        cond: Some(cond),
-        step: Some(step),
-        body: Box::new(Stmt::Block(vec![Stmt::Expr(body_assign)])),
-    };
-    ast.stmts.push(Stmt::FnDecl {
-        name: fname.into(),
-        type_params: Vec::new(),
-        params: vec![Param {
-            name: "a".into(),
-            type_ann: Some("number[]".into()),
-            default: None,
-            is_rest: false,
-        }],
-        return_type: Some("number".into()),
-        body: vec![r_decl, for_stmt, Stmt::Return(Some(r_ret))],
-        is_generator: false,
-    });
 }
 
 /// `function __torajs_spread_guard(len: number, need: number): number {

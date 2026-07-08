@@ -22,7 +22,11 @@
 use super::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashMap;
 
-pub fn apply_default_args(ast: &mut Ast) {
+/// Map every FnDecl with at least one defaulted param to its
+/// user-param default list (closure `__env` first param peeled).
+/// Shared between `apply_default_args` (call-site padding) and
+/// `apply_spread_args` (defaulted-slot ternary expansion).
+pub(crate) fn collect_fn_defaults(ast: &Ast) -> HashMap<String, Vec<Option<ExprId>>> {
     let mut fn_defaults: HashMap<String, Vec<Option<ExprId>>> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, params, .. } = s {
@@ -36,6 +40,11 @@ pub fn apply_default_args(ast: &mut Ast) {
             }
         }
     }
+    fn_defaults
+}
+
+pub fn apply_default_args(ast: &mut Ast) {
+    let fn_defaults = collect_fn_defaults(ast);
     // Sibling-shape Member calls (`obj.method(args)`) survive desugar
     // when the method name is shared by unrelated classes (I.1). For
     // those, look up class-method FnDecls named `__cm_<C>__<method>`
@@ -116,6 +125,16 @@ pub fn apply_default_args(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
         if let Expr::Call { callee, args } = &ast.exprs[i] {
+            // A call carrying a spread arg has an unknown runtime arg
+            // count — padding it would push the spread out of trailing
+            // position and starve `apply_spread_args`, which handles
+            // the defaulted slots itself (ternary length probes).
+            if args
+                .iter()
+                .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
+            {
+                continue;
+            }
             let callee = *callee;
             let args_len = args.len();
             // Pick defaults: prefer Ident match, fall back to Member
