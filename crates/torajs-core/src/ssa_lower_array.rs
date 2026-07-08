@@ -65,19 +65,19 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) ->
     if !has_spread && ctx.array_literal_is_heterogeneous(&element_ids) {
         return ctx.lower_array_any_literal(&element_ids);
     }
-    // Chunk 702 — checker contextual typing: a literal whose recorded
-    // type is Array<Any> (annotation-propagated through nested
-    // literals, check_stmt_let_decl::apply_contextual_array_ann) mints
-    // the FLAG_ARR_ANY flavor even when its elements are kind-uniform,
-    // so kind-change mutators behave like bun instead of hitting the
-    // typed-alias any-view protocol. Nested literals recurse here
-    // per-element and hit the same gate.
-    if !has_spread
-        && matches!(
-            ctx.expr_types.get(&eid),
-            Some(crate::check::Type::Array(inner)) if matches!(**inner, crate::check::Type::Any)
-        )
-    {
+    // Chunk 702 — checker contextual typing: a literal whose Array<Any>
+    // type came from a let-decl annotation (side-set populated by
+    // check_stmt_let_decl::apply_contextual_array_ann, propagated
+    // through nested literals) mints the FLAG_ARR_ANY flavor even when
+    // its elements are kind-uniform, so kind-change mutators behave
+    // like bun instead of hitting the typed-alias any-view protocol.
+    // Nested literals recurse here per-element and hit the same gate.
+    // The gate keys off the side-set, NOT off expr_types: T-10.c
+    // infer-widened Array<Any> shapes (`["a", undefined]`) share the
+    // recorded type but are deliberately taken by the typed lane
+    // below (Str undefined sentinel slots). Mono-specialized clones
+    // carry fresh ExprIds and fall back to the pre-702 typed mint.
+    if !has_spread && ctx.contextual_any.contains(&eid) {
         return ctx.lower_array_any_literal(&element_ids);
     }
     // W-ESC (RFC 20260706-typed-arr-any-escape) — a literal whose

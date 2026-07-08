@@ -47,6 +47,7 @@ pub(crate) fn lower_inner(
     expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<crate::ast::ExprId, usize>,
     demoted_cm_rewrites: &HashMap<crate::ast::ExprId, crate::ast::ExprId>,
+    contextual_any: &std::collections::HashSet<crate::ast::ExprId>,
 ) -> Module {
     let (owned_ast, call_retargets, generic_fn_names, num_f64_slots) =
         monomorphize_and_analyze(ast, generic_call_sites, demoted_cm_rewrites);
@@ -234,6 +235,7 @@ pub(crate) fn lower_inner(
         &globals,
         expr_types,
         arity_pad_count,
+        contextual_any,
         &num_f64_slots,
         &promise_thunks,
         &boxed_entries,

@@ -124,13 +124,15 @@ pub(crate) type CallRetargets = HashMap<ExprId, String>;
 /// trailing missing params are Type::Any. ssa_lower's Expr::Call arm
 /// reads this and emits the padding before invoking the callee.
 pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> Module {
-    let (generic_call_sites, expr_types, arity_pad_count, demoted_cm_rewrites) = artifacts;
+    let (generic_call_sites, expr_types, arity_pad_count, demoted_cm_rewrites, contextual_any) =
+        artifacts;
     lower_inner(
         ast,
         generic_call_sites,
         expr_types,
         arity_pad_count,
         demoted_cm_rewrites,
+        contextual_any,
     )
 }
 

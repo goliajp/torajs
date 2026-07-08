@@ -49,6 +49,12 @@ pub(crate) struct LowerCtx<'a> {
     /// Type::Any). Empty when constructed via the legacy lower(...)
     /// entry — those programs keep strict arity.
     pub(crate) arity_pad_count: &'a HashMap<ExprId, usize>,
+    /// Chunk 702 — array literals whose Array<Any> type came from a
+    /// let-decl annotation (checker contextual-typing walker). The
+    /// Expr::Array flavor gate keys off this set, NOT off expr_types:
+    /// infer-widened Array<Any> shapes (`["a", undefined]`) share the
+    /// type but belong to the typed lane (Str undefined sentinel).
+    pub(crate) contextual_any: &'a std::collections::HashSet<ExprId>,
     /// W1 (ann-width RFC) — module-wide F64-poisoned number-slot set
     /// from `num_width::f64_slots`. Consulted at the let-decl site so
     /// a `: number` (or un-annotated) binding whose reaching values

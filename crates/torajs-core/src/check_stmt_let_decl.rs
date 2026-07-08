@@ -145,6 +145,12 @@ fn apply_contextual_array_ann(checker: &mut Checker, ast: &Ast, eid: ExprId, ann
         return;
     };
     checker.expr_types.insert(eid, ann.clone());
+    // The lowering flavor gate keys off this side-set, NOT off
+    // expr_types — infer-widened Array<Any> shapes (`["a",
+    // undefined]`) share the type but belong to the typed lane.
+    if matches!(**elem_ann, Type::Any) {
+        checker.contextual_any_literals.insert(eid);
+    }
     for &el in elements {
         apply_contextual_array_ann(checker, ast, el, elem_ann);
     }

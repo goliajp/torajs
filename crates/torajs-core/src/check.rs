@@ -351,6 +351,7 @@ impl Checker {
             fn_defaults: HashMap::new(),
             expr_types: HashMap::new(),
             demoted_cm_rewrites: HashMap::new(),
+            contextual_any_literals: std::collections::HashSet::new(),
             assign_narrows: HashMap::new(),
         }
     }
@@ -454,6 +455,15 @@ pub(crate) struct Checker {
     /// Demoted speculative class-method rewrites, `call → alt
     /// member-call` ExprIds (single decision point — see cm_demote.rs).
     pub demoted_cm_rewrites: HashMap<ExprId, ExprId>,
+    /// Chunk 702 — array literals whose Array<Any> type came from a
+    /// let-decl annotation (contextual typing walker,
+    /// check_stmt_let_decl::apply_contextual_array_ann). Lowering
+    /// mints the FLAG_ARR_ANY flavor for exactly these; it must NOT
+    /// key off `expr_types == Array<Any>` alone — the T-10.c
+    /// infer-widen shapes (e.g. `["a", undefined]`) share that type
+    /// but are deliberately taken by the typed lane (Str undefined
+    /// sentinel slots).
+    pub contextual_any_literals: std::collections::HashSet<ExprId>,
     /// Straight-line assignment-narrowing ledger — `name → declared
     /// (pre-narrow) type` for bindings narrowed by a statement-level
     /// `b = <non-null>` assign (see check_assign_narrow.rs). Flushed
