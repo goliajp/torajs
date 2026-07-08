@@ -66,7 +66,6 @@ pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: 
         }
     }
 
-    let dynobj = ctx.any_unbox_value_as_ptr(obj_val.clone());
     let key_str = ctx.intern_string_literal(name);
 
     // No candidates → original dynobj-only path (plain ObjectLit,
@@ -75,6 +74,14 @@ pub(crate) fn lower_any_member_read(ctx: &mut LowerCtx, obj_val: Operand, name: 
     if candidates.is_empty() {
         return emit_member_fallback(ctx, &obj_val, key_str, name);
     }
+
+    // chunk 712 — borrow-shaped cell read for the class dispatch:
+    // the materializing unbox_value leaked an owned Str per read on
+    // a ShortStr receiver (this site never dropped it) and handed
+    // int immediates back as dereferenceable "pointer" bits for the
+    // class-tag load. Immediates decode to NULL and take the
+    // dynobj_blk fallback like any non-Obj cell.
+    let dynobj = ctx.any_cell_ptr_as_ptr(obj_val.clone());
 
     // Sort by class_tag for deterministic dispatch order.
     candidates.sort_by_key(|(t, _, _)| *t);

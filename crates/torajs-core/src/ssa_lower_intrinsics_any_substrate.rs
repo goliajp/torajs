@@ -79,6 +79,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_method_probe: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
+    pub any_cell_ptr: FuncId,
     pub any_unbox_value_owned: FuncId,
     pub any_unbox_settle: FuncId,
     pub any_box_drop: FuncId,
@@ -441,6 +442,19 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_anyv_unbox_value",
+            &[Type::Any],
+            Type::I64,
+        ),
+        // chunk 712 — borrow-shaped cell-pointer read: heap cell →
+        // pointer bits, every immediate (ShortStr included) → 0.
+        // The class-candidate member dispatch consumes this; the
+        // materializing unbox_value leaked an owned Str per read on
+        // a ShortStr receiver and handed int immediates back as
+        // dereferenceable "pointer" bits.
+        any_cell_ptr: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_cell_ptr",
             &[Type::Any],
             Type::I64,
         ),

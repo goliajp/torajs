@@ -352,10 +352,34 @@ impl<'a> LowerCtx<'a> {
     /// i64 value field) plus an IntToPtr cast, so callers stay
     /// decoupled from the AnyBox struct layout (Step 7d's NaN-box
     /// switch only has to swap the shim impl).
+    ///
+    /// OWNERSHIP: `any_unbox_value` MATERIALIZES a ShortStr into an
+    /// owned heap Str — a caller that treats the result as a borrow
+    /// leaks it (chunk 712's ~32B-per-member-read regression). Sites
+    /// that only need "cell pointer or NULL" (tag probes, class
+    /// dispatch) must use [`Self::any_cell_ptr_as_ptr`] instead.
     pub(crate) fn any_unbox_value_as_ptr(&mut self, obj: Operand) -> ValueId {
         let raw = self.f.append_inst(
             self.cur_block,
             InstKind::Call(self.intrinsics.any_unbox_value, vec![obj]),
+            Type::I64,
+            None,
+        );
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::IntToPtr(Operand::Value(raw)),
+            Type::Ptr,
+            None,
+        )
+    }
+
+    /// Borrow-shaped variant (chunk 712) — a heap cell decodes to
+    /// its pointer, every immediate (ShortStr included) to NULL.
+    /// Nothing materializes, so the result carries no ownership.
+    pub(crate) fn any_cell_ptr_as_ptr(&mut self, obj: Operand) -> ValueId {
+        let raw = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.any_cell_ptr, vec![obj]),
             Type::I64,
             None,
         );

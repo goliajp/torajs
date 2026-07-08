@@ -168,6 +168,20 @@ pub unsafe extern "C" fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> An
     }
 }
 
+/// Borrow-shaped cell-pointer read (chunk 712): a heap cell decodes
+/// to its pointer bits, everything else — immediates INCLUDING
+/// ShortStr — answers 0. The lowering's class-candidate dispatch
+/// consumes this where it used to call [`__torajs_anyv_unbox_value`]
+/// as if it were a borrow: that shim MATERIALIZES a ShortStr into an
+/// owned heap Str the dispatch never dropped (~32B leaked per member
+/// read through an any receiver) and hands an int32 immediate back
+/// as raw integer "pointer" bits the class-tag load would then
+/// dereference.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_anyv_cell_ptr(v: AnyValue) -> i64 {
+    if is_cell(v) { v as i64 } else { 0 }
+}
+
 /// Return the `null` sentinel.
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_anyv_null() -> AnyValue {
