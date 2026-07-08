@@ -8,9 +8,26 @@
 //! `Type::Struct` preserving order: spread sources first (in
 //! textual order), then inline members; later re-occurrences of a
 //! key REPLACE the earlier slot's type and position.
+//!
+//! The destructuring-rest desugar (chunk 707) encodes its omit set
+//! in the sentinel name — `__spread_omit__:p,q` unfolds the source
+//! minus the named keys, so `const { p, ...rest } = o` types `rest`
+//! as `o`'s struct without `p`. See [`spread_omit_set`].
 
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};
+
+/// Decode a spread sentinel field name: `__spread__` answers an empty
+/// omit set; `__spread_omit__:p,q` answers `{p, q}`; anything else is
+/// a regular member (`None`). Shared decode contract with
+/// `ssa_lower_object_lit`'s unfold.
+pub(crate) fn spread_omit_set(name: &str) -> Option<Vec<&str>> {
+    if name == "__spread__" {
+        return Some(Vec::new());
+    }
+    name.strip_prefix("__spread_omit__:")
+        .map(|s| s.split(',').filter(|k| !k.is_empty()).collect())
+}
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -19,7 +36,7 @@ pub(crate) fn check(
 ) -> Result<Type, String> {
     let mut field_tys: Vec<(String, Type)> = Vec::new();
     for (n, eid) in fields {
-        if n == "__spread__" {
+        if let Some(omit) = spread_omit_set(n) {
             let src_ty = checker.type_of(ast, *eid)?;
             let Type::Struct(src_fields) = &src_ty else {
                 return Err(format!(
@@ -27,6 +44,9 @@ pub(crate) fn check(
                 ));
             };
             for (sn, st) in src_fields.iter() {
+                if omit.contains(&sn.as_str()) {
+                    continue;
+                }
                 if let Some(pos) = field_tys.iter().position(|(k, _)| k == sn) {
                     field_tys[pos] = (sn.clone(), st.clone());
                 } else {

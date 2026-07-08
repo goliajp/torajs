@@ -257,8 +257,27 @@ impl<'a> Parser<'a> {
         // `default_expr`. The default-arm path is gated to undefined
         // (not null) per spec — same semantics as fn param defaults.
         let mut entries: Vec<(String, String, Option<ExprId>)> = Vec::new();
+        let mut rest_name: Option<String> = None;
         if !matches!(self.peek(), Token::RBrace) {
             loop {
+                // ES §14.3.3 — `...rest` binds a fresh object holding
+                // the source's remaining own enumerable properties.
+                // Must be the final entry (no trailing comma after).
+                if matches!(self.peek(), Token::DotDotDot) {
+                    self.pos += 1;
+                    let n = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => {
+                            return Err(format!(
+                                "expected identifier after `...` in object destructuring, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    };
+                    self.pos += 1;
+                    rest_name = Some(n);
+                    break;
+                }
                 // V3-18 wedge — accept reserved-word tokens as
                 // destructuring field names (the access-side
                 // counterpart of the obj-literal wedge). Reserved-
@@ -340,7 +359,39 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
-        let stmts = self.emit_object_destructuring(mutable, &entries, src);
+        let mut stmts = self.emit_object_destructuring(mutable, &entries, src);
+        if let Some(rest) = rest_name {
+            // `let rest = { ...src minus destructured keys }` — the
+            // omit set rides in the spread sentinel's name
+            // (`__spread_omit__:<comma-joined>`); the ObjectLit
+            // checker and lowering unfold skip the named keys, so
+            // `rest` types as the source struct minus those fields.
+            // emit_object_destructuring bound a `__destr_src_N` temp
+            // for every non-Ident source, so the source reference is
+            // either that temp or the original Ident.
+            let src_ref_name = match stmts.first() {
+                Some(Stmt::LetDecl { name, .. }) if name.starts_with("__destr_src_") => {
+                    name.clone()
+                }
+                _ => match self.ast.get_expr(src) {
+                    Expr::Ident(n) => n.clone(),
+                    e => panic!("object destructuring rest: unbound non-ident source {e:?}"),
+                },
+            };
+            let omit: Vec<&str> = entries.iter().map(|(f, _, _)| f.as_str()).collect();
+            let sentinel = format!("__spread_omit__:{}", omit.join(","));
+            let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name));
+            let obj = self.ast.add_expr(Expr::ObjectLit {
+                fields: vec![(sentinel, src_ref)],
+            });
+            stmts.push(Stmt::LetDecl {
+                mutable,
+                name: rest,
+                type_ann: None,
+                init: obj,
+                is_var: false,
+            });
+        }
         Ok(Stmt::Multi(stmts))
     }
 

@@ -98,8 +98,9 @@ fn lower_field_entries(
     let mut field_tys: Vec<(String, Type)> = Vec::new();
     let mut field_vals: Vec<Operand> = Vec::new();
     for (n, eid) in entries {
-        if n == "__spread__" {
-            unfold_spread(ctx, *eid, &mut field_tys, &mut field_vals);
+        if let Some(omit) = crate::check_type_of_object_lit::spread_omit_set(n) {
+            let omit: Vec<String> = omit.iter().map(|s| s.to_string()).collect();
+            unfold_spread(ctx, *eid, &omit, &mut field_tys, &mut field_vals);
             continue;
         }
         lower_regular_field(ctx, n, *eid, &mut field_tys, &mut field_vals);
@@ -107,9 +108,13 @@ fn lower_field_entries(
     (field_tys, field_vals)
 }
 
+/// `omit` — the destructuring-rest desugar's excluded keys
+/// (chunk 707, decoded from the `__spread_omit__:` sentinel);
+/// omitted fields are neither loaded nor rc-inc'd.
 fn unfold_spread(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
+    omit: &[String],
     field_tys: &mut Vec<(String, Type)>,
     field_vals: &mut Vec<Operand>,
 ) {
@@ -120,6 +125,9 @@ fn unfold_spread(
     };
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
     for (idx, (sn, st)) in layout.iter().enumerate() {
+        if omit.contains(sn) {
+            continue;
+        }
         let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
         let cur_block = ctx.cur_block;
         let v = ctx
