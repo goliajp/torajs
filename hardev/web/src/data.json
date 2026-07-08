@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T08:24:41.912Z",
+  "generatedAt": "2026-07-08T09:57:24.392Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "5cd8245b",
-    "commitSubject": "feat: xs.push(...ys) desugars to a per-element push loop",
+    "commit": "b75c0557",
+    "commitSubject": "feat: object.fromentries builds a dynobj from a runtime entries array",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "b75c0557",
+      "subject": "feat: object.fromentries builds a dynobj from a runtime entries array"
+    },
+    {
+      "hash": "0aee6b3d",
+      "subject": "feat: startswith/endswith ride the any-method-call str arm"
+    },
+    {
+      "hash": "d467532c",
+      "subject": "feat: object.getownpropertysymbols answers the empty symbol list"
+    },
+    {
+      "hash": "ed5da2a4",
+      "subject": "feat: static object.fromentries folds to an object literal"
+    },
+    {
+      "hash": "611bdb56",
+      "subject": "feat: non-ident spread sources hoist into a compiler temp"
+    },
+    {
+      "hash": "38239f88",
+      "subject": "feat: spread against defaulted callees expands via length-probe ternaries"
+    },
+    {
+      "hash": "b8e1fdc3",
+      "subject": "chore(dashboard): session snapshot @ 5cd8245b — rotation 48 final addendum (686-687: spread longtail #1 closes — math.min/max dynamic spread reduces via a synthesized whole-array reducer with spec identity on empty and prefix associativity; xs.push(...ys) statement form desugars to a per-element push loop with element types flowing through existing lanes; gate 1315 -> 1317 seven green total)"
+    },
+    {
       "hash": "5cd8245b",
       "subject": "feat: xs.push(...ys) desugars to a per-element push loop"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "0814fe00",
       "subject": "feat: ctor spread rides the spread-call lane through the factory"
-    },
-    {
-      "hash": "d204c2aa",
-      "subject": "feat: the ts function type resolves as the top callable"
-    },
-    {
-      "hash": "7b4cc3bf",
-      "subject": "fix: generic rest-tail fn-type param ann resolves at the call site"
-    },
-    {
-      "hash": "ceae06f4",
-      "subject": "fix: number-array oob sentinel answers undefined across tostring and tag-value crossings"
-    },
-    {
-      "hash": "05eeb471",
-      "subject": "chore(dashboard): session snapshot @ 50fcd276 — rotation 47 final (675-680: spread-call rfc lands and closes across three chunks — dynamic spread desugars to guarded index-read expansion, any args admit into scalar params with paired coerce and the any-face f64 width seed, and spread-of-arguments rides the argv face; typed-array oob reads close the silent-garbage family — string and number lanes answer the undefined sentinel, i64/bool/nested-heap throw a catchable rangeerror; the oob branch's +17-47% hot-loop regression is bisected same-head and restored by guard-dominated bounds elision; gate 1304 -> 1310 six green)"
-    },
-    {
-      "hash": "50fcd276",
-      "subject": "perf: guard-dominated loops elide the typed index bounds branch"
-    },
-    {
-      "hash": "988cb1c0",
-      "subject": "fix: number-array oob index read answers undefined via the nan sentinel"
-    },
-    {
-      "hash": "03666c4e",
-      "subject": "fix: string-array oob index read answers the undefined sentinel"
     }
   ],
-  "headSha": "5cd8245b",
+  "headSha": "b75c0557",
   "autorun": {
-    "total": 356,
+    "total": 357,
     "baselineTarget": 10,
-    "bySelf": 351,
+    "bySelf": 352,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783493945-2917",
-      "at": "2026-07-08T06:59:05Z",
-      "ts": 1783493945,
+      "rotationId": "r-1783499361-5467",
+      "at": "2026-07-08T08:29:21Z",
+      "ts": 1783499361,
       "trigger": "self",
-      "prevHead": "05eeb471",
-      "handoffSha": "sha256:9bc3681993cc6fc998b5580ffc90382e485a41615539c9217ce5bac752123926",
-      "handoffAgeSec": 9,
+      "prevHead": "b8e1fdc3",
+      "handoffSha": "sha256:037a817ee17de3091eae10e598fff87f0df3030e97cfd8b01bf89c1229df5a9e",
+      "handoffAgeSec": 196,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783499361-5467",
+        "at": "2026-07-08T08:29:21Z",
+        "ts": 1783499361,
+        "trigger": "self",
+        "prevHead": "b8e1fdc3",
+        "handoffSha": "sha256:037a817ee17de3091eae10e598fff87f0df3030e97cfd8b01bf89c1229df5a9e",
+        "handoffAgeSec": 196,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783493945-2917",
         "at": "2026-07-08T06:59:05Z",
@@ -876,17 +887,6 @@
         "prevHead": "7e7c702f",
         "handoffSha": "sha256:4392148e9fe51e080ad51be7db6d1a3c64b2336cbd2fae1bd2384caf57e24b89",
         "handoffAgeSec": 9,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783383576-5859",
-        "at": "2026-07-07T00:19:36Z",
-        "ts": 1783383576,
-        "trigger": "self",
-        "prevHead": "b600a350",
-        "handoffSha": "sha256:f4c46ab0f9b592bb55f7610a16d6b7a49d6d3c14d498f86969f20d550886923a",
-        "handoffAgeSec": 58,
         "conformanceBefore": null,
         "commitsInSession": null
       }
