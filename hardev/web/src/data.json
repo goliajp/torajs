@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T20:57:40.960Z",
+  "generatedAt": "2026-07-08T21:06:40.643Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "2c7cfc87",
-    "commitSubject": "fix: optindex str-view and dynamic-key reads join the owned track",
+    "commit": "bc46e6c2",
+    "commitSubject": "fix: arr-any literal releases fresh owned element stakes",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "bc46e6c2",
+      "subject": "fix: arr-any literal releases fresh owned element stakes"
+    },
+    {
+      "hash": "1656dff5",
+      "subject": "chore(dashboard): refresh @ 2c7cfc87 - rotation 56 (722-726: ternary/nullish/optindex owned-track unification closes four churn-leak families; any-lhs nullish gains lazy rhs per spec; assign-position NamedEvaluation; for-loop per-iteration capture environment fixes the classic closure-in-loop silent-wrong; gate 1351 -> 1354 six green)"
+    },
+    {
       "hash": "2c7cfc87",
       "subject": "fix: optindex str-view and dynamic-key reads join the owned track"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "ddd2cd7d",
       "subject": "refactor: split length/size getters out of index_any into len_get"
-    },
-    {
-      "hash": "ccd234d6",
-      "subject": "feat: .name/.length reflection on bound-function cells"
-    },
-    {
-      "hash": "f55c7cca",
-      "subject": "fix: return-consume walk skips index operands under a binop"
     }
   ],
-  "headSha": "2c7cfc87",
+  "headSha": "bc46e6c2",
   "autorun": {
     "total": 363,
     "baselineTarget": 10,
