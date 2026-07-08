@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T08:07:23.551Z",
+  "generatedAt": "2026-07-08T08:24:41.912Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "26af9622",
-    "commitSubject": "feat: closure-value callees ride the spread-call expansion",
+    "commit": "5cd8245b",
+    "commitSubject": "feat: xs.push(...ys) desugars to a per-element push loop",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "5cd8245b",
+      "subject": "feat: xs.push(...ys) desugars to a per-element push loop"
+    },
+    {
+      "hash": "af833317",
+      "subject": "feat: math.min/max dynamic spread reduces over the whole array"
+    },
+    {
+      "hash": "b155fa1f",
+      "subject": "chore(dashboard): session snapshot @ 26af9622 — rotation 48 final (681-685: typed-arr-oob rfc closes — f64 sentinel tostring longtail (concat+template via binop flags, multi-arg print, map/set tag-value channel) lands and the i64/bool/heap width-demote is refuted by ground truth (layout freezes before bounds info; demote hits rpn/sort i64 hot loops); generic rest-tail fn-type anns resolve at the call site (closure-hint typevar leak + unify rest awareness); the ts function type collapses to any over the proven any-call dispatch; ctor and closure-value callees ride the spread-call expansion; bench 3-run median: bun drift 1.001, all deltas within the layout noise band, rotation-47 residuals closed; gate 1310 -> 1315 five green; bench result jsons from rotations 46-48 checked in)"
+    },
+    {
       "hash": "26af9622",
       "subject": "feat: closure-value callees ride the spread-call expansion"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "03666c4e",
       "subject": "fix: string-array oob index read answers the undefined sentinel"
-    },
-    {
-      "hash": "2006bd67",
-      "subject": "feat: spread of arguments rides the argv face through the spread-call lane"
-    },
-    {
-      "hash": "6f9e7c2c",
-      "subject": "feat: any argument admits into scalar and string params with paired coerce"
-    },
-    {
-      "hash": "0c8e8937",
-      "subject": "feat: dynamic spread-call desugars to guarded index-read expansion"
     }
   ],
-  "headSha": "26af9622",
+  "headSha": "5cd8245b",
   "autorun": {
     "total": 356,
     "baselineTarget": 10,
