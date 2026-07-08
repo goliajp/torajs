@@ -68,15 +68,26 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
         if needs_retain {
             ctx.emit_rc_inc(v.clone());
         }
-        // RFC 20260708-closure-argv-face — `return
-        // __torajs_arguments[i]` hands back a box borrowing the
-        // materialized array's elem stake (the array itself keeps
-        // its scope drop — see the consume-walk exemption): retain
-        // the payload so the box leaves self-owned. Non-root reads
-        // feed consuming nodes (fresh results) and need nothing.
-        if let Expr::Index { obj, .. } = ctx.ast.get_expr(eid)
-            && matches!(ctx.ast.get_expr(*obj), Expr::Ident(n) if n == "__torajs_arguments")
+        // RFC 20260708-closure-argv-face (generalized chunk 674) —
+        // `return a[i]` where `a` is a local Arr<Any> hands back a
+        // box BORROWING the array's elem stake (get_any_boxed is a
+        // borrow read). The historical blanket fix marked `a` moved
+        // — skipping its scope drop and stranding one array per
+        // call (probe ag8: named fn `return a[0]` leaked; the
+        // materialized `__torajs_arguments` was the same shape).
+        // Retain the payload instead: the box leaves self-owned,
+        // the array keeps its scope drop, and only the index
+        // sub-expression feeds the consume walk. Gated on the
+        // receiver's static Arr<Any> type — other Any-producing
+        // index lanes may answer owned boxes where a retain would
+        // leak.
+        if let Expr::Index { obj, index } = ctx.ast.get_expr(eid)
+            && let Expr::Ident(obj_name) = ctx.ast.get_expr(*obj)
             && ctx.operand_ty(&v) == Type::Any
+            && ctx.locals.get(obj_name).is_some_and(|info| {
+                matches!(info.ty, Type::Arr(id)
+                    if ctx.arr_layouts[id.0 as usize] == Type::Any)
+            })
         {
             let retained = ctx.f.append_inst(
                 ctx.cur_block,
@@ -84,7 +95,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
                 Type::Any,
                 None,
             );
-            ctx.consume_all_idents_in_return(eid);
+            ctx.consume_all_idents_in_return(*index);
             return Operand::Value(retained);
         }
         ctx.consume_all_idents_in_return(eid);
