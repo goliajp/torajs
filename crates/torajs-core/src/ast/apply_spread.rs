@@ -55,6 +55,7 @@ struct Rewrite {
 }
 
 pub fn apply_spread_args(ast: &mut Ast) {
+    super::apply_spread_hoist::apply_spread_hoist(ast);
     super::apply_spread_math::apply_math_min_max_spread(ast);
     super::apply_spread_push::apply_spread_push(ast);
     // Map: callee name -> fixed user-param count. Rest-param callees
