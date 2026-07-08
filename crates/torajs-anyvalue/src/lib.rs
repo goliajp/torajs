@@ -106,6 +106,7 @@ mod method_call_num;
 mod method_call_regexp;
 mod method_call_str;
 mod method_call_weak;
+mod method_value;
 
 pub mod inspect;
 

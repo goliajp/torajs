@@ -21,8 +21,11 @@
 //!   expandos; NULL slot answers absent). `length` / `name` fn
 //!   metadata stays a recorded boundary — the env cell carries no
 //!   arity field, only the typed tier's compile-time fold sees it.
-//! - every other receiver → `(ANY_UNDEF, 0)` — a definite absent,
-//!   never a layout mis-read.
+//! - every other receiver (and an Arr / Closure expando miss) →
+//!   the builtin-method reification probe (chunk 711,
+//!   `method_value`): a supported method name answers the interned
+//!   function cell; everything else is `(ANY_UNDEF, 0)` — a
+//!   definite absent, never a layout mis-read.
 //!
 //! The pair is borrow-shaped exactly like the dynobj probe it
 //! wraps: the caller boxes via `any_box`, which takes its own
@@ -92,16 +95,38 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
     }
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_get_tag(ptr, key) },
-        Some((ptr, t)) if t == Tag::Arr as u16 => unsafe { __torajs_arrprops_get_tag(ptr, key) },
+        Some((ptr, t)) if t == Tag::Arr as u16 => unsafe {
+            let tag = __torajs_arrprops_get_tag(ptr, key);
+            if tag != 5 {
+                return tag;
+            }
+            reify_tag(recv, key)
+        },
         Some((ptr, t)) if t == Tag::Closure as u16 => unsafe {
             let props = closure_props(ptr);
-            if props.is_null() {
-                5
-            } else {
-                __torajs_dynobj_get_tag(props, key)
+            if !props.is_null() {
+                let tag = __torajs_dynobj_get_tag(props, key);
+                if tag != 5 {
+                    return tag;
+                }
             }
+            reify_tag(recv, key)
         },
-        _ => 5,
+        _ => unsafe { reify_tag(recv, key) },
+    }
+}
+
+/// Builtin-method reification probe (chunk 711) — a supported
+/// method name on a builtin receiver answers a heap tag (the
+/// interned function cell); everything else stays absent.
+///
+/// # Safety
+/// `key` is NULL or a live Str cell.
+unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
+    if unsafe { crate::method_value::builtin_method_lookup(recv, key) }.is_some() {
+        4
+    } else {
+        5
     }
 }
 
@@ -184,15 +209,30 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
 pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *const c_void) -> u64 {
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_get_value(ptr, key) },
-        Some((ptr, t)) if t == Tag::Arr as u16 => unsafe { __torajs_arrprops_get_value(ptr, key) },
+        Some((ptr, t)) if t == Tag::Arr as u16 => unsafe {
+            if __torajs_arrprops_get_tag(ptr, key) != 5 {
+                return __torajs_arrprops_get_value(ptr, key);
+            }
+            reify_value(recv, key)
+        },
         Some((ptr, t)) if t == Tag::Closure as u16 => unsafe {
             let props = closure_props(ptr);
-            if props.is_null() {
-                0
-            } else {
-                __torajs_dynobj_get_value(props, key)
+            if !props.is_null() && __torajs_dynobj_get_tag(props, key) != 5 {
+                return __torajs_dynobj_get_value(props, key);
             }
+            reify_value(recv, key)
         },
-        _ => 0,
+        _ => unsafe { reify_value(recv, key) },
     }
+}
+
+/// Value channel of [`reify_tag`] — the interned cell's pointer
+/// bits (immortal, borrow-shaped like every other probe answer).
+///
+/// # Safety
+/// `key` is NULL or a live Str cell.
+unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
+    unsafe { crate::method_value::builtin_method_lookup(recv, key) }
+        .map(|c| c as u64)
+        .unwrap_or(0)
 }

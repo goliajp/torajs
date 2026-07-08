@@ -17,6 +17,12 @@
 //! - An expando property (chunk 529's lazy props bag) shadows the
 //!   builtin per ES own-property order — `f.call = …` wins — and
 //!   dispatches through the dynobj arm.
+//! - A reified builtin method cell (chunk 711, `method_value`)
+//!   short-circuits: `.call` / `.apply` re-dispatch the ORIGINAL
+//!   method id with the thisArg as the receiver — `f.call(s)` where
+//!   `f = s.toUpperCase` runs the string method on `s`. No receiver
+//!   slot travels (a grow-relocating method reached through `.call`
+//!   cannot write the caller's variable back — recorded boundary).
 //! - A closure without a boxed dual entry cannot dispatch
 //!   dynamically ([`not_callable`], same as the bare any-call lane).
 //! - Every other method id floats the no-such sentinel (`toString`
@@ -81,26 +87,72 @@ pub(crate) unsafe fn closure_method(
         }
         match mid {
             m if m == ANY_METHOD_CALL => {
-                let Some((env, entry)) = closure_cell_entry(ptr) else {
+                let Some(target) = call_target(ptr) else {
                     return not_callable();
                 };
+                let this_arg = if argc >= 1 { *argv } else { VALUE_UNDEFINED };
                 if argc <= 1 {
-                    return invoke_boxed(env, entry, argv, 0);
+                    return dispatch(&target, this_arg, argv, 0);
                 }
-                invoke_boxed(env, entry, argv.add(1), argc - 1)
+                dispatch(&target, this_arg, argv.add(1), argc - 1)
             }
             m if m == ANY_METHOD_APPLY => {
-                let Some((env, entry)) = closure_cell_entry(ptr) else {
+                let Some(target) = call_target(ptr) else {
                     return not_callable();
                 };
+                let this_arg = if argc >= 1 { *argv } else { VALUE_UNDEFINED };
                 let list = if argc >= 2 {
                     *argv.add(1)
                 } else {
                     VALUE_UNDEFINED
                 };
-                apply_list(env, entry, list)
+                apply_list(&target, this_arg, list)
             }
             _ => method_no_such(),
+        }
+    }
+}
+
+/// What `.call` / `.apply` re-invokes — a plain closure's boxed
+/// dual entry (the thisArg drops), or a reified builtin method's
+/// original id re-dispatched with the thisArg as the receiver
+/// (chunk 711).
+enum CallTarget {
+    Boxed(*mut c_void, u64),
+    Builtin(i64),
+}
+
+/// Classify the receiver closure cell.
+unsafe fn call_target(ptr: *mut c_void) -> Option<CallTarget> {
+    unsafe {
+        if let Some(target_mid) = crate::method_value::builtin_method_mid(ptr) {
+            return Some(CallTarget::Builtin(target_mid));
+        }
+        closure_cell_entry(ptr).map(|(env, entry)| CallTarget::Boxed(env, entry))
+    }
+}
+
+/// Invoke the target with an unpacked argument window. The builtin
+/// re-dispatch passes no name bytes and no receiver slot (a grow-
+/// relocating method reached through `.call` cannot write the
+/// caller's variable back — recorded boundary).
+unsafe fn dispatch(
+    target: &CallTarget,
+    this_arg: AnyValue,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        match target {
+            CallTarget::Boxed(env, entry) => invoke_boxed(*env, *entry, argv, argc),
+            CallTarget::Builtin(mid) => crate::method_call::any_method_call_inner(
+                this_arg,
+                *mid,
+                core::ptr::null(),
+                core::ptr::null_mut(),
+                argv,
+                argc,
+            ),
         }
     }
 }
@@ -108,10 +160,10 @@ pub(crate) unsafe fn closure_method(
 /// CreateListFromArrayLike + invoke — `undefined` / `null` is an
 /// empty list, an `Arr` cell unpacks element-by-element, everything
 /// else is a catchable TypeError.
-unsafe fn apply_list(env: *mut c_void, entry: u64, list: AnyValue) -> AnyValue {
+unsafe fn apply_list(target: &CallTarget, this_arg: AnyValue, list: AnyValue) -> AnyValue {
     unsafe {
         if is_undefined(list) || is_null(list) {
-            return invoke_boxed(env, entry, core::ptr::null(), 0);
+            return dispatch(target, this_arg, core::ptr::null(), 0);
         }
         let arr = if is_cell(list) {
             as_void_ptr(list)
@@ -133,7 +185,7 @@ unsafe fn apply_list(env: *mut c_void, entry: u64, list: AnyValue) -> AnyValue {
             let boxed: Vec<u64> = (0..n)
                 .map(|i| __torajs_arr_index_get(arr, i as i64))
                 .collect();
-            out = invoke_boxed(env, entry, boxed.as_ptr(), n as i64);
+            out = dispatch(target, this_arg, boxed.as_ptr(), n as i64);
             for b in boxed {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(b);
             }
@@ -142,7 +194,7 @@ unsafe fn apply_list(env: *mut c_void, entry: u64, list: AnyValue) -> AnyValue {
             for (i, slot) in buf.iter_mut().enumerate().take(n) {
                 *slot = __torajs_arr_index_get(arr, i as i64);
             }
-            out = invoke_boxed(env, entry, buf.as_ptr(), n as i64);
+            out = dispatch(target, this_arg, buf.as_ptr(), n as i64);
             for b in buf.iter().take(n) {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(*b);
             }

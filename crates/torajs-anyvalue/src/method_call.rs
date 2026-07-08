@@ -150,8 +150,10 @@ pub unsafe extern "C" fn __torajs_any_method_call_opt(
 }
 
 /// Shared dispatch body — a mid-miss floats [`ANY_METHOD_NO_SUCH`]
-/// to the two extern exits above.
-unsafe fn any_method_call_inner(
+/// to the two extern exits above. pub(crate): the reified-method
+/// `call` / `apply` short-circuit re-enters here with the thisArg
+/// as the receiver (chunk 711).
+pub(crate) unsafe fn any_method_call_inner(
     recv: AnyValue,
     mid: i64,
     name_str: *const u8,
