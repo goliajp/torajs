@@ -29,8 +29,15 @@
 //!   definite absent, never a layout mis-read.
 //!
 //! The pair is borrow-shaped exactly like the dynobj probe it
-//! wraps: the caller boxes via `any_box`, which takes its own
-//! reference on heap payloads.
+//! wraps — and so is the BOX the lowering assembles from it:
+//! `anyv_box_from_pair` is a pure bit-encode (no refcount inc; see
+//! nanbox_encode.rs), so the consumer slot is a view over the
+//! bucket's stake, never an owner. The special-cased member
+//! intrinsics (`any_length_get` / `any_name_get` / `any_size_get` /
+//! `any_regexp_prop`) answer OWNED boxes instead — that owned/
+//! borrow split across the fallback's arms is the recorded
+//! 32B-per-read leak lane (L3b, chunk 716 churn probe; the fix
+//! unifies every arm to owned).
 
 use core::ffi::c_void;
 
