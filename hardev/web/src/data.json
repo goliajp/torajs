@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-09T17:02:06.588Z",
+  "generatedAt": "2026-07-09T20:59:11.204Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c3d93c77",
-    "commitSubject": "feat: shorter-arity fn values fit wider fn-typed slots everywhere",
+    "commit": "ae388fed",
+    "commitSubject": "feat: immutable closure-captured toplevel bindings promote to globals",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "ae388fed",
+      "subject": "feat: immutable closure-captured toplevel bindings promote to globals"
+    },
+    {
+      "hash": "7d23854d",
+      "subject": "feat: mutable fn-typed bindings wrap named-fn inits into closures"
+    },
+    {
+      "hash": "e3bbfde5",
+      "subject": "feat: parenthesized type annotations re-read as grouped types"
+    },
+    {
+      "hash": "2c347ba8",
+      "subject": "fix: immutable fn-typed local with arrow init re-reprs closure"
+    },
+    {
+      "hash": "4b6ff99f",
+      "subject": "feat: fn-typed array elements are closure-repr at every store-site"
+    },
+    {
+      "hash": "d7d6d799",
+      "subject": "chore(dashboard): refresh @ c3d93c77 - rotation 57 (728fix-732: closure-global RFC ships all four chunks - regression gate on lifted-arrow init, un-annotated inference with F5 by-key widths, mutable assign lane, forwarder stations for named-fn references; arity-shrink rides the callback lattice at every position; gate 1356 -> 1360 five green)"
+    },
+    {
       "hash": "c3d93c77",
       "subject": "feat: shorter-arity fn values fit wider fn-typed slots everywhere"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "16a8db2b",
       "subject": "feat: annotated module-level closure globals promote and call"
-    },
-    {
-      "hash": "bf234790",
-      "subject": "chore(dashboard): refresh @ bc46e6c2 - rotation 56 (722-727: owned-track unification across ternary/nullish/optindex/arr-any-literal closes five churn-leak families; any-lhs nullish gains spec-lazy rhs; assign-position NamedEvaluation; for-loop per-iteration capture fixes the classic closure-in-loop silent-wrong; gate 1351 -> 1355 seven green)"
-    },
-    {
-      "hash": "bc46e6c2",
-      "subject": "fix: arr-any literal releases fresh owned element stakes"
-    },
-    {
-      "hash": "1656dff5",
-      "subject": "chore(dashboard): refresh @ 2c7cfc87 - rotation 56 (722-726: ternary/nullish/optindex owned-track unification closes four churn-leak families; any-lhs nullish gains lazy rhs per spec; assign-position NamedEvaluation; for-loop per-iteration capture environment fixes the classic closure-in-loop silent-wrong; gate 1351 -> 1354 six green)"
-    },
-    {
-      "hash": "2c7cfc87",
-      "subject": "fix: optindex str-view and dynamic-key reads join the owned track"
-    },
-    {
-      "hash": "b4d325dd",
-      "subject": "fix: for-loop per-iteration capture environment"
-    },
-    {
-      "hash": "163e6348",
-      "subject": "feat: assign-position NamedEvaluation for lifted arrows"
     }
   ],
-  "headSha": "c3d93c77",
+  "headSha": "ae388fed",
   "autorun": {
-    "total": 363,
+    "total": 364,
     "baselineTarget": 10,
-    "bySelf": 358,
+    "bySelf": 359,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783539600-74f1",
-      "at": "2026-07-08T19:40:00Z",
-      "ts": 1783539600,
+      "rotationId": "r-1783616607-219c",
+      "at": "2026-07-09T17:03:27Z",
+      "ts": 1783616607,
       "trigger": "self",
-      "prevHead": "34245f67",
-      "handoffSha": "sha256:680a96434ad8d8d4c795ea3f2402eab1fc2ece7de5ced4f0639356c251cb9644",
-      "handoffAgeSec": 8,
+      "prevHead": "d7d6d799",
+      "handoffSha": "sha256:e1c565591fb3ad02d685251dbd1fe9a7b949f368235905ee47ee70e0ce2806b0",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783616607-219c",
+        "at": "2026-07-09T17:03:27Z",
+        "ts": 1783616607,
+        "trigger": "self",
+        "prevHead": "d7d6d799",
+        "handoffSha": "sha256:e1c565591fb3ad02d685251dbd1fe9a7b949f368235905ee47ee70e0ce2806b0",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783539600-74f1",
         "at": "2026-07-08T19:40:00Z",
@@ -876,17 +887,6 @@
         "prevHead": "54f95c61",
         "handoffSha": "sha256:60d7330744ff5757ee025d86bf5fdd09cbdbf73034e17c15d378498ee410af06",
         "handoffAgeSec": 52,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783480024-01ca",
-        "at": "2026-07-08T03:07:04Z",
-        "ts": 1783480024,
-        "trigger": "self",
-        "prevHead": "3e9852bd",
-        "handoffSha": "sha256:6abf699070b5bdbe63f0a3e96fb2136bda2c12db07da2ac077ef48c7ca001806",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
