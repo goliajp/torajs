@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T21:06:40.643Z",
+  "generatedAt": "2026-07-09T17:02:06.588Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "bc46e6c2",
-    "commitSubject": "fix: arr-any literal releases fresh owned element stakes",
+    "commit": "c3d93c77",
+    "commitSubject": "feat: shorter-arity fn values fit wider fn-typed slots everywhere",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "c3d93c77",
+      "subject": "feat: shorter-arity fn values fit wider fn-typed slots everywhere"
+    },
+    {
+      "hash": "5199b313",
+      "subject": "feat: named-fn references reach closure globals through forwarder wraps"
+    },
+    {
+      "hash": "3e0c37c1",
+      "subject": "feat: mutable module-level closure globals reassign through the global lane"
+    },
+    {
+      "hash": "61543479",
+      "subject": "feat: un-annotated module-level closure globals promote via synthesized sig"
+    },
+    {
+      "hash": "f5714178",
+      "subject": "fix: closure-global promote gates on lifted-arrow init"
+    },
+    {
+      "hash": "16a8db2b",
+      "subject": "feat: annotated module-level closure globals promote and call"
+    },
+    {
+      "hash": "bf234790",
+      "subject": "chore(dashboard): refresh @ bc46e6c2 - rotation 56 (722-727: owned-track unification across ternary/nullish/optindex/arr-any-literal closes five churn-leak families; any-lhs nullish gains spec-lazy rhs; assign-position NamedEvaluation; for-loop per-iteration capture fixes the classic closure-in-loop silent-wrong; gate 1351 -> 1355 seven green)"
+    },
+    {
       "hash": "bc46e6c2",
       "subject": "fix: arr-any literal releases fresh owned element stakes"
     },
@@ -731,37 +759,9 @@
     {
       "hash": "163e6348",
       "subject": "feat: assign-position NamedEvaluation for lifted arrows"
-    },
-    {
-      "hash": "47afbb51",
-      "subject": "fix: any-lhs nullish evaluates rhs lazily and releases the owned box"
-    },
-    {
-      "hash": "cd32432f",
-      "subject": "fix: ternary/nullish join results carry unified ownership"
-    },
-    {
-      "hash": "34245f67",
-      "subject": "chore(dashboard): refresh @ ab124ccb - rotation 55 (717-721: any-member owned-result unification kills the 32B/read leak across five lanes and six consumer faces; binop-index return-consume and console owned-Any temps close two more churn leaks; bound cells and let-bound arrows gain .name/.length reflection; gate 1346 -> 1351 five green)"
-    },
-    {
-      "hash": "ab124ccb",
-      "subject": "fix: console releases owned Any temps; OptCall joins expr_owned_shape"
-    },
-    {
-      "hash": "e89f4329",
-      "subject": "test: retire the arrow-bound print pin - chunk 720 closed the gap"
-    },
-    {
-      "hash": "9914611b",
-      "subject": "feat: NamedEvaluation - let-bound arrows join the fn-name registry"
-    },
-    {
-      "hash": "ddd2cd7d",
-      "subject": "refactor: split length/size getters out of index_any into len_get"
     }
   ],
-  "headSha": "bc46e6c2",
+  "headSha": "c3d93c77",
   "autorun": {
     "total": 363,
     "baselineTarget": 10,
