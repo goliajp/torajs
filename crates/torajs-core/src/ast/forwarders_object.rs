@@ -199,7 +199,6 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
             init,
             type_ann,
             is_var: false,
-            mutable,
             ..
         } = s
             && type_ann
@@ -208,9 +207,10 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
             && binding_refs.named_fn_refs.contains(name)
             // Chunk 737 — immutable closure-captured bindings promote
             // (the capture filter resolves them to the global), so
-            // their named-fn inits wrap too; only the mutable+captured
-            // combination stays main-local.
-            && !(binding_refs.closure_captured.contains(name) && *mutable)
+            // their named-fn inits wrap too. Chunk 740 — the
+            // mutable+captured combination promotes the same way
+            // (capture filter reads + Assign-Ident global writes =
+            // one home), so its named-fn init wraps too.
             && let Expr::Ident(n) = ast.get_expr(*init)
             // The target needs an explicit return ann: the forwarder
             // clones it, and a `None` ret on the promoted slot's

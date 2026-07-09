@@ -99,7 +99,6 @@ pub(crate) fn collect_toplevel_globals(
                 None => inferred_slot_ty(
                     name,
                     *init,
-                    *mutable,
                     ast,
                     &binding_refs,
                     aliases,
@@ -190,18 +189,20 @@ pub(crate) fn collect_toplevel_globals(
             // shaped-init bindings (`let s: string = await p`) into
             // the K.4 fresh-heap-init requirement they don't meet.
             // No named-fn reader/writer → keep the main-local home
-            // (its scope-drop walk already owns cleanup). Closure-
-            // captured bindings also stay local — a slot would split
-            // the binding into two disagreeing homes.
+            // (its scope-drop walk already owns cleanup).
             // Chunk 730 (RFC 20260709-closure-global) — mutable
             // Closure globals promote behind the same gate: a
             // closure's env is opaque to user code (no in-place
             // mutation surface), assignment is the only mutation
             // face and the Assign-Ident lane owns
-            // drop-old/store-new.
+            // drop-old/store-new. Chunk 740 — closure-captured
+            // bindings promote too: the capture filter resolves the
+            // name to the global for reads AND the lifted body's
+            // writes take the same Assign-Ident global lane, so the
+            // slot IS the single home (the old env-copy snapshot
+            // disagreed with ES shared-binding semantics).
             let mutable_promote = (ty == Type::Str || matches!(ty, Type::Closure(_)))
-                && binding_refs.named_fn_refs.contains(name)
-                && !binding_refs.closure_captured.contains(name);
+                && binding_refs.named_fn_refs.contains(name);
             if *mutable && ty.is_refcounted() && !mutable_promote {
                 continue;
             }
@@ -236,7 +237,6 @@ pub(crate) fn collect_toplevel_globals(
 fn inferred_slot_ty(
     name: &str,
     init: ExprId,
-    mutable: bool,
     ast: &Ast,
     binding_refs: &crate::ast_refs::ToplevelBindingRefs,
     aliases: &HashMap<String, Type>,
@@ -252,11 +252,12 @@ fn inferred_slot_ty(
     // (`eff_captures`, K.3/K.4/K.6 arm) resolves the name to the
     // global and the lifted body reads it through GlobalRef exactly
     // like a named-fn body — no env copy, so no second home to
-    // disagree with. Mutable stays main-local (the env-copy home
-    // would need capture-box indirection, RFC 20260709 residual).
-    if !binding_refs.named_fn_refs.contains(name)
-        || (binding_refs.closure_captured.contains(name) && mutable)
-    {
+    // disagree with. Chunk 740 — MUTABLE captured bindings promote
+    // the same way: the lifted body's writes take the Assign-Ident
+    // global lane, so reads and writes share the one global home
+    // (the old env-copy snapshot disagreed with ES shared-binding
+    // semantics — `inc(); show()` read a stale main-local).
+    if !binding_refs.named_fn_refs.contains(name) {
         return None;
     }
     if let Expr::Closure { fn_name, .. } = ast.get_expr(init) {

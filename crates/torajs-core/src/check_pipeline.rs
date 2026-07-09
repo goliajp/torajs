@@ -214,7 +214,6 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
             init,
             type_ann,
             is_var,
-            mutable,
             ..
         } = stmt
         {
@@ -231,10 +230,13 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                     // Chunk 737 — immutable closure-captured bindings
                     // register too (the lowerer's capture filter
                     // resolves them to the global; mirror of the
-                    // inferred_slot_ty gate).
-                    if binding_refs.named_fn_refs.contains(name)
-                        && !(binding_refs.closure_captured.contains(name) && *mutable)
-                    {
+                    // inferred_slot_ty gate). Chunk 740 — mutable
+                    // captured bindings join: the capture filter gives
+                    // the lifted body GlobalRef reads AND the Assign-
+                    // Ident global lane gives it writes, so the global
+                    // is the single home (the old env-copy snapshot
+                    // disagreed with ES shared-binding semantics).
+                    if binding_refs.named_fn_refs.contains(name) {
                         // RFC 20260709-closure-global chunk 2 — an
                         // un-annotated lifted-arrow init registers
                         // under the sig synthesized from the lifted
