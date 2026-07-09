@@ -133,6 +133,12 @@ pub(crate) fn try_lower(
     // underlying T at SSA — already covered. Comparing any of
     // these against null literal (Ptr) at runtime needs a real
     // pointer cmp, so they all share a family for fold purposes.
+    // Chunk 738 — FnSig joins: a nullable fn-typed immutable slot
+    // (`const f: (() => T) | null = null`) keeps FnSig repr (null
+    // init isn't Expr::Closure, named-fn inits stay direct-
+    // dispatch), and its value is a fn address or the null
+    // sentinel — pointer-shaped either way. Excluding it folded
+    // `f === null` to constant false.
     let pointerish = |t: Type| {
         use crate::ssa::Type::*;
         matches!(
@@ -142,6 +148,7 @@ pub(crate) fn try_lower(
                 | Obj(_)
                 | Arr(_)
                 | Closure(_)
+                | FnSig(_)
                 | Symbol
                 | Promise
                 | RegExp

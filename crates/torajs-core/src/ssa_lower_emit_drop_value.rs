@@ -269,7 +269,29 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
 /// legitimately carries rc > 1 (the return retain + the caller's arg
 /// temp); the unconditional finalize freed the shared env from under
 /// the live binding and the next alloc aliased it.
+///
+/// Chunk 738 — NULL guard mirrors `emit_drop_obj`: a nullable
+/// closure slot (`let h: (() => T) | null`) legitimately holds the
+/// in-band null sentinel; the reassign drop-old and scope-close
+/// paths must not rc-dec through it.
 fn emit_drop_closure(ctx: &mut LowerCtx, val: Operand) {
+    let dec_blk = ctx.f.add_block();
+    let skip = ctx.f.add_block();
+    let null_check = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, val.clone(), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(null_check),
+            then_blk: skip,
+            else_blk: dec_blk,
+        },
+    );
+    ctx.cur_block = dec_blk;
     let rc_new = ctx.emit_rc_dec_inline(val.clone());
     let is_zero = ctx.f.append_inst(
         ctx.cur_block,
@@ -300,5 +322,6 @@ fn emit_drop_closure(ctx: &mut LowerCtx, val: Operand) {
         InstKind::CallIndirect(drop_void_sig, Operand::Value(drop_fn_ptr), vec![val]),
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+    ctx.f.set_term(skip, Terminator::Br(after));
     ctx.cur_block = after;
 }
