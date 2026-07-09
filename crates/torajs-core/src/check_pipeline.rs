@@ -213,8 +213,8 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
             name,
             init,
             type_ann,
-            mutable,
             is_var,
+            ..
         } = stmt
         {
             let lit_ty = match ast.get_expr(*init) {
@@ -235,16 +235,14 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                         // under the sig synthesized from the lifted
                         // FnDecl's (preinfer-backfilled) anns, the
                         // same `__fn(...)` spelling the annotated
-                        // lane resolves. Immutable only: the lowerer
-                        // keeps mutable refcounted slots main-local
-                        // until the RFC's assign-lane chunk, and a
-                        // checker-registered / lowerer-skipped split
-                        // would trade the check-time loud reject for
-                        // a lowering panic. Variadic sigs stay
-                        // main-local too (boxed-dual routing is a
+                        // lane resolves. Mutable bindings register
+                        // too (chunk 730: the Assign-Ident lane owns
+                        // drop-old/store-new, mirroring the lowerer's
+                        // mutable_promote gate). Variadic sigs stay
+                        // main-local (boxed-dual routing is a
                         // fn-local table — RFC O2).
                         if let Expr::Closure { fn_name, .. } = ast.get_expr(*init) {
-                            if *mutable || *is_var {
+                            if *is_var {
                                 None
                             } else {
                                 crate::ast_refs::lifted_closure_fn_canon(ast, fn_name)

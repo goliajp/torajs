@@ -192,10 +192,16 @@ pub(crate) fn collect_toplevel_globals(
             // (its scope-drop walk already owns cleanup). Closure-
             // captured bindings also stay local — a slot would split
             // the binding into two disagreeing homes.
-            let mutable_str_promote = ty == Type::Str
+            // Chunk 730 (RFC 20260709-closure-global) — mutable
+            // Closure globals promote behind the same gate: a
+            // closure's env is opaque to user code (no in-place
+            // mutation surface), assignment is the only mutation
+            // face and the Assign-Ident lane owns
+            // drop-old/store-new.
+            let mutable_promote = (ty == Type::Str || matches!(ty, Type::Closure(_)))
                 && binding_refs.named_fn_refs.contains(name)
                 && !binding_refs.closure_captured.contains(name);
-            if *mutable && ty.is_refcounted() && !mutable_str_promote {
+            if *mutable && ty.is_refcounted() && !mutable_promote {
                 continue;
             }
             globals.insert(name.clone(), ty);

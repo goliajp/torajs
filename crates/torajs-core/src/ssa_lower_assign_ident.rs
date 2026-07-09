@@ -58,19 +58,25 @@ fn lower_global_assign(
     slot_ty: Type,
     value: ExprId,
 ) -> Operand {
-    if slot_ty.is_refcounted() && slot_ty != Type::Str {
+    let drop_old_slot = slot_ty == Type::Str || matches!(slot_ty, Type::Closure(_));
+    if slot_ty.is_refcounted() && !drop_old_slot {
         panic!(
             "ssa-lower: assignment to refcount global `{name}` is not yet supported (K.6 — mutable Arr/Obj globals need method-mutation writeback)"
         );
     }
     let v = ctx.lower_expr(value);
-    // Chunk 558 — mutable Str globals. RHS lowers FIRST (`g = g + "x"`
+    // Chunk 558 — mutable Str globals; chunk 730 (RFC
+    // 20260709-closure-global) — mutable Closure globals ride the
+    // same sequence (a fresh `(x) => ...` rhs is an owned env mint
+    // and transfers; strings have no in-place mutation methods and a
+    // closure's env is opaque to user code, so the K.6 writeback
+    // concern exists for neither). RHS lowers FIRST (`g = g + "x"`
     // reads the old slot value); borrow-shaped rhs (Member / Index /
     // unmoved Ident, including reads of another global slot) takes +1
     // since the slot and the rhs home share ownership. Then
     // load-old → store-new → drop-old; self-assign `g = g` is safe
     // because the borrow inc lands before the old value's dec.
-    if slot_ty == Type::Str {
+    if drop_old_slot {
         apply_borrow_rc_inc(ctx, &v, value);
     }
     let v_ty = ctx.operand_ty(&v);
@@ -84,18 +90,18 @@ fn lower_global_assign(
     let ptr = ctx
         .f
         .append_inst(cur_block, InstKind::GlobalRef(name), Type::Ptr, None);
-    if slot_ty == Type::Str {
+    if drop_old_slot {
         let cur_block = ctx.cur_block;
         let old = ctx.f.append_inst(
             cur_block,
-            InstKind::Load(Type::Str, Operand::Value(ptr), 0),
-            Type::Str,
+            InstKind::Load(slot_ty, Operand::Value(ptr), 0),
+            slot_ty,
             None,
         );
         let cur_block = ctx.cur_block;
         ctx.f
             .append_void(cur_block, InstKind::Store(v, Operand::Value(ptr), 0));
-        ctx.emit_drop_value(Operand::Value(old), Type::Str);
+        ctx.emit_drop_value(Operand::Value(old), slot_ty);
         return v;
     }
     let cur_block = ctx.cur_block;
