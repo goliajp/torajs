@@ -295,6 +295,15 @@ impl<'a> Parser<'a> {
             }
             name = format!("{name}<{}>", args.join("|"));
         }
+        self.read_type_postfix(name)
+    }
+
+    /// Shared postfix readers on a just-parsed type: `[]` array
+    /// suffixes and the single-side `| null` nullable wrapper.
+    /// Chunk 735 — extracted from the parse_type_ann tail so the
+    /// parenthesized-type arm in parse_fn_type_ann reads the same
+    /// postfixes on its inner type (`(() => string)[]`).
+    fn read_type_postfix(&mut self, mut name: String) -> Result<String, String> {
         while matches!(self.peek(), Token::LBracket) {
             self.pos += 1;
             match self.peek() {
@@ -331,6 +340,11 @@ impl<'a> Parser<'a> {
         // current token = `(`
         self.pos += 1;
         let mut params: Vec<String> = Vec::new();
+        // Chunk 735 — a `name:` label or rest param pins the shape as
+        // a fn-type; without either, a single parenthesized type can
+        // re-read as TS ParenthesizedType when no `=>` follows the
+        // close paren (`(() => string)[]`).
+        let mut fn_shape_pinned = false;
         if !matches!(self.peek(), Token::RParen) {
             loop {
                 // `...name: E[]` rest param (RFC 20260708-variadic) —
@@ -338,6 +352,7 @@ impl<'a> Parser<'a> {
                 // Encodes as `__rest(E[])` in the param slot.
                 if matches!(self.peek(), Token::DotDotDot) {
                     self.pos += 1;
+                    fn_shape_pinned = true;
                     let name_then_colon = matches!(self.peek(), Token::Ident(_))
                         && matches!(
                             self.tokens.get(self.pos + 1).map(|s| &s.token),
@@ -375,6 +390,7 @@ impl<'a> Parser<'a> {
                     );
                 if name_then_colon {
                     self.pos += 2;
+                    fn_shape_pinned = true;
                 }
                 let pty = self.parse_type_ann()?;
                 params.push(pty);
@@ -397,6 +413,16 @@ impl<'a> Parser<'a> {
         match self.peek() {
             Token::FatArrow => self.pos += 1,
             t => {
+                // Chunk 735 — TS ParenthesizedType: `(T)` with no
+                // `=>` after the close paren is a grouped type, most
+                // commonly a fn-type array `(() => string)[]`. Only a
+                // single bare type re-reads this way — a `name:`
+                // label or rest param pinned the fn-type shape and
+                // keeps the loud error.
+                if params.len() == 1 && !fn_shape_pinned {
+                    let inner = params.pop().expect("single grouped type");
+                    return self.read_type_postfix(inner);
+                }
                 return Err(format!(
                     "expected `=>` in fn-type, got {t:?} at {}",
                     self.at()
