@@ -19,19 +19,34 @@
 //! element is the entry itself and must be a pair array (ES
 //! §20.1.2.7 iterates the Set's values — primitives throw).
 //!
+//! Dynobj array-like entries (chunk 739) — ES §20.1.2.7
+//! AddEntriesFromIterable requires only `Type(entry) is Object` and
+//! reads `Get(entry, "0")` / `Get(entry, "1")`, so `{0: "a", 1: 1}`
+//! is a legal entry. Data-prop slots only: an accessor at "0"/"1"
+//! would need a getter invoke mid-walk — loud TypeError (recorded
+//! narrow face), never the raw pair pointer.
+//!
 //! Two passes: validate first (undefined / null / non-iterable
-//! receivers and non-array entries throw a catchable TypeError
+//! receivers and non-object entries throw a catchable TypeError
 //! BEFORE anything allocates), then construct (no throw path — no
-//! half-built dynobj leaks under the pending-throw model).
+//! half-built dynobj leaks under the pending-throw model; the "0" /
+//! "1" key str temps mint before pass 1 and drop on every return
+//! path — a key temp is not half-built state).
 
 use core::ffi::{c_char, c_void};
 
-use crate::reflect::{VALUE_NULL_IMM, VALUE_UNDEFINED_IMM, heap_type_tag, is_cell_imm};
+use crate::reflect::{
+    VALUE_NULL_IMM, VALUE_UNDEFINED_IMM, alloc_str_key, heap_type_tag, is_cell_imm,
+};
 
 const TAG_ARR: u16 = 2;
+const TAG_DYNOBJ: u16 = 14;
 const TAG_MAP: u16 = 15;
 const TAG_SET: u16 = 19;
 const ANY_HEAP: u64 = 4;
+/// `dynobj_get_tag` accessor sentinel (mirrors
+/// `torajs_dynobj::layout::ANY_ACCESSOR`).
+const ANY_ACCESSOR: u64 = 6;
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const c_char);
@@ -42,6 +57,8 @@ unsafe extern "C" {
     fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) -> u64;
     fn __torajs_anyv_to_str(v: u64) -> *mut c_void;
     fn __torajs_anyv_to_str_pair(tag: i64, value: i64) -> *mut c_void;
+    fn __torajs_dynobj_get_tag(dynobj: *const c_void, key: *const u8) -> u64;
+    fn __torajs_dynobj_get_value(dynobj: *const c_void, key: *const u8) -> u64;
     fn __torajs_str_drop(s: *mut u8);
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_map_iter_next(
@@ -68,6 +85,37 @@ unsafe fn arr_cell(v: u64) -> Option<*const c_void> {
     } else {
         None
     }
+}
+
+/// The entry's live DynObj cell pointer, or `None` (mirror of
+/// [`arr_cell`]).
+unsafe fn dynobj_cell(v: u64) -> Option<*const c_void> {
+    if !is_cell_imm(v) {
+        return None;
+    }
+    let p = v as *const c_void;
+    if unsafe { heap_type_tag(p) } == TAG_DYNOBJ {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+/// True when the entry's "0" / "1" slot is an accessor — the ES
+/// `Get(entry, k)` would have to invoke the getter mid-walk;
+/// unsupported (loud TypeError at the validate pass) rather than
+/// silently yielding the raw `AccessorPair` pointer.
+unsafe fn dynobj_pair_has_accessor(entry: *const c_void, k0: *const u8, k1: *const u8) -> bool {
+    let t0 = unsafe { __torajs_dynobj_get_tag(entry, k0) };
+    let t1 = unsafe { __torajs_dynobj_get_tag(entry, k1) };
+    t0 == ANY_ACCESSOR || t1 == ANY_ACCESSOR
+}
+
+/// Release the "0" / "1" key str temps (every return path of a
+/// dynobj-capable lane).
+unsafe fn drop_pair_keys(k0: *mut u8, k1: *mut u8) {
+    unsafe { __torajs_str_drop(k0) };
+    unsafe { __torajs_str_drop(k1) };
 }
 
 /// `Object.fromEntries(entries)` — builds a fresh dynobj from a
@@ -108,25 +156,50 @@ pub unsafe extern "C" fn __torajs_anyv_from_entries(entries: u64) -> u64 {
     };
     // SAFETY: live Arr cell; len lives at ARR_LEN_OFF per layout.
     let len = unsafe { (outer.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
-    // Pass 1 — validate every entry is itself an array BEFORE any
-    // allocation, so the throw path leaves nothing half-built.
+    // "0" / "1" key temps for the dynobj-entry Get probe; dropped on
+    // every return path below.
+    let k0 = unsafe { alloc_str_key(b"0") };
+    let k1 = unsafe { alloc_str_key(b"1") };
+    // Pass 1 — validate every entry is an array or a data-prop-only
+    // dynobj BEFORE any dynobj allocation, so the throw path leaves
+    // nothing half-built.
     for i in 0..len {
         let entry = unsafe { __torajs_arr_get_any_boxed(outer, i) };
-        if unsafe { arr_cell(entry) }.is_none() {
-            // SAFETY: NUL-terminated static C string.
-            unsafe {
-                __torajs_throw_type_error(c"Object.fromEntries entry is not an object".as_ptr());
-            }
-            return VALUE_UNDEFINED_IMM;
+        if unsafe { arr_cell(entry) }.is_some() {
+            continue;
         }
+        if let Some(d) = unsafe { dynobj_cell(entry) } {
+            if unsafe { dynobj_pair_has_accessor(d, k0, k1) } {
+                unsafe { drop_pair_keys(k0, k1) };
+                // SAFETY: NUL-terminated static C string.
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"Object.fromEntries accessor entry is not supported".as_ptr(),
+                    );
+                }
+                return VALUE_UNDEFINED_IMM;
+            }
+            continue;
+        }
+        unsafe { drop_pair_keys(k0, k1) };
+        // SAFETY: NUL-terminated static C string.
+        unsafe {
+            __torajs_throw_type_error(c"Object.fromEntries entry is not an object".as_ptr());
+        }
+        return VALUE_UNDEFINED_IMM;
     }
     // Pass 2 — construct. No throw path from here on.
     let mut obj = unsafe { __torajs_dynobj_alloc() };
     for i in 0..len {
         let entry = unsafe { __torajs_arr_get_any_boxed(outer, i) };
-        // Pass 1 proved this is an Arr cell.
-        unsafe { set_prop_from_pair_arr(&mut obj, entry as *const c_void) };
+        if let Some(inner) = unsafe { arr_cell(entry) } {
+            unsafe { set_prop_from_pair_arr(&mut obj, inner) };
+        } else {
+            // Pass 1 proved the only other shape is a data-prop dynobj.
+            unsafe { set_prop_from_dynobj_entry(&mut obj, entry as *const c_void, k0, k1) };
+        }
     }
+    unsafe { drop_pair_keys(k0, k1) };
     obj as u64
 }
 
@@ -142,6 +215,32 @@ unsafe fn set_prop_from_pair_arr(obj: &mut *mut c_void, inner: *const c_void) {
     let v_val = unsafe { __torajs_arr_get_any_value(inner, 1) };
     // ToPropertyKey → string (owned temp this walk drops).
     let k_str = unsafe { __torajs_anyv_to_str(k_av) };
+    unsafe { set_prop(obj, k_str, v_tag, v_val) };
+}
+
+/// Define one property from a dynobj array-like entry
+/// (`{0: k, 1: v}`) — ES §20.1.2.7 AddEntriesFromIterable reads
+/// `Get(entry, "0")` / `Get(entry, "1")`; an absent slot answers
+/// undefined (the key side then stringifies to "undefined" via
+/// ToPropertyKey). Borrowed reads — the entry's bucket keeps its
+/// share, `set_prop` takes a fresh one for the built object.
+///
+/// # Safety
+///
+/// `entry` is a live data-prop-only DynObj cell (the validate pass
+/// rejected accessor slots); `k0` / `k1` are live Str cells.
+unsafe fn set_prop_from_dynobj_entry(
+    obj: &mut *mut c_void,
+    entry: *const c_void,
+    k0: *const u8,
+    k1: *const u8,
+) {
+    let k_tag = unsafe { __torajs_dynobj_get_tag(entry, k0) };
+    let k_val = unsafe { __torajs_dynobj_get_value(entry, k0) };
+    // ToPropertyKey → string (owned temp this walk drops).
+    let k_str = unsafe { __torajs_anyv_to_str_pair(k_tag as i64, k_val as i64) };
+    let v_tag = unsafe { __torajs_dynobj_get_tag(entry, k1) };
+    let v_val = unsafe { __torajs_dynobj_get_value(entry, k1) };
     unsafe { set_prop(obj, k_str, v_tag, v_val) };
 }
 
@@ -183,10 +282,10 @@ unsafe fn from_map(map: *const c_void) -> u64 {
 }
 
 /// Set receiver — the iterated value is the element itself, which
-/// must be a pair array (`new Set([["a", 1]])` is a legal entries
-/// iterable; a primitive element throws per ES §20.1.2.7). Same
-/// two-pass model as the array lane: validate before anything
-/// allocates.
+/// must be a pair array or a data-prop dynobj (`new Set([["a", 1]])`
+/// is a legal entries iterable; a primitive element throws per ES
+/// §20.1.2.7). Same two-pass model as the array lane: validate
+/// before anything allocates.
 ///
 /// # Safety
 ///
@@ -194,20 +293,42 @@ unsafe fn from_map(map: *const c_void) -> u64 {
 unsafe fn from_set(set: *const c_void) -> u64 {
     let mut cursor: i64 = -1;
     let (mut kt, mut kp, mut vt, mut vp) = (0i64, 0i64, 0i64, 0i64);
-    // Pass 1 — every element must itself be an Arr cell.
+    // "0" / "1" key temps for the dynobj-entry probe; dropped on
+    // every return path.
+    let k0 = unsafe { alloc_str_key(b"0") };
+    let k1 = unsafe { alloc_str_key(b"1") };
+    // Pass 1 — every element must be an Arr cell or a data-prop
+    // dynobj cell.
     while unsafe { __torajs_map_iter_next(set, &mut cursor, &mut kt, &mut kp, &mut vt, &mut vp) }
         == 1
     {
-        let is_arr = kt == ANY_HEAP as i64
-            && kp != 0
-            && unsafe { heap_type_tag(kp as *const c_void) } == TAG_ARR;
-        if !is_arr {
-            // SAFETY: NUL-terminated static C string.
-            unsafe {
-                __torajs_throw_type_error(c"Object.fromEntries entry is not an object".as_ptr());
-            }
-            return VALUE_UNDEFINED_IMM;
+        let tag = if kt == ANY_HEAP as i64 && kp != 0 {
+            unsafe { heap_type_tag(kp as *const c_void) }
+        } else {
+            u16::MAX
+        };
+        if tag == TAG_ARR {
+            continue;
         }
+        if tag == TAG_DYNOBJ {
+            if unsafe { dynobj_pair_has_accessor(kp as *const c_void, k0, k1) } {
+                unsafe { drop_pair_keys(k0, k1) };
+                // SAFETY: NUL-terminated static C string.
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"Object.fromEntries accessor entry is not supported".as_ptr(),
+                    );
+                }
+                return VALUE_UNDEFINED_IMM;
+            }
+            continue;
+        }
+        unsafe { drop_pair_keys(k0, k1) };
+        // SAFETY: NUL-terminated static C string.
+        unsafe {
+            __torajs_throw_type_error(c"Object.fromEntries entry is not an object".as_ptr());
+        }
+        return VALUE_UNDEFINED_IMM;
     }
     // Pass 2 — construct. No throw path from here on.
     let mut obj = unsafe { __torajs_dynobj_alloc() };
@@ -215,8 +336,13 @@ unsafe fn from_set(set: *const c_void) -> u64 {
     while unsafe { __torajs_map_iter_next(set, &mut cursor, &mut kt, &mut kp, &mut vt, &mut vp) }
         == 1
     {
-        // Pass 1 proved every element is an Arr cell.
-        unsafe { set_prop_from_pair_arr(&mut obj, kp as *const c_void) };
+        // Pass 1 proved every element is an Arr or dynobj cell.
+        if unsafe { heap_type_tag(kp as *const c_void) } == TAG_ARR {
+            unsafe { set_prop_from_pair_arr(&mut obj, kp as *const c_void) };
+        } else {
+            unsafe { set_prop_from_dynobj_entry(&mut obj, kp as *const c_void, k0, k1) };
+        }
     }
+    unsafe { drop_pair_keys(k0, k1) };
     obj as u64
 }

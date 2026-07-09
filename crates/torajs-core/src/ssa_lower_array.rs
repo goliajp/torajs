@@ -80,6 +80,22 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) ->
     if !has_spread && ctx.contextual_any.contains(&eid) {
         return ctx.lower_array_any_literal(&element_ids);
     }
+    // Chunk 739 — an element whose checker type is Any (`[x]` with
+    // `x: any`) has no typed 8-byte slot repr: the heterogeneity
+    // gate classifies Any as None, so an all-Any (or Any-anchored)
+    // literal fell through to the typed lane, which stored the
+    // NaN-box bits into an 8-byte slot while every Arr<Any> reader
+    // decodes 16-byte tagged slots — `[x][0]` answered undefined
+    // for ANY x. Route through the FLAG_ARR_ANY literal lane.
+    // Undefined-typed elements deliberately stay out (T-10.c infer-
+    // widened `["a", undefined]` keeps the typed Str sentinel lane).
+    if !has_spread
+        && element_ids
+            .iter()
+            .any(|id| matches!(ctx.expr_types.get(id), Some(crate::check::Type::Any)))
+    {
+        return ctx.lower_array_any_literal(&element_ids);
+    }
     // W-ESC (RFC 20260706-typed-arr-any-escape) — a literal whose
     // Anon alias class flows into the `any` world lowers as Arr<Any>
     // directly: return-position / arg-position literals never pass

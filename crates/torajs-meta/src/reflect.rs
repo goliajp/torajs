@@ -72,7 +72,7 @@ pub(crate) unsafe fn heap_type_tag(child: *const c_void) -> u16 {
 }
 
 #[inline]
-unsafe fn alloc_str_key(name: &[u8]) -> *mut u8 {
+pub(crate) unsafe fn alloc_str_key(name: &[u8]) -> *mut u8 {
     let s = unsafe { __torajs_str_alloc_pooled(name.len() as u64) };
     if !name.is_empty() {
         unsafe { core::ptr::copy_nonoverlapping(name.as_ptr(), s.add(16), name.len()) };
