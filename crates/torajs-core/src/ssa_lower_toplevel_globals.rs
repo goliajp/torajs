@@ -99,6 +99,7 @@ pub(crate) fn collect_toplevel_globals(
                 None => inferred_slot_ty(
                     name,
                     *init,
+                    *mutable,
                     ast,
                     &binding_refs,
                     aliases,
@@ -212,10 +213,11 @@ pub(crate) fn collect_toplevel_globals(
 
 /// K.3b — slot type for an UN-ANNOTATED top-level binding. Promotes
 /// only behind the ast_refs gate — a named-fn body must reference the
-/// binding (named fns have no capture machinery) and no closure may
-/// capture it (captures copy through `__env` from the main-fn local;
-/// a slot would split the binding into two disagreeing homes). `None`
-/// keeps the binding main-local (K.1 behavior).
+/// binding (named fns have no capture machinery), and a MUTABLE
+/// closure-captured binding stays main-local (its env-copy capture
+/// home would disagree with the slot; immutable captures resolve to
+/// the global through the capture filter instead — chunk 737).
+/// `None` keeps the binding main-local (K.1 behavior).
 ///
 /// RFC 20260709-closure-global chunk 2 — a lifted-arrow init promotes
 /// under the sig synthesized from the lifted FnDecl's
@@ -234,6 +236,7 @@ pub(crate) fn collect_toplevel_globals(
 fn inferred_slot_ty(
     name: &str,
     init: ExprId,
+    mutable: bool,
     ast: &Ast,
     binding_refs: &crate::ast_refs::ToplevelBindingRefs,
     aliases: &HashMap<String, Type>,
@@ -244,7 +247,16 @@ fn inferred_slot_ty(
     inst_memo: &mut HashMap<String, crate::ssa::StructId>,
     num_f64_slots: &crate::num_width::WidthTable,
 ) -> Option<Type> {
-    if !binding_refs.named_fn_refs.contains(name) || binding_refs.closure_captured.contains(name) {
+    // Chunk 737 — an IMMUTABLE closure-captured binding promotes:
+    // once the slot exists, the closure-construction capture filter
+    // (`eff_captures`, K.3/K.4/K.6 arm) resolves the name to the
+    // global and the lifted body reads it through GlobalRef exactly
+    // like a named-fn body — no env copy, so no second home to
+    // disagree with. Mutable stays main-local (the env-copy home
+    // would need capture-box indirection, RFC 20260709 residual).
+    if !binding_refs.named_fn_refs.contains(name)
+        || (binding_refs.closure_captured.contains(name) && mutable)
+    {
         return None;
     }
     if let Expr::Closure { fn_name, .. } = ast.get_expr(init) {

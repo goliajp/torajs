@@ -214,6 +214,7 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
             init,
             type_ann,
             is_var,
+            mutable,
             ..
         } = stmt
         {
@@ -227,8 +228,12 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
             let ann_ty = match (lit_ty.clone(), type_ann) {
                 (None, Some(ann)) => resolve_type_ann(ann, &c.aliases),
                 (None, None) => {
+                    // Chunk 737 — immutable closure-captured bindings
+                    // register too (the lowerer's capture filter
+                    // resolves them to the global; mirror of the
+                    // inferred_slot_ty gate).
                     if binding_refs.named_fn_refs.contains(name)
-                        && !binding_refs.closure_captured.contains(name)
+                        && !(binding_refs.closure_captured.contains(name) && *mutable)
                     {
                         // RFC 20260709-closure-global chunk 2 — an
                         // un-annotated lifted-arrow init registers
