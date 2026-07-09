@@ -415,6 +415,14 @@ impl<'a> LowerCtx<'a> {
             );
             if elem_ty.is_refcounted() {
                 self.emit_rc_inc(val);
+                // Chunk 742 — push twin (chunk 733): an owned-shape
+                // arg (closure literal / call result / array literal)
+                // hands its +1 to the array; the inc above is the
+                // array's stake, so the temp's own must release
+                // (churn probes: closure-unshift 30.4MB / nested-arr
+                // 44.8MB / owned-str 16MB vs 6.3MB flat). Borrow
+                // shapes are a no-op through the predicate.
+                self.release_owned_temp(args[0], &val);
             }
             // B1 — cell fixed across grow; slot write-back +
             // captured-env mirror retired.
