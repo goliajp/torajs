@@ -399,13 +399,15 @@ impl<'a> LowerCtx<'a> {
             if matches!(elem_ty, Type::Any) {
                 return Some(self.emit_arr_any_unshift_at_value(arr_op, args[0], arr_ty));
             }
-            let mut val = self.lower_expr(args[0]);
-            // Chunk 575 — stored arrays chain-mark (push twin).
-            self.emit_arr_mark_kind(&val);
-            // W4 — align with the elem width (mirrors push).
-            if elem_ty == Type::F64 && self.operand_ty(&val) == Type::I64 {
-                val = self.coerce_to_f64(val);
-            }
+            // Chunk 743 — the full push coercion (chain-mark, bool →
+            // i64, W4 width align, Substr → owned Str materialize):
+            // pre-743 unshift only had the mark + W4 pieces, so
+            // `ss.unshift(s[1])` stored the Substr VIEW pointer into a
+            // Str slot — the two block layouts diverge past the
+            // header, and every Str-layout read (join / print) walked
+            // garbage.
+            let (val, val_owned_from_substr) =
+                crate::ssa_lower_call_arr_push::coerce_push_value(self, args[0], elem_ty);
             let unshift_arg = self.raw_slot_arg(val);
             let new_arr = self.f.append_inst(
                 self.cur_block,
@@ -413,7 +415,7 @@ impl<'a> LowerCtx<'a> {
                 arr_ty,
                 None,
             );
-            if elem_ty.is_refcounted() {
+            if elem_ty.is_refcounted() && !val_owned_from_substr {
                 self.emit_rc_inc(val);
                 // Chunk 742 — push twin (chunk 733): an owned-shape
                 // arg (closure literal / call result / array literal)
@@ -421,7 +423,9 @@ impl<'a> LowerCtx<'a> {
                 // array's stake, so the temp's own must release
                 // (churn probes: closure-unshift 30.4MB / nested-arr
                 // 44.8MB / owned-str 16MB vs 6.3MB flat). Borrow
-                // shapes are a no-op through the predicate.
+                // shapes are a no-op through the predicate; the
+                // substr-coerce lane skips (its fresh rc=1 already IS
+                // the hand-off — chunk 743).
                 self.release_owned_temp(args[0], &val);
             }
             // B1 — cell fixed across grow; slot write-back +

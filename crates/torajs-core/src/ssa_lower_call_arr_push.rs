@@ -381,7 +381,11 @@ fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
 /// Returns `(val_operand, val_owned_from_substr)` — the second flag tells
 /// the caller to skip `emit_rc_inc` on the value (the substr_to_owned
 /// already allocated a fresh ref).
-fn coerce_push_value(ctx: &mut LowerCtx<'_>, arg_eid: ExprId, elem_ty: Type) -> (Operand, bool) {
+pub(crate) fn coerce_push_value(
+    ctx: &mut LowerCtx<'_>,
+    arg_eid: ExprId,
+    elem_ty: Type,
+) -> (Operand, bool) {
     let mut val = ctx.lower_expr(arg_eid);
     // Chunk 575 — an array value entering a container slot must be
     // self-describing for the cycle walker (chain mark; no-op for
@@ -398,10 +402,19 @@ fn coerce_push_value(ctx: &mut LowerCtx<'_>, arg_eid: ExprId, elem_ty: Type) -> 
         (Type::Str, Type::Substr) => {
             let owned = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![val]),
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![val.clone()]),
                 Type::Str,
                 None,
             );
+            // Chunk 743 — substr_to_owned READS the view without
+            // consuming it: a fresh view mint (string index / slice
+            // call) hands this lane its only ref, which nothing else
+            // drops (churn: 300k `ss.push(s[i%8])` 15.96MB vs 6.3MB
+            // flat — unshift twin identical). Borrow views (ident
+            // reads of a live binding) stay with their owner.
+            if ctx.expr_transfers_ownership(arg_eid) {
+                ctx.emit_drop_value(val, Type::Substr);
+            }
             val_owned_from_substr = true;
             Operand::Value(owned)
         }
