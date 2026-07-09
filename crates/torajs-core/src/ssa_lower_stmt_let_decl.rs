@@ -51,7 +51,13 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{LocalInfo, LowerCtx, intern_arr_layout};
 use crate::ssa_lower_parse_type::parse_type;
 
-pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, init: ExprId) {
+pub(crate) fn lower(
+    ctx: &mut LowerCtx,
+    name: &str,
+    type_ann: Option<&String>,
+    init: ExprId,
+    mutable: bool,
+) {
     // T-19.d — `let X: T = await Bun.file(p).json()`. Sub-sibling.
     if crate::ssa_lower_stmt_let_decl_bun_json::try_lower(ctx, name, type_ann, init) {
         return;
@@ -83,6 +89,16 @@ pub(crate) fn lower(ctx: &mut LowerCtx, name: &str, type_ann: Option<&String>, i
             ctx.struct_layouts,
             ctx.inst_memo,
         );
+        // L3b #4 — a MUTABLE fn-typed local re-reprs Closure (the
+        // toplevel-globals K.3b decision, fn-local mirror):
+        // reassignment stores env-carrying arrows, which a FnSig
+        // (direct-dispatch) slot can't hold. Immutable bindings keep
+        // the FnSig home. Variadic anns parse to Closure already and
+        // never take this arm.
+        let parsed = match parsed {
+            Type::FnSig(sig) if mutable => Type::Closure(sig),
+            t => t,
+        };
         if parsed == Type::I64
             && type_ann.map(|s| s.as_str()) == Some("number")
             && ctx

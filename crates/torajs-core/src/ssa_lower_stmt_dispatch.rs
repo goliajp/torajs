@@ -57,13 +57,19 @@ impl<'a> LowerCtx<'a> {
                 crate::ssa_lower_stmt_block::lower(self, stmts);
             }
             Stmt::LetDecl {
-                mutable: _,
+                mutable,
                 name,
                 type_ann,
                 init,
                 is_var: false,
             } => {
-                crate::ssa_lower_stmt_let_decl::lower(self, name, type_ann.as_ref(), *init);
+                crate::ssa_lower_stmt_let_decl::lower(
+                    self,
+                    name,
+                    type_ann.as_ref(),
+                    *init,
+                    *mutable,
+                );
             }
             Stmt::While { cond, body } => {
                 lower_while_inner(self, *cond, body, None);

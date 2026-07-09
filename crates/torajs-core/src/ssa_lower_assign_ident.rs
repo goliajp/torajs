@@ -126,6 +126,9 @@ fn global_coercion_compatible(slot_ty: Type, v_ty: Type) -> bool {
         || v_ty == Type::Ptr
         || (matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any)
         || (slot_ty == Type::Str && v_ty == Type::Any)
+        // L3b #4 — shorter-arity closures fit wider fn-typed slots
+        // (see check_local_coercion's Closure arm).
+        || (matches!(slot_ty, Type::Closure(_)) && matches!(v_ty, Type::Closure(_)))
 }
 
 fn coerce_for_global(ctx: &mut LowerCtx<'_>, slot_ty: Type, v_ty: Type, v: Operand) -> Operand {
@@ -229,6 +232,14 @@ fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type, v_ty: Typ
         || snap_ty == Type::Ptr
         || v_ty == Type::Ptr;
     if int_or_ptr_lax {
+        return;
+    }
+    // L3b #4 — a shorter-arity closure fits a wider fn-typed slot
+    // (the checker's callback-subtype lattice is the sole admit
+    // gate): both are env cells, the call site pushes the SLOT sig's
+    // args and the callee reads its own shorter prefix, extra arg
+    // registers are simply never read.
+    if matches!(snap_ty, Type::Closure(_)) && matches!(v_ty, Type::Closure(_)) {
         return;
     }
     let _ = ctx;

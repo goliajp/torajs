@@ -76,16 +76,9 @@ fn is_assignable_to_deep(
         }
         return is_assignable_to_deep(to_el, from_el, aliases, generic_aliases, seen);
     }
-    // RFC 20260708-variadic — a rest-tail fn type (`(...args: E[])
-    // => R`) admits any fn value the callback-subtype lattice
-    // accepts (prefix pairs, overflow slots against E, Any
-    // widening). Delegated so the call-arg and let-binding sites
-    // agree on one predicate.
-    if matches!(&to_r, Type::Function(ps, _) if matches!(ps.last(), Some(Type::Rest(_))))
-        && matches!(&from_r, Type::Function(..))
-    {
-        return crate::check_type_of_call_callback_subtype::matches(&to_r, &from_r);
-    }
+    // Fn-typed pairings (rest-tail AND fixed-arity) delegate to the
+    // callback-subtype lattice in the shallow layer's tail arm — the
+    // deep layer only needs to fall through with resolved types.
     // `Promise<T>` is covariant in T, same shape as the Array arm.
     // The load-bearing case is `Promise(Any) ← Promise(Number)`: a
     // default-Any async fn's tail-safety return constructs
@@ -192,6 +185,16 @@ pub(crate) fn is_assignable_to(to: &Type, from: &Type) -> bool {
     // Struct field recursion lands here with already-resolved types).
     if let (Type::Promise(to_inner), Type::Promise(from_inner)) = (to, from) {
         return is_assignable_to(to_inner, from_inner);
+    }
+    // L3b #4 — fn values ride the callback-subtype lattice at EVERY
+    // assignment position, not just call args: TS lets a function
+    // ignore trailing parameters (`(x) => x` fits a `(a, b) =>
+    // number` slot — Map.forEach's `(v) =>` is the canonical shape).
+    // The call layer has admitted this since S133; let / assign /
+    // field positions fell through to strict equality and rejected
+    // the same pairing. One predicate, all positions.
+    if matches!(to, Type::Function(..)) && matches!(from, Type::Function(..)) {
+        return crate::check_type_of_call_callback_subtype::matches(to, from);
     }
     false
 }
