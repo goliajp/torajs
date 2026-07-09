@@ -25,7 +25,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, Expr, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::ast_refs::GlobalSlotShape;
 use crate::num_width::SlotKey;
 use crate::ssa::Type;
@@ -102,48 +102,22 @@ pub(crate) fn collect_toplevel_globals(
                 }
             };
             let ty = match type_ann {
-                Some(ann) => {
-                    let parsed = parse_type(
-                        Some(ann),
-                        aliases,
-                        arr_layouts,
-                        fn_sigs,
-                        generic_struct_decls,
-                        struct_layouts,
-                        inst_memo,
-                    );
-                    // W4 — container elem widths from the alias-class
-                    // table (same consult as the fn-local let site).
-                    let parsed = crate::ssa_lower_container_width::widen_container_ty(
-                        parsed,
-                        Some(ann),
-                        &SlotKey::Global(name.clone()),
-                        num_f64_slots,
-                        arr_layouts,
-                        struct_layouts,
-                        fn_sigs,
-                    );
-                    // RFC 20260709-closure-global chunk 1 — a fn-type
-                    // annotation parses to FnSig (direct-dispatch
-                    // repr), but the global slot holds Closure values
-                    // (lifted arrows mint env cells), so re-repr over
-                    // the same interned sig (struct-field `__cls`
-                    // precedent). Variadic anns keep the main-local
-                    // home: the boxed-dual call routing rides the
-                    // fn-local `variadic_locals` table (RFC O2).
-                    let parsed = match parsed {
-                        Type::FnSig(sig) if !ann.contains("__rest(") => Type::Closure(sig),
-                        Type::Closure(_) if ann.contains("__rest(") => {
-                            continue;
-                        }
-                        t => t,
-                    };
-                    if ann == "number" {
-                        widened(parsed)
-                    } else {
-                        parsed
-                    }
-                }
+                Some(ann) => match annotated_slot_ty(
+                    ann,
+                    name,
+                    *init,
+                    ast,
+                    aliases,
+                    arr_layouts,
+                    fn_sigs,
+                    generic_struct_decls,
+                    struct_layouts,
+                    inst_memo,
+                    num_f64_slots,
+                ) {
+                    Some(t) => t,
+                    None => continue,
+                },
                 None => {
                     if !binding_refs.named_fn_refs.contains(name)
                         || binding_refs.closure_captured.contains(name)
@@ -245,4 +219,73 @@ pub(crate) fn collect_toplevel_globals(
         }
     }
     globals
+}
+
+/// K.3b — slot type for an ANNOTATED top-level binding. `None` keeps
+/// the binding main-local.
+///
+/// W4 — container elem widths come from the alias-class table (same
+/// consult as the fn-local let site).
+///
+/// RFC 20260709-closure-global chunk 1 — a fn-type annotation parses
+/// to FnSig (direct-dispatch repr), but the global slot holds Closure
+/// values (lifted arrows mint env cells), so re-repr over the same
+/// interned sig (struct-field `__cls` precedent). The re-repr only
+/// fires when the init IS a lifted arrow (`Expr::Closure` — every
+/// arrow lifts to it regardless of capture count since
+/// P3.closure-in-struct-field): only that shape mints the fresh env
+/// cell K.4 requires. A named-fn reference init
+/// (`const f: (x)=>y = take`) lowers to a borrow-shaped FnAddr and
+/// must keep the main-local home (the fn_addr_let lane handles it);
+/// wrapping it in a forwarder env is the RFC's chunk-4 station.
+/// Variadic anns keep the main-local home too: the boxed-dual call
+/// routing rides the fn-local `variadic_locals` table (RFC O2).
+#[allow(clippy::too_many_arguments)]
+fn annotated_slot_ty(
+    ann: &str,
+    name: &str,
+    init: ExprId,
+    ast: &Ast,
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    inst_memo: &mut HashMap<String, crate::ssa::StructId>,
+    num_f64_slots: &crate::num_width::WidthTable,
+) -> Option<Type> {
+    let parsed = parse_type(
+        Some(ann),
+        aliases,
+        arr_layouts,
+        fn_sigs,
+        generic_struct_decls,
+        struct_layouts,
+        inst_memo,
+    );
+    let parsed = crate::ssa_lower_container_width::widen_container_ty(
+        parsed,
+        Some(ann),
+        &SlotKey::Global(name.to_string()),
+        num_f64_slots,
+        arr_layouts,
+        struct_layouts,
+        fn_sigs,
+    );
+    let init_is_lifted_arrow = matches!(ast.get_expr(init), Expr::Closure { .. });
+    let parsed = match parsed {
+        Type::FnSig(sig) if !ann.contains("__rest(") && init_is_lifted_arrow => Type::Closure(sig),
+        Type::Closure(_) if ann.contains("__rest(") => return None,
+        t => t,
+    };
+    Some(
+        if ann == "number"
+            && parsed == Type::I64
+            && num_f64_slots.slot_is_f64(&SlotKey::Global(name.to_string()))
+        {
+            Type::F64
+        } else {
+            parsed
+        },
+    )
 }

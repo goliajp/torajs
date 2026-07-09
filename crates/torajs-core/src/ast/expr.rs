@@ -136,12 +136,13 @@ pub enum Expr {
         body: Vec<Stmt>,
     },
     /// Lifted closure with implicit captures (M2). After `lift_arrow_fns`,
-    /// each capturing arrow becomes this expression: `fn_name` references
-    /// the lifted top-level FnDecl (which expects an extra hidden first
+    /// each arrow becomes this expression: `fn_name` references the
+    /// lifted top-level FnDecl (which expects an extra hidden first
     /// param `__env`); `captures` lists the outer-scope binding names that
     /// must be packed into the env at construction time, in the same order
-    /// as the lifted FnDecl reads them. Non-capturing arrows still lower
-    /// to `Expr::Ident` (FnAddr) — only capturing ones use this variant.
+    /// as the lifted FnDecl reads them. Since P3.closure-in-struct-field
+    /// zero-capture arrows use this variant too (empty `captures`, an
+    /// `__env()` annotation) so call-site dispatch stays uniform.
     Closure {
         fn_name: String,
         captures: Vec<String>,
