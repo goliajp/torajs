@@ -9,9 +9,23 @@
 //! artifact-hash gate then flags spurious diffs on every tr rebuild).
 
 use crate::ssa::{InstKind, Operand, Type, ValueId};
-use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower::{LocalInfo, LowerCtx};
 
 impl LowerCtx<'_> {
+    /// RFC 20260710 — was this (shadow-restored) binding promoted to
+    /// a non-Copy capture box by its let-decl site? Re-derives the
+    /// promotion predicate — the scope-close set cleanup removes the
+    /// inner name, and the restore re-inserts iff the OUTER binding
+    /// was itself boxed (owner-marked: moved, not borrowed).
+    pub(crate) fn binding_is_boxed_noncopy(&self, name: &str, info: &LocalInfo) -> bool {
+        info.moved
+            && !info.borrowed
+            && !info.ty.is_copy()
+            && !matches!(info.ty, Type::Any | Type::Substr)
+            && self.escape_captured_lets.contains(name)
+            && self.mutated_captured_lets.contains(name)
+    }
+
     pub(crate) fn emit_drops_for_owned_locals(&mut self) {
         // Snapshot to avoid borrowing self.locals while we emit instructions
         // (which need &mut self.f). Cheap: bench cases have <10 locals each.
@@ -54,6 +68,27 @@ impl LowerCtx<'_> {
             self.f.append_void(
                 self.cur_block,
                 InstKind::Call(self.intrinsics.capture_box_drop, vec![Operand::Value(slot)]),
+            );
+        }
+        // RFC 20260710 — promoted mutable non-Copy captures hold a
+        // box stake too; the heap variant releases the boxed content
+        // on the last drop. Borrowed entries are closure-body
+        // preamble bindings — the env owns their stake, not this
+        // frame.
+        let mut boxed_heap: Vec<ValueId> = self
+            .locals
+            .iter()
+            .filter(|(name, info)| !info.borrowed && self.boxed_noncopy_lets.contains(*name))
+            .map(|(_, info)| info.slot)
+            .collect();
+        boxed_heap.sort_by_key(|slot| std::cmp::Reverse(slot.0));
+        for slot in boxed_heap {
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Call(
+                    self.intrinsics.capture_box_drop_heap,
+                    vec![Operand::Value(slot)],
+                ),
             );
         }
     }

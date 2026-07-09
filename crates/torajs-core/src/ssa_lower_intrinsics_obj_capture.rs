@@ -40,6 +40,7 @@ pub(crate) struct ObjCaptureIds {
     pub capture_box_alloc: FuncId,
     pub capture_box_inc: FuncId,
     pub capture_box_drop: FuncId,
+    pub capture_box_drop_heap: FuncId,
 }
 
 pub(crate) fn declare(
@@ -93,6 +94,13 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_capture_box_drop",
+            &[Type::Ptr],
+            Type::Void,
+        ),
+        capture_box_drop_heap: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_capture_box_drop_heap",
             &[Type::Ptr],
             Type::Void,
         ),

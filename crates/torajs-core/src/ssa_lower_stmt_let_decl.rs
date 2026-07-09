@@ -317,8 +317,25 @@ pub(crate) fn lower(
     {
         ty = init_ty;
     }
-    let escape_captured = ty.is_copy() && ctx.escape_captured_lets.contains(name);
+    // RFC 20260710 — a MUTATED non-Copy captured binding promotes to
+    // a capture box so every closure shares the live binding (ES
+    // §9.1) instead of an env-owns snapshot. Never-written captures
+    // keep the snapshot (indistinguishable from sharing, zero
+    // indirection); Any / Substr slots are recorded C4 boundaries
+    // (NaN-box / view-cell release paths differ from the universal
+    // heap drop).
+    let boxed_noncopy = !ty.is_copy()
+        && !matches!(ty, Type::Any | Type::Substr)
+        && ctx.escape_captured_lets.contains(name)
+        && ctx.mutated_captured_lets.contains(name);
+    let escape_captured =
+        (ty.is_copy() && ctx.escape_captured_lets.contains(name)) || boxed_noncopy;
     let slot = if escape_captured {
+        if boxed_noncopy && is_alias_init && !boxed_any {
+            // An alias-shape init carries no stake of its own — the
+            // box takes a fresh share (the source binding keeps its).
+            ctx.emit_rc_inc(init_val.clone());
+        }
         ctx.emit_capture_boxed(ty, init_val)
     } else {
         let slot = ctx.binding_slot_alloca(ty, name);
@@ -328,6 +345,9 @@ pub(crate) fn lower(
         );
         slot
     };
+    if boxed_noncopy {
+        ctx.boxed_noncopy_lets.insert(name.to_string());
+    }
     if let Some(prev) = ctx.locals.get(name).copied()
         && prev.scope_depth < cur_depth
     {
@@ -343,7 +363,9 @@ pub(crate) fn lower(
             // the init's alias shape — it must reach the scope-close
             // drop walk (chunk 563).
             moved: (is_alias_init && !boxed_any) || escape_captured,
-            borrowed: is_alias_init && !boxed_any,
+            // A boxed non-Copy binding owns its box stake even when
+            // the init was an alias (the box inc'd its own share).
+            borrowed: is_alias_init && !boxed_any && !boxed_noncopy,
             scope_depth: cur_depth,
         },
     );

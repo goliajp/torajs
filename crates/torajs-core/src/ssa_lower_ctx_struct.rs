@@ -235,6 +235,20 @@ pub(crate) struct LowerCtx<'a> {
     /// Empty for non-escape-context fns; populated at fn-entry by
     /// scanning `body` for `Expr::Closure` captures.
     pub(crate) escape_captured_lets: std::collections::HashSet<String>,
+    /// RFC 20260710 — names assigned anywhere in the program
+    /// (Assign-Ident / PostIncr targets, lifted closure bodies
+    /// included). A captured non-Copy binding that appears here is
+    /// MUTATED and promotes to a capture box so every closure shares
+    /// the live binding (ES §9.1) instead of an env-owns snapshot.
+    pub(crate) mutated_captured_lets: std::collections::HashSet<String>,
+    /// RFC 20260710 — non-Copy bindings in the current fn that were
+    /// promoted to a capture box (`LocalInfo.slot` is the box value
+    /// slot). Drives the byref capture write, the scope-close /
+    /// fn-exit `capture_box_drop_heap` release, and nested-capture
+    /// byref propagation. `LocalInfo.borrowed == false` marks the
+    /// stake owner (the declaring frame); a closure-body preamble
+    /// binding is borrowed (the env owns its stake).
+    pub(crate) boxed_noncopy_lets: std::collections::HashSet<String>,
     /// v0.6+1 perf checkpoint — push-loop pre-reserve fast-push state.
     ///
     /// When the for-loop lowerer detects a canonical fill loop

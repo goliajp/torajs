@@ -184,6 +184,8 @@ pub(crate) fn lower_fn(
         call_retargets,
         may_throw_fns,
         escape_captured_lets: std::collections::HashSet::new(),
+        mutated_captured_lets: std::collections::HashSet::new(),
+        boxed_noncopy_lets: std::collections::HashSet::new(),
         push_unchecked_for: std::collections::HashMap::new(),
         regex_lit_cache: std::collections::HashMap::new(),
         binop_left_undef_id: None,
@@ -213,6 +215,10 @@ pub(crate) fn lower_fn(
 
     for s in body {
         collect_closure_captures_in_stmt(ctx.ast, s, &mut ctx.escape_captured_lets);
+    }
+    if !ctx.escape_captured_lets.is_empty() {
+        ctx.mutated_captured_lets =
+            crate::ssa_lower_closure_captures::collect_assigned_names(ctx.ast);
     }
     for s in body {
         collect_deque_arr_names_in_stmt(ctx.ast, s, &mut ctx.deque_arrs);
@@ -384,7 +390,16 @@ impl<'a> LowerCtx<'a> {
                 None,
             );
             let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
-            let cap_slot = if cap_ty.is_copy() && is_byref {
+            // A byref slot holds a capture-box pointer — bind the box
+            // value slot directly so body reads AND writes hit the
+            // shared live binding (Copy escape-captures + RFC 20260710
+            // promoted mutable non-Copy captures).
+            let cap_slot = if is_byref {
+                if !cap_ty.is_copy() {
+                    // Nested closures capturing this name must ride
+                    // the same box (byref write_captures arm).
+                    self.boxed_noncopy_lets.insert(cap_name.clone());
+                }
                 self.f.append_inst(
                     self.cur_block,
                     InstKind::Load(Type::Ptr, Operand::Value(env_ptr), offset),

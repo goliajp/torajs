@@ -154,7 +154,13 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
     check_local_coercion(ctx, &name, snapshot.ty, v_ty);
     let v = coerce_for_local(ctx, snapshot.ty, v_ty, v);
     let post_rhs = *ctx.locals.get(&name).unwrap_or(&snapshot);
-    if !snapshot.ty.is_copy() && !post_rhs.moved {
+    // RFC 20260710 — a promoted mutable capture binding is
+    // moved-marked (its stake lives in the capture box), but the box
+    // DOES own the old value: the overwrite must release it, and the
+    // moved mark must survive the assign (the box-drop sites release
+    // the stake, not the plain drop walk).
+    let is_boxed = ctx.boxed_noncopy_lets.contains(&name);
+    if !snapshot.ty.is_copy() && (!post_rhs.moved || is_boxed) {
         let cur_block = ctx.cur_block;
         let old = ctx.f.append_inst(
             cur_block,
@@ -169,7 +175,9 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
         cur_block,
         InstKind::Store(v, Operand::Value(snapshot.slot), 0),
     );
-    if let Some(info) = ctx.locals.get_mut(&name) {
+    if let Some(info) = ctx.locals.get_mut(&name)
+        && !is_boxed
+    {
         info.moved = false;
     }
     v

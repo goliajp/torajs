@@ -83,9 +83,20 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
             }
         })
         .collect();
+    // The bool is the BYREF flag: the env slot holds a capture-box
+    // pointer (shared live binding) instead of a value snapshot.
+    // Copy escape-captures always box (T-15.g.5); a mutated non-Copy
+    // binding promotes too (RFC 20260710 — the let-decl site boxed
+    // it and recorded the name in `boxed_noncopy_lets`).
     let cap_meta: Vec<(String, Type, bool)> = eff_captures
         .iter()
-        .map(|(n, t)| (n.clone(), *t, t.is_copy()))
+        .map(|(n, t)| {
+            (
+                n.clone(),
+                *t,
+                t.is_copy() || ctx.boxed_noncopy_lets.contains(n),
+            )
+        })
         .collect();
     ctx.closure_captures.insert(fn_name.clone(), cap_meta);
 
@@ -212,7 +223,7 @@ fn write_captures(ctx: &mut LowerCtx<'_>, env_v: crate::ssa::ValueId, captures: 
     for (i, (cap_name, cap_ty)) in captures.iter().enumerate() {
         let info = *ctx.locals.get(cap_name).expect("capture in scope");
         let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
-        if cap_ty.is_copy() {
+        if cap_ty.is_copy() || ctx.boxed_noncopy_lets.contains(cap_name) {
             let cur_block = ctx.cur_block;
             ctx.f.append_void(
                 cur_block,

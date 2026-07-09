@@ -110,6 +110,8 @@ pub(crate) fn synthesize_main(
             call_retargets,
             may_throw_fns,
             escape_captured_lets: std::collections::HashSet::new(),
+            mutated_captured_lets: std::collections::HashSet::new(),
+            boxed_noncopy_lets: std::collections::HashSet::new(),
             push_unchecked_for: std::collections::HashMap::new(),
             regex_lit_cache: std::collections::HashMap::new(),
             binop_left_undef_id: None,
@@ -146,6 +148,10 @@ pub(crate) fn synthesize_main(
         // for user fn bodies; synthesize_main was missing it.
         for s in stmts {
             collect_closure_captures_in_stmt(ctx.ast, s, &mut ctx.escape_captured_lets);
+        }
+        if !ctx.escape_captured_lets.is_empty() {
+            ctx.mutated_captured_lets =
+                crate::ssa_lower_closure_captures::collect_assigned_names(ctx.ast);
         }
         // 11-A1 — prime deque-unsafe Array binding set.
         for s in stmts {

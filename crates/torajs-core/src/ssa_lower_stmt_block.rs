@@ -74,6 +74,19 @@ pub(crate) fn lower(ctx: &mut LowerCtx, stmts: &[Stmt]) {
                 }
                 continue;
             }
+            // RFC 20260710 — a promoted mutable non-Copy capture
+            // releases its box stake (content drops with the box on
+            // the last release).
+            if !info.borrowed && ctx.boxed_noncopy_lets.contains(name) {
+                ctx.f.append_void(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.capture_box_drop_heap,
+                        vec![Operand::Value(info.slot)],
+                    ),
+                );
+                continue;
+            }
             if info.moved || ctx.stack_alloced_locals.contains(name) {
                 continue;
             }
@@ -87,9 +100,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, stmts: &[Stmt]) {
         }
     }
     for name in frame {
+        ctx.boxed_noncopy_lets.remove(&name);
         ctx.locals.remove(&name);
     }
     for (name, prev) in shadows {
+        if ctx.binding_is_boxed_noncopy(&name, &prev) {
+            ctx.boxed_noncopy_lets.insert(name.clone());
+        }
         ctx.locals.insert(name, prev);
     }
 }

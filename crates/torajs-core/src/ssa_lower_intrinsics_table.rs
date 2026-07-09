@@ -46,6 +46,7 @@ pub(crate) fn build(
         capture_box_alloc: init_a.obj_capture.capture_box_alloc,
         capture_box_inc: init_a.obj_capture.capture_box_inc,
         capture_box_drop: init_a.obj_capture.capture_box_drop,
+        capture_box_drop_heap: init_a.obj_capture.capture_box_drop_heap,
         obj_drop_sized: init_a.obj_capture.obj_drop_sized,
         value_drop_heap: init_a.obj_capture.value_drop_heap,
         cycle_unbuffer: init_a.obj_capture.cycle_unbuffer,

@@ -34,6 +34,13 @@
 
 use core::ffi::c_void;
 
+unsafe extern "C" {
+    /// Cross-tier universal heap drop (tag-dispatched, rc-aware) —
+    /// releases the boxed non-Copy content when the last stake on a
+    /// promoted mutable capture box drops (RFC 20260710).
+    fn __torajs_value_drop_heap(p: *mut c_void);
+}
+
 const BOX_SIZE: usize = 16;
 
 fn box_layout() -> std::alloc::Layout {
@@ -122,9 +129,62 @@ pub unsafe extern "C" fn __torajs_capture_box_drop(slot_ptr: *mut c_void) {
     }
 }
 
+/// [`__torajs_capture_box_drop`] for a box holding a NON-Copy value
+/// (RFC 20260710 — promoted mutable captured binding): when the last
+/// stake drops, release the boxed heap content through the universal
+/// tag-dispatched drop BEFORE freeing the box. A zero payload (never
+/// initialized / nulled slot) skips the content release.
+///
+/// # Safety
+///
+/// `slot_ptr` is null or a value-slot pointer from
+/// [`__torajs_capture_box_alloc`]; a non-zero payload is a valid
+/// universal-header heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_capture_box_drop_heap(slot_ptr: *mut c_void) {
+    if slot_ptr.is_null() {
+        return;
+    }
+    unsafe {
+        let rc = rc_word(slot_ptr);
+        if *rc > 1 {
+            *rc -= 1;
+            return;
+        }
+        // Last stake (rc 1, or the defensive never-inc'd rc 0 edge):
+        // release the content, then the box.
+        let content = *(slot_ptr as *const i64);
+        if content != 0 {
+            __torajs_value_drop_heap(content as *mut c_void);
+        }
+        std::alloc::dealloc(rc as *mut u8, box_layout());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test-binary stand-in for the runtime's universal heap drop —
+    /// the real provider lives in the torajs-value-drop staticlib,
+    /// which unit-test binaries don't link (torajs-arr stub
+    /// convention). Records nothing; the drop-heap tests only
+    /// exercise box rc mechanics with a zero payload.
+    #[unsafe(no_mangle)]
+    extern "C" fn __torajs_value_drop_heap(_p: *mut c_void) {}
+
+    #[test]
+    fn drop_heap_zero_payload_round_trip() {
+        let slot = __torajs_capture_box_alloc(0);
+        assert!(!slot.is_null());
+        unsafe { __torajs_capture_box_inc(slot) };
+        // First drop: rc 2 → 1, box stays live.
+        unsafe { __torajs_capture_box_drop_heap(slot) };
+        let v = unsafe { *(slot as *const i64) };
+        assert_eq!(v, 0);
+        // Last drop: zero payload skips content release, frees box.
+        unsafe { __torajs_capture_box_drop_heap(slot) };
+    }
 
     #[test]
     fn alloc_inc_drop_round_trip() {

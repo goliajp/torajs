@@ -81,23 +81,30 @@ pub(crate) fn synthesize_env_drop(
     );
     f.set_term(drop_blk, Terminator::Br(after_props));
     let entry = after_props;
-    for (i, (cap_ty, _is_byref)) in cap_meta.iter().enumerate() {
+    for (i, (cap_ty, is_byref)) in cap_meta.iter().enumerate() {
         let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
-        if cap_ty.is_copy() {
-            // T-15.g.5 — Copy capture box is refcounted. env+offset
-            // holds a pointer at the value slot (= alloc_base + 8).
-            // capture_box_drop steps back to read/dec the rc and
-            // free's the underlying allocation when the last
-            // capturing closure releases.
+        if *is_byref {
+            // T-15.g.5 — the env slot holds a capture-box value-slot
+            // pointer (= alloc_base + 8); the box helper steps back
+            // to dec the rc and frees on the last release. A Copy
+            // box holds a plain value; a promoted non-Copy box (RFC
+            // 20260710) owns its heap content — `capture_box_drop_
+            // heap` releases the content through the universal drop
+            // before freeing the box.
             let slot_ptr = f.append_inst(
                 entry,
                 InstKind::Load(Type::Ptr, env_op, offset),
                 Type::Ptr,
                 None,
             );
+            let drop_fid = if cap_ty.is_copy() {
+                intrinsics.capture_box_drop
+            } else {
+                intrinsics.capture_box_drop_heap
+            };
             f.append_void(
                 entry,
-                InstKind::Call(intrinsics.capture_box_drop, vec![Operand::Value(slot_ptr)]),
+                InstKind::Call(drop_fid, vec![Operand::Value(slot_ptr)]),
             );
         } else {
             // RFC 20260705 Phase 1 — the env owns its non-Copy
