@@ -132,6 +132,12 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     let mut any_bindings: HashSet<String> = HashSet::new();
     crate::ast_collect_fn_closure::collect_any_bindings(&ast.stmts, &mut any_bindings);
 
+    // Chunk 733 — binding names declared with a fn-typed array ann;
+    // their element slots are Closure-repr, so `fns.push(top_fn)` /
+    // `fns[i] = top_fn` store-sites wrap.
+    let mut fn_arr_bindings: HashSet<String> = HashSet::new();
+    crate::ast_collect_fn_closure::collect_fn_arr_bindings(&ast.stmts, &mut fn_arr_bindings);
+
     // RFC 20260709-closure-global chunk 4 — top-level Closure-repr
     // binding names (lifted-arrow init or fn-type annotation): the
     // assign axis wraps `cb = top_fn` so the global assign lane
@@ -163,6 +169,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         struct_field_anns: &struct_field_anns,
         any_bindings: &any_bindings,
         closure_bindings: &closure_bindings,
+        fn_arr_bindings: &fn_arr_bindings,
         targets: HashSet::new(),
         rewrites: Vec::new(),
     };

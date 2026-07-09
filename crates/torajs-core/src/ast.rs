@@ -75,8 +75,8 @@ pub use infer_closure_params::infer_anonymous_closure_params;
 pub use inject_builtin_classes::inject_builtin_classes;
 pub use lift_arrow_fns::lift_arrow_fns;
 pub(crate) use lift_arrow_fns::{
-    build_factory_body, default_init_for_field, default_init_for_type, is_fn_like_ann,
-    method_owner_is_in_chain, rewrite_this_in_ann,
+    build_factory_body, default_init_for_field, default_init_for_type, is_fn_arr_ann,
+    is_fn_like_ann, method_owner_is_in_chain, rewrite_this_in_ann,
 };
 pub use module_passes::{desugar_builtin_imports, rename_user_main, unwrap_exports};
 pub use nested_fns::desugar_nested_fns;

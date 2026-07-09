@@ -38,6 +38,12 @@
 //!   a named-fn body (same RFC; the let-init axis lives in
 //!   `ast/forwarders_object.rs` — it needs the ast_refs gate, not
 //!   the recursive walk).
+//! - fn-typed ARRAY positions (chunk 733 — element slots are
+//!   Closure-repr per `ssa_lower_parse_type`'s `[]` re-repr):
+//!   array-literal elements in a fn-arr-annotated let-init or
+//!   call-arg (`const ops: ((n)=>n)[] = [name]` / `run([name])`),
+//!   `fns.push(name)` / `fns.unshift(name)`, and `fns[i] = name`
+//!   where `fns` was declared with a fn-arr annotation.
 //!
 //! Without the wrap these positions hold a raw FnSig value: the
 //! any-boxing site has no FnSig arm ("box_to_any element type FnSig
@@ -65,6 +71,11 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// stores a closure cell. Scope-approximate like `any_bindings`
     /// (a shadowing local match only costs the wrap).
     pub(crate) closure_bindings: &'a HashSet<String>,
+    /// Binding names declared with a fn-typed ARRAY annotation
+    /// (chunk 733, `is_fn_arr_ann`): the element slot is Closure-repr,
+    /// so `fns.push(top_fn)` / `fns[i] = top_fn` wrap. Scope-
+    /// approximate like the other two sets.
+    pub(crate) fn_arr_bindings: &'a HashSet<String>,
     pub(crate) targets: HashSet<String>,
     pub(crate) rewrites: Vec<(ExprId, String)>,
 }
@@ -72,45 +83,66 @@ pub(crate) struct FnToClosureCollector<'a> {
 /// Collect every `let`/`const`/`var` binding name carrying an `any`
 /// annotation, recursing through fn bodies and statement containers.
 pub(crate) fn collect_any_bindings(stmts: &[Stmt], out: &mut HashSet<String>) {
+    collect_bindings_matching(stmts, &|a| a.trim() == "any", out);
+}
+
+/// Chunk 733 — binding names declared with a fn-typed array
+/// annotation (`((n)=>n)[]` / `Array<(n)=>n>`); their element slots
+/// are Closure-repr, so named-fn store-sites into them wrap.
+pub(crate) fn collect_fn_arr_bindings(stmts: &[Stmt], out: &mut HashSet<String>) {
+    collect_bindings_matching(stmts, &crate::ast::is_fn_arr_ann, out);
+}
+
+/// Shared annotation-predicate binding walk (chunk 733 — the any
+/// and fn-arr collections differ only in the ann test).
+fn collect_bindings_matching(
+    stmts: &[Stmt],
+    pred: &dyn Fn(&str) -> bool,
+    out: &mut HashSet<String>,
+) {
     for s in stmts {
-        collect_any_bindings_stmt(s, out);
+        collect_bindings_matching_stmt(s, pred, out);
     }
 }
 
-fn collect_any_bindings_stmt(s: &Stmt, out: &mut HashSet<String>) {
+fn collect_bindings_matching_stmt(
+    s: &Stmt,
+    pred: &dyn Fn(&str) -> bool,
+    out: &mut HashSet<String>,
+) {
     match s {
         Stmt::LetDecl { name, type_ann, .. } => {
-            if type_ann.as_deref().is_some_and(|a| a.trim() == "any") {
+            if type_ann.as_deref().is_some_and(pred) {
                 out.insert(name.clone());
             }
         }
-        Stmt::FnDecl { body, .. } => collect_any_bindings(body, out),
+        Stmt::FnDecl { body, .. } => collect_bindings_matching(body, pred, out),
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            collect_any_bindings_stmt(then_branch, out);
+            collect_bindings_matching_stmt(then_branch, pred, out);
             if let Some(eb) = else_branch {
-                collect_any_bindings_stmt(eb, out);
+                collect_bindings_matching_stmt(eb, pred, out);
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_any_bindings_stmt(body, out)
+            collect_bindings_matching_stmt(body, pred, out)
         }
         Stmt::For { init, body, .. } => {
             if let Some(init) = init {
-                collect_any_bindings_stmt(init, out);
+                collect_bindings_matching_stmt(init, pred, out);
             }
-            collect_any_bindings_stmt(body, out);
+            collect_bindings_matching_stmt(body, pred, out);
         }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_any_bindings(stmts, out),
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_bindings_matching(stmts, pred, out),
         Stmt::Switch { cases, default, .. } => {
             for c in cases {
-                collect_any_bindings(&c.body, out);
+                collect_bindings_matching(&c.body, pred, out);
             }
             if let Some(d) = default {
-                collect_any_bindings(d, out);
+                collect_bindings_matching(d, pred, out);
             }
         }
         Stmt::Try {
@@ -119,10 +151,10 @@ fn collect_any_bindings_stmt(s: &Stmt, out: &mut HashSet<String>) {
             finally_body,
             ..
         } => {
-            collect_any_bindings(body, out);
-            collect_any_bindings(catch_body, out);
+            collect_bindings_matching(body, pred, out);
+            collect_bindings_matching(catch_body, pred, out);
             if let Some(fb) = finally_body {
-                collect_any_bindings(fb, out);
+                collect_bindings_matching(fb, pred, out);
             }
         }
         _ => {}
@@ -152,6 +184,12 @@ impl<'a> FnToClosureCollector<'a> {
                 self.collect_objectlit_field_sites(*init, type_ann.as_deref());
                 if type_ann.as_deref().is_some_and(|a| a.trim() == "any") {
                     self.collect_any_init_sites(*init);
+                }
+                // Chunk 733 — `const fns: ((n)=>n)[] = [top_fn, ...]`:
+                // the element slot is Closure-repr, wrap each bare
+                // named-fn element.
+                if type_ann.as_deref().is_some_and(crate::ast::is_fn_arr_ann) {
+                    self.mark_array_lit_elems(*init);
                 }
                 self.walk_expr(*init);
             }
@@ -287,6 +325,32 @@ impl<'a> FnToClosureCollector<'a> {
                 {
                     self.try_mark(args[1]);
                 }
+                // Chunk 733 — `fns.push(top_fn)` / `fns.unshift(top_fn)`
+                // where `fns` was declared with a fn-typed array ann:
+                // the element slot is Closure-repr.
+                if let Expr::Member { obj, name: mname } = self.ast.get_expr(*callee)
+                    && matches!(mname.as_str(), "push" | "unshift")
+                    && let Expr::Ident(oname) = self.ast.get_expr(*obj)
+                    && self.fn_arr_bindings.contains(oname)
+                {
+                    for arg in args.clone() {
+                        self.try_mark(arg);
+                    }
+                }
+                // Chunk 733 — an array-literal argument whose matching
+                // declared param carries a fn-typed array ann:
+                // `takeOps([top_fn])`.
+                if let Expr::Ident(cname) = self.ast.get_expr(*callee)
+                    && let Some((params, _)) = self.fn_sigs.get(cname)
+                {
+                    for (i, arg) in args.iter().enumerate() {
+                        if params.get(i).is_some_and(|p| {
+                            p.type_ann.as_deref().is_some_and(crate::ast::is_fn_arr_ann)
+                        }) {
+                            self.mark_array_lit_elems(*arg);
+                        }
+                    }
+                }
                 self.walk_expr(*callee);
                 for arg in args {
                     self.walk_expr(*arg);
@@ -313,6 +377,15 @@ impl<'a> FnToClosureCollector<'a> {
                 // Closure-repr top-level binding.
                 if let Expr::Ident(tname) = self.ast.get_expr(*target)
                     && (self.any_bindings.contains(tname) || self.closure_bindings.contains(tname))
+                {
+                    self.try_mark(*value);
+                }
+                // Chunk 733 — `fns[i] = top_fn` where `fns` was
+                // declared with a fn-typed array ann (Closure-repr
+                // element slot).
+                if let Expr::Index { obj, .. } = self.ast.get_expr(*target)
+                    && let Expr::Ident(oname) = self.ast.get_expr(*obj)
+                    && self.fn_arr_bindings.contains(oname)
                 {
                     self.try_mark(*value);
                 }
@@ -383,6 +456,17 @@ impl<'a> FnToClosureCollector<'a> {
                 {
                     self.try_mark(feid);
                 }
+            }
+        }
+    }
+
+    /// Chunk 733 — mark every bare top-FnDecl Ident element of an
+    /// array literal destined for a fn-typed array slot (let-init /
+    /// call-arg positions).
+    fn mark_array_lit_elems(&mut self, eid: ExprId) {
+        if let Expr::Array(els) = self.ast.get_expr(eid) {
+            for e in els.clone() {
+                self.try_mark(e);
             }
         }
     }

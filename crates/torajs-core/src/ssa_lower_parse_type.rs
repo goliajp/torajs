@@ -62,6 +62,17 @@ pub(crate) fn parse_type(
             struct_layouts,
             inst_memo,
         );
+        // Chunk 733 — a fn-typed array element is Closure-repr, mirror
+        // of the struct-field `__cls` tagging: the slot is mutable and
+        // can hold capturing closures (`fns.push(() => s)`), which are
+        // env pointers — dispatching one as a raw FnSig fn address
+        // jumps into the env block (SIGBUS). Named-fn store-sites are
+        // wrapped by the fn-arr axes in `ast_collect_fn_closure` so
+        // both shapes reach the slot as closure cells.
+        let elem = match elem {
+            Type::FnSig(sig) => Type::Closure(sig),
+            e => e,
+        };
         let id = intern_arr_layout(arr_layouts, elem);
         return Type::Arr(id);
     }

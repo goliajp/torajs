@@ -344,3 +344,26 @@ pub(crate) fn is_fn_like_ann(s: &str) -> bool {
     let t = s.trim();
     t.starts_with("__cls(") || t.starts_with("__fn(") || t.contains("=>") || t.starts_with('(')
 }
+
+/// Chunk 733 — fn-typed ARRAY annotation detector (`((n)=>n)[]` /
+/// `Array<(n)=>n>` spellings, parser-internal `__fn(...)->R[]` /
+/// `Array<__fn(...)->R>`). The SSA `parse_type` re-reprs such an
+/// element slot as Closure (mutable position, can hold capturing
+/// closures), so a bare top-FnDecl Ident stored into one needs the
+/// `__forward_<name>` wrap — the fn-arr axes in
+/// `ast_collect_fn_closure` match store-sites against bindings /
+/// params carrying an annotation this test accepts.
+pub(crate) fn is_fn_arr_ann(s: &str) -> bool {
+    let t = s.trim();
+    if let Some(rest) = t.strip_suffix("[]") {
+        return is_fn_like_ann(rest);
+    }
+    for head in ["Array<", "ReadonlyArray<", "Iterable<"] {
+        if let Some(rest) = t.strip_prefix(head)
+            && t.ends_with('>')
+        {
+            return is_fn_like_ann(&rest[..rest.len() - 1]);
+        }
+    }
+    false
+}

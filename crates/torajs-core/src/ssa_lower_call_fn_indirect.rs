@@ -155,10 +155,14 @@ fn try_lower_local_fnsig(
     Some(Operand::Value(v))
 }
 
-/// Generalized indirect: callee is a `Call` expr (`f(0)(5)` chained) or
-/// a `Closure` literal (`(() => v)()` IIFE). Lower the callee value,
-/// dispatch by SSA type. Mirrors `call_fn_value` but with explicit
-/// Void return handling.
+/// Generalized indirect: callee is a `Call` expr (`f(0)(5)` chained),
+/// a `Closure` literal (`(() => v)()` IIFE), or an `Index` read
+/// (`ops[i](x)` — chunk 733, fn-typed array elements are Closure-repr
+/// so the loaded element dispatches through the env-first ABI; the
+/// element read is a +0 borrow, the array binding keeps the value
+/// alive across the call). Lower the callee value, dispatch by SSA
+/// type. Mirrors `call_fn_value` but with explicit Void return
+/// handling.
 fn try_lower_call_or_closure_callee(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
@@ -167,7 +171,7 @@ fn try_lower_call_or_closure_callee(
 ) -> Option<Operand> {
     if !matches!(
         ctx.ast.get_expr(callee),
-        Expr::Call { .. } | Expr::Closure { .. }
+        Expr::Call { .. } | Expr::Closure { .. } | Expr::Index { .. }
     ) {
         return None;
     }

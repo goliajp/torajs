@@ -94,6 +94,14 @@ fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
     );
     if elem_ty.is_refcounted() && !val_owned_from_substr {
         ctx.emit_rc_inc(val);
+        // Chunk 733 — an owned-shape arg (closure literal / call
+        // result / array literal) hands its +1 to the array: the inc
+        // above is the array's stake, so the temp's own must release
+        // (probe P1 closure-push churn 30.5MB / P6 nested-arr 44.9MB
+        // / P7 owned-str 16MB vs 6.3MB flat). Borrow shapes are a
+        // no-op through the predicate. The substr-coerce lane skips
+        // (its fresh rc=1 already IS the hand-off).
+        ctx.release_owned_temp(args[0], &val);
     }
     let new_len = ctx.f.append_inst(
         ctx.cur_block,
@@ -187,6 +195,8 @@ fn try_lower_ident_local(
         );
         if elem_ty.is_refcounted() && !val_owned_from_substr {
             ctx.emit_rc_inc(val);
+            // Chunk 733 — owned-shape arg hand-off (see try_lower_index).
+            ctx.release_owned_temp(args[0], &val);
         }
         // chunk 9c — fast-push spec parity: ret new length (already in SSA
         // as `len_next`, mirrors arr[#8]).
@@ -204,6 +214,8 @@ fn try_lower_ident_local(
     );
     if elem_ty.is_refcounted() && !val_owned_from_substr {
         ctx.emit_rc_inc(val);
+        // Chunk 733 — owned-shape arg hand-off (see try_lower_index).
+        ctx.release_owned_temp(args[0], &val);
     }
     // B1 (RFC 20260706-arr-grow-alias-stability): the cell never
     // moves, so the historical slot write-back + captured-env mirror
@@ -271,6 +283,8 @@ fn try_lower_ident_global(
     );
     if elem_ty.is_refcounted() && !val_owned_from_substr {
         ctx.emit_rc_inc(val);
+        // Chunk 733 — owned-shape arg hand-off (see try_lower_index).
+        ctx.release_owned_temp(args[0], &val);
     }
     // B1 — cell fixed across grow; global-slot write-back retired.
     let new_len = ctx.f.append_inst(
@@ -341,6 +355,8 @@ fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
     );
     if elem_ty.is_refcounted() {
         ctx.emit_rc_inc(val);
+        // Chunk 733 — owned-shape arg hand-off (see try_lower_index).
+        ctx.release_owned_temp(args[0], &val);
     }
     // B1 — cell fixed across grow; field write-back retired.
     let new_len = ctx.f.append_inst(
