@@ -71,11 +71,11 @@ pub(crate) fn lower(
         return;
     }
     // K.3 / K.4 — top-level data global.
-    if try_lower_global_let(ctx, name, init) {
+    if crate::ssa_lower_stmt_let_decl_global::try_lower_global_let(ctx, name, init) {
         return;
     }
     // M2 Phase B Stage 4 — `let f = global_fn`.
-    if try_lower_fn_addr_let(ctx, name, init) {
+    if crate::ssa_lower_stmt_let_decl_global::try_lower_fn_addr_let(ctx, name, init) {
         return;
     }
     // General path.
@@ -92,11 +92,21 @@ pub(crate) fn lower(
         // L3b #4 — a MUTABLE fn-typed local re-reprs Closure (the
         // toplevel-globals K.3b decision, fn-local mirror):
         // reassignment stores env-carrying arrows, which a FnSig
-        // (direct-dispatch) slot can't hold. Immutable bindings keep
-        // the FnSig home. Variadic anns parse to Closure already and
-        // never take this arm.
+        // (direct-dispatch) slot can't hold. Chunk 734 — an IMMUTABLE
+        // fn-typed local whose init is a lifted arrow (`const f: ()
+        // => number = () => x`) re-reprs the same way (728fix
+        // toplevel gate, fn-local mirror): every arrow lifts to
+        // Expr::Closure and mints an env cell, which a FnSig slot
+        // dispatches as a raw code address (SIGBUS). Immutable
+        // named-fn inits never reach here (fn_addr_let claims them
+        // above — direct dispatch preserved). Variadic anns parse to
+        // Closure already and never take this arm.
         let parsed = match parsed {
-            Type::FnSig(sig) if mutable => Type::Closure(sig),
+            Type::FnSig(sig)
+                if mutable || matches!(ctx.ast.get_expr(init), Expr::Closure { .. }) =>
+            {
+                Type::Closure(sig)
+            }
             t => t,
         };
         if parsed == Type::I64
@@ -347,7 +357,7 @@ pub(crate) fn lower(
 /// Answers `(value, converted)`; a `false` flag keeps the caller's
 /// pre-698 bookkeeping. Gated on the init's Any elem + a mappable
 /// target kind so typed→typed decls pay no call.
-fn maybe_arr_any_to_typed(
+pub(crate) fn maybe_arr_any_to_typed(
     ctx: &mut LowerCtx,
     ty: Type,
     init: ExprId,
@@ -403,145 +413,6 @@ fn arr_elem_kind_const(elem: &Type) -> Option<i64> {
         t if t.is_refcounted() => 4,
         _ => return None,
     })
-}
-
-/// K.3 / K.4 — top-level data global: main fn + name in `globals` emits
-/// GlobalRef + Store (K.6 empty-array fast path; refcount slots require
-/// fresh-heap init). Returns false when `name` is not a module global.
-fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId) -> bool {
-    if !ctx.is_main_fn {
-        return false;
-    }
-    let Some(slot_ty) = ctx.globals.get(name).copied() else {
-        return false;
-    };
-    let init_val = if let Expr::Array(els) = ctx.ast.get_expr(init)
-        && els.is_empty()
-        && matches!(slot_ty, Type::Arr(_))
-    {
-        let alloc_fn = if let Type::Arr(arr_id) = slot_ty
-            && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
-        {
-            ctx.intrinsics.arr_alloc_any
-        } else {
-            ctx.intrinsics.arr_alloc
-        };
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(alloc_fn, vec![Operand::ConstI64(0)]),
-            slot_ty,
-            None,
-        );
-        Operand::Value(v)
-    } else if let Expr::Array(els) = ctx.ast.get_expr(init)
-        && let Type::Arr(arr_id) = slot_ty
-        && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
-    {
-        let ids: Vec<ExprId> = els.clone();
-        ctx.lower_array_any_literal(&ids)
-    } else {
-        ctx.lower_expr(init)
-    };
-    // Chunk 698 — general-path mirror: an `Array<Any>` init bound
-    // to a typed `Array<T>` global decode-copies into a fresh typed
-    // block (the global slot takes the fresh cell's only stake, so
-    // the borrow-inc below is skipped for converted inits).
-    let (init_val, converted) = maybe_arr_any_to_typed(ctx, slot_ty, init, init_val);
-    if slot_ty.is_refcounted() && !converted {
-        let init_is_borrow = matches!(
-            ctx.ast.get_expr(init),
-            Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-        );
-        if init_is_borrow {
-            // RFC 20260707 chunk 627 — Ident-shaped init (alias of
-            // another binding, a guaranteed +0 borrow): the global
-            // slot takes its own stake; the source binding keeps its
-            // own. Only same-type, Arr↔Arr (T-11 container widen)
-            // and Any→Arr (chunk 708 — the JS reference-alias shape
-            // `const t: number[] = src` with `src: any`; a heap box
-            // is the raw cell ptr bits, elem reads are kind-aware,
-            // same lane the fn-scope path rides) aliases are
-            // admitted — other Any↔concrete mismatches need a
-            // box/unbox station and stay loud rather than storing
-            // wrong-repr bits. Member/Index inits stay loud too:
-            // their ownership shape is lane-dependent (arr_index_get
-            // answers +1), so a blanket inc would double-count.
-            let got = ctx.operand_ty(&init_val);
-            let ident_alias = matches!(ctx.ast.get_expr(init), Expr::Ident(_));
-            let compatible = got == slot_ty
-                || matches!(
-                    (&slot_ty, &got),
-                    (Type::Arr(_), Type::Arr(_)) | (Type::Arr(_), Type::Any)
-                );
-            if !ident_alias || !compatible {
-                panic!(
-                    "ssa-lower: K.4 refcount global `{name}` requires fresh-heap or same-type ident-alias init; this init shape is not yet supported"
-                );
-            }
-            ctx.emit_owned_result_inc(init_val, got);
-        }
-    }
-    let coerced = if slot_ty == Type::F64 && ctx.operand_ty(&init_val) == Type::I64 {
-        ctx.coerce_to_f64(init_val)
-    } else {
-        init_val
-    };
-    // RFC 20260707 chunk 627 — a typed array stored into an Arr<Any>
-    // global slot (T-11 widen) marks the block's elem kind for the
-    // kind-aware Arr<Any> readers (621 let-decl general-path mirror;
-    // self-gating no-op for non-array / Arr<Any> values).
-    ctx.emit_arr_mark_kind(&coerced);
-    let ptr = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::GlobalRef(name.to_string()),
-        Type::Ptr,
-        None,
-    );
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(coerced, Operand::Value(ptr), 0),
-    );
-    true
-}
-
-/// M2 Phase B Stage 4 — `let f = global_fn`: FnSig slot with FnAddr
-/// store. Returns false when init is not a bare global-fn ident.
-fn try_lower_fn_addr_let(ctx: &mut LowerCtx, name: &str, init: ExprId) -> bool {
-    let Expr::Ident(src_name) = ctx.ast.get_expr(init) else {
-        return false;
-    };
-    if ctx.locals.get(src_name).is_some() {
-        return false;
-    }
-    let Some(fid) = ctx.fn_table.get(src_name).copied() else {
-        return false;
-    };
-    let Some(sig_id) = ctx.fn_sig_ids.get(&fid).copied() else {
-        return false;
-    };
-    let ty = Type::FnSig(sig_id);
-    let slot = ctx.binding_slot_alloca(ty, name);
-    let v = ctx
-        .f
-        .append_inst(ctx.cur_block, InstKind::FnAddr(fid), ty, None);
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
-    );
-    let cur_depth = ctx.scope_stack.len() - 1;
-    ctx.locals.insert(
-        name.to_string(),
-        LocalInfo {
-            slot,
-            ty,
-            moved: false,
-            borrowed: false,
-            scope_depth: cur_depth,
-        },
-    );
-    let top = ctx.scope_stack.last_mut().expect("scope frame");
-    top.push(name.to_string());
-    true
 }
 
 /// general-path init-value dispatch: empty `[]` alloc (needs an array
