@@ -128,3 +128,25 @@ pub unsafe extern "C" fn __torajs_dynobj_get_flags(
 ) -> u64 {
     panic!("torajs-meta test stub: __torajs_dynobj_get_flags should not be called from cargo test");
 }
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_member_get_tag(
+    _recv: u64,
+    _key: *const core::ffi::c_void,
+) -> u64 {
+    panic!(
+        "torajs-meta test stub: __torajs_any_member_get_tag should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_member_get_value(
+    _recv: u64,
+    _key: *const core::ffi::c_void,
+) -> u64 {
+    panic!(
+        "torajs-meta test stub: __torajs_any_member_get_value should not be called from cargo test"
+    );
+}

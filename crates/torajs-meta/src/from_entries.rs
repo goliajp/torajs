@@ -36,7 +36,7 @@
 use core::ffi::{c_char, c_void};
 
 use crate::reflect::{
-    VALUE_NULL_IMM, VALUE_UNDEFINED_IMM, alloc_str_key, heap_type_tag, is_cell_imm,
+    TAG_OBJ, VALUE_NULL_IMM, VALUE_UNDEFINED_IMM, alloc_str_key, heap_type_tag, is_cell_imm,
 };
 
 const TAG_ARR: u16 = 2;
@@ -59,6 +59,8 @@ unsafe extern "C" {
     fn __torajs_anyv_to_str_pair(tag: i64, value: i64) -> *mut c_void;
     fn __torajs_dynobj_get_tag(dynobj: *const c_void, key: *const u8) -> u64;
     fn __torajs_dynobj_get_value(dynobj: *const c_void, key: *const u8) -> u64;
+    fn __torajs_any_member_get_tag(recv: u64, key: *const c_void) -> u64;
+    fn __torajs_any_member_get_value(recv: u64, key: *const c_void) -> u64;
     fn __torajs_str_drop(s: *mut u8);
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_map_iter_next(
@@ -95,6 +97,22 @@ unsafe fn dynobj_cell(v: u64) -> Option<*const c_void> {
     }
     let p = v as *const c_void;
     if unsafe { heap_type_tag(p) } == TAG_DYNOBJ {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+/// The entry's live anon/named struct cell pointer, or `None`
+/// (chunk 744 — an inline `{0:"a",1:9} as any` literal boxes as a
+/// `Tag::Obj` anon-struct, a legal ES entry; field reads take the
+/// `__torajs_any_member_get_*` class-layout reflection probe).
+unsafe fn struct_cell(v: u64) -> Option<*const c_void> {
+    if !is_cell_imm(v) {
+        return None;
+    }
+    let p = v as *const c_void;
+    if unsafe { heap_type_tag(p) } == TAG_OBJ {
         Some(p)
     } else {
         None
@@ -181,6 +199,10 @@ pub unsafe extern "C" fn __torajs_anyv_from_entries(entries: u64) -> u64 {
             }
             continue;
         }
+        if unsafe { struct_cell(entry) }.is_some() {
+            // Static-layout data fields only — no accessor gate needed.
+            continue;
+        }
         unsafe { drop_pair_keys(k0, k1) };
         // SAFETY: NUL-terminated static C string.
         unsafe {
@@ -194,9 +216,11 @@ pub unsafe extern "C" fn __torajs_anyv_from_entries(entries: u64) -> u64 {
         let entry = unsafe { __torajs_arr_get_any_boxed(outer, i) };
         if let Some(inner) = unsafe { arr_cell(entry) } {
             unsafe { set_prop_from_pair_arr(&mut obj, inner) };
-        } else {
-            // Pass 1 proved the only other shape is a data-prop dynobj.
+        } else if unsafe { dynobj_cell(entry) }.is_some() {
             unsafe { set_prop_from_dynobj_entry(&mut obj, entry as *const c_void, k0, k1) };
+        } else {
+            // Pass 1 proved the only remaining shape is a struct cell.
+            unsafe { set_prop_from_struct_entry(&mut obj, entry, k0, k1) };
         }
     }
     unsafe { drop_pair_keys(k0, k1) };
@@ -241,6 +265,31 @@ unsafe fn set_prop_from_dynobj_entry(
     let k_str = unsafe { __torajs_anyv_to_str_pair(k_tag as i64, k_val as i64) };
     let v_tag = unsafe { __torajs_dynobj_get_tag(entry, k1) };
     let v_val = unsafe { __torajs_dynobj_get_value(entry, k1) };
+    unsafe { set_prop(obj, k_str, v_tag, v_val) };
+}
+
+/// Define one property from a `Tag::Obj` struct entry — same ES
+/// `Get(entry, "0")` / `Get(entry, "1")` reads as the dynobj arm,
+/// through the `__torajs_any_member_get_*` class-layout reflection
+/// probe (borrowed pair; an absent field answers `(ANY_UNDEF, 0)`,
+/// so the key side stringifies to "undefined" via ToPropertyKey).
+///
+/// # Safety
+///
+/// `entry` is a live cell-encoded `Tag::Obj` AnyValue; `k0` / `k1`
+/// are live Str cells.
+unsafe fn set_prop_from_struct_entry(
+    obj: &mut *mut c_void,
+    entry: u64,
+    k0: *const u8,
+    k1: *const u8,
+) {
+    let k_tag = unsafe { __torajs_any_member_get_tag(entry, k0 as *const c_void) };
+    let k_val = unsafe { __torajs_any_member_get_value(entry, k0 as *const c_void) };
+    // ToPropertyKey → string (owned temp this walk drops).
+    let k_str = unsafe { __torajs_anyv_to_str_pair(k_tag as i64, k_val as i64) };
+    let v_tag = unsafe { __torajs_any_member_get_tag(entry, k1 as *const c_void) };
+    let v_val = unsafe { __torajs_any_member_get_value(entry, k1 as *const c_void) };
     unsafe { set_prop(obj, k_str, v_tag, v_val) };
 }
 
@@ -323,6 +372,10 @@ unsafe fn from_set(set: *const c_void) -> u64 {
             }
             continue;
         }
+        if tag == TAG_OBJ {
+            // Static-layout data fields only — no accessor gate needed.
+            continue;
+        }
         unsafe { drop_pair_keys(k0, k1) };
         // SAFETY: NUL-terminated static C string.
         unsafe {
@@ -336,11 +389,14 @@ unsafe fn from_set(set: *const c_void) -> u64 {
     while unsafe { __torajs_map_iter_next(set, &mut cursor, &mut kt, &mut kp, &mut vt, &mut vp) }
         == 1
     {
-        // Pass 1 proved every element is an Arr or dynobj cell.
-        if unsafe { heap_type_tag(kp as *const c_void) } == TAG_ARR {
+        // Pass 1 proved every element is an Arr / dynobj / struct cell.
+        let etag = unsafe { heap_type_tag(kp as *const c_void) };
+        if etag == TAG_ARR {
             unsafe { set_prop_from_pair_arr(&mut obj, kp as *const c_void) };
-        } else {
+        } else if etag == TAG_DYNOBJ {
             unsafe { set_prop_from_dynobj_entry(&mut obj, kp as *const c_void, k0, k1) };
+        } else {
+            unsafe { set_prop_from_struct_entry(&mut obj, kp as u64, k0, k1) };
         }
     }
     unsafe { drop_pair_keys(k0, k1) };

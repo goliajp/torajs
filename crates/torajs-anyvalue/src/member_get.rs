@@ -41,7 +41,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::Tag;
+use torajs_rc::{AnySlotTag, Tag};
 
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell, is_null, is_undefined};
 
@@ -56,8 +56,17 @@ unsafe extern "C" {
     /// (mirror of `method_call_dynobj`'s declares).
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
     fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
+    fn __torajs_struct_field_info(layout: *const c_void, idx: u32) -> FieldInfo;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}
+
+/// ABI mirror of `torajs-structmeta::FieldInfo` (the
+/// `__torajs_struct_field_info` return value; `struct_enum.rs` twin).
+#[repr(C)]
+struct FieldInfo {
+    field_byte_offset: u32,
+    type_tag: u8,
 }
 
 /// Closure-cell lazy props slot — mirror of torajs-core
@@ -74,6 +83,53 @@ const STR_DATA_OFF: usize = 16;
 /// ever written.
 unsafe fn closure_props(ptr: *mut c_void) -> *const c_void {
     unsafe { *(ptr.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64) as *const c_void }
+}
+
+/// `Tag::Obj` struct-cell field probe — the class-layout reflection
+/// walk (`struct_reflect::struct_cell_descriptor` twin): class_tag
+/// (u32 @ +8) → layout entry → field_find by key bytes → raw 8-byte
+/// slot decoded per the field's coarse type_tag. Answers the
+/// `(any_tag, payload)` pair on a hit — borrow-shaped like the
+/// dynobj probe (the struct keeps its stake) — or `None` for a
+/// missing layout / absent field. Chunk 744: pre-fix a struct cell
+/// fell to the builtin-reify arm and every field read through an
+/// `any` receiver whose sid the compile-time IC couldn't see (a
+/// Pass 2 fresh literal in a later-lowered fn) answered a silent
+/// `undefined`.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
+pub(crate) unsafe fn struct_field_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
+    let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    if layout.is_null() {
+        return None;
+    }
+    let k = key as *const u8;
+    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
+    let key_bytes = unsafe { k.add(STR_DATA_OFF) };
+    let idx = unsafe { __torajs_struct_field_find(layout, key_bytes, key_len) };
+    if idx == u32::MAX {
+        return None;
+    }
+    let info = unsafe { __torajs_struct_field_info(layout, idx) };
+    let raw = unsafe {
+        ptr.cast::<u8>()
+            .add(info.field_byte_offset as usize)
+            .cast::<u64>()
+            .read()
+    };
+    Some(match info.type_tag {
+        // Any-typed field: the slot is a NaN-box — decode it.
+        0 => (
+            crate::nanbox_encode::__torajs_anyv_unbox_tag(raw) as u64,
+            crate::nanbox_encode::__torajs_anyv_unbox_value(raw) as u64,
+        ),
+        1 => (AnySlotTag::I64 as u64, raw),
+        2 => (AnySlotTag::F64 as u64, raw),
+        3 => (AnySlotTag::Bool as u64, raw),
+        _ => (AnySlotTag::Heap as u64, raw),
+    })
 }
 
 /// Cell tag of a dispatchable receiver, `None` for everything the
@@ -117,6 +173,15 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
                 if tag != 5 {
                     return tag;
                 }
+            }
+            reify_tag(recv, key)
+        },
+        // Chunk 744 — struct cell: class-layout field probe before
+        // the builtin reify (a struct has no builtin methods, so a
+        // field miss falling through is exact).
+        Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
+            if let Some((tag, _)) = struct_field_pair(ptr, key) {
+                return tag;
             }
             reify_tag(recv, key)
         },
@@ -233,6 +298,13 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             let props = closure_props(ptr);
             if !props.is_null() && __torajs_dynobj_get_tag(props, key) != 5 {
                 return __torajs_dynobj_get_value(props, key);
+            }
+            reify_value(recv, key)
+        },
+        // Chunk 744 — struct cell field probe (see the tag channel).
+        Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
+            if let Some((_, val)) = struct_field_pair(ptr, key) {
+                return val;
             }
             reify_value(recv, key)
         },

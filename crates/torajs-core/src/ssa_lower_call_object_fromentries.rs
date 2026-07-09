@@ -87,6 +87,13 @@ pub(crate) fn try_lower(
         Type::Any,
         None,
     );
+    // Chunk 744 — the walker borrows the receiver (per-entry reads,
+    // never a consume), so an owned-shape arg (an array literal
+    // built for this call) still holds its own stake here: release
+    // it (733/742 container-store family; churn 300k per-iter
+    // literal receivers leaked 64MB vs 6.3MB flat). Ident-read
+    // receivers are borrows — no-op through the predicate.
+    ctx.release_owned_temp(args[0], &arg_op);
     ctx.emit_throw_check(None);
     Some(Operand::Value(v))
 }

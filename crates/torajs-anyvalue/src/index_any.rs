@@ -116,7 +116,33 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
     if tag == Tag::DynObj as u16 {
         return unsafe { dynobj_index_get(ptr, idx) };
     }
+    // Chunk 744 — struct cell: ToPropertyKey the index and probe the
+    // class layout (`{0:"a"} as any` boxes as an anon-struct whose
+    // field NAME is the decimal spelling; pre-fix `e[0]` answered a
+    // silent undefined).
+    if tag == Tag::Obj as u16 {
+        return unsafe { struct_index_get(ptr, idx) };
+    }
     VALUE_UNDEFINED
+}
+
+/// `Tag::Obj` get arm — decimal-stringify the key and probe the class
+/// layout through [`crate::member_get::struct_field_pair`]; the probe
+/// is a borrow, the returned box owns its own reference (the
+/// `dynobj_index_get` shape).
+unsafe fn struct_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
+    let mut buf = [0u8; 20];
+    let (start, len) = i64_dec(&mut buf, idx);
+    unsafe {
+        let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
+        let pair = crate::member_get::struct_field_pair(obj, key as *const c_void);
+        __torajs_str_drop(key as *mut c_void);
+        let Some((ftag, fval)) = pair else {
+            return VALUE_UNDEFINED;
+        };
+        crate::payload_rc_inc(ftag as i64, fval as i64);
+        crate::nanbox_encode::__torajs_anyv_box_from_pair(ftag as i64, fval as i64)
+    }
 }
 
 /// Stack decimal formatter for the ToPropertyKey stringification

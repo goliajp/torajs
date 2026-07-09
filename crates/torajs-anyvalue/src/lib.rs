@@ -94,7 +94,7 @@ mod compare;
 mod index_any;
 mod iter_any;
 mod len_get;
-mod member_get;
+pub(crate) mod member_get;
 mod member_props_regexp;
 mod member_set;
 mod method_bind;
