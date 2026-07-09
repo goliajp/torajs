@@ -291,17 +291,10 @@ impl<'a> Parser<'a> {
             // `{ 99: ... }` per ES spec §12.7.6 PropertyName ::
             // NumericLiteral. Massive yield — 600+ test262 cases use
             // numeric-key object literals (e.g. `{ 0: arr[0], 1: ... }`
-            // for spread-iter style fixtures). Format the float as
-            // an integer when it has no fractional part, matching
-            // bun's serialization (`0` not `0.0`).
-            Token::Number(n) => {
-                let n = *n;
-                if n.is_finite() && n == n.trunc() && n.abs() < 1e21 {
-                    format!("{}", n as i64)
-                } else {
-                    format!("{n}")
-                }
-            }
+            // for spread-iter style fixtures). Spelling shared with
+            // the chunk-745 struct-index lanes via
+            // [`crate::ast::number_prop_key`].
+            Token::Number(n) => crate::ast::number_prop_key(*n),
             t => {
                 return Err(format!(
                     "expected field name in object literal, got {t:?} at {}",
@@ -343,14 +336,7 @@ impl<'a> Parser<'a> {
             let prop_name = match self.peek() {
                 Token::Ident(n) => n.clone(),
                 Token::String(s) => s.clone(),
-                Token::Number(n) => {
-                    let n = *n;
-                    if n.is_finite() && n == n.trunc() && n.abs() < 1e21 {
-                        format!("{}", n as i64)
-                    } else {
-                        format!("{n}")
-                    }
-                }
+                Token::Number(n) => crate::ast::number_prop_key(*n),
                 _ => unreachable!(),
             };
             self.pos += 1;

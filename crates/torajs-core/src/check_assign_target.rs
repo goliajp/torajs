@@ -192,6 +192,16 @@ pub(crate) fn check_index(
     value: ExprId,
 ) -> Result<Type, String> {
     let obj_ty = checker.type_of(ast, obj)?;
+    // Chunk 745 — struct receiver + compile-time literal index:
+    // `g[0] = v` ≡ `g."0" = v` per ES ToPropertyKey (§7.1.19);
+    // delegate to the member-assignment checker (field lookup /
+    // readonly / setter / assignability). Mirrors the read-side
+    // lane in `check_type_of_index`.
+    if matches!(obj_ty, Type::Struct(_))
+        && let Some(name) = crate::ast::literal_prop_key(ast, index)
+    {
+        return check_member(checker, ast, obj, name, value);
+    }
     let idx_ty = checker.type_of(ast, index)?;
     // L3b #13 — an `any` receiver admits string keys (ES
     // ToPropertyKey); every other receiver keeps the number-only

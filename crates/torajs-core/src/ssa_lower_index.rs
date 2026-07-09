@@ -45,6 +45,20 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: ExprId) -> Operand {
+    // Chunk 745 — struct receiver + compile-time literal index:
+    // `g[0]` ≡ `g."0"` per ES ToPropertyKey (§7.1.19); the full
+    // member-read dispatcher handles the field load (struct layout /
+    // accessor / owned-receiver release). Same gate as the checker
+    // lane in `check_type_of_index` (un-resolved Struct only), so
+    // checker-admitted struct indices never fall through to the
+    // array panic below.
+    if matches!(
+        ctx.expr_types.get(&obj),
+        Some(crate::check::Type::Struct(_))
+    ) && let Some(name) = crate::ast::literal_prop_key(ctx.ast, index)
+    {
+        return crate::ssa_lower_member::lower(ctx, eid, obj, &name);
+    }
     let is_non_deque = ctx.arr_expr_is_non_deque(obj);
     let arr_val = ctx.lower_expr(obj);
     lower_from_value(ctx, eid, obj, index, arr_val, is_non_deque)

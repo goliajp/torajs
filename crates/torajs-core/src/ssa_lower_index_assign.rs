@@ -46,6 +46,18 @@ impl<'a> LowerCtx<'a> {
         index: ExprId,
         value: ExprId,
     ) -> Operand {
+        // Chunk 745 — struct receiver + compile-time literal index:
+        // `g[0] = v` ≡ `g."0" = v` per ES ToPropertyKey (§7.1.19);
+        // the member-assignment lane handles the field store (struct
+        // layout / setter / rc discipline). Same gate as the checker
+        // lane in `check_assign_target::check_index`.
+        if matches!(
+            self.expr_types.get(&obj),
+            Some(crate::check::Type::Struct(_))
+        ) && let Some(name) = crate::ast::literal_prop_key(self.ast, index)
+        {
+            return crate::ssa_lower_assign_member::lower(self, obj, name, value);
+        }
         // M1.4 — `arr[i] = value`. 11-A1: peek receiver before
         // consuming `obj` for the head-elision flag.
         let is_non_deque = self.arr_expr_is_non_deque(obj);

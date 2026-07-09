@@ -26,6 +26,18 @@ pub(crate) fn check(
     index: ExprId,
 ) -> Result<Type, String> {
     let obj_ty = checker.type_of(ast, obj)?;
+    // Chunk 745 — struct receiver + compile-time literal index:
+    // `g[0]` ≡ `g."0"` per ES ToPropertyKey (§7.1.19). Numeric keys
+    // in object literals are stored under their integer spelling
+    // (P0.10), so a literal index resolves statically through the
+    // member checker (field lookup / accessor / visibility). Dynamic
+    // indices on a struct keep the loud reject below (recorded
+    // boundary — runtime property lookup on typed structs).
+    if matches!(obj_ty, Type::Struct(_))
+        && let Some(name) = crate::ast::literal_prop_key(ast, index)
+    {
+        return crate::check_type_of_member::check(checker, ast, &obj, &name);
+    }
     let idx_ty = checker.type_of(ast, index)?;
     // L3b #13 — an `any` receiver admits string keys (ES
     // ToPropertyKey: `o["k"]` ≡ `o.k`); every other receiver keeps
