@@ -93,6 +93,15 @@ pub(crate) fn collect_fn_arr_bindings(stmts: &[Stmt], out: &mut HashSet<String>)
     collect_bindings_matching(stmts, &crate::ast::is_fn_arr_ann, out);
 }
 
+/// Chunk 736 — binding names declared with a plain fn-type
+/// annotation at ANY scope depth (the closure_bindings top-level
+/// walk misses fn-body `let cb: (n)=>n` bindings, so a body-local
+/// `cb = top_fn` assign escaped the wrap). Variadic anns keep their
+/// boxed-dual route.
+pub(crate) fn collect_fn_ann_bindings(stmts: &[Stmt], out: &mut HashSet<String>) {
+    collect_bindings_matching(stmts, &|a| is_fn_like_ann(a) && !a.contains("__rest("), out);
+}
+
 /// Shared annotation-predicate binding walk (chunk 733 — the any
 /// and fn-arr collections differ only in the ann test).
 fn collect_bindings_matching(
@@ -180,7 +189,12 @@ impl<'a> FnToClosureCollector<'a> {
     /// `any` return annotation down to `Return` sites.
     pub(crate) fn walk_stmt(&mut self, s: &Stmt, ret_is_any: bool) {
         match s {
-            Stmt::LetDecl { type_ann, init, .. } => {
+            Stmt::LetDecl {
+                mutable,
+                type_ann,
+                init,
+                ..
+            } => {
                 self.collect_objectlit_field_sites(*init, type_ann.as_deref());
                 if type_ann.as_deref().is_some_and(|a| a.trim() == "any") {
                     self.collect_any_init_sites(*init);
@@ -190,6 +204,21 @@ impl<'a> FnToClosureCollector<'a> {
                 // named-fn element.
                 if type_ann.as_deref().is_some_and(crate::ast::is_fn_arr_ann) {
                     self.mark_array_lit_elems(*init);
+                }
+                // Chunk 736 — a MUTABLE fn-typed binding initialized
+                // with a bare named fn (`let cb: (n)=>n = take`): the
+                // slot re-reprs Closure (chunk 732 local / K.3b
+                // global), so the raw-FnSig init wraps. The rewrite
+                // also turns the init into Expr::Closure, steering
+                // the lowerer off the immutable-only fn_addr_let
+                // direct-dispatch lane naturally. Variadic anns keep
+                // their own boxed-dual route (chunk-4 axis mirror).
+                if *mutable
+                    && type_ann
+                        .as_deref()
+                        .is_some_and(|a| is_fn_like_ann(a) && !a.contains("__rest("))
+                {
+                    self.try_mark(*init);
                 }
                 self.walk_expr(*init);
             }

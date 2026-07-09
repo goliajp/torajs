@@ -157,6 +157,11 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
             closure_bindings.insert(name.clone());
         }
     }
+    // Chunk 736 — fn-body fn-type-annotated bindings join the set
+    // recursively (the top-level walk above missed them, so a
+    // body-local `cb = top_fn` assign escaped the wrap after the
+    // mutable-init axis moved such slots to Closure repr).
+    crate::ast_collect_fn_closure::collect_fn_ann_bindings(&ast.stmts, &mut closure_bindings);
 
     // Walk all top-level stmts (including FnDecl bodies recursively)
     // collecting the store-sites where a bare top-FnDecl Ident needs
