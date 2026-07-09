@@ -22,9 +22,11 @@
 //! Dynobj array-like entries (chunk 739) — ES §20.1.2.7
 //! AddEntriesFromIterable requires only `Type(entry) is Object` and
 //! reads `Get(entry, "0")` / `Get(entry, "1")`, so `{0: "a", 1: 1}`
-//! is a legal entry. Data-prop slots only: an accessor at "0"/"1"
-//! would need a getter invoke mid-walk — loud TypeError (recorded
-//! narrow face), never the raw pair pointer.
+//! is a legal entry. An accessor at "0"/"1" runs its getter
+//! (chunk 746 — ES [[Get]] semantics, the §7.3.24 precedent from
+//! `obj_own_keys::entry_value_pair`); the OWNED answer transfers to
+//! the built slot (value side) or drops after ToPropertyKey (key
+//! side) instead of taking the borrowed-read inc.
 //!
 //! Two passes: validate first (undefined / null / non-iterable
 //! receivers and non-object entries throw a catchable TypeError
@@ -52,6 +54,10 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(dst: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
+    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) -> u64;
     fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) -> u64;
     fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) -> u64;
@@ -119,14 +125,23 @@ unsafe fn struct_cell(v: u64) -> Option<*const c_void> {
     }
 }
 
-/// True when the entry's "0" / "1" slot is an accessor — the ES
-/// `Get(entry, k)` would have to invoke the getter mid-walk;
-/// unsupported (loud TypeError at the validate pass) rather than
-/// silently yielding the raw `AccessorPair` pointer.
-unsafe fn dynobj_pair_has_accessor(entry: *const c_void, k0: *const u8, k1: *const u8) -> bool {
-    let t0 = unsafe { __torajs_dynobj_get_tag(entry, k0) };
-    let t1 = unsafe { __torajs_dynobj_get_tag(entry, k1) };
-    t0 == ANY_ACCESSOR || t1 == ANY_ACCESSOR
+/// ES `Get(entry, k)` on a dynobj entry — a data slot answers a
+/// borrowed `(tag, value)` pair; an accessor slot runs its getter
+/// (chunk 746, ES §7.3.24 [[Get]]) and answers the OWNED result,
+/// flagged so the caller transfers the share (value side) or drops
+/// it after ToPropertyKey (key side) instead of inc'ing a borrow.
+unsafe fn dynobj_entry_get(entry: *const c_void, k: *const u8) -> (u64, u64, bool) {
+    let t = unsafe { __torajs_dynobj_get_tag(entry, k) };
+    if t == ANY_ACCESSOR {
+        let p = unsafe { __torajs_dynobj_get_value(entry, k) } as *const c_void;
+        let g = unsafe { __torajs_accessor_invoke_getter(p) };
+        return (
+            unsafe { __torajs_anyv_unbox_tag(g) } as u64,
+            unsafe { __torajs_anyv_unbox_value(g) } as u64,
+            true,
+        );
+    }
+    (t, unsafe { __torajs_dynobj_get_value(entry, k) }, false)
 }
 
 /// Release the "0" / "1" key str temps (every return path of a
@@ -178,29 +193,16 @@ pub unsafe extern "C" fn __torajs_anyv_from_entries(entries: u64) -> u64 {
     // every return path below.
     let k0 = unsafe { alloc_str_key(b"0") };
     let k1 = unsafe { alloc_str_key(b"1") };
-    // Pass 1 — validate every entry is an array or a data-prop-only
-    // dynobj BEFORE any dynobj allocation, so the throw path leaves
-    // nothing half-built.
+    // Pass 1 — validate every entry is an object (array / dynobj /
+    // struct cell) BEFORE any dynobj allocation, so the reject path
+    // leaves nothing half-built. Accessor slots pass — their getter
+    // runs at the construct walk (chunk 746).
     for i in 0..len {
         let entry = unsafe { __torajs_arr_get_any_boxed(outer, i) };
-        if unsafe { arr_cell(entry) }.is_some() {
-            continue;
-        }
-        if let Some(d) = unsafe { dynobj_cell(entry) } {
-            if unsafe { dynobj_pair_has_accessor(d, k0, k1) } {
-                unsafe { drop_pair_keys(k0, k1) };
-                // SAFETY: NUL-terminated static C string.
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"Object.fromEntries accessor entry is not supported".as_ptr(),
-                    );
-                }
-                return VALUE_UNDEFINED_IMM;
-            }
-            continue;
-        }
-        if unsafe { struct_cell(entry) }.is_some() {
-            // Static-layout data fields only — no accessor gate needed.
+        if unsafe { arr_cell(entry) }.is_some()
+            || unsafe { dynobj_cell(entry) }.is_some()
+            || unsafe { struct_cell(entry) }.is_some()
+        {
             continue;
         }
         unsafe { drop_pair_keys(k0, k1) };
@@ -246,26 +248,29 @@ unsafe fn set_prop_from_pair_arr(obj: &mut *mut c_void, inner: *const c_void) {
 /// (`{0: k, 1: v}`) — ES §20.1.2.7 AddEntriesFromIterable reads
 /// `Get(entry, "0")` / `Get(entry, "1")`; an absent slot answers
 /// undefined (the key side then stringifies to "undefined" via
-/// ToPropertyKey). Borrowed reads — the entry's bucket keeps its
-/// share, `set_prop` takes a fresh one for the built object.
+/// ToPropertyKey). Data slots read borrowed (the entry's bucket
+/// keeps its share, `set_prop` incs a fresh one); accessor slots
+/// answer OWNED (chunk 746) — the value side transfers the share
+/// to the built slot, the key side drops it after ToPropertyKey.
 ///
 /// # Safety
 ///
-/// `entry` is a live data-prop-only DynObj cell (the validate pass
-/// rejected accessor slots); `k0` / `k1` are live Str cells.
+/// `entry` is a live DynObj cell; `k0` / `k1` are live Str cells.
 unsafe fn set_prop_from_dynobj_entry(
     obj: &mut *mut c_void,
     entry: *const c_void,
     k0: *const u8,
     k1: *const u8,
 ) {
-    let k_tag = unsafe { __torajs_dynobj_get_tag(entry, k0) };
-    let k_val = unsafe { __torajs_dynobj_get_value(entry, k0) };
+    let (k_tag, k_val, k_owned) = unsafe { dynobj_entry_get(entry, k0) };
     // ToPropertyKey → string (owned temp this walk drops).
     let k_str = unsafe { __torajs_anyv_to_str_pair(k_tag as i64, k_val as i64) };
-    let v_tag = unsafe { __torajs_dynobj_get_tag(entry, k1) };
-    let v_val = unsafe { __torajs_dynobj_get_value(entry, k1) };
-    unsafe { set_prop(obj, k_str, v_tag, v_val) };
+    if k_owned && k_tag == ANY_HEAP && k_val != 0 {
+        // The getter's key answer served ToPropertyKey; release it.
+        unsafe { __torajs_value_drop_heap(k_val as *mut c_void) };
+    }
+    let (v_tag, v_val, v_owned) = unsafe { dynobj_entry_get(entry, k1) };
+    unsafe { set_prop_with(obj, k_str, v_tag, v_val, v_owned) };
 }
 
 /// Define one property from a `Tag::Obj` struct entry — same ES
@@ -301,7 +306,25 @@ unsafe fn set_prop_from_struct_entry(
 /// `k_str` is a live owned Str cell; an ANY_HEAP `v_val` holds a
 /// valid heap pointer.
 unsafe fn set_prop(obj: &mut *mut c_void, k_str: *mut c_void, v_tag: u64, v_val: u64) {
-    if v_tag == ANY_HEAP && v_val != 0 {
+    unsafe { set_prop_with(obj, k_str, v_tag, v_val, false) };
+}
+
+/// [`set_prop`] with an ownership flag — a borrowed value incs a
+/// fresh share for the slot; an OWNED value (accessor getter answer,
+/// chunk 746) transfers its share verbatim.
+///
+/// # Safety
+///
+/// As [`set_prop`]; an owned ANY_HEAP `v_val` carries a +1 the slot
+/// takes over.
+unsafe fn set_prop_with(
+    obj: &mut *mut c_void,
+    k_str: *mut c_void,
+    v_tag: u64,
+    v_val: u64,
+    v_owned: bool,
+) {
+    if !v_owned && v_tag == ANY_HEAP && v_val != 0 {
         // SAFETY: ANY_HEAP slot holds a valid heap pointer.
         unsafe { __torajs_rc_inc(v_val as *mut c_void) };
     }
@@ -331,10 +354,10 @@ unsafe fn from_map(map: *const c_void) -> u64 {
 }
 
 /// Set receiver — the iterated value is the element itself, which
-/// must be a pair array or a data-prop dynobj (`new Set([["a", 1]])`
-/// is a legal entries iterable; a primitive element throws per ES
-/// §20.1.2.7). Same two-pass model as the array lane: validate
-/// before anything allocates.
+/// must be an object entry (`new Set([["a", 1]])` is a legal entries
+/// iterable; a primitive element throws per ES §20.1.2.7). Same
+/// two-pass model as the array lane: validate before anything
+/// allocates; accessor slots run their getter at the construct walk.
 ///
 /// # Safety
 ///
@@ -356,24 +379,9 @@ unsafe fn from_set(set: *const c_void) -> u64 {
         } else {
             u16::MAX
         };
-        if tag == TAG_ARR {
-            continue;
-        }
-        if tag == TAG_DYNOBJ {
-            if unsafe { dynobj_pair_has_accessor(kp as *const c_void, k0, k1) } {
-                unsafe { drop_pair_keys(k0, k1) };
-                // SAFETY: NUL-terminated static C string.
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"Object.fromEntries accessor entry is not supported".as_ptr(),
-                    );
-                }
-                return VALUE_UNDEFINED_IMM;
-            }
-            continue;
-        }
-        if tag == TAG_OBJ {
-            // Static-layout data fields only — no accessor gate needed.
+        if tag == TAG_ARR || tag == TAG_DYNOBJ || tag == TAG_OBJ {
+            // Accessor slots pass — their getter runs at the
+            // construct walk (chunk 746).
             continue;
         }
         unsafe { drop_pair_keys(k0, k1) };
