@@ -31,6 +31,13 @@
 //!   nor boxed entry (604-era loud panic). A user-class `.replace`
 //!   method hit by the same shape only costs the unnecessary wrap
 //!   (closure values are legal fn-param arguments).
+//! - `cb = name` where `cb` is a Closure-repr top-level binding
+//!   (RFC 20260709-closure-global chunk 4): the mutable-closure
+//!   global assign lane stores closure cells.
+//! - top-level `const f = name` / `const f: (P)=>R = name` read by
+//!   a named-fn body (same RFC; the let-init axis lives in
+//!   `ast/forwarders_object.rs` — it needs the ast_refs gate, not
+//!   the recursive walk).
 //!
 //! Without the wrap these positions hold a raw FnSig value: the
 //! any-boxing site has no FnSig arm ("box_to_any element type FnSig
@@ -52,6 +59,12 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// Binding names declared with an `any` annotation anywhere in
     /// the program (scope-approximate; see module doc).
     pub(crate) any_bindings: &'a HashSet<String>,
+    /// Top-level binding names whose slot is Closure-repr (a lifted
+    /// arrow init or a fn-type annotation) — RFC 20260709 chunk 4:
+    /// `cb = top_fn` must wrap so the drop-old/store-new global lane
+    /// stores a closure cell. Scope-approximate like `any_bindings`
+    /// (a shadowing local match only costs the wrap).
+    pub(crate) closure_bindings: &'a HashSet<String>,
     pub(crate) targets: HashSet<String>,
     pub(crate) rewrites: Vec<(ExprId, String)>,
 }
@@ -295,9 +308,11 @@ impl<'a> FnToClosureCollector<'a> {
                 self.walk_expr(*index);
             }
             Expr::Assign { target, value } => {
-                // L3b #8 — `f = name` where `f` was declared `any`.
+                // L3b #8 — `f = name` where `f` was declared `any`;
+                // RFC 20260709 chunk 4 — `cb = name` where `cb` is a
+                // Closure-repr top-level binding.
                 if let Expr::Ident(tname) = self.ast.get_expr(*target)
-                    && self.any_bindings.contains(tname)
+                    && (self.any_bindings.contains(tname) || self.closure_bindings.contains(tname))
                 {
                     self.try_mark(*value);
                 }

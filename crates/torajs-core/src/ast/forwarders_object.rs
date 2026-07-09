@@ -12,7 +12,7 @@
 //! Sibling `ast/forwarders.rs` holds the Return-site variant
 //! `synthesize_forwarders`.
 
-use super::{Ast, Expr, ExprId, Param, Stmt};
+use super::{Ast, Expr, ExprId, Param, Stmt, is_fn_like_ann};
 
 /// P3.closure-in-struct-field — rewrites TypeDecl / ClassDecl field
 /// types from `__fn(P)->R` (parser's internal form of `(P)=>R`) to
@@ -132,6 +132,26 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     let mut any_bindings: HashSet<String> = HashSet::new();
     crate::ast_collect_fn_closure::collect_any_bindings(&ast.stmts, &mut any_bindings);
 
+    // RFC 20260709-closure-global chunk 4 — top-level Closure-repr
+    // binding names (lifted-arrow init or fn-type annotation): the
+    // assign axis wraps `cb = top_fn` so the global assign lane
+    // stores a closure cell.
+    let mut closure_bindings: HashSet<String> = HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::LetDecl {
+            name,
+            init,
+            type_ann,
+            is_var: false,
+            ..
+        } = s
+            && (matches!(ast.get_expr(*init), Expr::Closure { .. })
+                || type_ann.as_deref().is_some_and(is_fn_like_ann))
+        {
+            closure_bindings.insert(name.clone());
+        }
+    }
+
     // Walk all top-level stmts (including FnDecl bodies recursively)
     // collecting the store-sites where a bare top-FnDecl Ident needs
     // the forwarder wrap (see ast_collect_fn_closure module doc for
@@ -142,13 +162,50 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         fn_sigs: &fn_sigs,
         struct_field_anns: &struct_field_anns,
         any_bindings: &any_bindings,
+        closure_bindings: &closure_bindings,
         targets: HashSet::new(),
         rewrites: Vec::new(),
     };
     for s in &stmts_snapshot {
         collector.walk_stmt(s, false);
     }
-    let (targets, rewrites) = (collector.targets, collector.rewrites);
+    let (mut targets, mut rewrites) = (collector.targets, collector.rewrites);
+
+    // RFC 20260709-closure-global chunk 4 — the let-init axis:
+    // `const f: (xs)=>n = top_fn` (or un-annotated) at the TOP level
+    // where a named-fn body reads `f`. The wrap turns the init into a
+    // lifted-arrow shape so the K.3b promote fires and the named fn
+    // reaches the binding through the global-closure call lane. Gated
+    // on the same ast_refs pair the promote uses — a main-only
+    // binding keeps the direct-dispatch fn_addr_let home, and a
+    // closure-captured one stays main-local (a slot would split the
+    // binding into two homes).
+    let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
+    for s in &stmts_snapshot {
+        if let Stmt::LetDecl {
+            name,
+            init,
+            type_ann,
+            is_var: false,
+            ..
+        } = s
+            && type_ann
+                .as_deref()
+                .is_none_or(|a| is_fn_like_ann(a) && !a.contains("__rest("))
+            && binding_refs.named_fn_refs.contains(name)
+            && !binding_refs.closure_captured.contains(name)
+            && let Expr::Ident(n) = ast.get_expr(*init)
+            // The target needs an explicit return ann: the forwarder
+            // clones it, and a `None` ret on the promoted slot's
+            // synthesized canon would spell `void` — dropping the
+            // return value silently. Un-annotated rets keep the
+            // pre-wrap loud reject instead.
+            && fn_sigs.get(n).is_some_and(|(_, ret)| ret.is_some())
+        {
+            targets.insert(n.clone());
+            rewrites.push((*init, n.clone()));
+        }
+    }
 
     if rewrites.is_empty() {
         return;
