@@ -213,7 +213,8 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
             name,
             init,
             type_ann,
-            ..
+            mutable,
+            is_var,
         } = stmt
         {
             let lit_ty = match ast.get_expr(*init) {
@@ -229,12 +230,37 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                     if binding_refs.named_fn_refs.contains(name)
                         && !binding_refs.closure_captured.contains(name)
                     {
-                        crate::ast_refs::infer_toplevel_slot_shape(ast, *init).map(|s| match s {
-                            crate::ast_refs::GlobalSlotShape::I64
-                            | crate::ast_refs::GlobalSlotShape::F64 => Type::Number,
-                            crate::ast_refs::GlobalSlotShape::Str => Type::String,
-                            crate::ast_refs::GlobalSlotShape::Bool => Type::Boolean,
-                        })
+                        // RFC 20260709-closure-global chunk 2 — an
+                        // un-annotated lifted-arrow init registers
+                        // under the sig synthesized from the lifted
+                        // FnDecl's (preinfer-backfilled) anns, the
+                        // same `__fn(...)` spelling the annotated
+                        // lane resolves. Immutable only: the lowerer
+                        // keeps mutable refcounted slots main-local
+                        // until the RFC's assign-lane chunk, and a
+                        // checker-registered / lowerer-skipped split
+                        // would trade the check-time loud reject for
+                        // a lowering panic. Variadic sigs stay
+                        // main-local too (boxed-dual routing is a
+                        // fn-local table — RFC O2).
+                        if let Expr::Closure { fn_name, .. } = ast.get_expr(*init) {
+                            if *mutable || *is_var {
+                                None
+                            } else {
+                                crate::ast_refs::lifted_closure_fn_canon(ast, fn_name)
+                                    .filter(|canon| !canon.contains("__rest("))
+                                    .and_then(|canon| resolve_type_ann(&canon, &c.aliases))
+                            }
+                        } else {
+                            crate::ast_refs::infer_toplevel_slot_shape(ast, *init).map(
+                                |s| match s {
+                                    crate::ast_refs::GlobalSlotShape::I64
+                                    | crate::ast_refs::GlobalSlotShape::F64 => Type::Number,
+                                    crate::ast_refs::GlobalSlotShape::Str => Type::String,
+                                    crate::ast_refs::GlobalSlotShape::Bool => Type::Boolean,
+                                },
+                            )
+                        }
                     } else {
                         None
                     }

@@ -121,6 +121,37 @@ pub fn infer_toplevel_slot_shape(ast: &Ast, init: ExprId) -> Option<GlobalSlotSh
     }
 }
 
+/// RFC 20260709-closure-global chunk 2 — the canonical `__fn(P|..)->R`
+/// spelling for a lifted closure's FnDecl, read off its param /
+/// return anns. By the time the checker / lowerer consult this,
+/// `preinfer_closure_sigs` has backfilled missing param anns with
+/// `any` and inferred the return ann (or left `None` for a body
+/// without value returns, which spells `void` — same mapping that
+/// pass uses when publishing sigs). `None` when the decl is absent or
+/// a param ann is still missing (a non-`__closure_*` decl this pass
+/// never touched).
+pub fn lifted_closure_fn_canon(ast: &Ast, fn_name: &str) -> Option<String> {
+    ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            ..
+        } if name == fn_name => {
+            let mut anns: Vec<String> = Vec::with_capacity(params.len());
+            for p in params.iter().filter(|p| p.name != "__env") {
+                anns.push(p.type_ann.clone()?);
+            }
+            let ret = match return_type {
+                Some(rt) => rt.clone(),
+                None => "void".to_string(),
+            };
+            Some(format!("__fn({})->{}", anns.join("|"), ret))
+        }
+        _ => None,
+    })
+}
+
 fn idents_in_stmt(ast: &Ast, s: &Stmt, shadow: &HashSet<String>, out: &mut HashSet<String>) {
     match s {
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => idents_in_expr(ast, *e, shadow, out),

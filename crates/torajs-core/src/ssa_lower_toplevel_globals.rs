@@ -79,30 +79,11 @@ pub(crate) fn collect_toplevel_globals(
             if init_is_inline_literal && !*mutable {
                 continue;
             }
-            // K.3b — slot type. With an annotation, parse it; "number"
-            // parses to the I64 default and W1's module-wide width
-            // inference widens to F64 when any reaching value
-            // (initializer OR a later assignment, including from a
-            // named-fn body) is f64-possible — storing f64 bits in an
-            // i64 slot reinterprets the payload as a garbage integer
-            // on every read. Without an annotation, promote only
-            // behind the ast_refs gate — a named-fn body must
-            // reference the binding (named fns have no capture
-            // machinery) and no closure may capture it (captures copy
-            // through __env from the main-fn local; a slot would
-            // split the binding into two disagreeing homes). Shapes
-            // the shared inference can't resolve keep the K.1
-            // main-local behavior.
-            let widened = |parsed: Type| {
-                if parsed == Type::I64 && num_f64_slots.slot_is_f64(&SlotKey::Global(name.clone()))
-                {
-                    Type::F64
-                } else {
-                    parsed
-                }
-            };
-            let ty = match type_ann {
-                Some(ann) => match annotated_slot_ty(
+            // K.3b — slot type. With an annotation, parse it; without
+            // one, run the gated shape inference. Both helpers answer
+            // `None` for shapes that keep the K.1 main-local behavior.
+            let slot_ty = match type_ann {
+                Some(ann) => annotated_slot_ty(
                     ann,
                     name,
                     *init,
@@ -114,21 +95,23 @@ pub(crate) fn collect_toplevel_globals(
                     struct_layouts,
                     inst_memo,
                     num_f64_slots,
-                ) {
-                    Some(t) => t,
-                    None => continue,
-                },
-                None => {
-                    if !binding_refs.named_fn_refs.contains(name)
-                        || binding_refs.closure_captured.contains(name)
-                    {
-                        continue;
-                    }
-                    match crate::ast_refs::infer_toplevel_slot_shape(ast, *init) {
-                        Some(shape) => widened(slot_shape_to_type(shape)),
-                        None => continue,
-                    }
-                }
+                ),
+                None => inferred_slot_ty(
+                    name,
+                    *init,
+                    ast,
+                    &binding_refs,
+                    aliases,
+                    arr_layouts,
+                    fn_sigs,
+                    generic_struct_decls,
+                    struct_layouts,
+                    inst_memo,
+                    num_f64_slots,
+                ),
+            };
+            let Some(ty) = slot_ty else {
+                continue;
             };
             // Localize — the data-global slot exists solely so
             // capture-less named-fn bodies can see a top-level binding
@@ -219,6 +202,88 @@ pub(crate) fn collect_toplevel_globals(
         }
     }
     globals
+}
+
+/// K.3b — slot type for an UN-ANNOTATED top-level binding. Promotes
+/// only behind the ast_refs gate — a named-fn body must reference the
+/// binding (named fns have no capture machinery) and no closure may
+/// capture it (captures copy through `__env` from the main-fn local;
+/// a slot would split the binding into two disagreeing homes). `None`
+/// keeps the binding main-local (K.1 behavior).
+///
+/// RFC 20260709-closure-global chunk 2 — a lifted-arrow init promotes
+/// under the sig synthesized from the lifted FnDecl's
+/// (preinfer-backfilled) anns; `annotated_slot_ty` then rides the
+/// exact annotated lane (FnSig → Closure re-repr, variadic guard).
+/// Mutable bindings fall through to the caller's K.6 refcount gate
+/// and stay main-local until the RFC's assign-lane chunk — mirroring
+/// the checker's pass_2 registration gate.
+///
+/// Other init shapes go through the shared shape inference; an
+/// inferred `number` widens to F64 when W1's module-wide width table
+/// says any reaching value is f64-possible (storing f64 bits in an
+/// i64 slot reinterprets the payload as a garbage integer on every
+/// read).
+#[allow(clippy::too_many_arguments)]
+fn inferred_slot_ty(
+    name: &str,
+    init: ExprId,
+    ast: &Ast,
+    binding_refs: &crate::ast_refs::ToplevelBindingRefs,
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    inst_memo: &mut HashMap<String, crate::ssa::StructId>,
+    num_f64_slots: &crate::num_width::WidthTable,
+) -> Option<Type> {
+    if !binding_refs.named_fn_refs.contains(name) || binding_refs.closure_captured.contains(name) {
+        return None;
+    }
+    if let Expr::Closure { fn_name, .. } = ast.get_expr(init) {
+        let canon = crate::ast_refs::lifted_closure_fn_canon(ast, fn_name)?;
+        let parsed = parse_type(
+            Some(&canon),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        );
+        // Variadic sigs (`__rest(` spellings parse to Closure
+        // directly) keep the main-local home — the boxed-dual call
+        // routing rides the fn-local `variadic_locals` table (RFC O2).
+        let Type::FnSig(sig) = parsed else {
+            return None;
+        };
+        // F5 shape, NOT the F1 canon class: with no annotation
+        // written, the binding never joined the spelling's nominal
+        // class — its widths live on the slot key's `__ret` / `__p{i}`
+        // projections, glued to the lifted fn's Ret / Param keys by
+        // the let site's `fn_value_flow`. Querying the canon class
+        // here would answer stale parse widths and the env-first
+        // CallIndirect would read a floated callee's d0 ret off x0
+        // (the untouched env pointer). Joining the class instead is
+        // wrong the other way: it glues unrelated same-spelling
+        // residents' widths together.
+        return Some(crate::ssa_lower_container_width::widen_fn_sig_by_key(
+            Type::Closure(sig),
+            &SlotKey::Global(name.to_string()),
+            num_f64_slots,
+            fn_sigs,
+        ));
+    }
+    let shape = crate::ast_refs::infer_toplevel_slot_shape(ast, init)?;
+    let parsed = slot_shape_to_type(shape);
+    Some(
+        if parsed == Type::I64 && num_f64_slots.slot_is_f64(&SlotKey::Global(name.to_string())) {
+            Type::F64
+        } else {
+            parsed
+        },
+    )
 }
 
 /// K.3b — slot type for an ANNOTATED top-level binding. `None` keeps
