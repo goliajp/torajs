@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-09T22:22:51.639Z",
+  "generatedAt": "2026-07-09T22:45:22.219Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c4bc19dc",
-    "commitSubject": "fix: unshift substr coerce and mutator view-temp release",
+    "commit": "26e6bbab",
+    "commitSubject": "feat: struct cells via any resolve field reads through class-layout reflection",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "26e6bbab",
+      "subject": "feat: struct cells via any resolve field reads through class-layout reflection"
+    },
+    {
+      "hash": "f7127d98",
+      "subject": "chore(dashboard): refresh @ c4bc19dc - rotation 59 (738-743: nullable fn-sig slot null compare + closure drop null guard; any-elem literals mint FLAG_ARR_ANY + fromEntries dynobj entries; mutable captured bindings promote closing RFC 20260709; unshift owned-temp and substr-view coerce leaks closed across both mutators; optional-field undefined repr surveyed to RFC candidate; gate 1368 -> 1374 five green)"
+    },
+    {
       "hash": "c4bc19dc",
       "subject": "fix: unshift substr coerce and mutator view-temp release"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "2c347ba8",
       "subject": "fix: immutable fn-typed local with arrow init re-reprs closure"
-    },
-    {
-      "hash": "4b6ff99f",
-      "subject": "feat: fn-typed array elements are closure-repr at every store-site"
-    },
-    {
-      "hash": "d7d6d799",
-      "subject": "chore(dashboard): refresh @ c3d93c77 - rotation 57 (728fix-732: closure-global RFC ships all four chunks - regression gate on lifted-arrow init, un-annotated inference with F5 by-key widths, mutable assign lane, forwarder stations for named-fn references; arity-shrink rides the callback lattice at every position; gate 1356 -> 1360 five green)"
     }
   ],
-  "headSha": "c4bc19dc",
+  "headSha": "26e6bbab",
   "autorun": {
     "total": 365,
     "baselineTarget": 10,
