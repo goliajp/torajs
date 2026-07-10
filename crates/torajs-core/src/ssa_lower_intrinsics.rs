@@ -370,6 +370,12 @@ pub(crate) struct Intrinsics {
     pub(crate) set_print_outer: FuncId,
     pub(crate) fn_print_outer: FuncId,
     pub(crate) fnsig_to_str: FuncId,
+    /// Chunk 798 — typed-tier `.name` registry rewire: FnSig
+    /// receiver (raw fn body vaddr → registry name Str, miss `""`).
+    pub(crate) fn_name_str: FuncId,
+    /// Chunk 798 — typed-tier `.name` registry rewire: Closure
+    /// receiver (cell → method/bound/registry name chain).
+    pub(crate) closure_name_str: FuncId,
     pub(crate) any_to_str: FuncId,
     pub(crate) any_to_str_box: FuncId,
     pub(crate) obj_freeze: FuncId,

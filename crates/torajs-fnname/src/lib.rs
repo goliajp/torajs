@@ -99,6 +99,41 @@ const SUFFIX: &[u8] = b"]";
 // Chunk 797 — bun prints unregistered fns as `[Function]` (node
 // spells `[Function (anonymous)]`; bun is the parity oracle).
 const ANON: &[u8] = b"[Function]";
+// Chunk 798 — the bind-desugar wrapper registers the ES
+// SetFunctionName form `bound <fn>` (§20.2.3.2) so `.name` answers
+// it, but bun's inspect prints a bound fn by its TARGET name
+// (`console.log(g.bind(null))` → `[Function: g]`). The print faces
+// strip the marker; fn idents can't contain spaces, so the prefix
+// is unambiguous (registry-synthesized only).
+const BOUND_MARK: &[u8] = b"bound ";
+
+/// Strip the `bound ` SetFunctionName marker for the print faces.
+///
+/// # Safety
+/// `name_ptr` points at `name_len` readable bytes.
+unsafe fn print_face_name(name_ptr: *const u8, name_len: u32) -> (*const u8, u32) {
+    if (name_len as usize) > BOUND_MARK.len() {
+        let mut is_bound = true;
+        for (j, &b) in BOUND_MARK.iter().enumerate() {
+            // Safety: j < BOUND_MARK.len() < name_len.
+            if unsafe { *name_ptr.add(j) } != b {
+                is_bound = false;
+                break;
+            }
+        }
+        if is_bound {
+            // Safety: BOUND_MARK.len() < name_len keeps the tail
+            // pointer in-bounds with a nonzero remaining length.
+            return unsafe {
+                (
+                    name_ptr.add(BOUND_MARK.len()),
+                    name_len - BOUND_MARK.len() as u32,
+                )
+            };
+        }
+    }
+    (name_ptr, name_len)
+}
 
 /// Look up `fn_addr` in `__torajs_fn_name_table[]` and emit either
 /// `[Function: <name>]` or `[Function]` to stdout.
@@ -173,6 +208,7 @@ pub unsafe extern "C" fn __torajs_fn_print_inline(fn_addr: u64) {
     };
     match hit {
         Some((name_ptr, name_len)) => {
+            let (name_ptr, name_len) = unsafe { print_face_name(name_ptr, name_len) };
             emit_bytes(PREFIX);
             // Safety: `name_ptr` resolves to `__torajs_str_dyn_<sid>`'s
             // payload byte range; `name_len` is the ECMA String.length
@@ -218,6 +254,7 @@ pub unsafe extern "C" fn __torajs_fnsig_to_str(fn_addr: u64) -> *mut u8 {
     if name_ptr.is_null() {
         return unsafe { alloc_str(ANON) };
     }
+    let (name_ptr, name_len) = unsafe { print_face_name(name_ptr, name_len) };
     let total = PREFIX.len() + name_len as usize + SUFFIX.len();
     let s = unsafe { __torajs_str_alloc_pooled(total as u64) };
     let mut dst = unsafe { s.add(STR_DATA_OFF) };
@@ -240,6 +277,30 @@ pub unsafe extern "C" fn __torajs_fnsig_to_str(fn_addr: u64) -> *mut u8 {
         }
     }
     s
+}
+
+/// `.name` read on a `Type::FnSig` receiver (chunk 798 — the
+/// typed-tier registry rewire). The receiver is a raw fn body vaddr
+/// (no closure cell to consult), so the answer is exactly the
+/// registry row: hit mints a fresh owned Str with the name bytes,
+/// miss answers the ES anonymous-function name `""`. `0` / the
+/// undefined sentinel never match a table row and fall to the same
+/// empty-Str miss path.
+///
+/// # Safety
+/// `fn_addr` is compared, never dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fn_name_str(fn_addr: u64) -> *mut u8 {
+    let mut name_len: u32 = 0;
+    let mut arity: u32 = 0;
+    let name_ptr = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
+    if name_ptr.is_null() {
+        return unsafe { alloc_str(b"") };
+    }
+    // Safety: hit rows point at `name_len` readable rodata bytes
+    // (ASCII byte count; the non-ASCII UTF-16 payload face shares
+    // the fn-print helper's recorded TODO).
+    unsafe { alloc_str(core::slice::from_raw_parts(name_ptr, name_len as usize)) }
 }
 
 /// Fresh pooled Str holding `bytes` (Latin-1/ASCII payloads only).

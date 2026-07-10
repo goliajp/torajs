@@ -108,6 +108,22 @@ unsafe fn closure_name(ptr: *mut c_void) -> AnyValue {
     }
 }
 
+/// `.name` read on a `Type::Closure` receiver (chunk 798 — the
+/// typed-tier registry rewire). Thin extern face over
+/// [`closure_name_str`] so the SSA member arm shares the full
+/// metadata chain (builtin method cells, `bound `-prefixed bound
+/// cells, the fn-addr registry). The Any-tier expando shadow is
+/// deliberately NOT consulted: ES makes `name` non-writable, so on
+/// the typed tier the registry answer matches bun exactly (the
+/// Any-tier expando-first order stays the recorded divergence).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_name_str(ptr: *mut c_void) -> *mut u8 {
+    unsafe { closure_name_str(ptr) }
+}
+
 /// The name Str cell of a closure-tagged cell, owned protocol:
 /// method cells answer their interned immortal cell (drop no-ops on
 /// the static flag), everything else answers a fresh rc=1 Str.

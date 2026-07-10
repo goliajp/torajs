@@ -22,19 +22,21 @@
 //!   §23.1.3.10 / §24.2.3.9. Both route through
 //!   `__torajs_map_size` since Set storage shares the Map runtime.
 //! - **T-27.c** — `f.length` / `f.name` for `Type::Closure(_)` /
-//!   `Type::FnSig(_)`. Compile-time fold from the fn's static
-//!   signature (param count for length; lifted-`__env` hidden Ptr
+//!   `Type::FnSig(_)`. `length` is a compile-time fold from the
+//!   fn's static signature (param count; lifted-`__env` hidden Ptr
 //!   excluded for Closure; FnSig signatures don't carry env so the
-//!   raw param count is reported). `.name` for FnSig recovers the
-//!   ident text from the call-site `obj` (top-level FnDecl reuse);
-//!   `__closure_N` synthetic names yield `""` per ES spec for
-//!   anonymous fn expressions.
+//!   raw param count is reported). `.name` (chunk 798) answers the
+//!   runtime fn-addr registry — `__torajs_closure_name_str` for
+//!   Closure cells (builtin-method / bound / registry chain),
+//!   `__torajs_fn_name_str` for raw FnSig vaddrs — so aliases and
+//!   field receivers read the registered name instead of the old
+//!   call-site-ident approximation; registry miss = `""`.
 //!
 //! Returns `Some(op)` on hit; `None` on miss (receiver type +
 //! Member name combo not in the allowlist). Caller falls through to
 //! the generic Member path.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
@@ -85,7 +87,7 @@ pub(crate) fn try_lower(
     if (matches!(obj_ty, Type::Closure(_)) || matches!(obj_ty, Type::FnSig(_)))
         && (name == "length" || name == "name")
     {
-        return Some(lower_fn_length_or_name(ctx, obj, obj_ty, name));
+        return Some(lower_fn_length_or_name(ctx, obj_val, obj_ty, name));
     }
     None
 }
@@ -106,7 +108,7 @@ fn is_prim_for_constructor(obj_ty: Type) -> bool {
 
 fn lower_fn_length_or_name(
     ctx: &mut LowerCtx<'_>,
-    obj: ExprId,
+    obj_val: Operand,
     obj_ty: Type,
     name: &str,
 ) -> Operand {
@@ -124,11 +126,25 @@ fn lower_fn_length_or_name(
             };
         return Operand::ConstI64(visible as i64);
     }
-    let fn_name = if let Expr::Ident(n) = ctx.ast.get_expr(obj) {
-        n.clone()
+    // Chunk 798 — `.name` answers the runtime fn-addr registry, not
+    // the call-site ident (an alias `const h = g` reads "g", a field
+    // receiver `obj.f` reads its registered name — the static ident
+    // approximation answered the binding name / "" for both).
+    // Closure receivers route through the cell-aware chain (builtin
+    // method cells, bound cells, registry); FnSig receivers are raw
+    // fn body vaddrs and hit the registry directly. Miss = ES
+    // anonymous-function name "".
+    let fid = if matches!(obj_ty, Type::Closure(_)) {
+        ctx.intrinsics.closure_name_str
     } else {
-        String::new()
+        ctx.intrinsics.fn_name_str
     };
-    let s = ctx.intern_string_literal(&fn_name);
-    Operand::Value(s)
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(fid, vec![obj_val]),
+        Type::Str,
+        None,
+    );
+    Operand::Value(v)
 }

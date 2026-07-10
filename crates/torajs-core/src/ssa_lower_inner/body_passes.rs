@@ -186,6 +186,7 @@ fn register_fn_name(module: &mut Module, name: &str, params: &[crate::ast::Param
         || name.starts_with("__dispatch_")
         || name.starts_with("__new_")
         || name.starts_with("__closure_")
+        || name.starts_with("__bind_create_")
         || name.contains("__mono_")
     {
         return;
@@ -193,8 +194,19 @@ fn register_fn_name(module: &mut Module, name: &str, params: &[crate::ast::Param
     // `__forward_<target>` fn-value wrappers (ast_closure_param_tag)
     // carry the user-visible TARGET name — `const t: any = topfn;
     // t.name` must answer "topfn", and the synthetic leading `__env`
-    // param stays out of the arity (chunk 716).
-    let visible = name.strip_prefix("__forward_").unwrap_or(name);
+    // param stays out of the arity (chunk 716). `__bound_<fn>_<id>`
+    // bind-desugar wrappers (ast_desugar_function_prototype_methods)
+    // carry the ES SetFunctionName form `bound <fn>` (§20.2.3.2) —
+    // chunk 798; the trailing `_<id>` disambiguator is stripped. The
+    // `__bind_create_<fn>_<id>` factory twins are call-only synthetics
+    // the user never holds a value of, so they skip the table above.
+    let bound_form = name
+        .strip_prefix("__bound_")
+        .and_then(|rest| rest.rsplit_once('_'))
+        .map(|(target, _id)| format!("bound {target}"));
+    let visible = bound_form
+        .as_deref()
+        .unwrap_or_else(|| name.strip_prefix("__forward_").unwrap_or(name));
     // Intern the name as a Module-level string literal so the link
     // layer can resolve `__user_string_<sid>` to the rodata cstring
     // entry. encode_from_str picks Latin-1 / UTF-16 to match the
