@@ -9,11 +9,23 @@
 //! try-body case without re-deriving the dispatch table inline at
 //! every caller.
 //!
-//! Per-arg shape:
+//! Chunk 808 — two phases, matching ES argument-evaluation order:
+//! phase 1 lowers EVERY argument (all side effects run before any
+//! output), phase 2 prints. The old streaming loop interleaved a
+//! side-effecting argument's output into the log line
+//! (`console.log(1, s("a"))` printed `1 a\n9` where bun prints
+//! `a\n1 9`). Refcounted borrows rc_inc in phase 1 — that both
+//! keeps the printed value alive across later arguments' side
+//! effects AND pins the ES semantics of printing the value as it
+//! was when evaluated (a later arg reassigning the binding must
+//! not change what prints).
+//!
+//! Per-arg print shape (phase 2):
 //! * typed `Arr<i64/f64/bool/str/substr>` → matching no-`\n` typed
 //!   walker (`__torajs_arr_print_<T>_inline`, `torajs-arr::print_inline`).
 //!   Typed slots are raw bytes, not NaN-box, so the Any path's
 //!   `Tag::Arr` arm would SIGSEGV.
+//! * `FnSig` → fnname ToString + Str-box print.
 //! * everything else → box to Any (`Type::Any` operand passes
 //!   through unchanged) and call `__torajs_print_anyv_inline_top`
 //!   (Str unquoted, no `\n`).
@@ -28,6 +40,21 @@
 use crate::ast::{Expr, ExprId, Stmt};
 use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
+
+/// One evaluated argument, carried from phase 1 to phase 2.
+struct LoweredArg {
+    aid: ExprId,
+    /// `None` — S139 static-undefined shape (checker typed the expr
+    /// Undefined and it is not a value we print from an operand; the
+    /// effect already ran in phase 1, phase 2 prints the literal).
+    op: Option<Operand>,
+    ty: Type,
+    /// The refcounted stake phase 1 minted for this lane (borrow
+    /// rc_inc / Any retain / owned Any temp) — phase 2 releases it
+    /// after printing. Fresh non-Any temps carry their own stake
+    /// that the box transfer consumes, so they are NOT staked here.
+    staked: bool,
+}
 
 /// Try to lower `s` as a multi-arg `console.log` Stmt::Expr. Returns
 /// `true` when handled — caller should treat the statement as fully
@@ -46,41 +73,28 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
         return false;
     }
     let arg_ids: Vec<ExprId> = args.clone();
-    let space_op = Operand::ConstI64(b' ' as i64);
-    let newline_op = Operand::ConstI64(b'\n' as i64);
-    for (i, &aid) in arg_ids.iter().enumerate() {
-        if i > 0 {
-            ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.io_putc_stdout, vec![space_op.clone()]),
-                Type::I64,
-                None,
-            );
-        }
-        // S139 — `undefined` typed-expr prints "undefined" inline.
-        // Multi-arg path's box_to_any → print_any_inline_top correctly
-        // handles Type::Null (tag = ANY_NULL → "null") but Undefined
-        // lowers to ConstPtrNull at the operand layer with no
-        // Type::Undefined sentinel, so the tag-aware printer falls
-        // back to ANY_NULL too. Detect Type::Undefined via expr_types
-        // and box a literal "undefined" string so the printer's
-        // ANY_STR arm picks it up unquoted. Catches Expr::Ident("
-        // undefined") AND S138 derived `undefined && x` style.
+
+    // Phase 1 — evaluate every argument in source order.
+    let mut lowered: Vec<LoweredArg> = Vec::with_capacity(arg_ids.len());
+    for &aid in &arg_ids {
+        // S139 — `undefined`-typed exprs print the literal; a
+        // call-shaped one (void call) still runs for effect here.
+        // Catches Expr::Ident("undefined") AND S138 derived
+        // `undefined && x` style.
         if matches!(
             ctx.expr_types.get(&aid),
             Some(crate::check::Type::Undefined)
         ) {
             let _ = ctx.lower_expr(aid);
-            let lit = ctx.intern_string_literal("undefined");
-            let boxed = ctx.box_to_any(Operand::Value(lit));
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed.clone()]),
-            );
-            ctx.emit_drop_value(boxed, Type::Any);
+            lowered.push(LoweredArg {
+                aid,
+                op: None,
+                ty: Type::Void,
+                staked: false,
+            });
             continue;
         }
-        let arg = ctx.lower_expr(aid);
+        let mut arg = ctx.lower_expr(aid);
         let arg_ty = ctx.operand_ty(&arg);
         // Same borrow judgement as `lower_single_arg`: Ident / Member
         // lower to a borrowed operand the local (or its container)
@@ -96,84 +110,159 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
             Expr::Member { .. } => !ctx.owned_member_reads.contains(&aid),
             _ => false,
         };
-
-        // RFC 20260710 C2b — an Obj/Arr/Closure arg may hold the
-        // generic undefined cell (Nullable slot); branch to the
-        // boxed "undefined" inline print (helper below), a live cell
-        // falls through to the arms below unchanged.
-        let sentinel_join = open_boxed_sentinel_branch(ctx, &arg, arg_ty);
-
-        // typed Arr<primitive> — route to the matching no-\n typed
-        // walker (slots are raw bytes, not NaN-box, so the Any path's
-        // Tag::Arr arm would SIGSEGV).
-        if let Type::Arr(arr_id) = arg_ty {
-            let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-            let typed_target = match elem_ty {
-                Type::I64 => Some(ctx.intrinsics.arr_print_i64_inline),
-                Type::F64 => Some(ctx.intrinsics.arr_print_f64_inline),
-                Type::Bool => Some(ctx.intrinsics.arr_print_bool_inline),
-                Type::Str => Some(ctx.intrinsics.arr_print_str_inline),
-                Type::Substr => Some(ctx.intrinsics.arr_print_substr_inline),
-                _ => None,
-            };
-            if let Some(target) = typed_target {
-                ctx.f
-                    .append_void(ctx.cur_block, InstKind::Call(target, vec![arg]));
-                crate::ssa_lower_call_console::close_console_sentinel_branch(ctx, sentinel_join);
-                continue;
-            }
-        }
-
-        // RFC 20260710 C2a — a fn-typed slot value has no box repr
-        // (a code address is not a heap cell); ToString it through
-        // the fnname runtime (null → "null", the undefined sentinel
-        // → "undefined", a real address → "[Function: name]") and
-        // print the owned Str via the Str-slot box.
-        if matches!(arg_ty, Type::FnSig(_)) {
-            let s = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.fnsig_to_str, vec![arg]),
-                Type::Str,
-                None,
-            );
-            let boxed = ctx.box_to_any(Operand::Value(s));
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed.clone()]),
-            );
-            ctx.emit_drop_value(boxed, Type::Any);
-            ctx.emit_drop_value(Operand::Value(s), Type::Str);
-            crate::ssa_lower_call_console::close_console_sentinel_branch(ctx, sentinel_join);
-            continue;
-        }
-
-        // Everything else: box to Any (a Type::Any operand passes
-        // through unchanged), print via the tag-aware no-\n entry,
-        // then drop the box. `box_to_any` is TRANSFER for refcounted
-        // values (`anyv_box_from_pair` tag=4 takes ownership of an
-        // rc, no inc) — a borrowed operand must be inc'd first so
-        // the post-print drop releases the box's reference, not the
-        // owner's (RFC 20260704 S6: pre-fix this net-negative dec
-        // was masked by the anyv underflow leak; with hit-zero
-        // actually freeing, printing a live local freed it).
-        let (any_op, drop_after) = if arg_ty == Type::Any {
+        let staked = if arg_ty == Type::Any {
             // Chunk 721 — an owned Any temp (Call / OptCall results,
             // recorded member reads: `expr_owned_shape`) releases
-            // after the print; borrowed Any operands (Ident slots)
-            // pass through. Probe c721b: `console.log("pfx", mk(i))`
-            // leaked the call's fresh box per iteration.
-            (arg, ctx.expr_owned_shape(aid))
-        } else {
-            if is_borrow && arg_ty.is_refcounted() {
-                ctx.emit_rc_inc(arg.clone());
+            // after the print. Chunk 808 — a borrowed Any operand
+            // takes its own stake too (`anyv_retain`; immediates
+            // retain as no-ops and the paired drop no-ops): a later
+            // argument's side effect may reassign the binding and
+            // drop the cell this lane is about to print.
+            if !ctx.expr_owned_shape(aid) {
+                let retained = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.anyv_retain, vec![arg.clone()]),
+                    Type::Any,
+                    None,
+                );
+                arg = Operand::Value(retained);
             }
-            // RFC 20260708-typed-arr-oob-read chunk 3 — a possibly-
-            // sentinel F64 arg (number[] index read / alias) boxes
-            // to ANY_UNDEF when the bits match so this prints
-            // "undefined", not "NaN".
-            let boxed = if arg_ty == Type::F64
-                && crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, aid)
-            {
+            true
+        } else if arg_ty.is_refcounted() && is_borrow {
+            // Phase-1 inc: keeps the value alive across later args'
+            // side effects and pins print-as-evaluated semantics.
+            ctx.emit_rc_inc(arg.clone());
+            true
+        } else {
+            // Fresh refcounted temps carry their own stake (the box
+            // transfer settles it in phase 2, matching the pre-808
+            // ledger); Copy-typed values have no ledger.
+            false
+        };
+        lowered.push(LoweredArg {
+            aid,
+            op: Some(arg),
+            ty: arg_ty,
+            staked,
+        });
+    }
+
+    // Phase 2 — print.
+    let space_op = Operand::ConstI64(b' ' as i64);
+    let newline_op = Operand::ConstI64(b'\n' as i64);
+    for (i, la) in lowered.into_iter().enumerate() {
+        if i > 0 {
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.io_putc_stdout, vec![space_op.clone()]),
+                Type::I64,
+                None,
+            );
+        }
+        print_one(ctx, la);
+    }
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.io_putc_stdout, vec![newline_op]),
+        Type::I64,
+        None,
+    );
+    true
+}
+
+/// Phase-2 print of one evaluated argument (dispatch preserved from
+/// the pre-808 streaming loop, minus the lowering).
+fn print_one(ctx: &mut LowerCtx, la: LoweredArg) {
+    let LoweredArg {
+        aid,
+        op,
+        ty,
+        staked,
+    } = la;
+    let Some(arg) = op else {
+        // S139 static-undefined shape — box a literal "undefined"
+        // string so the printer's ANY_STR arm picks it up unquoted.
+        let lit = ctx.intern_string_literal("undefined");
+        let boxed = ctx.box_to_any(Operand::Value(lit));
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed.clone()]),
+        );
+        ctx.emit_drop_value(boxed, Type::Any);
+        return;
+    };
+
+    // RFC 20260710 C2b — an Obj/Arr/Closure arg may hold the
+    // generic undefined cell (Nullable slot); branch to the
+    // boxed "undefined" inline print (helper below), a live cell
+    // falls through to the arms below unchanged.
+    let sentinel_join = open_boxed_sentinel_branch(ctx, &arg, ty);
+
+    // typed Arr<primitive> — route to the matching no-\n typed
+    // walker (slots are raw bytes, not NaN-box, so the Any path's
+    // Tag::Arr arm would SIGSEGV).
+    if let Type::Arr(arr_id) = ty {
+        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        let typed_target = match elem_ty {
+            Type::I64 => Some(ctx.intrinsics.arr_print_i64_inline),
+            Type::F64 => Some(ctx.intrinsics.arr_print_f64_inline),
+            Type::Bool => Some(ctx.intrinsics.arr_print_bool_inline),
+            Type::Str => Some(ctx.intrinsics.arr_print_str_inline),
+            Type::Substr => Some(ctx.intrinsics.arr_print_substr_inline),
+            _ => None,
+        };
+        if let Some(target) = typed_target {
+            ctx.f
+                .append_void(ctx.cur_block, InstKind::Call(target, vec![arg.clone()]));
+            // Chunk 808 — release the phase-1 borrow inc; fresh
+            // temps (not staked) keep the pre-808 ledger.
+            if staked {
+                ctx.emit_drop_value(arg, ty);
+            }
+            crate::ssa_lower_call_console::close_console_sentinel_branch(ctx, sentinel_join);
+            return;
+        }
+    }
+
+    // RFC 20260710 C2a — a fn-typed slot value has no box repr
+    // (a code address is not a heap cell); ToString it through
+    // the fnname runtime (null → "null", the undefined sentinel
+    // → "undefined", a real address → "[Function: name]") and
+    // print the owned Str via the Str-slot box.
+    if matches!(ty, Type::FnSig(_)) {
+        let s = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.fnsig_to_str, vec![arg]),
+            Type::Str,
+            None,
+        );
+        let boxed = ctx.box_to_any(Operand::Value(s));
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed.clone()]),
+        );
+        ctx.emit_drop_value(boxed, Type::Any);
+        ctx.emit_drop_value(Operand::Value(s), Type::Str);
+        crate::ssa_lower_call_console::close_console_sentinel_branch(ctx, sentinel_join);
+        return;
+    }
+
+    // Everything else: box to Any (a Type::Any operand passes
+    // through unchanged), print via the tag-aware no-\n entry,
+    // then drop the box. `box_to_any` is TRANSFER for refcounted
+    // values (`anyv_box_from_pair` tag=4 takes ownership of an
+    // rc, no inc) — the phase-1 inc supplied the stake the box
+    // consumes, so the post-print drop releases this lane's
+    // reference, not the owner's (RFC 20260704 S6).
+    let (any_op, drop_after) = if ty == Type::Any {
+        (arg, staked)
+    } else {
+        // RFC 20260708-typed-arr-oob-read chunk 3 — a possibly-
+        // sentinel F64 arg (number[] index read / alias) boxes
+        // to ANY_UNDEF when the bits match so this prints
+        // "undefined", not "NaN".
+        let boxed =
+            if ty == Type::F64 && crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, aid) {
                 ctx.box_f64_or_undef(arg)
             } else {
                 // RFC 20260710 C2b — expr-aware box: a Nullable
@@ -184,24 +273,16 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
                 // unchanged.
                 ctx.box_to_any_from_expr(aid, arg)
             };
-            (boxed, true)
-        };
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![any_op.clone()]),
-        );
-        if drop_after {
-            ctx.emit_drop_value(any_op, Type::Any);
-        }
-        crate::ssa_lower_call_console::close_console_sentinel_branch(ctx, sentinel_join);
-    }
-    ctx.f.append_inst(
+        (boxed, true)
+    };
+    ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.io_putc_stdout, vec![newline_op]),
-        Type::I64,
-        None,
+        InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![any_op.clone()]),
     );
-    true
+    if drop_after {
+        ctx.emit_drop_value(any_op, Type::Any);
+    }
+    crate::ssa_lower_call_console::close_console_sentinel_branch(ctx, sentinel_join);
 }
 
 /// RFC 20260710 C2b — boxed variant of
