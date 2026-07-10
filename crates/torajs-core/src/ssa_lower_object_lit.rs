@@ -85,7 +85,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
         })
         .map(|(n, _)| n.clone())
         .collect();
-    let (mut field_tys, mut field_vals) = lower_field_entries(ctx, &fields);
+    let (mut field_tys, mut field_vals) = lower_field_entries(ctx, &fields, declared_hint);
     apply_w4_widen(ctx, &mut field_tys, &mut field_vals, eid);
     let sid = crate::ssa_lower_objlit_layout::resolve_objlit_layout(
         &mut ctx.struct_layouts,
@@ -160,7 +160,18 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
 fn lower_field_entries(
     ctx: &mut LowerCtx<'_>,
     entries: &[(String, ExprId)],
+    declared_hint: Option<StructId>,
 ) -> (Vec<(String, Type)>, Vec<Operand>) {
+    // Chunk 785 — the outer declared layout also pins NESTED object
+    // literals: a field whose declared type is a struct passes its
+    // StructId down through the same take-once hint channel, so
+    // `const h: Holder = { sub: { v: 1 } }` lowers the inner literal
+    // against Inner's slot reprs instead of first-matching a
+    // same-shaped layout registered under an unrelated TypeDecl
+    // (recursion covers arbitrary depth — each objlit re-enters
+    // `lower` and forwards its own declared layout).
+    let declared_fields: Option<Vec<(String, Type)>> =
+        declared_hint.map(|sid| ctx.struct_layouts[sid.0 as usize].clone());
     let mut field_tys: Vec<(String, Type)> = Vec::new();
     let mut field_vals: Vec<Operand> = Vec::new();
     for (n, eid) in entries {
@@ -169,7 +180,18 @@ fn lower_field_entries(
             unfold_spread(ctx, *eid, &omit, &mut field_tys, &mut field_vals);
             continue;
         }
-        lower_regular_field(ctx, n, *eid, &mut field_tys, &mut field_vals);
+        let declared_field_ty = declared_fields
+            .as_ref()
+            .and_then(|fs| fs.iter().find(|(fname, _)| fname == n))
+            .map(|(_, fty)| *fty);
+        lower_regular_field(
+            ctx,
+            n,
+            *eid,
+            declared_field_ty,
+            &mut field_tys,
+            &mut field_vals,
+        );
     }
     (field_tys, field_vals)
 }
@@ -217,10 +239,19 @@ fn lower_regular_field(
     ctx: &mut LowerCtx<'_>,
     name: &str,
     eid: ExprId,
+    declared_field_ty: Option<Type>,
     field_tys: &mut Vec<(String, Type)>,
     field_vals: &mut Vec<Operand>,
 ) {
+    // Chunk 785 — forward the declared struct layout to a nested
+    // ObjectLit field value (see `lower_field_entries`).
+    if let Some(Type::Obj(inner_sid)) = declared_field_ty
+        && matches!(ctx.ast.get_expr(eid), Expr::ObjectLit { .. })
+    {
+        ctx.let_declared_obj_layout = Some(inner_sid);
+    }
     let v = ctx.lower_expr(eid);
+    ctx.let_declared_obj_layout = None;
     let ty = ctx.operand_ty(&v);
     let needs_inc = ty.is_refcounted()
         && match ctx.ast.get_expr(eid) {
