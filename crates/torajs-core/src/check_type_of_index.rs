@@ -41,13 +41,24 @@ pub(crate) fn check(
     let idx_ty = checker.type_of(ast, index)?;
     // L3b #13 — an `any` receiver admits string keys (ES
     // ToPropertyKey: `o["k"]` ≡ `o.k`); every other receiver keeps
-    // the number-only spec narrow.
-    if idx_ty != Type::Number && !(matches!(obj_ty, Type::Any) && idx_ty == Type::String) {
+    // the number-only spec narrow. Chunk 753 — a struct receiver
+    // admits them too (dynamic key rides the any-index runtime lane).
+    if idx_ty != Type::Number
+        && !(matches!(obj_ty, Type::Any | Type::Struct(_)) && idx_ty == Type::String)
+    {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
     match obj_ty {
         Type::String => Ok(Type::String),
         Type::Array(elem) => Ok(*elem),
+        // Chunk 753 — struct receiver + dynamic index (the literal
+        // form resolved through the member checker above): runtime
+        // property lookup over the struct's layout table via the
+        // any-index lane; field types are heterogeneous so the
+        // static answer is Any (miss → undefined). Dynamic WRITES
+        // keep the loud reject in `check_assign_target` (a typed
+        // slot store needs a static field type — recorded boundary).
+        Type::Struct(_) => Ok(Type::Any),
         // RC-4 F1a — un-narrowed Nullable<Array<T>> (exec/match
         // result) decays for indexing; null is a runtime
         // TypeError at the lowering-side guard.

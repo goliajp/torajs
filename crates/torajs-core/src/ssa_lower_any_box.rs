@@ -309,10 +309,16 @@ impl<'a> LowerCtx<'a> {
                 return Operand::Value(v);
             }
             _ if val_ty.is_refcounted() => {
-                // Heap-typed value: pass the ptr as i64. The any_box
-                // helper bumps its refcount internally so the box's
-                // drop balances. ABI-compatible because ptr ↔ i64
-                // share the same machine word.
+                // Heap-typed value: pass the ptr as i64
+                // (ABI-compatible — ptr ↔ i64 share the machine
+                // word). `anyv_box_from_pair` tag 4 is a pure NaN-box
+                // ENCODING with zero rc traffic (chunk 753 — the
+                // stale "helper bumps its refcount" claim here only
+                // ever held for the Str-slot helper above): the
+                // caller owns the stake story — either the source
+                // keeps it (borrow'd box, no release) or transfers it
+                // (moved binding / owned temp handed to an owning
+                // consumer).
                 // RFC 20260704 S1 — typed arr crossing into `any`
                 // records its element kind on the heap header.
                 self.emit_arr_mark_kind(&val);

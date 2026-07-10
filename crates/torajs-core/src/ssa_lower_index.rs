@@ -84,6 +84,43 @@ pub(crate) fn lower_from_value(
     if matches!(arr_ty, Type::Str | Type::Substr) {
         return lower_string_index(ctx, arr_val, arr_ty, index);
     }
+    // Chunk 753 — struct receiver + dynamic index: encode the struct
+    // cell as a NaN-box (`box_to_any`'s refcounted arm is a pure
+    // pointer ENCODING — zero rc traffic, the receiver binding keeps
+    // its stake and the box is a borrow, so no release here; an
+    // eager drop dec'd the receiver per read and freed it under
+    // later allocs) and ride the any-index runtime lane — the
+    // struct-box probe path answers fields as owned boxes, a miss
+    // answers undefined. Literal keys normally take the callers'
+    // chunk-745 member gate; OptIndex's hit path lands them here
+    // instead and the same runtime lane answers them. The checker
+    // admits the dynamic form with an Any answer; dynamic writes
+    // keep the loud reject.
+    if matches!(arr_ty, Type::Obj(_))
+        && matches!(
+            ctx.expr_types.get(&obj),
+            Some(crate::check::Type::Struct(_))
+        )
+    {
+        let boxed = ctx.box_to_any(arr_val);
+        if let crate::ast::Expr::String(lit) = ctx.ast.get_expr(index) {
+            let lit = lit.clone();
+            return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed, &lit);
+        }
+        if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::String)) {
+            return lower_any_index_str_key(ctx, boxed, index);
+        }
+        let idx_val = ctx.lower_index_operand(index);
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.any_index_get, vec![boxed, idx_val]),
+            Type::Any,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return Operand::Value(v);
+    }
     // Any-dynamic-access RFC (20260704) S3 — `recv[i]` where recv is
     // an `any` value: runtime dispatch (kind-aware Arr / Str /
     // primitive) via `__torajs_any_index_get`. A null/undefined
