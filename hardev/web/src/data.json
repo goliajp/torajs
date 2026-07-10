@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T00:31:41.732Z",
+  "generatedAt": "2026-07-10T08:35:39.889Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "16267719",
-    "commitSubject": "feat: promote mutated captured params and any-typed captures to boxes",
+    "commit": "2c0f1e21",
+    "commitSubject": "feat: absent optional fields fill as explicit undefined in objectlit inits",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "2c0f1e21",
+      "subject": "feat: absent optional fields fill as explicit undefined in objectlit inits"
+    },
+    {
+      "hash": "b844124f",
+      "subject": "feat: fn-typed slots adopt the undefined sentinel oddball"
+    },
+    {
+      "hash": "2f1c87c5",
+      "subject": "feat: undefined literal into nullable str slots stores the sentinel cell"
+    },
+    {
+      "hash": "1b36f91f",
+      "subject": "feat: dynamic index reads on typed structs ride the any-index lane"
+    },
+    {
+      "hash": "7a20e70a",
+      "subject": "fix: copy-result return/throw and any-member reads keep receiver scope drops"
+    },
+    {
+      "hash": "83de1aaa",
+      "subject": "chore(dashboard): refresh @ 16267719 - rotation 60 (745-751: struct literal-index via member lanes; fromEntries accessor getters; RFC 20260710 noncopy-mutable-capture C1-C4 all shipped - shared live bindings via capture box across let/param/any/for-per-iter; str-eq and switch scrutinee fresh-owned release; gate 1375 -> 1381 seven green)"
+    },
+    {
       "hash": "16267719",
       "subject": "feat: promote mutated captured params and any-typed captures to boxes"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "086bda25",
       "subject": "feat: fromEntries accessor entries invoke getters per ES [[Get]]"
-    },
-    {
-      "hash": "7251b871",
-      "subject": "feat: struct literal-index reads and writes resolve via member lanes"
-    },
-    {
-      "hash": "f221774d",
-      "subject": "chore(dashboard): refresh @ 26e6bbab - rotation 59 (738-744: nullable fn-sig null compare + closure drop guard; any-elem literals mint FLAG_ARR_ANY; fromEntries dynobj and struct entries; mutable captured promote closes RFC 20260709; struct-via-any reflection floor for member and index reads; leak family closed across push/unshift owned-temps, substr views, fromEntries receivers; gate 1368 -> 1375 six green)"
-    },
-    {
-      "hash": "26e6bbab",
-      "subject": "feat: struct cells via any resolve field reads through class-layout reflection"
-    },
-    {
-      "hash": "f7127d98",
-      "subject": "chore(dashboard): refresh @ c4bc19dc - rotation 59 (738-743: nullable fn-sig slot null compare + closure drop null guard; any-elem literals mint FLAG_ARR_ANY + fromEntries dynobj entries; mutable captured bindings promote closing RFC 20260709; unshift owned-temp and substr-view coerce leaks closed across both mutators; optional-field undefined repr surveyed to RFC candidate; gate 1368 -> 1374 five green)"
-    },
-    {
-      "hash": "c4bc19dc",
-      "subject": "fix: unshift substr coerce and mutator view-temp release"
-    },
-    {
-      "hash": "0d6b433b",
-      "subject": "fix: unshift owned-temp release closes push-twin leak"
     }
   ],
-  "headSha": "16267719",
+  "headSha": "2c0f1e21",
   "autorun": {
-    "total": 366,
+    "total": 367,
     "baselineTarget": 10,
-    "bySelf": 361,
+    "bySelf": 362,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783637373-16a6",
-      "at": "2026-07-09T22:49:33Z",
-      "ts": 1783637373,
+      "rotationId": "r-1783643563-409a",
+      "at": "2026-07-10T00:32:43Z",
+      "ts": 1783643563,
       "trigger": "self",
-      "prevHead": "f221774d",
-      "handoffSha": "sha256:16482a095cd5076a9be7fed379472013ffa4547b1b687094e42543f4e0670215",
-      "handoffAgeSec": 205,
+      "prevHead": "83de1aaa",
+      "handoffSha": "sha256:63ddf14850b527428faf92e073497854809f8216d9a25db35f359652fd3c14f4",
+      "handoffAgeSec": 11,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783643563-409a",
+        "at": "2026-07-10T00:32:43Z",
+        "ts": 1783643563,
+        "trigger": "self",
+        "prevHead": "83de1aaa",
+        "handoffSha": "sha256:63ddf14850b527428faf92e073497854809f8216d9a25db35f359652fd3c14f4",
+        "handoffAgeSec": 11,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783637373-16a6",
         "at": "2026-07-09T22:49:33Z",
@@ -876,17 +887,6 @@
         "prevHead": "312712d2",
         "handoffSha": "sha256:88db699f12113c84dcbd057ffb7f1b5ffc9f49a6b8e3bc6aee929c8069c76a9a",
         "handoffAgeSec": 40,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783499361-5467",
-        "at": "2026-07-08T08:29:21Z",
-        "ts": 1783499361,
-        "trigger": "self",
-        "prevHead": "b8e1fdc3",
-        "handoffSha": "sha256:037a817ee17de3091eae10e598fff87f0df3030e97cfd8b01bf89c1229df5a9e",
-        "handoffAgeSec": 196,
         "conformanceBefore": null,
         "commitsInSession": null
       }
