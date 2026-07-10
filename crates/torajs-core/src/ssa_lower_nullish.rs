@@ -274,12 +274,39 @@ fn lower_generic_ptr_lhs(
         InstKind::Store(lhs_op.clone(), Operand::Value(res_slot), 0),
     );
     let cur_block = ctx.cur_block;
-    let cond = ctx.f.append_inst(
+    let eq_null = ctx.f.append_inst(
         cur_block,
         InstKind::ICmp(IPred::Eq, lhs_op.clone(), Operand::ConstPtrNull),
         Type::Bool,
         None,
     );
+    // Chunk 786 — a pointer-shaped slot's undefined is the immortal
+    // per-type sentinel cell (RFC 20260710), not NULL: `o.tag ?? d`
+    // on a filled optional field compared only against NULL, so the
+    // sentinel rode the non-null path and printed its cell text
+    // ("undefined") instead of taking d. Mirror the truthiness
+    // station: nullish = NULL or the slot type's sentinel address.
+    // Slot types with no sentinel yet keep the plain null check.
+    let cond = if let Some(sentinel) = ctx.str_undef_sentinel_for(lhs_ty) {
+        let eq_undef = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Eq, lhs_op.clone(), sentinel),
+            Type::Bool,
+            None,
+        );
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BinOp(
+                SsaBinOp::Or,
+                Operand::Value(eq_null),
+                Operand::Value(eq_undef),
+            ),
+            Type::Bool,
+            None,
+        )
+    } else {
+        eq_null
+    };
     let then_blk = ctx.f.add_block();
     let else_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
