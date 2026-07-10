@@ -68,6 +68,26 @@ pub(crate) fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId)
     // block (the global slot takes the fresh cell's only stake, so
     // the borrow-inc below is skipped for converted inits).
     let (init_val, converted) = maybe_arr_any_to_typed(ctx, slot_ty, init, init_val);
+    // Chunk 809 — an Any slot boxes a concrete init value: a
+    // borrowed source rc_incs first (`box_to_any` TRANSFERS the
+    // stake into the box), so the fresh box is the slot's own ref
+    // and K.4's fresh-heap-init holds. Skips the borrow gate below —
+    // the box already settled ownership.
+    let (init_val, converted) =
+        if slot_ty == Type::Any && ctx.operand_ty(&init_val) != Type::Any && !converted {
+            let got = ctx.operand_ty(&init_val);
+            if got.is_refcounted()
+                && matches!(
+                    ctx.ast.get_expr(init),
+                    Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+                )
+            {
+                ctx.emit_rc_inc(init_val.clone());
+            }
+            (ctx.box_to_any_from_expr(init, init_val), true)
+        } else {
+            (init_val, converted)
+        };
     if slot_ty.is_refcounted() && !converted {
         let init_is_borrow = matches!(
             ctx.ast.get_expr(init),

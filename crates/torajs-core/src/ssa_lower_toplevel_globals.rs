@@ -75,8 +75,12 @@ pub(crate) fn collect_toplevel_globals(
             // V3-18 m1.h.26 — only the IMMUTABLE inline-literal case
             // can be inlined at every read. Mutable globals (e.g.
             // static class fields like `Counter.value = 0`) need a
-            // real slot so writes have somewhere to land.
-            if init_is_inline_literal && !*mutable {
+            // real slot so writes have somewhere to land. Chunk 809 —
+            // an `any`-annotated binding never takes the inline fast
+            // path: the checker registers it Any (annotation wins),
+            // so named-fn reads expect a boxed slot, not a folded
+            // scalar.
+            if init_is_inline_literal && !*mutable && type_ann.as_deref() != Some("any") {
                 continue;
             }
             // K.3b — slot type. With an annotation, parse it; without
@@ -143,20 +147,21 @@ pub(crate) fn collect_toplevel_globals(
             // matching `__env_drop_<closure>` to wire through the
             // global-drop path, and FnSig globals haven't surfaced
             // a real use case yet.
-            // Type::Any is intentionally NOT in the supported set —
-            // promoting it triggers a load/store-shape mismatch when
-            // the slot holds an any-box wrapper while reads expect
-            // dynobj content (Member access goes through dynobj_get
-            // on val@+16). P4.5's `new.target` instead reaches the
-            // class via the runtime classes-by-tag side table:
-            // factory bodies call `__torajs_my_class_ref("<C>")`
-            // which ssa_lower intercepts → class_get(<tag>).
             // RFC 20260709-closure-global chunk 1 — Closure joins:
             // the drop machinery dispatches by type (env drop_fn
             // @+16, chunk 530), init is a fresh lifted env (K.4
             // fresh-heap-init holds), reads ride the global-closure
-            // CallIndirect lane. Mutable closure globals stay
-            // deferred to the RFC's assign-lane chunk.
+            // CallIndirect lane. Chunk 809 — Type::Any joins for
+            // USER `any`-annotated bindings a named fn reads: the
+            // slot holds a NaN-box AnyValue (the same 8-byte repr
+            // every Arr<Any> slot carries), init boxes through
+            // `box_to_any_from_expr`, the assign lane drops-old /
+            // boxes-new, and the exit hook's `emit_drop_value` Any
+            // arm settles the box. The historical dynobj-shape
+            // mismatch concern predates the unified NaN-box repr.
+            // Synthetic class plumbing (`__class_*` / `__proto_*`,
+            // `: any`-annotated by construction) stays main-local —
+            // the class machinery owns its own access lanes.
             let supported = matches!(
                 ty,
                 Type::I64
@@ -167,7 +172,9 @@ pub(crate) fn collect_toplevel_globals(
                     | Type::Arr(_)
                     | Type::Obj(_)
                     | Type::Closure(_)
-            );
+            ) || (ty == Type::Any
+                && binding_refs.named_fn_refs.contains(name)
+                && !name.starts_with("__"));
             if !supported {
                 continue;
             }
@@ -201,8 +208,14 @@ pub(crate) fn collect_toplevel_globals(
             // writes take the same Assign-Ident global lane, so the
             // slot IS the single home (the old env-copy snapshot
             // disagreed with ES shared-binding semantics).
-            let mutable_promote = (ty == Type::Str || matches!(ty, Type::Closure(_)))
-                && binding_refs.named_fn_refs.contains(name);
+            // Chunk 809 — mutable Any globals promote behind the same
+            // gate: assignment is the only mutation face this lane
+            // owns (drop-old/box-new in the Assign-Ident lane), and
+            // member writes route through the runtime any-member
+            // helpers on the loaded box.
+            let mutable_promote =
+                (ty == Type::Str || matches!(ty, Type::Closure(_)) || ty == Type::Any)
+                    && binding_refs.named_fn_refs.contains(name);
             if *mutable && ty.is_refcounted() && !mutable_promote {
                 continue;
             }

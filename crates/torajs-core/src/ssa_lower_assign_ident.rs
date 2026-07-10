@@ -58,7 +58,11 @@ fn lower_global_assign(
     slot_ty: Type,
     value: ExprId,
 ) -> Operand {
-    let drop_old_slot = slot_ty == Type::Str || matches!(slot_ty, Type::Closure(_));
+    // Chunk 809 — Any slots ride the same drop-old/store-new
+    // sequence (the old box releases through emit_drop_value's Any
+    // arm; a concrete rhs boxes below).
+    let drop_old_slot =
+        slot_ty == Type::Str || matches!(slot_ty, Type::Closure(_)) || slot_ty == Type::Any;
     if slot_ty.is_refcounted() && !drop_old_slot {
         panic!(
             "ssa-lower: assignment to refcount global `{name}` is not yet supported (K.6 — mutable Arr/Obj globals need method-mutation writeback)"
@@ -85,7 +89,14 @@ fn lower_global_assign(
             "ssa-lower: assignment to global `{name}` mismatch — slot is {slot_ty:?} but value is {v_ty:?}; use `>>` for integer divide or annotate the slot as the appropriate numeric width",
         );
     }
-    let v = coerce_for_global(ctx, slot_ty, v_ty, v);
+    // Chunk 809 — a concrete rhs boxes into the Any slot (the
+    // borrow inc above supplied the stake the box transfer
+    // consumes; expr-aware so undefined/null keep their tags).
+    let v = if slot_ty == Type::Any && v_ty != Type::Any {
+        ctx.box_to_any_from_expr(value, v)
+    } else {
+        coerce_for_global(ctx, slot_ty, v_ty, v)
+    };
     let cur_block = ctx.cur_block;
     let ptr = ctx
         .f
@@ -119,6 +130,8 @@ fn lower_global_assign(
 
 fn global_coercion_compatible(slot_ty: Type, v_ty: Type) -> bool {
     v_ty == slot_ty
+        // chunk 809 — an Any slot admits everything (boxed at the caller)
+        || slot_ty == Type::Any
         || (slot_ty == Type::F64 && v_ty == Type::I64)
         || (slot_ty == Type::I64 && v_ty == Type::I32)
         || (slot_ty == Type::I32 && v_ty == Type::I64)

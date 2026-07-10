@@ -225,6 +225,13 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                 _ => None,
             };
             let ann_ty = match (lit_ty.clone(), type_ann) {
+                // Chunk 809 — an explicit annotation wins over the
+                // literal's shape: `let a: any = "s"` registers Any,
+                // so a named-fn `a = 42` typechecks like bun runs it
+                // (the lit_ty fallback registered String and rejected
+                // every cross-type write). An unresolvable ann falls
+                // back to the literal's type as before.
+                (Some(lit), Some(ann)) => resolve_type_ann(ann, &c.aliases).or(Some(lit)),
                 (None, Some(ann)) => resolve_type_ann(ann, &c.aliases),
                 (None, None) => {
                     // Chunk 737 — immutable closure-captured bindings
