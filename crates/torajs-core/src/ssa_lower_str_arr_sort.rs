@@ -249,7 +249,48 @@ fn emit_insertion_sort(
         ctx.cur_block,
         InstKind::Store(Operand::Value(i_now2), Operand::Value(j_slot), 0),
     );
-    // inner loop: while j > 0 && cmp(xs[j-1], cur) > 0: shift
+    emit_inner_shift_loop(ctx, arr_ptr, elem_ty, cmp_val, cmp_ty, cur_cmp, j_slot);
+    // inner after: xs[j] = cur
+    let j_final = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(j_slot), 0),
+        Type::I64,
+        None,
+    );
+    let (off_jf_base, off_jf) =
+        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_final), 3, false);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::StoreDyn(Operand::Value(cur), off_jf_base.clone(), off_jf),
+    );
+    // i++
+    let i_next = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now2), Operand::ConstI64(1)),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(outer_hdr));
+    ctx.cur_block = outer_after;
+}
+
+/// Inner shift loop of [`emit_insertion_sort`] (chunk 770
+/// extraction): `while j > 0 && cmp(xs[j-1], cur) > 0` shift
+/// xs[j] = xs[j-1], j-- . Leaves `ctx.cur_block` at the loop's
+/// after-block (where the caller writes `xs[j] = cur`).
+fn emit_inner_shift_loop(
+    ctx: &mut LowerCtx<'_>,
+    arr_ptr: ValueId,
+    elem_ty: Type,
+    cmp_val: &Option<Operand>,
+    cmp_ty: &Option<Type>,
+    cur_cmp: ValueId,
+    j_slot: ValueId,
+) {
     let inner_hdr = ctx.f.add_block();
     let inner_check = ctx.f.add_block();
     let inner_body = ctx.f.add_block();
@@ -286,8 +327,8 @@ fn emit_insertion_sort(
         None,
     );
     // Chunk 625 — the comparison's prev input takes the kind-aware
-    // boxed read for Any elems (see cur_cmp above); the raw LoadDyn
-    // stays for the shift copy in inner_body.
+    // boxed read for Any elems (see cur_cmp in the caller); the raw
+    // LoadDyn stays for the shift copy in inner_body.
     let prev = if elem_ty == Type::Any {
         ctx.f.append_inst(
             ctx.cur_block,
@@ -349,31 +390,5 @@ fn emit_insertion_sort(
         InstKind::Store(Operand::Value(j_minus_1), Operand::Value(j_slot), 0),
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(inner_hdr));
-    // inner after: xs[j] = cur
     ctx.cur_block = inner_after;
-    let j_final = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, Operand::Value(j_slot), 0),
-        Type::I64,
-        None,
-    );
-    let (off_jf_base, off_jf) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_final), 3, false);
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::StoreDyn(Operand::Value(cur), off_jf_base.clone(), off_jf),
-    );
-    // i++
-    let i_next = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now2), Operand::ConstI64(1)),
-        Type::I64,
-        None,
-    );
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
-    );
-    ctx.f.set_term(ctx.cur_block, Terminator::Br(outer_hdr));
-    ctx.cur_block = outer_after;
 }
