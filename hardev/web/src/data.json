@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T21:20:13.538Z",
+  "generatedAt": "2026-07-10T22:22:52.808Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "7baf2ba8",
-    "commitSubject": "fix: pack_any_elem keeps the AST undefined probe alongside the checker one",
+    "commit": "a414071c",
+    "commitSubject": "feat: any-annotated top-level bindings promote to a NaN-box global slot",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "a414071c",
+      "subject": "feat: any-annotated top-level bindings promote to a NaN-box global slot"
+    },
+    {
+      "hash": "8ddf94e3",
+      "subject": "fix: multi-arg console.log evaluates all arguments before printing"
+    },
+    {
+      "hash": "5728b1db",
+      "subject": "chore(dashboard): refresh @ 7baf2ba8 - rotation 68 (805-807: un-annotated named-fn refs promote to closure globals - forwarder wrap sheds the explicit-ret-ann gate, closure_bindings gains the bare-fn-ident arm; void-call-as-value answers undefined across every lane - checker types user-fn void calls Undefined, call lanes answer ConstPtrNull, typeof keeps the effect, return box goes expr-aware, assignability admits Undefined into Void; undefined/null array literals route to the tagged any lane fixing the [unknown-any-tag] print face and the scalar-anchor SIGSEGV, with a gate-caught fix-up keeping the AST undefined probe beside the checker one; three stale records audited closed - generic-position arrow splitter, lookbehind captures, regex exec leak/utf16 trio; gates 1418 -> 1421 four green, tr baseline 61614016, nextest core 180)"
+    },
+    {
       "hash": "7baf2ba8",
       "subject": "fix: pack_any_elem keeps the AST undefined probe alongside the checker one"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "44d19c27",
       "subject": "feat: retire the 32-capture-group cap, stride-size every saves buffer"
-    },
-    {
-      "hash": "2533e054",
-      "subject": "feat: String.search(RegExp) + substr-receiver gate on the regex method family"
-    },
-    {
-      "hash": "161c2b6a",
-      "subject": "test: pin typeof/.name/.length on closure-typed globals"
-    },
-    {
-      "hash": "85981e3b",
-      "subject": "feat: typed-tier .name reads the runtime fn-addr registry"
     }
   ],
-  "headSha": "7baf2ba8",
+  "headSha": "a414071c",
   "autorun": {
     "total": 374,
     "baselineTarget": 10,
