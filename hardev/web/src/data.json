@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T15:11:41.770Z",
+  "generatedAt": "2026-07-10T15:25:53.198Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "19daa81b",
-    "commitSubject": "test(conformance): pin heap sources into declared-any struct fields",
+    "commit": "f3e13142",
+    "commitSubject": "feat: member-path truthiness narrow at while and ternary guard sites",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "f3e13142",
+      "subject": "feat: member-path truthiness narrow at while and ternary guard sites"
+    },
+    {
+      "hash": "bcda1dab",
+      "subject": "chore(dashboard): refresh @ 19daa81b - rotation 64 (777-781: rust toolchain nightly-2026-05-19 -> 2026-07-10 with suspicious_runtime_symbol_definitions lint fixes + preadv/pwritev dyld whitelist + stale imm12 test expectations; all cargo and web deps to latest with lsp-types Uri migration, TS7 blocked by typescript-eslint peer; generic-instantiation optional-field fill shipped closing the 757 archive plus the pre-existing double-instantiation slot-repr collision via the declared-layout hint; heap-source any-field archive verified closed and pinned; gate 1390 -> 1391 -> 1392 baseline, tr 61580896)"
+    },
+    {
       "hash": "19daa81b",
       "subject": "test(conformance): pin heap sources into declared-any struct fields"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "bd30ff37",
       "subject": "refactor: may-throw scan extracts its call-arm dispatch"
-    },
-    {
-      "hash": "51eed862",
-      "subject": "refactor: arr/str intrinsic declares converge through the decl! table"
-    },
-    {
-      "hash": "73905131",
-      "subject": "refactor: deep-clone leaf variants invert to a catch-all shallow clone"
     }
   ],
-  "headSha": "19daa81b",
+  "headSha": "f3e13142",
   "autorun": {
     "total": 370,
     "baselineTarget": 10,
