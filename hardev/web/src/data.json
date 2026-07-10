@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T18:26:01.908Z",
+  "generatedAt": "2026-07-10T18:47:00.181Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "da1ced7b",
-    "commitSubject": "fix: closure-repr fn fields for generic struct instantiations",
+    "commit": "be4109ba",
+    "commitSubject": "test: retire the [Function (anonymous)] .expected pin",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,22 @@
   },
   "commits": [
     {
+      "hash": "be4109ba",
+      "subject": "test: retire the [Function (anonymous)] .expected pin"
+    },
+    {
+      "hash": "f449480d",
+      "subject": "fix: print unregistered fns as [Function], bun's anonymous spelling"
+    },
+    {
+      "hash": "42d5d6f4",
+      "subject": "feat: named function expressions keep their self-name"
+    },
+    {
+      "hash": "2482fd38",
+      "subject": "chore(dashboard): refresh @ da1ced7b - rotation 66 (791-795: rotation-65 archive closed via optchain sentinel-capable receivers; fn-name/closure-repr double axis - obj-field named-eval, inline-ann fn fields closure-repr plus four forwarder axes, arrow-splitter family fixed at three sites, generic-instantiation fn-arg three fronts; three pre-existing silent-wrongs fixed (optchain sentinel garbage read, inline-ann SIGBUS family, named-TypeDecl call-arg named-fn store); gates 1403 -> 1408 five green, tr baseline 61597488 stable, nextest core 180 each)"
+    },
+    {
       "hash": "da1ced7b",
       "subject": "fix: closure-repr fn fields for generic struct instantiations"
     },
@@ -743,25 +759,9 @@
     {
       "hash": "4a462ab8",
       "subject": "chore(dashboard): refresh @ ae506dfa - rotation 65 (783-789: member-assign named-fn forwarder and member-chain narrow closing the 761 archive; call-arg/nested optional fill and call-arg/member-assign/nested-literal declared-layout hints closing the 780/782 archives plus two pre-existing silent-wrongs the probes surfaced (nested-literal layout collision swallowing whole-program stdout, sentinel-?? printing the cell text); method/ctor faces pinned fixture-only; gates 1393 -> 1402 seven green, tr baseline 61597472)"
-    },
-    {
-      "hash": "ae506dfa",
-      "subject": "feat: narrow member paths through chain receivers"
-    },
-    {
-      "hash": "9509a5e2",
-      "subject": "feat: fill absent optional fields in nested object literals"
-    },
-    {
-      "hash": "9615a9b4",
-      "subject": "test(conformance): pin method and ctor argument optional-fill faces"
-    },
-    {
-      "hash": "16018796",
-      "subject": "fix: treat per-type undefined sentinels as nullish in ?? lowering"
     }
   ],
-  "headSha": "da1ced7b",
+  "headSha": "be4109ba",
   "autorun": {
     "total": 372,
     "baselineTarget": 10,
