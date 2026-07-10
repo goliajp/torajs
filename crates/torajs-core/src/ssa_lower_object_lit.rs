@@ -55,6 +55,15 @@ use crate::ssa::{InstKind, Operand, StructId, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE, OBJ_VTABLE_OFF};
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: ExprId) -> Operand {
+    // Chunk 760 — claim the let-decl stack hint BEFORE the field
+    // lowering: a nested object literal in a field value otherwise
+    // consumed it inside `lower_field_entries` — the INNER block got
+    // stack-alloc'd (its pointer escaped into the outer heap
+    // object's slot, dangling on frame reuse) AND the let name
+    // landed in `stack_alloced_locals`, so the OUTER heap alloc was
+    // never scope-dropped (churn c3: the whole per-iteration field
+    // graph leaked, ~120B/iter).
+    let stack_hint = ctx.let_stack_alloc_hint.take();
     // RFC 20260710-optional-undefined-repr C1 — fields initialized
     // with an undefined LITERAL (frontend-distinguished from null)
     // must land the per-type undefined sentinel in the slot, not the
@@ -80,7 +89,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
         &mut field_vals,
     );
     let any_refcounted = field_tys.iter().any(|(_, ty)| ty.is_refcounted());
-    let obj_ptr = alloc_obj(ctx, sid, field_tys.len(), any_refcounted);
+    let obj_ptr = alloc_obj(ctx, sid, field_tys.len(), any_refcounted, stack_hint);
     init_header(ctx, obj_ptr, sid);
     write_class_tag(ctx, obj_ptr, sid);
     write_vtable_ptr(ctx, obj_ptr);
@@ -252,9 +261,12 @@ fn alloc_obj(
     sid: StructId,
     n_fields: usize,
     any_refcounted: bool,
+    stack_hint: Option<String>,
 ) -> crate::ssa::ValueId {
     let size = n_fields as i64 * 8 + OBJ_HEADER_SIZE as i64;
-    let stack_alloc_name = ctx.let_stack_alloc_hint.take().filter(|_| !any_refcounted);
+    // Chunk 760 — the hint arrives from lower()'s entry (claimed
+    // before field lowering so nested literals can't steal it).
+    let stack_alloc_name = stack_hint.filter(|_| !any_refcounted);
     let cur_block = ctx.cur_block;
     if let Some(let_name) = stack_alloc_name {
         let p = ctx.f.append_inst(
