@@ -64,6 +64,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
     // never scope-dropped (churn c3: the whole per-iteration field
     // graph leaked, ~120B/iter).
     let stack_hint = ctx.let_stack_alloc_hint.take();
+    // Chunk 780 — claim the declared-layout hint HERE for the same
+    // reason as the stack hint above: a nested object literal in a
+    // field value would otherwise consume it inside
+    // `lower_field_entries` and pin the OUTER declared layout onto
+    // the inner literal.
+    let declared_hint = ctx.let_declared_obj_layout.take();
     // RFC 20260710-optional-undefined-repr C1 — fields initialized
     // with an undefined LITERAL (frontend-distinguished from null)
     // must land the per-type undefined sentinel in the slot, not the
@@ -87,6 +93,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
         ctx.cur_block,
         &mut field_tys,
         &mut field_vals,
+        declared_hint,
     );
     let any_refcounted = field_tys.iter().any(|(_, ty)| ty.is_refcounted());
     let obj_ptr = alloc_obj(ctx, sid, field_tys.len(), any_refcounted, stack_hint);

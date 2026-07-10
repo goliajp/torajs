@@ -411,6 +411,18 @@ pub(crate) struct LowerCtx<'a> {
     /// alloc swaps `Call(obj_alloc)` for `AllocaBytes(size)` and
     /// the name is inserted into `stack_alloced_locals`.
     pub(crate) let_stack_alloc_hint: Option<String>,
+    /// Chunk 780 — short-lived declared-layout hint set by the
+    /// `LetDecl` arm before lowering an `ObjectLit` init whose
+    /// annotation parsed to `Type::Obj(sid)`. Read once by
+    /// `resolve_objlit_layout` via `.take()`: two same-shaped
+    /// literals under DIFFERENT declared struct types (`Box<number>`
+    /// vs `Box<string>` — both lower `{v: undefined-ptr, label:
+    /// str}`) otherwise first-match into whichever compatible
+    /// layout registered first, so the writer stores the wrong
+    /// slot repr for the reader's declared layout (probe gD:
+    /// Any-boxed undefined written, `load str` + STR sentinel
+    /// compared → eq answers false).
+    pub(crate) let_declared_obj_layout: Option<crate::ssa::StructId>,
     /// RFC 20260705 chunk 555 — take-once redispatch hint: a
     /// try_lower dispatcher that already lowered a receiver and then
     /// declined (`ssa_lower_str::try_lower_method_call`'s `None`

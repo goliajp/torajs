@@ -116,8 +116,18 @@ pub(crate) fn lower(
     if stack_alloc_hinted {
         ctx.let_stack_alloc_hint = Some(name.to_string());
     }
+    // Chunk 780 — pin the annotated struct layout for a direct
+    // ObjectLit init so resolve_objlit_layout doesn't first-match a
+    // same-shaped layout registered under a different declared type
+    // (see the field doc on `let_declared_obj_layout`).
+    if let Type::Obj(sid) = ty
+        && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
+    {
+        ctx.let_declared_obj_layout = Some(sid);
+    }
     let init_val = lower_let_init_val(ctx, ty, init);
     ctx.let_stack_alloc_hint = None;
+    ctx.let_declared_obj_layout = None;
     // Chunk 637 — the alias classification above ran BEFORE the init
     // lowering, so it can't see a Member read whose owned-receiver
     // lowering detached the result (`const v = mk(i).s` — see

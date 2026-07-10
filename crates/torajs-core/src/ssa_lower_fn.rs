@@ -183,6 +183,7 @@ pub(crate) fn lower_fn(
         undefable_substr_lets: std::collections::HashSet::new(),
         stack_alloced_locals: std::collections::HashSet::new(),
         let_stack_alloc_hint: None,
+        let_declared_obj_layout: None,
         redispatch_lowered: None,
         owned_member_reads: std::collections::HashSet::new(),
     };

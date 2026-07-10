@@ -27,12 +27,24 @@ use crate::ssa::{BlockId, Function, InstKind, Operand, StructId, Type};
 /// field types are `field_tys`, then bring `field_tys` / `field_vals`
 /// in line with the canonical registered widths so downstream
 /// Store-typing emits the right slot types.
+///
+/// `declared_hint` (chunk 780) pins the annotated let-decl layout
+/// when the init is a direct ObjectLit: two same-shaped literals
+/// under different declared struct types (`Box<number>` vs
+/// `Box<string>` generic instantiations both lower `{v:
+/// undefined-ptr, label: str}`) would otherwise first-match into
+/// whichever compatible layout registered first — the writer then
+/// stores the wrong slot repr for the reader's declared layout.
+/// The hint only wins when it is itself compatible; anything else
+/// falls back to the scan (checker already rejected true
+/// mismatches, so this is belt-and-braces, not a bypass).
 pub(crate) fn resolve_objlit_layout(
     layouts: &mut Vec<Vec<(String, Type)>>,
     f: &mut Function,
     cur_block: BlockId,
     field_tys: &mut [(String, Type)],
     field_vals: &mut [Operand],
+    declared_hint: Option<StructId>,
 ) -> StructId {
     let exact = |reg: &Vec<(String, Type)>| -> bool {
         reg.len() == field_tys.len()
@@ -65,12 +77,19 @@ pub(crate) fn resolve_objlit_layout(
                 })
     };
 
-    let sid = match layouts
-        .iter()
-        .position(exact)
-        .or_else(|| layouts.iter().position(coercible))
-    {
-        Some(i) => StructId(i as u32),
+    let hinted = declared_hint.filter(|sid| {
+        layouts
+            .get(sid.0 as usize)
+            .is_some_and(|reg| exact(reg) || coercible(reg))
+    });
+    let sid = match hinted.or_else(|| {
+        layouts
+            .iter()
+            .position(exact)
+            .or_else(|| layouts.iter().position(coercible))
+            .map(|i| StructId(i as u32))
+    }) {
+        Some(sid) => sid,
         None => {
             let new_id = StructId(layouts.len() as u32);
             layouts.push(field_tys.to_vec());

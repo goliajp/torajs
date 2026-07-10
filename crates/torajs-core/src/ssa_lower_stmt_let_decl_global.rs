@@ -52,6 +52,15 @@ pub(crate) fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId)
         let ids: Vec<ExprId> = els.clone();
         ctx.lower_array_any_literal(&ids)
     } else {
+        // Chunk 780 — pin the declared struct layout for a direct
+        // ObjectLit init (global-lane mirror of the fn-scope hint;
+        // see `let_declared_obj_layout` field doc). Consumed by
+        // `resolve_objlit_layout` via take-once.
+        if let Type::Obj(sid) = slot_ty
+            && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
+        {
+            ctx.let_declared_obj_layout = Some(sid);
+        }
         ctx.lower_expr(init)
     };
     // Chunk 698 — general-path mirror: an `Array<Any>` init bound
