@@ -40,10 +40,49 @@
 //! - **Copy** types — no-op (caller normally filters; defensive).
 //! - other — panic.
 
-use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{
     ARR_LEN_OFF, CLOSURE_DROP_FN_OFF, LowerCtx, OBJ_HEADER_SIZE, intern_fn_sig,
 };
+
+/// RFC 20260710 C2b — nullish skip condition for the inline drop
+/// stations: a refcounted pointer slot legitimately holds NULL (JS
+/// null) or the immortal generic undefined cell; both must skip the
+/// inline rc-dec (the runtime FFI paths are FLAG_STATIC-gated, but
+/// the IR-level `emit_rc_dec_inline` writes the header directly —
+/// dec'ing the static cell would write rodata). Two cmps + or.
+fn nullish_skip_cond(ctx: &mut LowerCtx, val: &Operand) -> Operand {
+    let val_ty = ctx.operand_ty(val);
+    let is_null = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, val.clone(), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    let sentinel = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::GlobalRef(crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM.to_string()),
+        val_ty,
+        None,
+    );
+    let is_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, val.clone(), Operand::Value(sentinel)),
+        Type::Bool,
+        None,
+    );
+    let nullish = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            SsaBinOp::Or,
+            Operand::Value(is_null),
+            Operand::Value(is_undef),
+        ),
+        Type::Bool,
+        None,
+    );
+    Operand::Value(nullish)
+}
 
 pub(crate) fn emit(ctx: &mut LowerCtx, val: Operand, ty: Type) {
     // three structural shapes get their own emit fn; everything else
@@ -90,16 +129,11 @@ fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::StructId) {
     let dec_blk = ctx.f.add_block();
     let walk_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
-    let null_check = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, val, Operand::ConstPtrNull),
-        Type::Bool,
-        None,
-    );
+    let skip_check = nullish_skip_cond(ctx, &val);
     ctx.f.set_term(
         ctx.cur_block,
         Terminator::CondBr {
-            cond: Operand::Value(null_check),
+            cond: skip_check,
             then_blk: after,
             else_blk: dec_blk,
         },
@@ -180,16 +214,11 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
     let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
     let body_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
-    let null_check = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, val.clone(), Operand::ConstPtrNull),
-        Type::Bool,
-        None,
-    );
+    let skip_check = nullish_skip_cond(ctx, &val);
     ctx.f.set_term(
         ctx.cur_block,
         Terminator::CondBr {
-            cond: Operand::Value(null_check),
+            cond: skip_check,
             then_blk: after,
             else_blk: body_blk,
         },
@@ -273,20 +302,16 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
 /// Chunk 738 — NULL guard mirrors `emit_drop_obj`: a nullable
 /// closure slot (`let h: (() => T) | null`) legitimately holds the
 /// in-band null sentinel; the reassign drop-old and scope-close
-/// paths must not rc-dec through it.
+/// paths must not rc-dec through it. RFC 20260710 C2b upgraded the
+/// guard to nullish (NULL or the generic undefined cell).
 fn emit_drop_closure(ctx: &mut LowerCtx, val: Operand) {
     let dec_blk = ctx.f.add_block();
     let skip = ctx.f.add_block();
-    let null_check = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, val.clone(), Operand::ConstPtrNull),
-        Type::Bool,
-        None,
-    );
+    let skip_check = nullish_skip_cond(ctx, &val);
     ctx.f.set_term(
         ctx.cur_block,
         Terminator::CondBr {
-            cond: Operand::Value(null_check),
+            cond: skip_check,
             then_blk: skip,
             else_blk: dec_blk,
         },

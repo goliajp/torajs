@@ -174,11 +174,21 @@ fn lower_obj_concat(
             *fty,
             None,
         );
-        let merge_blk = if *fty == Type::Str {
-            // Undefined-only probe (NULL keeps the key, prints null).
+        // Undefined-only probe (NULL keeps the key, prints null):
+        // §25.5.2.4 step 8.b skips the whole `<sep>"key":<val>`
+        // segment. Str slots probe the Str sentinel; refcounted
+        // pointer slots (RFC 20260710 C2b) probe the generic
+        // Tag::Undefined cell — without it the field recursion
+        // would walk the bare oddball header as a live cell.
+        let undef_probe = match fty {
+            Type::Str => Some(ctx.intrinsics.str_is_undef),
+            Type::Obj(_) | Type::Arr(_) | Type::Closure(_) => Some(ctx.intrinsics.is_undef_cell),
+            _ => None,
+        };
+        let merge_blk = if let Some(probe_fid) = undef_probe {
             let is_undef = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.str_is_undef, vec![Operand::Value(field_v)]),
+                InstKind::Call(probe_fid, vec![Operand::Value(field_v)]),
                 Type::Bool,
                 None,
             );

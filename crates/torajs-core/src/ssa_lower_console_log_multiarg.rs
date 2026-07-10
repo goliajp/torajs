@@ -26,7 +26,7 @@
 //! conformance; not part of this trunk).
 
 use crate::ast::{Expr, ExprId, Stmt};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// Try to lower `s` as a multi-arg `console.log` Stmt::Expr. Returns
@@ -97,6 +97,12 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
             _ => false,
         };
 
+        // RFC 20260710 C2b — an Obj/Arr/Closure arg may hold the
+        // generic undefined cell (Nullable slot); branch to the
+        // boxed "undefined" inline print (helper below), a live cell
+        // falls through to the arms below unchanged.
+        let sentinel_join = open_boxed_sentinel_branch(ctx, &arg, arg_ty);
+
         // typed Arr<primitive> — route to the matching no-\n typed
         // walker (slots are raw bytes, not NaN-box, so the Any path's
         // Tag::Arr arm would SIGSEGV).
@@ -113,6 +119,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
             if let Some(target) = typed_target {
                 ctx.f
                     .append_void(ctx.cur_block, InstKind::Call(target, vec![arg]));
+                crate::ssa_lower_call_console::close_console_sentinel_branch(ctx, sentinel_join);
                 continue;
             }
         }
@@ -136,6 +143,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
             );
             ctx.emit_drop_value(boxed, Type::Any);
             ctx.emit_drop_value(Operand::Value(s), Type::Str);
+            crate::ssa_lower_call_console::close_console_sentinel_branch(ctx, sentinel_join);
             continue;
         }
 
@@ -168,7 +176,13 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
             {
                 ctx.box_f64_or_undef(arg)
             } else {
-                ctx.box_to_any(arg)
+                // RFC 20260710 C2b — expr-aware box: a Nullable
+                // Obj/Arr/Closure arg may carry the generic
+                // undefined cell, which must re-encode as ANY_UNDEF
+                // (the tag-aware printer has no arm for the oddball
+                // header). All other shapes take box_to_any's arms
+                // unchanged.
+                ctx.box_to_any_from_expr(aid, arg)
             };
             (boxed, true)
         };
@@ -179,6 +193,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
         if drop_after {
             ctx.emit_drop_value(any_op, Type::Any);
         }
+        crate::ssa_lower_call_console::close_console_sentinel_branch(ctx, sentinel_join);
     }
     ctx.f.append_inst(
         ctx.cur_block,
@@ -187,4 +202,47 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
         None,
     );
     true
+}
+
+/// RFC 20260710 C2b — boxed variant of
+/// [`crate::ssa_lower_call_console::open_console_sentinel_branch`]
+/// for the per-arg inspect walker: the undefined arm prints through
+/// `print_any_inline_top` (no-newline inline joiner) instead of a
+/// method Str target. Close with `close_console_sentinel_branch`.
+fn open_boxed_sentinel_branch(
+    ctx: &mut LowerCtx,
+    arg: &Operand,
+    arg_ty: Type,
+) -> Option<crate::ssa::BlockId> {
+    if !matches!(arg_ty, Type::Obj(_) | Type::Arr(_) | Type::Closure(_)) {
+        return None;
+    }
+    let is_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.is_undef_cell, vec![arg.clone()]),
+        Type::Bool,
+        None,
+    );
+    let undef_blk = ctx.f.add_block();
+    let live_blk = ctx.f.add_block();
+    let join_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_undef),
+            then_blk: undef_blk,
+            else_blk: live_blk,
+        },
+    );
+    ctx.cur_block = undef_blk;
+    let lit = ctx.intern_string_literal("undefined");
+    let boxed = ctx.box_to_any(Operand::Value(lit));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed.clone()]),
+    );
+    ctx.emit_drop_value(boxed, Type::Any);
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(join_blk));
+    ctx.cur_block = live_blk;
+    Some(join_blk)
 }

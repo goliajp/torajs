@@ -281,22 +281,20 @@ impl LowerCtx<'_> {
             // Heap-typed values (Obj / Arr / Closure / Symbol /
             // RegExp / Date / BigInt / FnSig / ...) lower to a single
             // pointer at codegen, so ToBoolean per spec §7.1.2 is a
-            // nullish check: NULL (JS null) and the immortal
-            // undefined sentinel (RFC 20260710 C2a — a Nullable slot
-            // can carry either repr) are the two falsy pointers;
+            // nullish check: NULL (JS null) and the slot type's
+            // immortal undefined sentinel (RFC 20260710 C2a FnSig →
+            // Str-shaped oddball; C2b Obj/Arr/Closure → the generic
+            // Tag::Undefined cell) are the two falsy pointers;
             // everything else is a live object → true. Two inline
-            // cmps + and, zero calls.
+            // cmps + and, zero calls. Slot types with no sentinel
+            // yet (Symbol / RegExp / Date / ...) keep the plain
+            // null check.
             _ => {
                 let ne_null = self.cmp(IPred::Ne, op.clone(), Operand::ConstPtrNull);
-                let sentinel = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::GlobalRef(
-                        crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM.to_string(),
-                    ),
-                    ty,
-                    None,
-                );
-                let ne_undef = self.cmp(IPred::Ne, op, Operand::Value(sentinel));
+                let Some(sentinel) = self.str_undef_sentinel_for(ty) else {
+                    return ne_null;
+                };
+                let ne_undef = self.cmp(IPred::Ne, op, sentinel);
                 let r = self.f.append_inst(
                     self.cur_block,
                     InstKind::BinOp(crate::ssa::BinOp::And, ne_null, ne_undef),

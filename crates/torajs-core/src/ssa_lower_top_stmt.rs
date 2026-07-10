@@ -138,6 +138,13 @@ impl<'a> LowerCtx<'a> {
                 return;
             }
             let target = self.console_print_target(method, arg_ty);
+            // RFC 20260710 C2b — an Obj/Arr/Closure arg may hold the
+            // generic undefined cell (Nullable slot); branch to the
+            // "undefined" label print (shared helper — mirror of the
+            // in-expr console lane).
+            let sentinel_join = crate::ssa_lower_call_console::open_console_sentinel_branch(
+                self, method, &arg, arg_ty,
+            );
             // RFC 20260704 L3b #5 — typed Arr with no dedicated typed
             // printer routes through the tag-aware print_any; this
             // direct path never crosses the boxing boundary, so mark
@@ -149,6 +156,7 @@ impl<'a> LowerCtx<'a> {
             }
             self.f
                 .append_void(self.cur_block, InstKind::Call(target, vec![arg.clone()]));
+            crate::ssa_lower_call_console::close_console_sentinel_branch(self, sentinel_join);
             if is_str && !is_borrow {
                 self.emit_drop_value(arg, Type::Str);
             }

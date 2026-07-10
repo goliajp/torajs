@@ -23,7 +23,7 @@
 //! args) so the caller falls through to subsequent arms.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
@@ -96,6 +96,7 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     }
     let is_str = arg_ty == Type::Str;
     let target = ctx.console_print_target(method, arg_ty);
+    let sentinel_join = open_console_sentinel_branch(ctx, method, &arg, arg_ty);
     // RFC 20260704 L3b #5 — a typed Arr whose elem has no dedicated
     // typed printer (Arr<Arr> / Arr<Obj> / …) routes through the
     // tag-aware print_any, which reads the header's elem-kind field.
@@ -106,8 +107,10 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     if target == ctx.intrinsics.print_any && matches!(arg_ty, Type::Arr(_)) {
         ctx.emit_arr_mark_kind(&arg);
     }
+    let cur_block = ctx.cur_block;
     ctx.f
         .append_void(cur_block, InstKind::Call(target, vec![arg.clone()]));
+    close_console_sentinel_branch(ctx, sentinel_join);
     if !is_borrow {
         if is_str {
             ctx.emit_drop_value(arg, Type::Str);
@@ -232,4 +235,65 @@ pub(crate) fn lower_print_f64_or_undef(
     ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
     ctx.cur_block = merge;
     Operand::ConstI64(0)
+}
+
+/// RFC 20260710 C2b — open the console sentinel branch for an
+/// Obj/Arr/Closure arg: those slots may hold the generic undefined
+/// oddball cell (Nullable slot), which the typed struct / arr /
+/// closure printers would walk as a live header. Branch on identity:
+/// the sentinel prints "undefined" through the method's Str target;
+/// the caller emits the live-cell path and closes with
+/// [`close_console_sentinel_branch`]. Unconditional probe — the
+/// checker's console fast-path does not record arg expr types, so a
+/// Nullable-source gate can't see them; console is an io slow path,
+/// one probe call is free. `None` for every other operand type.
+pub(crate) fn open_console_sentinel_branch(
+    ctx: &mut LowerCtx<'_>,
+    method: &'static str,
+    arg: &Operand,
+    arg_ty: Type,
+) -> Option<crate::ssa::BlockId> {
+    if !matches!(arg_ty, Type::Obj(_) | Type::Arr(_) | Type::Closure(_)) {
+        return None;
+    }
+    let is_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.is_undef_cell, vec![arg.clone()]),
+        Type::Bool,
+        None,
+    );
+    let undef_blk = ctx.f.add_block();
+    let live_blk = ctx.f.add_block();
+    let join_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_undef),
+            then_blk: undef_blk,
+            else_blk: live_blk,
+        },
+    );
+    ctx.cur_block = undef_blk;
+    let lit = ctx.intern_string_literal("undefined");
+    let str_target = ctx.console_print_target(method, Type::Str);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(str_target, vec![Operand::Value(lit)]),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(join_blk));
+    ctx.cur_block = live_blk;
+    Some(join_blk)
+}
+
+/// Close a branch opened by [`open_console_sentinel_branch`] (or the
+/// multiarg walker's boxed variant): route the live-cell tail into
+/// the join block. No-op when the branch never opened.
+pub(crate) fn close_console_sentinel_branch(
+    ctx: &mut LowerCtx<'_>,
+    join: Option<crate::ssa::BlockId>,
+) {
+    if let Some(join_blk) = join {
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(join_blk));
+        ctx.cur_block = join_blk;
+    }
 }

@@ -201,6 +201,7 @@ pub const FLAG_SEALED: u16 = 1 << 9;
 pub mod any_method;
 pub mod arr_kind;
 pub mod color;
+pub mod undef_cell;
 pub use any_method::{
     ANY_METHOD_ADD, ANY_METHOD_APPLY, ANY_METHOD_BIND, ANY_METHOD_CALL, ANY_METHOD_CHAR_AT,
     ANY_METHOD_CLEAR, ANY_METHOD_DELETE, ANY_METHOD_ENDS_WITH, ANY_METHOD_ENTRIES, ANY_METHOD_EXEC,
@@ -234,75 +235,11 @@ pub use arr_kind::{
 };
 pub use color::{COLOR_MASK, COLOR_SHIFT, Color};
 
-// ============================================================
-// Type tags
-// ============================================================
+// Type tags (`Tag` enum) live in `tag.rs`; re-exported at crate
+// root just below, same shape as `color` / `arr_kind`.
 
-/// Per-heap-object type tag stored in [`HeapHeader::type_tag`].
-/// Drives drop dispatch in `__torajs_value_drop_heap` (still in
-/// the glue C for now; rewrite of dispatch is queued for the
-/// later phase — see `docs/architecture-rewrite.md`).
-///
-/// Values are stable wire-format; do not renumber. Adding a new
-/// type takes the next free integer + a new variant here + a
-/// new `case` in the dispatcher.
-#[repr(u16)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tag {
-    /// `Str` — `[header:8][len:8][bytes:N]`.
-    Str = 0,
-    /// `Obj` — static-layout class instance / property bag.
-    Obj = 1,
-    /// `Arr<T>` — head-aware deque.
-    Arr = 2,
-    /// `Closure` — env-first ABI; the cell is the env:
-    /// `{ hdr | fn_ptr@8 | drop_fn@16 | props@24 | boxed_entry@32 |
-    /// caps@40+ }` (see torajs-core `ssa_lower.rs` CLOSURE_* offsets).
-    Closure = 3,
-    /// `RegExp` — compiled NFA + flags.
-    RegExp = 4,
-    /// `Date` — `{ ms_since_epoch }`.
-    Date = 5,
-    /// **Reserved (was `AnyBox`).** The boxed `Type::Any` heap
-    /// struct was removed in v0.7 Step 7 NaN-box AnyValue cutover;
-    /// the discriminant `6` is kept reserved so later variants
-    /// don't shift in the wire ABI.
-    Reserved6 = 6,
-    /// `Symbol` — `{ desc_str_ptr }`.
-    Symbol = 7,
-    /// `Promise<T>` — own drop path (not via value_drop_heap).
-    Promise = 8,
-    /// `fetch()` `Response`.
-    Response = 9,
-    /// `BigInt` — sign-magnitude limbs.
-    BigInt = 10,
-    /// `WeakRef<T>` — `{ target_ptr | null }`.
-    WeakRef = 11,
-    /// `WeakMap<K, V>`.
-    WeakMap = 12,
-    /// `WeakSet<K>`.
-    WeakSet = 13,
-    /// Dynamic-property object (HashMap-backed).
-    DynObj = 14,
-    /// Strong-ref `Map<K, V>`.
-    Map = 15,
-    /// `MapIter` — stateful Map iterator.
-    MapIter = 16,
-    /// `ArrIter` — stateful Array<Any> iterator.
-    ArrIter = 17,
-    /// `AccessorPair` — `{ get_closure, set_closure }` backing a
-    /// dynobj property defined with a get/set descriptor (RFC C3).
-    /// Stored as the entry's `value_anyv` cell; resolved by reading
-    /// the pointee's `HeapHeader::type_tag` (the NaN-box itself has no
-    /// free tag space — V8/JSC AccessorPair model).
-    AccessorPair = 18,
-    /// Strong-ref `Set<T>` — shares the `Map` heap layout
-    /// (`torajs-collections::layout::Map`, Set stores entries with
-    /// `value_anyv = ANY_UNDEF`) but gets its own type_tag so the
-    /// AnyValue tag-walker (inspect.rs) can route to the bun-correct
-    /// `Set(N) {…}` / `Set {}` printer instead of mis-printing as Map.
-    Set = 19,
-}
+pub mod tag;
+pub use tag::Tag;
 
 // ============================================================
 // Any-slot tag (16-byte Array<Any> slot)

@@ -57,6 +57,7 @@ pub(crate) struct StrBIds {
     pub str_null_check: FuncId,
     pub str_is_nullish: FuncId,
     pub str_is_undef: FuncId,
+    pub is_undef_cell: FuncId,
     pub str_split: FuncId,
     pub str_split_no_sep: FuncId,
 }
@@ -173,6 +174,18 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_str_is_undef",
             &[Type::Str],
+            Type::Bool,
+        ),
+        // RFC 20260710 C2b — generic Tag::Undefined oddball identity
+        // probe (torajs-rc undef_cell.rs): tells "JS undefined" from
+        // a live heap cell on a refcounted pointer slot (Obj / Arr /
+        // Closure). Sibling of str_is_undef; lives here with the
+        // sentinel family.
+        is_undef_cell: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_is_undef_cell",
+            &[Type::Ptr],
             Type::Bool,
         ),
         str_split: declare_intrinsic(

@@ -30,13 +30,18 @@ use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
 use crate::ssa_lower_intrinsics_substr::SUBSTR_UNDEF_CELL_SYM;
 
+/// RFC 20260710 C2b — the generic immortal `undefined` oddball for
+/// pointer-shaped struct slots (Obj / Arr / Closure), a bare
+/// `Tag::Undefined` header block in torajs-rc (`undef_cell.rs`).
+pub(crate) const UNDEF_CELL_SYM: &str = "___TORAJS_UNDEF_CELL";
+
 impl<'a> LowerCtx<'a> {
     /// RFC 20260710-optional-undefined-repr C1 — materialize the
-    /// per-type undefined sentinel address for a Str/Substr slot
-    /// (RFC 20260707 immortal cells; ADRP+ADD, zero calls). `None`
-    /// for every other slot type — callers keep whatever value the
-    /// undefined literal lowered to (NULL) until that type's
-    /// sentinel lands (C2).
+    /// per-type undefined sentinel address for a sentinel-capable
+    /// slot (RFC 20260707 immortal cells; ADRP+ADD, zero calls).
+    /// `None` for every other slot type — callers keep whatever
+    /// value the undefined literal lowered to (NULL) until that
+    /// type's sentinel lands.
     pub(crate) fn str_undef_sentinel_for(&mut self, slot_ty: Type) -> Option<Operand> {
         let sym = match slot_ty {
             Type::Str => STR_UNDEF_CELL_SYM,
@@ -44,10 +49,14 @@ impl<'a> LowerCtx<'a> {
             // RFC 20260710 C2a — a fn-typed slot is Copy (no rc/drop
             // traffic), so the Str-shaped oddball serves as its
             // undefined repr directly: eq compares the address,
-            // print/ToString consult the identity probe. Other
-            // pointer slot types (Obj/Arr/Closure) keep NULL until
-            // their inline-dec drop guards land (C2b).
+            // print/ToString consult the identity probe.
             Type::FnSig(_) => STR_UNDEF_CELL_SYM,
+            // RFC 20260710 C2b — refcounted pointer slots take the
+            // generic Tag::Undefined cell: the drop stations guard
+            // on it (nullish, not just NULL), strict-eq compares
+            // the address, print/JSON probe identity, and the any
+            // boundary re-encodes it as ANY_UNDEF.
+            Type::Obj(_) | Type::Arr(_) | Type::Closure(_) => UNDEF_CELL_SYM,
             _ => return None,
         };
         let v = self.f.append_inst(
@@ -139,9 +148,18 @@ pub(crate) fn try_lower(
             }
             return Some(Operand::Value(cmp));
         }
-        // RFC 20260710 C2a — fn-typed slots join the sentinel-capable
-        // set (their undefined repr is the Str-shaped oddball).
-        if !matches!(val_ty, Type::Str | Type::Substr | Type::FnSig(_)) {
+        // RFC 20260710 C2a/C2b — fn-typed slots (Str-shaped oddball)
+        // and refcounted pointer slots (generic Tag::Undefined cell)
+        // join the sentinel-capable set.
+        if !matches!(
+            val_ty,
+            Type::Str
+                | Type::Substr
+                | Type::FnSig(_)
+                | Type::Obj(_)
+                | Type::Arr(_)
+                | Type::Closure(_)
+        ) {
             return None;
         }
         let rhs = if nullish_is_undef {

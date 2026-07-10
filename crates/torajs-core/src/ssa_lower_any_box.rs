@@ -69,6 +69,32 @@ impl<'a> LowerCtx<'a> {
         if val_ty == Type::F64 && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid) {
             return self.box_f64_or_undef(val);
         }
+        // RFC 20260710 C2b — a Nullable refcounted pointer source
+        // (optional Obj/Arr/Closure field read) may carry the
+        // generic undefined cell; re-encode it as ANY_UNDEF so the
+        // any world never sees the oddball. Zero branches: tag =
+        // 4 + (val == sentinel), and `anyv_box_from_pair` tag 5
+        // ignores the payload. Non-Nullable heap sources keep the
+        // plain zero-cmp encoding below.
+        if matches!(
+            self.expr_types.get(&eid),
+            Some(crate::check::Type::Nullable(_))
+        ) && matches!(val_ty, Type::Obj(_) | Type::Arr(_) | Type::Closure(_))
+        {
+            // Ownership mirrors box_to_any's refcounted arm (chunk
+            // 753 — pure encoding, the caller owns the stake story);
+            // the typed-arr kind mark self-gates on the sentinel's
+            // static flag at runtime.
+            self.emit_arr_mark_kind(&val);
+            let (tag, value) = self.heap_slot_tag_value(val);
+            let v = self.f.append_inst(
+                self.cur_block,
+                InstKind::Call(self.intrinsics.any_box, vec![tag, value]),
+                Type::Any,
+                None,
+            );
+            return Operand::Value(v);
+        }
         self.box_to_any(val)
     }
 
@@ -109,6 +135,22 @@ impl<'a> LowerCtx<'a> {
         // NaN with our payload.
         if val_ty == Type::F64 && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid) {
             let (tag, v) = self.tag_value_f64_or_undef(val.clone());
+            return (tag, v, val, val_ty);
+        }
+        // RFC 20260710 C2b — a Nullable refcounted pointer source
+        // may carry the generic undefined cell: encode ANY_UNDEF
+        // instead of a heap tag pointing at the oddball. Ownership
+        // mirrors box_to_tag_value's refcounted arm (slot takes its
+        // +1); the inc and the kind mark both no-op on the sentinel
+        // through the runtime static gates.
+        if matches!(
+            self.expr_types.get(&eid),
+            Some(crate::check::Type::Nullable(_))
+        ) && matches!(val_ty, Type::Obj(_) | Type::Arr(_) | Type::Closure(_))
+        {
+            self.emit_rc_inc(val.clone());
+            self.emit_arr_mark_kind(&val);
+            let (tag, v) = self.heap_slot_tag_value(val.clone());
             return (tag, v, val, val_ty);
         }
         let (tag, v) = self.box_to_tag_value(val.clone());

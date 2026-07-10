@@ -117,6 +117,7 @@ pub(crate) fn build(
         str_null_check: init_a.str_b.str_null_check,
         str_is_nullish: init_a.str_b.str_is_nullish,
         str_is_undef: init_a.str_b.str_is_undef,
+        is_undef_cell: init_a.str_b.is_undef_cell,
         str_sort_cmp: init_a.str_b.str_sort_cmp,
         str_sort_undef_pre: init_a.str_b.str_sort_undef_pre,
         str_split: init_a.str_b.str_split,

@@ -45,7 +45,7 @@ pub fn fill_optional_fields(ast: &mut Ast) {
         let Expr::ObjectLit { fields } = ast.get_expr(lit_eid).clone() else {
             continue;
         };
-        let Some(new_fields) = plan_fill(&fields, &declared) else {
+        let Some(new_fields) = plan_fill(&fields, &declared, &alias_fields) else {
             continue;
         };
         let mut rebuilt: Vec<(String, ExprId)> = Vec::with_capacity(new_fields.len());
@@ -168,7 +168,11 @@ fn resolve_struct_ann(
 /// subsequence of `declared`; every absent field must be a
 /// sentinel-capable `__nullable(...)` to be inserted. Returns `None`
 /// (leave the literal alone — checker stays loud) on any other shape.
-fn plan_fill(literal: &[(String, ExprId)], declared: &[(String, String)]) -> Option<Vec<FillSlot>> {
+fn plan_fill(
+    literal: &[(String, ExprId)],
+    declared: &[(String, String)],
+    alias_fields: &HashMap<String, Vec<(String, String)>>,
+) -> Option<Vec<FillSlot>> {
     if literal.len() == declared.len() {
         return None;
     }
@@ -187,7 +191,7 @@ fn plan_fill(literal: &[(String, ExprId)], declared: &[(String, String)]) -> Opt
         let inner = dty
             .strip_prefix("__nullable(")
             .and_then(|s| s.strip_suffix(")"))?;
-        if !sentinel_capable(inner) {
+        if !sentinel_capable(inner, alias_fields, 0) {
             return None;
         }
         out.push(FillSlot::Undefined(dname.clone()));
@@ -202,11 +206,41 @@ fn plan_fill(literal: &[(String, ExprId)], declared: &[(String, String)]) -> Opt
 }
 
 /// Slot types whose undefined repr has landed: Str-family (RFC
-/// 20260707 + C1), fn-type (C2a), and number/boolean (C4 — the
-/// optional slot materializes as Any, absent = ANY_UNDEF box).
-/// Object/array fields (C2b) stay loud.
-fn sentinel_capable(inner: &str) -> bool {
-    inner == "string" || inner.starts_with("__fn(") || inner == "number" || inner == "boolean"
+/// 20260707 + C1), fn-type (C2a), number/boolean (C4 — the optional
+/// slot materializes as Any, absent = ANY_UNDEF box), and the
+/// refcounted pointer spellings (C2b — array suffix / inline object
+/// / struct / closure fields and struct-alias names take the generic
+/// Tag::Undefined cell). A bare alias resolves through the TypeDecl
+/// snapshot (struct alias = Obj slot; a `__alias__` wedge recurses
+/// on its underlying spelling, depth-capped against pathological
+/// alias cycles); an unresolvable name stays loud — it can be a
+/// slot type whose sentinel has not landed (Map / RegExp / ...).
+fn sentinel_capable(
+    inner: &str,
+    alias_fields: &HashMap<String, Vec<(String, String)>>,
+    depth: u32,
+) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    if inner == "string"
+        || inner.starts_with("__fn(")
+        || inner == "number"
+        || inner == "boolean"
+        || inner.ends_with("[]")
+        || inner.starts_with("__inlobj(")
+        || inner.starts_with("__struct(")
+        || inner.starts_with("__cls(")
+    {
+        return true;
+    }
+    if let Some(fields) = alias_fields.get(inner) {
+        if fields.len() == 1 && fields[0].0 == "__alias__" {
+            return sentinel_capable(&fields[0].1, alias_fields, depth + 1);
+        }
+        return true;
+    }
+    false
 }
 
 /// Split `s` on `sep` at paren depth 0.

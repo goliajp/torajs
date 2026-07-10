@@ -53,6 +53,11 @@ unsafe extern "C" {
     // C1): a Str/Substr slot holding the immortal sentinel cell means
     // JS `undefined`, not a 9-char string.
     fn __torajs_str_is_undef(p: *const u8) -> i64;
+
+    // torajs-rc — generic undefined oddball probe (RFC 20260710
+    // C2b): a refcounted pointer slot (Obj / Arr / Closure) holding
+    // the Tag::Undefined cell means JS `undefined`.
+    fn __torajs_is_undef_cell(p: *const u8) -> i64;
 }
 
 /// Field byte-offset + coarse type tag — mirrors
@@ -117,11 +122,16 @@ pub(crate) unsafe fn field_slot_to_pair(type_tag: u8, raw: u64) -> (u64, u64) {
         2 => (ANY_F64, raw),
         3 => (ANY_BOOL, raw),
         _ => {
-            // RFC 20260710 C1 — a Str/Substr slot holding the
-            // undefined sentinel cell reads back as JS `undefined`
+            // RFC 20260710 C1/C2b — a slot holding either undefined
+            // sentinel (the Str/Substr cell or the generic
+            // Tag::Undefined cell) reads back as JS `undefined`
             // (struct print / descriptors would otherwise render the
-            // cell's "undefined" payload as a quoted string).
-            if raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0 {
+            // Str cell's "undefined" payload as a quoted string, or
+            // walk the bare header as a live cell).
+            if raw != 0
+                && (unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
+                    || unsafe { __torajs_is_undef_cell(raw as *const u8) } != 0)
+            {
                 (ANY_UNDEF, 0)
             } else {
                 (ANY_HEAP, raw)
