@@ -223,6 +223,13 @@ impl Checker {
             (Type::Object("process"), "stdout") => Ok(Type::Object("process_stdout")),
             (Type::Object("process"), "stderr") => Ok(Type::Object("process_stderr")),
             (Type::Object("process"), "stdin") => Ok(Type::Object("process_stdin")),
+            // Chunk 791 — fn values expose `.length` (declared
+            // arity) and `.name` per ES §20.2.4; reached via
+            // OptChain on an optional fn-typed field
+            // (`f.cb?.name`). The SSA member ladder already lowers
+            // both (T-27.c / typed-props layer 7).
+            (Type::Function(..), "length") => Ok(Type::Number),
+            (Type::Function(..), "name") => Ok(Type::String),
             (Type::Struct(fields), n) => fields
                 .iter()
                 .find(|(fn_, _)| fn_ == n)

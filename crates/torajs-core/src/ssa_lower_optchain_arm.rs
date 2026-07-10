@@ -19,18 +19,30 @@
 //!   `LowerCtx::lower_optchain_any` (NaN-box tag-discriminated
 //!   nullish check + Any.Member dispatch lives in
 //!   `ssa_lower_optchain.rs`).
-//! - **`Type::Obj(sid)` typed-tier pointer** — null-check via
-//!   `ICmp::Eq(obj, ConstPtrNull)`, CondBr into null-block (boxes
-//!   ANY_UNDEF) vs mem-block (load field + box_to_any). For non-
-//!   pointer obj_ty (e.g. statically-known non-null Obj) the cond
-//!   is constant-false and LLVM folds the null branch away.
+//! - **`Type::Obj(sid)` typed-tier pointer** — nullish-check (see
+//!   below), CondBr into null-block (boxes ANY_UNDEF) vs mem-block
+//!   (load field + box_to_any). For non-pointer obj_ty (e.g.
+//!   statically-known non-null Obj) the cond is constant-false and
+//!   LLVM folds the null branch away.
+//! - **other sentinel-capable pointer receivers** (chunk 791 —
+//!   Str / Substr / Arr / Closure / FnSig) — same branch scaffold;
+//!   the hit path dispatches through the regular typed-receiver
+//!   member ladder (`ssa_lower_member::lower_with_val`) so every
+//!   member the plain `.` read supports works under `?.` too.
 //!
-//! Non-Obj non-Any receivers panic (not yet supported).
+//! The nullish check mirrors the chunk-786 `??` station: a
+//! pointer-shaped slot's undefined is the immortal per-type
+//! sentinel cell (RFC 20260710), not NULL — comparing only NULL
+//! sent a sentinel-filled optional field down the hit path
+//! (`o.child?.x` loaded garbage past the sentinel header). Nullish
+//! = NULL or the receiver type's sentinel address.
+//!
+//! Receivers with no sentinel mapping panic (not yet supported).
 //!
 //! Returns `Operand` directly (terminal arm — caller's
 //! `Expr::OptChain` match arm bottoms out here).
 
-use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
 pub(crate) fn lower(
@@ -44,17 +56,35 @@ pub(crate) fn lower(
     if matches!(obj_ty, Type::Any) {
         return ctx.lower_optchain_any(eid, obj_op, name);
     }
-    let sid = match obj_ty {
-        Type::Obj(sid) => sid,
-        _ => {
-            panic!("ssa-lower: optional chain on non-struct obj type {obj_ty:?} not yet supported")
-        }
-    };
     let res_slot = ctx.alloca_in_entry(Type::Any, Some("__optchain"));
     let cur_block = ctx.cur_block;
-    let cond = ctx.f.append_inst(
+    let eq_null = ctx.f.append_inst(
         cur_block,
         InstKind::ICmp(IPred::Eq, obj_op.clone(), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    // Chunk 791 — nullish = NULL or the receiver type's undefined
+    // sentinel address (chunk-786 `??` station mirror): a filled
+    // optional field holds the immortal sentinel cell, and the
+    // NULL-only check rode it down the hit path (garbage field
+    // load past the sentinel header).
+    let Some(sentinel) = ctx.str_undef_sentinel_for(obj_ty) else {
+        panic!("ssa-lower: optional chain on receiver type {obj_ty:?} not yet supported")
+    };
+    let eq_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, obj_op.clone(), sentinel),
+        Type::Bool,
+        None,
+    );
+    let cond = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            SsaBinOp::Or,
+            Operand::Value(eq_null),
+            Operand::Value(eq_undef),
+        ),
         Type::Bool,
         None,
     );
@@ -71,7 +101,11 @@ pub(crate) fn lower(
         },
     );
     emit_miss_path(ctx, null_blk, res_slot, after);
-    emit_hit_path(ctx, mem_blk, obj_op, sid, name, res_slot, after);
+    if let Type::Obj(sid) = obj_ty {
+        emit_hit_path(ctx, mem_blk, obj_op, sid, name, res_slot, after);
+    } else {
+        emit_hit_path_member(ctx, mem_blk, eid, obj, obj_op, name, res_slot, after);
+    }
     ctx.cur_block = after;
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(
@@ -135,6 +169,40 @@ fn emit_hit_path(
         None,
     );
     let boxed = ctx.box_to_any(Operand::Value(v));
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Store(boxed, Operand::Value(res_slot), 0),
+    );
+    let mb = ctx.cur_block;
+    ctx.f.set_term(mb, Terminator::Br(after));
+}
+
+/// Chunk 791 — hit path for non-Obj sentinel-capable receivers
+/// (`o.tag?.length` on an optional string field): dispatch the
+/// member read through the regular typed-receiver ladder so every
+/// member the plain `.` read supports works under `?.` too. Lanes
+/// that already answer Any store the box as-is; typed results box
+/// via `box_to_any` (Str-slot decode included).
+#[allow(clippy::too_many_arguments)]
+fn emit_hit_path_member(
+    ctx: &mut LowerCtx<'_>,
+    mem_blk: crate::ssa::BlockId,
+    eid: crate::ast::ExprId,
+    obj: crate::ast::ExprId,
+    obj_op: Operand,
+    name: &str,
+    res_slot: crate::ssa::ValueId,
+    after: crate::ssa::BlockId,
+) {
+    ctx.cur_block = mem_blk;
+    let obj_ty = ctx.operand_ty(&obj_op);
+    let v = crate::ssa_lower_member::lower_with_val(ctx, eid, obj, obj_op, obj_ty, name);
+    let boxed = if matches!(ctx.operand_ty(&v), Type::Any) {
+        v
+    } else {
+        ctx.box_to_any(v)
+    };
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,

@@ -95,8 +95,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str
 /// Post-receiver dispatch ladder (layers 7-13 of the module doc).
 /// `eid` is the Member expression's own id — the Any-member and
 /// Closure-props lanes record it in `owned_member_reads` (chunk 717
-/// owned-result contract).
-fn lower_with_val(
+/// owned-result contract). Also the OptChain hit path's dispatch
+/// (chunk 791 — non-Obj receivers reuse the ladder instead of
+/// re-implementing per-type member reads).
+pub(crate) fn lower_with_val(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
     obj: ExprId,
