@@ -28,8 +28,12 @@ use crate::ssa_lower::Intrinsics;
 /// names the anonymous rhs), including chained `f = g = () => {}`
 /// where only the innermost assignment names the arrow (the outer
 /// rhs is an Assign expression, not an anonymous fn definition).
-/// Object-field, default-export and deeper expression-position
-/// assigns stay recorded follow-ups.
+/// Chunk 792 adds the object-literal field position (ES §13.2.5.5
+/// PropertyDefinitionEvaluation: `{ cb: () => 1 }` names the
+/// anonymous definition by its property key) — an arena sweep over
+/// every `ObjectLit` covers nested literals / call-arg / return
+/// positions without growing the statement walker. Default-export
+/// stays a recorded follow-up.
 fn collect_named_eval(ast: &Ast) -> HashMap<String, String> {
     fn init_closure_name(ast: &Ast, eid: ExprId) -> Option<&str> {
         match ast.get_expr(eid) {
@@ -124,6 +128,18 @@ fn collect_named_eval(ast: &Ast) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for s in &ast.stmts {
         walk(ast, s, &mut map);
+    }
+    // Chunk 792 — a closure node sits in exactly one syntactic
+    // position, so the arena sweep never collides with the
+    // statement walk above.
+    for e in &ast.exprs {
+        if let Expr::ObjectLit { fields } = e {
+            for (fname, val) in fields {
+                if let Some(cn) = init_closure_name(ast, *val) {
+                    map.insert(cn.to_string(), fname.clone());
+                }
+            }
+        }
     }
     map
 }
