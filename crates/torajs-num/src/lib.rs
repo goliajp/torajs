@@ -29,6 +29,7 @@
 //! overlap between Rust-emitted .a's).
 
 pub mod format;
+pub mod format_ffi;
 pub mod layout;
 pub mod math;
 pub mod object_is;
@@ -63,7 +64,7 @@ pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
 
 // Re-export — keep this list tight; the extern "C" symbols are
 // resolved at link time by toolchain-emitted code regardless.
-pub use format::{
+pub use format_ffi::{
     __torajs_num_to_exp_f, __torajs_num_to_exp_i, __torajs_num_to_fixed_f, __torajs_num_to_fixed_i,
     __torajs_num_to_locale_f, __torajs_num_to_locale_i, __torajs_num_to_precision_f,
     __torajs_num_to_precision_i,
