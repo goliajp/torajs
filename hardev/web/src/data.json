@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T08:35:39.889Z",
+  "generatedAt": "2026-07-10T11:53:44.332Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "2c0f1e21",
-    "commitSubject": "feat: absent optional fields fill as explicit undefined in objectlit inits",
+    "commit": "e1c1dd7e",
+    "commitSubject": "feat: member-path truthiness narrow admits optional fn field calls",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "e1c1dd7e",
+      "subject": "feat: member-path truthiness narrow admits optional fn field calls"
+    },
+    {
+      "hash": "264f148f",
+      "subject": "fix: nested object literal stole the outer let's stack-alloc hint"
+    },
+    {
+      "hash": "3553adfb",
+      "subject": "feat: refcounted pointer slots adopt the generic undefined oddball"
+    },
+    {
+      "hash": "53fcb575",
+      "subject": "refactor: parse_type back under the 200-line fn limit"
+    },
+    {
+      "hash": "92840003",
+      "subject": "feat: optional number/boolean fields materialize as any slots"
+    },
+    {
+      "hash": "04c41b87",
+      "subject": "chore(dashboard): refresh @ 2c0f1e21 - rotation 61 (752-756: copy-result consume-walk gate + any-member owned skip; struct dynamic index via any lane; RFC 20260710-optional-undefined-repr C1-C3 shipped - str/fn slot sentinel producers, fnsig print/tostring lanes, missing-field desugar fill; gate 1381 -> 1386 five green)"
+    },
+    {
       "hash": "2c0f1e21",
       "subject": "feat: absent optional fields fill as explicit undefined in objectlit inits"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "83de1aaa",
       "subject": "chore(dashboard): refresh @ 16267719 - rotation 60 (745-751: struct literal-index via member lanes; fromEntries accessor getters; RFC 20260710 noncopy-mutable-capture C1-C4 all shipped - shared live bindings via capture box across let/param/any/for-per-iter; str-eq and switch scrutinee fresh-owned release; gate 1375 -> 1381 seven green)"
-    },
-    {
-      "hash": "16267719",
-      "subject": "feat: promote mutated captured params and any-typed captures to boxes"
-    },
-    {
-      "hash": "54c86368",
-      "subject": "chore(dashboard): refresh @ c4c0255f - rotation 60 (745-750: struct literal-index via member lanes; fromEntries accessor getters; RFC 20260710 noncopy-mutable-capture C1-C3 shipped - shared live bindings via capture box, for-init per-iter; inline str-eq and switch scrutinee fresh-owned release; gate 1375 -> 1380 six green)"
-    },
-    {
-      "hash": "c4c0255f",
-      "subject": "fix: release fresh-owned operands in inline str-eq and switch scrutinee"
-    },
-    {
-      "hash": "88e930b9",
-      "subject": "feat: mutated non-copy for-init bindings ride the per-iteration box"
-    },
-    {
-      "hash": "e83f2c75",
-      "subject": "feat: mutated non-copy captures share a live binding via capture box"
-    },
-    {
-      "hash": "086bda25",
-      "subject": "feat: fromEntries accessor entries invoke getters per ES [[Get]]"
     }
   ],
-  "headSha": "2c0f1e21",
+  "headSha": "e1c1dd7e",
   "autorun": {
-    "total": 367,
+    "total": 368,
     "baselineTarget": 10,
-    "bySelf": 362,
+    "bySelf": 363,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783643563-409a",
-      "at": "2026-07-10T00:32:43Z",
-      "ts": 1783643563,
+      "rotationId": "r-1783672614-6e29",
+      "at": "2026-07-10T08:36:54Z",
+      "ts": 1783672614,
       "trigger": "self",
-      "prevHead": "83de1aaa",
-      "handoffSha": "sha256:63ddf14850b527428faf92e073497854809f8216d9a25db35f359652fd3c14f4",
-      "handoffAgeSec": 11,
+      "prevHead": "04c41b87",
+      "handoffSha": "sha256:4a1d19f338e6d87f19620715f7c8e87120c4ddced1d6304ca60f42c07bfb8187",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783672614-6e29",
+        "at": "2026-07-10T08:36:54Z",
+        "ts": 1783672614,
+        "trigger": "self",
+        "prevHead": "04c41b87",
+        "handoffSha": "sha256:4a1d19f338e6d87f19620715f7c8e87120c4ddced1d6304ca60f42c07bfb8187",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783643563-409a",
         "at": "2026-07-10T00:32:43Z",
@@ -876,17 +887,6 @@
         "prevHead": "ad3d72eb",
         "handoffSha": "sha256:ff7ae0481da76628d0554f8af36d072f040b827a467c7c615ecc78810faff43a",
         "handoffAgeSec": 67,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783504778-3383",
-        "at": "2026-07-08T09:59:38Z",
-        "ts": 1783504778,
-        "trigger": "self",
-        "prevHead": "312712d2",
-        "handoffSha": "sha256:88db699f12113c84dcbd057ffb7f1b5ffc9f49a6b8e3bc6aee929c8069c76a9a",
-        "handoffAgeSec": 40,
         "conformanceBefore": null,
         "commitsInSession": null
       }
