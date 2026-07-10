@@ -35,9 +35,22 @@ pub(crate) fn check(
         ));
     }
     let narrow = checker.collect_null_narrow(ast, cond);
+    // Chunk 782 — member-path mirror (`o.s ? o.s.length : -1`): the
+    // if-stmt wedge (RFC 20260710 C5) applied to the expression
+    // form, same polarity dance as the binding narrow.
+    let member_narrow = checker.collect_member_narrow(ast, cond);
     let then_saved = if let Some((name, inner, polarity)) = &narrow {
         if *polarity {
             checker.apply_narrow(name, inner.clone())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let then_member = if let Some((key, inner, polarity)) = &member_narrow {
+        if *polarity {
+            Some(checker.apply_member_narrow(key, inner.clone()))
         } else {
             None
         }
@@ -48,6 +61,9 @@ pub(crate) fn check(
     if let (Some((name, _, _)), Some(saved)) = (&narrow, then_saved) {
         checker.restore_narrow(name, saved);
     }
+    if let (Some((key, _, _)), Some(prev)) = (&member_narrow, then_member) {
+        checker.restore_member_narrow(key, prev);
+    }
     let else_saved = if let Some((name, inner, polarity)) = &narrow {
         if !*polarity {
             checker.apply_narrow(name, inner.clone())
@@ -57,9 +73,21 @@ pub(crate) fn check(
     } else {
         None
     };
+    let else_member = if let Some((key, inner, polarity)) = &member_narrow {
+        if !*polarity {
+            Some(checker.apply_member_narrow(key, inner.clone()))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let e = checker.type_of(ast, else_branch)?;
     if let (Some((name, _, _)), Some(saved)) = (&narrow, else_saved) {
         checker.restore_narrow(name, saved);
+    }
+    if let (Some((key, _, _)), Some(prev)) = (&member_narrow, else_member) {
+        checker.restore_member_narrow(key, prev);
     }
     match unify_ternary(&t, &e) {
         Some(ty) => Ok(ty),

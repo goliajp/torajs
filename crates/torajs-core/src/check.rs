@@ -226,7 +226,7 @@ pub(crate) type MovedSnapshot = Vec<Vec<(String, bool)>>;
 // god-file decomp). Re-exported here so the external caller
 // (`check_stmt_while`) continues to use the canonical
 // `crate::check::stmt_assigns_to` import path.
-pub(crate) use crate::check_assigns_to::stmt_assigns_to;
+pub(crate) use crate::check_assigns_to::{stmt_assigns_to, stmt_assigns_to_member};
 
 // `stmt_diverges` lives in [`crate::check_stmt_diverges`] (chunk-317
 // of the check.rs god-file decomp). Re-exported here so the external
