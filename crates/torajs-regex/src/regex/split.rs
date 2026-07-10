@@ -4,10 +4,34 @@
 use core::ffi::c_void;
 
 use super::{
-    __torajs_arr_alloc, __torajs_arr_push, abort_unsupported, as_regex, str_from_bytes, str_slice,
+    __torajs_arr_alloc, __torajs_arr_push, __torajs_str_undef, RegExp, abort_unsupported, as_regex,
+    str_from_bytes, str_slice,
 };
 use crate::parser::RE_FLAG_Y;
-use crate::vm::{Workspace, match_anchor, search_from_with_ws};
+use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
+
+/// ES §22.1.3.21 step 14.c.iii (chunk 803) — after each separator
+/// match, the values of capture groups 1..=n splice into the result
+/// array: participating groups as fresh Strs, non-participating
+/// ones as the undefined sentinel (`"aXb".split(/(X)/)` answers
+/// `["a", "X", "b"]`).
+///
+/// # Safety
+/// `out` is a live Str array handle; `saves` is the match's row.
+unsafe fn push_captures(out: *mut c_void, re: &RegExp, s: &[u8], saves: &[i64]) -> *mut c_void {
+    let mut out = out;
+    for i in 1..=(re.n_captures.max(0) as usize) {
+        let gs = save_slot(saves, 2 * i);
+        let ge = save_slot(saves, 2 * i + 1);
+        if gs >= 0 && ge >= gs {
+            let cell = unsafe { str_from_bytes(&s[gs as usize..ge as usize]) };
+            out = unsafe { __torajs_arr_push(out, cell as i64) };
+        } else {
+            out = unsafe { __torajs_arr_push(out, __torajs_str_undef() as i64) };
+        }
+    }
+    out
+}
 
 /// # Safety
 ///
@@ -62,11 +86,13 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
             }
             let seg = unsafe { str_from_bytes(&s[pos as usize..m.start as usize]) };
             out = unsafe { __torajs_arr_push(out, seg as i64) };
+            out = unsafe { push_captures(out, re, &s, m.saves()) };
             pos = m.end + 1;
             continue;
         }
         let seg = unsafe { str_from_bytes(&s[pos as usize..m.start as usize]) };
         out = unsafe { __torajs_arr_push(out, seg as i64) };
+        out = unsafe { push_captures(out, re, &s, m.saves()) };
         pos = m.end;
     }
     // Append final tail.
