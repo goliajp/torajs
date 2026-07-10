@@ -101,51 +101,6 @@ pub(crate) use crate::ast_collect_bindings::{
 };
 
 impl<'a> FnToClosureCollector<'a> {
-    /// Chunk 789 — resolve the declared struct-type name of a
-    /// member-assign receiver chain: an Ident hits the binding map;
-    /// a Member link resolves the outer struct's field annotation
-    /// (stripping an optional `__nullable(...)` wrapper) and answers
-    /// it when that annotation is itself a known TypeDecl name.
-    fn resolve_receiver_struct(&self, eid: ExprId) -> Option<String> {
-        match self.ast.get_expr(eid) {
-            Expr::Ident(n) => self.struct_bindings.get(n).cloned(),
-            Expr::Member { obj, name } => {
-                let outer = self.resolve_receiver_struct(*obj)?;
-                let fann = self.struct_field_anns.get(&outer)?.get(name)?;
-                let inner = fann
-                    .strip_prefix("__nullable(")
-                    .and_then(|r| r.strip_suffix(')'))
-                    .unwrap_or(fann)
-                    .trim();
-                if self.struct_field_anns.contains_key(inner) {
-                    Some(inner.to_string())
-                } else {
-                    None
-                }
-            }
-            // Chunk 790 — an element receiver (`arr[0].cb` /
-            // `h.list[i].cb`): resolve the container's declared
-            // array annotation and answer its element type.
-            Expr::Index { obj, .. } => {
-                let container_ann: String = match self.ast.get_expr(*obj) {
-                    Expr::Ident(n) => self.struct_arr_bindings.get(n)?.clone(),
-                    Expr::Member { obj: mobj, name } => {
-                        let outer = self.resolve_receiver_struct(*mobj)?;
-                        self.struct_field_anns.get(&outer)?.get(name)?.clone()
-                    }
-                    _ => return None,
-                };
-                let elem = strip_arr_ann(&container_ann)?;
-                if self.struct_field_anns.contains_key(elem) {
-                    Some(elem.to_string())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
     /// Mark `eid` for the forwarder rewrite when it is a bare
     /// top-FnDecl Ident. Answers whether it matched.
     pub(crate) fn try_mark(&mut self, eid: ExprId) -> bool {
@@ -355,6 +310,26 @@ impl<'a> FnToClosureCollector<'a> {
                         }
                     }
                 }
+                // Chunk 793 — an ObjectLit argument whose matching
+                // declared param resolves to a struct shape (named
+                // TypeDecl or inline object type) with fn-like
+                // fields: `take({ k: top_fn })` stores into a
+                // Closure-repr slot, so the bare named-fn field
+                // value wraps (the raw FnSig would be CallIndirect'd
+                // as an env block — SIGBUS).
+                if let Expr::Ident(cname) = self.ast.get_expr(*callee)
+                    && let Some((params, _)) = self.fn_sigs.get(cname)
+                {
+                    for (i, arg) in args.iter().enumerate() {
+                        if let Some(field_anns) = params
+                            .get(i)
+                            .and_then(|p| p.type_ann.as_deref())
+                            .and_then(|a| self.resolve_field_anns(a))
+                        {
+                            self.mark_objlit_fn_fields(*arg, &field_anns);
+                        }
+                    }
+                }
                 self.walk_expr(*callee);
                 for arg in args {
                     self.walk_expr(*arg);
@@ -403,10 +378,10 @@ impl<'a> FnToClosureCollector<'a> {
                 // (SIGBUS). Chunk 789 — the receiver resolves through
                 // Member chains too (`h.o.cb = top_fn`).
                 if let Expr::Member { obj, name: fname } = self.ast.get_expr(*target)
-                    && let Some(tyname) = self.resolve_receiver_struct(*obj)
-                    && let Some(field_anns) = self.struct_field_anns.get(&tyname)
-                    && let Some(fann) = field_anns.get(fname)
-                    && is_fn_like_field_ann(fann)
+                    && let Some(field_anns) = self.resolve_receiver_fields(*obj)
+                    && field_anns
+                        .get(fname)
+                        .is_some_and(|a| is_fn_like_field_ann(a))
                 {
                     self.try_mark(*value);
                 }

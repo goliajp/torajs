@@ -172,12 +172,18 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     // mutable-init axis moved such slots to Closure repr).
     crate::ast_collect_fn_closure::collect_fn_ann_bindings(&ast.stmts, &mut closure_bindings);
 
-    // Chunk 783 — binding name → declared struct-type name, for the
-    // member-assign axis (`o.cb = top_fn` where `O.cb` is fn-typed).
+    // Chunk 783 — binding name → declared struct annotation, for
+    // the member-assign axis (`o.cb = top_fn` where the receiver's
+    // field is fn-typed). Chunk 793 — inline object types
+    // (`__inlobj(...)`) join named TypeDecl names; the collector's
+    // `resolve_field_anns` decodes both.
     let mut struct_bindings: HashMap<String, String> = HashMap::new();
     crate::ast_collect_bindings::collect_bindings_ann_matching(
         &ast.stmts,
-        &|a| struct_field_anns.contains_key(a.trim()),
+        &|a| {
+            struct_field_anns.contains_key(a.trim())
+                || crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(a).is_some()
+        },
         &mut struct_bindings,
     );
     // Chunk 790 — binding name → struct-ARRAY annotation, for the
@@ -186,8 +192,10 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     crate::ast_collect_bindings::collect_bindings_ann_matching(
         &ast.stmts,
         &|a| {
-            crate::ast_collect_fn_closure::strip_arr_ann(a)
-                .is_some_and(|e| struct_field_anns.contains_key(e))
+            crate::ast_collect_fn_closure::strip_arr_ann(a).is_some_and(|e| {
+                struct_field_anns.contains_key(e)
+                    || crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(e).is_some()
+            })
         },
         &mut struct_arr_bindings,
     );
