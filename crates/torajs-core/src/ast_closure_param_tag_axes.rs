@@ -26,7 +26,7 @@
 //! its own call sites wrap, so the closure shape propagates against
 //! the call direction until the chain bottoms out at real values.
 
-use crate::ast::{Ast, Expr};
+use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::{HashMap, HashSet};
 
 /// Seed marks for fn-typed params whose name appears as the
@@ -105,4 +105,108 @@ pub(crate) fn backward_param_marks(
         }
     }
     adds
+}
+
+/// Named-fn values reaching a retagged lane need the env-first shape
+/// too: `f(g)` args at marked params and `return g` sites in
+/// ret-marked fns flip to `__forward_<g>` closure values, synthesizing
+/// the forwarder decl (same shape as synthesize_fn_to_closure_forwarders).
+/// A closure-holding name shadowing a global fn stays unwrapped —
+/// the value already carries the env-first shape. (Chunk 774
+/// extraction from [`crate::ast_closure_param_tag::tag_closure_arg_params`]'s
+/// tail.)
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn wrap_named_fn_values(
+    ast: &mut Ast,
+    fn_params: &HashMap<String, Vec<(usize, String)>>,
+    fn_returns: &HashMap<String, Vec<ExprId>>,
+    fn_sigs: &HashMap<String, (Vec<Param>, Option<String>)>,
+    marked: &HashSet<(String, usize)>,
+    ret_marked: &HashSet<String>,
+    closure_idents: &HashSet<String>,
+    existing_forwarders: &mut HashSet<String>,
+) {
+    let mut wrap_sites: Vec<(ExprId, String)> = Vec::new();
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Ident(fname) = ast.get_expr(*callee) else {
+            continue;
+        };
+        for (idx, _) in fn_params.get(fname).into_iter().flatten() {
+            if !marked.contains(&(fname.clone(), *idx)) {
+                continue;
+            }
+            if let Some(arg) = args.get(*idx)
+                && let Expr::Ident(g) = ast.get_expr(*arg)
+                && fn_sigs.contains_key(g)
+                && !closure_idents.contains(g)
+            {
+                wrap_sites.push((*arg, g.clone()));
+            }
+        }
+    }
+    for (fname, rets) in fn_returns {
+        if !ret_marked.contains(fname) {
+            continue;
+        }
+        for r in rets {
+            if let Expr::Ident(g) = ast.get_expr(*r)
+                && fn_sigs.contains_key(g)
+                && !closure_idents.contains(g)
+            {
+                wrap_sites.push((*r, g.clone()));
+            }
+        }
+    }
+    if wrap_sites.is_empty() {
+        return;
+    }
+    let mut renames: HashMap<String, String> = HashMap::new();
+    let mut new_decls: Vec<Stmt> = Vec::new();
+    for (_, target) in &wrap_sites {
+        if renames.contains_key(target) {
+            continue;
+        }
+        let forward_name = format!("__forward_{target}");
+        if !existing_forwarders.contains(&forward_name) {
+            let (params, return_type) = fn_sigs.get(target).unwrap().clone();
+            let mut fwd_params: Vec<Param> = Vec::with_capacity(params.len() + 1);
+            fwd_params.push(Param {
+                name: "__env".into(),
+                type_ann: Some("__env()".to_string()),
+                default: None,
+                is_rest: false,
+            });
+            fwd_params.extend(params.iter().cloned());
+            let arg_eids: Vec<ExprId> = params
+                .iter()
+                .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
+                .collect();
+            let callee_id = ast.add_expr(Expr::Ident(target.clone()));
+            let call_id = ast.add_expr(Expr::Call {
+                callee: callee_id,
+                args: arg_eids,
+            });
+            new_decls.push(Stmt::FnDecl {
+                name: forward_name.clone(),
+                type_params: Vec::new(),
+                params: fwd_params,
+                return_type,
+                body: vec![Stmt::Return(Some(call_id))],
+                is_generator: false,
+            });
+            existing_forwarders.insert(forward_name.clone());
+        }
+        renames.insert(target.clone(), forward_name);
+    }
+    for (eid, target) in wrap_sites {
+        let forward_name = renames.get(&target).unwrap();
+        ast.exprs[eid.0 as usize] = Expr::Closure {
+            fn_name: forward_name.clone(),
+            captures: Vec::new(),
+        };
+    }
+    ast.stmts.extend(new_decls);
 }
