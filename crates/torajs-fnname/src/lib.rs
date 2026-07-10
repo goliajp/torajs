@@ -20,10 +20,10 @@
 //! ## Anonymous fn
 //!
 //! When `fn_addr` doesn't appear in the table, the helper emits
-//! `[Function (anonymous)]`. Top-level `function foo()` decls always
-//! land an entry; anonymous arrow / non-binding closures
-//! (`console.log(() => {})`) flow to this path because ssa_lower
-//! skips them at Pass 2 fn-decl walk.
+//! `[Function]` (bun's anonymous spelling — chunk 797). Top-level
+//! `function foo()` decls always land an entry; anonymous arrow /
+//! non-binding closures (`console.log(() => {})`) flow to this path
+//! because ssa_lower skips them at Pass 2 fn-decl walk.
 //!
 //! ## Symbol ABI
 //!
@@ -96,10 +96,12 @@ const STR_DATA_OFF: usize = 16;
 
 const PREFIX: &[u8] = b"[Function: ";
 const SUFFIX: &[u8] = b"]";
-const ANON: &[u8] = b"[Function (anonymous)]";
+// Chunk 797 — bun prints unregistered fns as `[Function]` (node
+// spells `[Function (anonymous)]`; bun is the parity oracle).
+const ANON: &[u8] = b"[Function]";
 
 /// Look up `fn_addr` in `__torajs_fn_name_table[]` and emit either
-/// `[Function: <name>]` or `[Function (anonymous)]` to stdout.
+/// `[Function: <name>]` or `[Function]` to stdout.
 /// Does NOT emit a trailing newline — callers
 /// (`__torajs_fn_print_outer` for top-level prints, nested arr/obj
 /// walkers for inline emit) append their own separator.
