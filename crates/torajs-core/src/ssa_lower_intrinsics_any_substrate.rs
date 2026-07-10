@@ -91,418 +91,117 @@ pub(crate) fn declare(
     module: &mut Module,
     fn_table: &mut HashMap<String, FuncId>,
 ) -> AnySubstrateIds {
+    // defined inside the fn so `module` / `fn_table` resolve at the
+    // macro definition site (macro_rules locals are hygienic) — the
+    // chunk 457 intrinsics_object convergence pattern
+    macro_rules! decl {
+        ($name:literal, [$($param:ident),*], $ret:ident) => {
+            declare_intrinsic(module, fn_table, $name, &[$(Type::$param),*], Type::$ret)
+        };
+    }
     AnySubstrateIds {
-        fnprops_set: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_fnprops_set",
-            &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
-            Type::Void,
-        ),
-        fnprops_get_tag: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_fnprops_get_tag",
-            &[Type::Ptr, Type::Ptr],
-            Type::I64,
-        ),
-        fnprops_get_value: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_fnprops_get_value",
-            &[Type::Ptr, Type::Ptr],
-            Type::I64,
-        ),
-        arrprops_set: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arrprops_set",
-            &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
-            Type::Void,
-        ),
-        arrprops_get_tag: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arrprops_get_tag",
-            &[Type::Ptr, Type::Ptr],
-            Type::I64,
-        ),
-        arrprops_get_value: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arrprops_get_value",
-            &[Type::Ptr, Type::Ptr],
-            Type::I64,
-        ),
-        arr_drop_any: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_drop_any",
-            &[Type::Ptr],
-            Type::Void,
-        ),
-        any_typeof: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_typeof",
-            &[Type::Any],
-            Type::Str,
-        ),
-        any_to_bool: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_to_bool",
-            &[Type::Any],
-            Type::Bool,
-        ),
-        any_to_number: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_to_number",
-            &[Type::Any],
-            Type::F64,
-        ),
-        any_add: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_add_pair",
-            &[Type::I64, Type::I64, Type::I64, Type::I64],
-            Type::Any,
-        ),
-        any_arith: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_arith_pair",
-            &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
-            Type::Any,
-        ),
-        any_compare: declare_intrinsic(
-            module,
-            fn_table,
+        fnprops_set: decl!("__torajs_fnprops_set", [Ptr, Ptr, I64, I64], Void),
+        fnprops_get_tag: decl!("__torajs_fnprops_get_tag", [Ptr, Ptr], I64),
+        fnprops_get_value: decl!("__torajs_fnprops_get_value", [Ptr, Ptr], I64),
+        arrprops_set: decl!("__torajs_arrprops_set", [Ptr, Ptr, I64, I64], Void),
+        arrprops_get_tag: decl!("__torajs_arrprops_get_tag", [Ptr, Ptr], I64),
+        arrprops_get_value: decl!("__torajs_arrprops_get_value", [Ptr, Ptr], I64),
+        arr_drop_any: decl!("__torajs_arr_drop_any", [Ptr], Void),
+        any_typeof: decl!("__torajs_anyv_typeof", [Any], Str),
+        any_to_bool: decl!("__torajs_anyv_to_bool", [Any], Bool),
+        any_to_number: decl!("__torajs_anyv_to_number", [Any], F64),
+        any_add: decl!("__torajs_anyv_add_pair", [I64, I64, I64, I64], Any),
+        any_arith: decl!("__torajs_anyv_arith_pair", [I64, I64, I64, I64, I64], Any),
+        any_compare: decl!(
             "__torajs_anyv_compare_pair",
-            &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
-            Type::Bool,
+            [I64, I64, I64, I64, I64],
+            Bool
         ),
-        any_strict_eq: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_strict_eq_imm_pair",
-            &[Type::Any, Type::I64, Type::I64],
-            Type::Bool,
-        ),
-        any_any_strict_eq: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_strict_eq",
-            &[Type::Any, Type::Any],
-            Type::Bool,
-        ),
-        any_box: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_box_from_pair",
-            &[Type::I64, Type::I64],
-            Type::Any,
-        ),
-        anyv_box_str_slot: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_box_str_slot",
-            &[Type::Str],
-            Type::Any,
-        ),
-        anyv_str_slot_tag: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_str_slot_tag",
-            &[Type::Str],
-            Type::I64,
-        ),
-        anyv_str_slot_value: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_str_slot_value",
-            &[Type::Str],
-            Type::I64,
-        ),
-        any_payload_rc_inc: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_payload_rc_inc_pair",
-            &[Type::I64, Type::I64],
-            Type::Void,
-        ),
-        anyv_retain: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_retain",
-            &[Type::Any],
-            Type::Any,
-        ),
-        proto_register: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_proto_register",
-            &[Type::I64, Type::Any],
-            Type::Void,
-        ),
-        register_native_error: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_register_native_error",
-            &[Type::I64, Type::Ptr],
-            Type::Void,
-        ),
-        proto_get: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_proto_get",
-            &[Type::I64],
-            Type::Any,
-        ),
-        class_register: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_class_register",
-            &[Type::I64, Type::Any],
-            Type::Void,
-        ),
-        class_get: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_class_get",
-            &[Type::I64],
-            Type::Any,
-        ),
-        get_proto_of_any: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_get_proto_of_any",
-            &[Type::Any],
-            Type::Any,
-        ),
-        // Any-dynamic-access RFC (20260704) S3 — recv[idx] where
-        // recv is an `any` value (Arr kind-aware / Str / primitive
-        // dispatch in torajs-anyvalue::index_any).
-        any_index_get: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_index_get",
-            &[Type::Any, Type::I64],
-            Type::Any,
-        ),
-        // RFC 20260704 S3-set — recv[idx] = (tag, value) pair write.
-        any_index_set: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_index_set",
-            &[Type::Any, Type::I64, Type::I64, Type::I64, Type::Ptr],
-            Type::Void,
-        ),
-        // RFC 20260704 S4 — recv.length runtime dispatch.
-        any_length_get: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_length_get",
-            &[Type::Any],
-            Type::Any,
-        ),
-        // chunk 716 — recv.name runtime dispatch (fn metadata +
-        // dynobj probe; owned return).
-        any_name_get: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_name_get",
-            &[Type::Any],
-            Type::Any,
-        ),
-        // RFC 20260704 C4-2 — recv.size runtime dispatch (Map/Set
-        // live count + dynobj probe).
-        any_size_get: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_size_get",
-            &[Type::Any],
-            Type::Any,
-        ),
+        any_strict_eq: decl!("__torajs_anyv_strict_eq_imm_pair", [Any, I64, I64], Bool),
+        any_any_strict_eq: decl!("__torajs_anyv_strict_eq", [Any, Any], Bool),
+        any_box: decl!("__torajs_anyv_box_from_pair", [I64, I64], Any),
+        anyv_box_str_slot: decl!("__torajs_anyv_box_str_slot", [Str], Any),
+        anyv_str_slot_tag: decl!("__torajs_anyv_str_slot_tag", [Str], I64),
+        anyv_str_slot_value: decl!("__torajs_anyv_str_slot_value", [Str], I64),
+        any_payload_rc_inc: decl!("__torajs_anyv_payload_rc_inc_pair", [I64, I64], Void),
+        anyv_retain: decl!("__torajs_anyv_retain", [Any], Any),
+        proto_register: decl!("__torajs_anyv_proto_register", [I64, Any], Void),
+        register_native_error: decl!("__torajs_register_native_error", [I64, Ptr], Void),
+        proto_get: decl!("__torajs_anyv_proto_get", [I64], Any),
+        class_register: decl!("__torajs_anyv_class_register", [I64, Any], Void),
+        class_get: decl!("__torajs_anyv_class_get", [I64], Any),
+        get_proto_of_any: decl!("__torajs_anyv_get_proto_of_any", [Any], Any),
+        // RFC 20260704 S3 — recv[idx] on an `any` receiver (Arr
+        // kind-aware / Str / primitive dispatch); S3-set = the
+        // (tag, value) pair write mirror.
+        any_index_get: decl!("__torajs_any_index_get", [Any, I64], Any),
+        any_index_set: decl!("__torajs_any_index_set", [Any, I64, I64, I64, Ptr], Void),
+        // RFC 20260704 S4 / chunk 716 / C4-2 — recv.length / .name /
+        // .size runtime dispatches (dynobj probe included).
+        any_length_get: decl!("__torajs_any_length_get", [Any], Any),
+        any_name_get: decl!("__torajs_any_name_get", [Any], Any),
+        any_size_get: decl!("__torajs_any_size_get", [Any], Any),
         // RFC 20260704 C4-3c-2 — RegExp accessor surface (source /
         // flags / lastIndex / flag booleans) + dynobj probe.
-        any_regexp_prop: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_regexp_prop",
-            &[Type::Any, Type::I64, Type::Ptr],
-            Type::Any,
-        ),
-        // RFC 20260704 C4+ — tag-gated member read pair (read
-        // mirror of any_member_set): DynObj own-property probe
-        // (accessor sentinel included), Arr expando probe, definite
-        // (ANY_UNDEF, 0) for every other receiver instead of a
-        // dynobj-layout mis-read; null/undefined receivers record a
-        // catchable TypeError on the tag call.
-        any_member_get_tag: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_member_get_tag",
-            &[Type::Any, Type::Ptr],
-            Type::I64,
-        ),
-        any_member_get_value: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_member_get_value",
-            &[Type::Any, Type::Ptr],
-            Type::I64,
-        ),
+        any_regexp_prop: decl!("__torajs_any_regexp_prop", [Any, I64, Ptr], Any),
+        // RFC 20260704 C4+ — tag-gated member read pair: DynObj
+        // own-property probe (accessor sentinel included), Arr
+        // expando probe, definite (ANY_UNDEF, 0) for every other
+        // receiver; null/undefined receivers record a catchable
+        // TypeError on the tag call.
+        any_member_get_tag: decl!("__torajs_any_member_get_tag", [Any, Ptr], I64),
+        any_member_get_value: decl!("__torajs_any_member_get_value", [Any, Ptr], I64),
         // RFC 20260704 C4+ — tag-gated member write (recv AnyValue
-        // slot, key Str, payload (tag, value) pair, compile-time
-        // name hint): DynObj set with relocation write-back, RegExp
-        // lastIndex, Arr expando; everything else a catchable
-        // TypeError instead of a blind dynobj-layout write.
-        any_member_set: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_member_set",
-            &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64],
-            Type::Void,
-        ),
+        // slot, key Str, payload (tag, value) pair, name hint):
+        // DynObj set with relocation write-back, RegExp lastIndex,
+        // Arr expando; everything else a catchable TypeError.
+        any_member_set: decl!("__torajs_any_member_set", [Ptr, Ptr, I64, I64, I64], Void),
         // RFC 20260704 S5+ — unified for-of iteration protocol
         // (indexed strings/arrays + stateful MapIter/ArrIter cells;
-        // throws on non-iterable receivers). (recv, idx-cursor slot,
-        // owned-AnyValue out slot) → live flag.
-        any_iter_next: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_iter_next",
-            &[Type::Any, Type::Ptr, Type::Ptr],
-            Type::I64,
-        ),
+        // throws on non-iterables). (recv, idx-cursor slot, owned-
+        // AnyValue out slot) → live flag.
+        any_iter_next: decl!("__torajs_any_iter_next", [Any, Ptr, Ptr], I64),
         // RFC C4+ — bare any-call `f(args…)`: (callee, argv, argc)
         // → Any; non-closures raise a catchable TypeError.
-        any_call: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_call",
-            &[Type::Any, Type::Ptr, Type::I64],
-            Type::Any,
-        ),
-        // RFC 20260708-variadic — closure-slot variadic call
-        // `cb(args…)` through a `(...args: E[]) => R`-typed binding:
-        // (env cell, argv, argc) → Any via the boxed dual entry;
-        // a missing adapter raises the same catchable TypeError.
-        closure_call_variadic: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_closure_call_variadic",
-            &[Type::Ptr, Type::Ptr, Type::I64],
-            Type::Any,
-        ),
-        // Any-method-call RFC 20260704 C1 — recv.name(args…) runtime
-        // dispatch: (recv, method-id, name ptr/len for TypeError
-        // messages, receiver write-back slot, argv, argc) → Any.
-        any_method_call: declare_intrinsic(
-            module,
-            fn_table,
+        any_call: decl!("__torajs_any_call", [Any, Ptr, I64], Any),
+        // RFC 20260708-variadic — closure-slot variadic call through
+        // a `(...args: E[]) => R`-typed binding: (env cell, argv,
+        // argc) → Any via the boxed dual entry; a missing adapter
+        // raises the same catchable TypeError.
+        closure_call_variadic: decl!("__torajs_closure_call_variadic", [Ptr, Ptr, I64], Any),
+        // RFC 20260704 C1 — recv.name(args…) runtime dispatch:
+        // (recv, method-id, name ptr/len for TypeError messages,
+        // receiver write-back slot, argv, argc) → Any. Chunk 709
+        // added the `o.m?.(…)` optional flavor (no-such method
+        // answers undefined) and the GetV-existence probe deciding
+        // whether the optional call's args evaluate.
+        any_method_call: decl!(
             "__torajs_any_method_call",
-            &[
-                Type::Any,
-                Type::I64,
-                Type::Ptr,
-                Type::I64,
-                Type::Ptr,
-                Type::Ptr,
-                Type::I64,
-            ],
-            Type::Any,
+            [Any, I64, Ptr, I64, Ptr, Ptr, I64],
+            Any
         ),
-        // Chunk 709 — the `o.m?.(…)` optional flavor: a no-such
-        // method answers undefined instead of the TypeError.
-        // (recv, mid, name ptr, recv slot, argv, argc) → Any.
-        any_method_call_opt: declare_intrinsic(
-            module,
-            fn_table,
+        any_method_call_opt: decl!(
             "__torajs_any_method_call_opt",
-            &[
-                Type::Any,
-                Type::I64,
-                Type::Ptr,
-                Type::Ptr,
-                Type::Ptr,
-                Type::I64,
-            ],
-            Type::Any,
+            [Any, I64, Ptr, Ptr, Ptr, I64],
+            Any
         ),
-        // Chunk 709 — GetV-existence probe deciding whether the
-        // optional call's args evaluate. (recv, mid, key) → 1/0.
-        any_method_probe: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_method_probe",
-            &[Type::Any, Type::I64, Type::Ptr],
-            Type::I64,
-        ),
-        any_unbox_tag: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_unbox_tag",
-            &[Type::Any],
-            Type::I64,
-        ),
-        any_unbox_value: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_unbox_value",
-            &[Type::Any],
-            Type::I64,
-        ),
+        any_method_probe: decl!("__torajs_any_method_probe", [Any, I64, Ptr], I64),
+        any_unbox_tag: decl!("__torajs_anyv_unbox_tag", [Any], I64),
+        any_unbox_value: decl!("__torajs_anyv_unbox_value", [Any], I64),
         // chunk 712 — borrow-shaped cell-pointer read: heap cell →
-        // pointer bits, every immediate (ShortStr included) → 0.
-        // The class-candidate member dispatch consumes this; the
-        // materializing unbox_value leaked an owned Str per read on
-        // a ShortStr receiver and handed int immediates back as
-        // dereferenceable "pointer" bits.
-        any_cell_ptr: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_cell_ptr",
-            &[Type::Any],
-            Type::I64,
-        ),
+        // pointer bits, every immediate (ShortStr included) → 0
+        // (the materializing unbox_value leaked an owned Str per
+        // read on a ShortStr receiver).
+        any_cell_ptr: decl!("__torajs_anyv_cell_ptr", [Any], I64),
         // Owned-pair unbox: heap cell → rc_inc + ptr, ShortStr →
         // materialized rc=1 Str (the materialization IS the
-        // caller's stake). Owning sites use this instead of
-        // unbox_value + any_payload_rc_inc so a ShortStr temp
-        // isn't double-counted.
-        any_unbox_value_owned: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_unbox_value_owned",
-            &[Type::Any],
-            Type::I64,
-        ),
+        // caller's stake — no separate payload_rc_inc).
+        any_unbox_value_owned: decl!("__torajs_anyv_unbox_value_owned", [Any], I64),
         // Reclaims the materialized temp a ShortStr unbox_value
         // left behind — emitted after every borrow-shaped pair
         // consumer (args: original AnyValue, raw unboxed value).
-        any_unbox_settle: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_unbox_settle",
-            &[Type::Any, Type::I64],
-            Type::Void,
-        ),
-        any_box_drop: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_rc_dec",
-            &[Type::Any],
-            Type::Void,
-        ),
-        any_box_rc_inc: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_anyv_rc_inc",
-            &[Type::Any],
-            Type::Void,
-        ),
+        any_unbox_settle: decl!("__torajs_anyv_unbox_settle", [Any, I64], Void),
+        any_box_drop: decl!("__torajs_anyv_rc_dec", [Any], Void),
+        any_box_rc_inc: decl!("__torajs_anyv_rc_inc", [Any], Void),
     }
 }
