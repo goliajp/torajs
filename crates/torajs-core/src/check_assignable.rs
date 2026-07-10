@@ -62,6 +62,14 @@ fn is_assignable_to_deep(
     if matches!(to_r, Type::Any) {
         return true;
     }
+    // Chunk 806 — `undefined` fits a void slot (TS: a void-returning
+    // fn may `return voidCall()` / `return undefined`). Load-bearing
+    // case: a forwarder body `return target(...)` around a void
+    // target — the call now types Undefined (general_call) while the
+    // forwarder's declared ret stays Void.
+    if matches!(to_r, Type::Void) && matches!(from_r, Type::Undefined) {
+        return true;
+    }
     if let Type::Nullable(inner) = &to_r {
         // P1.7 — `Nullable<T>` ≡ `T | null | undefined` per spec.
         // Both null and undefined are valid in any Nullable<T> slot.

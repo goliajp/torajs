@@ -100,9 +100,23 @@ pub(crate) fn emit(
     let coerce_owned = coerce_args(ctx, target, args, &mut argv);
     let ret_ty = ctx.f_ret_type_hint(target);
     let cur_block = ctx.cur_block;
-    let v = ctx
-        .f
-        .append_inst(cur_block, InstKind::Call(target, argv), ret_ty, None);
+    // Chunk 806 — a void callee has no return value; consuming the
+    // Call's SSA result read x0 garbage (`console.log(v("x"))`
+    // printed a residue integer). Emit for effect and answer
+    // ConstPtrNull — the payload every Undefined-typed value
+    // carries (the checker types this call Undefined), so the
+    // Undefined-aware consumers (box_to_any_from_expr's Ptr arm,
+    // strict-eq, let-init) see a real undefined. The indirect
+    // lanes answer the same.
+    let result = if ret_ty == Type::Void {
+        ctx.f.append_void(cur_block, InstKind::Call(target, argv));
+        Operand::ConstPtrNull
+    } else {
+        let v = ctx
+            .f
+            .append_inst(cur_block, InstKind::Call(target, argv), ret_ty, None);
+        Operand::Value(v)
+    };
     ctx.emit_throw_check(Some(target));
     for (i, op) in owned_temps {
         ctx.release_owned_temp(args[i], &op);
@@ -113,7 +127,7 @@ pub(crate) fn emit(
     for op in coerce_owned {
         ctx.emit_drop_value(op, Type::Str);
     }
-    Operand::Value(v)
+    result
 }
 
 fn resolve_target(ctx: &LowerCtx<'_>, eid: ExprId, callee: ExprId) -> FuncId {

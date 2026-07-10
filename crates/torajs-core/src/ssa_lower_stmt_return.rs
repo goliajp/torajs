@@ -144,6 +144,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
     let coerced = ret_operand.map(|op| {
         let actual = ctx.operand_ty(&op);
         if ctx.f.ret == Type::Any && actual != Type::Any {
+            // Chunk 806 — the expr-aware variant tags an Undefined-
+            // typed source ANY_UNDEF; the plain box encoded its
+            // ConstPtrNull payload as ANY_NULL, so `return undefined`
+            // (and void-call returns) printed `null` at the caller.
+            if let Some(eid) = maybe {
+                return ctx.box_to_any_from_expr(eid, op);
+            }
             return ctx.box_to_any(op);
         }
         if actual == Type::Any && matches!(ctx.f.ret, Type::I64 | Type::F64) {

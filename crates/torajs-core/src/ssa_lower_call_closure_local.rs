@@ -185,7 +185,7 @@ pub(crate) fn try_lower(
         for op in coerce_owned {
             ctx.emit_drop_value(op, Type::Str);
         }
-        return Some(Operand::ConstI64(0));
+        return Some(Operand::ConstPtrNull);
     }
     let v = ctx.f.append_inst(
         ctx.cur_block,

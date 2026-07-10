@@ -132,7 +132,7 @@ fn emit_fnsig_call(
             ctx.cur_block,
             InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
         );
-        return Operand::ConstI64(0);
+        return Operand::ConstPtrNull;
     }
     let v = ctx.f.append_inst(
         ctx.cur_block,
@@ -179,7 +179,7 @@ fn emit_closure_call(
             ctx.cur_block,
             InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
         );
-        return Operand::ConstI64(0);
+        return Operand::ConstPtrNull;
     }
     let v = ctx.f.append_inst(
         ctx.cur_block,

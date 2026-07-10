@@ -137,7 +137,7 @@ fn try_lower_local_fnsig(
         for op in coerce_owned {
             ctx.emit_drop_value(op, Type::Str);
         }
-        return Some(Operand::ConstI64(0));
+        return Some(Operand::ConstPtrNull);
     }
     let v = ctx.f.append_inst(
         ctx.cur_block,
@@ -260,7 +260,7 @@ fn emit_closure_callee(
         for (a, op) in owned_temps {
             ctx.release_owned_temp(a, &op);
         }
-        return Operand::ConstI64(0);
+        return Operand::ConstPtrNull;
     }
     let v = ctx.f.append_inst(
         ctx.cur_block,
@@ -329,7 +329,7 @@ fn emit_fnsig_callee(
         for (a, op) in owned_temps {
             ctx.release_owned_temp(a, &op);
         }
-        return Operand::ConstI64(0);
+        return Operand::ConstPtrNull;
     }
     let v = ctx.f.append_inst(
         ctx.cur_block,

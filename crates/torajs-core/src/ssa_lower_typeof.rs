@@ -70,6 +70,15 @@ use crate::ssa_lower_intrinsics_substr::SUBSTR_UNDEF_CELL_SYM;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
     if let Some(check_mod::Type::Undefined) = ctx.expr_types.get(&expr) {
+        // Chunk 806 — typeof evaluates its operand (ES §13.5.3); a
+        // void call typed Undefined must still run for effect before
+        // the static fold answers.
+        if matches!(
+            ctx.ast.get_expr(expr),
+            Expr::Call { .. } | Expr::OptCall { .. }
+        ) {
+            let _ = ctx.lower_expr(expr);
+        }
         return Operand::Value(ctx.intern_string_literal("undefined"));
     }
     if let Some(s) = try_ident_global_typeof(ctx, expr) {

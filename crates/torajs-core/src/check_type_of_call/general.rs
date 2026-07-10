@@ -20,6 +20,19 @@ pub(crate) fn general_call(
     let Type::Function(mut params, ret) = callee_ty else {
         return Err(format!("not callable: type {callee_ty:?}"));
     };
+    // Chunk 806 — a void call USED AS A VALUE is `undefined` (ES
+    // §14.10.1: a return-less body completes with undefined). Typing
+    // the call expression Undefined instead of Void lets every
+    // Undefined-aware consumer (console print / strict-eq / typeof /
+    // let-init / box_to_any) answer the bun-observable value for
+    // free; annotation-mismatch rejects stay loud (Undefined admits
+    // exactly where undefined does). Builtin wedges that answer
+    // Void directly don't route through here and keep their shape.
+    let ret = if *ret == Type::Void {
+        Box::new(Type::Undefined)
+    } else {
+        ret
+    };
     // P1 wedge — Array.prototype callback methods accept
     // an optional trailing thisArg per ES spec §23.1.3.X
     // (map/filter/every/some/forEach/find/findIndex/

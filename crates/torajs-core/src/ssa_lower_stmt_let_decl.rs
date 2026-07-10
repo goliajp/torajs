@@ -312,8 +312,19 @@ fn lower_let_init_val(ctx: &mut LowerCtx, ty: Type, init: ExprId) -> Operand {
     // ConstPtrNull is the same representation an uninitialized
     // `let w;` binding carries). Keyed on the CHECKER type of the
     // init expr — the ssa `ty` param uses Void as its no-annotation
-    // sentinel and can't discriminate.
-    if matches!(ctx.expr_types.get(&init), Some(crate::check::Type::Void)) {
+    // sentinel and can't discriminate. Chunk 806 — user-fn void
+    // calls now type Undefined (general_call), so a Call-shaped
+    // Undefined init takes this arm too; a plain `= undefined` init
+    // keeps its existing path.
+    if matches!(ctx.expr_types.get(&init), Some(crate::check::Type::Void))
+        || (matches!(
+            ctx.expr_types.get(&init),
+            Some(crate::check::Type::Undefined)
+        ) && matches!(
+            ctx.ast.get_expr(init),
+            Expr::Call { .. } | Expr::OptCall { .. }
+        ))
+    {
         let _ = ctx.lower_expr(init);
         return Operand::ConstPtrNull;
     }

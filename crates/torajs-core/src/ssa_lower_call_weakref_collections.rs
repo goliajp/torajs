@@ -206,7 +206,7 @@ fn try_lower_weak_collection_method(
         // fresh entry evicts immediately — the ES-observable state
         // for a key nobody else references.
         settle_owned_key(ctx, args[0], &key_raw);
-        return Some(Operand::ConstI64(0));
+        return Some(Operand::ConstPtrNull);
     }
     let v = ctx
         .f
