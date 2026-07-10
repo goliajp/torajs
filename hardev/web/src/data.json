@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T11:53:44.332Z",
+  "generatedAt": "2026-07-10T13:04:01.505Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "e1c1dd7e",
-    "commitSubject": "feat: member-path truthiness narrow admits optional fn field calls",
+    "commit": "3d077086",
+    "commitSubject": "refactor: closure-param inference extracts its table build and apply stages",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "3d077086",
+      "subject": "refactor: closure-param inference extracts its table build and apply stages"
+    },
+    {
+      "hash": "a42e45ca",
+      "subject": "refactor: lower_inner closure partition + fn-name registry extract"
+    },
+    {
+      "hash": "259dfd85",
+      "subject": "refactor: arguments-object desugar splits its seed stages"
+    },
+    {
+      "hash": "189feef6",
+      "subject": "refactor: num-format extern shells move to format_ffi"
+    },
+    {
+      "hash": "075cfbce",
+      "subject": "refactor: annotation-predicate binding walks move to ast_collect_bindings"
+    },
+    {
+      "hash": "1912ef45",
+      "subject": "refactor: let-decl general path splits its three stages to a sibling"
+    },
+    {
+      "hash": "9f08ff59",
+      "subject": "refactor: any-substrate intrinsic declares converge through the decl! table"
+    },
+    {
+      "hash": "af8ffcaf",
+      "subject": "feat: call-arg struct param admits nullable-field covariant object literals"
+    },
+    {
+      "hash": "a97e6c08",
+      "subject": "chore(dashboard): refresh @ e1c1dd7e - rotation 62 (757-761: RFC 20260710-optional-undefined-repr C4/C2b/C5 shipped and closed - number/bool slots any-boxed, generic Tag::Undefined oddball for refcounted pointer slots, member-path truthiness narrow + optional fn field closure repr; pre-existing any-field SIGSEGV + nested-objlit stack-hint leak/UAF killed; parse_type + torajs-rc lib.rs size-debt drift cleared; gate 1386 -> 1389 five green)"
+    },
+    {
       "hash": "e1c1dd7e",
       "subject": "feat: member-path truthiness narrow admits optional fn field calls"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "3553adfb",
       "subject": "feat: refcounted pointer slots adopt the generic undefined oddball"
-    },
-    {
-      "hash": "53fcb575",
-      "subject": "refactor: parse_type back under the 200-line fn limit"
-    },
-    {
-      "hash": "92840003",
-      "subject": "feat: optional number/boolean fields materialize as any slots"
-    },
-    {
-      "hash": "04c41b87",
-      "subject": "chore(dashboard): refresh @ 2c0f1e21 - rotation 61 (752-756: copy-result consume-walk gate + any-member owned skip; struct dynamic index via any lane; RFC 20260710-optional-undefined-repr C1-C3 shipped - str/fn slot sentinel producers, fnsig print/tostring lanes, missing-field desugar fill; gate 1381 -> 1386 five green)"
-    },
-    {
-      "hash": "2c0f1e21",
-      "subject": "feat: absent optional fields fill as explicit undefined in objectlit inits"
-    },
-    {
-      "hash": "b844124f",
-      "subject": "feat: fn-typed slots adopt the undefined sentinel oddball"
-    },
-    {
-      "hash": "2f1c87c5",
-      "subject": "feat: undefined literal into nullable str slots stores the sentinel cell"
-    },
-    {
-      "hash": "1b36f91f",
-      "subject": "feat: dynamic index reads on typed structs ride the any-index lane"
-    },
-    {
-      "hash": "7a20e70a",
-      "subject": "fix: copy-result return/throw and any-member reads keep receiver scope drops"
-    },
-    {
-      "hash": "83de1aaa",
-      "subject": "chore(dashboard): refresh @ 16267719 - rotation 60 (745-751: struct literal-index via member lanes; fromEntries accessor getters; RFC 20260710 noncopy-mutable-capture C1-C4 all shipped - shared live bindings via capture box across let/param/any/for-per-iter; str-eq and switch scrutinee fresh-owned release; gate 1375 -> 1381 seven green)"
     }
   ],
-  "headSha": "e1c1dd7e",
+  "headSha": "3d077086",
   "autorun": {
-    "total": 368,
+    "total": 369,
     "baselineTarget": 10,
-    "bySelf": 363,
+    "bySelf": 364,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783672614-6e29",
-      "at": "2026-07-10T08:36:54Z",
-      "ts": 1783672614,
+      "rotationId": "r-1783684511-4fb6",
+      "at": "2026-07-10T11:55:11Z",
+      "ts": 1783684511,
       "trigger": "self",
-      "prevHead": "04c41b87",
-      "handoffSha": "sha256:4a1d19f338e6d87f19620715f7c8e87120c4ddced1d6304ca60f42c07bfb8187",
-      "handoffAgeSec": 8,
+      "prevHead": "a97e6c08",
+      "handoffSha": "sha256:84dcdfd66d891c5a25f7ec8452e90a621d7aa8d42ca4c3021bb94d8cb2f3ac09",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783684511-4fb6",
+        "at": "2026-07-10T11:55:11Z",
+        "ts": 1783684511,
+        "trigger": "self",
+        "prevHead": "a97e6c08",
+        "handoffSha": "sha256:84dcdfd66d891c5a25f7ec8452e90a621d7aa8d42ca4c3021bb94d8cb2f3ac09",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783672614-6e29",
         "at": "2026-07-10T08:36:54Z",
@@ -876,17 +887,6 @@
         "prevHead": "60e7f902",
         "handoffSha": "sha256:0351207666b481a0f771efe2f0493bef6a12e11ee33279bd83aaf4f8df80ccdd",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783510187-40ac",
-        "at": "2026-07-08T11:29:47Z",
-        "ts": 1783510187,
-        "trigger": "self",
-        "prevHead": "ad3d72eb",
-        "handoffSha": "sha256:ff7ae0481da76628d0554f8af36d072f040b827a467c7c615ecc78810faff43a",
-        "handoffAgeSec": 67,
         "conformanceBefore": null,
         "commitsInSession": null
       }
