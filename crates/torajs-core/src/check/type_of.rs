@@ -28,38 +28,6 @@ impl Checker {
 
     fn type_of_inner(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
         match ast.get_expr(eid) {
-            // P4.5 — `new.target` is Type::Any. Inside a ctor body
-            // desugar_classes rewrites to Ident("__new_target") which
-            // typechecks against the synthesized param's type. Outside
-            // ctors the bare NewTarget reaches here and resolves to
-            // Any (spec §13.3.10 says `undefined` outside ctor;
-            // tagged ANY_UNDEF at the SSA layer).
-            Expr::NewTarget => Ok(Type::Any),
-            Expr::String(_) => Ok(Type::String),
-            Expr::Number(_) => Ok(Type::Number),
-            Expr::BigInt { .. } => Ok(Type::BigInt),
-            Expr::Bool(_) => Ok(Type::Boolean),
-            Expr::Null => Ok(Type::Null),
-            // P1.3 — `let x;` (no init) gives x the value `undefined`
-            // per ES spec §8.1 / §14.3.2. Pre-P1 tora returned
-            // Type::Null (collapsed with undefined at the runtime).
-            // Now Type::Undefined first-class: typeof an uninit
-            // binding correctly returns "undefined" and strict-eq
-            // distinguishes from null. Still resolved by
-            // `desugar_uninit_let` to the first follow-up assignment's
-            // RHS when one exists; the Type::Undefined fallback only
-            // fires for genuinely uninit slots.
-            Expr::Uninit => Ok(Type::Undefined),
-            // Regex literal `/pat/flags` — produces a `Type::RegExp`.
-            // Pattern + flags are validated at runtime in
-            // `__torajs_regex_compile` (allocates the NFA + flag bits);
-            // the typechecker only confirms the literal is well-shaped.
-            // Method dispatch (`.test`, `.exec`, ...) is resolved
-            // through the Member arm against `Type::RegExp`.
-            Expr::Regex {
-                pattern: _,
-                flags: _,
-            } => Ok(Type::RegExp),
             Expr::Ident(name) => {
                 // Resolution order: local binding → module global →
                 // built-in namespace (console/Math/Object/Array/...) →
@@ -228,6 +196,7 @@ impl Checker {
                 // See [`crate::check_type_of_misc::check_as`].
                 crate::check_type_of_misc::check_as(self, ast, *expr, ty_ann)
             }
+            literal => Ok(literal_type_of(literal)),
         }
     }
 
@@ -260,6 +229,40 @@ impl Checker {
                 .map(|(_, t)| t.clone())
                 .ok_or_else(|| format!("no field `{n}` on struct {obj_ty:?}")),
             (other, _) => Err(format!("no field `{name}` accessible on type {other:?}")),
+        }
+    }
+}
+
+/// Literal / oddball variants of [`Checker::type_of_inner`] — no
+/// child typing needed, the variant IS the type (chunk 776
+/// extraction; reached as the dispatch match's catch-all — a NEW
+/// composite variant landing here panics loudly instead of silently
+/// mistyping).
+///
+/// - P4.5 — `new.target` is Type::Any. Inside a ctor body
+///   desugar_classes rewrites to Ident("__new_target"); outside
+///   ctors the bare NewTarget resolves to Any (spec §13.3.10 says
+///   `undefined` outside ctor; tagged ANY_UNDEF at the SSA layer).
+/// - P1.3 — `let x;` (no init) gives x the value `undefined` per ES
+///   spec §8.1 / §14.3.2 (Type::Undefined first-class: typeof
+///   answers "undefined", strict-eq distinguishes from null; still
+///   resolved by `desugar_uninit_let` when a follow-up assignment
+///   exists).
+/// - Regex literal `/pat/flags` — `Type::RegExp`; pattern + flags
+///   validate at runtime in `__torajs_regex_compile`, and method
+///   dispatch resolves through the Member arm.
+fn literal_type_of(e: &Expr) -> Type {
+    match e {
+        Expr::NewTarget => Type::Any,
+        Expr::String(_) => Type::String,
+        Expr::Number(_) => Type::Number,
+        Expr::BigInt { .. } => Type::BigInt,
+        Expr::Bool(_) => Type::Boolean,
+        Expr::Null => Type::Null,
+        Expr::Uninit => Type::Undefined,
+        Expr::Regex { .. } => Type::RegExp,
+        other => {
+            panic!("type_of_inner: composite variant fell through to literal_type_of: {other:?}")
         }
     }
 }
