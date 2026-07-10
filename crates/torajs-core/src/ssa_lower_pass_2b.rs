@@ -141,6 +141,12 @@ fn collect_named_eval(ast: &Ast) -> HashMap<String, String> {
             }
         }
     }
+    // Chunk 796 — a named function expression's self-name wins over
+    // every syntactic-position name (ES §15.5.5: NamedEvaluation
+    // applies only to ANONYMOUS definitions), so overlay it last.
+    for (cn, sn) in &ast.closure_self_names {
+        map.insert(cn.clone(), sn.clone());
+    }
     map
 }
 

@@ -96,6 +96,18 @@ pub use var_hoist::desugar_var_hoist;
 pub struct Ast {
     pub stmts: Vec<Stmt>,
     pub exprs: Vec<Expr>,
+    /// Chunk 796 — ES §15.5.5 named function expressions: the parser
+    /// records each fn expression's self-name by its `ArrowFn`
+    /// ExprId (`let l = function named() {}` — `named` IS the fn's
+    /// `name`; the binding position does not override it). Keying by
+    /// ExprId is safe: modules parse into one shared arena
+    /// (`parse_into`), no renumbering.
+    pub fn_expr_self_names: std::collections::HashMap<ExprId, String>,
+    /// Lifted-closure name (`__closure_N`) → fn-expression
+    /// self-name, translated from `fn_expr_self_names` by
+    /// `lift_arrow_fns`; overlaid LAST in pass-2B's NamedEvaluation
+    /// registry so the self-name wins over the binding name.
+    pub closure_self_names: std::collections::HashMap<String, String>,
     /// Recorded by `desugar_classes` so post-desugar passes (check, ssa_lower)
     /// can resolve `instanceof Parent` on a subclass instance: maps each
     /// declared class name to its parent (None if no `extends`). Empty

@@ -283,6 +283,13 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
         }
         let name = format!("__closure_{counter}");
         counter += 1;
+        // Chunk 796 — a named function expression carries its
+        // self-name into the lifted-closure registry (ES §15.5.5;
+        // pass-2B overlays it over any binding name).
+        if let Some(sn) = ast.fn_expr_self_names.get(&crate::ast::ExprId(i as u32)) {
+            let sn = sn.clone();
+            ast.closure_self_names.insert(name.clone(), sn);
+        }
         // Compute captures BEFORE moving the arrow body out — collect free
         // vars (idents referenced inside the body that are neither one of
         // the arrow's params nor declared by an inner let, and not a

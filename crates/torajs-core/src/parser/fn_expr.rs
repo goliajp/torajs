@@ -138,10 +138,17 @@ impl<'a> Parser<'a> {
         if is_generator {
             self.pos += 1;
         }
-        // Optional name — accept and discard.
-        if let Token::Ident(_) = self.peek() {
+        // Optional self-name — chunk 796: recorded by ExprId for the
+        // NamedEvaluation registry (`.name` / fn-print; ES §15.5.5 —
+        // the self-name wins over a binding name). Body-scope
+        // self-binding stays out of scope for the subset.
+        let self_name = if let Token::Ident(n) = self.peek() {
+            let n = n.clone();
             self.pos += 1;
-        }
+            Some(n)
+        } else {
+            None
+        };
         if is_generator {
             // Skip param list brace-balanced.
             match self.peek() {
@@ -238,11 +245,15 @@ impl<'a> Parser<'a> {
             full.extend(stmts);
             full
         };
-        Ok(self.ast.add_expr(Expr::ArrowFn {
+        let eid = self.ast.add_expr(Expr::ArrowFn {
             params,
             return_type,
             body: stmts,
-        }))
+        });
+        if let Some(n) = self_name {
+            self.ast.fn_expr_self_names.insert(eid, n);
+        }
+        Ok(eid)
     }
 
     pub(super) fn parse_arrow_fn(&mut self) -> Result<ExprId, String> {
