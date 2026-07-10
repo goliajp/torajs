@@ -92,55 +92,7 @@ pub(crate) fn run(
             for s in new_strings {
                 module.strings.push(s);
             }
-            // Fn-name registry Step 2 — record the (FuncId, name,
-            // name_sid) triple for the link-time __torajs_fn_name_table
-            // emit (Step 3) + the runtime __torajs_fn_print_inline
-            // binary search (Step 4). Skip the desugared class-method
-            // mangled forms (`__cm_<C>__<m>`, `__dispatch_<m>`,
-            // `__new_<C>`) — bun reports the user-visible method
-            // name on those, not the mangled name, and we get
-            // there in Step 5's wire by stripping the prefix when
-            // emitting. Skip generic-mono specialized names too
-            // (`<fn>__<typeargs>__<idx>`) — they share the source
-            // fn's user-visible name; the entry already exists for
-            // the generic form. Closure-lifted bodies
-            // (`__closure_*`) are anonymous from the user's point
-            // of view; runtime falls back to
-            // `[Function (anonymous)]` if no entry is found.
-            if !name.starts_with("__cm_")
-                && !name.starts_with("__dispatch_")
-                && !name.starts_with("__new_")
-                && !name.starts_with("__closure_")
-                && !name.contains("__mono_")
-            {
-                // `__forward_<target>` fn-value wrappers
-                // (ast_closure_param_tag) carry the user-visible
-                // TARGET name — `const t: any = topfn; t.name` must
-                // answer "topfn", and the synthetic leading `__env`
-                // param stays out of the arity (chunk 716).
-                let visible = name.strip_prefix("__forward_").unwrap_or(name);
-                // Intern the name as a Module-level string literal so
-                // the link layer can resolve `__user_string_<sid>` to
-                // the rodata cstring entry. encode_from_str picks
-                // Latin-1 / UTF-16 to match the upstream string-literal
-                // encoding contract (TS allows non-ASCII fn names).
-                let lit = ssa::StringLiteral::encode_from_str(visible);
-                let name_sid = ssa::StringId(module.strings.len() as u32);
-                module.strings.push(lit);
-                // ES-spec `Function.length` — leading params before
-                // the first default / rest (§10.2.10 SetFunctionLength).
-                let arity = params
-                    .iter()
-                    .filter(|p| p.name != "__env")
-                    .take_while(|p| p.default.is_none() && !p.is_rest)
-                    .count() as u32;
-                module.fn_name_globals.push(FnNameEntry {
-                    fn_id: fid,
-                    name: visible.to_string(),
-                    name_sid,
-                    arity,
-                });
-            }
+            register_fn_name(module, name, params, fid);
         }
     }
 
@@ -214,4 +166,54 @@ pub(crate) fn run(
         intrinsics,
         module,
     );
+}
+
+/// Fn-name registry Step 2 — record the (FuncId, name, name_sid)
+/// triple for the link-time __torajs_fn_name_table emit (Step 3) +
+/// the runtime __torajs_fn_print_inline binary search (Step 4).
+/// Skip the desugared class-method mangled forms (`__cm_<C>__<m>`,
+/// `__dispatch_<m>`, `__new_<C>`) — bun reports the user-visible
+/// method name on those, not the mangled name, and we get there in
+/// Step 5's wire by stripping the prefix when emitting. Skip
+/// generic-mono specialized names too (`<fn>__<typeargs>__<idx>`) —
+/// they share the source fn's user-visible name; the entry already
+/// exists for the generic form. Closure-lifted bodies
+/// (`__closure_*`) are anonymous from the user's point of view;
+/// runtime falls back to `[Function (anonymous)]` if no entry is
+/// found.
+fn register_fn_name(module: &mut Module, name: &str, params: &[crate::ast::Param], fid: FuncId) {
+    if name.starts_with("__cm_")
+        || name.starts_with("__dispatch_")
+        || name.starts_with("__new_")
+        || name.starts_with("__closure_")
+        || name.contains("__mono_")
+    {
+        return;
+    }
+    // `__forward_<target>` fn-value wrappers (ast_closure_param_tag)
+    // carry the user-visible TARGET name — `const t: any = topfn;
+    // t.name` must answer "topfn", and the synthetic leading `__env`
+    // param stays out of the arity (chunk 716).
+    let visible = name.strip_prefix("__forward_").unwrap_or(name);
+    // Intern the name as a Module-level string literal so the link
+    // layer can resolve `__user_string_<sid>` to the rodata cstring
+    // entry. encode_from_str picks Latin-1 / UTF-16 to match the
+    // upstream string-literal encoding contract (TS allows non-ASCII
+    // fn names).
+    let lit = ssa::StringLiteral::encode_from_str(visible);
+    let name_sid = ssa::StringId(module.strings.len() as u32);
+    module.strings.push(lit);
+    // ES-spec `Function.length` — leading params before the first
+    // default / rest (§10.2.10 SetFunctionLength).
+    let arity = params
+        .iter()
+        .filter(|p| p.name != "__env")
+        .take_while(|p| p.default.is_none() && !p.is_rest)
+        .count() as u32;
+    module.fn_name_globals.push(FnNameEntry {
+        fn_id: fid,
+        name: visible.to_string(),
+        name_sid,
+        arity,
+    });
 }

@@ -97,31 +97,8 @@ pub(crate) fn lower_inner(
         &num_f64_slots,
         &generic_fn_names,
     );
-    let decl_indices = pass1.decl_indices;
     let mut fn_sig_ids = pass1.fn_sig_ids;
-    // M2.A fix — lifted closures (`__closure_N`) must lower in REVERSE
-    // append order so each closure's CONSTRUCTION site (in its enclosing
-    // fn / outer closure) runs before its BODY (which reads
-    // `closure_captures` populated by the construction). Without this
-    // reorder, nested capturing closures crashed: __closure_0 (innermost)
-    // is appended first by lift_arrow_fns and would lower first, but its
-    // captures are populated by __closure_1 (outer)'s body lowering.
-    //
-    // T-15.g.5 extension: closure construction can also live at module
-    // top-level (`let cb = function(v) { return v + cap }` directly in
-    // implicit main). Top-level construction only runs when synthesize_
-    // main lowers, so closure bodies that depend on top-level captures
-    // must lower AFTER main, not just after user fns. Pipeline now:
-    // Pass 2A user fns → Pass 3 main → Pass 2B closure bodies (reverse).
-    let (user_decls, mut closure_decls): (Vec<_>, Vec<_>) =
-        decl_indices
-            .into_iter()
-            .partition(|(stmt_idx, _)| match &ast.stmts[*stmt_idx] {
-                Stmt::FnDecl { name, .. } => !name.starts_with("__closure_"),
-                _ => true,
-            });
-    closure_decls.reverse();
-    let decl_indices: Vec<_> = user_decls;
+    let (decl_indices, closure_decls) = partition_closure_decls(ast, pass1.decl_indices);
 
     let (env_drop_fids, env_drop_trivial_fid, promise_thunks, signatures) = setup_callable_infra(
         ast,
@@ -255,6 +232,35 @@ pub(crate) fn lower_inner(
     );
 
     module
+}
+
+/// M2.A fix — lifted closures (`__closure_N`) must lower in REVERSE
+/// append order so each closure's CONSTRUCTION site (in its enclosing
+/// fn / outer closure) runs before its BODY (which reads
+/// `closure_captures` populated by the construction). Without this
+/// reorder, nested capturing closures crashed: __closure_0 (innermost)
+/// is appended first by lift_arrow_fns and would lower first, but its
+/// captures are populated by __closure_1 (outer)'s body lowering.
+///
+/// T-15.g.5 extension: closure construction can also live at module
+/// top-level (`let cb = function(v) { return v + cap }` directly in
+/// implicit main). Top-level construction only runs when synthesize_
+/// main lowers, so closure bodies that depend on top-level captures
+/// must lower AFTER main, not just after user fns. Pipeline now:
+/// Pass 2A user fns → Pass 3 main → Pass 2B closure bodies (reverse).
+fn partition_closure_decls(
+    ast: &Ast,
+    decl_indices: Vec<(usize, FuncId)>,
+) -> (Vec<(usize, FuncId)>, Vec<(usize, FuncId)>) {
+    let (user_decls, mut closure_decls): (Vec<_>, Vec<_>) =
+        decl_indices
+            .into_iter()
+            .partition(|(stmt_idx, _)| match &ast.stmts[*stmt_idx] {
+                Stmt::FnDecl { name, .. } => !name.starts_with("__closure_"),
+                _ => true,
+            });
+    closure_decls.reverse();
+    (user_decls, closure_decls)
 }
 
 /// M3 monomorphization + W1 num-width analysis — the AST-owning
