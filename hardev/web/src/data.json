@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T18:47:00.181Z",
+  "generatedAt": "2026-07-10T20:17:25.310Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "be4109ba",
-    "commitSubject": "test: retire the [Function (anonymous)] .expected pin",
+    "commit": "8bfd881d",
+    "commitSubject": "feat: annex b octal fallback for out-of-range decimal backrefs",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "8bfd881d",
+      "subject": "feat: annex b octal fallback for out-of-range decimal backrefs"
+    },
+    {
+      "hash": "beaeb52c",
+      "subject": "feat: split() splices capture-group values into the result"
+    },
+    {
+      "hash": "b3faf3c6",
+      "subject": "fix: decimal backrefs read the longest digit run"
+    },
+    {
+      "hash": "44d19c27",
+      "subject": "feat: retire the 32-capture-group cap, stride-size every saves buffer"
+    },
+    {
+      "hash": "2533e054",
+      "subject": "feat: String.search(RegExp) + substr-receiver gate on the regex method family"
+    },
+    {
+      "hash": "161c2b6a",
+      "subject": "test: pin typeof/.name/.length on closure-typed globals"
+    },
+    {
+      "hash": "85981e3b",
+      "subject": "feat: typed-tier .name reads the runtime fn-addr registry"
+    },
+    {
+      "hash": "ce6b70de",
+      "subject": "chore(dashboard): refresh @ be4109ba - rotation 66 (791-797: rotation-65 archive closed via optchain sentinel-capable receivers; fn-name/closure-repr double axis closed - obj-field named-eval, inline-ann fn fields closure-repr plus four forwarder axes, arrow-splitter family at four sites, generic-instantiation fn-arg three fronts, fn-expr self-names, anonymous print [Function] alignment with .expected pin retired; three pre-existing silent-wrongs fixed; gates 1403 -> 1410 seven green, tr baseline 61597504, nextest core 180 each)"
+    },
+    {
       "hash": "be4109ba",
       "subject": "test: retire the [Function (anonymous)] .expected pin"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "2482fd38",
       "subject": "chore(dashboard): refresh @ da1ced7b - rotation 66 (791-795: rotation-65 archive closed via optchain sentinel-capable receivers; fn-name/closure-repr double axis - obj-field named-eval, inline-ann fn fields closure-repr plus four forwarder axes, arrow-splitter family fixed at three sites, generic-instantiation fn-arg three fronts; three pre-existing silent-wrongs fixed (optchain sentinel garbage read, inline-ann SIGBUS family, named-TypeDecl call-arg named-fn store); gates 1403 -> 1408 five green, tr baseline 61597488 stable, nextest core 180 each)"
-    },
-    {
-      "hash": "da1ced7b",
-      "subject": "fix: closure-repr fn fields for generic struct instantiations"
-    },
-    {
-      "hash": "27ba155d",
-      "subject": "fix: fn-type return arrow is not a generic closer in depth-0 splits"
-    },
-    {
-      "hash": "1d9ad3cd",
-      "subject": "fix: closure-repr fn fields for inline object type annotations"
-    },
-    {
-      "hash": "b581dda2",
-      "subject": "feat: named evaluation for object-literal field closures"
-    },
-    {
-      "hash": "0826f99d",
-      "subject": "feat: support optional chain on sentinel-capable non-struct receivers"
-    },
-    {
-      "hash": "2ee3b985",
-      "subject": "chore(dashboard): refresh @ 2325cc91 - rotation 65 (783-790: 761 archive fully closed via member-assign named-fn forwarder plus chain and element receiver narrows; 780/782 archives closed via call-arg/nested optional fill and four declared-layout hint positions; two pre-existing silent-wrongs fixed (nested-literal layout collision swallowing stdout, sentinel-?? printing cell text); gates 1393 -> 1403 eight green, tr baseline 61597488, workspace nextest 2320/2320)"
-    },
-    {
-      "hash": "2325cc91",
-      "subject": "feat: narrow member paths through element receivers"
-    },
-    {
-      "hash": "4a462ab8",
-      "subject": "chore(dashboard): refresh @ ae506dfa - rotation 65 (783-789: member-assign named-fn forwarder and member-chain narrow closing the 761 archive; call-arg/nested optional fill and call-arg/member-assign/nested-literal declared-layout hints closing the 780/782 archives plus two pre-existing silent-wrongs the probes surfaced (nested-literal layout collision swallowing whole-program stdout, sentinel-?? printing the cell text); method/ctor faces pinned fixture-only; gates 1393 -> 1402 seven green, tr baseline 61597472)"
     }
   ],
-  "headSha": "be4109ba",
+  "headSha": "8bfd881d",
   "autorun": {
-    "total": 372,
+    "total": 373,
     "baselineTarget": 10,
-    "bySelf": 367,
+    "bySelf": 368,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783703199-18b4",
-      "at": "2026-07-10T17:06:39Z",
-      "ts": 1783703199,
+      "rotationId": "r-1783709291-564b",
+      "at": "2026-07-10T18:48:11Z",
+      "ts": 1783709291,
       "trigger": "self",
-      "prevHead": "2ee3b985",
-      "handoffSha": "sha256:5458f23d9326a88b0f11745bbe04aaaa9c67b3c6dace2513a3128f4726ee4179",
-      "handoffAgeSec": 7,
+      "prevHead": "ce6b70de",
+      "handoffSha": "sha256:c8056791618cd333663d3eab38ab24929b13f44790e4f6791823e3a919187306",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783709291-564b",
+        "at": "2026-07-10T18:48:11Z",
+        "ts": 1783709291,
+        "trigger": "self",
+        "prevHead": "ce6b70de",
+        "handoffSha": "sha256:c8056791618cd333663d3eab38ab24929b13f44790e4f6791823e3a919187306",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783703199-18b4",
         "at": "2026-07-10T17:06:39Z",
@@ -876,17 +887,6 @@
         "prevHead": "d7d6d799",
         "handoffSha": "sha256:e1c565591fb3ad02d685251dbd1fe9a7b949f368235905ee47ee70e0ce2806b0",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783539600-74f1",
-        "at": "2026-07-08T19:40:00Z",
-        "ts": 1783539600,
-        "trigger": "self",
-        "prevHead": "34245f67",
-        "handoffSha": "sha256:680a96434ad8d8d4c795ea3f2402eab1fc2ece7de5ced4f0639356c251cb9644",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
