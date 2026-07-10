@@ -23,17 +23,25 @@ impl<'p> Parser<'p> {
             // Chunk 802 — ES DecimalEscape reads the longest digit
             // run (`\12` references group 12, not group 1 then a
             // literal '2'); `resolve_backrefs` validates against
-            // n_captures post-parse, so forward references stay fine
-            // and out-of-range refs take the rejected path (the
-            // Annex B octal fallback remains the recorded follow-up
-            // on resolve.rs). Saturate on pathological digit runs —
-            // anything past the sanity cap fails resolve anyway.
+            // n_captures post-parse, so forward references stay
+            // fine. Chunk 804 — the raw digit run rides in
+            // `backref_name` (decimal keeps `capture_idx >= 1`, so
+            // it never collides with the named form's `-1`): an
+            // out-of-range ref demotes to the Annex B octal /
+            // identity reinterpretation at resolve time. Saturate
+            // on pathological digit runs — past the sanity cap the
+            // demotion consumes the digits anyway.
             let mut n = Node::new(NodeKind::Backref);
-            let mut idx = (c - b'0') as i64;
+            let mut digits = alloc::vec![c];
             while !self.eof() && self.peek().is_ascii_digit() {
-                idx = (idx * 10 + (self.get() - b'0') as i64).min(i32::MAX as i64);
+                digits.push(self.get());
+            }
+            let mut idx: i64 = 0;
+            for &d in &digits {
+                idx = (idx * 10 + (d - b'0') as i64).min(i32::MAX as i64);
             }
             n.capture_idx = idx as i32;
+            n.backref_name = digits;
             return Some(n);
         }
         match c {

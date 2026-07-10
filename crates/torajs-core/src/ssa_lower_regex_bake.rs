@@ -59,7 +59,7 @@ pub(crate) fn try_bake_regex_dfa(
 
     let names = parser.names.clone();
     let n_caps = parser.n_captures;
-    if !resolve_backrefs(&mut root, &names, n_caps) {
+    if !resolve_backrefs(&mut root, &names, n_caps, flag_bits) {
         return None;
     }
 

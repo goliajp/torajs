@@ -426,7 +426,7 @@ mod tests {
         let names = parser.names.clone();
         let n_captures = parser.n_captures;
         assert!(
-            resolve_backrefs(&mut root, &names, n_captures),
+            resolve_backrefs(&mut root, &names, n_captures, flags),
             "resolve_backrefs should succeed for {pattern:?}"
         );
         analyze(&root)
@@ -1849,7 +1849,7 @@ mod tests {
         let mut p = Parser::new(pat.as_bytes(), flags);
         let mut root = p.parse().expect("Path A v2 test pattern must parse");
         let names = p.names.clone();
-        resolve_backrefs(&mut root, &names, p.n_captures);
+        resolve_backrefs(&mut root, &names, p.n_captures, flags);
         let mut prog = Program::new();
         compile(&mut prog, &root, flags);
         prog.emit(Inst::match_accept());

@@ -75,7 +75,7 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
 
     let mut root_ok = match parse_result {
         Some(mut root) => {
-            if resolve_backrefs(&mut root, &names_snapshot, n_captures) {
+            if resolve_backrefs(&mut root, &names_snapshot, n_captures, flag_bits) {
                 Some(root)
             } else {
                 None
