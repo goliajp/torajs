@@ -36,12 +36,11 @@ pub(crate) fn check(
 ) -> Result<Type, String> {
     // RFC 20260710 C5 — a member-path truthiness narrow
     // (`if (o.cb) { o.cb() }`) overrides the declared Nullable
-    // field type inside the guarded branch. Ident receivers only —
-    // the narrow key is minted from the same shape.
-    if let Expr::Ident(recv) = ast.get_expr(*obj)
-        && let Some(narrowed) = checker
-            .member_narrows
-            .get(&(recv.clone(), name.to_string()))
+    // field type inside the guarded branch. Keys are canonical
+    // receiver paths (chunk 789: Ident / Member chain), minted from
+    // the same shape.
+    if let Some(path) = crate::check_assigns_to::member_path(ast, *obj)
+        && let Some(narrowed) = checker.member_narrows.get(&(path, name.to_string()))
     {
         return Ok(narrowed.clone());
     }

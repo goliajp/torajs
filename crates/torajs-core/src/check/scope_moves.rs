@@ -117,14 +117,17 @@ impl Checker {
 
     /// RFC 20260710 C5 — detect a member-path narrowing cond on a
     /// truthiness / nullish-eq guard over `recv.field` where `recv`
-    /// is an Ident whose struct field is declared `Nullable<T>`:
+    /// canonicalizes to a stable source path (chunk 789: an Ident
+    /// or a Member chain `h.o` — see `member_path` for why Index
+    /// receivers are excluded) and the receiver's struct field is
+    /// declared `Nullable<T>`:
     /// `if (o.cb)` / `if (!o.cb)` / `o.cb !== null|undefined` /
-    /// `o.cb === null|undefined`. Returns ((recv, field), inner,
-    /// then-narrows). Mirrors [`Self::collect_null_narrow`]'s
+    /// `o.cb === null|undefined`. Returns ((recv-path, field),
+    /// inner, then-narrows). Mirrors [`Self::collect_null_narrow`]'s
     /// binding shapes; the narrow lands in `member_narrows` instead
     /// of a scope slot (a member path has no binding to retype).
     pub(crate) fn collect_member_narrow(
-        &self,
+        &mut self,
         ast: &Ast,
         cond: ExprId,
     ) -> Option<((String, String), Type, bool)> {
@@ -157,10 +160,13 @@ impl Checker {
         let Expr::Member { obj, name: field } = ast.get_expr(member_eid) else {
             return None;
         };
-        let Expr::Ident(recv) = ast.get_expr(*obj) else {
-            return None;
-        };
-        let recv_ty = self.lookup(recv)?.ty;
+        let (obj, field) = (*obj, field.clone());
+        // Chunk 789 — canonical receiver path (Ident / Member chain /
+        // int-literal Index); receiver type through the full type_of
+        // so nested receivers (`h.o`, `arr[0]`) resolve like any
+        // member read (including narrows already in force).
+        let recv = crate::check_assigns_to::member_path(ast, obj)?;
+        let recv_ty = self.type_of(ast, obj).ok()?;
         let fields = match recv_ty {
             Type::Struct(fields) => fields,
             Type::Object(alias) => match self.aliases.get(alias) {
@@ -169,9 +175,9 @@ impl Checker {
             },
             _ => return None,
         };
-        let fty = fields.iter().find(|(n, _)| n == field).map(|(_, t)| t)?;
+        let fty = fields.iter().find(|(n, _)| *n == field).map(|(_, t)| t)?;
         if let Type::Nullable(inner) = fty {
-            Some(((recv.clone(), field.clone()), (**inner).clone(), polarity))
+            Some(((recv, field), (**inner).clone(), polarity))
         } else {
             None
         }

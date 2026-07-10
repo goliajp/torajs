@@ -41,15 +41,39 @@ pub(crate) fn stmt_assigns_to(ast: &Ast, s: &Stmt, name: &str) -> bool {
     )
 }
 
-/// `recv = ...` or `recv.field = ...` anywhere in `s` — the
-/// member-narrow while gate (see module doc).
+/// Chunk 789 — canonical source path for a member-narrow receiver:
+/// an Ident (`h`) or a Member chain (`h.o.p`). `None` for every
+/// other shape, which stays un-narrowed (loud). Index receivers
+/// (`arr[0].cb`) are deliberately excluded: the SSA member-assign /
+/// narrowed-call lanes don't reach through element loads yet, so a
+/// narrow there would trade the loud reject for silent-wrong
+/// (probe s5b: whole-program output swallowed) — archived.
+pub(crate) fn member_path(ast: &Ast, eid: ExprId) -> Option<String> {
+    match ast.get_expr(eid) {
+        Expr::Ident(n) => Some(n.clone()),
+        Expr::Member { obj, name } => Some(format!("{}.{name}", member_path(ast, *obj)?)),
+        _ => None,
+    }
+}
+
+/// Chunk 789 — is the narrow keyed at `key_path` rooted at (or equal
+/// to) the assigned path? `h = ...` invalidates "h.o"-rooted keys;
+/// `h.o = ...` invalidates "h.o" itself and deeper "h.o.p" roots.
+pub(crate) fn path_overlaps(key_path: &str, assigned: &str) -> bool {
+    key_path == assigned
+        || key_path.starts_with(&format!("{assigned}."))
+        || key_path.starts_with(&format!("{assigned}["))
+}
+
+/// A write that can flip the (recv, field) member narrow anywhere in
+/// `s` — the member-narrow while gate (see module doc). `recv` is a
+/// canonical path (chunk 789): any assign whose target path overlaps
+/// the receiver or the narrowed member itself counts.
 pub(crate) fn stmt_assigns_to_member(ast: &Ast, s: &Stmt, recv: &str, field: &str) -> bool {
-    stmt_assigns_matching(ast, s, &|target| match ast.get_expr(target) {
-        Expr::Ident(n) => n == recv,
-        Expr::Member { obj, name } => {
-            name == field && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == recv)
-        }
-        _ => false,
+    let full = format!("{recv}.{field}");
+    stmt_assigns_matching(ast, s, &|target| {
+        member_path(ast, target)
+            .is_some_and(|tp| path_overlaps(recv, &tp) || path_overlaps(&full, &tp))
     })
 }
 

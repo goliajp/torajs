@@ -30,17 +30,24 @@ pub(crate) fn check(
     match ast.get_expr(target).clone() {
         Expr::Ident(name) => {
             // RFC 20260710 C5 — rebinding the receiver invalidates
-            // every member-path narrow rooted at it.
-            checker.member_narrows.retain(|(recv, _), _| recv != &name);
+            // every member-path narrow rooted at it (chunk 789:
+            // keys are canonical paths, so "h" kills "h.o.cb" too).
+            checker
+                .member_narrows
+                .retain(|(recv, _), _| !crate::check_assigns_to::path_overlaps(recv, &name));
             crate::check_assign_ident::check(checker, ast, name, value)
         }
         Expr::Member { obj, name: field } => {
             // RFC 20260710 C5 — writing the member invalidates its
-            // own narrow entry (Ident receivers mint the keys).
-            if let Expr::Ident(recv) = ast.get_expr(obj) {
-                checker
-                    .member_narrows
-                    .remove(&(recv.clone(), field.clone()));
+            // own narrow entry and every narrow rooted deeper in it
+            // (chunk 789: `h.o = ...` kills ("h.o", cb) AND
+            // "h.o.p"-rooted keys).
+            if let Some(path) = crate::check_assigns_to::member_path(ast, obj) {
+                let full = format!("{path}.{field}");
+                checker.member_narrows.retain(|(recv, f), _| {
+                    !(recv == &path && f == &field)
+                        && !crate::check_assigns_to::path_overlaps(recv, &full)
+                });
             }
             crate::check_assign_target::check_member(checker, ast, obj, field, value)
         }
