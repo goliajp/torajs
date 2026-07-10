@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T16:53:38.392Z",
+  "generatedAt": "2026-07-10T17:05:33.694Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "ae506dfa",
-    "commitSubject": "feat: narrow member paths through chain receivers",
+    "commit": "2325cc91",
+    "commitSubject": "feat: narrow member paths through element receivers",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "2325cc91",
+      "subject": "feat: narrow member paths through element receivers"
+    },
+    {
+      "hash": "4a462ab8",
+      "subject": "chore(dashboard): refresh @ ae506dfa - rotation 65 (783-789: member-assign named-fn forwarder and member-chain narrow closing the 761 archive; call-arg/nested optional fill and call-arg/member-assign/nested-literal declared-layout hints closing the 780/782 archives plus two pre-existing silent-wrongs the probes surfaced (nested-literal layout collision swallowing whole-program stdout, sentinel-?? printing the cell text); method/ctor faces pinned fixture-only; gates 1393 -> 1402 seven green, tr baseline 61597472)"
+    },
+    {
       "hash": "ae506dfa",
       "subject": "feat: narrow member paths through chain receivers"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "bcda1dab",
       "subject": "chore(dashboard): refresh @ 19daa81b - rotation 64 (777-781: rust toolchain nightly-2026-05-19 -> 2026-07-10 with suspicious_runtime_symbol_definitions lint fixes + preadv/pwritev dyld whitelist + stale imm12 test expectations; all cargo and web deps to latest with lsp-types Uri migration, TS7 blocked by typescript-eslint peer; generic-instantiation optional-field fill shipped closing the 757 archive plus the pre-existing double-instantiation slot-repr collision via the declared-layout hint; heap-source any-field archive verified closed and pinned; gate 1390 -> 1391 -> 1392 baseline, tr 61580896)"
-    },
-    {
-      "hash": "19daa81b",
-      "subject": "test(conformance): pin heap sources into declared-any struct fields"
-    },
-    {
-      "hash": "03d927d6",
-      "subject": "feat: fill absent optional fields at generic struct instantiation sites"
     }
   ],
-  "headSha": "ae506dfa",
+  "headSha": "2325cc91",
   "autorun": {
     "total": 371,
     "baselineTarget": 10,
