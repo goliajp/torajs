@@ -106,8 +106,13 @@ pub(crate) fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
     }
 }
 
-pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
-    let new_expr = match ast.get_expr(eid) {
+/// Leaf variants — no child ExprIds, so a shallow field clone IS the
+/// deep clone (chunk 771 extraction; `deep_clone_expr`'s match had
+/// drifted past the 200-line fn limit). Reached as the composite
+/// match's catch-all; a NEW composite variant landing here panics
+/// loudly instead of silently shallow-cloning its children.
+fn clone_leaf(e: &Expr) -> Expr {
+    match e {
         Expr::Ident(n) => Expr::Ident(n.clone()),
         Expr::String(s) => Expr::String(s.clone()),
         Expr::Number(n) => Expr::Number(*n),
@@ -124,6 +129,18 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
         },
         Expr::This => Expr::This,
         Expr::NewTarget => Expr::NewTarget,
+        // Closure captures are (name, ExprId) pairs minted by the
+        // lift — the construction-site ids are shared on purpose.
+        Expr::Closure { fn_name, captures } => Expr::Closure {
+            fn_name: fn_name.clone(),
+            captures: captures.clone(),
+        },
+        other => panic!("deep_clone_expr: composite variant fell through to clone_leaf: {other:?}"),
+    }
+}
+
+pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
+    let new_expr = match ast.get_expr(eid) {
         Expr::BinOp { op, left, right } => {
             let op = *op;
             let l = *left;
@@ -204,10 +221,6 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
                 body: body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
             }
         }
-        Expr::Closure { fn_name, captures } => Expr::Closure {
-            fn_name: fn_name.clone(),
-            captures: captures.clone(),
-        },
         Expr::New { class_name, args } => {
             let class_name = class_name.clone();
             let args = args.clone();
@@ -310,6 +323,7 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
                 right: deep_clone_expr(ast, r),
             }
         }
+        leaf => clone_leaf(leaf),
     };
     ast.add_expr(new_expr)
 }
