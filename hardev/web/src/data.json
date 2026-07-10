@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T15:25:53.198Z",
+  "generatedAt": "2026-07-10T16:53:38.392Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "f3e13142",
-    "commitSubject": "feat: member-path truthiness narrow at while and ternary guard sites",
+    "commit": "ae506dfa",
+    "commitSubject": "feat: narrow member paths through chain receivers",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "ae506dfa",
+      "subject": "feat: narrow member paths through chain receivers"
+    },
+    {
+      "hash": "9509a5e2",
+      "subject": "feat: fill absent optional fields in nested object literals"
+    },
+    {
+      "hash": "9615a9b4",
+      "subject": "test(conformance): pin method and ctor argument optional-fill faces"
+    },
+    {
+      "hash": "16018796",
+      "subject": "fix: treat per-type undefined sentinels as nullish in ?? lowering"
+    },
+    {
+      "hash": "73c8c549",
+      "subject": "fix: pin declared struct layouts onto nested object literals"
+    },
+    {
+      "hash": "5f5ce3af",
+      "subject": "feat: fill optional fields and pin declared layouts at call-arg and member-assign sites"
+    },
+    {
+      "hash": "c37c338f",
+      "subject": "feat: wrap bare named-fn rhs at member-assign sites into fn-typed struct fields"
+    },
+    {
+      "hash": "676407c5",
+      "subject": "chore(dashboard): refresh @ f3e13142 - rotation 64 (777-782: rust toolchain nightly bump + all cargo/web deps latest per takagi directives; generic-instantiation optional-field fill + declared-layout hint closing 757 archive and the pre-existing double-instantiation slot-repr collision; heap-source any-field archive verified closed; while/ternary member-path narrow with reassignment gate closing the 761 sub-item; gates 1390 -> 1393 five green, tr baseline 61580912)"
+    },
+    {
       "hash": "f3e13142",
       "subject": "feat: member-path truthiness narrow at while and ternary guard sites"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "03d927d6",
       "subject": "feat: fill absent optional fields at generic struct instantiation sites"
-    },
-    {
-      "hash": "220f0b35",
-      "subject": "chore: upgrade web dependencies to latest"
-    },
-    {
-      "hash": "80fe3ee8",
-      "subject": "chore: upgrade rust dependencies to latest"
-    },
-    {
-      "hash": "8de543c3",
-      "subject": "chore: bump rust toolchain nightly-2026-05-19 -> nightly-2026-07-10"
-    },
-    {
-      "hash": "e708b849",
-      "subject": "chore(dashboard): refresh @ c073228f - rotation 63 (762-776: call-arg struct nullable-field covariance shipped closing the 759 archive; workspace file-size audit caught 13 fn + 3 file non-carve-out drift entries, ALL cleared across 763-776 - decl-table convergence, stage extraction, sibling splits, leaf catch-all inversions; non-carve-out debt zero at c073228f, only 4 CARVE-OUT #2 items remain; gate 1389 -> 1390 fifteen green, tr baseline 60026288 -> 60042800 at 774 layout drift)"
-    },
-    {
-      "hash": "c073228f",
-      "subject": "refactor: type_of literal variants invert to a catch-all"
-    },
-    {
-      "hash": "17e67705",
-      "subject": "refactor: lower_fn extracts its param materialize prelude"
-    },
-    {
-      "hash": "a7b4f6a6",
-      "subject": "refactor: closure-param-tag forwarder synthesis moves to the axes sibling"
-    },
-    {
-      "hash": "bd30ff37",
-      "subject": "refactor: may-throw scan extracts its call-arm dispatch"
     }
   ],
-  "headSha": "f3e13142",
+  "headSha": "ae506dfa",
   "autorun": {
-    "total": 370,
+    "total": 371,
     "baselineTarget": 10,
-    "bySelf": 365,
+    "bySelf": 366,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783691183-1d52",
-      "at": "2026-07-10T13:46:23Z",
-      "ts": 1783691183,
+      "rotationId": "r-1783697230-5221",
+      "at": "2026-07-10T15:27:10Z",
+      "ts": 1783697230,
       "trigger": "self",
-      "prevHead": "e708b849",
-      "handoffSha": "sha256:e05d2e21f55a22f730ef301b4515c23658e3d4c1a2cfb4831cfc95c37f749e8a",
-      "handoffAgeSec": 43,
+      "prevHead": "676407c5",
+      "handoffSha": "sha256:23662a4c1ed360c57459ea39a482fd535ec02eaef01ce607329c4e7d3a464b75",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783697230-5221",
+        "at": "2026-07-10T15:27:10Z",
+        "ts": 1783697230,
+        "trigger": "self",
+        "prevHead": "676407c5",
+        "handoffSha": "sha256:23662a4c1ed360c57459ea39a482fd535ec02eaef01ce607329c4e7d3a464b75",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783691183-1d52",
         "at": "2026-07-10T13:46:23Z",
@@ -876,17 +887,6 @@
         "prevHead": "0749315a",
         "handoffSha": "sha256:864686af79d1abfb91dae9ada407c79ed326833463b9b6919d007af01885aa38",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783525057-1d43",
-        "at": "2026-07-08T15:37:37Z",
-        "ts": 1783525057,
-        "trigger": "self",
-        "prevHead": "21a18f0f",
-        "handoffSha": "sha256:2e491c0a53a6ad41f75082299ff73b11b0ff640a0c23f71b7feed1bbd85cd8e7",
-        "handoffAgeSec": 14,
         "conformanceBefore": null,
         "commitsInSession": null
       }
