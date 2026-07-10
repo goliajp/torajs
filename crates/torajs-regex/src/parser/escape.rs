@@ -20,8 +20,20 @@ impl<'p> Parser<'p> {
         }
         let c = self.get();
         if (b'1'..=b'9').contains(&c) {
+            // Chunk 802 — ES DecimalEscape reads the longest digit
+            // run (`\12` references group 12, not group 1 then a
+            // literal '2'); `resolve_backrefs` validates against
+            // n_captures post-parse, so forward references stay fine
+            // and out-of-range refs take the rejected path (the
+            // Annex B octal fallback remains the recorded follow-up
+            // on resolve.rs). Saturate on pathological digit runs —
+            // anything past the sanity cap fails resolve anyway.
             let mut n = Node::new(NodeKind::Backref);
-            n.capture_idx = (c - b'0') as i32;
+            let mut idx = (c - b'0') as i64;
+            while !self.eof() && self.peek().is_ascii_digit() {
+                idx = (idx * 10 + (self.get() - b'0') as i64).min(i32::MAX as i64);
+            }
+            n.capture_idx = idx as i32;
             return Some(n);
         }
         match c {
