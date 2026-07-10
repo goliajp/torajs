@@ -30,6 +30,29 @@ use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
 use crate::ssa_lower_intrinsics_substr::SUBSTR_UNDEF_CELL_SYM;
 
+impl<'a> LowerCtx<'a> {
+    /// RFC 20260710-optional-undefined-repr C1 — materialize the
+    /// per-type undefined sentinel address for a Str/Substr slot
+    /// (RFC 20260707 immortal cells; ADRP+ADD, zero calls). `None`
+    /// for every other slot type — callers keep whatever value the
+    /// undefined literal lowered to (NULL) until that type's
+    /// sentinel lands (C2).
+    pub(crate) fn str_undef_sentinel_for(&mut self, slot_ty: Type) -> Option<Operand> {
+        let sym = match slot_ty {
+            Type::Str => STR_UNDEF_CELL_SYM,
+            Type::Substr => SUBSTR_UNDEF_CELL_SYM,
+            _ => return None,
+        };
+        let v = self.f.append_inst(
+            self.cur_block,
+            InstKind::GlobalRef(sym.to_string()),
+            slot_ty,
+            None,
+        );
+        Some(Operand::Value(v))
+    }
+}
+
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
     op: AstBinOp,

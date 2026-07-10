@@ -363,7 +363,19 @@ fn lower_struct_field_store(
     // typed (RFC 20260706 Phase C conviction: an any[] field cycle
     // was invisible to the collector, and its NaN-box cell elems
     // were never dec'd on drop).
-    let v = if let Expr::Array(els) = ctx.ast.get_expr(value)
+    let v = if matches!(
+        ctx.expr_types.get(&value),
+        Some(crate::check::Type::Undefined)
+    ) && let Some(sentinel) = ctx.str_undef_sentinel_for(field_ty)
+    {
+        // RFC 20260710-optional-undefined-repr C1 — an undefined
+        // LITERAL into a Str/Substr slot stores the per-type
+        // sentinel cell, not NULL (which means JS null). The cell
+        // is immortal (FLAG_STATIC_LITERAL — rc/drop no-ops), so
+        // no inc; the drop-old below stays correct for whatever
+        // the slot held.
+        sentinel
+    } else if let Expr::Array(els) = ctx.ast.get_expr(value)
         && els.is_empty()
         && matches!(field_ty, Type::Arr(_))
     {

@@ -55,6 +55,21 @@ use crate::ssa::{InstKind, Operand, StructId, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE, OBJ_VTABLE_OFF};
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: ExprId) -> Operand {
+    // RFC 20260710-optional-undefined-repr C1 — fields initialized
+    // with an undefined LITERAL (frontend-distinguished from null)
+    // must land the per-type undefined sentinel in the slot, not the
+    // shared NULL (which means JS null): remember which field names
+    // carried one before lowering collapses both to ConstPtrNull.
+    let undef_fields: std::collections::HashSet<String> = fields
+        .iter()
+        .filter(|(_, veid)| {
+            matches!(
+                ctx.expr_types.get(veid),
+                Some(crate::check::Type::Undefined)
+            )
+        })
+        .map(|(n, _)| n.clone())
+        .collect();
     let (mut field_tys, mut field_vals) = lower_field_entries(ctx, &fields);
     apply_w4_widen(ctx, &mut field_tys, &mut field_vals, eid);
     let sid = crate::ssa_lower_objlit_layout::resolve_objlit_layout(
@@ -69,6 +84,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
     init_header(ctx, obj_ptr, sid);
     write_class_tag(ctx, obj_ptr, sid);
     write_vtable_ptr(ctx, obj_ptr);
+    let layout = ctx.struct_layouts[sid.0 as usize].clone();
+    for (i, (fname, slot_ty)) in layout.iter().enumerate() {
+        if undef_fields.contains(fname)
+            && let Some(sentinel) = ctx.str_undef_sentinel_for(*slot_ty)
+        {
+            field_vals[i] = sentinel;
+        }
+    }
     for (i, val) in field_vals.iter().enumerate() {
         // L3b #6 crash fix — a typed Array stored into a struct field
         // reaches runtime walkers (inspect's Tag::Obj field printer,

@@ -48,6 +48,11 @@ unsafe extern "C" {
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_str_drop(s: *mut u8);
     fn __torajs_rc_inc(p: *mut c_void);
+
+    // torajs-str — undefined sentinel identity probe (RFC 20260710
+    // C1): a Str/Substr slot holding the immortal sentinel cell means
+    // JS `undefined`, not a 9-char string.
+    fn __torajs_str_is_undef(p: *const u8) -> i64;
 }
 
 /// Field byte-offset + coarse type tag — mirrors
@@ -64,6 +69,7 @@ const ANY_BOOL: u64 = 1;
 const ANY_I64: u64 = 2;
 const ANY_F64: u64 = 3;
 const ANY_HEAP: u64 = 4;
+const ANY_UNDEF: u64 = 5;
 
 /// `undefined` NaN-box immediate (mirror reflect.rs).
 const VALUE_UNDEFINED_IMM: u64 = 0x0A;
@@ -110,7 +116,17 @@ pub(crate) unsafe fn field_slot_to_pair(type_tag: u8, raw: u64) -> (u64, u64) {
         1 => (ANY_I64, raw),
         2 => (ANY_F64, raw),
         3 => (ANY_BOOL, raw),
-        _ => (ANY_HEAP, raw),
+        _ => {
+            // RFC 20260710 C1 — a Str/Substr slot holding the
+            // undefined sentinel cell reads back as JS `undefined`
+            // (struct print / descriptors would otherwise render the
+            // cell's "undefined" payload as a quoted string).
+            if raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0 {
+                (ANY_UNDEF, 0)
+            } else {
+                (ANY_HEAP, raw)
+            }
+        }
     }
 }
 
