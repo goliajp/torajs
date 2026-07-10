@@ -307,15 +307,17 @@ impl<'a> LowerCtx<'a> {
                 // Ptr that's null (Type::Null lowers to ConstPtrNull
                 // → Type::Ptr). Tag as ANY_NULL with value 0.
                 // S127-1: `undefined` literal also lowers to
-                // ConstPtrNull (Type::Ptr). Recover the original
-                // AST shape so the slot tags ANY_UNDEF=5, else
-                // `[undefined]` collapses to `[null]` and
-                // strict-eq / .indexOf(undefined) mis-fires.
-                // Same root as W-D narrow trunk's box_to_any
-                // ConstPtrNull arm (S126-1/-3).
+                // ConstPtrNull (Type::Ptr). Recover the checker's
+                // Undefined typing (chunk 807 — covers the bare
+                // ident AND derived shapes like a void-call element)
+                // so the slot tags ANY_UNDEF=5, else `[undefined]`
+                // collapses to `[null]` and strict-eq /
+                // .indexOf(undefined) mis-fires. Same root as W-D
+                // narrow trunk's box_to_any ConstPtrNull arm
+                // (S126-1/-3).
                 if matches!(
-                    eid.map(|e| self.ast.get_expr(e)),
-                    Some(Expr::Ident(n)) if n == "undefined"
+                    eid.and_then(|e| self.expr_types.get(&e)),
+                    Some(crate::check::Type::Undefined)
                 ) {
                     (Operand::ConstI64(5), Operand::ConstI64(0))
                 } else {

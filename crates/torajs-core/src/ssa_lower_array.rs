@@ -96,6 +96,29 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) ->
     {
         return ctx.lower_array_any_literal(&element_ids);
     }
+    // Chunk 807 — undefined / null elements have no typed 8-byte
+    // slot repr outside the Str sentinel lane: `[undefined]` /
+    // `[null]` stored ConstPtrNull behind a kind-less typed block
+    // (printed `[unknown-any-tag]`), and a scalar anchor
+    // (`[undefined, 1]`) mixed raw ints with null slots (SIGSEGV in
+    // the print walk). Route through the FLAG_ARR_ANY lane, whose
+    // pack arm tags ANY_UNDEF / ANY_NULL. A String-typed sibling
+    // keeps the whole literal on the typed lane — T-10.c's
+    // infer-widened `["a", undefined]` stores the Str undefined
+    // sentinel per slot and stays byte-correct.
+    if !has_spread
+        && element_ids.iter().any(|id| {
+            matches!(
+                ctx.expr_types.get(id),
+                Some(crate::check::Type::Undefined | crate::check::Type::Null)
+            )
+        })
+        && !element_ids
+            .iter()
+            .any(|id| matches!(ctx.expr_types.get(id), Some(crate::check::Type::String)))
+    {
+        return ctx.lower_array_any_literal(&element_ids);
+    }
     // W-ESC (RFC 20260706-typed-arr-any-escape) — a literal whose
     // Anon alias class flows into the `any` world lowers as Arr<Any>
     // directly: return-position / arg-position literals never pass
