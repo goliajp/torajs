@@ -252,6 +252,11 @@ const LIBSYSTEM_SYMS: &[&str] = &[
     "_posix_spawnattr_setsigdefault",
     "_posix_spawnp",
     "_pread",
+    // Rust std ≥ 1.99 (nightly-2026-07-10 bump): std::sys fd io
+    // gained vectored positional read/write on macOS; libstd.a
+    // members now reference preadv/pwritev (libSystem exports,
+    // verified against /usr/lib/system/libsystem_kernel.dylib).
+    "_preadv",
     "_pthread_attr_destroy",
     "_pthread_attr_init",
     "_pthread_attr_setstacksize",
@@ -277,6 +282,8 @@ const LIBSYSTEM_SYMS: &[&str] = &[
     "_pthread_setname_np",
     "_pthread_threadid_np",
     "_pwrite",
+    // See `_preadv` above — same std ≥ 1.99 vectored-io pair.
+    "_pwritev",
     "_read",
     "_readdir_r",
     "_readlink",

@@ -1,4 +1,7 @@
-# nightly required (audited 2026-05-29). Two production-AOT-path deps,
+# nightly required (audited 2026-05-29; re-audited 2026-07-10 via the
+# check-rust-version skill — verdict unchanged: 3 compiler-internal
+# features + alloc_error_handler + -Z build-std all still nightly-only
+# on stable 1.97.0). Two production-AOT-path deps,
 # both in scripts/release-build.sh:
 #   1. `-Z build-std` — rebuild core/alloc/std/panic_abort (0-libc +
 #      artifact-size). cargo-unstable; tracking rust-lang/wg-cargo-std-aware.
@@ -28,6 +31,6 @@
 # probes; not committed).
 
 [toolchain]
-channel = "nightly-2026-05-19"
+channel = "nightly-2026-07-10"
 components = ["rust-src", "rustfmt", "clippy", "rust-analyzer"]
 profile = "minimal"

@@ -37,7 +37,10 @@ const STDERR_FILENO: i32 = 2;
 unsafe extern "C" {
     fn write(fd: i32, buf: *const c_void, n: usize) -> isize;
     fn exit(code: i32) -> !;
-    fn strlen(s: *const u8) -> usize;
+    // c_char (not *const u8) — rustc's
+    // suspicious_runtime_symbol_definitions lint (nightly 1.99)
+    // requires std-runtime symbols to match the libc prototype.
+    fn strlen(s: *const c_char) -> usize;
     fn strncmp(a: *const u8, b: *const u8, n: usize) -> i32;
 }
 
@@ -85,7 +88,7 @@ fn self_path(buf: &mut [u8]) -> &[u8] {
         let rc = unsafe { _NSGetExecutablePath(buf.as_mut_ptr() as *mut c_char, &mut sz) };
         if rc == 0 {
             // NUL-terminated; find length.
-            let len = unsafe { strlen(buf.as_ptr()) };
+            let len = unsafe { strlen(buf.as_ptr().cast()) };
             return &buf[..len];
         }
     }
@@ -118,7 +121,7 @@ fn self_path(buf: &mut [u8]) -> &[u8] {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_panic(msg: *const u8) -> ! {
     // Step 1 — write message + newline to stderr.
-    let msg_len = unsafe { strlen(msg) };
+    let msg_len = unsafe { strlen(msg.cast()) };
     unsafe {
         write_all_stderr(core::slice::from_raw_parts(msg, msg_len));
         write_all_stderr(b"\n");

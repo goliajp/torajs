@@ -356,8 +356,9 @@ mod tests {
     }
 
     /// Acceptance A — `write_object` for the single-fn, no-reloc
-    /// `_one_plus_two` matches the hand-encoded 255-byte Mach-O `.o`
-    /// reference layout.
+    /// `_one_plus_two` matches the hand-encoded 251-byte Mach-O `.o`
+    /// reference layout (Round 5 imm12: the const RHS folds into
+    /// `ADD x0, x9, #2`, so the text is 3 instructions / 12 B).
     ///
     /// Each section is annotated with the spec source (Apple
     /// `mach-o/loader.h`) so a future audit can diff slot-for-slot.
@@ -366,11 +367,11 @@ mod tests {
         let func = build_one_plus_two_with_underscore();
         let compiled = compile_function(&func);
         assert!(compiled.relocs.is_empty());
-        assert_eq!(compiled.bytes.len(), 16);
+        assert_eq!(compiled.bytes.len(), 12);
 
         let obj = write_object(std::slice::from_ref(&compiled));
 
-        let mut expected: Vec<u8> = Vec::with_capacity(255);
+        let mut expected: Vec<u8> = Vec::with_capacity(251);
 
         // ------ mach_header_64 @ 0..32 ------
         expected.extend_from_slice(&[
@@ -391,9 +392,9 @@ mod tests {
             // segname "__TEXT" + 10 NUL pad to 16 byte:
             b'_', b'_', b'T', b'E', b'X', b'T', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, // vmaddr   = 0
-            0x10, 0, 0, 0, 0, 0, 0, 0, // vmsize   = 16
+            0x0C, 0, 0, 0, 0, 0, 0, 0, // vmsize   = 12
             0xD0, 0, 0, 0, 0, 0, 0, 0, // fileoff  = 208
-            0x10, 0, 0, 0, 0, 0, 0, 0, // filesize = 16
+            0x0C, 0, 0, 0, 0, 0, 0, 0, // filesize = 12
             0x07, 0x00, 0x00, 0x00, // maxprot  = VM_PROT_RWX
             0x07, 0x00, 0x00, 0x00, // initprot = VM_PROT_RWX
             0x01, 0x00, 0x00, 0x00, // nsects   = 1
@@ -407,7 +408,7 @@ mod tests {
             // segname "__TEXT" + 10 NUL pad to 16 byte:
             b'_', b'_', b'T', b'E', b'X', b'T', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, // addr   = 0
-            0x10, 0, 0, 0, 0, 0, 0, 0, // size   = 16
+            0x0C, 0, 0, 0, 0, 0, 0, 0, // size   = 12
             0xD0, 0, 0, 0, // offset = 208
             0x02, 0, 0, 0, // align  = 2 (log2 → 4-byte)
             0x00, 0, 0, 0, // reloff = 0 (S5-a)
@@ -423,24 +424,22 @@ mod tests {
         expected.extend_from_slice(&[
             0x02, 0x00, 0x00, 0x00, // cmd     = LC_SYMTAB
             0x18, 0x00, 0x00, 0x00, // cmdsize = 24
-            0xE0, 0x00, 0x00, 0x00, // symoff  = 224 (header 32 + cmds 176 + text 16)
+            0xDC, 0x00, 0x00, 0x00, // symoff  = 220 (header 32 + cmds 176 + text 12)
             0x01, 0x00, 0x00, 0x00, // nsyms   = 1
-            0xF0, 0x00, 0x00, 0x00, // stroff  = 240 (224 + 1*16)
+            0xEC, 0x00, 0x00, 0x00, // stroff  = 236 (220 + 1*16)
             0x0F, 0x00, 0x00, 0x00, // strsize = 15 (\0 sentinel + "_one_plus_two\0")
         ]);
 
-        // ------ __TEXT,__text payload @ 208..224 (16 B) ------
-        // build_one_plus_two:
-        //   MOVZ x9,  #1         0xD2800029
-        //   MOVZ x10, #2          0xD280004A
-        //   ADD  x0, x9, x10      0x8B0A0120
+        // ------ __TEXT,__text payload @ 208..220 (12 B) ------
+        // build_one_plus_two (imm12 form):
+        //   MOVZ x9, #1           0xD2800029
+        //   ADD  x0, x9, #2       0x91000920
         //   RET                   0xD65F03C0
         expected.extend_from_slice(&[
-            0x29, 0x00, 0x80, 0xD2, 0x4A, 0x00, 0x80, 0xD2, 0x20, 0x01, 0x0A, 0x8B, 0xC0, 0x03,
-            0x5F, 0xD6,
+            0x29, 0x00, 0x80, 0xD2, 0x20, 0x09, 0x00, 0x91, 0xC0, 0x03, 0x5F, 0xD6,
         ]);
 
-        // ------ nlist_64[0] @ 224..240 (16 B) ------
+        // ------ nlist_64[0] @ 220..236 (16 B) ------
         expected.extend_from_slice(&[
             0x01, 0x00, 0x00, 0x00, // n_strx = 1
             0x0F, // n_type = N_SECT | N_EXT
@@ -449,11 +448,11 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // n_value = 0
         ]);
 
-        // ------ string table @ 240..255 (15 B) ------
+        // ------ string table @ 236..251 (15 B) ------
         // \0 sentinel + "_one_plus_two\0"
         expected.extend_from_slice(b"\0_one_plus_two\0");
 
-        assert_eq!(expected.len(), 255, "expected layout = 255 bytes");
+        assert_eq!(expected.len(), 251, "expected layout = 251 bytes");
         assert_eq!(
             obj, expected,
             "write_object byte stream diverged from hand-encoded reference"
@@ -478,7 +477,7 @@ mod tests {
         let expected_total = header_size + cmds + text + nlist + strtab;
 
         assert_eq!(obj.len() as u32, expected_total);
-        assert_eq!(expected_total, 255);
+        assert_eq!(expected_total, 251);
     }
 
     #[test]
@@ -499,14 +498,14 @@ mod tests {
 
         // section_64.size @ section + 40..48 (section starts at 104)
         let sec_size = u64::from_le_bytes(obj[104 + 40..104 + 48].try_into().unwrap());
-        assert_eq!(sec_size, 16);
+        assert_eq!(sec_size, 12);
         // section_64.offset @ section + 48..52
         let sec_off = u32::from_le_bytes(obj[104 + 48..104 + 52].try_into().unwrap());
         assert_eq!(sec_off, 208);
 
         // text bytes round-trip
         assert_eq!(
-            &obj[sec_off as usize..(sec_off as usize) + 16],
+            &obj[sec_off as usize..(sec_off as usize) + 12],
             &compiled.bytes[..]
         );
 
@@ -515,9 +514,9 @@ mod tests {
         let nsyms = u32::from_le_bytes(obj[184 + 12..184 + 16].try_into().unwrap());
         let stroff = u32::from_le_bytes(obj[184 + 16..184 + 20].try_into().unwrap());
         let strsize = u32::from_le_bytes(obj[184 + 20..184 + 24].try_into().unwrap());
-        assert_eq!(symoff, 224);
+        assert_eq!(symoff, 220);
         assert_eq!(nsyms, 1);
-        assert_eq!(stroff, 240);
+        assert_eq!(stroff, 236);
         assert_eq!(strsize, 15);
 
         // nlist_64[0] @ symoff..symoff+16
@@ -554,8 +553,9 @@ mod tests {
     /// `Ret(Some(Operand::ConstI64(...)))` skips the
     /// `collect_ret_value_ids` pinning that puts the result in x0;
     /// the binop instruction defines a value the allocator can pin.
-    /// Compiles to a 4-instruction sequence
-    /// (MOVZ x9, #7 / MOVZ x10, #0 / ADD x0, x9, x10 / RET) = 16 B.
+    /// Compiles to a 3-instruction sequence — the const RHS takes
+    /// the Round 5 ADD-imm12 form
+    /// (MOVZ x9, #7 / ADD x0, x9, #0 / RET) = 12 B.
     fn build_foo_returns_7() -> Function {
         let v0 = ValueId(0);
         Function {
@@ -609,20 +609,20 @@ mod tests {
     /// S5-b acceptance — `[_foo, _caller]` where `_caller` invokes
     /// `_foo` via `InstKind::Call(FuncId(0), …)` translates to:
     ///
-    ///   * __text payload = foo (16 B) ++ caller (20 B) = 36 B
-    ///   * section.nreloc = 1, section.reloff = 208 + 36 = 244
-    ///   * one BRANCH26 reloc at section-relative byte 16 + 8 = 24
+    ///   * __text payload = foo (12 B) ++ caller (20 B) = 32 B
+    ///   * section.nreloc = 1, section.reloff = 208 + 32 = 240
+    ///   * one BRANCH26 reloc at section-relative byte 12 + 8 = 20
     ///     (caller_offset + BL site offset), r_symbolnum = 0
     ///     (defined sym index for FuncId(0) = _foo)
     ///   * nsyms = 2 (both defined; no externs)
-    ///   * sym[0] = `_foo` @ offset 0, sym[1] = `_caller` @ offset 16
+    ///   * sym[0] = `_foo` @ offset 0, sym[1] = `_caller` @ offset 12
     #[test]
     fn write_object_caller_calls_foo_translates_callsite_reloc() {
         let foo = compile_function(&build_foo_returns_7());
         let caller = compile_function(&build_caller_calls_foo(FuncId(0)));
 
         assert!(foo.relocs.is_empty(), "_foo is a leaf, has no relocs");
-        assert_eq!(foo.bytes.len(), 16);
+        assert_eq!(foo.bytes.len(), 12);
         assert_eq!(caller.relocs.len(), 1, "_caller has exactly one BL reloc");
         assert_eq!(caller.bytes.len(), 20);
         assert_eq!(
@@ -644,13 +644,13 @@ mod tests {
         let sec_offset = u32::from_le_bytes(obj[104 + 48..104 + 52].try_into().unwrap());
         let reloff = u32::from_le_bytes(obj[104 + 56..104 + 60].try_into().unwrap());
         let nreloc = u32::from_le_bytes(obj[104 + 60..104 + 64].try_into().unwrap());
-        assert_eq!(sec_size, 36);
+        assert_eq!(sec_size, 32);
         assert_eq!(sec_offset, 208);
         assert_eq!(nreloc, 1);
-        assert_eq!(reloff, 208 + 36); // 244
+        assert_eq!(reloff, 208 + 32); // 240
 
         // Reloc entry @ reloff..reloff+8: bit-packed
-        //   r_address @ 0..4 = 24 (caller_offset 16 + BL offset 8)
+        //   r_address @ 0..4 = 20 (caller_offset 12 + BL offset 8)
         //   packed    @ 4..8 = sym 0 | pcrel 1 | length 2 |
         //                      extern 1 | type BRANCH26 (=2)
         let r_address = u32::from_le_bytes(
@@ -663,7 +663,7 @@ mod tests {
                 .try_into()
                 .unwrap(),
         );
-        assert_eq!(r_address, 24);
+        assert_eq!(r_address, 20);
         assert_eq!(packed & 0xFF_FFFF, 0, "r_symbolnum = 0 (FuncId(0) → _foo)");
         assert_eq!((packed >> 24) & 1, 1, "r_pcrel = 1");
         assert_eq!((packed >> 25) & 3, 2, "r_length = 2 (4-byte instruction)");
@@ -675,9 +675,9 @@ mod tests {
         let nsyms = u32::from_le_bytes(obj[184 + 12..184 + 16].try_into().unwrap());
         let stroff = u32::from_le_bytes(obj[184 + 16..184 + 20].try_into().unwrap());
         let strsize = u32::from_le_bytes(obj[184 + 20..184 + 24].try_into().unwrap());
-        assert_eq!(symoff, reloff + 8); // 252
+        assert_eq!(symoff, reloff + 8); // 248
         assert_eq!(nsyms, 2);
-        assert_eq!(stroff, symoff + 2 * 16); // 284
+        assert_eq!(stroff, symoff + 2 * 16); // 280
         assert_eq!(strsize, 1 + 5 + 8); // "\0" + "_foo\0" (5) + "_caller\0" (8) = 14
 
         // sym[0] @ symoff: _foo, n_value = 0
@@ -697,7 +697,7 @@ mod tests {
         assert_eq!(sym0_sect, 1);
         assert_eq!(sym0_value, 0);
 
-        // sym[1] @ symoff + 16: _caller, n_value = 16
+        // sym[1] @ symoff + 16: _caller, n_value = 12
         let sym1_strx = u32::from_le_bytes(
             obj[(symoff as usize) + 16..(symoff as usize) + 20]
                 .try_into()
@@ -708,7 +708,7 @@ mod tests {
                 .try_into()
                 .unwrap(),
         );
-        assert_eq!(sym1_value, 16);
+        assert_eq!(sym1_value, 12);
 
         // String table names round-trip.
         let read_name = |strx: u32| -> String {
@@ -719,9 +719,9 @@ mod tests {
         assert_eq!(read_name(sym0_strx), "_foo");
         assert_eq!(read_name(sym1_strx), "_caller");
 
-        // Total file size: header (32) + cmds (176) + text (36) +
-        // reloc (8) + nlist (32) + strtab (14) = 298.
-        assert_eq!(obj.len(), 298);
+        // Total file size: header (32) + cmds (176) + text (32) +
+        // reloc (8) + nlist (32) + strtab (14) = 294.
+        assert_eq!(obj.len(), 294);
     }
 
     /// Extern call sites translate to an undefined `nlist_64` entry

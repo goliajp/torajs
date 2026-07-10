@@ -44,10 +44,13 @@ pub unsafe extern "C" fn bzero(s: *mut u8, n: usize) {
     // opaque fn-ptr barrier: prevents the optimizer from inlining
     // memset's zero-fill loop into bzero (see module docs — that
     // would re-create the AArch64 memset→bzero self-recursion).
-    let memset_fn: unsafe extern "C" fn(*mut u8, i32, usize) -> *mut u8 =
-        core::hint::black_box(crate::memset::memset);
+    let memset_fn: unsafe extern "C" fn(
+        *mut core::ffi::c_void,
+        i32,
+        usize,
+    ) -> *mut core::ffi::c_void = core::hint::black_box(crate::memset::memset);
     unsafe {
-        memset_fn(s, 0, n);
+        memset_fn(s.cast(), 0, n);
     }
 }
 
