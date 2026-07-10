@@ -76,6 +76,12 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// so `fns.push(top_fn)` / `fns[i] = top_fn` wrap. Scope-
     /// approximate like the other two sets.
     pub(crate) fn_arr_bindings: &'a HashSet<String>,
+    /// Binding name → declared struct-type name for bindings whose
+    /// annotation resolves to a known TypeDecl (chunk 783): the
+    /// member-assign axis matches `o.cb = top_fn` receivers against
+    /// this map to reach the field's declared annotation. Scope-
+    /// approximate like the sets.
+    pub(crate) struct_bindings: &'a HashMap<String, String>,
     pub(crate) targets: HashSet<String>,
     pub(crate) rewrites: Vec<(ExprId, String)>,
 }
@@ -336,6 +342,23 @@ impl<'a> FnToClosureCollector<'a> {
                 {
                     self.try_mark(*value);
                 }
+                // Chunk 783 — `o.cb = top_fn` where `o` was declared
+                // with a struct type whose field `cb` is fn-typed
+                // (Closure-repr slot after the retag pass): the bare
+                // named-fn RHS wraps, same as the objlit-field
+                // store-site above. Without it the assign lane stores
+                // a raw FnSig and the narrowed call CallIndirects
+                // into the fn body as if it were an env block
+                // (SIGBUS).
+                if let Expr::Member { obj, name: fname } = self.ast.get_expr(*target)
+                    && let Expr::Ident(oname) = self.ast.get_expr(*obj)
+                    && let Some(tyname) = self.struct_bindings.get(oname)
+                    && let Some(field_anns) = self.struct_field_anns.get(tyname)
+                    && let Some(fann) = field_anns.get(fname)
+                    && is_fn_like_field_ann(fann)
+                {
+                    self.try_mark(*value);
+                }
                 self.walk_expr(*target);
                 self.walk_expr(*value);
             }
@@ -398,18 +421,11 @@ impl<'a> FnToClosureCollector<'a> {
         };
         if let Expr::ObjectLit { fields } = self.ast.get_expr(init) {
             for (fname, feid) in fields.clone() {
-                if let Some(fann) = field_anns.get(&fname) {
-                    // RFC 20260710 C5 — an optional fn field
-                    // (`__nullable(__cls(...))` after the retag
-                    // pass) is the same Closure-repr slot; a bare
-                    // named-fn init needs the forwarder wrap too.
-                    let inner = fann
-                        .strip_prefix("__nullable(")
-                        .and_then(|r| r.strip_suffix(')'))
-                        .unwrap_or(fann);
-                    if is_fn_like_ann(inner) {
-                        self.try_mark(feid);
-                    }
+                if field_anns
+                    .get(&fname)
+                    .is_some_and(|a| is_fn_like_field_ann(a))
+                {
+                    self.try_mark(feid);
                 }
             }
         }
@@ -447,4 +463,17 @@ impl<'a> FnToClosureCollector<'a> {
             _ => {}
         }
     }
+}
+
+/// Answers whether a declared struct-field annotation marks a
+/// Closure-repr slot: a fn-like ann, or an OPTIONAL fn field
+/// (`__nullable(__cls(...))` after the retag pass — RFC 20260710 C5,
+/// same mutable Closure-repr slot). Shared by the objlit-field and
+/// member-assign (chunk 783) wrap axes.
+fn is_fn_like_field_ann(fann: &str) -> bool {
+    let inner = fann
+        .strip_prefix("__nullable(")
+        .and_then(|r| r.strip_suffix(')'))
+        .unwrap_or(fann);
+    is_fn_like_ann(inner)
 }

@@ -172,6 +172,15 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     // mutable-init axis moved such slots to Closure repr).
     crate::ast_collect_fn_closure::collect_fn_ann_bindings(&ast.stmts, &mut closure_bindings);
 
+    // Chunk 783 — binding name → declared struct-type name, for the
+    // member-assign axis (`o.cb = top_fn` where `O.cb` is fn-typed).
+    let mut struct_bindings: HashMap<String, String> = HashMap::new();
+    crate::ast_collect_bindings::collect_bindings_ann_matching(
+        &ast.stmts,
+        &|a| struct_field_anns.contains_key(a.trim()),
+        &mut struct_bindings,
+    );
+
     // Walk all top-level stmts (including FnDecl bodies recursively)
     // collecting the store-sites where a bare top-FnDecl Ident needs
     // the forwarder wrap (see ast_collect_fn_closure module doc for
@@ -184,6 +193,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         any_bindings: &any_bindings,
         closure_bindings: &closure_bindings,
         fn_arr_bindings: &fn_arr_bindings,
+        struct_bindings: &struct_bindings,
         targets: HashSet::new(),
         rewrites: Vec::new(),
     };
@@ -237,11 +247,37 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         return;
     }
 
-    // Synthesize one forwarder per unique target (skip if
-    // synthesize_forwarders already produced it).
+    let (new_decls, renames) =
+        synthesize_forwarder_decls(ast, &targets, &fn_sigs, &existing_forwarders);
+
+    // Apply rewrites.
+    for (eid, target) in rewrites {
+        if let Some(forward_name) = renames.get(&target) {
+            ast.exprs[eid.0 as usize] = Expr::Closure {
+                fn_name: forward_name.clone(),
+                captures: Vec::new(),
+            };
+        }
+    }
+
+    ast.stmts.extend(new_decls);
+}
+
+/// Synthesize one `__forward_<target>(__env, args...) { return
+/// target(args...); }` closure-shaped FnDecl per unique target
+/// (skipping any `synthesize_forwarders` already produced), returning
+/// the decls plus the target → forwarder-name rename map (chunk 783
+/// extraction — the member-assign axis pushed the caller past the
+/// 200-line fn limit).
+fn synthesize_forwarder_decls(
+    ast: &mut Ast,
+    targets: &std::collections::HashSet<String>,
+    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
+    existing_forwarders: &std::collections::HashSet<String>,
+) -> (Vec<Stmt>, std::collections::HashMap<String, String>) {
     let mut new_decls: Vec<Stmt> = Vec::new();
-    let mut renames: HashMap<String, String> = HashMap::new();
-    for target in &targets {
+    let mut renames: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for target in targets {
         let forward_name = format!("__forward_{target}");
         if existing_forwarders.contains(&forward_name) {
             renames.insert(target.clone(), forward_name);
@@ -276,16 +312,5 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         });
         renames.insert(target.clone(), forward_name);
     }
-
-    // Apply rewrites.
-    for (eid, target) in rewrites {
-        if let Some(forward_name) = renames.get(&target) {
-            ast.exprs[eid.0 as usize] = Expr::Closure {
-                fn_name: forward_name.clone(),
-                captures: Vec::new(),
-            };
-        }
-    }
-
-    ast.stmts.extend(new_decls);
+    (new_decls, renames)
 }

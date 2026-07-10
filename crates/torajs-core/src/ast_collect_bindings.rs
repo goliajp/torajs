@@ -15,7 +15,7 @@
 //!   scope depth (chunk 736; variadic anns keep their boxed-dual
 //!   route).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Stmt, is_fn_like_ann};
 
@@ -41,6 +41,25 @@ pub(crate) fn collect_fn_ann_bindings(stmts: &[Stmt], out: &mut HashSet<String>)
     collect_bindings_matching(stmts, &|a| is_fn_like_ann(a) && !a.contains("__rest("), out);
 }
 
+/// Chunk 783 — binding name → declared type-ann (trimmed) for every
+/// binding whose annotation satisfies `pred`. The member-assign wrap
+/// axis (`o.cb = top_fn`) resolves the receiver binding to its
+/// declared struct shape through this map. Scope-approximate like
+/// the sets above: a shadowing binding of another matching type
+/// overwrites (last one wins), which at worst costs an unnecessary
+/// wrap.
+pub(crate) fn collect_bindings_ann_matching(
+    stmts: &[Stmt],
+    pred: &dyn Fn(&str) -> bool,
+    out: &mut HashMap<String, String>,
+) {
+    walk_bindings(stmts, &mut |name, ann| {
+        if pred(ann) {
+            out.insert(name.to_string(), ann.trim().to_string());
+        }
+    });
+}
+
 /// Shared annotation-predicate binding walk (chunk 733 — the any
 /// and fn-arr collections differ only in the ann test).
 fn collect_bindings_matching(
@@ -48,49 +67,54 @@ fn collect_bindings_matching(
     pred: &dyn Fn(&str) -> bool,
     out: &mut HashSet<String>,
 ) {
+    walk_bindings(stmts, &mut |name, ann| {
+        if pred(ann) {
+            out.insert(name.to_string());
+        }
+    });
+}
+
+/// Visit every annotated `let`/`const`/`var` binding (name, ann)
+/// recursing through fn bodies and statement containers — the shared
+/// walker behind the set and map collections (chunk 783 rework).
+fn walk_bindings(stmts: &[Stmt], f: &mut dyn FnMut(&str, &str)) {
     for s in stmts {
-        collect_bindings_matching_stmt(s, pred, out);
+        walk_bindings_stmt(s, f);
     }
 }
 
-fn collect_bindings_matching_stmt(
-    s: &Stmt,
-    pred: &dyn Fn(&str) -> bool,
-    out: &mut HashSet<String>,
-) {
+fn walk_bindings_stmt(s: &Stmt, f: &mut dyn FnMut(&str, &str)) {
     match s {
         Stmt::LetDecl { name, type_ann, .. } => {
-            if type_ann.as_deref().is_some_and(pred) {
-                out.insert(name.clone());
+            if let Some(ann) = type_ann.as_deref() {
+                f(name, ann);
             }
         }
-        Stmt::FnDecl { body, .. } => collect_bindings_matching(body, pred, out),
+        Stmt::FnDecl { body, .. } => walk_bindings(body, f),
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            collect_bindings_matching_stmt(then_branch, pred, out);
+            walk_bindings_stmt(then_branch, f);
             if let Some(eb) = else_branch {
-                collect_bindings_matching_stmt(eb, pred, out);
+                walk_bindings_stmt(eb, f);
             }
         }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_bindings_matching_stmt(body, pred, out)
-        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => walk_bindings_stmt(body, f),
         Stmt::For { init, body, .. } => {
             if let Some(init) = init {
-                collect_bindings_matching_stmt(init, pred, out);
+                walk_bindings_stmt(init, f);
             }
-            collect_bindings_matching_stmt(body, pred, out);
+            walk_bindings_stmt(body, f);
         }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_bindings_matching(stmts, pred, out),
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => walk_bindings(stmts, f),
         Stmt::Switch { cases, default, .. } => {
             for c in cases {
-                collect_bindings_matching(&c.body, pred, out);
+                walk_bindings(&c.body, f);
             }
             if let Some(d) = default {
-                collect_bindings_matching(d, pred, out);
+                walk_bindings(d, f);
             }
         }
         Stmt::Try {
@@ -99,10 +123,10 @@ fn collect_bindings_matching_stmt(
             finally_body,
             ..
         } => {
-            collect_bindings_matching(body, pred, out);
-            collect_bindings_matching(catch_body, pred, out);
+            walk_bindings(body, f);
+            walk_bindings(catch_body, f);
             if let Some(fb) = finally_body {
-                collect_bindings_matching(fb, pred, out);
+                walk_bindings(fb, f);
             }
         }
         _ => {}
