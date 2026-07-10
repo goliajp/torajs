@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T13:04:01.505Z",
+  "generatedAt": "2026-07-10T13:46:03.650Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "3d077086",
-    "commitSubject": "refactor: closure-param inference extracts its table build and apply stages",
+    "commit": "c073228f",
+    "commitSubject": "refactor: type_of literal variants invert to a catch-all",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "c073228f",
+      "subject": "refactor: type_of literal variants invert to a catch-all"
+    },
+    {
+      "hash": "17e67705",
+      "subject": "refactor: lower_fn extracts its param materialize prelude"
+    },
+    {
+      "hash": "a7b4f6a6",
+      "subject": "refactor: closure-param-tag forwarder synthesis moves to the axes sibling"
+    },
+    {
+      "hash": "bd30ff37",
+      "subject": "refactor: may-throw scan extracts its call-arm dispatch"
+    },
+    {
+      "hash": "51eed862",
+      "subject": "refactor: arr/str intrinsic declares converge through the decl! table"
+    },
+    {
+      "hash": "73905131",
+      "subject": "refactor: deep-clone leaf variants invert to a catch-all shallow clone"
+    },
+    {
+      "hash": "ee5d8454",
+      "subject": "refactor: insertion-sort inner shift loop extracts to its own emitter"
+    },
+    {
+      "hash": "15d5a27a",
+      "subject": "chore(dashboard): refresh @ 3d077086 - rotation 63 (762-769: call-arg struct nullable-field covariance wedge shipped closing the 759 archive entry; workspace file-size audit caught 13 fn + 3 file non-carve-out drift entries, seven cleared across 763-769 via decl-table convergence, stage extraction, and sibling splits - all release-tr byte-identical; gate 1389 -> 1390 eight green)"
+    },
+    {
       "hash": "3d077086",
       "subject": "refactor: closure-param inference extracts its table build and apply stages"
     },
@@ -727,41 +759,9 @@
     {
       "hash": "189feef6",
       "subject": "refactor: num-format extern shells move to format_ffi"
-    },
-    {
-      "hash": "075cfbce",
-      "subject": "refactor: annotation-predicate binding walks move to ast_collect_bindings"
-    },
-    {
-      "hash": "1912ef45",
-      "subject": "refactor: let-decl general path splits its three stages to a sibling"
-    },
-    {
-      "hash": "9f08ff59",
-      "subject": "refactor: any-substrate intrinsic declares converge through the decl! table"
-    },
-    {
-      "hash": "af8ffcaf",
-      "subject": "feat: call-arg struct param admits nullable-field covariant object literals"
-    },
-    {
-      "hash": "a97e6c08",
-      "subject": "chore(dashboard): refresh @ e1c1dd7e - rotation 62 (757-761: RFC 20260710-optional-undefined-repr C4/C2b/C5 shipped and closed - number/bool slots any-boxed, generic Tag::Undefined oddball for refcounted pointer slots, member-path truthiness narrow + optional fn field closure repr; pre-existing any-field SIGSEGV + nested-objlit stack-hint leak/UAF killed; parse_type + torajs-rc lib.rs size-debt drift cleared; gate 1386 -> 1389 five green)"
-    },
-    {
-      "hash": "e1c1dd7e",
-      "subject": "feat: member-path truthiness narrow admits optional fn field calls"
-    },
-    {
-      "hash": "264f148f",
-      "subject": "fix: nested object literal stole the outer let's stack-alloc hint"
-    },
-    {
-      "hash": "3553adfb",
-      "subject": "feat: refcounted pointer slots adopt the generic undefined oddball"
     }
   ],
-  "headSha": "3d077086",
+  "headSha": "c073228f",
   "autorun": {
     "total": 369,
     "baselineTarget": 10,
