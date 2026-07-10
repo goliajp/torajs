@@ -43,6 +43,34 @@ pub(crate) fn lower(
 ) {
     let scrut_val = ctx.lower_expr(scrutinee);
     let scrut_ty = ctx.operand_ty(&scrut_val);
+    // Chunk 750 — a fresh-owned scrutinee (call result / concat) has
+    // no release site: every per-case compare only borrows, and the
+    // multi-exit shape (fall-through / break / body return) has no
+    // single post-compare point. Park it in an anonymous slot on the
+    // enclosing scope frame so the existing scope-close / fn-exit
+    // drop walks release it on every path (`switch (pick(i))` leaked
+    // one cell per execution — 15.9MB/300k churn).
+    if scrut_ty.is_refcounted() && ctx.expr_is_fresh_owned(scrutinee) {
+        let name = format!("__switch_scrut_{}", scrutinee.0);
+        let slot = ctx.alloca_in_entry(scrut_ty, Some(&name));
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(scrut_val.clone(), Operand::Value(slot), 0),
+        );
+        ctx.locals.insert(
+            name.clone(),
+            crate::ssa_lower::LocalInfo {
+                slot,
+                ty: scrut_ty,
+                moved: false,
+                borrowed: false,
+                scope_depth: ctx.scope_stack.len() - 1,
+            },
+        );
+        if let Some(top) = ctx.scope_stack.last_mut() {
+            top.push(name);
+        }
+    }
     let after = ctx.f.add_block();
     ctx.loop_stack.push((after, after));
 

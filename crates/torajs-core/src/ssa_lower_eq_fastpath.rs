@@ -151,6 +151,15 @@ impl<'a> LowerCtx<'a> {
             return None;
         }
         let r = self.emit_inline_str_eq_bytes(other, &lit_bytes);
+        // Chunk 750 — mirror of lower_binop's fresh-owned drop dance:
+        // this early-return path skipped it, stranding one fresh cell
+        // per compare (`round() === "lit"` leaked its call result —
+        // 15.9MB/300k churn). The byte walk only borrows; a fresh-
+        // owned operand's ownership ends here. Ident / Member / Index
+        // sources stay with their binding.
+        if other_ty.is_refcounted() && self.expr_is_fresh_owned(other_eid) {
+            self.emit_drop_value(other.clone(), other_ty);
+        }
         // For !==, flip via xor.
         if matches!(op, AstBinOp::Neq) {
             let r_v = match r {
