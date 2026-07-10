@@ -232,13 +232,22 @@ pub(crate) fn lower(
 /// captured Copy for-init binding: a `track` slot (initialized
 /// null) that carries the live box pointer across the loop's edges
 /// so the break path can release an abandoned iteration's stake.
+///
+/// RFC 20260710 C3 (chunk 749) — MUTATED non-Copy bindings ride the
+/// same rewrite (the closure-shared box makes same-iteration writes
+/// visible per ES §14.7.4.9); never-written non-Copy captures keep
+/// the env-owns snapshot (indistinguishable from sharing). Any /
+/// Substr stay recorded C4 boundaries.
 fn setup_per_iter_vars(ctx: &mut LowerCtx, candidates: Vec<String>) -> Vec<PerIterVar> {
     let mut per_iter = Vec::new();
     for name in candidates {
         let Some(outer) = ctx.locals.get(&name).copied() else {
             continue;
         };
-        if !outer.ty.is_copy() {
+        if !outer.ty.is_copy()
+            && !(ctx.mutated_captured_lets.contains(&name)
+                && !matches!(outer.ty, Type::Any | Type::Substr))
+        {
             continue;
         }
         let track = ctx.alloca(Type::Ptr, Some("__periter_box"));
@@ -267,12 +276,23 @@ fn mint_per_iter_boxes(ctx: &mut LowerCtx, per_iter: &mut [PerIterVar]) {
             pv.outer.ty,
             None,
         );
+        // RFC 20260710 C3 — a non-Copy seed takes the box's own
+        // stake (the outer slot keeps its); the close/break release
+        // routes through `capture_box_drop_heap`.
+        if !pv.outer.ty.is_copy() {
+            ctx.emit_rc_inc(Operand::Value(cur));
+        }
         let boxed = ctx.emit_capture_boxed(pv.outer.ty, Operand::Value(cur));
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Store(Operand::Value(boxed), Operand::Value(pv.track), 0),
         );
         pv.boxed = Some(boxed);
+        if !pv.outer.ty.is_copy() {
+            // Closures constructed in the body capture this box
+            // byref (write_captures / assign-ident boxed lanes).
+            ctx.boxed_noncopy_lets.insert(pv.name.clone());
+        }
         ctx.locals.insert(
             pv.name.clone(),
             LocalInfo {
@@ -304,18 +324,40 @@ fn close_per_iter_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
             pv.outer.ty,
             None,
         );
+        // RFC 20260710 C3 — non-Copy copy-back is a stake handoff:
+        // the outer slot incs the (possibly body-rewritten) value
+        // BEFORE releasing its old one (self-same when the body
+        // never wrote — the pair cancels), and the box release goes
+        // through the heap variant (a closure holding the box keeps
+        // it and the value alive).
+        if !pv.outer.ty.is_copy() {
+            ctx.emit_rc_inc(Operand::Value(v));
+            let old = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(pv.outer.ty, Operand::Value(pv.outer.slot), 0),
+                pv.outer.ty,
+                None,
+            );
+            ctx.emit_drop_value(Operand::Value(old), pv.outer.ty);
+        }
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Store(Operand::Value(v), Operand::Value(pv.outer.slot), 0),
         );
+        let drop_fid = if pv.outer.ty.is_copy() {
+            ctx.intrinsics.capture_box_drop
+        } else {
+            ctx.intrinsics.capture_box_drop_heap
+        };
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.capture_box_drop, vec![Operand::Value(boxed)]),
+            InstKind::Call(drop_fid, vec![Operand::Value(boxed)]),
         );
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Store(Operand::ConstPtrNull, Operand::Value(pv.track), 0),
         );
+        ctx.boxed_noncopy_lets.remove(&pv.name);
         ctx.locals.insert(pv.name.clone(), pv.outer);
     }
 }
@@ -323,6 +365,11 @@ fn close_per_iter_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
 /// Chunk 725 — a `break` exits mid-iteration with a live box the
 /// step block never released; the track slot still holds it (the
 /// normal exit path cleared it to null, and the drop null-gates).
+/// RFC 20260710 C3 — a non-Copy box releases through the heap
+/// variant, and the name re-points at the outer slot so the for-
+/// frame walk below drops the outer's own stake (the break path
+/// skipped the close's copy-back; on the normal exit these are
+/// no-ops — close already restored both).
 fn release_broken_iter_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
     for pv in per_iter {
         let t = ctx.f.append_inst(
@@ -331,10 +378,19 @@ fn release_broken_iter_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
             Type::Ptr,
             None,
         );
+        let drop_fid = if pv.outer.ty.is_copy() {
+            ctx.intrinsics.capture_box_drop
+        } else {
+            ctx.intrinsics.capture_box_drop_heap
+        };
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.capture_box_drop, vec![Operand::Value(t)]),
+            InstKind::Call(drop_fid, vec![Operand::Value(t)]),
         );
+        if !pv.outer.ty.is_copy() {
+            ctx.boxed_noncopy_lets.remove(&pv.name);
+            ctx.locals.insert(pv.name.clone(), pv.outer);
+        }
     }
 }
 
